@@ -184,6 +184,15 @@ class PinTests(unittest.TestCase):
         self.assertFalse(team_eval.pin_check(self.ENV, set())["ok"])  # nothing answered: unproven
         self.assertFalse(team_eval.is_pinned_model("claude-opus-5-55"))
 
+    def test_a_spawn_at_another_effort_fails_and_compactor_requests_do_not(self):
+        ok = [{"ev": "turn.end", "model": "claude-opus-5-5", "effort": "medium"},
+              {"ev": "request", "node": "5236+4", "model": "claude-haiku-5-5"}]  # a compactor node's request
+        self.assertTrue(team_eval.pin_check(self.ENV, set(), ok)["ok"])
+        high = ok + [{"ev": "tool", "name": "mcp__chief__spawn", "args": {"tasks": ["x"], "effort": "high"}}]
+        self.assertEqual(team_eval.pin_check(self.ENV, set(), high)["bad"], ["effort high"])
+        blind = ok + [{"ev": "tool", "name": "spawn", "args_bytes": 40}]
+        self.assertFalse(team_eval.pin_check(self.ENV, set(), blind)["ok"])  # no args: unproven
+
 
 if __name__ == "__main__":
     unittest.main()

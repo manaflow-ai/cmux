@@ -67,6 +67,48 @@ scratch="$(mktemp -d /tmp/te-step.XXXXXX)"
 repo="$scratch/repo"
 home="$scratch/home"
 mkdir -p "$home/.local/bin"
+driver_pid=""
+failed=()
+packed=""
+# The run's evidence and its TEAM-EVAL line (spend, pin, checks), once,
+# on every way out: a normal end, a failure or a stop. `ok` is false with
+# the reasons in `failed` when the run did not pass (a pin failure, a
+# cleanup that left processes); the step still exits 0 then, so cmux-ci
+# returns the artifact, and the campaign reads `ok`.
+pack() {
+  [[ -z "$packed" ]] || return 0
+  packed=1
+  [[ -f "$work/out/checks.json" ]] || echo "{}" > "$work/out/checks.json"
+  tar -czf "$work/out.tgz" -C "$work" out 2>/dev/null || true
+  python3 -I - "$work/out/run.json" "$work/out/checks.json" ${failed[@]+"${failed[@]}"} <<'PY' || true
+import json, os, sys
+r = json.load(open(sys.argv[1])) if os.path.exists(sys.argv[1]) else {"flags": ["no run.json"]}
+# No driver log: no agent ever started, so nothing was spent.
+if not os.path.exists(sys.argv[1]) and not os.path.exists(os.path.join(os.path.dirname(sys.argv[1]), "driver.log")):
+    r["cost_usd"] = {"all": 0, "live": 0}
+r["checks"] = json.load(open(sys.argv[2]))
+keep = ("task", "arm", "end", "minutes", "cost_usd", "turns", "spawns", "receipts", "chief_messages",
+        "diff_lines", "stub_calls", "leaks", "flags", "timeline", "checks", "acpmux_left", "pin",
+        "followup_skew_s")
+line = {k: r.get(k) for k in keep}
+line["failed"] = sys.argv[3:] + ([] if os.path.exists(sys.argv[1]) else ["no run.json"])
+line["ok"] = not line["failed"]
+print("TEAM-EVAL " + json.dumps(line))
+PY
+}
+on_exit() {
+  if [[ -n "$driver_pid" ]] && kill -0 "$driver_pid" 2>/dev/null; then
+    kill -TERM "$driver_pid" 2>/dev/null || true
+    wait "$driver_pid" 2>/dev/null || true
+    failed+=("stopped")
+  fi
+  [[ -d "$work/out" ]] && pack
+  rm -rf "$scratch"
+}
+trap on_exit EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
+trap 'exit 129' HUP
 # Fleet steps run with a short PATH; look where bun installs too, and give the
 # agents bun and node on theirs (~/.local/bin under the run's HOME).
 BUN="$(command -v bun || true)"
@@ -117,18 +159,6 @@ npm install --prefix "$work/cc" --no-fund --no-audit "@anthropic-ai/claude-code@
 ln -s "$work/cc/node_modules/.bin/claude" "$home/.local/bin/claude"
 echo "TEAM-EVAL-BIN claude $(HOME="$home" "$home/.local/bin/claude" --version)"
 
-driver_pid=""
-stop_driver() {
-  if [[ -n "$driver_pid" ]] && kill -0 "$driver_pid" 2>/dev/null; then
-    kill -TERM "$driver_pid" 2>/dev/null || true
-    wait "$driver_pid" 2>/dev/null || true
-  fi
-  rm -rf "$scratch"
-}
-trap stop_driver EXIT
-trap 'exit 143' TERM
-trap 'exit 130' INT
-trap 'exit 129' HUP
 status=0
 HOME="$home" python3 Native/OptChat/optchat-chief/measure/team_eval.py run --task "$task" --arm "$arm" \
   --bins "$work/bin" --repo "$root" --out "$work/out" --keep-repo "$repo" \
@@ -142,9 +172,11 @@ driver_pid=$!
 wait "$driver_pid" || status=$?
 driver_pid=""
 tail -3 "$work/out/driver.log"
+# Exit 3 is a run that resolved to another model or effort than the pin.
+[[ "$status" == 0 ]] || failed+=("driver exit $status$([[ "$status" == 3 ]] && echo ' (pin)')")
 if ! grep -q "acpmux cleanup: no process holds its locks" "$work/out/driver.log"; then
   echo "TEAM-EVAL acpmux cleanup: $(grep "acpmux cleanup" "$work/out/driver.log" || echo 'no cleanup line')"
-  status=1
+  failed+=("cleanup left processes")
 fi
 
 # Checks on the agents' tree, after the run (the agents never see their results).
@@ -183,14 +215,4 @@ PY
 fi
 echo "$checks" > "$work/out/checks.json"
 rm -rf "$repo"
-tar -czf "$work/out.tgz" -C "$work" out
-python3 -I - "$work/out/run.json" "$work/out/checks.json" <<'PY' || status=1
-import json, sys
-r = json.load(open(sys.argv[1]))
-r["checks"] = json.load(open(sys.argv[2]))
-keep = ("task", "arm", "end", "minutes", "cost_usd", "turns", "spawns", "receipts", "chief_messages",
-        "diff_lines", "stub_calls", "leaks", "flags", "timeline", "checks", "acpmux_left", "pin",
-        "followup_skew_s")
-print("TEAM-EVAL " + json.dumps({k: r.get(k) for k in keep}))
-PY
-exit "$status"
+pack

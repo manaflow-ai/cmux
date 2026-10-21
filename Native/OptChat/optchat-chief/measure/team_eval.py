@@ -39,15 +39,19 @@ Code transcripts (LiveMeter, mid-turn too) or the trace's, the higher.
 
   team_eval.py campaign --ref SHA --base-url URL --task ID... --arm ARM...
       [--reps 1] [--cap-usd 800] [--ledger FILE] [--run-budget 25]
-      [--margin 3] [--parallel 3] --out DIR
+      [--margin 12] [--parallel 3] --out DIR
 runs every task x arm x rep as a fleet step (scripts/measure/team-eval.sh)
 under one spend cap for the whole eval, pilot and full run alike: the
 ledger (default ~/.local/state/team-eval/ledger.json) holds what each run
 spent and what each running one may still spend. A run starts only when
 spent + reserved + its budget + margin stays under the cap; its budget is
 cut to fit, and none starts below $5. A run whose spend is unknown (no
-TEAM-EVAL line) counts its whole reservation. Re-running the same campaign
-re-attaches to its steps (the same --key) and skips finished runs.
+TEAM-EVAL line) counts its whole reservation. The margin covers what is
+still in flight when a run stops (about $3 per Opus response: the Chief
+and its subagents). Re-running a campaign skips finished runs and starts a
+new attempt (its own step key) of the others; an older attempt keeps its
+reservation until it settles. A run that failed (`ok` false: a pin
+failure, processes left) is recorded as done with its spend and `failed`.
 """
 import argparse
 import json
@@ -221,19 +225,28 @@ def is_pinned_model(model):
 
 def pin_check(env, models, events=()):
     """Whether the run used only PIN: the env it was given, every model that
-    answered (transcripts; trace requests of turns and subagents) and every
-    Chief turn's model and effort. Compactor nodes are recorded apart."""
+    answered and every effort asked for. `models` are the transcripts' (arm
+    L, which runs no compactor); a Chief run passes its trace instead: the
+    requests of turns and subagents, each turn's model and effort, and each
+    spawn's `effort` argument (which overrides the subagent default; the
+    trace has tool args with OPTCHAT_TRACE_FULL=1). Compactor nodes (their
+    own model, by design) are recorded apart, never checked."""
     bad = [f"{k}={env.get(k)}" for k, v in PIN_ENV.items() if env.get(k) != v]
     seen = set(models)
     efforts = set()
     for e in events:
-        if e.get("ev") == "request" and e.get("model"):
+        if e.get("ev") == "request" and e.get("model") and (e.get("turn") or e.get("subagent")):
             seen.add(e["model"])
         elif e.get("ev") == "turn.end":
             if e.get("model"):
                 seen.add(e["model"])
             if e.get("effort"):
                 efforts.add(e["effort"])
+        elif e.get("ev") == "tool" and (e.get("name") or "").split("__")[-1] == "spawn":
+            if "args" not in e:
+                bad.append("a spawn's args are not in the trace (OPTCHAT_TRACE_FULL=1)")
+            elif (e.get("args") or {}).get("effort"):
+                efforts.add(e["args"]["effort"])
     bad += [f"model {m}" for m in sorted(seen) if not is_pinned_model(m)]
     bad += [f"effort {x}" for x in sorted(efforts) if x != PIN["effort"]]
     return {"want": PIN, "models": sorted(seen), "turn_efforts": sorted(efforts),
@@ -509,10 +522,10 @@ def run_lossy(opts):
             with lock:
                 snap = list(events)
             cost = max(lossy_cost(snap), meter.usd())
-            wrong = sorted(m for m in meter.models if not is_pinned_model(m))
-            if wrong:
+            early = pin_check(dict(kv.split("=", 1) for kv in opts.env), set(), ev)
+            if early["bad"] and early["models"]:
                 end = "pin"
-                info["flags"].append(f"stopped: {wrong} answered, not {PIN['model']}")
+                info["flags"].append(f"stopped: {early['bad']}, not {PIN}")
                 break
             if cost > opts.budget_usd:
                 end = "budget"
@@ -663,13 +676,14 @@ class Ledger:
                                      "at": time.strftime("%Y-%m-%dT%H:%M:%S")}
             return key, budget
 
-    def settle(self, key, spent, step=None, pin=None):
+    def settle(self, key, spent, step=None, pin=None, failed=None):
         """A finished attempt: its spend, or (None) unknown, which keeps the
         whole reservation; and what its pin check found."""
         with self._locked() as data:
             a = data["attempts"][key]
             a["step"] = step
             a["pin"] = pin
+            a["failed"] = failed
             if spent is None:
                 a["state"] = "unknown"
             else:
@@ -700,6 +714,8 @@ def campaign(opts):
         if got is None:
             return f"team-eval-{opts.name}-{task}-{arm}-{n}", f"not started: it already ran, or the ${ledger.cap():.0f} cap is reached"
         key, budget = got
+        # Each attempt is its own step (key `<run>-a<n>`): a re-run never re-attaches
+        # to an older one, whose reservation stays counted.
         cmd = ["cmux-ci", "run", "--class", "exclusive", "--script", "scripts/measure/team-eval.sh", "--ref", opts.ref,
                f"--arg=base_url={opts.base_url}", f"--arg=task={task}", f"--arg=arm={arm}", f"--arg=budget={budget}",
                f"--arg=minutes={opts.minutes}",
@@ -713,7 +729,7 @@ def campaign(opts):
         with open(os.path.join(out, key, "step.log"), "w") as f:
             f.write(log + "\n--- stderr\n" + r.stderr)
         spent = step_spend(log)
-        if step and r.returncode == 0:
+        if step:
             tgz = os.path.join(out, key, "out.tgz")
             if subprocess.run(["cmux-ci", "artifact", step, tgz], capture_output=True).returncode == 0:
                 subprocess.run(["tar", "-xzf", tgz, "-C", os.path.join(out, key)], check=False)
@@ -721,13 +737,16 @@ def campaign(opts):
         if spent is None and os.path.exists(run_json):
             with open(run_json) as f:
                 spent = step_spend("TEAM-EVAL " + json.dumps(json.load(f)))
-        pin = next((json.loads(line[len("TEAM-EVAL "):]).get("pin") for line in reversed(log.splitlines())
-                    if line.startswith("TEAM-EVAL {")), None)
+        line = next((json.loads(x[len("TEAM-EVAL "):]) for x in reversed(log.splitlines())
+                     if x.startswith("TEAM-EVAL {")), {})
+        pin = line.get("pin")
         if pin is None and os.path.exists(run_json):
             with open(run_json) as f:
                 pin = json.load(f).get("pin")
-        ledger.settle(key, spent, step, pin)
-        return key, f"rc {r.returncode}, spent {'unknown' if spent is None else f'${spent:.2f}'}"
+        failed = line.get("failed", [f"step rc {r.returncode}, no TEAM-EVAL line"] if r.returncode else None)
+        ledger.settle(key, spent, step, pin, failed)
+        return key, (f"{'ok' if not failed else 'FAILED ' + str(failed)}, "
+                     f"spent {'unknown' if spent is None else f'${spent:.2f}'}")
 
     with ThreadPoolExecutor(max_workers=opts.parallel) as pool:
         for key, what in pool.map(one, runs):
@@ -748,7 +767,9 @@ def main():
     c.add_argument("--cap-usd", type=float, default=None, help="fixed when the ledger is made; 800 for this eval")
     c.add_argument("--ledger", default="~/.local/state/team-eval/ledger.json")
     c.add_argument("--run-budget", type=float, default=25)
-    c.add_argument("--margin", type=float, default=3, help="dollars a run may overshoot its budget by (one response)")
+    c.add_argument("--margin", type=float, default=12,
+                   help="dollars a run may overshoot its budget by: about $3 per Opus response in flight when it "
+                        "stops (the Chief and up to three subagents), read every 2 s")
     c.add_argument("--parallel", type=int, default=3)
     c.add_argument("--minutes", type=int, default=60)
     c.add_argument("--out", required=True)
@@ -840,6 +861,9 @@ def run(opts):
         if stopped:
             return
         stopped.append(True)
+        # A second TERM (the step's own stop) must not cut the cleanup short.
+        for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+            signal.signal(sig, signal.SIG_IGN)
         for p in reversed(pids):
             try:
                 os.kill(p, signal.SIGTERM)
@@ -847,11 +871,27 @@ def run(opts):
                 pass
         left = stop_acpmux(bins, acpmux_home)
         info["acpmux_left"] = left
+        deadline = time.time() + 20
         for p in pids:
-            try:
-                os.waitpid(p, 0)
-            except ChildProcessError:
-                pass
+            while True:
+                try:
+                    done, _ = os.waitpid(p, os.WNOHANG)
+                except ChildProcessError:
+                    break
+                if done:
+                    break
+                if time.time() > deadline:
+                    try:
+                        os.kill(p, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    try:
+                        os.waitpid(p, 0)
+                    except ChildProcessError:
+                        pass
+                    info["flags"].append(f"pid {p} needed SIGKILL")
+                    break
+                time.sleep(0.2)
         log(f"acpmux cleanup: {'no process holds its locks' if not left else 'STILL HELD by ' + str(left)}")
 
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
@@ -889,7 +929,10 @@ def run(opts):
         host_env = dict(base_env, MUX_HOME=mux, MUX_AGENT_TOKEN_FILE=tok_file, ACPMUX_HOME=acpmux_home,
                         ACPMUX_SOCKET=os.path.join(acpmux_home, "acpmux.sock"), ACPMUX_BIN=os.path.join(bins, "acpmux"),
                         MUX_HARNESS="claude", CMUX_DAEMON_SOCKET=sock, OPTCHAT_BACKUP_REMOTE="off",
-                        OPTCHAT_DESK_GRACE_SECONDS=arm["grace"])
+                        OPTCHAT_DESK_GRACE_SECONDS=arm["grace"],
+                        # Whole tool args in the trace: the pin reads each spawn's effort,
+                        # the leak scan what the agents searched and fetched.
+                        OPTCHAT_TRACE_FULL="1")
         host_env.update(dict(kv.split("=", 1) for kv in opts.env))
         h = subprocess.Popen([os.path.join(bins, "optchat-chief"), "host", "--daemon-socket", sock, "--mux-home", mux],
                              stdout=open(os.path.join(out, "host.log"), "w"), stderr=subprocess.STDOUT, env=host_env)
@@ -951,7 +994,7 @@ def run(opts):
             ev = trace_events()
             if len(ev) + len(msgs) != seen:
                 seen, last_activity = len(ev) + len(msgs), now_ms()
-            if now_ms() - last_meter > 5000:
+            if now_ms() - last_meter > 2000:
                 live, last_meter = meter.usd(), now_ms()
             traced = trace_cost(ev)
             # Real spend: the transcripts' live total plus the compactor
@@ -993,7 +1036,8 @@ def run(opts):
             "timeline": timeline(sent, msgs, arrivals),
             "cost_usd": dict(trace_cost(ev), live=round(meter.usd() + trace_cost(ev)["compactor"], 4)),
             "followup_skew_s": followup_skew(sent, task),
-            "pin": pin_check(dict(kv.split("=", 1) for kv in opts.env), meter.models, ev),
+            "pin": pin_check(dict(kv.split("=", 1) for kv in opts.env), set(), ev),
+            "transcript_models": sorted(meter.models),
             "turns": sum(1 for e in ev if e.get("ev") == "turn.end"),
             "spawns": sum(1 for e in ev if e.get("ev") == "spawn"),
             "receipts": sum(1 for m in msgs if is_desk(m)),
