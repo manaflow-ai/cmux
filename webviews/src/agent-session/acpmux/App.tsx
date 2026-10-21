@@ -150,6 +150,7 @@ import type { ChangesSource } from "./changes/model";
 import { RevealedMarkdown } from "./conversation/RevealedMarkdown";
 import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
+import { PromptActions, ReceivedActions } from "./conversation/MessageActions";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { loadHighlightedCode } from "./conversation/CodeBlock";
 import { loadEditDiffHunks } from "./conversation/EditDiff";
@@ -245,7 +246,6 @@ import { copyRow } from "./header/copyRow";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
 import { opensBesideRows, sideChatRow } from "./header/sideChatRow";
 import { PendingSteer } from "./conversation/PendingSteer";
-import { SteerMark } from "./conversation/SteerMark";
 import { Thinking } from "./conversation/Thinking";
 import { type WorkingCounts, WorkingCountsContext, WorkingFor } from "./conversation/WorkingFor";
 import { type HarnessHealth, HarnessHealthNotice, type UpdateOffer, UpdateOfferContext } from "./HarnessHealthNotice";
@@ -642,12 +642,19 @@ const MessageRow = memo(
     if (row.kind === "user" && row.received) return <ReceivedResult result={row.received} onOpen={openOfferChat} />;
     // Another agent's message as one "Received message from" line; a task notification as one quiet line
     // (conversation/incomingMessage.ts).
-    // Its images show with it; a steer's read state does not: the message is the agent's to read.
+    // Its images show with it, and its action row (age, Copy, Retry, Pin) at the line's end on hover;
+    // a steer's read state does not: the message is the agent's to read.
     if (row.kind === "user" && row.incoming?.kind === "notice") return <IncomingNotice text={row.incoming.text} />;
     if (row.kind === "user" && row.incoming?.kind === "message")
       return (
         <div className="cv-incoming">
-          <IncomingMessageLine id={row.id} message={row.incoming.message} images={row.images} onOpen={openOfferChat} />
+          <IncomingMessageLine
+            id={row.id}
+            message={row.incoming.message}
+            images={row.images}
+            onOpen={openOfferChat}
+            actions={<ReceivedActions row={row} text={row.incoming.message.text} />}
+          />
         </div>
       );
     if (row.kind === "user" && row.incoming?.kind === "hidden") return null;
@@ -678,12 +685,14 @@ const MessageRow = memo(
             </div>
           )}
           {envelope || row.from === "chief" ? (
-            <ChiefPromptBubble text={envelope ? envelope.task : (row.text ?? "")} />
+            <>
+              <ChiefPromptBubble text={envelope ? envelope.task : (row.text ?? "")} />
+              <PromptActions row={row} text={envelope ? envelope.task : (row.text ?? "")} />
+            </>
           ) : (
             <UserBubble row={row} text={row.text ?? ""} />
           )}
           <DeliveryFailure row={row} />
-          {row.steer && <SteerMark steer={row.steer} />}
           <PendingSteer row={row} send={editQueued} />
           {row.status && (
             <div className="cv-user__status">
@@ -2681,22 +2690,22 @@ export function VirtualTranscript({
       removeWheel?.();
     };
   }, []);
-  // A turn's footer (TurnFooter) shows for the last turn, and for the turn the reader points at:
-  // anywhere from its prompt to its footer. Marked on the mounted rows, so a hover renders nothing.
-  let lastTurnId: string | undefined;
-  for (let index = rows.length - 1; index >= 0 && !lastTurnId; index -= 1)
-    if (rows[index]!.kind === "turnSummary") lastTurnId = rows[index]!.id;
-  // The latest prompt shows its action row always, as Claude Code desktop's (UserBubble.tsx).
-  let lastPromptId: string | undefined;
-  for (let index = rows.length - 1; index >= 0 && !lastPromptId; index -= 1)
-    if (rows[index]!.kind === "user" && !rows[index]!.failed && !rows[index]!.queued) lastPromptId = rows[index]!.id;
+  // A turn's footer (TurnFooter) shows for the turn the reader points at: anywhere after its prompt
+  // to its footer. Marked on the mounted rows, so a hover renders nothing.
+  // The last ended turn's prompt offers Retry under its bubble (UserBubble.tsx); turns.ts names
+  // it on the turn's footer while it may be sent again.
+  let retryPromptId: string | undefined;
+  for (let index = rows.length - 1; index >= 0; index -= 1)
+    if (rows[index]!.kind === "turnSummary") {
+      retryPromptId = rows[index]!.retryRowId;
+      break;
+    }
   const markTurns = useCallback(() => {
     for (const node of thread.current?.querySelectorAll<HTMLElement>(".acpmux-row") ?? []) {
-      node.toggleAttribute("data-last-turn", node.dataset.rowId === lastTurnId);
-      node.toggleAttribute("data-last-prompt", node.dataset.rowId === lastPromptId);
+      node.toggleAttribute("data-retryable", node.dataset.rowId === retryPromptId);
       node.toggleAttribute("data-turn-revealed", node.dataset.rowId === pointedTurn.current);
     }
-  }, [lastTurnId, lastPromptId]);
+  }, [retryPromptId]);
   // Mark only when the mounted rows, their range, or the last turn changes. The old no-deps
   // layout effect scanned every commit, including scroll/follow state commits that cannot change
   // these attributes. `pointAt` still calls the callback directly for pointer-driven updates.
@@ -2733,7 +2742,8 @@ export function VirtualTranscript({
     pointedRow.current = rowId;
     pointedRows.current = rows;
     const from = row ? Number(row.getAttribute("aria-posinset")) - 1 : -1;
-    const footer = from >= 0 ? turnFooterFrom(rows, from) : undefined;
+    // A prompt shows its own row, never its turn's too: one action row at a time.
+    const footer = from >= 0 && rows[from]!.kind !== "user" ? turnFooterFrom(rows, from) : undefined;
     if (footer === pointedTurn.current) return;
     pointedTurn.current = footer;
     markTurns();
