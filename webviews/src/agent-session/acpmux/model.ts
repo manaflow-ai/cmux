@@ -186,9 +186,15 @@ export type AcpmuxRow = {
   /// A prompt queued behind a harness switch (its id there), which offers Cancel (harnessSwitch.ts).
   queued?: string;
   /// A prompt sent into a running turn: `waiting` until the agent reads it (it reads a steer when
-  /// the step it is on ends), then `landed`; `stopped` was sent now to an agent that cannot steer,
-  /// which stopped the turn and ran it next.
-  steer?: "waiting" | "landed" | "stopped";
+  /// the step it is on ends), then `landed`.
+  steer?: "waiting" | "landed";
+  /// A prompt sent now that ended the turn it went into (acpmux cancels it, or the agent ends it
+  /// with `end_turn`) and runs next: accepted, drawn inside that turn (turnStart.ts
+  /// ``continuesTurn``), with no mark of its own.
+  continues?: boolean;
+  /// The summary of a turn a prompt sent now ended, not Stop or Esc (direct.ts): the turn goes on
+  /// under that prompt, so it draws no "You stopped after" (conversation/turns.ts).
+  continued?: boolean;
   /// A waiting steer's promptId, which its Send now names (conversation/PendingSteer.tsx).
   steerPromptId?: string;
   /// The last turn's footer carries its prompt, for Retry (conversation/turns.ts).

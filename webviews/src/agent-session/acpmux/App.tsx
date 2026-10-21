@@ -96,7 +96,8 @@ import { EmptyState, type EmptyStateProjects, isNewChat, projectName } from "./E
 import { PastChat, type PastTurn, readPastTurns } from "./PastChat";
 import type { Project } from "./ProjectChooser";
 import { HomeLists } from "./HomeLists";
-import { turnFiles, turnRows, type TurnFile } from "./diff";
+import { endsTurn, turnFiles, turnRows, type TurnFile } from "./diff";
+import { opensTurn } from "./turnStart";
 import type { TrustSource } from "./folderTrust";
 import { TrustAsk } from "./TrustAsk";
 import { SecretCard } from "./SecretCard";
@@ -186,6 +187,8 @@ import {
   RENDER,
   THINKING,
   WORKED,
+  turnFoldFor,
+  turnFooterFrom,
   WORKING,
   type TurnView,
   turnViewFrom,
@@ -2713,11 +2716,7 @@ export function VirtualTranscript({
     pointedRow.current = rowId;
     pointedRows.current = rows;
     const from = row ? Number(row.getAttribute("aria-posinset")) - 1 : -1;
-    let footer: string | undefined;
-    for (let index = from; index >= 0 && index < rows.length && !footer; index += 1) {
-      if (index > from && rows[index]!.kind === "user") break;
-      if (rows[index]!.kind === "turnSummary") footer = rows[index]!.id;
-    }
+    const footer = from >= 0 ? turnFooterFrom(rows, from) : undefined;
     if (footer === pointedTurn.current) return;
     pointedTurn.current = footer;
     markTurns();
@@ -3965,8 +3964,7 @@ function AcpmuxPane() {
   const diffTurn = diffView && diffOpen ? turnKey(diffView.rowId) : undefined;
   // A turn's pair exists once it has ended, so the view asks then (and again when it ends while
   // the view is open); until then it shows the tool calls' edits.
-  const diffTurnEnded =
-    diffView && diffOpen ? turnRows(snapshot.rows, diffView.rowId).some((row) => row.kind === "turnSummary") : false;
+  const diffTurnEnded = diffView && diffOpen ? turnRows(snapshot.rows, diffView.rowId).some(endsTurn) : false;
   useEffect(() => {
     if (diffTurn && diffTurnEnded) requestTurnCheckpoint(diffTurn);
   }, [diffTurn, diffTurnEnded, requestTurnCheckpoint]);
@@ -3996,11 +3994,11 @@ function AcpmuxPane() {
     while (at >= 0 && rowKind(rows[at]!) !== "editedFiles") at -= 1;
     if (at < 0) return undefined;
     const edit = rows[at]!;
-    // Its turn: from its prompt to the next one (diff.ts turnRows, from the index found here).
+    // Its turn: from its prompt to the next one, past steers (diff.ts turnRows, from the index found here).
     let start = at;
-    while (start > 0 && rows[start]!.kind !== "user") start -= 1;
+    while (start > 0 && !opensTurn(rows[start]!)) start -= 1;
     let end = at + 1;
-    while (end < rows.length && rows[end]!.kind !== "user") end += 1;
+    while (end < rows.length && !opensTurn(rows[end]!)) end += 1;
     const activity = rows.slice(start, end).filter((row) => row.kind === "activity");
     // Keyed by the chat too: another chat's rows never read as this one's.
     const key = `${snapshot.sessionId}\u0000${edit.id}\u0000${activity.map((row) => `${row.id}:${row.version}`).join("|")}`;
@@ -4185,11 +4183,8 @@ function AcpmuxPane() {
       const row = rows[index];
       if (!row) return;
       if (!shown.some((drawn) => isFindRow(drawn, row.id))) {
-        const user = rows
-          .slice(0, index)
-          .reverse()
-          .find((earlier) => earlier.kind === "user");
-        if (user) openFold(`${WORKED}-${user.id}`);
+        const fold = turnFoldFor(rows, index);
+        if (fold) openFold(fold);
       }
       const key = Date.now();
       setRevealRow({ rowId: row.id, key, toolId });
