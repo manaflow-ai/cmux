@@ -1,4 +1,4 @@
-import type { AcpmuxActivity, AcpmuxFileDiff, AcpmuxRow } from "./model";
+import { contentsUnknown, type AcpmuxActivity, type AcpmuxFileDiff, type AcpmuxRow } from "./model";
 import { opensTurn } from "./turnStart";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
@@ -177,19 +177,25 @@ function commonDirectory(paths: string[]): string {
   return shared ? `${split[0].slice(0, shared).join("/")}/` : "";
 }
 
-/// Every file the turn's tool calls changed, in the order first changed, each edit in turn.
+/// Every file the turn's tool calls changed, in the order first changed, each edit in turn. A Write
+/// whose old contents are unknown (model.ts `contentsUnknown`) is left out, so nothing counts, diffs
+/// or undoes it: the edited-files card lists its path without counts (`plainEditLabels`).
 export function turnFiles(rows: AcpmuxRow[]): TurnFile[] {
   return toolFiles(
     rows.flatMap((row) => (row.kind === "activity" ? (row.items ?? []).flatMap((item) => item.tool ?? []) : [])),
+    { known: true },
   );
 }
 
 /// The files these tool calls changed, each edit in turn, named from their shared directory.
-export function toolFiles(tools: readonly Tool[]): TurnFile[] {
+/// `known`: without a Write whose old contents are unknown. One call's own view (its transcript row,
+/// a permission ask) still shows the text such a Write wrote.
+export function toolFiles(tools: readonly Tool[], { known = false }: { known?: boolean } = {}): TurnFile[] {
   const files = new Map<string, TurnFile>();
   for (const tool of tools)
     // An edit still waiting for its permission has changed nothing yet.
     for (const change of tool.status === "pending" ? [] : (tool.diffs ?? [])) {
+      if (known && contentsUnknown(change)) continue;
       let file = files.get(change.path);
       if (!file) {
         file = {

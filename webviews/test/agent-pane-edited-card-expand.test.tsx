@@ -12,7 +12,9 @@
 // edited file (Edit with old and new strings, and MultiEdit). Each opens inline and through View
 // changes. A Write over an existing file has no old text, so it lists its path without counts rather
 // than reading as a new file; and a chat folder that is not a repository opens the turn's own diff,
-// since the folder's git diff beside the chat has nothing to show.
+// since the folder's git diff beside the chat has nothing to show. So does a Write acpmux sends as a
+// fragment with no old text (its result never said it created the file): it lists without counts,
+// chevron or Undo, until a confirmed create makes it a new file.
 import { afterAll, afterEach, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, type ReactNode } from "react";

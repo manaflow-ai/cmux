@@ -16,7 +16,7 @@ import { turnFiles, type TurnFile } from "../diff";
 import { ChevronDown } from "../changeIcons";
 import { Counts } from "../changes/Counts";
 import { TurnCountsContext } from "../changes/TurnCountsContext";
-import { turnCounts } from "../changes/turnCheckpoint";
+import { changedByTools, turnCounts } from "../changes/turnCheckpoint";
 import { useT, type Translate } from "../i18n";
 import { plainEditLabels, type AcpmuxRow } from "../model";
 import { turnChanges, type EditedFile, type UndoStatus } from "../turnChanges/model";
@@ -84,8 +84,16 @@ function Card({
   // Undo works from the tool calls' full texts, by the paths the agent wrote.
   const changes = useMemo(() => turnChanges(row.id, rows, toolFiles), [row.id, rows, toolFiles]);
   const undoState = useUndoState(row.id);
-  // An edit whose tool call carried no diff still lists, without counts.
-  const plain = counts.files === toolFiles ? plainEditLabels(edits) : [];
+  // An edit whose tool call carried no diff, or a Write whose old contents are unknown, still lists
+  // without counts, unless a listed file is that path. Once the checkpoint loads, its files are the
+  // repository's: only an absolute path none of them is stays (a /tmp file, as turnCheckpoint.ts
+  // `outsideRepository`), and an edit naming no path goes.
+  const fromTools = counts.files === toolFiles;
+  const plain = plainEditLabels(edits).filter(({ path }) =>
+    fromTools
+      ? !path || !files.some((file) => file.path === path)
+      : path?.startsWith("/") === true && !files.some((file) => changedByTools(file, [{ path }])),
+  );
   const entries: { key: string; file?: TurnFile; path?: string }[] = [
     ...files.map((file) => ({ key: file.path, file })),
     ...plain.map((entry) => ({ key: `plain-${entry.key}`, path: entry.path })),
