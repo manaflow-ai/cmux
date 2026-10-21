@@ -154,7 +154,23 @@ enum SessionSnapshotImportTrust {
 
         var rebuiltAgent: SessionRestorableAgentSnapshot?
         if let agent = terminal.agent {
-            if let rebuilt = rebuiltBuiltInAgent(agent, builtIns: builtIns) {
+            // Older snapshots can omit the agent's launch command while the
+            // matching hook binding still carries it. Use that binding only
+            // as local provider evidence for rebuilding the agent; the
+            // untrusted binding itself is still dropped below.
+            var agentForRebuild = agent
+            if agentForRebuild.launchCommand == nil {
+                let fallbackBinding = [terminal.resumeBinding, terminal.managedAgentResumeBinding]
+                    .compactMap { $0 }
+                    .first {
+                        $0.isAgentHookBinding
+                            && $0.checkpointId == agent.sessionId
+                            && ($0.kind == nil || $0.kind == agent.kind.rawValue)
+                            && $0.launchCommand != nil
+                    }
+                agentForRebuild.launchCommand = fallbackBinding?.launchCommand
+            }
+            if let rebuilt = rebuiltBuiltInAgent(agentForRebuild, builtIns: builtIns) {
                 rebuiltAgent = rebuilt
                 terminal.agent = rebuilt
                 // Only launch the agent automatically in a directory the user
