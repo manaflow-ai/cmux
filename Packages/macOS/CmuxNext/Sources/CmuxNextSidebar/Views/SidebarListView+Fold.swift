@@ -17,6 +17,7 @@ extension SidebarListViewComponents {
             return reload(animated: true)
         }
         var o = model.listOptions()
+        o.pullRequests = SidebarSessionTree.shared.pullRequests
         o.excludedWorkspaces.formUnion(leaving)
         // What the animation needs of the rows before the fold: the realized ones and the group's block. The rest of
         // the layout is spliced in place (no copy of every row).

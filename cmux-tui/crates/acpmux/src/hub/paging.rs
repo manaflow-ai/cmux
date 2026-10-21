@@ -28,8 +28,10 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "queue_paused",
     "queue_resumed",
     "turn_started",
-    // The turn's agent has said nothing since its prompt (`silent_turn.rs`).
+    // The turn's agent has said nothing since its prompt, and then its model's first sign
+    // (`silent_turn.rs`).
     "turn_silent",
+    "turn_heard",
     "turn_result",
     "permission_request",
     "permission_auto",
