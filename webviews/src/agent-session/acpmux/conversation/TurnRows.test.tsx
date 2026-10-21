@@ -54,3 +54,23 @@ test("keeps a coordination message visible beside settled tool calls", () => {
   expect(groups.some((group) => group.type === "message")).toBe(true);
   expect(shouldFoldToolRun(row(items), groups, items)).toBe(false);
 });
+
+// Consecutive thoughts in one step are one row (Leo 2026-10-20): a call a permission ask holds out
+// of the transcript (permissions/askRows.ts) can leave two thoughts side by side.
+test("merges consecutive thoughts into one item with their texts and summed durations", () => {
+  const first: AcpmuxActivity = { kind: "thought", text: "Read the helper first.", startedAt: 1_000, endedAt: 5_000 };
+  const second: AcpmuxActivity = { kind: "thought", text: "Then check the retry.", startedAt: 9_000, endedAt: 17_000 };
+  const groups = toolGroups([first, second, command("c1", "ls")]);
+  expect(groups).toHaveLength(2);
+  expect(groups[0]).toEqual({
+    type: "item",
+    item: {
+      kind: "thought",
+      text: "Read the helper first.\n\nThen check the retry.",
+      startedAt: 1_000,
+      endedAt: 13_000,
+    },
+  });
+  // A call between two thoughts keeps them apart.
+  expect(toolGroups([first, command("c2", "ls"), second])).toHaveLength(3);
+});
