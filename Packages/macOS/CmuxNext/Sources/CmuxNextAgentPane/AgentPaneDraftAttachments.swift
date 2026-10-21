@@ -65,7 +65,10 @@ public final class AgentPaneDraftAttachments {
 
     /// The page's chips from their JSON; nil when it is not a list of chips.
     nonisolated static func decode(_ list: JSONValue) -> [AgentPaneWakeState.Attachment]? {
-        guard case .array = list, let data = try? JSONSerialization.data(withJSONObject: list.foundationObject) else { return nil }
+        let object = list.foundationObject
+        // A NaN or infinite number would raise, not throw.
+        guard case .array = list, JSONSerialization.isValidJSONObject(object),
+              let data = try? JSONSerialization.data(withJSONObject: object) else { return nil }
         return try? JSONDecoder().decode([AgentPaneWakeState.Attachment].self, from: data)
     }
 

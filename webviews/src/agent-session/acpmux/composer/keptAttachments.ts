@@ -52,13 +52,15 @@ export function useKeptAttachments(
     written.current = { sessionId, ids: signature(chips), stored };
     const sent = chips.map((chip) => (chip.data && stored.has(chip.id) ? { ...chip, data: undefined } : chip));
     const write = ++sequence.current;
-    const settle = (held: Set<string>) => {
+    const settle = (held: Set<string>, failed = false) => {
       if (write !== sequence.current || written.current.sessionId !== sessionId) return;
       written.current.stored = held;
+      // A refused write holds nothing: the same chips coming back go again.
+      if (failed) written.current.ids = "\u0000refused";
     };
     void store.write(sessionId, sent).then(
       (reply) => settle(new Set(Array.isArray(reply?.held) ? reply.held.filter((id) => typeof id === "string") : [])),
-      () => settle(new Set()),
+      () => settle(new Set(), true),
     );
   };
   const flush = () => {
