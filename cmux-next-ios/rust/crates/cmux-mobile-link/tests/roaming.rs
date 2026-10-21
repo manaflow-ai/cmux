@@ -404,7 +404,7 @@ async fn wireguard_takes_the_turn_allocation_its_roam_missed() {
     assert_eq!(run.mac_after, Some(LinkPath::Turn));
     assert!(!names(&run).contains(&"roam_turn_allocated"), "the roam was meant to miss: {:?}", run.marks);
     // The old network's relayed address is dead: the phone no longer offers it.
-    assert!(!run.endpoints_before.is_empty(), "{run:?}");
+    assert!(!run.endpoints_before.is_empty() && !run.endpoints_after.is_empty(), "{run:?}");
     assert!(run.endpoints_before.iter().all(|old| !run.endpoints_after.contains(old)), "{run:?}");
 }
 

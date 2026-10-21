@@ -542,7 +542,10 @@ impl Session {
             self.install_turn(turn, (relayed.clone(), relayed_tls.clone()));
             let _ = net.refresh().await;
         } else {
-            *lock(&self.relayed) = (Vec::new(), Vec::new());
+            // The old network's relayed address is dead: stop offering it
+            // (a relay-only roam above announced nothing in its place).
+            let (old, _) = std::mem::take(&mut *lock(&self.relayed));
+            lock(&self.endpoints).retain(|endpoint| !old.contains(endpoint));
             if keeps_turn && super::super::turn::turn_servers(&self.options.ice_servers) != (None, None) {
                 // The new network's TURN server did not answer in time: keep
                 // asking (this also replaces a retry started on the old one).
