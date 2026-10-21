@@ -4,6 +4,7 @@ import { COMPOSER_READY_EVENT } from "../composerFocus";
 import { Check, ChevronDown } from "../conversation/icons";
 import { usePaneLanguage, useT, type Translate } from "../i18n";
 import { Keycap } from "../Keycap";
+import { errorMessage, isHostRefusal } from "../transportErrors";
 import {
   activeItem,
   canSubmit,
@@ -150,8 +151,9 @@ function PendingQuestion({
   // The ask a person already answered: the owner clears it a moment later, and until then a
   // second click or key must not answer it again. A refused reply clears it for a retry.
   const [sentFor, setSentFor] = useState<string | undefined>();
-  // Why the last reply was refused (the host's message, when it gave one), shown until the next try.
-  const [refused, setRefused] = useState<{ reason?: string } | undefined>();
+  // The last reply's refusal, shown until the next try: the pane's words for a refusal it knows
+  // (transportErrors.ts), else none and the card's own sentence. acpmux's English is for its CLI.
+  const [refused, setRefused] = useState<{ text?: string } | undefined>();
   // A new snapshot of the same ask keeps the person's choices; another ask starts fresh.
   let state = stored;
   if (stored.question !== question) {
@@ -170,7 +172,11 @@ function PendingQuestion({
     Promise.resolve(onReply(sentReply)).catch((error: unknown) => {
       // The ask stays pending: say why on the card and take input again.
       setSentFor((current) => (current === askId ? undefined : current));
-      setRefused({ reason: error instanceof Error && error.message ? error.message : undefined });
+      if (isHostRefusal(error)) setRefused({ text: errorMessage(error) });
+      else {
+        console.warn("agent pane: an answer was refused", error);
+        setRefused({});
+      }
     });
   };
   /// Gives the keyboard back: the composer claims an idle keyboard on this event (composerFocus.ts).
@@ -391,9 +397,7 @@ function PendingQuestion({
       </div>
       {refused && (
         <p className="acpmux-question-error" role="alert">
-          {t("question.replyFailed")}
-          {refused.reason && " "}
-          {refused.reason && <span className="acpmux-question-error-reason">{refused.reason}</span>}
+          {refused.text || t("question.replyFailed")}
         </p>
       )}
       <div className="acpmux-question-actions">
