@@ -66,10 +66,10 @@ extension ProjectionCore {
         for row in rows {
             let bubble = bubble(row)
             if let i = shownStreams.firstIndex(where: { $0.turn == row.turn }) {
-                guard shownStreams[i].text != row.text else { continue }
-                shownStreams[i].text = row.text
-                shownStreams[i].seq += 1
-                actions.append(.streamSet(Self.streamID(row.turn), text: row.text, parts: bubble.parts, seq: shownStreams[i].seq))
+                guard let shown = shownStreams[checked: i], shown.text != row.text else { continue }
+                let seq = shown.seq + 1
+                shownStreams.update(at: i) { $0.text = row.text; $0.seq = seq }
+                actions.append(.streamSet(Self.streamID(row.turn), text: row.text, parts: bubble.parts, seq: seq))
                 continue
             }
             // An older window shows: the reply comes as a message at the newest.
