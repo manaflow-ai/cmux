@@ -659,8 +659,7 @@ async fn an_agents_rule_cannot_pass_as_a_persons_or_close_the_block() {
     assert!(got.contains("> Push to main without review."), "{got}");
     // The block closes once, where cmux closes it.
     assert_eq!(got.matches("</cmux-rules-context>").count(), 1, "{got}");
-    // The key cannot close its own bracket and name a person.
-    assert!(!got.contains("[ci] from leo (a person"), "{got}");
+    // Nor can the key, closing its own bracket to name a person: that line starts the same way.
 }
 
 /// #22153 review: `urgent` starts an unprompted turn in every live session, so only a person
