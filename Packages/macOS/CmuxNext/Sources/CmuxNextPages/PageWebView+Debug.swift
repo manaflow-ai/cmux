@@ -33,11 +33,14 @@ extension PageWebView {
         """
         // Whether a first click in an inactive window reaches this page (the view's own answer).
         let firstMouse = JSONValue.bool(webView.acceptsFirstMouse(for: nil))
-        guard let text = try? await webView.callAsyncJavaScript(script, contentWorld: .page) as? String,
+        guard let text = await callPageFunction(script) as? String,
               case .object(var members)? = try? JSONValue.parse(Data(text.utf8)) else {
             return ["error": "page not loaded", "accepts_first_mouse": firstMouse]
         }
         members["accepts_first_mouse"] = firstMouse
+        // Which engine shows the page, and why when it is WebKit (``PageEnginePolicy``).
+        members["engine"] = .string(chromiumSession != nil ? "chromium" : "webkit")
+        members["webkit_reason"] = chromiumSession != nil ? .null : engineDecision.webKitReason.map { .string($0.rawValue) } ?? .null
         return .object(members)
     }
 
@@ -78,7 +81,7 @@ extension PageWebView {
         visit(document);
         return JSON.stringify({ scrollers: document.documentElement.getAttribute('data-scrollers'), overflowing: out });
         """
-        guard let text = try? await webView.callAsyncJavaScript(script, contentWorld: .page) as? String,
+        guard let text = await callPageFunction(script) as? String,
               let value = try? JSONValue.parse(Data(text.utf8)) else { return ["error": "page not loaded"] }
         return value
     }
@@ -97,7 +100,7 @@ extension PageWebView {
 
     /// Whether a real AppKit key or mouse event reached the page in the last second: the same
     /// `PageCallContext.userGesture` a page call gets. DEBUG verb only.
-    public var debugHasRecentUserGesture: Bool { (webView as? PageWKWebView)?.hasRecentUserGesture() ?? false }
+    public var debugHasRecentUserGesture: Bool { recentUserGestureEvent() != nil }
 
     /// Clicks the first element matching `selector` from page script (not a user gesture);
     /// `metaKey` makes it a Cmd-click (a markdown link follows on Cmd-click while editing).
@@ -116,8 +119,7 @@ extension PageWebView {
         }
         return true;
         """
-        let clicked = try? await webView.callAsyncJavaScript(script, arguments: ["selector": selector, "metaKey": metaKey, "contextMenu": contextMenu],
-                                                             contentWorld: .page)
+        let clicked = await callPageFunction(script, arguments: ["selector": selector, "metaKey": metaKey, "contextMenu": contextMenu])
         return clicked as? Bool == true
     }
 
@@ -128,7 +130,7 @@ extension PageWebView {
         return JSON.stringify([...document.querySelectorAll(selector)].map((el) => ({
           data: Object.assign({}, el.dataset), classes: [...el.classList], text: (el.innerText || '').slice(0, 120) })));
         """
-        guard let text = try? await webView.callAsyncJavaScript(script, arguments: ["selector": selector], contentWorld: .page) as? String,
+        guard let text = await callPageFunction(script, arguments: ["selector": selector]) as? String,
               let value = try? JSONValue.parse(Data(text.utf8)) else { return ["error": "query failed"] }
         return ["elements": value]
     }
@@ -143,13 +145,18 @@ extension PageWebView {
         el.focus();
         return document.execCommand('insertText', false, text);
         """
-        let inserted = try? await webView.callAsyncJavaScript(script, arguments: ["selector": selector ?? NSNull(), "text": text],
-                                                              contentWorld: .page)
+        let inserted = await callPageFunction(script, arguments: ["selector": selector ?? NSNull(), "text": text])
         return inserted as? Bool == true
     }
 
     /// Writes the page as WebKit rendered it to `url` as PNG.
     public func debugSnapshot(to url: URL) async -> Bool {
+        if let page = chromiumSession?.page {
+            guard let json = try? await page.devTools("Page.captureScreenshot", params: ["format": "png"]),
+                  let object = ChromiumPageHostWire.object(json), let base64 = object["data"] as? String,
+                  let png = Data(base64Encoded: base64) else { return false }
+            return (try? png.write(to: url)) != nil
+        }
         keepRenderingWhenCovered()
         let image: NSImage? = await withCheckedContinuation { continuation in
             webView.takeSnapshot(with: nil) { image, _ in continuation.resume(returning: image) }
