@@ -277,6 +277,11 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
   const mount = useCallback((root: HTMLDivElement | null) => {
     if (!root) return;
     let disposed = false;
+    // A paste shows its end, the caret right after it (Leo 2026-10-20, as in Claude Code desktop).
+    // Milkdown's clipboard plugin dispatches the paste without asking ProseMirror to scroll, so a
+    // long paste left the field (it scrolls past eight lines) at the top. Set while a paste the
+    // surface did not consume runs; the paste's dispatch is synchronous inside it.
+    let pasting = false;
     // Keys reach the composer first, as a textarea's keydown would.
     const composerKeys = $prose(
       () =>
@@ -330,11 +335,23 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
               if (plain && looksLikeMarkupText(plain)) {
                 if (beforeInput(editorView, plain)) return true;
                 const { from, to } = editorView.state.selection;
-                editorView.dispatch(editorView.state.tr.insertText(plain, from, to));
+                editorView.dispatch(editorView.state.tr.insertText(plain, from, to).scrollIntoView());
                 return true;
               }
-              return beforeInput(editorView, slice.content.textBetween(0, slice.content.size, "\n", "\n"));
+              if (beforeInput(editorView, slice.content.textBetween(0, slice.content.size, "\n", "\n"))) return true;
+              pasting = true;
+              queueMicrotask(() => {
+                pasting = false;
+              });
+              return false;
             },
+          },
+          // Whichever plugin inserts the paste (Milkdown's or ProseMirror's own), the selection ends
+          // after the pasted content; this scrolls the field to it.
+          appendTransaction: (transactions, _previous, state) => {
+            if (!pasting || !transactions.some((tr) => tr.docChanged)) return null;
+            pasting = false;
+            return transactions.some((tr) => tr.scrolledIntoView) ? null : state.tr.scrollIntoView();
           },
           // Report every document and caret change; the composer's menu follows the caret.
           view: () => ({
