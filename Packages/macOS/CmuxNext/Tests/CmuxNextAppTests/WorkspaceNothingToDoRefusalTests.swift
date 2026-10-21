@@ -34,6 +34,24 @@ struct WorkspaceNothingToDoRefusalTests {
         return (menu, cli)
     }
 
+    /// What the window's sidebar lists, for a wait that times out.
+    static func sidebarReport(_ workspace: WorkspaceModel, _ services: AppServices) -> String {
+        let context = AppActionContext(services: services)
+        guard let sidebar = try? WorkspaceVerbHandlers.sidebar(showing: workspace, context) else { return "no sidebar" }
+        let personal = context.personalGroupID(of: workspace)
+        let shown = personal.map { sidebar.model.group(sidebar.model.groupID(personal: $0.rawValue))?.workspaces.map(\.id.rawValue) ?? [] }
+        let nodes = sidebar.model.sections.map { section in
+            section.nodes.map { node -> String in
+                switch node {
+                case .workspace(let row): "ws:\(row.id.rawValue)"
+                case .group(let group): "group:\(group.id)[\(group.workspaces.map(\.id.rawValue).joined(separator: ","))]"
+                case .item(let item): "item:\(item.id)"
+                }
+            }.joined(separator: " ")
+        }
+        return "workspace \(workspace.id) personal \(String(describing: personal)) shown \(String(describing: shown)) sections \(nodes)"
+    }
+
     /// Groups `workspace` alone and returns its personal group, once the store lists it.
     private static func groupAlone(_ workspace: WorkspaceModel, _ services: AppServices) async throws -> WorkspaceGroupID {
         let context = AppActionContext(services: services)
@@ -44,7 +62,7 @@ struct WorkspaceNothingToDoRefusalTests {
         #expect(refusal == nil, "New Group refused: \(refusal ?? "")")
         try await PinnedPageTests.until({ context.personalGroupID(of: workspace) != nil }, report: { "groups \(services.machines.local.store.personal.groups.map(\.id))" })
         // The sidebar shows the group (what the group verbs read).
-        try await PinnedPageTests.until({ (try? WorkspaceVerbHandlers.group(of: workspace, context)) != nil }, report: { "the sidebar shows no group" })
+        try await PinnedPageTests.until({ (try? WorkspaceVerbHandlers.group(of: workspace, context)) != nil }, report: { sidebarReport(workspace, services) })
         return try #require(context.personalGroupID(of: workspace))
     }
 
