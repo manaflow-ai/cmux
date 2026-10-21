@@ -13,6 +13,8 @@ extension SidebarViewComponents {
         var sectionsRevision: UInt64
         var selection: Set<WorkspaceID>
         var selected: SidebarItem?
+        /// `SidebarModel.onScreen` while `sidebar.multiView` is on: a change repaints the rows' fills only.
+        var onScreen: Set<WorkspaceID>
         var profiles: [SidebarProfile]
         var activeProfile: ProfileKey?
         var filter: String
@@ -40,6 +42,7 @@ extension SidebarViewComponents {
             sectionsRevision = model.observedStructureRevision
             selection = model.selection
             selected = model.selectedItem
+            onScreen = SidebarTunables.multiView.value ? model.onScreen : []
             profiles = model.profiles
             activeProfile = model.activeProfileID
             filter = model.filterText
@@ -126,6 +129,7 @@ extension SidebarViewComponents {
             }
             lastSections = model.sections
         }
+        if lastState?.onScreen != state.onScreen { list.syncRowStates() }
         if lastState?.cards != state.cards { cardSlot.show(state.cards); needsLayout = true }
         if chromeChanged || profilesChanged { bandsDirty = true; needsLayout = true }
         lastState = state

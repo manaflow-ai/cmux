@@ -1463,6 +1463,7 @@ export function Composer({
               shell ? "acpmux-composer-prompt is-hidden" : `acpmux-composer-prompt${dictating ? " is-dictating" : ""}`
             }
             value={text}
+            selectionKey={sessionId}
             placeholder={dictating ? t("dictation.listening") : (suggested ?? placeholderText)}
             placeholderKey={suggested && !dictating ? t(COMPOSER_LABELS.suggestionKey) : undefined}
             attributes={{

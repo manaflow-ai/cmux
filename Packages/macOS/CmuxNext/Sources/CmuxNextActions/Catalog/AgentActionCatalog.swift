@@ -146,7 +146,8 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ),
             // Copy Last Code Block (Opt-Cmd-;) and Archive Chat (Ctrl-Cmd-A), as in the Codex app
             // (cx-ncc.72). Only while an agent chat has the keyboard. Archive runs the chat menu's
-            // Archive; scripts use `cmux acp` and the chat's own transcript instead.
+            // Archive, or on a Priority row (an `agent-chat:` target) archives that row's chat;
+            // scripts use `cmux acp` and the chat's own transcript instead.
             ActionDescriptor(
                 id: "agentPane.copyLastCodeBlock",
                 title: String(localized: "action.agentPane.copyLastCodeBlock", defaultValue: "Copy Last Code Block", bundle: .module),
@@ -161,11 +162,12 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.agentPane.archiveChat", defaultValue: "Archive Chat", bundle: .module),
                 keywords: ["agent", "chat", "archive", "hide", "close", "done"],
                 defaultShortcut: Shortcut("a", modifiers: [.command, .control]),
-                category: .agents, symbol: "archivebox", surfaces: [.palette, .keyboard],
+                category: .agents, symbol: "archivebox", surfaces: [.palette, .keyboard, .contextMenu],
                 // A script names the chat's pane (`--target pane:…`); the target brings its own
-                // agentPaneFocused fact (`ActionRegistry.targetContext`).
-                requires: [.agentPaneFocused], targets: [.pane], cliName: "agent archive-chat",
-                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .guiOnly)
+                // agentPaneFocused fact (`ActionRegistry.targetContext`), as a Priority row's
+                // `agent-chat:` target does (`ActionContext.implied(byTargetKind:)`).
+                requires: [.agentPaneFocused], targets: [.pane, .agentChat], cliName: "agent archive-chat",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ContextMenuPlacement(.priorityRow, .close, 0)])
             ),
             ActionDescriptor(
                 id: "agentPane.git.commit",
@@ -325,6 +327,21 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 startsTerminal: true,
                 surfacePlan: ActionSurfacePlan(palette: .exempt(.noObject), cli: .offered, contextMenuExemption: .noObject)
             ),
+            // Agents and scripts (`cmux agent open-tab SESSION`): an existing acpmux session's chat as a tab of a pane.
+            ActionDescriptor(
+                id: "agent.openSessionTab",
+                title: String(localized: "action.agent.openSessionTab", defaultValue: "Open Agent Session in Tab", bundle: .module),
+                keywords: ["agent", "session", "acpmux", "subagent", "tab", "chat"], category: .agents,
+                symbol: "bubble.left.and.text.bubble.right", surfaces: [.keyboard],
+                arguments: [
+                    ActionArgument(name: "session", title: String(localized: "argument.agent.session", defaultValue: "Session", bundle: .module),
+                                   kind: .string),
+                    ActionArgument(name: "host", title: String(localized: "argument.agent.host", defaultValue: "Session Host", bundle: .module),
+                                   kind: .string, isRequired: false),
+                ],
+                targets: [.pane, .tab], cliName: "agent open-tab",
+                surfacePlan: ActionSurfacePlan(palette: .exempt(.noObject), cli: .offered, contextMenuExemption: .noObject)
+            ),
             // The Home Chief's settings sidebar (the header's name pill does the same).
             ActionDescriptor(
                 id: "home.toggleChiefSettings",
@@ -375,6 +392,16 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.chief.openUsage", defaultValue: "Chief Usage", bundle: .module),
                 keywords: ["chief", "usage", "cost", "tokens", "cache", "spend", "stats", "analytics"],
                 category: .agents, symbol: "dollarsign.circle", surfaces: [.palette],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
+            // The Chief view gallery: experimental views beside the Chief (where every agent is,
+            // an agent board, the CI fleet, landing PRs, today's timeline), as a page tab in Home's
+            // right column. Debug Settings > Home > "Chief view gallery"; DEV and NIGHTLY only.
+            ActionDescriptor(
+                id: "chief.openViews",
+                title: String(localized: "action.chief.openViews", defaultValue: "Chief View Gallery", bundle: .module),
+                keywords: ["chief", "views", "gallery", "agents", "where", "everybody", "board", "fleet", "landing", "timeline"],
+                category: .agents, symbol: "square.grid.2x2", surfaces: [.palette],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
             ActionDescriptor(

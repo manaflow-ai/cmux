@@ -81,6 +81,8 @@ final class WorkspaceRowView: SidebarRowView {
             needsDisplay = true
         }
     }
+    /// On screen in this window but not the focused one (`SidebarModel.onScreen`): the soft fill.
+    var isOnScreen = false { didSet { if isOnScreen != oldValue { needsDisplay = true } } }
     override var showsSelection: Bool { isSelected || isSecondarySelected }
     /// A tab dragged from a pane would move into this workspace.
     var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
@@ -175,6 +177,7 @@ final class WorkspaceRowView: SidebarRowView {
     override func prepareForReuse(key: SidebarRowKey) {
         super.prepareForReuse(key: key)
         isSecondarySelected = false
+        isOnScreen = false
         isDropTarget = false
         onClose = nil
         onMore = nil

@@ -152,12 +152,23 @@ pub(crate) fn harness_command(
             // Its caller token and the socket it is for (hub/person.rs (a)); the cmux CLI's caller.
             .envs(crate::hub::person::caller_env(id))
             .env(crate::agent_tools::AGENT_SESSION_ENV, id);
-        // Its own temporary folder; a profile's TMPDIR (applied below) still wins.
+        // Its own temporary folder (`session_tmp.rs`); a profile's TMPDIR
+        // (applied below) still wins. A remote-origin chain keeps its base.
+        #[cfg(unix)]
         if !remote_environment {
-            let xdg_runtime = env.get("XDG_RUNTIME_DIR").is_some_and(|v| !v.is_empty())
-                || command_env(&cmd).iter().any(|(k, v)| k == "XDG_RUNTIME_DIR" && !v.is_empty());
-            if let Some(home) = std::env::var_os("HOME").filter(|h| !h.is_empty()) {
-                cmd.envs(session_tmp_env(std::path::Path::new(&home), id, xdg_runtime));
+            use super::session_tmp;
+            let base = session_tmp::per_user_base();
+            if let Some(dir) = session_tmp::make(&base, &crate::config::home(), id) {
+                let ambient = command_env(&cmd);
+                let agent = |key: &str| {
+                    env.get(key)
+                        .cloned()
+                        .or_else(|| ambient.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone()))
+                };
+                let blank = |key: &str| env.get(key).is_some_and(|v| v.is_empty());
+                // SAFETY: getuid has no preconditions.
+                let uid = unsafe { libc::getuid() };
+                cmd.envs(session_tmp::env_for(&dir, agent, blank, cfg!(target_os = "macos"), uid));
             }
         }
     }
@@ -200,44 +211,6 @@ pub(crate) fn harness_command(
         _ => {}
     }
     Ok(cmd)
-}
-
-/// Where a session's own temporary files go: `~/.cache/acpmux/sessions/<session id>/tmp`.
-pub(crate) const SESSION_TMPDIR_ENV: &str = "ACPMUX_SESSION_TMPDIR";
-
-/// A session's own temporary folder, `<home>/.cache/acpmux/sessions/<session id>/tmp`,
-/// made 0700. Two sessions never share one, so one agent's cleanup cannot
-/// take another's files (huge-blue, 2026-10-21: two lanes picked the same
-/// `~/.cache` folder by name and one's `rm -rf` took the other's live
-/// scratch). The folder is in `ACPMUX_SESSION_TMPDIR`, and in `TMPDIR` only
-/// when the agent has `XDG_RUNTIME_DIR`: without it the cmux CLI finds its
-/// session and browser-host sockets under `$TMPDIR` (`runtime_base_dir`,
-/// `browser_host_socket`), so a new TMPDIR would hide them (a Mac). Nothing
-/// for an id that is not one path component, or a folder that can't be made.
-pub(crate) fn session_tmp_env(
-    home: &std::path::Path,
-    session_id: &str,
-    xdg_runtime: bool,
-) -> Vec<(&'static str, std::path::PathBuf)> {
-    let one_component = !session_id.is_empty()
-        && !matches!(session_id, "." | "..")
-        && !session_id.contains(['/', '\\', '\0']);
-    if !one_component {
-        return Vec::new();
-    }
-    let dir = home.join(".cache/acpmux/sessions").join(session_id).join("tmp");
-    let mut builder = std::fs::DirBuilder::new();
-    builder.recursive(true);
-    #[cfg(unix)]
-    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
-    if builder.create(&dir).is_err() || !dir.is_dir() {
-        return Vec::new();
-    }
-    let mut out = vec![(SESSION_TMPDIR_ENV, dir.clone())];
-    if xdg_runtime {
-        out.push(("TMPDIR", dir));
-    }
-    out
 }
 
 /// The profile's env with its `${keychain:…}` and `${env:…}` references
@@ -395,37 +368,101 @@ mod tests {
         );
     }
 
+    /// The env `harness_command` gives a session `id` of `profile_env`, with
+    /// the per-user directory in `base`.
+    #[cfg(unix)]
+    fn session_env(
+        base: &std::path::Path,
+        id: &str,
+        profile_env: serde_json::Value,
+    ) -> Vec<(String, String)> {
+        let profile: HarnessProfile = serde_json::from_value(serde_json::json!({
+            "argv": ["/usr/bin/true"],
+            "env": profile_env
+        }))
+        .unwrap();
+        let cmd = super::super::session_tmp::with_base(base, || {
+            harness_command("local", &profile, &std::env::temp_dir(), None, Some((id, "lane")))
+        })
+        .unwrap();
+        command_env(&cmd)
+    }
+
+    #[cfg(unix)]
+    fn var(env: &[(String, String)], key: &str) -> Option<String> {
+        env.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone())
+    }
+
+    #[cfg(unix)]
     #[test]
-    fn two_sessions_never_share_a_temporary_folder() {
-        let home = std::env::temp_dir().join(format!("acpmux-session-tmp-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&home);
-        let a = session_tmp_env(&home, "01a15d7d-b692-76b3-b8de-a9a71809de2a", true);
-        let b = session_tmp_env(&home, "01a15db7-20cd-7e10-8535-158031297e5c", true);
-        let dir = |env: &[(&str, std::path::PathBuf)], key: &str| {
-            env.iter().find(|(k, _)| *k == key).map(|(_, v)| v.clone())
-        };
-        let (dir_a, dir_b) = (dir(&a, "TMPDIR").unwrap(), dir(&b, "TMPDIR").unwrap());
-        assert_ne!(dir_a, dir_b);
-        assert_eq!(dir(&a, SESSION_TMPDIR_ENV), Some(dir_a.clone()));
-        assert_eq!(
-            dir_a,
-            home.join(".cache/acpmux/sessions/01a15d7d-b692-76b3-b8de-a9a71809de2a/tmp")
-        );
-        assert!(dir_a.is_dir() && dir_b.is_dir());
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt as _;
-            assert_eq!(std::fs::metadata(&dir_a).unwrap().permissions().mode() & 0o777, 0o700);
+    fn every_local_session_gets_its_own_temporary_folder() {
+        use super::super::session_tmp::{SESSION_TMPDIR_ENV, daemon_root};
+        let scratch = std::env::temp_dir().join(format!(
+            "acpmux-cmd-tmp-{}-{}",
+            std::process::id(),
+            uuid::Uuid::now_v7().simple()
+        ));
+        std::fs::create_dir_all(&scratch).unwrap();
+        let base = scratch.join("acpmux-u");
+        let (a, b) =
+            ("01a15d7d-b692-76b3-b8de-a9a71809de2a", "01a15db7-20cd-7e10-8535-158031297e5c");
+        let root = daemon_root(&base, &crate::config::home());
+        let runtime = serde_json::json!({"XDG_RUNTIME_DIR": "/run/user/4242"});
+        let env_a = session_env(&base, a, runtime.clone());
+        let env_b = session_env(&base, b, runtime);
+        let dir_a = root.join(a).display().to_string();
+        assert_eq!(var(&env_a, "TMPDIR"), Some(dir_a.clone()));
+        assert_eq!(var(&env_a, SESSION_TMPDIR_ENV), Some(dir_a.clone()));
+        assert_eq!(var(&env_b, "TMPDIR"), Some(root.join(b).display().to_string()));
+        assert!(root.join(a).is_dir() && root.join(b).is_dir());
+        // A profile TMPDIR still wins; the session folder is still named.
+        let env =
+            session_env(&base, a, serde_json::json!({"TMPDIR": "/p/tmp", "XDG_RUNTIME_DIR": "/r"}));
+        assert_eq!(var(&env, "TMPDIR").as_deref(), Some("/p/tmp"));
+        assert_eq!(var(&env, SESSION_TMPDIR_ENV), Some(dir_a.clone()));
+        // Without a runtime dir (when this test process has none): a Mac pins
+        // the socket base the agent resolved before; elsewhere TMPDIR stays.
+        if std::env::var_os("XDG_RUNTIME_DIR").is_none_or(|v| v.is_empty()) {
+            let env = session_env(&base, a, serde_json::json!({"TMPDIR": "/var/folders/x/T/"}));
+            assert_eq!(var(&env, SESSION_TMPDIR_ENV), Some(dir_a.clone()));
+            if cfg!(target_os = "macos") {
+                assert_eq!(var(&env, "TMPDIR"), Some(dir_a.clone()));
+                assert_eq!(var(&env, "XDG_RUNTIME_DIR").as_deref(), Some("/var/folders/x/T/"));
+            } else {
+                assert_eq!(var(&env, "TMPDIR").as_deref(), Some("/var/folders/x/T/"));
+            }
         }
-        // The same session again (a restart) gets the same folder.
-        assert_eq!(session_tmp_env(&home, "01a15d7d-b692-76b3-b8de-a9a71809de2a", true), a);
-        // Without XDG_RUNTIME_DIR the cmux CLI's sockets live under TMPDIR: keep it.
-        let c = session_tmp_env(&home, "c", false);
-        assert!(dir(&c, "TMPDIR").is_none() && dir(&c, SESSION_TMPDIR_ENV).is_some());
-        for bad in ["", ".", "..", "a/b", "../x"] {
-            assert!(session_tmp_env(&home, bad, true).is_empty(), "{bad:?}");
-        }
-        let _ = std::fs::remove_dir_all(&home);
+        // A profile that blanks XDG_RUNTIME_DIR: no pin can hold, TMPDIR stays.
+        let env = session_env(&base, a, serde_json::json!({"XDG_RUNTIME_DIR": "", "TMPDIR": "/q"}));
+        assert_eq!(var(&env, "TMPDIR").as_deref(), Some("/q"));
+        assert_eq!(var(&env, SESSION_TMPDIR_ENV), Some(dir_a));
+        let _ = std::fs::remove_dir_all(&scratch);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_remote_session_keeps_its_environment() {
+        let scratch = std::env::temp_dir().join(format!(
+            "acpmux-cmd-remote-{}-{}",
+            std::process::id(),
+            uuid::Uuid::now_v7().simple()
+        ));
+        let base = scratch.join("acpmux-u");
+        let profile: HarnessProfile = serde_json::from_value(serde_json::json!({
+            "argv": ["/usr/bin/true"],
+            "env": {"ACPMUX_REMOTE_ENV_POLICY": "1", "XDG_RUNTIME_DIR": "/run/user/4242"}
+        }))
+        .unwrap();
+        let id = "01a15d7d-b692-76b3-b8de-a9a71809de2a";
+        let cmd = super::super::session_tmp::with_base(&base, || {
+            harness_command("remote", &profile, &std::env::temp_dir(), None, Some((id, "r")))
+        })
+        .unwrap();
+        let env = command_env_cleared(&cmd);
+        assert_eq!(var(&env, super::super::session_tmp::SESSION_TMPDIR_ENV), None);
+        assert!(!var(&env, "TMPDIR").is_some_and(|t| t.starts_with(&*base.to_string_lossy())));
+        assert!(!base.exists(), "a remote session made a local temporary folder");
+        let _ = std::fs::remove_dir_all(&scratch);
     }
 
     #[cfg(target_os = "linux")]
