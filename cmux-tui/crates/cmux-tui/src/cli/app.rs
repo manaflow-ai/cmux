@@ -749,7 +749,11 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
                 skew::annotate(stream, method, &mut error);
             }
             settings::explain_refusal(method, &params, &mut error);
-            report.annotate(&mut error, global.output);
+            if refused_before_running(&error) {
+                report.succeeded();
+            } else {
+                report.annotate(&mut error, global.output);
+            }
             let code = super::wire::print_local_error(&error, global.output, 1);
             report.finish(global.output);
             Ran::Done(code)
@@ -773,6 +777,31 @@ fn busy_before_running(error: &Value) -> bool {
     error_code(error) == Some("busy")
         && (data.get("not_run") == Some(&Value::Bool(true))
             || data.get("state").and_then(Value::as_str) == Some("not_run"))
+}
+
+/// The app refused the request before anything ran (no such action or
+/// target, not in this context, a bad request, a `busy` that never
+/// started), so no change may still apply and there is no key to retry.
+/// A `timeout` or a work failure may come after part of the run, and keeps
+/// the retry note.
+fn refused_before_running(error: &Value) -> bool {
+    busy_before_running(error)
+        || matches!(
+            error_code(error),
+            Some(
+                "not_found"
+                    | "not_bound"
+                    | "unavailable"
+                    | "disabled"
+                    | "feature.disabled"
+                    | "confirmation_required"
+                    | "invalid_params"
+                    | "invalid_request"
+                    | "method_not_found"
+                    | "idempotency_conflict"
+                    | "ambiguous"
+            )
+        )
 }
 
 fn busy_retry_delay(error: &Value) -> Duration {
