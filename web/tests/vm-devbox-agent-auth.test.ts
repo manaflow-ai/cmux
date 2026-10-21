@@ -320,9 +320,8 @@ describe("Codex sign-in precedence", () => {
   test("issue 20063: a logged-in Codex session escapes a semantically equivalent generated provider", async () => {
     const m = machine();
     mkdirSync(path.join(m.home, ".codex"), { recursive: true });
-    // TOML permits flexible whitespace and either string delimiter. Older
-    // generated configs can therefore be valid without matching the launcher's
-    // old exact-line check.
+    // TOML permits flexible whitespace and either string delimiter; the old
+    // exact-line check missed this spelling of the same provider.
     writeFileSync(
       path.join(m.home, ".codex/config.toml"),
       [
@@ -343,6 +342,28 @@ describe("Codex sign-in precedence", () => {
     expect(env.args).toBe('-c model_provider="openai" --resume x');
     expect(env.OPENAI_BASE_URL).toBe("<unset>");
     expect(env.OPENAI_API_KEY).toBe("<unset>");
+  });
+
+  test("issue 20063: the provider check does not depend on the python3 first on PATH", async () => {
+    const m = machine();
+    cmuxCodexConfig(m);
+    choose(m, "own", "codex");
+    // A project venv or toolchain pin can put a python3 without tomllib, or
+    // one that fails outright, ahead of the system one.
+    const venv = path.join(m.root, "venv-bin");
+    mkdirSync(venv, { recursive: true });
+    writeFileSync(path.join(venv, "python3"), "#!/bin/sh\nexit 1\n");
+    chmodSync(path.join(venv, "python3"), 0o755);
+    const env = await launch(m, "codex", {}, `export PATH=${venv}:$PATH;`);
+    expect(env.args).toBe('-c model_provider="openai" --resume x');
+  });
+
+  test("a model_provider inside a table is not the top-level provider", async () => {
+    const m = machine();
+    mkdirSync(path.join(m.home, ".codex"), { recursive: true });
+    writeFileSync(path.join(m.home, ".codex/config.toml"), '[profiles.team]\nmodel_provider = "cmux"\n');
+    choose(m, "own", "codex");
+    expect((await launch(m, "codex")).args).toBe("--resume x");
   });
 });
 
