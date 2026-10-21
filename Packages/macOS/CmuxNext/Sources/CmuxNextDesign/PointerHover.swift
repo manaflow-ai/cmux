@@ -268,7 +268,7 @@ private final class TargetIndex {
     }
 
     private struct Bucket {
-        weak var window: NSWindow?
+        unowned(unsafe) var window: NSWindow?
         var targets: [ObjectIdentifier: Weak] = [:]
     }
 
