@@ -69,8 +69,9 @@ await requireBrowserLane("menu-focus.test.ts", async () => {
     // The first loads compile the gallery and can run Vite's dependency optimizer, which reloads
     // the page: with a cold server, whichever test came first timed out in `goto` or lost its page
     // (CI, 2026-10-12). Every entry loads once here, so the tests start on a warm server.
-    await warmGalleryFrame(base, ENTRIES, { browser, timeoutMs: 300_000 });
-  }, 360_000);
+    // Under the file's 240 s limit, so a stalled warm-up fails here, naming its entry.
+    await warmGalleryFrame(base, ENTRIES, { browser, timeoutMs: 150_000 });
+  }, 200_000);
 
   afterAll(async () => {
     await browser?.close();
