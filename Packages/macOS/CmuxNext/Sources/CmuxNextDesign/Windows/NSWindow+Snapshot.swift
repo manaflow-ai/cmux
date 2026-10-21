@@ -95,14 +95,12 @@ extension NSWindow {
     /// of the window then shows them as on screen. Menus are not in AppKit's window list, so
     /// the window server's list chooses (``ownWindows(above:pid:region:layer:skipping:ordinary:)``).
     public func floatingWindowsSnapshot() -> (image: CGImage, count: Int)? {
-        guard windowNumber > 0, let primary = NSScreen.screens.first else { return nil }
+        guard windowNumber > 0, isOnActiveSpace, let primary = NSScreen.screens.first else { return nil }
         let above = (CGWindowListCopyWindowInfo([.optionOnScreenAboveWindow], CGWindowID(windowNumber)) as? [[String: Any]] ?? [])
             .compactMap(ListedWindow.init)
-        // Global display coordinates: origin at the primary screen's top left.
-        let region = CGRect(x: frame.minX, y: primary.frame.maxY - frame.maxY, width: frame.width, height: frame.height)
-        let ordinary = Set(NSApp.windows.filter { !($0 is NSPanel) && $0.styleMask.contains(.titled) }.map(\.windowNumber))
-        let numbers = Self.ownWindows(above: above, pid: getpid(), region: region, layer: level.rawValue,
-                                      skipping: Set(visibleChildWindows.map(\.windowNumber)), ordinary: ordinary)
+        let numbers = Self.ownWindows(above: above, pid: getpid(), region: Self.globalRect(of: frame, primaryHeight: primary.frame.maxY),
+                                      layer: level.rawValue, skipping: Set(visibleChildWindows.map(\.windowNumber)),
+                                      ordinary: Self.ordinaryWindowTrees(besides: self))
         guard !numbers.isEmpty, let image = Self.windowServerImage(ofNumbers: numbers, croppedTo: self),
               image.width > 0, image.height > 0, !Self.isBlank(image) else { return nil }
         return (image, numbers.count)
@@ -110,16 +108,40 @@ extension NSWindow {
 
     /// From `above` (the windows the window server shows above a window, topmost first), the
     /// numbers of this process's visible windows over `region` that a snapshot paints over it:
-    /// not the `skipping` ones (its child windows, composited already), and not the app's
-    /// other `ordinary` (titled, non-panel) windows at the window's own `layer`, so a window
-    /// behind another of the app's windows still comes out whole.
+    /// not the `skipping` ones (its child windows, composited already), and not the ones that
+    /// belong to another of the app's ordinary windows at the window's own `layer` (`ordinary`
+    /// maps each window of such a tree to its ordinary window's layer), so a window behind
+    /// another of the app's windows still comes out whole.
     nonisolated static func ownWindows(above: [ListedWindow], pid: pid_t, region: CGRect, layer: Int,
-                                       skipping: Set<Int>, ordinary: Set<Int>) -> [Int] {
+                                       skipping: Set<Int>, ordinary: [Int: Int]) -> [Int] {
         above.filter { window in
             window.pid == pid && window.alpha > 0 && !skipping.contains(window.number)
                 && window.bounds.intersection(region).width > 0 && window.bounds.intersection(region).height > 0
-                && !(window.layer == layer && ordinary.contains(window.number))
+                && ordinary[window.number] != layer
         }.map(\.number)
+    }
+
+    /// `frame` (AppKit screen coordinates) in global display coordinates: origin at the top
+    /// left of the primary screen, which is `primaryHeight` points tall.
+    nonisolated static func globalRect(of frame: NSRect, primaryHeight: CGFloat) -> CGRect {
+        CGRect(x: frame.minX, y: primaryHeight - frame.maxY, width: frame.width, height: frame.height)
+    }
+
+    /// The app's ordinary (titled, non-panel, top-level) windows other than `window`, each with
+    /// the windows that belong to it (child windows and attached sheets, with theirs), by
+    /// number, to the ordinary window's level.
+    private static func ordinaryWindowTrees(besides window: NSWindow) -> [Int: Int] {
+        var result: [Int: Int] = [:]
+        for root in NSApp.windows where root !== window && root.windowNumber > 0 && !(root is NSPanel)
+            && root.styleMask.contains(.titled) && root.parent == nil && root.sheetParent == nil {
+            var pending = [root]
+            while let member = pending.popLast() {
+                result[member.windowNumber] = root.level.rawValue
+                pending += member.childWindows ?? []
+                if let sheet = member.attachedSheet { pending.append(sheet) }
+            }
+        }
+        return result
     }
 
     /// The visible child windows of this window and of its children, the
@@ -167,10 +189,7 @@ extension NSWindow {
         // The array holds CGWindowID values (not CFNumbers), topmost first.
         var ids: [UnsafeRawPointer?] = numbers.map { UnsafeRawPointer(bitPattern: UInt($0)) }
         guard let array = CFArrayCreate(nil, &ids, ids.count, nil) else { return nil }
-        // Global display coordinates: origin at the primary screen's top left.
-        let frame = frameWindow.frame
-        let bounds = CGRect(x: frame.minX, y: primary.frame.maxY - frame.maxY, width: frame.width, height: frame.height)
-        return create(bounds, array, imageOptions)?.takeRetainedValue()
+        return create(globalRect(of: frameWindow.frame, primaryHeight: primary.frame.maxY), array, imageOptions)?.takeRetainedValue()
     }
 
     /// `numbers` topmost first, as the window server orders them on screen.

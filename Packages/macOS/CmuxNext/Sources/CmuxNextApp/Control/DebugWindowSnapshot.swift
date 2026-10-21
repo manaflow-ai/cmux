@@ -27,7 +27,8 @@ import WebKit
 /// `floating_windows` counts the app's other windows the window server shows
 /// above the window and over it, painted on top cut to its frame: an open
 /// context menu (not in AppKit's window list), a hover card or popover that is
-/// not its child; the app's other titled windows in front are left out. The
+/// not its child; another of the app's titled windows in front at the same
+/// level, with its own child windows and sheets, is left out. The
 /// async verb also paints each engine's own image of every shown page
 /// (`webviews`, `chromium_pages`, with `_composited` and `_failed` counts),
 /// since the window server
@@ -54,9 +55,11 @@ enum DebugWindowSnapshot {
             // Read before the encode's await: a sheet may close meanwhile.
             let children = window.visibleChildWindows.count
             // The app's menus, cards and popovers over the window go on top, as on screen.
-            let floating = window.floatingWindowsSnapshot()
-            let output = floating.flatMap { WindowImageLayer.composite(base: snapshot.image, window: window, layers: [.window($0.image)]) }
-                ?? snapshot.image
+            let floating = window.floatingWindowsSnapshot().flatMap { windows in
+                WindowImageLayer.composite(base: snapshot.image, window: window, layers: [.window(windows.image)])
+                    .map { (image: $0, count: windows.count) }
+            }
+            let output = floating?.image ?? snapshot.image
             try await NSWindow.encodeSnapshotPNG(output, to: URL(fileURLWithPath: path))
             return .object([
                 "path": .string(path), "width": JSONValue(output.width), "height": JSONValue(output.height),
@@ -154,7 +157,8 @@ enum DebugWindowSnapshot {
             // Menus, and cards or popovers not attached to the window, go on top.
             let floating = window.floatingWindowsSnapshot()
             if let floating { layers.append(.window(floating.image)) }
-            let output = WindowImageLayer.composite(base: base.image, window: window, layers: layers) ?? base.image
+            let composited = WindowImageLayer.composite(base: base.image, window: window, layers: layers)
+            let output = composited ?? base.image
             // AppKit/WebKit capture and compositing stay on the main actor;
             // PNG compression and the file write run off-main.
             try await NSWindow.encodeSnapshotPNG(output, to: URL(fileURLWithPath: path))
@@ -164,7 +168,7 @@ enum DebugWindowSnapshot {
                 "webviews": JSONValue(webViews.count), "webviews_composited": JSONValue(webViews.count - failed),
                 "webviews_failed": JSONValue(failed), "child_windows": JSONValue(childrenIncluded),
                 "child_windows_failed": JSONValue(children.count - childrenIncluded),
-                "floating_windows": JSONValue(floating?.count ?? 0),
+                "floating_windows": JSONValue(composited == nil ? 0 : floating?.count ?? 0),
                 "chromium_pages": JSONValue(pages.count + reactPages.count),
                 "chromium_pages_composited": JSONValue(pages.count + reactPages.count - pagesFailed),
                 "chromium_pages_failed": JSONValue(pagesFailed),
