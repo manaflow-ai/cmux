@@ -78,6 +78,7 @@ export default componentEntry<UrlChipProps>({
   widths: { narrow: 360, normal: 640, wide: 860 },
   variants: {
     globe: { props: { href: "https://example.test/docs/getting-started", children: "example.test/docs" } },
+    // The favicon and title cmux has show in the hover card the play opens; the chip keeps its text.
     "cached-favicon": {
       chipHost: host,
       props: { href: "https://docs.example.test/guide", children: "Example docs" },
