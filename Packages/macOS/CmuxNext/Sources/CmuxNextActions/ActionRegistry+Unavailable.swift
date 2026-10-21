@@ -65,6 +65,22 @@ extension ActionRegistry {
         refuse(reason, quiet: true)
     }
 
+    /// Runs `body`, a lookup behind a reason or visibility rule (a menu row's state, a palette
+    /// row's enabled check), with every refusal in it dropped: no notice shows and no caller
+    /// receives it. The handler run that follows reports its own refusal.
+    public func withoutRefusals<T>(_ body: () -> T) -> T {
+        let observer = refusalObserver, capturing = isCapturingRefusal, reporting = isReportingRefusal
+        refusalObserver = nil
+        isCapturingRefusal = false
+        isReportingRefusal = false
+        defer {
+            refusalObserver = observer
+            isCapturingRefusal = capturing
+            isReportingRefusal = reporting
+        }
+        return body()
+    }
+
     /// ``capturingRefusal(_:)`` that also says whether the refusal was
     /// ``refuseNotFound(_:)``.
     public func capturingTypedRefusal(_ body: () -> Void) -> (reason: String, isNotFound: Bool)? {
