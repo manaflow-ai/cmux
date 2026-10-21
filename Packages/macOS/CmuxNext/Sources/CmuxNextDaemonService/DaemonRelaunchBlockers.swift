@@ -7,9 +7,11 @@ public import CmuxUpdater
 public extension DaemonService {
     /// Reads the daemon's confirmed tab mirror and the acpmux/status overlays.
     /// A relaunch waits for active agent turns and foreground work, while a short hardware-input
-    /// quiet window (`quietInput`) protects a focused typing session.
+    /// quiet window (`quietInput`, nil for ``UpdateRelaunchBlockers/quietInputPeriod``) protects a
+    /// focused typing session.
     @MainActor
-    func currentRelaunchBlockers(quietInput: Duration = UpdateRelaunchBlockers.quietInputPeriod) -> UpdateRelaunchBlockers {
+    func currentRelaunchBlockers(quietInput: Duration? = nil) -> UpdateRelaunchBlockers {
+        let quietInput = quietInput ?? UpdateRelaunchBlockers.quietInputPeriod
         guard store.isLoaded,
               case .connected = store.connectionState,
               connection != nil else {
