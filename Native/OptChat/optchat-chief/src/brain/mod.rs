@@ -274,6 +274,13 @@ pub enum Input {
     SpawnPolicy {
         reply: Sender<Option<String>>,
     },
+    /// Whether the turn may run a Chief tool with these arguments
+    /// (`Brain::turn_gate`).
+    TurnGate {
+        tool: String,
+        input: serde_json::Value,
+        reply: Sender<Result<(), String>>,
+    },
     /// A description of a turn's image arrived (or failed): logged as a note.
     Described {
         image: Box<images::TurnImage>,
@@ -665,6 +672,10 @@ pub struct Brain {
     /// The running turn carries another person's text: it runs with policy
     /// `ask`, and every local effect it asks for is refused at once.
     turn_ask: bool,
+    /// The last turn was an ask turn: a tool call of it that reaches the
+    /// host after it ended is still held to its rules (`turn_gate`) until
+    /// the next turn starts.
+    last_turn_ask: bool,
     /// Requests refused in the running turn (`approval::signature`): a
     /// repeat counts toward stopping the turn.
     turn_denied: Vec<String>,
@@ -789,6 +800,7 @@ impl Brain {
             ttl_stale: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             chief,
             turn_ask: false,
+            last_turn_ask: false,
             turn_denied: Vec::new(),
             repeat_denials: 0,
             after_turn: None,
@@ -1171,6 +1183,9 @@ impl Brain {
             }
             Input::SpawnPolicy { reply } => {
                 let _ = reply.send(self.spawn_policy().map(str::to_owned));
+            }
+            Input::TurnGate { tool, input, reply } => {
+                let _ = reply.send(self.turn_gate(&tool, &input));
             }
             Input::Described { image, description } => self.described(&image, description),
             Input::Engine { request, reply } => {
