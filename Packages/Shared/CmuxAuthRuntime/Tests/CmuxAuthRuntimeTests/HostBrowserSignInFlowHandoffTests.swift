@@ -87,6 +87,32 @@ import Testing
         #expect(await harness.tokenStore.getStoredAccessToken() == "access-1")
     }
 
+    @Test func browserCancellationDuringExternalCallbackValidationKeepsSignIn() async {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let harness = HostBrowserSignInFlowHarness(user: user)
+        await harness.client.closeUserGate()
+        let attempt = Task { await harness.flow.signIn(timeout: 60) }
+        await harness.waitForSession()
+        let session = harness.factory.sessions[0]
+        let callbackState = harness.callbackState(session)
+
+        // Safari opens the callback through LaunchServices, and the hosted
+        // session reports cancellation while that callback is still
+        // validating. The cancellation must not end the attempt and discard
+        // the callback's tokens as raced.
+        let callback = Task { await harness.flow.handleCallbackURL(harness.callbackURL(state: callbackState)) }
+        await harness.waitForPendingUserRequest()
+        session.deliver(.cancelled(reason: "canceled_login"))
+        await harness.client.openUserGate()
+
+        #expect(await callback.value)
+        #expect(await attempt.value)
+        #expect(harness.coordinator.isAuthenticated)
+        #expect(harness.coordinator.currentUser == user)
+        #expect(await harness.tokenStore.getStoredRefreshToken() == "refresh-1")
+        #expect(await harness.tokenStore.getStoredAccessToken() == "access-1")
+    }
+
     @Test func handoffOpenFailureEndsAttemptAndAllowsRetry() async {
         // The default browser fails to launch on the handed-off attempt.
         let harness = HostBrowserSignInFlowHarness(openSucceeds: false)
