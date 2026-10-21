@@ -7,13 +7,17 @@
 //! session that wants the sub-session: a choice question, **Trust** or **Not now**, through the
 //! permission path every agent question uses, so the chat shows its card and the sidebar row its
 //! "Needs your input" mark, and only the person answers it (never a policy, never a remote
-//! browser). The start waits on the card and goes on by itself when the folder becomes trusted,
-//! whether the card was answered or the folder was trusted elsewhere (the pane's own question,
-//! `acp.trust.set`). Not now refuses the start with `subsessions.trust_declined` and is
-//! remembered for [`DECLINE_MEMORY`], so an agent that asks again is not met with the same card.
+//! browser). In a Web turn (`remote_floor.rs`) an auto-trust rule is no answer: the folder needs
+//! a person's decision, as a Web client's own start does (`trust::web_session_level`). The start
+//! waits on the card and goes on by itself when the folder becomes trusted, whether the card was
+//! answered or the folder was trusted elsewhere (the pane's own question, `acp.trust.set`). Not
+//! now refuses the start with `subsessions.trust_declined` and is remembered for
+//! [`DECLINE_MEMORY`], so an agent that asks again is not met with the same card.
 //!
 //! While the card is up the session carries the tag [`TAG_PREFIX`]`<name>` (the folder), so the
-//! sidebar can say *which* wait it is. The tag and the card go with the wait, whatever ends it.
+//! sidebar can say *which* wait it is. The tag and the card go with the wait, whatever ends it;
+//! a card withdrawn that way is logged as a cancelled decision and the session's status is
+//! settled, as for any answered prompt, so the chat drops the card and stops asking for input.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -145,9 +149,13 @@ impl Drop for Wait {
         if self.hub.trust_waits.tag_released(&self.session.id, &self.tag) {
             self.hub.set_tags(&self.session, None, std::slice::from_ref(&self.tag), None);
         }
+        // Aborted first, so the task never settles a card the cancel below settles too.
+        let task = self.task.take();
+        if let Some(task) = &task {
+            task.abort();
+        }
         self.hub.cancel_trust_card(&self.session, &self.call);
-        let Some(task) = self.task.take() else { return };
-        task.abort();
+        let Some(task) = task else { return };
         // The task may raise the card after the cancel above: once it has ended, the card goes.
         if let Ok(runtime) = tokio::runtime::Handle::try_current() {
             let (hub, session, call) = (self.hub.clone(), self.session.clone(), self.call.clone());
@@ -176,33 +184,38 @@ impl Hub {
             .unwrap_or_else(|| harness.to_owned())
     }
 
-    /// The folder's key and level for an agent of `family`, read off the async runtime.
+    /// The folder's trust for an agent of `family`, read off the async runtime.
     async fn trust_level_of(
         &self,
         paths: &crate::trust::Paths,
         cwd: &str,
         family: &str,
-    ) -> Result<(String, Level), crate::trust::Failure> {
+    ) -> Result<crate::trust::SessionTrust, crate::trust::Failure> {
         let (paths, cwd, family) = (paths.clone(), cwd.to_owned(), family.to_owned());
-        tokio::task::spawn_blocking(move || crate::trust::session_level(&paths, &cwd, &family))
+        tokio::task::spawn_blocking(move || crate::trust::session_trust(&paths, &cwd, &family))
             .await
             .unwrap_or_else(|e| Err(crate::trust::Failure::Record(e.to_string())))
     }
 
     /// Ok once `cwd` is trusted for an agent of `harness`: at once when it already is, else after
-    /// the person answered the card this raises on `parent` (see the module docs).
+    /// the person answered the card this raises on `parent` (see the module docs). In a Web turn
+    /// of `parent` an auto-trust rule is no answer. The Ok is whether a decision trusts the folder
+    /// (a person's, an agent's own, or cmux's for a folder it made), not an auto-trust rule alone:
+    /// only then is a worktree made from it recorded as trusted (`trust_made_worktree`).
     pub(super) async fn ensure_folder_trusted(
         self: &Arc<Self>,
         parent: &Arc<Session>,
         cwd: &Path,
         harness: &str,
         short: &str,
-    ) -> Result<(), RpcError> {
-        let Some(paths) = self.trust_gate() else { return Ok(()) };
+    ) -> Result<bool, RpcError> {
+        let Some(paths) = self.trust_gate() else { return Ok(false) };
         let family = self.trust_family(harness).await;
+        let web = Self::web_turn(parent);
         let asked = cwd.to_string_lossy().into_owned();
-        let (key, level) = match self.trust_level_of(&paths, &asked, &family).await {
-            Ok(read) => read,
+        let key = match self.trust_level_of(&paths, &asked, &family).await {
+            Ok(read) if passes(&read, web) => return Ok(!read.by_rule_only()),
+            Ok(read) => read.cwd,
             Err(crate::trust::Failure::Invalid(message)) => {
                 return Err(RpcError::invalid_params(message));
             }
@@ -217,9 +230,6 @@ impl Hub {
                 ));
             }
         };
-        if level == Level::Trusted {
-            return Ok(());
-        }
         if self.trust_waits.declined_recently(&key) {
             return Err(declined(&key));
         }
@@ -247,28 +257,19 @@ impl Hub {
         let answer = guard.task.insert(task);
         let deadline = tokio::time::sleep(WAIT);
         tokio::pin!(deadline);
-        loop {
+        let outcome = loop {
             // Registered before the folder is read, so a change after the read is not missed.
             let changed = self.trust_waits.changed.notified();
             tokio::pin!(changed);
             changed.as_mut().enable();
-            if self.trusted_now(&paths, &key, &family).await {
+            if let Some(decided) = self.trusted_now(&paths, &key, &family, web).await {
                 // Trusted elsewhere (the pane's question, another card): this card is moot, and
                 // the guard takes it away.
-                return Ok(());
+                return Ok(decided);
             }
             tokio::select! {
                 outcome = &mut *answer => {
-                    let outcome = outcome.unwrap_or_else(|_| json!({"outcome": {"outcome": "cancelled"}}));
-                    // A card withdrawn because another start trusted the folder still lets this
-                    // one go on; one withdrawn after Not now is declined too.
-                    if self.trusted_now(&paths, &key, &family).await {
-                        return Ok(());
-                    }
-                    if self.trust_waits.declined_recently(&key) {
-                        return Err(declined(&key));
-                    }
-                    return self.trust_card_answered(&paths, &key, &outcome).await;
+                    break outcome.unwrap_or_else(|_| json!({"outcome": {"outcome": "cancelled"}}));
                 }
                 () = &mut changed => {}
                 () = &mut deadline => {
@@ -279,16 +280,39 @@ impl Hub {
                     ));
                 }
             }
+        };
+        // The task ended (it settled its card itself): nothing is left for the guard to await.
+        guard.task = None;
+        // A card withdrawn because another start trusted the folder still lets this one go on;
+        // one withdrawn after Not now is declined too.
+        if let Some(decided) = self.trusted_now(&paths, &key, &family, web).await {
+            return Ok(decided);
         }
+        if self.trust_waits.declined_recently(&key) {
+            return Err(declined(&key));
+        }
+        self.trust_card_answered(&paths, &key, &outcome).await?;
+        // Trust wrote the person's decision.
+        Ok(true)
     }
 
-    /// Whether the folder reads as trusted for `family` now.
-    async fn trusted_now(&self, paths: &crate::trust::Paths, key: &str, family: &str) -> bool {
-        matches!(self.trust_level_of(paths, key, family).await, Ok((_, Level::Trusted)))
+    /// Whether the folder reads as trusted for `family` now (`web`: a Web turn, where an auto-trust
+    /// rule is no answer): None when not, else whether a decision trusts it, not a rule alone.
+    async fn trusted_now(
+        &self,
+        paths: &crate::trust::Paths,
+        key: &str,
+        family: &str,
+        web: bool,
+    ) -> Option<bool> {
+        let read = self.trust_level_of(paths, key, family).await.ok()?;
+        passes(&read, web).then(|| !read.by_rule_only())
     }
 
-    /// Records a worktree made from a trusted folder as trusted, so opening its chat in the pane
-    /// asks nothing. Best effort: a record that cannot be written leaves the pane's own question.
+    /// Records a worktree made from a folder a decision trusts (never an auto-trust rule alone,
+    /// `ensure_folder_trusted`) as trusted, so opening its chat in the pane asks nothing. A Web
+    /// client reads that record as a person's answer (`trust::web_session_level`). Best effort: a
+    /// record that cannot be written leaves the pane's own question.
     pub(super) async fn trust_made_worktree(&self, cwd: &Path) {
         let Some(paths) = self.trust_gate() else { return };
         let folder = cwd.to_string_lossy().into_owned();
@@ -342,6 +366,8 @@ impl Hub {
     }
 
     /// Withdraws the trust card `session` shows with the tool call `call`; its wait sees a cancel.
+    /// Each card withdrawn is settled here (`settle_permission`: the cancelled decision logged,
+    /// the session's status back), since the task that raised it is aborted and settles nothing.
     pub(super) fn cancel_trust_card(&self, session: &Session, call: &str) {
         let drained: Vec<_> = {
             let mut state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
@@ -356,10 +382,18 @@ impl Hub {
                 .collect();
             ids.into_iter().filter_map(|id| state.pending.remove(&id).map(|p| (id, p))).collect()
         };
-        for (_, pending) in drained {
-            let _ = pending.reply.send(json!({"outcome": "cancelled"}));
+        for (id, pending) in drained {
+            let outcome = json!({"outcome": "cancelled"});
+            let _ = pending.reply.send(outcome.clone());
+            self.settle_permission(session, &id, outcome, None, pending.prev_status);
         }
     }
+}
+
+/// Whether `read` lets a start go on: with the auto-trust rules, or in a Web turn (`web`)
+/// without them.
+fn passes(read: &crate::trust::SessionTrust, web: bool) -> bool {
+    (if web { read.decided } else { read.level }) == Level::Trusted
 }
 
 /// The `toolCallId` of a card's request.

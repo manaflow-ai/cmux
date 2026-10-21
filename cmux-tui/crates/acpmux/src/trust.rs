@@ -219,13 +219,44 @@ fn made_by_cmux(root: &Path, cwd: &str) -> bool {
     canonical && folder && marker
 }
 
+/// A folder's trust for a session of one agent, read once: with the auto-trust rules
+/// (`trust_auto.rs`) and without them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SessionTrust {
+    /// The folder's record key (`normalize_cwd`).
+    pub cwd: String,
+    /// The level the app's pane goes by ([`session_level`]): an auto-trust rule answers.
+    pub level: Level,
+    /// The level without the auto-trust rules ([`web_session_level`]): acpmux's record (a
+    /// person's answer), a folder cmux made for a chat, or the agent's own level.
+    pub decided: Level,
+}
+
+impl SessionTrust {
+    /// Trusted by an auto-trust rule alone: no person (nor cmux) decided it.
+    pub fn by_rule_only(&self) -> bool {
+        self.level == Level::Trusted && self.decided != Level::Trusted
+    }
+}
+
+/// The folder's level for a session of the agent `family`, with and without the auto-trust
+/// rules (see [`session_level`]).
+pub fn session_trust(paths: &Paths, cwd: &str, family: &str) -> Result<SessionTrust, Failure> {
+    let reply = get(paths, cwd)?;
+    Ok(SessionTrust {
+        cwd: reply["cwd"].as_str().unwrap_or_default().to_owned(),
+        level: level_in(&reply, family, true),
+        decided: level_in(&reply, family, false),
+    })
+}
+
 /// The folder's level for a session of the agent `family`: acpmux's own
 /// decision first; without one, that agent's own level (Claude Code's or
 /// Codex's), or the stricter of both for any other agent. The pane reads the
 /// same rule from `get` (`decided`, `harnesses`), so its question and the
 /// trust gate (`server/trust_gate.rs`) agree.
 pub fn session_level(paths: &Paths, cwd: &str, family: &str) -> Result<(String, Level), Failure> {
-    level_for(paths, cwd, family, true)
+    session_trust(paths, cwd, family).map(|t| (t.cwd, t.level))
 }
 
 /// `session_level` for a Web client (or a peer forwarding for one): an auto-trust rule
@@ -236,39 +267,34 @@ pub fn web_session_level(
     cwd: &str,
     family: &str,
 ) -> Result<(String, Level), Failure> {
-    level_for(paths, cwd, family, false)
+    session_trust(paths, cwd, family).map(|t| (t.cwd, t.decided))
 }
 
-fn level_for(
-    paths: &Paths,
-    cwd: &str,
-    family: &str,
-    auto_answers: bool,
-) -> Result<(String, Level), Failure> {
-    let mut reply = get(paths, cwd)?;
+/// The level `get`'s `reply` gives an agent of `family`; `auto_answers`: whether an auto-trust
+/// rule counts.
+fn level_in(reply: &Value, family: &str, auto_answers: bool) -> Level {
+    let level_at = |pointer: &str| {
+        reply
+            .pointer(pointer)
+            .and_then(Value::as_str)
+            .and_then(Level::parse)
+            .unwrap_or(Level::Unknown)
+    };
+    let agent = |name: &str| level_at(&format!("/harnesses/{name}"));
     if !auto_answers && reply["auto"].is_string() {
         // Without the rule nothing decided: each agent's own level answers.
-        let agents = Level::parse(reply["harnesses"]["claude"].as_str().unwrap_or_default())
-            .unwrap_or(Level::Unknown)
-            .stricter(
-                Level::parse(reply["harnesses"]["codex"].as_str().unwrap_or_default())
-                    .unwrap_or(Level::Unknown),
-            );
-        reply["decided"] = Value::Bool(false);
-        reply["level"] = Value::from(agents.as_str());
+        return match family {
+            "claude" | "codex" => agent(family),
+            _ => agent("claude").stricter(agent("codex")),
+        };
     }
-    let cwd = reply["cwd"].as_str().unwrap_or_default().to_owned();
-    let level_at =
-        |pointer: &str| reply.pointer(pointer).and_then(Value::as_str).and_then(Level::parse);
-    let level = if reply["decided"].as_bool() == Some(true) {
-        level_at("/level")
-    } else {
-        match family {
-            "claude" | "codex" => level_at(&format!("/harnesses/{family}")),
-            _ => level_at("/level"),
-        }
-    };
-    Ok((cwd, level.unwrap_or(Level::Unknown)))
+    if reply["decided"].as_bool() == Some(true) {
+        return level_at("/level");
+    }
+    match family {
+        "claude" | "codex" => agent(family),
+        _ => level_at("/level"),
+    }
 }
 
 /// `acp.trust.set {cwd, level}`: records the decision; `unknown` forgets it.

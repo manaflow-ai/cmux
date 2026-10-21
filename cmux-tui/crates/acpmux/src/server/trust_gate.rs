@@ -25,7 +25,8 @@
 //! what it forwards for its pane (`via: app`) or a Web client (`via: web`),
 //! and the peer gates those with its own record. A peer's own request (no
 //! mark) is not gated. `_acpmux/warm` starts no agent in such a folder
-//! (`hub/warm.rs`). The gate is on only when the daemon set its paths
+//! (`hub/warm.rs`), and for a Web client none in a folder only an auto-trust rule trusts.
+//! `_acpmux/prewarm` with no folder named checks the folder it picks the same way. The gate is on only when the daemon set its paths
 //! (`Hub::set_trust_gate`).
 
 use std::sync::Arc;
@@ -192,7 +193,7 @@ async fn resolve_family(hub: &Arc<Hub>, name: &str) -> String {
 
 /// A Web client, or a peer that forwards for one: an auto-trust rule is no answer for it
 /// (`trust::web_session_level`).
-fn for_web(origin: Origin, params: &Value) -> bool {
+pub(super) fn for_web(origin: Origin, params: &Value) -> bool {
     match origin {
         Origin::Web => true,
         Origin::Peer => params.pointer("/_meta/acpmux/via").and_then(Value::as_str) == Some("web"),

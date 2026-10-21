@@ -535,16 +535,17 @@ impl Hub {
                 None
             };
             let decision_nonce = super::person::new_nonce();
+            let prev = session.status();
             state.pending.insert(
                 permission_id.clone(),
                 PendingPermission {
                     request: request.clone(),
                     reply: tx,
                     decision_nonce: decision_nonce.clone(),
+                    prev_status: prev,
                 },
             );
             self.append(session,"mux","permission_request",json!({"permissionId":permission_id,"decisionNonce":decision_nonce,"personInstance":self.person.instance(),"request":request,"groupId":grouping.as_ref().map(|(id,_)|id),"turnId":turn_id,"agentRequestId":agent_request_id,"remoteFloor":floored}));
-            let prev = session.status();
             self.set_status(session, SessionStatus::Waiting);
             (rx, prev, grouping, permission_id)
         };
@@ -557,20 +558,7 @@ impl Hub {
         // Who answered for the person (`hub/person.rs` answered_by): audit
         // only, never sent to the agent.
         let answered_by = outcome.as_object_mut().and_then(|o| o.remove(ANSWERED_BY_SLOT));
-        let mut decision = json!({"permissionId":permission_id,"outcome":outcome});
-        if let Some(by) = answered_by {
-            decision["answeredBy"] = by;
-        }
-        self.append(session, "mux", "permission_decision", decision);
-        {
-            let state = session.permissions.lock().unwrap();
-            if state.pending.is_empty()
-                && session.status() == SessionStatus::Waiting
-                && !self.secrets.waiting_in(&session.id)
-            {
-                self.set_status(session, status_after_ask(session, prev));
-            }
-        }
+        self.settle_permission(session, &permission_id, outcome.clone(), answered_by, prev);
         let mut out = json!({"outcome": outcome});
         if let Some(m) = out["outcome"].get("_meta").cloned() {
             out["_meta"] = m;
@@ -579,6 +567,32 @@ impl Hub {
             }
         }
         out
+    }
+
+    /// Logs the answer `outcome` to the prompt `permission_id` (the record the chat drops its
+    /// card on) and, once the session asks nothing else, takes back its Waiting status
+    /// (`status_after_ask` from `prev`, the status before the prompt). Every prompt this process
+    /// raised ends here, also a trust card withdrawn without its task (`trust_wait.rs`).
+    pub(super) fn settle_permission(
+        &self,
+        session: &Session,
+        permission_id: &str,
+        outcome: Value,
+        answered_by: Option<Value>,
+        prev: SessionStatus,
+    ) {
+        let mut decision = json!({"permissionId": permission_id, "outcome": outcome});
+        if let Some(by) = answered_by {
+            decision["answeredBy"] = by;
+        }
+        self.append(session, "mux", "permission_decision", decision);
+        let state = session.permissions.lock().unwrap();
+        if state.pending.is_empty()
+            && session.status() == SessionStatus::Waiting
+            && !self.secrets.waiting_in(&session.id)
+        {
+            self.set_status(session, status_after_ask(session, prev));
+        }
     }
 
     /// Answer a pending permission. `option_id = None` cancels. `answers`

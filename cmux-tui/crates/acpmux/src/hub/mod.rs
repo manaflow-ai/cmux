@@ -164,6 +164,8 @@ pub(super) struct PendingPermission {
     /// The nonce a relayed allow's decision proof covers (`person.rs`,
     /// cx-0q7o): new for each prompt, valid only while it is pending.
     pub(super) decision_nonce: String,
+    /// The session's status before this prompt made it Waiting (`settle_permission`).
+    pub(super) prev_status: SessionStatus,
 }
 
 #[derive(Debug, Clone)]

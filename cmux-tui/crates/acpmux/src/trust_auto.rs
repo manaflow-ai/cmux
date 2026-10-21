@@ -86,7 +86,10 @@ impl AutoTrust {
                 Some(_) => Vec::new(),
             }
         };
-        let canonical_home = home.and_then(|home| std::fs::canonicalize(home).ok());
+        // A home at `/` (HOME=/) holds every folder: no folder is inside it for the org rule.
+        let canonical_home = home
+            .and_then(|home| std::fs::canonicalize(home).ok())
+            .filter(|home| home.parent().is_some());
         let roots = strings(SETTING_ROOTS, &defaults.roots)
             .iter()
             .filter_map(|root| expand(root, home))
