@@ -1759,10 +1759,10 @@ mod tests {
         );
         let udp_from = |addr| Origin { path: UDP_PATH, addr: Some(addr) };
         underlay.authenticated(udp_from(old));
-        // Recent data, each datagram distinct.
+        // Recent WireGuard data, each datagram distinct (its fifth byte).
         for n in 0..20u8 {
-            let mut datagram = vec![n; 200];
-            datagram[0] = 4;
+            let mut datagram = vec![n; 208];
+            datagram[..4].copy_from_slice(&[4, 0, 0, 0]);
             underlay.send(&datagram);
         }
         // The roam: the phone's network changed, its first datagram comes
@@ -1784,8 +1784,8 @@ mod tests {
         while let Ok(Ok((len, _))) =
             tokio::time::timeout(Duration::from_millis(200), new_relay.recv_from(&mut buffer)).await
         {
-            if len == 200 {
-                *copies.entry(buffer[1]).or_default() += 1;
+            if len == 208 {
+                *copies.entry(buffer[4]).or_default() += 1;
             }
         }
         assert_eq!(copies.len(), 20, "every recent datagram reaches the new route: {copies:?}");
