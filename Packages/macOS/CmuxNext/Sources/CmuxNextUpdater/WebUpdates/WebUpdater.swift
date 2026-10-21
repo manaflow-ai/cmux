@@ -212,7 +212,9 @@ public final class WebUpdater {
             next.floor = max(next.floor, pointer.committedAt)
             try await Self.save(next, store: store, served: served())
             guard self.channel == channel else {
-                // The channel changed during the save: the next check serves the right channel.
+                // The channel changed during the save: put the state back (and drop the tree);
+                // the next check serves the right channel.
+                try? await Self.save(state, store: store, served: served())
                 phase = .idle
                 return
             }
