@@ -161,6 +161,34 @@ fn record_bytes(rec: &EventRecord) -> usize {
     serde_json::to_string(&rec.msg).map_or(0, |msg| msg.len()) + rec.kind.len() + 120
 }
 
+/// The most JSON one page holds when the caller names no `maxBytes`, and the most it may
+/// name. A page's records are parsed trees until the reply is written, many times their
+/// JSON: one read of a whole 31 MB log held about 1 GB (huge-blue, 2026-10-21), and a 4 MiB
+/// page still grew the daemon by 95 MB. A longer read takes more pages through `hasMore`;
+/// the app's pages are 128 and 256 KiB. A page also goes out as one message, under
+/// `rpc::MAX_MESSAGE_BYTES`: 5000 records of a chat with long tool outputs were 32.8 MB.
+pub const DEFAULT_PAGE_BYTES: usize = 1 << 20;
+pub const MAX_PAGE_BYTES: usize = 4 << 20;
+
+/// A page's byte limit from `maxBytes`: [`DEFAULT_PAGE_BYTES`] when absent, at most
+/// [`MAX_PAGE_BYTES`].
+pub fn page_bytes(params: &Value) -> usize {
+    let asked = params.get("maxBytes").and_then(Value::as_u64);
+    asked
+        .map_or(DEFAULT_PAGE_BYTES, |b| usize::try_from(b).unwrap_or(usize::MAX))
+        .min(MAX_PAGE_BYTES)
+}
+
+/// A record no page can carry goes as a stub with its kind and seq: what it left out, and how much.
+fn fit(mut rec: EventRecord, bounded: bool) -> EventRecord {
+    let bytes = record_bytes(&rec);
+    if bounded && bytes > MAX_PAGE_BYTES {
+        rec.msg =
+            json!({"_meta": {"acpmux": {"omitted": {"bytes": bytes, "reason": "too_large"}}}});
+    }
+    rec
+}
+
 /// One page of a session's log, oldest first.
 #[derive(Debug, Default)]
 pub struct EventPage {
@@ -186,6 +214,7 @@ impl Hub {
         filter: &EventFilter,
     ) -> Result<EventPage> {
         let before = before.unwrap_or(u64::MAX);
+        let bounded = max_bytes.is_some();
         let mut page = EventPage::default();
         let mut bytes = 0usize;
         // Whether the page is full before `rec`: by count, or by size once it holds a record.
@@ -206,6 +235,7 @@ impl Hub {
                 if !filter.matches(&rec) {
                     return true;
                 }
+                let rec = fit(rec, bounded);
                 if full(&rec, found) {
                     page.has_more = true;
                     return false;
@@ -222,6 +252,7 @@ impl Hub {
             if !filter.matches(&rec) {
                 return true;
             }
+            let rec = fit(rec, bounded);
             if full(&rec, found.len()) {
                 page.has_more = true;
                 return false;

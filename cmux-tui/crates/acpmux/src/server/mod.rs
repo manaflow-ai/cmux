@@ -149,7 +149,20 @@ impl Conn {
 
     fn send(&self, msg: &Message) {
         let masked = (!self.raw_text).then(|| peer_text::masked(msg)).flatten();
-        let _ = self.out.try_send(masked.as_ref().unwrap_or(msg).to_line());
+        let msg = masked.as_ref().unwrap_or(msg);
+        // No message larger than one frame (`rpc::MAX_MESSAGE_BYTES`): a reply goes as its error,
+        // a notification is left out and the client reads again from its last record.
+        match msg.bounded_line() {
+            Ok(line) => {
+                let _ = self.out.try_send(line);
+            }
+            Err(bytes) => {
+                tracing::warn!(conn = %self.id, method = ?msg.method(), bytes, "left out a notification too large to send");
+                let _ = self.out.try_send(
+                    Message::notification("_acpmux/lagged", json!({"dropped": 1})).to_line(),
+                );
+            }
+        }
     }
     fn sub_opts(&self, session_id: &str) -> Option<SubOpts> {
         self.subs.lock().unwrap().get(session_id).cloned()
@@ -842,6 +855,12 @@ async fn refuse_unauthenticated(
 
 /// Turn a hub record into client notifications for one connection.
 fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
+    if ev.record.kind == crate::hub::PEER_LAGGED {
+        if conn.sub_opts(&ev.session_id).is_some() {
+            conn.send(&Message::notification("_acpmux/lagged", ev.record.msg));
+        }
+        return;
+    }
     chats::push_activity(hub, conn, &ev);
     processes::push_update(conn, &ev);
     let rec = &ev.record;

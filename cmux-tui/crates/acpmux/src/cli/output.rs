@@ -715,9 +715,65 @@ async fn turn_reply(client: &Arc<Client>, id: &str, turn: &str) -> Result<String
     let page = json!({
         "sessionId": id, "limit": 5000, "kinds": ["transcript"], "maxBytes": TRANSCRIPT_PAGE_BYTES
     });
-    let v = client.request(method::MUX_ATTACH, page).await?;
-    let events = v.get("events").and_then(Value::as_array).cloned().unwrap_or_default();
+    let events = with_older(client, page).await?;
     Ok(reply_of_turn(&events, turn))
+}
+
+fn page_events(page: &Value) -> (Vec<Value>, bool) {
+    let events = page.get("events").and_then(Value::as_array).cloned().unwrap_or_default();
+    (events, page.get("hasMore").and_then(Value::as_bool).unwrap_or(false))
+}
+
+/// The newest `limit` events of a chat, oldest first: the attach `query` names (`sessionId`,
+/// `limit`, and any `kinds` or `maxBytes`), then the older pages before it with the same filter,
+/// since one reply holds at most `hub::MAX_PAGE_BYTES`.
+pub(crate) async fn with_older(client: &Arc<Client>, query: Value) -> Result<Vec<Value>> {
+    let limit = query.get("limit").and_then(Value::as_u64).unwrap_or(0) as usize;
+    let (mut events, mut more) =
+        page_events(&client.request(method::MUX_ATTACH, query.clone()).await?);
+    while more && events.len() < limit {
+        let Some(first) = events.first().and_then(|e| e.get("seq")).and_then(Value::as_u64) else {
+            break;
+        };
+        let mut older = query.clone();
+        older["beforeSeq"] = json!(first);
+        older["limit"] = json!(limit - events.len());
+        let (older, has_more) = page_events(&client.request(method::MUX_EVENTS, older).await?);
+        if older.is_empty() {
+            break;
+        }
+        more = has_more;
+        events.splice(0..0, older);
+    }
+    Ok(events)
+}
+
+/// Up to `limit` events of a chat after seq `after`, oldest first, a page at a time.
+pub(crate) async fn events_after(
+    client: &Arc<Client>,
+    id: &str,
+    mut after: u64,
+    limit: usize,
+) -> Result<Vec<Value>> {
+    let mut events = Vec::new();
+    while events.len() < limit {
+        let v = client
+            .request(
+                method::MUX_EVENTS,
+                json!({"sessionId": id, "afterSeq": after, "limit": limit - events.len()}),
+            )
+            .await?;
+        let (page, more) = page_events(&v);
+        let Some(last) = page.last().and_then(|e| e.get("seq")).and_then(Value::as_u64) else {
+            break;
+        };
+        after = last;
+        events.extend(page);
+        if !more {
+            break;
+        }
+    }
+    Ok(events)
 }
 
 fn reply_of_turn(events: &[Value], turn: &str) -> String {
@@ -755,9 +811,8 @@ pub(crate) async fn last_replies(
     let page = json!({
         "sessionId": id, "limit": 5000, "kinds": ["transcript"], "maxBytes": TRANSCRIPT_PAGE_BYTES
     });
-    let v = client.request(method::MUX_ATTACH, page).await?;
     let mut t = Transcript::default();
-    for e in v.get("events").and_then(Value::as_array).cloned().unwrap_or_default() {
+    for e in with_older(client, page).await? {
         t.apply_event(&e);
     }
     let mut out: Vec<String> = t
@@ -845,6 +900,42 @@ mod prompt_tests {
         let user_messages =
             hub.events(&id, 0, 1000).unwrap().iter().filter(|e| e.kind == "user_message").count();
         assert_eq!(user_messages, 1);
+        drop(dir);
+    }
+
+    /// A reply holds at most `hub::MAX_PAGE_BYTES` of a chat's history: the CLI reads on through
+    /// the older pages for the replies it asked for, past 12 MB of tool output.
+    #[tokio::test]
+    async fn the_last_reply_is_found_behind_more_than_a_page_of_output() {
+        let (hub, client, dir) = daemon().await;
+        let s = client
+            .request(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": []}))
+            .await
+            .unwrap();
+        let id = s["sessionId"].as_str().unwrap().to_owned();
+        let session = hub.resolve(&id).unwrap();
+        let update = |update: Value| json!({"jsonrpc": "2.0", "method": method::SESSION_UPDATE, "params": {"sessionId": "agent-1", "update": update}});
+        let text = |text: String| json!({"type": "text", "text": text});
+        hub.append(
+            &session,
+            "in",
+            "agent_message_chunk",
+            update(json!({"sessionUpdate": "agent_message_chunk", "content": text("the reply".into())})),
+        );
+        for n in 0..12 {
+            hub.append(
+                &session,
+                "in",
+                "tool_call_update",
+                update(json!({"sessionUpdate": "tool_call_update", "toolCallId": format!("call-{n}"),
+                    "status": "completed", "content": [{"type": "content", "content": text("x".repeat(1 << 20))}]})),
+            );
+        }
+        assert_eq!(last_replies(&client, &id, 1).await.unwrap(), vec!["the reply".to_owned()]);
+        // `session tail --since`: every event after the cursor, through the newest.
+        let after = events_after(&client, &id, 0, 100000).await.unwrap();
+        assert_eq!(after.last().unwrap()["seq"], session.meta().last_seq);
+        assert!(after.len() > 13, "{} events", after.len());
         drop(dir);
     }
 
