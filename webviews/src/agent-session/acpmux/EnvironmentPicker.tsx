@@ -81,7 +81,7 @@ export function EnvironmentPicker({
       ),
     [shown],
   );
-  // New Cloud Machine and Choose Machine Size… close the Cloud section (New Cloud Machine heads the
+  // New Cloud Machine and Open Cloud… close the Cloud section (New Cloud Machine heads the
   // section when there is no cloud machine); New environment, last, holds the SSH connect flow.
   const actions: { value: string; text: string; detail?: string; kind: "ssh" | "cloud"; run(): void }[] = onConnect
     ? [
@@ -92,7 +92,12 @@ export function EnvironmentPicker({
           kind: "cloud",
           run: () => onConnect("cloud"),
         },
-        { value: ACTION + "cloudSize", text: t("composer.chooseCloudSize"), kind: "cloud", run: () => onConnect("cloudSize") },
+        {
+          value: ACTION + "cloudPage",
+          text: t("composer.openCloud"),
+          kind: "cloud",
+          run: () => onConnect("cloudPage"),
+        },
         { value: ACTION + "ssh", text: t("composer.connectSSH"), kind: "ssh", run: () => onConnect("ssh") },
       ]
     : [];
@@ -234,9 +239,9 @@ export function EnvironmentPicker({
           onCommand={(event) => {
             if (event.key === "Escape") escaped.current = true;
             if (event.key === "Tab") event.preventDefault();
-            // Return runs New Cloud Machine (it creates a machine) or SSH… only once the arrow keys
-            // or the pointer reached it, never when Base UI highlighted it on its own: a search that
-            // leaves no machine moves that highlight onto the first action.
+            // Return runs an action (New Cloud Machine creates a machine; Open Cloud…, SSH…) only
+            // once the arrow keys or the pointer reached it, never when Base UI highlighted it on its
+            // own: a search that leaves no machine moves that highlight onto the first action.
             if (event.key === "Enter" && autoHighlighted.current?.startsWith(ACTION)) {
               event.preventDefault();
               event.preventBaseUIHandler?.();

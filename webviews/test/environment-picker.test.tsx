@@ -223,12 +223,12 @@ test("previews on: one list in Local, SSH and Cloud sections, numbered ⌥⌘1�
     false,
     false,
   ]);
-  // New Cloud Machine and Choose Machine Size… close the Cloud section, the first with what one
+  // New Cloud Machine and Open Cloud… close the Cloud section, the first with what one
   // gives; New environment, last, holds SSH….
   expect(rows().slice(-3)).toEqual(newRows());
   expect(newRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
     t("composer.newCloudMachine"),
-    t("composer.chooseCloudSize"),
+    t("composer.openCloud"),
     t("composer.connectSSH"),
   ]);
   expect(newRows()[0]!.querySelector(".acpmux-env-detail")?.textContent).toBe(t("composer.newCloudMachineDetail"));
@@ -249,7 +249,7 @@ test("with no cloud machine yet, New Cloud Machine heads its own Cloud section a
   expect(machineRows().some((row) => row.querySelector('.acpmux-env-row[data-kind="cloud"]'))).toBe(false);
   const cloud = newRows()[0]!;
   expect(cloud.querySelector(".acpmux-env-row")!.getAttribute("data-section")).toBe(t("composer.cloud"));
-  // Choose Machine Size… stays in that one Cloud section.
+  // Open Cloud… stays in that one Cloud section.
   expect(newRows()[1]!.querySelector(".acpmux-env-row")!.getAttribute("data-section")).toBeNull();
   await act(async () => cloud.click());
   expect(calls).toEqual([["connect", "cloud"]]);
@@ -280,7 +280,7 @@ test("⌥⌘ digits do nothing while focus is outside the composer", async () =>
   expect(calls).toEqual([]);
 });
 
-test("New Cloud Machine, Choose Machine Size… and SSH… open the host's create, sizes and connect flows", async () => {
+test("New Cloud Machine, Open Cloud… and SSH… open the host's create flow, the Cloud page and the connect flow", async () => {
   const calls = await mount(true);
   for (const index of [0, 1, 2]) {
     await openPicker();
@@ -289,15 +289,19 @@ test("New Cloud Machine, Choose Machine Size… and SSH… open the host's creat
   }
   expect(calls).toEqual([
     ["connect", "cloud"],
-    ["connect", "cloudSize"],
+    ["connect", "cloudPage"],
     ["connect", "ssh"],
   ]);
 });
 
 test("each connect choice runs its own host action", async () => {
   const { CONNECT_ACTIONS } = await import("../src/agent-session/acpmux/environments");
-  // Choose Machine Size… opens the Cloud page, whose storefront lists the plan's sizes.
-  expect(CONNECT_ACTIONS).toEqual({ ssh: "remote.connect", cloud: "newCloudMachine", cloudSize: "palette.openCloudPane" });
+  // Open Cloud… opens the Cloud page, whose Sizes and Plans view lists the plan's sizes.
+  expect(CONNECT_ACTIONS).toEqual({
+    ssh: "remote.connect",
+    cloud: "newCloudMachine",
+    cloudPage: "palette.openCloudPane",
+  });
 });
 
 test("Return on a search runs no action Base UI highlighted by itself, but picks a matching machine", async () => {

@@ -1,7 +1,7 @@
 extension AgentPaneModel {
-    /// The app actions any agent tab may run: the location row's SSH…, New Cloud Machine and Choose
-    /// Machine Size…, which opens the Cloud page (its storefront lists the plan's sizes; the pane
-    /// knows no plan). webviews environments.ts CONNECT_ACTIONS names the same three.
+    /// The app actions any agent tab may run: the location row's SSH…, New Cloud Machine and Open
+    /// Cloud…, which opens the Cloud page (its Sizes and Plans view lists the plan's sizes; the
+    /// pane knows no plan). webviews environments.ts CONNECT_ACTIONS names the same three.
     static let connectActions: Set<String> = ["remote.connect", "newCloudMachine", "palette.openCloudPane"]
     /// What runs when a connect is refused: signed out, cmux Cloud… starts sign-in.
     static let connectFallbacks: [String: String] = ["newCloudMachine": "palette.auth.signIn"]

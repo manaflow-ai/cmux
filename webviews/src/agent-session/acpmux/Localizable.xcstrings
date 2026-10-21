@@ -189209,134 +189209,134 @@
         }
       }
     },
-    "composer.chooseCloudSize": {
-      "comment": "Agent pane: environment picker row under New Cloud Machine; opens the Cloud page, which lists the plan's machine sizes",
+    "composer.openCloud": {
+      "comment": "Agent pane: environment picker row under New Cloud Machine; opens the Cloud page (its Sizes and Plans view lists the plan's machine sizes). Cloud is the product name",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "اختيار حجم الجهاز…"
+            "value": "فتح Cloud…"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Odaberi veličinu mašine…"
+            "value": "Otvori Cloud…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vælg maskinstørrelse…"
+            "value": "Åbn Cloud…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Maschinengröße wählen…"
+            "value": "Cloud öffnen…"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose Machine Size…"
+            "value": "Open Cloud…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Elegir tamaño de máquina…"
+            "value": "Abrir Cloud…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Choisir la taille de la machine…"
+            "value": "Ouvrir Cloud…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Scegli dimensione macchina…"
+            "value": "Apri Cloud…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "マシンのサイズを選択…"
+            "value": "Cloud を開く…"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ជ្រើសរើសទំហំម៉ាស៊ីន…"
+            "value": "បើក Cloud…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "머신 크기 선택…"
+            "value": "Cloud 열기…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Velg maskinstørrelse…"
+            "value": "Åpne Cloud…"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wybierz rozmiar maszyny…"
+            "value": "Otwórz Cloud…"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Escolher tamanho da máquina…"
+            "value": "Abrir Cloud…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Выбрать размер машины…"
+            "value": "Открыть Cloud…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เลือกขนาดเครื่อง…"
+            "value": "เปิด Cloud…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Makine Boyutunu Seç…"
+            "value": "Cloud'u Aç…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Вибрати розмір машини…"
+            "value": "Відкрити Cloud…"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chọn kích thước máy…"
+            "value": "Mở Cloud…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "选择机器规格…"
+            "value": "打开 Cloud…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "選擇機器規格…"
+            "value": "打開 Cloud…"
           }
         }
       }
