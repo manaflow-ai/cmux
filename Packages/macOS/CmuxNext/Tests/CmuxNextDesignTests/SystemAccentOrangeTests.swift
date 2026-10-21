@@ -11,7 +11,7 @@ import Testing
 ///
 /// The suite sets the accent to orange for this process (`AppleAccentColor` 1 is orange) and also
 /// compares against `NSColor.systemOrange`, so the check holds where AppKit keeps the host's accent.
-@MainActor @Suite(.serialized) struct SystemAccentOrangeTests {
+@MainActor @Suite(.serialized) final class SystemAccentOrangeTests {
     init() {
         // The argument domain, as `-AppleAccentColor 1` on the command line: in memory only, so the
         // test host's own defaults keep their accent.
@@ -20,6 +20,14 @@ import Testing
         arguments["AppleHighlightColor"] = "1.000000 0.874510 0.701961 Orange"
         UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
         _ = NSApplication.shared
+    }
+
+    /// Other suites in this process see the host's accent again.
+    deinit {
+        var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+        arguments["AppleAccentColor"] = nil
+        arguments["AppleHighlightColor"] = nil
+        UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
     }
 
     /// The app's default look: a dark theme with no accent of its own and `appearance.accent` neutral.
@@ -57,19 +65,24 @@ import Testing
     @Test func aThemedMenuHighlightIsNotTheSystemAccent() throws {
         let menu = NSMenu()
         menu.addItem(NSMenuItem(title: "Rename", action: nil, keyEquivalent: ""))
-        menu.themeRows(in: Self.neutralScope())
+        // Held here: the registry and a scope's parent hold scopes weakly.
+        let scope = Self.neutralScope()
+        menu.themeRows(in: scope)
         let row = try #require(menu.items[0].view as? ThemedMenuRowView, "the row is cmux-drawn, not AppKit's highlight")
         row.highlightOverride = true
         // Left of the title, where only the highlight paints.
         Self.expectNotAccent(try #require(Self.sample(row, x: 8)), "highlighted menu row")
+        withExtendedLifetime(scope) {}
     }
 
     @Test func aSelectedTableRowIsNotTheSystemAccent() throws {
         let row = ThemedTableRowView(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
-        ThemeScopeRegistry.setScope(Self.neutralScope(), of: row)
+        let scope = Self.neutralScope()
+        ThemeScopeRegistry.setScope(scope, of: row)
         row.isSelected = true
         #expect(row.isEmphasized == false, "an emphasized row turns its text white on the accent")
         Self.expectNotAccent(try #require(Self.sample(row, x: 100)), "selected table row")
+        withExtendedLifetime(scope) {}
     }
 
     @Test func aBezelButtonIsNotTheSystemAccent() throws {

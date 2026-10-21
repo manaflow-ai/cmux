@@ -150,5 +150,14 @@ await requireBrowserLane("accent-glass-invariants.test.ts", async () => {
     );
     if (fresh.length) console.log(`accent-glass findings:\n${fresh.join("\n")}`);
     expect(fresh).toEqual([]);
+    // A scan that reached nothing proves nothing: most stages, and each allowlisted theme, scanned.
+    const scanned = results.filter((result) => !("error" in result));
+    expect(scanned.length).toBeGreaterThan(stages.length * 0.9);
+    for (const theme of orangeThemes)
+      if (themes.includes(theme))
+        expect(
+          scanned.some((result) => result.stage.endsWith(`@${theme}`)),
+          `${theme} scanned`,
+        ).toBe(true);
   });
 });
