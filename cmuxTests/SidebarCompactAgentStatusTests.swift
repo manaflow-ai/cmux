@@ -721,8 +721,10 @@ struct SidebarCompactAgentStatusTests {
         #expect(off.compactStatusGlyph == nil)
     }
 
-    /// `sidebar.hiddenStatusKeys` hides a key's pill in both layouts and
-    /// leaves the workspace's entry, and every other key, alone.
+    /// `sidebar.hiddenStatusKeys` hides a key's pill where it shows as a row
+    /// and leaves the workspace's entry, and every other key, alone. In
+    /// compact mode the agent keys are already folded into the glyph, so the
+    /// glyph and its tooltip keep reading them.
     @Test
     func factoryLeavesOutHiddenStatusKeys() throws {
         let workspace = Workspace(
@@ -755,19 +757,48 @@ struct SidebarCompactAgentStatusTests {
         let full = snapshot(compact: false)
         #expect(full.metadataEntries.map(\.key) == ["deploy"])
 
-        // Hiding is about the pill, not the agent: the entry's line leaves
-        // the glyph's tooltip, while the glyph keeps the agent's lifecycle.
-        // In compact mode the glyph is the only activity signal (the spinner
-        // is not drawn), so a hidden pane must still show needs input.
+        // Hiding is about the pill, not the agent. In compact mode the agent
+        // key has no row to hide: the glyph is the only activity signal (the
+        // spinner is not drawn), so it still shows needs input, and its
+        // tooltip still carries the entry's line.
         let compact = snapshot(compact: true)
         #expect(compact.metadataEntries.map(\.key) == ["deploy"])
         #expect(compact.compactStatusGlyph?.kind == .needsInput)
         let tooltip = try #require(compact.compactStatusGlyph?.tooltip)
-        #expect(!tooltip.isEmpty)
-        #expect(!tooltip.contains("hidden-pill-text"))
+        #expect(tooltip.contains("hidden-pill-text"))
 
         // Display only: the entry is still there for the CLI and socket.
         #expect(workspace.sidebarStatusEntriesInDisplayOrder().contains { $0.key == "claude_code" })
+    }
+
+    /// The glyph's entry-derived states survive hiding too. An error is
+    /// reported only through the entry's icon (lifecycle has no error state),
+    /// so a hidden `claude_code` entry must still turn the glyph red, while a
+    /// hidden non-agent key still leaves the rows in compact mode.
+    @Test
+    func factoryKeepsAHiddenAgentErrorInTheCompactGlyphAndHidesRowPills() {
+        let workspace = Workspace(
+            title: "Project",
+            workingDirectory: FileManager.default.currentDirectoryPath,
+            portOrdinal: 0
+        )
+        defer { workspace.teardownAllPanels() }
+        workspace.statusEntries["claude_code"] = Self.entry("claude_code", "Failed", icon: "exclamationmark.triangle.fill")
+        workspace.statusEntries["deploy"] = Self.entry("deploy", "green")
+        workspace.statusEntries["ports"] = Self.entry("ports", "3000")
+        workspace.agentPIDs["claude_code"] = 4242
+
+        let defaults = Self.makeDefaults()
+        defaults.set(true, forKey: "sidebarCompactAgentStatus")
+        defaults.set(["claude_code", "deploy"], forKey: SidebarCatalogSection().hiddenStatusKeys.userDefaultsKey)
+        let snapshot = SidebarWorkspaceSnapshotFactory(
+            workspace: workspace,
+            settings: SidebarTabItemSettingsSnapshot(defaults: defaults),
+            showsAgentActivity: false
+        ).makeSnapshot()
+
+        #expect(snapshot.compactStatusGlyph?.kind == .error)
+        #expect(snapshot.metadataEntries.map(\.key) == ["ports"])
     }
 
     /// A hidden key never reaches into the glyph's lifecycle inputs: a
