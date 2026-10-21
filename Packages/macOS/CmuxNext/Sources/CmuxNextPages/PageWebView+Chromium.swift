@@ -63,9 +63,10 @@ extension PageWebView {
 
     // MARK: Start
 
-    /// Starts the Chromium page and loads `url` in it; falls back to WebKit when that fails or the
+    /// Starts the Chromium page and loads the document at ``route`` in it (as it stands once the page
+    /// exists, so an ``open(route:)`` meanwhile wins); falls back to WebKit when that fails or the
     /// page does not reach the host in time.
-    func startChromium(url: URL, hosting: any PageChromiumHosting) {
+    func startChromium(hosting: any PageChromiumHosting) {
         webView.isHidden = true
         let scripts = PageChromiumDocumentScripts(controller: webView.configuration.userContentController)
         let descriptor = descriptor
@@ -81,11 +82,11 @@ extension PageWebView {
                 page.close()
                 return
             }
-            await self.attachChromium(page, scripts: scripts, url: url)
+            await self.attachChromium(page, scripts: scripts)
         }
     }
 
-    private func attachChromium(_ page: any PageChromiumPage, scripts: PageChromiumDocumentScripts, url: URL) async {
+    private func attachChromium(_ page: any PageChromiumPage, scripts: PageChromiumDocumentScripts) async {
         let bridge = ChromiumPageHostBridge(page: page, fireAndForget: Self.chromiumFireAndForget)
         let session = PageChromiumSession(page: page, bridge: bridge, clock: chromiumClock)
         page.onEvent = { [weak self] event in self?.chromiumEvent(event) }
@@ -118,7 +119,7 @@ extension PageWebView {
         page.contentView.autoresizingMask = [.width, .height]
         addSubview(page.contentView)
         page.setVisible(window != nil && !isHiddenOrHasHiddenAncestor)
-        page.load(url)
+        page.load(descriptor.url(route: route))
         let wait = chromiumDeadline
         // The page's first message cancels the deadline (onFirstMessage); ending the session too.
         session.deadline.schedule(after: wait) { @MainActor [weak self, weak session] in

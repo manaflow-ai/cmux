@@ -49,6 +49,21 @@ const sessions: Props["sessions"] = [
   }),
 ];
 
+/** An agent whose sub-session waits for the person to trust a folder (hub/trust_wait.rs). */
+const trustWaiting: Props["sessions"] = [
+  session({
+    sessionId: "sidebar-trust",
+    title: "Split the importer into parts",
+    updatedAt: minutesAgo(1),
+    status: "waiting",
+    indicator: "input",
+    trustPending: "/Users/you/src/vendor-sdk",
+    cwd: "/Users/you/src/cmux",
+    branch: "feat/importer",
+  }),
+  ...sessions.slice(0, 2),
+];
+
 const sessionsWithoutPreview = sessions.map((entry) => ({ ...entry, preview: undefined }));
 
 const active = session({
@@ -220,6 +235,10 @@ const entry = componentEntry<Props>({
     baseline: {
       note: "Grouped projects, an open tab, local and cloud placement, status marks, and the account footer.",
       props: baseProps,
+    },
+    "trust-pending": {
+      note: "An agent's sub-session waits for a folder's trust: its row says Needs trust, in the amber of the question card, instead of Needs your input.",
+      props: { ...baseProps, sessions: trustWaiting, selectedId: "sidebar-first", groupProjects: false },
     },
     "search-filtered": {
       note: "Search narrows rows by title, branch, project or host while preserving project context.",

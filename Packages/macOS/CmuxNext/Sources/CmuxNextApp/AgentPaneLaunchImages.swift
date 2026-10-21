@@ -8,9 +8,6 @@ import CmuxNextAgentPane
 /// A JPEG or a PNG, as `CGImage.pageImageData` encodes it.
 @MainActor
 final class AgentPaneLaunchImages {
-    static let directoryName = "agent-pane-images"
-    /// A larger file is not read.
-    static let maximumBytes = 8 * 1024 * 1024
 
     let directory: URL?
     private var taken: Set<String> = []
@@ -23,7 +20,7 @@ final class AgentPaneLaunchImages {
 
     /// The directory next to the launch snapshot of `file` (the tag's state).
     convenience init(beside file: SidebarSnapshotFile?) {
-        self.init(directory: file?.url.deletingLastPathComponent().appending(path: Self.directoryName, directoryHint: .isDirectory))
+        self.init(directory: file?.url.deletingLastPathComponent().appending(path: "agent-pane-images", directoryHint: .isDirectory))
     }
 
     /// `key`'s saved page at its point size, the first time it is asked for. A released page's
@@ -41,7 +38,7 @@ final class AgentPaneLaunchImages {
         // Either kind a save may have written (one at a time: a save replaces the set).
         for (scale, ext) in [2, 1, 3].flatMap({ scale in ["png", "jpg"].map { (scale, $0) } }) {
             let url = directory.appending(path: Self.fileName(key, scale: scale, ext: ext))
-            guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size <= Self.maximumBytes,
+            guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size <= 8 << 20 /* a larger file is not read */,
                   // concurrency-allow: one capped read of a small local image before the agent pane's first frame
                   let data = try? Data(contentsOf: url), let rep = NSBitmapImageRep(data: data) else { continue }
             let image = NSImage(size: NSSize(width: CGFloat(rep.pixelsWide) / CGFloat(scale), height: CGFloat(rep.pixelsHigh) / CGFloat(scale)))

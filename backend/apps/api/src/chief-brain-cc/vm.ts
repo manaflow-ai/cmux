@@ -56,13 +56,26 @@ export const createVm = async (env: Env, name: string, meta: { agent: string; co
     ttlSeconds: 1800,
     automaticRestart: false,
     metadata: { cmux_chief_cc: meta.agent, cmux_conversation: meta.conversation, cmux_run: meta.run },
-    // Out to the Internet only (the tailnet comes up inside the guest); nothing comes in.
+    // Out to the Internet only, IPv4 and IPv6 (the tailnet comes up inside the guest); nothing comes in.
+    // What the agent user may reach inside is net.ts.
     firewall: { rules: [{ action: "allow", source: {}, destination: { public: true } }] }
   }, 120_000)
   const body = (await res.json().catch(() => null)) as { id?: string; vmId?: string } | null
   const id = body?.id ?? body?.vmId
   if (!res.ok || !id) throw new CcError(`create VM: ${res.status}`)
   return id
+}
+
+/**
+ * The VM's network as Freestyle reports it (its IP mode and egress addresses), for `chief-net show`; null
+ * when the call fails (it never holds up a turn).
+ */
+export const vmNetwork = async (env: Env, vm: string): Promise<{ vm: string; ip_mode: string | null; egress_ipv4: string | null; egress_ipv6: string | null } | null> => {
+  const res = await fs(env, "GET", `/v5/vms/${encodeURIComponent(vm)}`, undefined, 10_000).catch(() => null)
+  if (!res?.ok) return void (await res?.body?.cancel().catch(() => undefined)), null
+  const r = (await res.json().catch(() => null)) as { ipMode?: unknown; egressIpv4?: unknown; egressIpv6?: unknown } | null
+  const str = (x: unknown) => (typeof x === "string" ? x : null)
+  return { vm, ip_mode: str(r?.ipMode), egress_ipv4: str(r?.egressIpv4), egress_ipv6: str(r?.egressIpv6) }
 }
 
 /** Runs `command` as root with `stdin`; the exit code and stdout (the guest's stderr is never read back). */

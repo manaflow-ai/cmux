@@ -16,6 +16,8 @@ import { EffortLabel, EffortPicker, type SpeedSection } from "./EffortPicker";
 import { type SpeedTiers, useSpeedToggle } from "./FastToggle";
 import { type StringKey, useT } from "./i18n";
 import { ModelPicker } from "./ModelPicker";
+import { AgentOptionsMenu } from "./AgentOptionsMenu";
+import { extraConfigOptions } from "./agentOptions";
 import type { CatalogRefreshState, ModelCombo, ModelPickerProps } from "./modelPickerLayout";
 import { topModelsFor } from "./topModels";
 import { rememberPick } from "./lastPick";
@@ -814,6 +816,9 @@ export function ComposerPickers({
           </button>
         </ContextMenu>
       )}
+      {/* The harness's other settings (Codex's collaboration mode, a custom harness's own
+          options): each config option no chip above owns, picked like the effort level. */}
+      <AgentOptionsMenu options={extraConfigOptions(summary)} onPick={(configId, value) => onEffort(configId, value)} />
     </div>
   );
   return chips;
@@ -1196,7 +1201,6 @@ export function Picker({
   warnUnrestricted = false,
   returnFocus = true,
   heading,
-  tooltip,
 }: {
   label: string;
   className: string;
@@ -1208,9 +1212,6 @@ export function Picker({
   returnFocus?: boolean;
   /// A question over the choices, as an approval menu asks it.
   heading?: string;
-  /// The shared tooltip (ui/titleTooltips.ts) for a button that draws only a glyph, as Claude Code's
-  /// + shows "Add" after the hover delay.
-  tooltip?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
@@ -1345,8 +1346,6 @@ export function Picker({
         className="acpmux-picker-button"
         data-menu={label}
         aria-label={label}
-        /* tooltip-allow: a glyph-only menu button (+) names itself on hover, as Claude Code's does */
-        title={tooltip}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}

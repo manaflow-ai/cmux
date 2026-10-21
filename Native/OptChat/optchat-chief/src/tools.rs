@@ -902,7 +902,9 @@ impl Call {
             }
             Call::Reply { id, text } => json!({"tool": "reply", "id": id, "text": text}),
             Call::Send(c) => c.to_json(),
-            Call::Stop => json!({"tool": "stop"}),
+            // `end_turn` marks the model's tool: the owner's chief.stop
+            // reaches this socket as a bare `{"tool": "stop"}`.
+            Call::Stop => json!({"tool": "stop", "end_turn": true}),
             Call::Sleep(c) => c.to_json(),
             Call::Control(c) => c.to_json(),
             Call::EscalateAuth { request, agent } => {
@@ -1105,8 +1107,14 @@ fn connection(conn: UnixStream, served: &Served) {
                 }
                 // chief.engine.get / chief.engine.set / chief.stop: the
                 // brain's JSON value as the answer line (the daemon's
-                // owner-gated chief-control forwards these lines).
-                if tool == "engine" || tool == "stop" {
+                // owner-gated chief-control forwards these lines). The
+                // model's own `stop` tool (`end_turn`, or any call from a
+                // turn session) only ends its turn: taken for chief.stop, it
+                // stopped every subagent (2026-10-20).
+                let model_stop = tool == "stop"
+                    && (req.get("end_turn").and_then(Value::as_bool) == Some(true)
+                        || role() == crate::turn_caller::Role::Turn);
+                if tool == "engine" || (tool == "stop" && !model_stop) {
                     let field = |k: &str| req.get(k).and_then(Value::as_str).map(str::to_owned);
                     let ask = match (tool, field("action").as_deref()) {
                         ("stop", _) => Some(match field("name").filter(|n| !n.trim().is_empty()) {
