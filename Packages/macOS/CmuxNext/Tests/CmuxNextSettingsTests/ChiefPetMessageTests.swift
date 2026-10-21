@@ -48,13 +48,17 @@ import Testing
         #expect(descriptor.isPersonOnly)
     }
 
-    @Test func offItTurnsThePetOnThenSummonsIt() async throws {
+    /// Off, it summons the pet for this message only: `home.chiefPetEnabled` stays off, in the snapshot
+    /// and in cmux-next.json, so a person who never chose the pet does not keep it.
+    @Test func offItSummonsThePetAndLeavesTheStoredValueOff() async throws {
         let (registry, settings, home, summons) = try Self.make()
         defer { try? FileManager.default.removeItem(at: home) }
         await settings.reload()
         #expect(await Self.run(registry).isEmpty)
-        #expect(settings.snapshot.homeChiefPetEnabled)
-        #expect(summons.enabledThen == [true], "summoned once, after the setting landed")
+        #expect(summons.count == 1)
+        #expect(settings.snapshot.homeChiefPetEnabled == false)
+        let stored = try String(contentsOf: home.appending(path: "cmux-next.json"), encoding: .utf8)
+        #expect(!stored.contains("chiefPetEnabled"), "nothing written: \(stored)")
     }
 
     @Test func onItSummonsAtOnceAndLeavesTheSettingAlone() async throws {
