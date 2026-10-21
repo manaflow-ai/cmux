@@ -133,6 +133,11 @@ select_packages() {
     CmuxRemoteWorkspace
     CmuxRemoteSession
     CmuxAgentChat
+    CmuxAgentQuestion
+    CmuxChief
+    CmuxHomeCore
+    CmuxHomeRender
+    CmuxMessagesLab
     CmuxAgentSessionStore
     CmuxAuthRuntime
     CmuxWorkspacePresence

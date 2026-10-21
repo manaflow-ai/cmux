@@ -3529,6 +3529,13 @@
               "enabled": "With a remote tmux workspace selected, New Workspace starts a tmux session on that workspace’s host."
             }
           }
+        },
+        "chief": {
+          "description": "Chief, the Home agent: whether it is shown and which harness, model, and effort it uses.",
+          "enabled": "Show the Home row and Chief entry points. When false, the Home row, the Open Chief shortcut, menu item, and command palette entries are hidden.",
+          "harness": "Agent harness Chief runs on: claude (Claude Code) or codex (Codex).",
+          "model": "Model passed to the harness. Leave empty to use the harness default.",
+          "effort": "Reasoning effort passed to the harness, such as low, medium, or high. Leave empty to use the harness default."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

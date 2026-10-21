@@ -4,6 +4,13 @@
 
 ## Rules that must never be broken
 
+- Nightlies never use Blacksmith (user decision 2026-10-19). Every
+  `*nightly*.yml` and `*notarization*.yml` job compiles on the trusted minis
+  (`build-nightly-app` on cmux15) or runs on an ephemeral GitHub-hosted image
+  (`ubuntu-24.04`, `macos-26`, `macos-15`): signing, notarization and
+  publishing stay ephemeral. These workflows read no shared runner variable
+  (`LINUX_RUNNER`, `MACOS_RUNNER_*`, ...) and never reach the benchmark mini
+  cmux11s. `tests/test_ci_nightly_off_blacksmith.py` enforces it.
 - CI is minis first. Blacksmith is overflow; do not disable an owned lane to
   make room for a dev build.
 - Every mini must have every pinned Xcode from
