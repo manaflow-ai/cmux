@@ -303,7 +303,8 @@ impl Session {
         let Some(turn) = TurnCarrier::allocate(&self.options).await else { return false };
         let _one_at_a_time = self.roaming.lock().await;
         if self.roams.load(Ordering::Relaxed) != roams || self.closed.load(Ordering::Relaxed) {
-            // A roam took its own allocation on the new network.
+            // A roam took its own allocation on the new network, or started
+            // its own retry.
             return true;
         }
         let Ok(net) = self.net() else { return true };
@@ -541,7 +542,15 @@ impl Session {
             self.install_turn(turn, (relayed.clone(), relayed_tls.clone()));
             let _ = net.refresh().await;
         } else {
-            *lock(&self.relayed) = (Vec::new(), Vec::new());
+            // The old network's relayed address is dead: stop offering it
+            // (a relay-only roam above announced nothing in its place).
+            let (old, _) = std::mem::take(&mut *lock(&self.relayed));
+            lock(&self.endpoints).retain(|endpoint| !old.contains(endpoint));
+            if keeps_turn && super::super::turn::turn_servers(&self.options.ice_servers) != (None, None) {
+                // The new network's TURN server did not answer in time: keep
+                // asking (this also replaces a retry started on the old one).
+                self.retry_turn("roam took no TURN allocation; taking one", async { true });
+            }
         }
         if endpoints.len() != known {
             self.announce(offered(endpoints, &self.options), relayed, relayed_tls);
@@ -795,6 +804,12 @@ pub fn roam_timeline(session_id: &str) -> Option<Timeline> {
 pub async fn roam_session(session_id: &str, dialer: bool) -> Option<Timeline> {
     let session = find(session_id, dialer)?;
     Some(session.roam().await)
+}
+
+/// Test support: the endpoints one side of `session_id` last told its peer.
+#[doc(hidden)]
+pub fn session_endpoints(session_id: &str, dialer: bool) -> Option<Vec<String>> {
+    find(session_id, dialer).map(|session| lock(&session.endpoints).clone())
 }
 
 /// Debug and tests: the current network of one side of `session_id` (or of
