@@ -17,6 +17,7 @@ import path from "node:path";
 import { PNG } from "pngjs";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("markdown-table-obsidian.test.ts", async () => {
@@ -85,6 +86,7 @@ await requireBrowserLane("markdown-table-obsidian.test.ts", async () => {
       deviceScaleFactor: scale,
     });
     const page = await context.newPage();
+    await installPaintedFrames(page);
     await load(page);
     return page;
   };
@@ -198,7 +200,15 @@ await requireBrowserLane("markdown-table-obsidian.test.ts", async () => {
           style.setProperty("--cmux-md-table-header-background", "rgba(0, 0, 0, 0.08)");
           (document.activeElement as HTMLElement | null)?.blur();
         });
-        await page.waitForTimeout(100);
+        // A frame painted with the new colors, once any ease into them has run out.
+        await page.waitForFunction(() =>
+          document
+            .getAnimations()
+            .every(
+              (animation) => animation.playState !== "running" || animation.effect?.getTiming().iterations === Infinity,
+            ),
+        );
+        await page.evaluate(() => window.cmuxPaintFrame());
         const shot = PNG.sync.read(await page.screenshot());
         const scale = 2;
         /** The strongest border pixel (lowest red) in a window around a CSS point. */

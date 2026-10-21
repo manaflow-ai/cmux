@@ -64,6 +64,7 @@ extension SidebarListViewComponents {
     func options(includeGap: Bool) -> SidebarLayoutOptions {
         var o = model.listOptions()
         o.showsSoleMachineHeader = true
+        o.pullRequests = SidebarSessionTree.shared.pullRequests
         if let tree = SidebarSessionTree.shared.state {
             (o.sessionTree, o.keycaps) = (tree, model.workspaceKeycaps(DesignSettings.shared.sidebarSections.navigation))
             o.chatHistory = SidebarChatHistory.shared.state
@@ -247,7 +248,7 @@ extension SidebarListViewComponents {
         case let (.workspace(id), view as WorkspaceRowView):
             guard let ws = workspaces[id] else { return }
             view.configure(ws, row: row, badgeStyle: model.rowBadgeStyle)
-            view.isSecondarySelected = model.selection.contains(id) && !view.isSelected
+            paintSecondaryFills(view, id)
             view.isDropTarget = external?.proposal == .intoWorkspace(id) || drag?.target == .ontoWorkspace(id)
         case let (.item(id), view as SidebarItemListRowView):
             guard let item = listItems[id] else { return }

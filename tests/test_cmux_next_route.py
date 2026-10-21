@@ -142,11 +142,14 @@ class PullRequestTiers(unittest.TestCase):
         # (ce0b9e76a9b) the schema is also a web-bundle input, so the targets that ship
         # a bundle, the app that embeds them, and CmuxNextPhoneAccessTests,
         # CmuxNextMobileHostTests and CmuxNextHomeEngineTests (their targets depend on
-        # CmuxNextAgentPane and CmuxNextPages) are selected with it, and nothing else.
+        # CmuxNextAgentPane and CmuxNextPages) and CmuxNextAgentIntegrationsTests (its target
+        # depends on CmuxNextPages) are selected with it, and nothing else.
         result = tiers(["schemas/settings/settings-schema.json"])
         self.assertEqual(result["swift_targets"].split(), sorted([
             "CmuxNextSettingsTests", "CmuxNextAppTests", "CmuxNextAgentPaneTests", "CmuxNextPagesTests", "CmuxNextPaletteTests",
             "CmuxNextPhoneAccessTests", "CmuxNextMobileHostTests", "CmuxNextHomeEngineTests",
+            # The graph is bot-only (#21946): the new target joins it with the base autofix after the merge.
+            *(["CmuxNextAgentIntegrationsTests"] if "CmuxNextAgentIntegrationsTests" in GRAPH["targets"] else []),
         ]))
 
     def test_a_local_package_selects_the_targets_that_use_it(self):

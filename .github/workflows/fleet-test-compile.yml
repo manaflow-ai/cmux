@@ -43,7 +43,8 @@ jobs:
     name: fleet test-compile plan
     # The fleet takes same-repository pull requests only (as the Swift canary's fleet job).
     if: ${{ github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: ubuntu-24.04
+    # Blacksmith, behind the fork branch, so a GitHub billing block cannot stop it (tests/test_ci_self_hosted_guard.sh).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
     timeout-minutes: 5
@@ -86,7 +87,7 @@ jobs:
     name: fleet/test-compile (advisory)
     needs: plan
     # An empty plan reports on a Linux runner at once; only a plan takes the gateway and a fleet Mac.
-    runs-on: ${{ needs.plan.outputs.needed == 'true' && vars.CI_COMPILE_CHECK_GATEWAY || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.plan.outputs.needed == 'true' && vars.CI_COMPILE_CHECK_GATEWAY || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     if: ${{ needs.plan.outputs.needed == 'false' || (needs.plan.outputs.needed == 'true' && vars.CI_COMPILE_CHECK_GATEWAY != '') }}
     permissions: {}
     # Longer than the client's queue (1200 s) plus run (1500 s) timeouts and its

@@ -167,25 +167,69 @@ typealias NativeInputJSON = CmuxNextSettings.JSONValue
         #expect(try await fixture.events("input").first?["trusted"] == true)
     }
 
-    /// A wheel scrolls the box under the point. With a display it is a trusted native wheel. With
-    /// none (the headless test Macs: `NSScreen.screens` is empty) WebKit holds a native wheel for a
-    /// display refresh that never comes, so the input runs as page events and says so.
-    @Test func aWheelScrollsTheBoxUnderThePoint() async throws {
+    /// A wheel scrolls the box under the point once. Where the window can refresh (on a screen,
+    /// not occluded) it is a trusted native wheel only; where it cannot (the headless test Macs have
+    /// no screen) WebKit would hold a native wheel, so the page-event wheel runs instead, decided
+    /// before anything is sent.
+    @Test func aWheelScrollsTheBoxUnderThePointOnce() async throws {
         let fixture = try await Fixture()
         defer { fixture.close() }
         let at = try await fixture.center("list")
+        let refreshes = fixture.window.screen != nil
         let result = try await fixture.call("wheel", ["x": at.x, "y": at.y, "dy": 120])
         try await fixture.until("the list scrolled") {
             (try await fixture.read("document.getElementById('list').scrollTop").doubleValue ?? 0) > 0
         }
-        let wheel = try #require(try await fixture.events("wheel").first)
-        #expect(wheel["id"] == "list" || wheel["id"] == "DIV")
-        if NSScreen.screens.isEmpty {
-            #expect(result["native"] == false)
-        } else {
-            #expect(result["native"] == true)
-            #expect(wheel["trusted"] == true)
+        let wheels = try await fixture.events("wheel")
+        #expect(wheels.count == 1, "\(wheels)")
+        #expect(result["native"] == .bool(refreshes))
+        #expect(wheels.first?["trusted"] == .bool(refreshes))
+    }
+
+    /// An occluded window still on a screen (an agent's background tab) gets the native wheel:
+    /// WebKit delivers it there, so the page sees one trusted wheel. Needs a host with a display.
+    @Test(.enabled(if: !NSScreen.screens.isEmpty, "needs a display"))
+    func anOccludedWindowOnAScreenGetsOneTrustedNativeWheel() async throws {
+        let fixture = try await Fixture()
+        defer { fixture.close() }
+        try #require(fixture.window.screen != nil)
+        let cover = NSWindow(contentRect: fixture.window.frame.insetBy(dx: -40, dy: -40), styleMask: [.borderless],
+                             backing: .buffered, defer: false)
+        cover.isReleasedWhenClosed = false
+        cover.isOpaque = true
+        cover.backgroundColor = .black
+        cover.level = .floating
+        cover.orderFrontRegardless()
+        defer { cover.orderOut(nil) }
+        try await fixture.until("the window is occluded") { !fixture.window.occlusionState.contains(.visible) }
+        let at = try await fixture.center("list")
+        let result = try await fixture.call("wheel", ["x": at.x, "y": at.y, "dy": 120])
+        #expect(result["native"] == true)
+        try await fixture.until("the list scrolled") {
+            (try await fixture.read("document.getElementById('list').scrollTop").doubleValue ?? 0) > 0
         }
+        let wheels = try await fixture.events("wheel")
+        #expect(wheels.count == 1, "\(wheels)")
+        #expect(wheels.first?["trusted"] == true)
+    }
+
+    /// A window on no screen cannot refresh: the wheel is page events at once (no wait for WebKit),
+    /// and the box scrolls exactly once, by the wheel's delta.
+    @Test func aWheelOnAWindowOffEveryScreenScrollsOnceAtOnce() async throws {
+        let fixture = try await Fixture()
+        defer { fixture.close() }
+        // A borderless window: AppKit keeps a titled one on a screen.
+        fixture.window.styleMask = [.borderless]
+        fixture.window.setFrameOrigin(NSPoint(x: -30_000, y: -30_000))
+        try #require(fixture.window.screen == nil)
+        let at = try await fixture.center("list")
+        let started = ContinuousClock.now
+        let result = try await fixture.call("wheel", ["x": at.x, "y": at.y, "dy": 120])
+        let took = ContinuousClock.now - started
+        #expect(result["native"] == false)
+        #expect(took < .milliseconds(800), "the wheel waited \(took) for WebKit")
+        #expect(try await fixture.read("document.getElementById('list').scrollTop") == 120)
+        #expect(try await fixture.events("wheel").count == 1)
     }
 
     /// A page with no engine view (its web view is in no window) still takes the input, as page

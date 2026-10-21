@@ -164,6 +164,50 @@ const clickHoldsLine = async (ctx: PlayContext, selector: string, expanded: bool
   if (Math.abs(moved) > 1) throw new Error(`the clicked line moved ${moved.toFixed(1)}px`);
 };
 
+/// A turn that wrote one file whole: its Edited card opens to the file's diff (EditedFilesCard.tsx).
+const editedRows = (id: string, path: string, text: string) => [
+  user(`Write ${path}`, 3, { id: `${id}-user` }),
+  activity(
+    [tool(`Write ${path}`, "edit", "completed", { diffs: [{ path, oldText: undefined, newText: text }] })],
+    2.8,
+    {
+      id: `${id}-activity`,
+    },
+  ),
+  assistant("The file is written.", 2.6, { id: `${id}-answer` }),
+  summary(2.6, { id: `${id}-summary`, status: "completed", toolCount: 1 }),
+];
+
+const openEditedDiff = async (ctx: PlayContext) => {
+  await ctx.click({ selector: ".acpmux-edited-toggle" });
+  await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-edit-diff")));
+};
+
+const EDIT_LONG_CODE =
+  [
+    'import { backoff } from "./backoff";',
+    "",
+    'export const retryPolicy = { tries: 5, baseDelayMs: 250, maxDelayMs: 30_000, jitter: "full", retryOn: [408, 425, 429, 500, 502, 503, 504] } as const;',
+    "export async function withRetry<T>(run: () => Promise<T>, policy = retryPolicy, onRetry?: (attempt: number, error: unknown) => void): Promise<T> {",
+    "  for (let attempt = 1; ; attempt++) {",
+    "    try { return await run(); } catch (error) { if (attempt >= policy.tries) throw error; onRetry?.(attempt, error); await backoff(attempt, policy); }",
+    "  }",
+    "}",
+  ].join("\n") + "\n";
+
+const EDIT_LONG_PROSE =
+  Array.from({ length: 21 }, (_, index) =>
+    index % 4 === 0
+      ? `## Excursion ${index / 4 + 1}`
+      : `- Day ${index}: the trail climbs past the old lighthouse and the tide pools, then follows the ridge back to the harbour, where the ferry waits until the last walkers are on board.`,
+  ).join("\n") + "\n";
+
+const SHELL_LONG_LOG = Array.from(
+  { length: 6 },
+  (_, index) =>
+    `2026-10-21T09:0${index}:12.481Z retry attempt=${index + 1} url=https://api.example.test/v2/uploads/9f3c2a71/parts?part=${index + 1}&checksum=sha256-4b1f0c9e2d7a6b5c status=503 delayMs=${250 * 2 ** index}`,
+).join("\n");
+
 const shellDisclosureChecks = {
   layoutShiftMax: {
     value: 0.25,
@@ -1873,7 +1917,7 @@ export default agentPaneEntry({
       },
     },
     "shell-long-colored-output": {
-      note: "A long, coloured test run: no colour codes, its last 400 lines under a cut mark, Show all output, and Copy in the label.",
+      note: "A long, coloured test run: no colour codes, the first lines of its end under a fade with Show all 1201 lines (every line and the command, though only the last 400 draw until opened), and Wrap lines and Copy in the label.",
       checks: shellDisclosureChecks,
       snapshot: chat(
         shellRows("gallery-shell-long", "Run the whole suite", "bun test", {
@@ -1886,7 +1930,46 @@ export default agentPaneEntry({
       ),
       play: async (ctx) => {
         await openSingleShell(ctx);
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-output-more")?.textContent === "Show all output");
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-output-more")?.textContent === "Show all 1201 lines");
+      },
+    },
+    "edit-long-line-code": {
+      note: "An Edited card's diff for code: long lines stay whole, the right edge fades while more lies past it (trackpad or Shift-wheel scrolls it), and Wrap lines sits beside Copy.",
+      checks: shellDisclosureChecks,
+      snapshot: chat(editedRows("gallery-edit-code", "src/net/retryPolicy.ts", EDIT_LONG_CODE)),
+      play: openEditedDiff,
+    },
+    "edit-long-line-prose": {
+      note: "An Edited card's diff for a Markdown file: long lines wrap, each hanging under its start; its first eight lines show under a fade with Show all 21 lines.",
+      checks: shellDisclosureChecks,
+      snapshot: chat(editedRows("gallery-edit-prose", "docs/codex-excursions.md", EDIT_LONG_PROSE)),
+      play: openEditedDiff,
+    },
+    "edit-preview-open": {
+      note: "Show all 21 lines opens the whole diff and turns into Show less.",
+      checks: shellDisclosureChecks,
+      snapshot: chat(editedRows("gallery-edit-open", "docs/codex-excursions.md", EDIT_LONG_PROSE)),
+      play: async (ctx) => {
+        await openEditedDiff(ctx);
+        await ctx.click({ role: "button", name: "Show all 21 lines" });
+        await ctx.waitFor(
+          () => ctx.document.querySelector(".cv-edit-diff .cv-output-more")?.textContent === "Show less",
+        );
+      },
+    },
+    "shell-unwrapped-long-line": {
+      note: "A command's output with Wrap lines off: each line stays whole and the right edge fades while more lies past it.",
+      checks: shellDisclosureChecks,
+      snapshot: chat(
+        shellRows("gallery-shell-unwrapped", "Print the retry log", "cat logs/retry.log", {
+          output: SHELL_LONG_LOG,
+          exitCode: 0,
+        }),
+      ),
+      play: async (ctx) => {
+        await openSingleShell(ctx);
+        await ctx.click({ selector: '.cv-shell__actions button[aria-label="Wrap lines"]' });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-shell__body")?.getAttribute("data-wrap") === "false");
       },
     },
     "shell-failed-exit": {

@@ -119,7 +119,7 @@ Five everyday commands, three groups for the rest:
 | `ls` | Sessions on every host, as `host/name` for remote ones. |
 | `attach [NAME] [--plain]` | TUI on one session, or a plain text stream. |
 | `web [--no-open] [--rotate-token]` | Print the dashboard URL and open it; `--rotate-token` replaces the token first. |
-| `host setup HOST` / `host update [--all]` / `host add NAME URL` / `host ls` / `host rm NAME` | Remote daemons. `setup` installs over ssh; URL is `ssh://host`, `ws://…`, or `wss://…`. |
+| `host setup HOST` / `host update [--all] [--if-idle] [--binary-dir DIR]` / `host add NAME URL` / `host ls` / `host rm NAME` | Remote daemons. `setup` installs over ssh; URL is `ssh://host`, `ws://…`, or `wss://…`. |
 | `host enroll HOST [--harness ID]… [--reverse]` / `host doctor NAME\|HOST [--fix] [--reverse]` | Add a machine step by step (reach, install, daemon, harness, peer, peer-back, identity), one JSON line per step with `--json`; `peer-back` (this machine as the host's peer) runs only with `--reverse`; `doctor` changes nothing without `--fix`. |
 | `session info\|cancel\|stop\|rename\|fork\|set\|allow\|deny\|export\|import\|tail NAME …` | Everything about one session. |
 | `daemon run\|status\|shutdown\|config\|harnesses\|reload\|models\|schema` | The daemon itself. |
@@ -189,6 +189,12 @@ unattended, with `ACPMUX_EVENT`, `ACPMUX_SESSION_NAME` and `ACPMUX_TEXT` set.
 session load or new, config replay): past it the request fails with code -32000 and
 `data.reason` `deadline_exceeded` (`data.wait` `agent_start`), the agent is ended, the
 session stays open, and the log gets `agent_start_timed_out`.
+`silentTurnMs` (default 90000; 0 turns it off): a turn whose model shows no sign of work
+(no message, thought, tool call, plan, compaction or request, and no harness line only a
+responding model produces, such as Claude's stream and thinking or Codex's moderation
+notice; the agent's own usage and turn notices do not count) for that long after its
+prompt (a stalled model) logs `turn_silent` {turnId, silentMs} once, so a client can say
+the model has not answered. The model's first sign after it logs `turn_heard` {turnId}.
 
 A chat whose harness never titles it (Claude Code's `-p` stream-json has no title
 event) gets a 3-6 word title once, after its first completed turn, logged as `titled`.
@@ -763,6 +769,7 @@ The simplest peer is an SSH host, and `host setup` does the whole install from t
 acpmux host setup HOST                 # scp the binary, write config + launchd plist, start it, add the peer
 acpmux host ls                         # connected/offline, remote build, and "outdated" when it lags yours
 acpmux host update --all               # push the current binary to every ssh peer and restart it
+acpmux host update HOST --if-idle --binary-dir DIR  # push DIR/acpmux-<target>, unless a session there is mid-turn
 acpmux ls                              # HOST/session-name next to local sessions
 acpmux new -m claude --host HOST "…"   # start a session there; `ensure NAME --host HOST` too
 acpmux attach HOST/session-name        # or plain `acpmux attach` for the full sidebar
@@ -771,7 +778,13 @@ acpmux session export HOST/name        # the bundle is fetched to ~/.acpmux/bund
 
 `acpmux --version` prints the build id (`git hash+dirty date`), and peers compare it in the
 initialize handshake, so a "Method not found" from a peer names the build gap instead of a
-missing feature. `host setup` needs ssh + scp access and a Mac or Linux box with `launchctl`
+missing feature. `host update` skips a peer that already runs the same commit, installs a
+binary only once it runs on the peer, keeps the binary it replaces as `~/.local/bin/acpmux.prev`, and puts it back when the restarted daemon does
+not answer with the new build. A daemon that runs under a hand-written `acpmux*.service` unit is
+moved to the standard `acpmux.service` (its home, socket and drop-ins carried over, agents kept).
+A cmux Cloud VM is never updated this way (`cloudMachine`): `cmux link machine update --to-bundled` owns it.
+`--json` reports each peer's `outcome`: `updated`, `current`, `busy`, `needsBinary`,
+`rolledBack` or `failed`. `host setup` needs ssh + scp access and a Mac or Linux box with `launchctl`
 (Linux hosts run `acpmux daemon` under whatever supervisor you use). Hosts added by hand still
 work: `acpmux host add HOST ssh://HOST` (`ssh://user@host:port` is fine) reads the remote token
 over the same ssh access.
@@ -941,6 +954,7 @@ Extensions:
 | `_acpmux/queue_remove {promptId}` | Withdraw a queued prompt before its turn starts: `removed` is false once it started. Its `session/prompt` answers `cancelled` with `_meta.acpmux.withdrawn`, and the log records `queue_removed`. |
 | `_acpmux/permission_respond {sessionId, permissionId, optionId}` | Answer a request announced by `_acpmux/permission_pending`. Any client may deny or cancel; only the cmux app's connection (it presents the app's per-launch person key) may allow. Others get `permission.person_required` ("approve this on the Mac app") and the request stays pending. The same rule guards every grant that widens what runs without asking (policy, rules, modes, defaults). |
 | `_acpmux/export {sessionId, dest}`, `_acpmux/import {path, name}` | Bundles. |
+| `_acpmux/file_put {sessionId, fileName, data}` | Save a file the person dropped into the chat (base64, at most 10 MiB) on the machine that runs it, owner-only under `<ACPMUX_HOME>/uploads/<sessionId>/<random>/<fileName>`, and answer `{path}`. A peer's chat is forwarded there (only to a peer whose `initialize` features list `filePut`; else `Method not found`, `data.reason: "filePut.unsupported"`). Not from a Web connection (`filePut.remote`). Nothing deletes uploads yet. |
 | `_acpmux/peers`, `_acpmux/peer_add {name, url, token}`, `_acpmux/peer_remove {name}` | Mirror remote daemons. |
 | `_acpmux/shutdown` | Stop the daemon. |
 

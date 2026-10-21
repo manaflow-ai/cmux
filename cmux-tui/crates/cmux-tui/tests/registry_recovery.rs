@@ -38,7 +38,10 @@ fn command(dir: &Path) -> Command {
 
 /// Starts a headless owner and waits for it to exit (or to serve), capturing
 /// its output. A healthy owner keeps running; one that cannot open its
-/// registry exits on its own.
+/// registry exits on its own. The owner binds its socket before it opens
+/// the registry (d674e3164cc, cx-n3bs), so the socket file alone does not
+/// mean it serves: it serves once `server status` gets its answer, which a
+/// restoring owner holds until its restore is done.
 fn start_owner(dir: &Path, session: &str) -> (Option<Output>, bool) {
     let socket = dir.join("mux.sock");
     // A stopped owner can leave its socket file behind; only a new one counts.
@@ -56,13 +59,23 @@ fn start_owner(dir: &Path, session: &str) -> (Option<Output>, bool) {
         if child.try_wait().unwrap().is_some() {
             return (Some(child.wait_with_output().unwrap()), false);
         }
-        if socket.exists() {
+        if socket.exists() && answers_status(dir, session, &socket) {
             stop_and_reap(dir, session, &mut child);
             return (None, true);
         }
         assert!(Instant::now() < deadline, "the owner neither served nor exited");
         std::thread::sleep(Duration::from_millis(50));
     }
+}
+
+/// Whether the owner at `socket` answers `server status` (it has restored).
+fn answers_status(dir: &Path, session: &str, socket: &Path) -> bool {
+    command(dir)
+        .args(["server", "status", "--session", session, "--socket"])
+        .arg(socket)
+        .stdin(Stdio::null())
+        .output()
+        .is_ok_and(|output| output.status.success())
 }
 
 /// Stops a serving owner and waits for it to exit, bounded. The socket file
