@@ -11,6 +11,54 @@ use super::*;
 /// headers_ms and ttft_ms): every `message_start`, and the first `content_block_delta` after it.
 const RAW_STREAM_EVENT: &str = "claude.stream_event";
 
+/// The `session/update` kinds that show the model at work: what it says or does (a message, a
+/// thought, a tool call and its progress, a plan), a compaction (the model summarizing) and a
+/// subagent's progress.
+const MODEL_UPDATES: [&str; 8] = [
+    "agent_message_chunk",
+    "agent_thought_chunk",
+    "tool_call",
+    "tool_call_update",
+    "plan",
+    "compaction",
+    "compaction_summary",
+    "subagent_progress",
+];
+
+/// The raw harness lines only a responding model produces, which often come long before any
+/// update a client shows: Claude's stream (its first event is the model's answer starting), its
+/// messages, its thinking (redacted thinking sends no thought), a running tool's heartbeat (a
+/// prompt queued behind it), and Codex's moderation notice on what the model generates (Codex
+/// reasoning without summaries sends nothing else for minutes).
+const MODEL_LINES: [&str; 5] = [
+    RAW_STREAM_EVENT,
+    "claude.assistant",
+    "claude.system.thinking_tokens",
+    "claude.tool_progress",
+    "codex.turn/moderationMetadata",
+];
+
+/// Whether an agent's message shows its model at work (`silent_turn.rs`): an update or a raw line
+/// above, or a request it makes (a permission, a file, a terminal). The agent's own bookkeeping is
+/// not: usage, commands, modes, its turn and usage notices (Codex sends them as soon as the prompt
+/// goes out), answers to acpmux's requests, its host's stderr and exit.
+fn from_the_model(msg: &Message) -> bool {
+    match msg {
+        Message::Request { .. } => true,
+        Message::Notification { method, params }
+            if method == crate::rpc::method::SESSION_UPDATE =>
+        {
+            params
+                .as_ref()
+                .and_then(|p| p.pointer("/update/sessionUpdate"))
+                .and_then(Value::as_str)
+                .is_some_and(|kind| MODEL_UPDATES.contains(&kind))
+        }
+        Message::Notification { method, .. } => MODEL_LINES.contains(&method.as_str()),
+        _ => false,
+    }
+}
+
 impl Hub {
     /// Make sure a live child process exists for the session. Spawns, runs
     /// `initialize`, and either creates or loads the agent session.
@@ -22,6 +70,10 @@ impl Hub {
         // A `message_start` was logged and its first delta was not yet.
         let awaiting_first_delta = AtomicBool::new(false);
         Arc::new(move |dir: Direction, msg: &Message, host_seq: Option<u64>| -> bool {
+            if matches!(dir, Direction::In) && from_the_model(msg) {
+                tap_session.heard.fetch_add(1, Ordering::SeqCst);
+                tap_hub.heard_after_silence(&tap_session);
+            }
             let (d, kind) = match (dir, msg) {
                 // Agent host stderr and exit entries: logged here, in entry
                 // order, before the entry is acknowledged.

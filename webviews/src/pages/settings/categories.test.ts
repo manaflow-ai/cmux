@@ -27,6 +27,7 @@ test("the categories are the approved ones, in order", () => {
     "chief",
     "notifications",
     "browser",
+    "import",
     "keyboard",
     "privacy",
     "accounts",
