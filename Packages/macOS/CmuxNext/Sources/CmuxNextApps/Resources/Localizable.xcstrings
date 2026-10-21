@@ -1,395 +1,1058 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "apps.memory.search.cancelled" : {
+    "store.feature.homeItem.name" : {
+      "comment" : "App Store Features card: the Home item in the sidebar.",
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "تم إلغاء البحث في الذاكرة"
+            "value" : "الرئيسية في الشريط الجانبي"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Pretraga memorije je otkazana"
+            "value" : "Početna u bočnoj traci"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Hukommelsessøgningen blev annulleret"
+            "value" : "Hjem i sidepanelet"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Die Gedächtnissuche wurde abgebrochen"
+            "value" : "Home in der Seitenleiste"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "The memory search was cancelled"
+            "value" : "Home in Sidebar"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Se canceló la búsqueda en la memoria"
+            "value" : "Inicio en la barra lateral"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La recherche dans la mémoire a été annulée"
+            "value" : "Accueil dans la barre latérale"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La ricerca nella memoria è stata annullata"
+            "value" : "Home nella barra laterale"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "メモリ検索はキャンセルされました"
+            "value" : "サイドバーのホーム"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ការស្វែងរកក្នុងអង្គចងចាំត្រូវបានបោះបង់"
+            "value" : "ទំព័រដើមក្នុងរបារចំហៀង"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "메모리 검색이 취소되었습니다"
+            "value" : "사이드바의 홈"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Minnesøket ble avbrutt"
+            "value" : "Hjem i sidefeltet"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Wyszukiwanie w pamięci zostało anulowane"
+            "value" : "Strona główna na pasku bocznym"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "A pesquisa na memória foi cancelada"
+            "value" : "Início na barra lateral"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Поиск по памяти отменён"
+            "value" : "«Главная» на боковой панели"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "การค้นหาหน่วยความจำถูกยกเลิก"
+            "value" : "หน้าหลักในแถบด้านข้าง"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Bellek araması iptal edildi"
+            "value" : "Kenar Çubuğunda Ana Sayfa"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Пошук у пам’яті скасовано"
+            "value" : "«Головна» на бічній панелі"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Đã hủy tìm kiếm bộ nhớ"
+            "value" : "Trang chủ trên thanh bên"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "记忆搜索已取消"
+            "value" : "边栏中的主页"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "記憶搜尋已取消"
+            "value" : "側邊欄中的首頁"
           }
         }
       }
     },
-    "apps.memory.search.unavailable" : {
+    "store.feature.homeItem.summary" : {
+      "comment" : "App Store Features card summary: the Home item in the sidebar.",
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "البحث في ذاكرة الوكيل غير متاح"
+            "value" : "وكلاؤك ومحادثاتك وقنواتك، بنقرة واحدة من أعلى الشريط الجانبي."
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Pretraga memorije agenta nije dostupna"
+            "value" : "Vaši agenti, razgovori i kanali, jedan klik s vrha bočne trake."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Søgning i agenthukommelsen er ikke tilgængelig"
+            "value" : "Dine agenter, chats og kanaler, ét klik fra toppen af sidepanelet."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Die Suche im Agentengedächtnis ist nicht verfügbar"
+            "value" : "Deine Agenten, Chats und Kanäle, einen Klick oben in der Seitenleiste."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Agent memory search is unavailable"
+            "value" : "Your agents, chats and channels, one click from the top of the sidebar."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La búsqueda en la memoria del agente no está disponible"
+            "value" : "Tus agentes, chats y canales, a un clic desde la parte superior de la barra lateral."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La recherche dans la mémoire des agents n’est pas disponible"
+            "value" : "Vos agents, discussions et canaux, à un clic en haut de la barre latérale."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La ricerca nella memoria degli agenti non è disponibile"
+            "value" : "I tuoi agenti, chat e canali, a un clic dalla parte alta della barra laterale."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "エージェントメモリの検索は利用できません"
+            "value" : "エージェント、チャット、チャンネルに、サイドバーの上からワンクリックで。"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ការស្វែងរកក្នុងអង្គចងចាំភ្នាក់ងារមិនអាចប្រើបានទេ"
+            "value" : "ភ្នាក់ងារ ការជជែក និងឆានែលរបស់អ្នក ចុចតែម្ដងពីខាងលើរបារចំហៀង។"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "에이전트 메모리 검색을 사용할 수 없습니다"
+            "value" : "에이전트, 채팅, 채널을 사이드바 맨 위에서 한 번에 엽니다."
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Søk i agentminnet er ikke tilgjengelig"
+            "value" : "Agentene, chattene og kanalene dine, ett klikk fra toppen av sidefeltet."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Wyszukiwanie w pamięci agentów jest niedostępne"
+            "value" : "Twoi agenci, czaty i kanały jednym kliknięciem z góry paska bocznego."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "A pesquisa na memória dos agentes não está disponível"
+            "value" : "Seus agentes, chats e canais, a um clique do topo da barra lateral."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Поиск по памяти агентов недоступен"
+            "value" : "Ваши агенты, чаты и каналы — в один клик сверху боковой панели."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ไม่สามารถค้นหาในหน่วยความจำของเอเจนต์ได้"
+            "value" : "เอเจนต์ แชท และช่องของคุณ คลิกเดียวจากด้านบนของแถบด้านข้าง"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ajan belleğinde arama kullanılamıyor"
+            "value" : "Ajanlarınız, sohbetleriniz ve kanallarınız, kenar çubuğunun üstünden tek tıkla."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Пошук у пам’яті агентів недоступний"
+            "value" : "Ваші агенти, чати й канали — в один клік зверху бічної панелі."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Không thể tìm kiếm trong bộ nhớ của tác tử"
+            "value" : "Tác tử, cuộc trò chuyện và kênh của bạn, một cú nhấp từ đầu thanh bên."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "智能体记忆搜索不可用"
+            "value" : "你的智能体、聊天和频道，在边栏顶部一键即达。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "無法使用代理程式記憶搜尋"
+            "value" : "你的代理、聊天和頻道，在側邊欄頂端一鍵即達。"
           }
         }
       }
     },
-    "apps.memory.validation.invalid" : {
+    "store.feature.notificationsItem.name" : {
+      "comment" : "App Store Features card: the Notifications item in the sidebar.",
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "المتوقع: جذور واستعلام وحد اختياري"
+            "value" : "الإشعارات في الشريط الجانبي"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Očekivani su korijeni, upit i neobavezno ograničenje"
+            "value" : "Obavijesti u bočnoj traci"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Forventede rødder, en forespørgsel og en valgfri grænse"
+            "value" : "Notifikationer i sidepanelet"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Erwartet wurden Stammordner, eine Suchanfrage und ein optionales Limit"
+            "value" : "Mitteilungen in der Seitenleiste"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Expected roots, a query and an optional limit"
+            "value" : "Notifications in Sidebar"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Se esperaban raíces, una consulta y un límite opcional"
+            "value" : "Notificaciones en la barra lateral"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Racines, requête et limite facultative attendues"
+            "value" : "Notifications dans la barre latérale"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Attese radici, una query e un limite facoltativo"
+            "value" : "Notifiche nella barra laterale"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "roots、クエリ、および任意の limit が必要です"
+            "value" : "サイドバーの通知"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "រំពឹងថាមាន roots សំណួរ និង limit ជាជម្រើស"
+            "value" : "ការជូនដំណឹងក្នុងរបារចំហៀង"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "roots, 검색어, 선택적 limit가 필요합니다"
+            "value" : "사이드바의 알림"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Forventet røtter, et søk og en valgfri grense"
+            "value" : "Varsler i sidefeltet"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Oczekiwano katalogów głównych, zapytania i opcjonalnego limitu"
+            "value" : "Powiadomienia na pasku bocznym"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Esperados raízes, uma consulta e um limite opcional"
+            "value" : "Notificações na barra lateral"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ожидались корни, запрос и необязательный лимит"
+            "value" : "Уведомления на боковой панели"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ต้องมี roots คำค้นหา และ limit ที่ไม่บังคับ"
+            "value" : "การแจ้งเตือนในแถบด้านข้าง"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kökler, bir sorgu ve isteğe bağlı bir sınır bekleniyordu"
+            "value" : "Kenar Çubuğunda Bildirimler"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Очікувалися корені, запит і необов’язкове обмеження"
+            "value" : "Сповіщення на бічній панелі"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cần có roots, một truy vấn và giới hạn tùy chọn"
+            "value" : "Thông báo trên thanh bên"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "需要 roots、查询和可选的 limit"
+            "value" : "边栏中的通知"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "需要 roots、查詢和選用的 limit"
+            "value" : "側邊欄中的通知"
+          }
+        }
+      }
+    },
+    "store.feature.notificationsItem.summary" : {
+      "comment" : "App Store Features card summary: the Notifications item in the sidebar.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "كل إشعارات الوكلاء في قائمة واحدة، مع عدد غير المقروء."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sve obavijesti agenata na jednom popisu, s brojem nepročitanih."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alle agentnotifikationer på én liste med antallet af ulæste."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alle Mitteilungen der Agenten in einer Liste, mit der Zahl der ungelesenen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Every agent notification in one list, with its unread count."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Todas las notificaciones de los agentes en una lista, con las no leídas."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toutes les notifications des agents dans une liste, avec le nombre de non lues."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tutte le notifiche degli agenti in un elenco, con il numero di non lette."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "エージェントの通知をすべて一覧に、未読数つきで。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ការជូនដំណឹងភ្នាក់ងារទាំងអស់ក្នុងបញ្ជីតែមួយ ជាមួយចំនួនមិនទាន់អាន។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "모든 에이전트 알림을 읽지 않은 수와 함께 한 목록에."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alle agentvarsler i én liste, med antall uleste."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wszystkie powiadomienia agentów na jednej liście, z liczbą nieprzeczytanych."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Todas as notificações dos agentes em uma lista, com a contagem de não lidas."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Все уведомления агентов в одном списке, с числом непрочитанных."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "การแจ้งเตือนของเอเจนต์ทั้งหมดในรายการเดียว พร้อมจำนวนที่ยังไม่ได้อ่าน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tüm ajan bildirimleri tek listede, okunmamış sayısıyla."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Усі сповіщення агентів в одному списку, з кількістю непрочитаних."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mọi thông báo của tác tử trong một danh sách, kèm số chưa đọc."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所有智能体通知集中在一个列表中，并显示未读数。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所有代理通知集中在一個列表中，並顯示未讀數。"
+          }
+        }
+      }
+    },
+    "store.feature.historyItem.name" : {
+      "comment" : "App Store Features card: the History item in the sidebar.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "السجل في الشريط الجانبي"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Historija u bočnoj traci"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Historik i sidepanelet"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verlauf in der Seitenleiste"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "History in Sidebar"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Historial en la barra lateral"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Historique dans la barre latérale"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cronologia nella barra laterale"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "サイドバーの履歴"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ប្រវត្តិក្នុងរបារចំហៀង"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "사이드바의 기록"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Historikk i sidefeltet"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Historia na pasku bocznym"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Histórico na barra lateral"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "История на боковой панели"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ประวัติในแถบด้านข้าง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kenar Çubuğunda Geçmiş"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Історія на бічній панелі"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lịch sử trên thanh bên"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "边栏中的历史记录"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "側邊欄中的瀏覽記錄"
+          }
+        }
+      }
+    },
+    "store.feature.historyItem.summary" : {
+      "comment" : "App Store Features card summary: the History item in the sidebar.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "الصفحات والمحادثات وعلامات التبويب التي أغلقتها، جاهزة لفتحها مجددًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stranice, razgovori i kartice koje ste zatvorili, spremni za ponovno otvaranje."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sider, chats og faner, du har lukket, klar til at blive åbnet igen."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Geschlossene Seiten, Chats und Tabs, bereit zum erneuten Öffnen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pages, chats and tabs you closed, ready to open again."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Páginas, chats y pestañas que cerraste, listos para abrir de nuevo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les pages, discussions et onglets fermés, prêts à être rouverts."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pagine, chat e schede chiuse, pronte da riaprire."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "閉じたページ、チャット、タブを、すぐにまた開けます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ទំព័រ ការជជែក និងផ្ទាំងដែលអ្នកបានបិទ រួចរាល់សម្រាប់បើកម្ដងទៀត។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "닫은 페이지, 채팅, 탭을 다시 열 수 있습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sider, chatter og faner du har lukket, klare til å åpnes igjen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zamknięte strony, czaty i karty, gotowe do ponownego otwarcia."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Páginas, chats e abas que você fechou, prontos para abrir de novo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Закрытые страницы, чаты и вкладки — их можно снова открыть."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "หน้า แชท และแท็บที่คุณปิดไป พร้อมเปิดอีกครั้ง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kapattığınız sayfalar, sohbetler ve sekmeler, yeniden açılmaya hazır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Закриті сторінки, чати й вкладки — їх можна знову відкрити."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trang, cuộc trò chuyện và tab bạn đã đóng, sẵn sàng mở lại."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你关闭的页面、聊天和标签页，随时可再次打开。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你關閉的頁面、聊天和分頁，隨時可再次開啟。"
+          }
+        }
+      }
+    },
+    "store.feature.bookmarksItem.name" : {
+      "comment" : "App Store Features card: the Bookmarks item in the sidebar.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "الإشارات المرجعية في الشريط الجانبي"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oznake u bočnoj traci"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bogmærker i sidepanelet"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lesezeichen in der Seitenleiste"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bookmarks in Sidebar"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Marcadores en la barra lateral"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Signets dans la barre latérale"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Segnalibri nella barra laterale"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "サイドバーのブックマーク"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ចំណាំក្នុងរបារចំហៀង"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "사이드바의 북마크"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bokmerker i sidefeltet"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zakładki na pasku bocznym"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Favoritos na barra lateral"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Закладки на боковой панели"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "บุ๊กมาร์กในแถบด้านข้าง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kenar Çubuğunda Yer İmleri"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Закладки на бічній панелі"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dấu trang trên thanh bên"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "边栏中的书签"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "側邊欄中的書籤"
+          }
+        }
+      }
+    },
+    "store.feature.bookmarksItem.summary" : {
+      "comment" : "App Store Features card summary: the Bookmarks item in the sidebar.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "صفحاتك المحفوظة ومجلداتها."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaše spremljene stranice i njihove mape."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dine gemte sider og deres mapper."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine gespeicherten Seiten und ihre Ordner."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your saved pages and their folders."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tus páginas guardadas y sus carpetas."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vos pages enregistrées et leurs dossiers."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le tue pagine salvate e le loro cartelle."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存したページとそのフォルダ。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ទំព័រដែលបានរក្សាទុក និងថតរបស់វា។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "저장한 페이지와 폴더."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lagrede sider og mappene deres."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zapisane strony i ich foldery."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Suas páginas salvas e as pastas delas."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сохранённые страницы и их папки."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "หน้าที่บันทึกไว้และโฟลเดอร์ของหน้าเหล่านั้น"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kaydettiğiniz sayfalar ve klasörleri."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Збережені сторінки та їхні теки."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Các trang đã lưu và thư mục của chúng."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你保存的页面及其文件夹。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你儲存的頁面及其檔案夾。"
           }
         }
       }
@@ -18738,1058 +19401,395 @@
         }
       }
     },
-    "store.feature.homeItem.name" : {
-      "comment" : "App Store Features card: the Home item in the sidebar.",
+    "apps.memory.search.cancelled" : {
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "الرئيسية في الشريط الجانبي"
+            "value" : "تم إلغاء البحث في الذاكرة"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Početna u bočnoj traci"
+            "value" : "Pretraga memorije je otkazana"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Hjem i sidepanelet"
+            "value" : "Hukommelsessøgningen blev annulleret"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Home in der Seitenleiste"
+            "value" : "Die Gedächtnissuche wurde abgebrochen"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Home in Sidebar"
+            "value" : "The memory search was cancelled"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Inicio en la barra lateral"
+            "value" : "Se canceló la búsqueda en la memoria"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Accueil dans la barre latérale"
+            "value" : "La recherche dans la mémoire a été annulée"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Home nella barra laterale"
+            "value" : "La ricerca nella memoria è stata annullata"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "サイドバーのホーム"
+            "value" : "メモリ検索はキャンセルされました"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ទំព័រដើមក្នុងរបារចំហៀង"
+            "value" : "ការស្វែងរកក្នុងអង្គចងចាំត្រូវបានបោះបង់"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "사이드바의 홈"
+            "value" : "메모리 검색이 취소되었습니다"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Hjem i sidefeltet"
+            "value" : "Minnesøket ble avbrutt"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Strona główna na pasku bocznym"
+            "value" : "Wyszukiwanie w pamięci zostało anulowane"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Início na barra lateral"
+            "value" : "A pesquisa na memória foi cancelada"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "«Главная» на боковой панели"
+            "value" : "Поиск по памяти отменён"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "หน้าหลักในแถบด้านข้าง"
+            "value" : "การค้นหาหน่วยความจำถูกยกเลิก"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kenar Çubuğunda Ana Sayfa"
+            "value" : "Bellek araması iptal edildi"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "«Головна» на бічній панелі"
+            "value" : "Пошук у пам’яті скасовано"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Trang chủ trên thanh bên"
+            "value" : "Đã hủy tìm kiếm bộ nhớ"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "边栏中的主页"
+            "value" : "记忆搜索已取消"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "側邊欄中的首頁"
+            "value" : "記憶搜尋已取消"
           }
         }
       }
     },
-    "store.feature.homeItem.summary" : {
-      "comment" : "App Store Features card summary: the Home item in the sidebar.",
+    "apps.memory.search.unavailable" : {
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "وكلاؤك ومحادثاتك وقنواتك، بنقرة واحدة من أعلى الشريط الجانبي."
+            "value" : "البحث في ذاكرة الوكيل غير متاح"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Vaši agenti, razgovori i kanali, jedan klik s vrha bočne trake."
+            "value" : "Pretraga memorije agenta nije dostupna"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Dine agenter, chats og kanaler, ét klik fra toppen af sidepanelet."
+            "value" : "Søgning i agenthukommelsen er ikke tilgængelig"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Deine Agenten, Chats und Kanäle, einen Klick oben in der Seitenleiste."
+            "value" : "Die Suche im Agentengedächtnis ist nicht verfügbar"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Your agents, chats and channels, one click from the top of the sidebar."
+            "value" : "Agent memory search is unavailable"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tus agentes, chats y canales, a un clic desde la parte superior de la barra lateral."
+            "value" : "La búsqueda en la memoria del agente no está disponible"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Vos agents, discussions et canaux, à un clic en haut de la barre latérale."
+            "value" : "La recherche dans la mémoire des agents n’est pas disponible"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "I tuoi agenti, chat e canali, a un clic dalla parte alta della barra laterale."
+            "value" : "La ricerca nella memoria degli agenti non è disponibile"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "エージェント、チャット、チャンネルに、サイドバーの上からワンクリックで。"
+            "value" : "エージェントメモリの検索は利用できません"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ភ្នាក់ងារ ការជជែក និងឆានែលរបស់អ្នក ចុចតែម្ដងពីខាងលើរបារចំហៀង។"
+            "value" : "ការស្វែងរកក្នុងអង្គចងចាំភ្នាក់ងារមិនអាចប្រើបានទេ"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "에이전트, 채팅, 채널을 사이드바 맨 위에서 한 번에 엽니다."
+            "value" : "에이전트 메모리 검색을 사용할 수 없습니다"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Agentene, chattene og kanalene dine, ett klikk fra toppen av sidefeltet."
+            "value" : "Søk i agentminnet er ikke tilgjengelig"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Twoi agenci, czaty i kanały jednym kliknięciem z góry paska bocznego."
+            "value" : "Wyszukiwanie w pamięci agentów jest niedostępne"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Seus agentes, chats e canais, a um clique do topo da barra lateral."
+            "value" : "A pesquisa na memória dos agentes não está disponível"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ваши агенты, чаты и каналы — в один клик сверху боковой панели."
+            "value" : "Поиск по памяти агентов недоступен"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "เอเจนต์ แชท และช่องของคุณ คลิกเดียวจากด้านบนของแถบด้านข้าง"
+            "value" : "ไม่สามารถค้นหาในหน่วยความจำของเอเจนต์ได้"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ajanlarınız, sohbetleriniz ve kanallarınız, kenar çubuğunun üstünden tek tıkla."
+            "value" : "Ajan belleğinde arama kullanılamıyor"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ваші агенти, чати й канали — в один клік зверху бічної панелі."
+            "value" : "Пошук у пам’яті агентів недоступний"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tác tử, cuộc trò chuyện và kênh của bạn, một cú nhấp từ đầu thanh bên."
+            "value" : "Không thể tìm kiếm trong bộ nhớ của tác tử"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "你的智能体、聊天和频道，在边栏顶部一键即达。"
+            "value" : "智能体记忆搜索不可用"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "你的代理、聊天和頻道，在側邊欄頂端一鍵即達。"
+            "value" : "無法使用代理程式記憶搜尋"
           }
         }
       }
     },
-    "store.feature.notificationsItem.name" : {
-      "comment" : "App Store Features card: the Notifications item in the sidebar.",
+    "apps.memory.validation.invalid" : {
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "الإشعارات في الشريط الجانبي"
+            "value" : "المتوقع: جذور واستعلام وحد اختياري"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Obavijesti u bočnoj traci"
+            "value" : "Očekivani su korijeni, upit i neobavezno ograničenje"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Notifikationer i sidepanelet"
+            "value" : "Forventede rødder, en forespørgsel og en valgfri grænse"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mitteilungen in der Seitenleiste"
+            "value" : "Erwartet wurden Stammordner, eine Suchanfrage und ein optionales Limit"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Notifications in Sidebar"
+            "value" : "Expected roots, a query and an optional limit"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Notificaciones en la barra lateral"
+            "value" : "Se esperaban raíces, una consulta y un límite opcional"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Notifications dans la barre latérale"
+            "value" : "Racines, requête et limite facultative attendues"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Notifiche nella barra laterale"
+            "value" : "Attese radici, una query e un limite facoltativo"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "サイドバーの通知"
+            "value" : "roots、クエリ、および任意の limit が必要です"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ការជូនដំណឹងក្នុងរបារចំហៀង"
+            "value" : "រំពឹងថាមាន roots សំណួរ និង limit ជាជម្រើស"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "사이드바의 알림"
+            "value" : "roots, 검색어, 선택적 limit가 필요합니다"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Varsler i sidefeltet"
+            "value" : "Forventet røtter, et søk og en valgfri grense"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Powiadomienia na pasku bocznym"
+            "value" : "Oczekiwano katalogów głównych, zapytania i opcjonalnego limitu"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Notificações na barra lateral"
+            "value" : "Esperados raízes, uma consulta e um limite opcional"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Уведомления на боковой панели"
+            "value" : "Ожидались корни, запрос и необязательный лимит"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "การแจ้งเตือนในแถบด้านข้าง"
+            "value" : "ต้องมี roots คำค้นหา และ limit ที่ไม่บังคับ"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kenar Çubuğunda Bildirimler"
+            "value" : "Kökler, bir sorgu ve isteğe bağlı bir sınır bekleniyordu"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Сповіщення на бічній панелі"
+            "value" : "Очікувалися корені, запит і необов’язкове обмеження"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Thông báo trên thanh bên"
+            "value" : "Cần có roots, một truy vấn và giới hạn tùy chọn"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "边栏中的通知"
+            "value" : "需要 roots、查询和可选的 limit"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "側邊欄中的通知"
-          }
-        }
-      }
-    },
-    "store.feature.notificationsItem.summary" : {
-      "comment" : "App Store Features card summary: the Notifications item in the sidebar.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "كل إشعارات الوكلاء في قائمة واحدة، مع عدد غير المقروء."
-          }
-        },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sve obavijesti agenata na jednom popisu, s brojem nepročitanih."
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Alle agentnotifikationer på én liste med antallet af ulæste."
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Alle Mitteilungen der Agenten in einer Liste, mit der Zahl der ungelesenen."
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Every agent notification in one list, with its unread count."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Todas las notificaciones de los agentes en una lista, con las no leídas."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Toutes les notifications des agents dans une liste, avec le nombre de non lues."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tutte le notifiche degli agenti in un elenco, con il numero di non lette."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "エージェントの通知をすべて一覧に、未読数つきで。"
-          }
-        },
-        "km" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ការជូនដំណឹងភ្នាក់ងារទាំងអស់ក្នុងបញ្ជីតែមួយ ជាមួយចំនួនមិនទាន់អាន។"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "모든 에이전트 알림을 읽지 않은 수와 함께 한 목록에."
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Alle agentvarsler i én liste, med antall uleste."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Wszystkie powiadomienia agentów na jednej liście, z liczbą nieprzeczytanych."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Todas as notificações dos agentes em uma lista, com a contagem de não lidas."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Все уведомления агентов в одном списке, с числом непрочитанных."
-          }
-        },
-        "th" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "การแจ้งเตือนของเอเจนต์ทั้งหมดในรายการเดียว พร้อมจำนวนที่ยังไม่ได้อ่าน"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tüm ajan bildirimleri tek listede, okunmamış sayısıyla."
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Усі сповіщення агентів в одному списку, з кількістю непрочитаних."
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Mọi thông báo của tác tử trong một danh sách, kèm số chưa đọc."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "所有智能体通知集中在一个列表中，并显示未读数。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "所有代理通知集中在一個列表中，並顯示未讀數。"
-          }
-        }
-      }
-    },
-    "store.feature.historyItem.name" : {
-      "comment" : "App Store Features card: the History item in the sidebar.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "السجل في الشريط الجانبي"
-          }
-        },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Historija u bočnoj traci"
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Historik i sidepanelet"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Verlauf in der Seitenleiste"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "History in Sidebar"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Historial en la barra lateral"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Historique dans la barre latérale"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cronologia nella barra laterale"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "サイドバーの履歴"
-          }
-        },
-        "km" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ប្រវត្តិក្នុងរបារចំហៀង"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "사이드바의 기록"
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Historikk i sidefeltet"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Historia na pasku bocznym"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Histórico na barra lateral"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "История на боковой панели"
-          }
-        },
-        "th" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ประวัติในแถบด้านข้าง"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Kenar Çubuğunda Geçmiş"
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Історія на бічній панелі"
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Lịch sử trên thanh bên"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "边栏中的历史记录"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "側邊欄中的瀏覽記錄"
-          }
-        }
-      }
-    },
-    "store.feature.historyItem.summary" : {
-      "comment" : "App Store Features card summary: the History item in the sidebar.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "الصفحات والمحادثات وعلامات التبويب التي أغلقتها، جاهزة لفتحها مجددًا."
-          }
-        },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Stranice, razgovori i kartice koje ste zatvorili, spremni za ponovno otvaranje."
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sider, chats og faner, du har lukket, klar til at blive åbnet igen."
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Geschlossene Seiten, Chats und Tabs, bereit zum erneuten Öffnen."
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pages, chats and tabs you closed, ready to open again."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Páginas, chats y pestañas que cerraste, listos para abrir de nuevo."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Les pages, discussions et onglets fermés, prêts à être rouverts."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pagine, chat e schede chiuse, pronte da riaprire."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "閉じたページ、チャット、タブを、すぐにまた開けます。"
-          }
-        },
-        "km" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ទំព័រ ការជជែក និងផ្ទាំងដែលអ្នកបានបិទ រួចរាល់សម្រាប់បើកម្ដងទៀត។"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "닫은 페이지, 채팅, 탭을 다시 열 수 있습니다."
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sider, chatter og faner du har lukket, klare til å åpnes igjen."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Zamknięte strony, czaty i karty, gotowe do ponownego otwarcia."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Páginas, chats e abas que você fechou, prontos para abrir de novo."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Закрытые страницы, чаты и вкладки — их можно снова открыть."
-          }
-        },
-        "th" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "หน้า แชท และแท็บที่คุณปิดไป พร้อมเปิดอีกครั้ง"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Kapattığınız sayfalar, sohbetler ve sekmeler, yeniden açılmaya hazır."
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Закриті сторінки, чати й вкладки — їх можна знову відкрити."
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Trang, cuộc trò chuyện và tab bạn đã đóng, sẵn sàng mở lại."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "你关闭的页面、聊天和标签页，随时可再次打开。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "你關閉的頁面、聊天和分頁，隨時可再次開啟。"
-          }
-        }
-      }
-    },
-    "store.feature.bookmarksItem.name" : {
-      "comment" : "App Store Features card: the Bookmarks item in the sidebar.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "الإشارات المرجعية في الشريط الجانبي"
-          }
-        },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Oznake u bočnoj traci"
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bogmærker i sidepanelet"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Lesezeichen in der Seitenleiste"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bookmarks in Sidebar"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Marcadores en la barra lateral"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Signets dans la barre latérale"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Segnalibri nella barra laterale"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "サイドバーのブックマーク"
-          }
-        },
-        "km" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ចំណាំក្នុងរបារចំហៀង"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "사이드바의 북마크"
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bokmerker i sidefeltet"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Zakładki na pasku bocznym"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Favoritos na barra lateral"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Закладки на боковой панели"
-          }
-        },
-        "th" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "บุ๊กมาร์กในแถบด้านข้าง"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Kenar Çubuğunda Yer İmleri"
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Закладки на бічній панелі"
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dấu trang trên thanh bên"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "边栏中的书签"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "側邊欄中的書籤"
-          }
-        }
-      }
-    },
-    "store.feature.bookmarksItem.summary" : {
-      "comment" : "App Store Features card summary: the Bookmarks item in the sidebar.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "صفحاتك المحفوظة ومجلداتها."
-          }
-        },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Vaše spremljene stranice i njihove mape."
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dine gemte sider og deres mapper."
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Deine gespeicherten Seiten und ihre Ordner."
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Your saved pages and their folders."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tus páginas guardadas y sus carpetas."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Vos pages enregistrées et leurs dossiers."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Le tue pagine salvate e le loro cartelle."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "保存したページとそのフォルダ。"
-          }
-        },
-        "km" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ទំព័រដែលបានរក្សាទុក និងថតរបស់វា។"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "저장한 페이지와 폴더."
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Lagrede sider og mappene deres."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Zapisane strony i ich foldery."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Suas páginas salvas e as pastas delas."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Сохранённые страницы и их папки."
-          }
-        },
-        "th" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "หน้าที่บันทึกไว้และโฟลเดอร์ของหน้าเหล่านั้น"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Kaydettiğiniz sayfalar ve klasörleri."
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Збережені сторінки та їхні теки."
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Các trang đã lưu và thư mục của chúng."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "你保存的页面及其文件夹。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "你儲存的頁面及其檔案夾。"
+            "value" : "需要 roots、查詢和選用的 limit"
           }
         }
       }
