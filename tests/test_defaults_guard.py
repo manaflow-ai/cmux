@@ -421,6 +421,42 @@ class SettingsExportStampTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("Alpha.swift", result.stdout)
 
+    # The base autofix regenerates the exports after each merge, and with merges minutes apart
+    # feat-cmux-next's stamp is stale most of the time (10-21: d986b175b38, #22678 and #23028 left
+    # it stale for every pull request at once). A head answers only for the sources it changed.
+
+    def stale_base(self):
+        self.repo.write(f"{SETTINGS_SOURCES}/Beta.swift", "// beta, merged without its exports\n")
+        return self.repo.commit("a merge before the base autofix", snapshot=False)
+
+    def test_check_stamp_with_a_base_passes_a_head_that_inherits_the_bases_stale_exports(self):
+        base = self.stale_base()
+        self.repo.write("README.md", "an unrelated change\n")
+        head = self.repo.commit("head", snapshot=False)
+        result = self.repo.guard("check-stamp", "--ref", head, "--base", base)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("Beta.swift", result.stdout)
+        self.assertIn(f"stale on the base {base[:12]} too", result.stdout)
+
+    def test_check_stamp_with_a_base_fails_for_the_sources_the_head_changed(self):
+        base = self.stale_base()
+        self.repo.write(f"{SETTINGS_SOURCES}/Alpha.swift", "// alpha, edited on the head\n")
+        head = self.repo.commit("head", snapshot=False)
+        result = self.repo.guard("check-stamp", "--ref", head, "--base", base)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        problems = result.stdout.split(f"stale on the base {base[:12]} too")[0]
+        self.assertIn("Alpha.swift", problems)
+        self.assertNotIn("Beta.swift", problems)
+
+    def test_a_stale_stamp_says_how_to_regenerate_the_exports(self):
+        """The old text pointed at a REPAIR.md row that is not in this repository."""
+        self.repo.write(f"{SETTINGS_SOURCES}/Alpha.swift", "// alpha, edited\n")
+        result = self.repo.guard("check-stamp")
+        self.assertEqual(result.returncode, 1)
+        self.assertNotIn("REPAIR.md", result.stdout)
+        self.assertIn("cmux-next-pr-autofix.yml", result.stdout)
+        self.assertIn("scripts/cmux-next/regenerate-settings-exports.sh", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
