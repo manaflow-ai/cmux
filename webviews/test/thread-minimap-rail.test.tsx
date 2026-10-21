@@ -358,31 +358,27 @@ test("a press released off the rail ends there: a later hover does not scrub", a
   }
 });
 
-test("a bookmark shows as the tick's dot and as the prompt row's Pin; the dot, the card and the Pin toggle it", async () => {
+test("a bookmark shows as the tick's dot; the dot and the card toggle it; a prompt's row has no Pin", async () => {
   const view = await mount(8);
-  const rowButton = (index: number) =>
-    document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="user-${index + 1}"] .cv-message-pin`)!;
   try {
+    // Leo's prompt row (2026-10-21): check, age, Copy, Retry, Fork; no Pin under a prompt.
+    expect(document.querySelector('.acpmux-row[data-row-id^="user-"] .cv-message-pin')).toBeNull();
     expect(tick(2).hasAttribute("data-bookmarked")).toBe(false);
-    expect(rowButton(2).getAttribute("aria-pressed")).toBe("false");
-    // The prompt's own row marks it: the rail's tick gets its dot.
-    await act(async () => rowButton(2).click());
+    // The card marks it: the rail's tick gets its dot.
+    await act(async () => tick(2).focus());
+    const cardButton = () => card()!.querySelector<HTMLElement>(".acpmux-minimap__bookmark")!;
+    await act(async () => cardButton().click());
     expect(tick(2).hasAttribute("data-bookmarked")).toBe(true);
     expect(tick(2).querySelector(".acpmux-minimap__dot")).not.toBeNull();
-    expect(rowButton(2).getAttribute("aria-pressed")).toBe("true");
     // The card shows it filled, and its button removes it.
-    await act(async () => tick(2).focus());
-    const cardButton = card()!.querySelector<HTMLElement>(".acpmux-minimap__bookmark")!;
-    expect(cardButton.getAttribute("aria-pressed")).toBe("true");
-    await act(async () => cardButton.click());
+    expect(cardButton().getAttribute("aria-pressed")).toBe("true");
+    await act(async () => cardButton().click());
     expect(tick(2).hasAttribute("data-bookmarked")).toBe(false);
-    expect(rowButton(2).getAttribute("aria-pressed")).toBe("false");
     // A click on the dot's spot past a hovered tick toggles the mark and does not jump.
     const before = view.scroller.scrollTop;
     await enter(5);
     await act(async () => tick(5).querySelector<HTMLElement>("[data-dot-hit]")!.click());
     expect(tick(5).hasAttribute("data-bookmarked")).toBe(true);
-    expect(rowButton(5).getAttribute("aria-pressed")).toBe("true");
     expect(view.scroller.scrollTop).toBe(before);
     await act(async () => tick(5).querySelector<HTMLElement>("[data-dot-hit]")!.click());
     expect(tick(5).hasAttribute("data-bookmarked")).toBe(false);

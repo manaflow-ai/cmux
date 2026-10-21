@@ -1,8 +1,8 @@
 // l10n-allow-file: gallery fixtures (sample prompts and replies), not shipped UI.
 // A prompt's bubble (UserBubble.tsx) and an answer's footer (TurnRows.tsx TurnFooter), with their
-// hover rows as Claude Code desktop's: under the prompt its age, read receipt, Copy, Retry, Fork,
-// then cmux's Edit and Pin; under the answer Copy, Fork, Pin, Read aloud and its age, whose exact time shows
-// above it on hover (the *-time-tooltip plays). Edit shows on a Claude
+// hover rows: under the prompt its read receipt, its age, a dot, Copy, Retry and Fork (Leo's spec),
+// then cmux's Edit; under the answer Claude's Copy, Fork, Pin, Read aloud and its age. Each age shows
+// its exact date and time above it on hover (the *-time-tooltip plays). Edit shows on a Claude
 // chat's prompts after its first turn, which acpmux can fork through (cx-ncc.60). The icon buttons
 // name themselves in a tooltip on hover (the *-tooltip plays). A long prompt opens on its first ten
 // lines, fading out, with Show more; a pasted block is a chip that opens in place (PromptText.tsx).
@@ -104,7 +104,7 @@ export default agentPaneEntry({
       snapshot: turns(claude),
     },
     "prompt-hover": {
-      note: "Hovering the latest prompt shows its row under the bubble's right edge; nothing else shows.",
+      note: "Hovering the latest prompt shows its row under the bubble's right edge: read check, age, dot, Copy, Retry, Fork, Edit.",
       snapshot: turns(claude),
       play: async (ctx) => ctx.hover({ text: "Now cover it with a test that fakes two timeouts" }),
     },

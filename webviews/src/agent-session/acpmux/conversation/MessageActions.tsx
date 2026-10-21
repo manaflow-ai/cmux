@@ -38,6 +38,15 @@ export function MessageTime({ at, className }: { at: number; className: string }
   );
 }
 
+/// The dot between a prompt's age and its buttons (Leo's spec for the row under a prompt).
+export function MessageDot() {
+  return (
+    <span className="cv-user__dot" aria-hidden="true">
+      ·
+    </span>
+  );
+}
+
 /// Copy through CopyButton (its name as a tooltip, a check once the clipboard took the text), at the
 /// row's compact size.
 export function MessageCopy({ text }: { text: string }) {
@@ -136,8 +145,9 @@ export function ReadReceipt({ row }: { row: AcpmuxRow }) {
 }
 
 /// Retry, and Retry with another model when the harness has several: sends prompt row `rowId`
-/// (`prompt`, as the agent got it) again. It shows on the last ended turn's prompt only
-/// (VirtualTranscript marks that row `data-retryable`; conversation.css).
+/// (`prompt`, as the agent got it) again. Under a prompt it shows on every one, as Claude's; at the
+/// end of another agent's message only on the last ended turn's (VirtualTranscript marks that row
+/// `data-retryable`; conversation.css).
 export function PromptRetry({ rowId, prompt }: { rowId: string; prompt: string }) {
   const t = useT();
   const { retry, retryWith } = useContext(TurnActionsContext);
@@ -148,7 +158,8 @@ export function PromptRetry({ rowId, prompt }: { rowId: string; prompt: string }
         type="button"
         className="cv-iconbtn cv-iconbtn--compact"
         aria-label={t("turn.retry")}
-        title={t("turn.retryLabel")}
+        title={t("turn.retry")}
+        data-tooltip-detail={t("turn.retryLabel")}
         onClick={() => retry(rowId, prompt)}
       >
         <Retry size={ROW_ICON} />
@@ -160,16 +171,16 @@ export function PromptRetry({ rowId, prompt }: { rowId: string; prompt: string }
   );
 }
 
-/// The row under a prompt the Chief sent (ChiefPromptBubble): its age, its read receipt, Copy,
-/// Retry and Pin, as under the person's own bubble.
+/// The row under a prompt the Chief sent (ChiefPromptBubble): its read receipt, its age, a dot,
+/// Copy and Retry, as under the person's own bubble.
 export function PromptActions({ row, text }: { row: AcpmuxRow; text: string }) {
   return (
     <div className="cv-user__actions">
-      <MessageTime at={row.at} className="cv-user__time" />
       <ReadReceipt row={row} />
+      <MessageTime at={row.at} className="cv-user__time" />
+      <MessageDot />
       <MessageCopy text={text} />
       <PromptRetry rowId={row.id} prompt={row.resend ?? row.text ?? ""} />
-      <PinButton rowId={row.id} />
     </div>
   );
 }

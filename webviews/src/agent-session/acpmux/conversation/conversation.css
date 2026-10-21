@@ -598,24 +598,32 @@
 .cv-received-actions:focus-within {
   opacity: 1;
 }
-/* Retry sends the last ended turn's prompt again (VirtualTranscript marks its row; MessageActions.tsx). */
+/* Retry sends a prompt again: under every prompt (Leo's spec, as Claude's), at the end of another
+   agent's message only on the last ended turn's (VirtualTranscript marks its row; MessageActions.tsx). */
 .cv-message-retry {
   display: none;
 }
+.cv-user__actions .cv-message-retry,
 .acpmux-row[data-retryable] .cv-message-retry {
   display: inline-flex;
   align-items: center;
 }
-/* The prompt's age and its read receipt lead the row, quiet, as Claude Code desktop's: the age in
-   the caption size, 6px before the receipt, a 16px double check in a 24px square right before Copy.
-   (An answer's age is in the body size, 8px after its buttons: .cv-turn-time.) */
+/* The prompt's read receipt and its age lead the row, quiet (Leo's spec): a 16px double check in a
+   24px square, the age in the caption size, a dot, then the buttons. (An answer's age is in the
+   body size, 8px after its buttons: .cv-turn-time.) */
 .cv-user__time {
-  padding-inline-end: 6px;
+  padding-inline-start: 2px;
   color: var(--cv-text-dim);
   font-size: var(--text-caption);
   line-height: var(--cv-meta-row);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+.cv-user__dot {
+  padding-inline: 4px;
+  color: var(--cv-text-dim);
+  font-size: var(--text-caption);
+  line-height: var(--cv-meta-row);
 }
 .cv-user__read {
   display: inline-flex;
