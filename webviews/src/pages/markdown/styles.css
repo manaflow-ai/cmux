@@ -87,7 +87,9 @@ body {
   color: var(--cmux-md-muted-color);
 }
 
-.md-toolbar {
+/* The host scopes it past .ui-toolbar's inline-flex (ui.css), whatever order the bundle loads them in:
+   inline, the bar shrank to its content, its border stopped short and the file name met "Saved". */
+.md-toolbar-host > .md-toolbar {
   display: flex;
   align-items: center;
   gap: 10px;

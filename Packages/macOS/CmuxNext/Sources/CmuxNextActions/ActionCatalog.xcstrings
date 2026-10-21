@@ -29744,7 +29744,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mute or Unmute Workspace Notifications"
+            "value": "Mute/Unmute Workspace Notifications"
           }
         },
         "ar": {
@@ -56730,7 +56730,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle Group Collapse"
+            "value": "Collapse/Expand Workspace Group"
           }
         },
         "ja": {
@@ -77184,7 +77184,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mute or Unmute Chat Notifications"
+            "value": "Mute/Unmute Chat Notifications"
           }
         },
         "de": {
