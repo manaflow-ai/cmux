@@ -147,6 +147,9 @@ import CmuxNextCompat
         throw AcpmuxStatusClient.Failure.closed
     }
 
+    /// Keeps the prompts acpmux has not acknowledged across the app's end (``AgentPanePromptJournal``).
+    public var promptJournal: AgentPanePromptJournal? = AgentPanePromptJournal.shared
+
     /// Pushes and flushes so far (tests and the bench read them).
     public private(set) var flushes = 0
 
