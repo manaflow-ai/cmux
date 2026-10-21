@@ -246,7 +246,7 @@ export function ComposerContext({
               label={t(CONTEXT_LABELS.computer)}
               menu="Computer"
               kind="computer"
-              icon={<ComputerIcon name={currentComputer?.label} />}
+              icon={<ComputerIcon name={currentComputer?.kind === "local" ? undefined : currentComputer?.label} />}
               value={currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
               options={computers}
               selected={selectedComputer}
@@ -437,7 +437,7 @@ function FolderIcon() {
   );
 }
 
-/// The computer chip's icon, in the machine's own color (machineColor) when it has a name.
+/// The computer chip's icon, in another machine's own color (machineColor); this Mac's stays quiet.
 function ComputerIcon({ name }: { name?: string }) {
   return (
     <svg

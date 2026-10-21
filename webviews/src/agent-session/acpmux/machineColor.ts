@@ -1,6 +1,7 @@
 /// A machine's identity color: one of the terminal theme's accents, picked by a stable hash of the
-/// machine's name, so each machine keeps one color in the composer's computer chip, the environment
-/// list and the chat's Environment line, and two machines rarely look alike. The hash and the
+/// machine's name, so another machine keeps one color in the composer's computer chip, the
+/// environment list and the chat's Environment line, and two machines rarely look alike. This Mac
+/// draws no color (Leo 2026-10-20: another machine is the news). The hash and the
 /// order are the app's (AgentPresenceColor: FNV-1a over the name's Unicode scalars, then
 /// red, green, yellow, purple, cyan, orange, pink, blue), so the sidebar can draw the same color.
 export const MACHINE_HUES = ["red", "green", "yellow", "purple", "cyan", "orange", "pink", "blue"] as const;

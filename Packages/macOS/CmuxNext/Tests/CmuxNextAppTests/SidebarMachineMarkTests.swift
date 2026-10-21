@@ -2,31 +2,45 @@ import CmuxNextDesign
 @testable import CmuxNextSidebar
 import Testing
 
-/// Machine identity: while the sidebar lists more than one machine, every workspace row marks the
-/// machine it runs on, this Mac's too, by its own name (the color's key), so rows on different
-/// machines tell apart. One machine: no mark.
+/// Machine identity: while the sidebar lists more than one machine, a workspace row on another
+/// machine marks it (its glyph in its color), so rows on different machines tell apart. This Mac's
+/// rows are marked only with `sidebar.showLocalMachine` (Leo 2026-10-20: another machine is the
+/// news). One machine: no mark.
 @MainActor struct SidebarMachineMarkTests {
-    private let mac = SidebarMachine(id: .local, name: "This Mac", kind: .local, identityName: "office-mac")
+    private let mac = SidebarMachine(id: .local, name: "This Mac", kind: .local)
     private let vm = SidebarMachine(id: MachineID("vm"), name: "gpu-box", kind: .ssh, icon: .symbol("server.rack"))
 
-    private func options(_ machines: [SidebarMachine]) -> SidebarLayoutOptions {
-        var options = SidebarLayoutOptions()
-        options.machines = Dictionary(uniqueKeysWithValues: machines.map { ($0.id, $0) })
-        return options
+    private func section(_ machine: SidebarMachine) -> SidebarSection {
+        SidebarSection(kind: .machine(machine),
+                       nodes: [.workspace(SidebarWorkspace(id: WorkspaceID("\(machine.name)-ws"), machineID: machine.id, title: "ws"))])
     }
 
-    @Test func eachRowMarksItsMachineByItsOwnName() throws {
-        let o = options([mac, vm])
-        let local = try #require(o.rowContent(SidebarWorkspace(id: WorkspaceID("a"), title: "a"), machine: nil).machine)
-        #expect(local.name == "office-mac")
-        #expect(local.kindIcon == .machineLocal)
-        let remote = try #require(o.rowContent(SidebarWorkspace(id: WorkspaceID("b"), machineID: vm.id, title: "b"), machine: nil).machine)
+    private func marks(showsLocalMachine: Bool = false, _ machines: [SidebarMachine]) -> [MachineID: SidebarMachineMark] {
+        let model = SidebarModel(sections: machines.map(section))
+        model.showsLocalMachine = showsLocalMachine
+        let o = model.listOptions()
+        var marks: [MachineID: SidebarMachineMark] = [:]
+        for machine in machines {
+            let row = o.rowContent(SidebarWorkspace(id: WorkspaceID("w"), machineID: machine.id, title: "w"), machine: nil)
+            marks[machine.id] = row.machine
+        }
+        return marks
+    }
+
+    @Test func anotherMachinesRowsAreMarkedThisMacsAreNot() throws {
+        let marks = marks([mac, vm])
+        let remote = try #require(marks[vm.id])
         #expect(remote.name == "gpu-box")
         #expect(remote.symbol == "server.rack")
+        #expect(marks[mac.id] == nil)
+    }
+
+    @Test func theSettingMarksThisMacsRowsToo() throws {
+        let local = try #require(marks(showsLocalMachine: true, [mac, vm])[mac.id])
+        #expect(local.kindIcon == .machineLocal)
     }
 
     @Test func oneMachineDrawsNoMark() {
-        let row = SidebarLayoutOptions().rowContent(SidebarWorkspace(id: WorkspaceID("a"), title: "a"), machine: nil)
-        #expect(row.machine == nil)
+        #expect(marks(showsLocalMachine: true, [mac]).isEmpty)
     }
 }

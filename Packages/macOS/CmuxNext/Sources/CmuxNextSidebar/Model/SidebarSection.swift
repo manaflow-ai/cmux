@@ -78,24 +78,16 @@ public nonisolated struct SidebarMachine: Hashable, Sendable {
     /// The machine's own icon (`session-icon-v1`, from the home session
     /// registry), drawn in place of its kind's symbol; nil draws the symbol.
     public var icon: WorkspaceIcon?
-    /// The machine's own name when `name` is not it: this Mac's (MacName.displayName) under
-    /// "This Mac". Its color (MachineColor) and its rows' tooltip come from it, so this Mac
-    /// has the color other Macs draw it in.
-    public var identityName: String?
 
     public init(id: MachineID, name: String, kind: Kind, status: Status = .connected, detail: String? = nil,
-                icon: WorkspaceIcon? = nil, identityName: String? = nil) {
+                icon: WorkspaceIcon? = nil) {
         self.id = id
         self.name = name
         self.kind = kind
         self.status = status
         self.detail = detail
         self.icon = icon
-        self.identityName = identityName
     }
-
-    /// The name the machine is known by everywhere: `identityName`, else `name`.
-    public var shownName: String { identityName ?? name }
 
     /// A connected machine whose link redials reads as reconnecting
     /// (cx-z5oif): its socket stays up, so its connection cannot tell.

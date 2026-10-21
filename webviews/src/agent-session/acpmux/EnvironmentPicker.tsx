@@ -230,14 +230,15 @@ export function EnvironmentPicker({
 /// An action row's value: never a machine's id.
 const ACTION = "\u0000action:";
 
-/// A machine's icon: its kind's shape, in the machine's own color (machineColor) when it has a
-/// name, so each machine reads the same in the chip, this list and the chat's Environment line.
+/// A machine's icon: its kind's shape. Another machine draws in its own color (machineColor), so
+/// it reads the same in the chip, this list and the chat's Environment line; this Mac stays quiet
+/// (Leo 2026-10-20: another machine is the news).
 export function EnvironmentIcon({ kind, name }: { kind: EnvironmentKind; name?: string }) {
   return (
     <svg
       className="acpmux-icon acpmux-location-icon acpmux-env-icon ui-ghost-icon"
       data-kind={kind}
-      style={name ? { color: machineColor(name) } : undefined}
+      style={name && kind !== "local" ? { color: machineColor(name) } : undefined}
       width={14}
       height={14}
       viewBox="0 0 16 16"

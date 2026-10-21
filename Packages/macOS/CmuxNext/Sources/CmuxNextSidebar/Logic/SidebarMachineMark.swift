@@ -6,16 +6,16 @@ import CmuxNextIcons
 /// its color (MachineColor), at the end of the row, and its name in the
 /// row's label, so rows on different machines tell apart at a glance. Rows
 /// draw it while the sidebar lists more than one machine; this Mac's rows
-/// too, then.
+/// only with `sidebar.showLocalMachine` (off by default: another machine is the news).
 public nonisolated struct SidebarMachineMark: Hashable, Sendable {
-    /// The machine's own name (`SidebarMachine.shownName`): the label and the color's key.
+    /// The machine's name: the label and the color's key.
     public var name: String
     public var kind: SidebarMachine.Kind
     /// The machine's own icon, when it is an SF Symbol; else its kind's symbol draws.
     public var symbol: String?
 
     public init(_ machine: SidebarMachine) {
-        name = machine.shownName
+        name = machine.name
         kind = machine.kind
         switch machine.icon {
         case let .symbol(name, _)?: symbol = name

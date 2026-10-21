@@ -11,7 +11,7 @@ struct MacNameTests {
         #expect(MacName.isDefaultName(name))
     }
 
-    @Test(arguments: ["cosmic-gray", "air-blue", "Huge Blue", "big-red", "build-mini"])
+    @Test(arguments: ["cosmic-gray", "air-blue", "Huge Blue", "big-red", "build-mini", "ops-mac", "Primacy", "macproxy"])
     func ownNamesAreKept(_ name: String) {
         #expect(!MacName.isDefaultName(name))
     }

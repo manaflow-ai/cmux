@@ -30,9 +30,9 @@ public struct MacName: Sendable {
     /// Whether `name` looks like a name macOS made up: one that names the
     /// hardware ("Leo's MacBook Pro (3)", "Leos-Mac-mini-2", "iMac").
     nonisolated static func isDefaultName(_ name: String) -> Bool {
-        let flat = name.lowercased().filter { $0.isLetter }
-        return ["macbook", "macmini", "macstudio", "macpro", "imac"].contains { flat.contains($0) }
-            || name.range(of: #"(['’]s|s-)\s*Mac\b"#, options: [.regularExpression, .caseInsensitive]) != nil
+        let model = #"\b(?:MacBook|Mac[ -]?mini|Mac[ -]?Studio|Mac[ -]?Pro|iMac)\b"#
+        let owned = #"['’]s Mac(?: \(\d+\))?$"#
+        return [model, owned].contains { name.range(of: $0, options: [.regularExpression, .caseInsensitive]) != nil }
     }
 
     /// Runs `read` off the main actor (it may do IPC) and applies the fallbacks.

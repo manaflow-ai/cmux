@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// The very subtle machine label of a tab whose terminal runs on another
+/// The small machine label of a tab whose terminal runs on another
 /// machine (plans/cmux-next/data-model.md 1.2b), in the machine's color
 /// (MachineColor), as its sidebar rows and the composer's chip draw it.
 extension TabCell {

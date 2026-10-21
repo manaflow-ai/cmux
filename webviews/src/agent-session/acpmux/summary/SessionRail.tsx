@@ -288,7 +288,7 @@ function Environment({ summary, machineName }: { summary?: Summary; machineName?
   return (
     <ul className="acpmux-rail-list">
       <li className="acpmux-rail-row">
-        <Icon name={place.icon} size={ROW_ICON} row color={machineColor(place.name)} />
+        <Icon name={place.icon} size={ROW_ICON} row color={remote ? machineColor(place.name) : undefined} />
         <span className="acpmux-rail-row__name">{place.name}</span>
       </li>
       {cwd && folderRow(cwd, cwd === summary?.worktree ? "git.worktree" : "folder")}

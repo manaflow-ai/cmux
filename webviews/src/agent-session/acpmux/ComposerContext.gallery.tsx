@@ -164,7 +164,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     "machine-colors": {
-      note: "Each machine keeps one color from its name (machineColor), in the chip and the list, so this Mac, two SSH machines and a Cloud machine tell apart at a glance.",
+      note: "Another machine keeps one color from its name (machineColor) in the list, so two SSH machines and a Cloud machine tell apart at a glance; this Mac stays quiet.",
       props: {
         ...baseProps,
         environments: true,
