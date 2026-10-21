@@ -3573,6 +3573,38 @@ mod tests {
         }
     }
 
+    /// `notify --workspace ws_…` and `notification create|clear --workspace`
+    /// scope the row to that workspace (`workspace_id`), never the session.
+    #[test]
+    fn notify_workspace_sends_the_workspace_scope() {
+        const WS: &str = "ws_00000000000000000000000000000042";
+        const TERMINAL: &str = "term_00000000000000000000000000000041";
+        let create = protocol(&["notify", "--workspace", WS, "--title", "x"]);
+        assert_eq!(create.operation.name().unwrap(), "notification.create");
+        assert_eq!(create.params["workspace_id"], WS);
+        assert!(create.params.get("terminal_id").is_none());
+        let clear = protocol(&["notify", "--clear", "--workspace", WS]);
+        assert_eq!(clear.operation.name().unwrap(), "notification.clear");
+        assert_eq!(clear.params["workspace_id"], WS);
+        // `current` keeps its session-level meaning.
+        let session = protocol(&["notify", "--clear", "--workspace", "current"]);
+        assert!(session.params.get("workspace_id").is_none());
+        let resource =
+            protocol(&["notification", "create", "--title", "t", "--body", "", "--workspace", WS]);
+        assert_eq!(resource.params["workspace_id"], WS);
+        let resource_clear = protocol(&["notification", "clear", "--workspace", WS]);
+        assert_eq!(resource_clear.params["workspace_id"], WS);
+        for both in [
+            &["notify", "--workspace", WS, "--surface", TERMINAL][..],
+            &["notification", "clear", "--workspace", WS, "--terminal", TERMINAL],
+        ] {
+            assert!(
+                parse(&strings(both), super::super::Surface::CmuxTui).is_err(),
+                "{both:?}: a workspace and a terminal scope together"
+            );
+        }
+    }
+
     /// The machine `notify` accepts the macOS flag set, ignores the Mac-only ones, and validates `--desktop`.
     #[test]
     fn notify_matches_the_local_cmux_notify_signature() {
