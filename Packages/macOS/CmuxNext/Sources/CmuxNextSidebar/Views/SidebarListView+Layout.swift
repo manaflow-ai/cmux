@@ -94,7 +94,10 @@ extension SidebarListViewComponents {
         case .group: SidebarStyle.groupGutter * CGFloat(row.depth)
         default: 0
         }
-        return NSRect(x: inset + gutter, y: row.y, width: max(0, bounds.width - inset * 2 - gutter), height: row.height)
+        // Rows end `rowTrailingTrim` short of the list's right inset, so a row's pill never runs to
+        // the sidebar's edge (Leo 2026-10-20, Chrome's vertical tabs).
+        return NSRect(x: inset + gutter, y: row.y, width: max(0, bounds.width - inset * 2 - gutter - SidebarStyle.rowTrailingTrim),
+                      height: row.height)
     }
     func realizationRect() -> NSRect {
         // A space page never scrolls: the rows in its frame, no overscan.

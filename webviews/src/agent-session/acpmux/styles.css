@@ -418,15 +418,15 @@
 .acpmux-edited-file{display:flex;align-items:center;gap:12px;width:100%;height:26px;box-sizing:border-box;padding:0 12px;border:0;background:none;color:var(--agent-text);font:inherit;font-size:var(--text-detail);line-height:16px;text-align:left}
 button.acpmux-edited-file{cursor:pointer}
 button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4%,transparent)}
-.acpmux-turn-preview{position:relative;margin-bottom:6px;border-radius:9px;overflow:hidden;background:color-mix(in srgb,var(--agent-text) 3%,var(--agent-page-bg))}
+.acpmux-turn-preview{position:relative;margin-bottom:6px;border-radius:9px;overflow:hidden;background:color-mix(in srgb,var(--agent-text) 3%,var(--cmux-surface-solid,var(--acpmux-base,Canvas)))}
 .acpmux-turn-preview::after{content:"";position:absolute;inset:0;border-radius:inherit;box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--agent-border-strong,var(--agent-border));pointer-events:none}
-.acpmux-turn-preview-head{display:flex;align-items:center;gap:11px;min-height:58px;box-sizing:border-box;padding:9px 12px;background:color-mix(in srgb,var(--agent-text) 5%,var(--agent-page-bg));box-shadow:inset 0 -1px 0 var(--agent-border)}
+.acpmux-turn-preview-head{display:flex;align-items:center;gap:11px;min-height:58px;box-sizing:border-box;padding:9px 12px;background:color-mix(in srgb,var(--agent-text) 5%,var(--cmux-surface-solid,var(--acpmux-base,Canvas)));box-shadow:inset 0 -1px 0 var(--agent-border)}
 .acpmux-turn-preview-icon{flex:none;display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:8px;background:var(--agent-page-bg);color:var(--agent-muted)}
 .acpmux-turn-preview-address{flex:1;min-width:0;font-family:var(--font-mono);font-size:12.5px;color:var(--agent-text);text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .acpmux-turn-preview-address:hover{text-decoration:underline}
 .acpmux-turn-preview-address:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px;border-radius:3px}
-.acpmux-turn-preview-frame{position:relative;height:180px;overflow:hidden;cursor:pointer;background:var(--agent-page-bg)}
-.acpmux-turn-preview-frame iframe{position:absolute;top:0;left:0;width:400%;height:400%;border:0;transform:scale(.25);transform-origin:0 0;pointer-events:none;background:var(--agent-page-bg)}
+.acpmux-turn-preview-frame{position:relative;height:180px;overflow:hidden;cursor:pointer;background:var(--cmux-surface-solid,var(--acpmux-base,Canvas))}
+.acpmux-turn-preview-frame iframe{position:absolute;top:0;left:0;width:400%;height:400%;border:0;transform:scale(.25);transform-origin:0 0;pointer-events:none;background:var(--cmux-surface-solid,var(--acpmux-base,Canvas))}
 /* A gallery stage (previewUrl.ts isGalleryFrame): one component at its own size, usable in place. */
 .acpmux-turn-preview-frame--live{height:360px;cursor:auto;resize:vertical}
 .acpmux-turn-preview-frame--live iframe{width:100%;height:100%;transform:none;pointer-events:auto}
@@ -439,10 +439,9 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .cv-link-preview__open:hover{background:color-mix(in srgb,var(--agent-text) 8%,transparent)}
 .cv-link-preview__open:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
 .cv-link-preview__target{padding:9px 12px 10px;color:var(--agent-muted);font-size:var(--text-detail);line-height:1.35;overflow-wrap:anywhere}
-/* A pull request's hover card (chips/PullRequestCard.tsx; Leo 2026-10-20): the link card's frame on the tooltip's frosted glass (desktop.css --tooltip-*), the full title, then owner/repo#N, the state in the header chip's colours and the author, then the checks with a dot in their state's colour. A pull request bar's card only describes the bar, so the pointer passes through it. */
-.cv-link-preview.acpmux-pr-card{border:var(--tooltip-rim-width,.5px) solid var(--cmux-separator,color-mix(in srgb,var(--agent-text) 12%,transparent));background:var(--tooltip-tint,var(--surface-popup));-webkit-backdrop-filter:var(--tooltip-blur,blur(20px) saturate(1.4));backdrop-filter:var(--tooltip-blur,blur(20px) saturate(1.4));box-shadow:var(--tooltip-shadow,var(--elevation-2))}
-.cv-link-preview.acpmux-pr-card[role=tooltip]{pointer-events:none}
-.cv-link-preview.acpmux-pr-card .cv-link-preview__head{background:transparent;border-bottom-color:var(--cmux-separator,var(--agent-border))}
+/* Every link's hover card (chips/LinkHoverCard.tsx; Leo 2026-10-20) sits on the tooltip's frosted glass (desktop.css --tooltip-*), ui-card's solid surface overridden. A pull request's adds (PullRequestCard.tsx) the full title, then owner/repo#N, the state in the header chip's colours and the author, then the checks with a dot in their state's colour. */
+.cv-link-preview.ui-card{border:var(--tooltip-rim-width,.5px) solid var(--cmux-separator,color-mix(in srgb,var(--agent-text) 12%,transparent));background:var(--tooltip-tint,var(--surface-popup));-webkit-backdrop-filter:var(--tooltip-blur,blur(20px) saturate(1.4));backdrop-filter:var(--tooltip-blur,blur(20px) saturate(1.4));box-shadow:var(--tooltip-shadow,var(--elevation-2))}
+.cv-link-preview.ui-card .cv-link-preview__head{background:transparent;border-bottom-color:var(--cmux-separator,var(--agent-border))}
 .acpmux-pr-card__body{display:grid;gap:5px;padding:9px 12px 10px;font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
 .acpmux-pr-card__title{color:var(--agent-text);font-size:var(--text-control);line-height:var(--text-control--line-height);font-weight:600;overflow-wrap:anywhere}
 .acpmux-pr-card__facts{display:flex;flex-wrap:wrap;align-items:center;gap:4px 7px;color:var(--agent-muted)}

@@ -65846,127 +65846,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "اطلب أي شيء"
+            "value": "اكتب / للأوامر"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Uradi bilo šta"
+            "value": "Upiši / za komande"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Gør hvad som helst"
+            "value": "Skriv / for kommandoer"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Was möchtest du tun?"
+            "value": "/ für Befehle eingeben"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Do anything"
+            "value": "Type / for commands"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pide lo que quieras"
+            "value": "Escribe / para ver comandos"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Demandez n’importe quoi"
+            "value": "Tapez / pour les commandes"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chiedi qualsiasi cosa"
+            "value": "Digita / per i comandi"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "何でも頼んでください"
+            "value": "/ でコマンド"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ធ្វើអ្វីក៏បាន"
+            "value": "វាយ / សម្រាប់ពាក្យបញ្ជា"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "무엇이든 해 보세요"
+            "value": "/를 입력해 명령 보기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Gjør hva som helst"
+            "value": "Skriv / for kommandoer"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Poproś o cokolwiek"
+            "value": "Wpisz /, aby wyświetlić polecenia"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Peça qualquer coisa"
+            "value": "Digite / para comandos"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Попросите о чём угодно"
+            "value": "Введите / для команд"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "สั่งงานได้เลย"
+            "value": "พิมพ์ / เพื่อดูคำสั่ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Her şeyi isteyin"
+            "value": "Komutlar için / yazın"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Попросіть про що завгодно"
+            "value": "Введіть / для команд"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Làm bất cứ điều gì"
+            "value": "Gõ / để xem lệnh"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "想做什么都可以"
+            "value": "输入 / 查看命令"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "想做什麼都可以"
+            "value": "輸入 / 檢視指令"
           }
         }
       }
@@ -137647,138 +137647,6 @@
         }
       }
     },
-    "composer.steer": {
-      "comment": "Agent pane: composer button while a turn runs; sends the typed prompt into the running turn (cx-xtg0.3)",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "توجيه"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Usmjeri"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Styr"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lenken"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Steer"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dirigir"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Orienter"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Guida"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ステア"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ដឹកនាំ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "조정"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Styr"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pokieruj"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Direcionar"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Направить"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ชี้นำ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Yönlendir"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Скерувати"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Điều hướng"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "引导"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "引導"
-          }
-        }
-      }
-    },
     "composer.steerLabel": {
       "comment": "Agent pane: accessible name of the composer's Steer button (cx-xtg0.3)",
       "extractionState": "manual",
@@ -185606,6 +185474,270 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "加入佇列；本輪結束後傳送 (⌘Return)"
+          }
+        }
+      }
+    },
+    "context.ringTooltip": {
+      "comment": "Agent pane composer: tooltip of the context usage ring; {percent} is the share used, {used} and {size} are compact token counts (84K, 200K)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السياق: {percent}% مستخدم ({used} من {size} رمز)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontekst: iskorišteno {percent}% ({used} od {size} tokena)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontekst: {percent}% brugt ({used} af {size} tokens)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontext: {percent} % belegt ({used} von {size} Tokens)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Context: {percent}% used ({used} of {size} tokens)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contexto: {percent} % usado ({used} de {size} tokens)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contexte : {percent} % utilisé ({used} sur {size} jetons)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contesto: {percent}% usato ({used} di {size} token)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンテキスト：{percent}% 使用（{size} トークン中 {used}）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បរិបទ៖ បានប្រើ {percent}% ({used} នៃ {size} តូខឹន)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컨텍스트: {percent}% 사용 ({size} 토큰 중 {used})"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontekst: {percent} % brukt ({used} av {size} tokens)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontekst: wykorzystano {percent}% ({used} z {size} tokenów)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contexto: {percent}% usado ({used} de {size} tokens)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Контекст: использовано {percent}% ({used} из {size} токенов)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บริบท: ใช้ไป {percent}% ({used} จาก {size} โทเค็น)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bağlam: %{percent} kullanıldı ({size} belirteçten {used})"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Контекст: використано {percent}% ({used} з {size} токенів)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ngữ cảnh: đã dùng {percent}% ({used} trên {size} token)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上下文：已用 {percent}%（{used} / {size} 个令牌）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上下文：已用 {percent}%（{used} / {size} 個權杖）"
+          }
+        }
+      }
+    },
+    "context.ringTooltipEmpty": {
+      "comment": "Agent pane composer: tooltip of the context usage ring before the chat reports any usage",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يظهر استخدام السياق بعد الرد الأول"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upotreba konteksta prikazuje se nakon prvog odgovora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontekstforbrug vises efter det første svar"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Kontextnutzung erscheint nach der ersten Antwort"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Context usage shows after the first reply"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El uso del contexto aparece tras la primera respuesta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’utilisation du contexte s’affiche après la première réponse"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’uso del contesto appare dopo la prima risposta"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンテキストの使用量は最初の返信の後に表示されます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការប្រើបរិបទបង្ហាញបន្ទាប់ពីការឆ្លើយតបដំបូង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컨텍스트 사용량은 첫 답변 후에 표시됩니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontekstbruk vises etter det første svaret"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użycie kontekstu pojawi się po pierwszej odpowiedzi"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O uso do contexto aparece após a primeira resposta"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использование контекста появится после первого ответа"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การใช้บริบทจะแสดงหลังคำตอบแรก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bağlam kullanımı ilk yanıttan sonra görünür"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використання контексту з’явиться після першої відповіді"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mức dùng ngữ cảnh hiện sau câu trả lời đầu tiên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首次回复后显示上下文用量"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首次回覆後顯示上下文用量"
           }
         }
       }

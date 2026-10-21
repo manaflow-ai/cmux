@@ -144,6 +144,14 @@ nonisolated enum Strings {
     static var allow: String { String(localized: "browser.prompt.allow", defaultValue: "Allow", bundle: .module) }
     static var ok: String { String(localized: "browser.prompt.ok", defaultValue: "OK", bundle: .module) }
     static var cancel: String { String(localized: "browser.prompt.cancel", defaultValue: "Cancel", bundle: .module) }
+    // beforeunload (Chrome's wording)
+    static var beforeUnloadLeaveTitle: String { String(localized: "browser.beforeUnload.leaveTitle", defaultValue: "Leave site?", bundle: .module) }
+    static var beforeUnloadReloadTitle: String { String(localized: "browser.beforeUnload.reloadTitle", defaultValue: "Reload site?", bundle: .module) }
+    static var beforeUnloadMessage: String {
+        String(localized: "browser.beforeUnload.message", defaultValue: "Changes that you made may not be saved.", bundle: .module)
+    }
+    static var beforeUnloadLeave: String { String(localized: "browser.beforeUnload.leave", defaultValue: "Leave", bundle: .module) }
+    static var beforeUnloadReload: String { String(localized: "browser.beforeUnload.reload", defaultValue: "Reload", bundle: .module) }
 
     // Context menu
     static var openImageInNewTab: String { String(localized: "browser.menu.openImageInNewTab", defaultValue: "Open Image in New Tab", bundle: .module) }

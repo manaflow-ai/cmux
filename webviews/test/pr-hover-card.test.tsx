@@ -119,7 +119,9 @@ test("a pull request bar opens the pull request card", async () => {
   await act(async () => bar.focus());
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   expectFullCard(element.querySelector<HTMLElement>(".acpmux-pr-card"));
-  expect(host.calls).toEqual([{ method: "pr.inspect", params: { url: URL } }]);
+  expect(host.calls.filter((call) => call.method === "pr.inspect")).toEqual([
+    { method: "pr.inspect", params: { url: URL } },
+  ]);
   // The bar itself carries no tooltip: the card is the hover.
   expect(bar.hasAttribute("title")).toBe(false);
   await act(async () => root.unmount());
@@ -149,6 +151,42 @@ test("a pull request chip in a reply opens the same card", async () => {
   expectFullCard(card);
   // It keeps the link card's Open.
   expect(card!.querySelector("button")?.textContent).toContain("Open");
+  await act(async () => root.unmount());
+  host.done();
+});
+
+test("an inline link opens the same card: favicon, page title, host, the address with its secrets masked", async () => {
+  const { act } = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const { UiProvider } = await import("../src/ui/UiProvider");
+  const { UrlChip } = await import("../src/agent-session/acpmux/chips/LinkChips");
+  const { resetLinkStore, seedLinkStore } = await import("../src/agent-session/acpmux/chips/linkStore");
+  const link = "https://docs.example.test/guide?page=2&token=abc123";
+  resetLinkStore();
+  seedLinkStore({ sites: { [link]: { title: "Example Guide", icon: "data:image/png;base64,AA==" } } });
+  const host = await rig();
+  const element = dom.window.document.getElementById("root")!;
+  const root = createRoot(element);
+  await act(async () =>
+    root.render(
+      <UiProvider container={element}>
+        <UrlChip href={link}>{link}</UrlChip>
+      </UiProvider>,
+    ),
+  );
+  await act(async () => element.querySelector<HTMLElement>("a.cv-chip")!.focus());
+  const card = element.querySelector<HTMLElement>(".cv-link-preview")!;
+  expect(card.classList.contains("acpmux-pr-card")).toBe(false);
+  expect(card.querySelector(".cv-link-preview__icon img")).not.toBeNull();
+  expect(card.querySelector(".cv-link-preview__site")?.textContent).toBe("Example Guide");
+  expect(card.querySelector(".cv-link-preview__target")?.textContent).toBe(
+    "docs.example.test · https://docs.example.test/guide?page=2&token=•••",
+  );
+  expect([...card.querySelectorAll("button")].map((button) => button.textContent)).toEqual(
+    expect.arrayContaining([expect.stringContaining("Open"), expect.stringContaining("Open in")]),
+  );
+  // No pull request, no gh read.
+  expect(host.calls.some((call) => call.method === "pr.inspect")).toBe(false);
   await act(async () => root.unmount());
   host.done();
 });
