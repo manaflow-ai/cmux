@@ -56,7 +56,36 @@ export function ItemActions({ item, ctx }: { item: ReleaseItem; ctx: PartsContex
         </button>
       )}
       {item.docs && (
-        <a className="cl-link" href={item.docs} rel="noreferrer">
+        <a
+          className="cl-link"
+          href={item.docs}
+          rel="noreferrer"
+          aria-label={`${ctx.strings.t("changelog.page.learnMore")}: ${item.title}`}
+        >
+          {ctx.strings.t("changelog.page.learnMore")}
+        </a>
+      )}
+    </div>
+  );
+}
+
+/** Try it and Learn more for one grouped change, kept with its title and summary. */
+export function RowActions({ item, ctx }: { item: ReleaseItem; ctx: PartsContext }) {
+  if (!item.action && !item.docs) return null;
+  return (
+    <div className="cl-row-actions">
+      {item.action && (
+        <button type="button" className="cl-row-action" onClick={() => ctx.onTry(item.action!.id)}>
+          {item.action.title || ctx.strings.t("changelog.page.tryIt")}
+        </button>
+      )}
+      {item.docs && (
+        <a
+          className="cl-row-link"
+          href={item.docs}
+          rel="noreferrer"
+          aria-label={`${ctx.strings.t("changelog.page.learnMore")}: ${item.title}`}
+        >
           {ctx.strings.t("changelog.page.learnMore")}
         </a>
       )}
@@ -127,11 +156,7 @@ function Group({ category, items, ctx }: { category: WhatsNewCategory; items: Re
               {item.summary && <span className="cl-row-summary"> {item.summary.split(/\n{2,}/)[0]}</span>}
               {ctx.rowMedia && item.media && <Media media={item.media} className="cl-row-media" />}
             </span>
-            {item.action && (
-              <button type="button" className="cl-row-action" onClick={() => ctx.onTry(item.action!.id)}>
-                {item.action.title || ctx.strings.t("changelog.page.tryIt")}
-              </button>
-            )}
+            <RowActions item={item} ctx={ctx} />
           </li>
         ))}
       </ul>
