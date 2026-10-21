@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBrowser
 import CmuxNextCookieImport
 import CmuxNextDesign
 import CmuxNextOnboarding
@@ -13,6 +14,17 @@ enum OnboardingHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
         registry.bind("importFromBrowser", run: { _ in services.onboarding.show(step: .importData) })
+        registry.bind("browserProfile.removeImportedData", run: { invocation in
+            let record = try context.browserProfile(invocation)
+            let history = services.cache.history(for: BrowserProfileRecord.engineProfile(for: record.id) ?? .default)
+            // task-owner: one removal the person asked for; the toast reports it
+            Task {
+                let counts = try await services.onboarding.historySync.removeImported(profile: record.id, bookmarks: services.importedBookmarkSink) { urls in
+                    await MainActor.run { history.forget(urls: urls) }
+                }
+                BrowserFileImport.toast(services, id: "browser-import-removed", ImportRemovalText.removed(counts, profile: record.name))
+            }
+        })
         // No path argument: only the person's own pick in the open panel brings passwords in.
         registry.bind("password.importCSV", run: { invocation in
             try PasswordCSVFiles(services: services).chooseImport(profile: BookmarkResolver(services: services).profile(invocation))

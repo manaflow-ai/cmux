@@ -248,6 +248,9 @@ final class HistoryService {
     /// Clears one profile's page history (Clear Browser History).
     func clearPages(profile: BrowserProfileID, range: HistoryRange) {
         let since = range.start(now: Date())
+        // Imported pages too, or the next launch brings them back.
+        // task-owner: one write the clear asked for
+        Task { [store = services.onboarding.importStore, wire = BrowserProfileRecord.wireID(for: profile)] in try? await store.forgetHistory(profile: wire, since: since) }
         if daemonHistory != nil {
             let wireID = BrowserProfileRecord.wireID(for: profile)
             daemonMutation { try await $0.clear(kinds: [.page], range: range, profile: wireID) }

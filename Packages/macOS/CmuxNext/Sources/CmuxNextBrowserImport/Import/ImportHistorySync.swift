@@ -63,6 +63,21 @@ public actor ImportHistorySync {
         await reconcile()
     }
 
+    /// Remove Imported Data: deletes what every import saved into `profile`,
+    /// stops its sync, takes its bookmarks out of the bookmarks model and
+    /// hands its pages to `forget` (the omnibar). Returns what went.
+    /// Sign-ins and passwords stay: they are in the profile's own stores.
+    public func removeImported(profile: String, bookmarks: (any ImportedBookmarkSink)?,
+                               forget: @Sendable ([URL]) async -> Void) async throws -> ImportCounts {
+        let removed = try await store.removeImported(profile: profile)
+        await reconcile()
+        for batch in removed where !batch.bookmarks.isEmpty {
+            try await bookmarks?.replaceImportedBookmarks([], source: batch.source)
+        }
+        await forget(removed.flatMap(\.history).map(\.url))
+        return removed.reduce(ImportCounts()) { $0 + ImportCounts(bookmarks: $1.bookmarks.count, history: $1.history.count, openTabs: $1.openTabs.count) }
+    }
+
     /// Stops every watch (the app is quitting, or the store went away).
     public func stop() {
         for key in watches.keys { end(key) }

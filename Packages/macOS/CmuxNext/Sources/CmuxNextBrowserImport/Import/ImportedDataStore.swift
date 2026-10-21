@@ -126,9 +126,10 @@ public actor ImportedDataStore {
     }
 
     /// Clear History: drops the saved imported pages of `profile` visited at
-    /// or after `since` (nil: all), so a cleared page does not come back at
-    /// the next launch.
+    /// or after `since` (nil: all, which also stops its Keep in Sync), so a
+    /// cleared page does not come back at the next launch.
     public func forgetHistory(profile: String, since: Date?) throws {
+        if since == nil { try stopSync(profile: profile) }
         for var batch in batches(profile: profile) {
             let kept = batch.history.filter { page in since.map { page.lastVisit < $0 } ?? false }
             guard kept.count != batch.history.count else { continue }

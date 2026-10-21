@@ -1,4 +1,4 @@
-import CmuxNextBrowserImport
+public import CmuxNextBrowserImport
 import Foundation
 
 /// User-facing onboarding text (Localizable.xcstrings in this module).
@@ -110,5 +110,17 @@ enum OnboardingStrings {
     static func profileName(_ profile: BrowserSourceProfile) -> String {
         profile.directoryName.isEmpty || profile.browser.family == .safari || profile.browser.family.isPrivateStore
             ? profile.browser.displayName : "\(profile.browser.displayName) · \(profile.displayName)"
+    }
+}
+
+/// Remove Imported Browser Data's toast: what went, by kind ("History 8,311 · Bookmarks 204").
+public enum ImportRemovalText {
+    public static func removed(_ counts: ImportCounts, profile: String) -> String {
+        let line = ImportCountsText.line(counts)
+        guard !line.isEmpty else {
+            return String(localized: "onboarding.import.removed.none", defaultValue: "Nothing imported into \(profile).", bundle: .module)
+        }
+        return String(localized: "onboarding.import.removed", defaultValue: "Removed from \(profile): \(line). Sign-ins and passwords stay.",
+                      bundle: .module)
     }
 }

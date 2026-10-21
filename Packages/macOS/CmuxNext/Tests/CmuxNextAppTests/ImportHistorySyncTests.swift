@@ -100,3 +100,39 @@ import Testing
         #expect(await store.batches(profile: "p1").first?.history.isEmpty == true)
     }
 }
+
+/// Remove Imported Browser Data: the profile's saved imports go, its omnibar
+/// forgets their pages and its imported bookmarks are emptied.
+@Suite(.serialized) struct RemoveImportedDataTests {
+    private actor Sink: ImportedBookmarkSink {
+        private(set) var replaced: [String: Int] = [:]
+        func replaceImportedBookmarks(_ bookmarks: [ImportedBookmark], source: ImportSourceRecord) async throws {
+            replaced[source.sourceKey] = bookmarks.count
+        }
+    }
+
+    private actor Forgotten {
+        private(set) var urls: [URL] = []
+        func add(_ list: [URL]) { urls += list }
+    }
+
+    @Test func removalReportsWhatWentAndEmptiesBookmarks() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "import-removal-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ImportedDataStore(directory: root)
+        var batch = ImportBatch(source: ImportSourceRecord(browser: .chrome, profileDirectory: "Default", displayName: "Google Chrome",
+                                                           proposedProfileID: "p1", targetProfileID: "p1"), kinds: [.history, .bookmarks])
+        let page = URL(fileURLWithPath: "/page")
+        batch.history = [ImportedHistoryEntry(url: page, title: nil, visitCount: 1, lastVisit: Date())]
+        batch.bookmarks = [ImportedBookmark(title: "A", url: page)]
+        try await store.save(batch)
+
+        let sink = Sink(), forgotten = Forgotten()
+        let sync = ImportHistorySync(store: store, grants: nil) { _, _ in }
+        let counts = try await sync.removeImported(profile: "p1", bookmarks: sink) { await forgotten.add($0) }
+        #expect(counts == ImportCounts(bookmarks: 1, history: 1))
+        #expect(await forgotten.urls == [page])
+        #expect(await sink.replaced == [batch.source.sourceKey: 0])
+        #expect(await store.batches(profile: "p1").isEmpty)
+    }
+}
