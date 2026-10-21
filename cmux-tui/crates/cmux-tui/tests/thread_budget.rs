@@ -185,13 +185,32 @@ fn thread_names(pid: u32) -> String {
     counts.iter().map(|(name, count)| format!("{count} {name}")).collect::<Vec<_>>().join(", ")
 }
 
-/// The fewest threads seen over one second: short-lived helpers (the
-/// cell-pixel fanout pool exits 250 ms after its last job) do not count.
+/// Threads that belong to terminals and connections: shared-executor
+/// workers (`serial-lanes`) follow the work in flight and exit 10 s after
+/// it, so they are left out on Linux, where names are readable. Elsewhere
+/// the count waits them out. Short-lived helpers (the cell-pixel fanout
+/// pool exits 250 ms after its last job) are left out by taking the fewest
+/// seen over the window.
 fn settled_thread_count(pid: u32) -> usize {
-    let mut fewest = thread_count(pid);
-    for _ in 0..20 {
+    #[cfg(target_os = "linux")]
+    let (window, count) = (Duration::from_secs(1), || {
+        fs::read_dir(format!("/proc/{pid}/task"))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter(|task| {
+                fs::read_to_string(task.path().join("comm"))
+                    .is_ok_and(|name| name.trim() != "serial-lanes")
+            })
+            .count()
+    });
+    #[cfg(not(target_os = "linux"))]
+    let (window, count) = (Duration::from_secs(11), || thread_count(pid));
+    let deadline = Instant::now() + window;
+    let mut fewest = count();
+    while Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(50));
-        fewest = fewest.min(thread_count(pid));
+        fewest = fewest.min(count());
     }
     fewest
 }

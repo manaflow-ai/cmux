@@ -82,9 +82,9 @@ pub(super) fn spawn_frame_producer(surface: &Arc<Surface>) -> anyhow::Result<()>
     });
     let installed = pty.frame_requests.lane.set(lane.clone()).is_ok();
     anyhow::ensure!(installed, "surface {} already has a frame producer", surface.id);
-    // A request made before the lane existed is still owed.
-    if pty.frame_requests.armed.load(Ordering::Acquire) {
-        lane.kick();
-    }
+    // A request made before the lane existed is still owed. Kick without
+    // reading `armed`: a request racing the install either sees the lane or
+    // is seen by this run, and a run with nothing owed returns at once.
+    lane.kick();
     Ok(())
 }
