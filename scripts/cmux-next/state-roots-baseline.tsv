@@ -23,6 +23,7 @@ Packages/macOS/CmuxNext/Sources/CmuxNextServerHelper/ServerFixPriorStore.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Managed/ManagedStatusReport.swift	1	move	unreviewed at S7 (cx-is1kf.8)
 Packages/macOS/CmuxNext/Sources/CmuxNextTasks/SocketTasksSource.swift	1	move	unreviewed at S7 (cx-is1kf.8)
 cmux-tui/crates/acpmux/src/chats/sources.rs	3	move	unreviewed at S7 (cx-is1kf.8)
+cmux-tui/crates/acpmux/src/cli/hosts.rs	4	keep	~/.acpmux on a remote SSH host
 cmux-tui/crates/acpmux/src/config.rs	1	keep	resolver: acpmux default home
 cmux-tui/crates/acpmux/src/config/folder_profiles.rs	1	move	unreviewed at S7 (cx-is1kf.8)
 cmux-tui/crates/acpmux/src/config/profiles.rs	1	move	unreviewed at S7 (cx-is1kf.8)
@@ -48,4 +49,3 @@ cmux-tui/crates/cmux-tui/src/cli/chief/home.rs	1	keep	resolver: Chief home (CLI)
 cmux-tui/crates/cmux-tui/src/cli/chief/link.rs	1	move	unreviewed at S7 (cx-is1kf.8)
 cmux-tui/crates/cmux-tui/src/remote_cli/acpmux_peer.rs	1	keep	~/.acpmux on a remote Cloud VM (its daemon's default acpmux home), read over the workspace RPC
 cmux-tui/crates/cmux-tui/src/remote_host/config.rs	1	keep	machine-wide cmux host config (one listener per machine, not per build); serve --dir and CMUX_HOST_DIR override it
-cmux-tui/crates/acpmux/src/cli/hosts.rs	4	keep	~/.acpmux on a remote SSH host
