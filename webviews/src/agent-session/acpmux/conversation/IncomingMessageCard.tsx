@@ -177,6 +177,7 @@ export function IncomingMessageLine({
             initial={replyDrafts.get(key) ?? ""}
             canSend
             label={t("message.replyTo", { name: message.name })}
+            // oxlint-disable-next-line jsx-a11y/no-autofocus -- the reply box opens on the person's own click.
             autoFocus={focusEditor}
             onChange={(text) => {
               if (text) replyDrafts.set(key, text);
