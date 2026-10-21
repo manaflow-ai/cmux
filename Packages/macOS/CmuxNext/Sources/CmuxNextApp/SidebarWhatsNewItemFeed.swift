@@ -10,7 +10,8 @@ import Observation
 
 /// The client-only items at the very top of a window's sidebar: Lanes (cx-v9k2f)
 /// while Labs preview features are on, and the Channels entry after Home while
-/// `home.channelsEnabled` is on (cx-frn2y). What's New never shows here: after an
+/// `home.channelsEnabled` is on (cx-frn2y), and the Chief's subagent rows under the Chief
+/// item (`SidebarChiefItem`). What's New never shows here: after an
 /// update it is only the bottom-left "cmux Updated!" card (Lawrence 2026-10-18).
 @MainActor
 enum SidebarWhatsNewItemFeed {
@@ -25,8 +26,11 @@ enum SidebarWhatsNewItemFeed {
     }
 
     /// The items the feed shows now. Read inside an observation scope, so a change re-yields.
-    static func items(settings: SettingsController?, lanes: AgentLaneStore) -> [SidebarTransientItem] {
+    /// The Chief's subagent rows draw only under the Chief item, wherever it is.
+    static func items(settings: SettingsController?, lanes: AgentLaneStore,
+                      chiefLanes: AgentLaneStore = ChatsFeed.chiefLanes) -> [SidebarTransientItem] {
         [settings?.snapshot.previewFeatures == true ? SidebarTransientItem.lanes(lanes) : nil,
          DesignSettings.shared.homeChannelsEnabled && !HomeDock.classic ? SidebarTransientItem.channels : nil].compactMap(\.self)
+            + SidebarChiefItem.shared.items(lanes: chiefLanes)
     }
 }

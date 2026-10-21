@@ -23,6 +23,16 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 // The Home row's own menu offers Remove from Sidebar.
                 surfacePlan: plan(exemption: .familyMember)
             ),
+            // The Chief entry's subagent rows (`SidebarChiefItem`): folded, only the working, waiting, failed
+            // or lost ones show; checked, the idle ones too. Only the Chief entry's right-click menu shows it.
+            ActionDescriptor(
+                id: "sidebar.chief.toggleIdleSubagents",
+                title: t("action.sidebar.chief.toggleIdleSubagents", "Show Idle Chief Subagents"),
+                keywords: ["chief", "subagents", "agents", "sidebar", "idle", "show", "hide", "fold", "collapse", "expand"],
+                category: .sidebar, symbol: "list.bullet.indent", surfaces: [.palette, .keyboard, .contextMenu],
+                // A fold of this Mac's own sidebar view, nothing to script.
+                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarItem, .view, 50)])
+            ),
             ActionDescriptor(
                 id: "sidebar.item.add", title: t("action.sidebar.item.add", "Add to Sidebar…"),
                 keywords: ["sidebar", "section", "pin", "settings", "account", "history", "bookmarks", "notifications"],
@@ -310,6 +320,7 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
             ("new_browser", t("argument.sidebar.builtin.newBrowser", "New Browser Tab")),
             ("new_agent_chat", t("argument.sidebar.builtin.newAgentChat", "New Agent Chat")),
             ("search_chats", t("argument.sidebar.builtin.searchChats", "Search Chats")),
+            ("chief", t("argument.sidebar.builtin.chief", "Chief")),
             ("customize", t("argument.sidebar.builtin.customize", "Customize Appearance")),
         ]
         // Free text with the built-ins offered: `workspace:<id>` and

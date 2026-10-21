@@ -11,6 +11,7 @@ import CmuxNextSidebar
 enum SidebarSectionHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let layout = context.services.sidebarLayout
+        SidebarChiefItem.bind(into: registry, services: context.services)
         // Item adds and removes are undo steps (P4) through the one pin path,
         // named as the menu showed them.
         func bind(_ id: ActionID, undoable: Bool = false, unavailable: @escaping @MainActor () -> String? = { nil },
