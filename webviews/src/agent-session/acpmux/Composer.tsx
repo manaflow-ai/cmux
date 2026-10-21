@@ -80,7 +80,6 @@ export const COMPOSER_LABELS = {
   placeholderQueued: "composer.placeholderQueued",
   placeholderSteer: "composer.placeholderSteer",
   placeholderSteerQuick: "composer.placeholderSteerQuick",
-  placeholderInterrupt: "composer.placeholderInterrupt",
   add: "composer.add",
   mention: "composer.mention",
   attach: "composer.attach",
@@ -811,16 +810,15 @@ export function Composer({
     if (event.isComposing || event.keyCode === 229) return;
     if (interrupt(event)) return;
     const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
-    // While a turn runs, an agent that steers takes Return now, into the running turn, and ⌘Return
-    // queues the prompt for after it (Claude's keys, Leo 2026-10-20). An agent that cannot steer
-    // keeps Return queueing and ⌘Return stopping the turn to send now. (The Quick Composer keeps its
-    // own ⌘Return and Esc, below.)
+    // While a turn runs, ⌘Return queues the prompt for after it; Return steers (below). Nothing
+    // sent from the composer stops the turn: only Stop and Esc do (Leo 2026-10-20). (The Quick
+    // Composer keeps its own ⌘Return and Esc, below.)
     const quick = Boolean(onOpenInWindow);
     const commandReturn =
       event.key === "Enter" && event.metaKey && !event.shiftKey && !event.altKey && !event.ctrlKey && !quick;
-    if (commandReturn && (steerable || returnSteers)) {
+    if (commandReturn && queues && (text.trim() || attachments.length > 0)) {
       event.preventDefault();
-      send(false, steerKind !== "steer");
+      send(false);
       return;
     }
     // ⌘Return on an empty prompt after a turn answers the recap card's question (RecapCard.tsx).
@@ -973,32 +971,29 @@ export function Composer({
     pageEscape: !onOpenInWindow,
     onStop: stopTurn,
   });
-  // A prompt typed while a turn runs can go in now; an agent that cannot steer stops the turn.
-  const steerable = !shell && snapshot.isWorking && remote.canSend && !blocked && Boolean(text.trim());
-  const steerKind = snapshot.summary?.steering ? "steer" : "interrupt";
   // While a turn runs, what is sent waits behind it, so the empty prompt says so.
   const queues = !shell && snapshot.isWorking && remote.canSend && !blocked;
   // An agent that steers takes Return into the running turn: it reads the prompt when its current
   // step ends, and nothing is cancelled. ⌘Return queues the prompt for after the turn (Claude's
-  // keys, Leo 2026-10-20). Attachments go along, so staged files alone can steer too.
-  const returnSteers =
-    queues && snapshot.summary?.steering === true && (Boolean(text.trim()) || attachments.length > 0);
-  // Mid-turn it teaches both keys, as Claude's composer does: Return steers and ⌘Return queues, or
-  // for an agent that cannot steer, Return queues and ⌘Return interrupts. The Quick Composer's
-  // ⌘Return opens the window, and ⌘Return needs typed text, so there, and with only attachments
-  // staged, it names Return alone.
+  // keys, Leo 2026-10-20). Attachments go along, so staged files alone can steer too. An agent
+  // that cannot steer queues on both keys.
+  const steers = queues && snapshot.summary?.steering === true;
+  const returnSteers = steers && (Boolean(text.trim()) || attachments.length > 0);
+  // The steer control shows once a prompt is typed.
+  const steerable = steers && Boolean(text.trim());
+  // Mid-turn it teaches both keys, as Claude's composer does: Return steers and ⌘Return queues.
+  // The Quick Composer's ⌘Return opens the window, so there it names Return alone; an agent that
+  // cannot steer says it queues.
   // While the double press is armed, the placeholder says to press Esc again, as Stop's hint does.
   const placeholder = escapeStop.armed
     ? COMPOSER_LABELS.escapeAgainToStop
     : !queues
       ? COMPOSER_LABELS.placeholder
-      : steerKind === "steer"
-        ? onOpenInWindow || attachments.length > 0
+      : !steers
+        ? COMPOSER_LABELS.placeholderQueued
+        : onOpenInWindow
           ? COMPOSER_LABELS.placeholderSteerQuick
-          : COMPOSER_LABELS.placeholderSteer
-        : onOpenInWindow || attachments.length > 0
-          ? COMPOSER_LABELS.placeholderQueued
-          : COMPOSER_LABELS.placeholderInterrupt;
+          : COMPOSER_LABELS.placeholderSteer;
   // A dictation waiting for words says so in the empty prompt, in italic (dictation.css).
   const dictating = useDictationListening();
   // Focus leaving the composer closes the menu and takes back what + wrote.
@@ -1424,15 +1419,15 @@ export function Composer({
                   key="steer"
                   type="button"
                   className="acpmux-steer"
-                  aria-label={t(steerKind === "steer" ? "composer.steerLabel" : "composer.interruptLabel")}
+                  aria-label={t("composer.steerLabel")}
                   /* tooltip-allow: the button shows a verb; the tooltip says what it does and its shortcut */
-                  title={t(steerKind === "steer" ? "composer.steerTooltip" : "composer.interruptTooltip")}
+                  title={t("composer.steerTooltip")}
                   onClick={() => {
                     send(false, true);
                     field.current?.focus();
                   }}
                 >
-                  {t(steerKind === "steer" ? "composer.steer" : "composer.interrupt")}
+                  {t("composer.steer")}
                 </button>
               )}
               {!plainFooter && speed && <FastToggle speed={speed} />}

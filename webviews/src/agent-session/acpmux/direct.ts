@@ -2547,8 +2547,9 @@ export class AcpmuxDirectClient {
   /// it), so the prompt leaves no bubble and the refusal names its reason in the transcript.
   /// `ticket`: the gesture a send kept for this prompt while acpmux held it for the folder trust
   /// answer (heldPrompt.ts); it rides as `_meta.cmuxGesture`, and the host strips it.
-  /// `steer`: into the running turn now, and an agent that cannot steer stops the turn and
-  /// takes it next (`_meta.acpmux.interrupt`); otherwise it waits behind the turn.
+  /// `steer`: into the running turn, read when the agent's current step ends; an agent that
+  /// cannot steer queues it behind the turn. Nothing sent stops the turn: only Stop does (Leo
+  /// 2026-10-20), so no send carries `_meta.acpmux.interrupt`.
   async send(
     input: string,
     attachments: ComposerAttachment[] = [],
@@ -2623,7 +2624,7 @@ export class AcpmuxDirectClient {
         _meta: {
           acpmux: {
             promptId,
-            ...(steer ? { steer: true, interrupt: true } : {}),
+            ...(steer ? { steer: true } : {}),
             ...(context ? { context } : {}),
           },
           ...(ticket ? { cmuxGesture: ticket } : {}),
