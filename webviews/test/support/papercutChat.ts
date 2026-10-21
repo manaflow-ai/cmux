@@ -93,10 +93,17 @@ export function papercutEvents({
   return { events, session };
 }
 
-/// Starts the stand-in daemon and the dev server; returns `open` and `close`.
+/// Starts the stand-in daemon and the dev server; returns `open` and `close`. `open` waits for the
+/// last answer, or for `ready` (a selector) when the chat's end shows something else.
 export async function papercutPane(
   browser: () => Browser,
-  options: { turns: number; running: boolean; extra?: PapercutStep[]; session?: Record<string, unknown> },
+  options: {
+    turns: number;
+    running: boolean;
+    extra?: PapercutStep[];
+    session?: Record<string, unknown>;
+    ready?: string;
+  },
 ) {
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "../..");
@@ -143,7 +150,9 @@ export async function papercutPane(
     await page.goto(
       `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${PAPERCUT_CHAT}`,
     );
-    await page.getByText(`Answer ${options.turns}:`, { exact: false }).waitFor({ timeout: 120_000 });
+    await (
+      options.ready ? page.locator(options.ready).first() : page.getByText(`Answer ${options.turns}:`, { exact: false })
+    ).waitFor({ timeout: 120_000 });
     // Rows place by their drawn heights a frame after they mount.
     await page.waitForTimeout(500);
     return page;

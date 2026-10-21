@@ -125,6 +125,8 @@ await requireBrowserLane("agent-pane-dock-gutters.test.ts", async () => {
       running: true,
       extra,
       session: { steering: true, queuePaused: false, queued: queue.length, queue },
+      // The chat's end is the running turn's calls; the stack's last part to arrive is the pill.
+      ready: ".acpmux-agents-pill",
     });
     // The first load can run Vite's dependency optimizer and reload mid-compile.
     current = browsers.values().next().value;
@@ -211,7 +213,9 @@ await requireBrowserLane("agent-pane-dock-gutters.test.ts", async () => {
 
         // Every part the stack shows, in its order, so a part missing from the fixture fails here.
         const shown = await page.evaluate(() =>
-          [...document.querySelectorAll(".acpmux-main > .acpmux-dock > *")].map((part) => part.classList[0]),
+          [...document.querySelectorAll(".acpmux-main > .acpmux-dock > *")]
+            .filter((part) => part.getBoundingClientRect().height > 0)
+            .map((part) => part.classList[0]),
         );
         expect(shown).toEqual([
           "acpmux-permission",
