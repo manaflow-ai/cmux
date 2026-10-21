@@ -110,6 +110,7 @@ struct QuietDaemonUpdateTests {
         update.consider(Self.daemon(pid: 11), bundledBuild: Self.bundled, appCapabilities: [])
         // The first try found the owner busy (under load it can start late: then it would see the idle owner below).
         for _ in 0..<400 where world.probes < 1 { try? await Task.sleep(for: .milliseconds(5)) }  // test harness poll
+        #expect(world.probes >= 1, "the first try never probed the owner")
         try? await Task.sleep(for: .milliseconds(50))  // let a wrongly started restart show
         #expect(world.restarts.isEmpty, "it restarted under a CLI call or a chat")
 

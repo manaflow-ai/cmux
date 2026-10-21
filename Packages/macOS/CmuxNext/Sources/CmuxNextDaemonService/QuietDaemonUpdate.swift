@@ -18,7 +18,8 @@ import os
 /// - the person is idle: no input for ``Pacing/userIdle`` (or the app is in the background), and
 ///   no menu, drag or resize tracking runs;
 /// - the owner is idle (`OwnerIdleProbe`, ``OwnerIdleProbe/Clients/reconnecting``): nobody types,
-///   no chat, terminal UI or CLI call is connected.
+///   no chat or terminal UI is connected, and no CLI call (a local client without a kind counts
+///   as one for its first ``OwnerIdleProbe/standardCallSeconds``).
 /// While busy it tries again on owner events that can end the business (`IdleOwnerRestart.note`),
 /// when the app goes to the background, and on a bounded deadline (``Pacing/retries`` times,
 /// then events only). It never forces a restart: past ``Pacing/overdueAfter`` it keeps waiting and
@@ -39,7 +40,8 @@ public final class QuietDaemonUpdate {
     public struct Pacing: Sendable {
         /// Seconds without input before the person counts as idle.
         public var userIdle: Double
-        /// The deadline between tries while busy, and how many such tries.
+        /// The deadline between tries while busy, and how many such tries. No longer than
+        /// ``OwnerIdleProbe/standardCallSeconds``: a client that ages out of a CLI call ends no event.
         public var retryInterval: Duration
         public var retries: Int
         /// How long a restart may wait for a quiet moment before the toast shows too.
