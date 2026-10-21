@@ -421,6 +421,77 @@ class SettingsExportStampTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("Alpha.swift", result.stdout)
 
+    # The base autofix regenerates the exports after each merge, and with merges minutes apart
+    # feat-cmux-next's stamp is stale most of the time (10-21: d986b175b38, #22678 and #23028 left
+    # it stale for every pull request at once). A head answers only for the sources it changed.
+
+    def stale_base(self):
+        self.repo.write(f"{SETTINGS_SOURCES}/Beta.swift", "// beta, merged without its exports\n")
+        return self.repo.commit("a merge before the base autofix", snapshot=False)
+
+    def test_check_stamp_with_a_base_passes_a_head_that_inherits_the_bases_stale_exports(self):
+        base = self.stale_base()
+        self.repo.write("README.md", "an unrelated change\n")
+        head = self.repo.commit("head", snapshot=False)
+        result = self.repo.guard("check-stamp", "--ref", head, "--base", base)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("Beta.swift", result.stdout)
+        self.assertIn(f"stale on the base {base[:12]} too", result.stdout)
+
+    def test_check_stamp_with_a_base_fails_for_the_sources_the_head_changed(self):
+        base = self.stale_base()
+        self.repo.write(f"{SETTINGS_SOURCES}/Alpha.swift", "// alpha, edited on the head\n")
+        head = self.repo.commit("head", snapshot=False)
+        result = self.repo.guard("check-stamp", "--ref", head, "--base", base)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        problems = result.stdout.split(f"stale on the base {base[:12]} too")[0]
+        self.assertIn("Alpha.swift", problems)
+        self.assertNotIn("Beta.swift", problems)
+
+    def test_check_stamp_with_a_base_fails_a_head_that_changed_the_stamp_itself(self):
+        """Taking the old side of the stamp in a base merge is the head's own staleness, not the base's."""
+        base = self.repo.git("rev-parse", "HEAD")
+        stamp = self.repo.root.joinpath(STAMP).read_text()
+        digest = stamp.split("  ", 1)[0]
+        self.repo.write(STAMP, stamp.replace(digest, "0" * len(digest), 1))
+        head = self.repo.commit("head takes an old stamp", snapshot=False)
+        result = self.repo.guard("check-stamp", "--ref", head, "--base", base)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertNotIn("stale on the base", result.stdout)
+
+    def test_check_stamp_with_a_base_passes_however_many_sources_the_base_left_stale(self):
+        for n in range(25):
+            self.repo.write(f"{SETTINGS_SOURCES}/Merged{n:02}.swift", f"// merged {n} without its exports\n")
+        base = self.repo.commit("many merges before the base autofix", snapshot=False)
+        self.repo.write("README.md", "an unrelated change\n")
+        head = self.repo.commit("head", snapshot=False)
+        result = self.repo.guard("check-stamp", "--ref", head, "--base", base)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("and 5 more", result.stdout)
+
+    def test_a_stale_stamp_says_how_to_regenerate_the_exports(self):
+        """The old text pointed at a REPAIR.md row that is not in this repository."""
+        self.repo.write(f"{SETTINGS_SOURCES}/Alpha.swift", "// alpha, edited\n")
+        result = self.repo.guard("check-stamp")
+        self.assertEqual(result.returncode, 1)
+        self.assertNotIn("REPAIR.md", result.stdout)
+        self.assertIn("cmux-next-pr-autofix.yml", result.stdout)
+        self.assertIn("scripts/cmux-next/regenerate-settings-exports.sh", result.stdout)
+
+    def test_source_stamp_prints_the_stamp_a_ref_s_sources_give(self):
+        """base-autofix-push.sh lands settings exports past a settings-area move only when the tip's
+        sources give the very stamp the exports carry; this is the stamp it compares."""
+        head = self.repo.git("rev-parse", "HEAD")
+        result = self.repo.guard("source-stamp", "--ref", head)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, self.repo.root.joinpath(STAMP).read_text())
+        self.repo.write(f"{SETTINGS_SOURCES}/README.md", "still not an input\n")
+        notes = self.repo.commit("a note beside the sources", snapshot=False)
+        self.assertEqual(self.repo.guard("source-stamp", "--ref", notes).stdout, result.stdout)
+        self.repo.write(f"{SETTINGS_SOURCES}/Beta.swift", "// beta, edited\n")
+        edited = self.repo.commit("a source edit", snapshot=False)
+        self.assertNotEqual(self.repo.guard("source-stamp", "--ref", edited).stdout, result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

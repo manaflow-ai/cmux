@@ -27,7 +27,8 @@
   display: flex;
   flex-direction: column;
   max-height: calc(100% - 44px - var(--acpmux-transcript-min, 96px));
-  /* The gutters beside and under the card pass the wheel to the transcript under them. */
+  /* The gutters beside and under the card pass the wheel to the transcript under them (Leo
+     2026-10-20: "if it's not in the composer it should just scroll"). */
   pointer-events: none;
 }
 /* Claude Code's split adds the quiet row (28 px and its 4 px gap) under the card: the transcript
@@ -63,4 +64,6 @@
   flex: 0 1 auto;
   min-height: var(--acpmux-stack-row-min, 34px);
   overflow-y: auto;
+  /* The stack is a no-scroll zone (wheelPassThrough.ts): reaching a part's end scrolls nothing else. */
+  overscroll-behavior: contain;
 }

@@ -1,6 +1,6 @@
 // l10n-allow-file: test fixture prompts and tool titles, not shipped UI.
 // The running turn's line says what the turn has spent so far, as Claude desktop's does: the
-// working dots, the time, then this turn's tokens ("Working for 5m 54s · 2.1M tokens"). Claude Code
+// time, then this turn's tokens ("Working for 5m 54s · 2.1M tokens"). Claude Code
 // reports each model call's usage as it lands, and acpmux marks those records as one call's
 // (`usage_update` with `_meta.acpmux.call`, claude_stdio/inbound.rs), so the turn's tokens are the
 // sum of the marked calls since its `turn_started`. Every other usage record is the context a
@@ -373,8 +373,10 @@ const status: AcpmuxRow = { id: "working", kind: "working", version: 1, at: STAR
 const counts = (extra: Partial<WorkingCounts> = {}): WorkingCounts => ({
   agents: 0,
   commands: 0,
+  sessions: 0,
   openAgents: () => {},
   openCommands: () => {},
+  openSessions: () => {},
   ...extra,
 });
 const drawn = (row: AcpmuxRow, value: WorkingCounts) =>

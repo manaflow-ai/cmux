@@ -181,8 +181,9 @@ import Testing
 
     @Test func aTabsArtworkThatDidNotLoadComesInLater() async throws {
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/listen")))
-        // Nothing listens there, so the first fetch fails.
-        let art = try #require(URL(string: "http://127.0.0.1:9/cover-\(UUID().uuidString).png"))
+        // The name never resolves, so the first fetch fails. It is https on a public name: the favicon
+        // guard refuses local and plain-http URLs outright, cached or not (70976f18493).
+        let art = try #require(URL(string: "https://cover-\(UUID().uuidString).invalid/cover.png"))
         let media = BrowserMediaState(title: "Weightless", artworkURL: art, isPlaying: true, position: 60, duration: 480)
         let source = BrowserTabsNowPlaying()
         source.artworkRetry = .milliseconds(200)

@@ -1,0 +1,117 @@
+name: fleet compile-check
+# The guard reads this title: it binds the run to the one sha it compiled.
+run-name: fleet compile-check ${{ inputs.sha }}
+
+# Compile-check the app at one exact commit on the build fleet and post the
+# verdict as the commit status fleet/compile-check on that commit.
+# What a pass proves, and what the status text says: the app executable's Swift
+# sources (86 of CmuxNext's 88 production targets) compile against the macOS
+# SDK and link, in Debug, with the swift.org toolchain. It is not the Xcode
+# Release compile: that build uses Apple's compiler and the optimizer, and can
+# fail where this passes. So a red Release compile always wins here, and the
+# Release compile still runs on the base after the merge.
+# scripts/ci/merge_compile_guard.py accepts a success here in place of a
+# queued "cmux-next Release compile (Xcode 26)" (#22845 sat queued over an
+# hour after its fleet pass, with 60 minis offline). It trusts the status only
+# when it links a finished, green run of this file dispatched from
+# feat-cmux-next (its commit on that branch) and titled with the full sha; a
+# status a token posts itself, or a run of a copy of this file on another
+# branch or a tag, does not count. It never overrides a red Release compile.
+#
+#   gh workflow run fleet-compile-check.yml --ref feat-cmux-next -f sha=<full head sha>
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Full 40-character commit sha to compile-check (a pull request's head)
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: fleet-compile-check-${{ inputs.sha }}
+  cancel-in-progress: false
+
+jobs:
+  compile-check:
+    name: fleet compile-check
+    if: ${{ github.repository_owner == 'manaflow-ai' && github.ref == 'refs/heads/feat-cmux-next' && vars.CI_COMPILE_CHECK_GATEWAY != '' }}
+    # The literal fallbacks never schedule: the job's if: skips outside manaflow-ai and when the variable is unset.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_COMPILE_CHECK_GATEWAY || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      statuses: write
+    timeout-minutes: 50  # the client waits up to 600 + 1200 s plus its own slack; the posts up to 2 x 30 s and 6 x 30 s, plus backoff (155 s, or up to 5 x 120 s when GitHub sends Retry-After)
+    steps:
+      # The gateway checks nothing out: the fleet fetches the commit itself.
+      # Exit 0 is a pass, 1 a compile failure, anything else no verdict; only
+      # a pass posts success, and the run fails whenever it is not a pass.
+      - name: Compile-check the app on the build fleet and post fleet/compile-check
+        env:
+          SHA: ${{ inputs.sha }}
+          CONTEXT: fleet/compile-check
+          GH_TOKEN: ${{ github.token }}
+          API: ${{ github.api_url }}/repos/${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -uo pipefail
+          if ! [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error title=fleet compile-check::sha must be a full 40-character lowercase commit sha, got '$SHA'"
+            exit 1
+          fi
+          # Every value is fixed text, the checked sha, the runner name or GitHub's run URL: none needs JSON escaping.
+          # GitHub answers 403 (a secondary rate limit on content creation, as 09:34-09:38Z on 2026-10-21 when every
+          # run here failed before cmux-ci started), 429 or 5xx under load: retry with backoff, honoring
+          # Retry-After, and print what GitHub said. Any other 4xx, and a 403 that is not a rate limit, is final; a
+          # status posted twice is harmless (the newest wins). Only the final post decides the step.
+          # Each try gives up after 30 s, so a connection GitHub never answers is retried, not waited on until the job times out.
+          post() {
+            local body code wait attempt tries="${3:-6}"
+            body="$(printf '{"state":"%s","description":"%s","target_url":"%s","context":"%s"}' \
+              "$1" "$2" "$RUN_URL" "$CONTEXT")"
+            for ((attempt = 1; attempt <= tries; attempt++)); do
+              : > "$RUNNER_TEMP/status-response"
+              code="$(curl -sS --connect-timeout 10 --max-time 30 -o "$RUNNER_TEMP/status-response" -D "$RUNNER_TEMP/status-headers" -w '%{http_code}' \
+                -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+                "$API/statuses/$SHA" -d "$body")" || code=000
+              case "$code" in
+                2??) return 0 ;;
+                429|5??|000) ;;
+                403) grep -qi 'rate limit' "$RUNNER_TEMP/status-response" || grep -qi '^retry-after:' "$RUNNER_TEMP/status-headers" || break ;;
+                *) break ;;
+              esac
+              [ "$attempt" -ge "$tries" ] && break
+              wait="$(sed -n 's/^[Rr]etry-[Aa]fter: *\([0-9]*\).*/\1/p' "$RUNNER_TEMP/status-headers" 2>/dev/null | head -n 1)"
+              wait="${wait:-$((5 * 2 ** (attempt - 1)))}"
+              [ "$wait" -gt 120 ] && wait=120
+              echo "fleet/compile-check $1 post: HTTP $code (try $attempt); retrying in ${wait}s: $(head -c 300 "$RUNNER_TEMP/status-response" 2>/dev/null)"
+              sleep "$wait"
+            done
+            echo "::warning title=fleet compile-check::could not post $CONTEXT=$1 (HTTP $code): $(head -c 300 "$RUNNER_TEMP/status-response" 2>/dev/null)"
+            return 1
+          }
+          # The verdict is in the run's summary and log whatever the status post does; a status that could not be
+          # posted fails the run, so a reader of the run never takes a missing status for a pass.
+          verdict() {
+            echo "fleet compile-check verdict for $SHA: $1 ($2)"
+            echo "### fleet compile-check: $1 for \`$SHA\`"$'\n\n'"$2" >> "$GITHUB_STEP_SUMMARY"
+            post "$1" "$2" || { echo "::error title=fleet compile-check::the verdict is $1, but $CONTEXT could not be posted"; return 1; }
+          }
+          # A gateway without the client has no verdict; it must never post "did not compile" (cmux17, run 39573725240).
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            echo "::error title=fleet compile-check::$client is not installed on runner $RUNNER_NAME"
+            verdict error "No build-fleet verdict: cmux-ci is not installed on runner $RUNNER_NAME"
+            exit 2
+          fi
+          # pending is informational: two tries, and a failed post never stops the compile.
+          post pending "Compiling the app executable (Debug, swift.org toolchain) on the build fleet" 2 || true
+          status=0
+          "$client" compile-check --ref "$SHA" --app \
+            --timeout 1200 --queue-timeout 600 || status=$?
+          case "$status" in
+            0) verdict success "App executable compiled (Debug, swift.org toolchain, build fleet); not the Xcode Release compile" || exit 1 ;;
+            1) verdict failure "The app executable did not compile (Debug, swift.org toolchain, build fleet)"; exit 1 ;;
+            *) verdict error "No build-fleet verdict (exit $status)"; exit "$status" ;;
+          esac

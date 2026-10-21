@@ -47,7 +47,7 @@ enum BrowserDeviceHandlers {
                     let menu = BrowserDeviceMenu(devices: BrowserDeviceMenu.devices(list: (try? JSONEncoder().encode(list)) ?? Data()),
                                                  current: BrowserDeviceMenu.current(record: current), fit: tab.fitValue, fits: ["16:9", "1280"].filter { daemon.supports(Int($0) == nil ? DaemonCapabilities.shared.browserFit : DaemonCapabilities.shared.browserFitWidth) },
                                                  toggleFit: { _ = registry.perform($0 == "1280" ? "browserFitDesktop1280" : "browserFitDesktop", invocation: invocation) }, choose: choose).menu()
-                    presentedMenu = menu; chrome.toolbarButtons.present(menu, from: .overflow)
+                    presentedMenu = menu; chrome.toolbarButtons.present(menu, from: .overflow, themed: true)
                 } catch { registry.refuse(RefusalStrings.describe(error)) }
             }
         })

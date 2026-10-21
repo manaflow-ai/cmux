@@ -40,6 +40,8 @@ public final class AgentPaneView: NSView {
     }
     private let navigation = AgentPaneNavigation()
     let dictation: AgentPaneDictation
+    /// Where the Dictation key and Edit ▸ Start Dictation go from this pane (AgentPaneView+DictationKey).
+    var dictationKey = AgentPaneDictationKey()
     var crashReloads = PageCrashReloads()
     /// Shown instead of reloading once the page keeps crashing.
     var crashNotice: NSView?
@@ -118,6 +120,7 @@ public final class AgentPaneView: NSView {
         self.model = model
         self.source = source
         self.renderRate = renderRate
+        Self.warmupNoLongerNeeded = true
         let webView: WKWebView
         if pageHost, case .bundled(let index) = source {
             let provider = AgentPageProvider { [weak model] _ in model }

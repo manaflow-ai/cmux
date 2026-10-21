@@ -92,6 +92,36 @@ public struct WorkspaceAutoNameReader {
         return .browser(title: pageTitle(tab), offTheRecord: false)
     }
 
+    /// The name a workspace made from `tab` takes (`TabMoves.toNewWorkspace`: a drag, a tear-off
+    /// into its own window, Move Pane): an agent chat its user name, else its chat's real title
+    /// (none for a New Tab page or a chat titled only by its first prompt: a name written now
+    /// lasts, so those keep the daemon's name and read as the chat live, `displayName`), any
+    /// other tab what `NewWorkspaceName.forTab` gives it. A chat tab's record carries no title or
+    /// folder, so read as a terminal it named nothing and the window read "workspace-41".
+    public func newWorkspaceName(_ tab: TabModel) -> String? {
+        guard let session = tab.agentSession else { return NewWorkspaceName.forTab(terminal(tab)) }
+        if isNewTabPage(tab) { return nil }
+        return NewWorkspaceName.clean(tab.name) ?? NewWorkspaceName.clean(turns.generatedTitle(for: session))
+    }
+
+    /// What a window's titlebar names `workspace`, whose front tab is `front`: its sidebar row's
+    /// name (`AppServices.sidebarPageFace`), so while it keeps the daemon's default name it reads
+    /// as its front tab (as `work`, the row's work tab, while the front is a page beside it),
+    /// else its own name.
+    public func displayName(_ workspace: WorkspaceModel, front: TabModel?, work: TabModel? = nil) -> String {
+        guard let front else { return workspace.displayName }
+        return label(workspace, front: front, work: work) ?? workspace.displayName
+    }
+
+    /// What a window's titlebar names `workspace`, whose panes show the tabs `selectedTab` picks
+    /// (the window's selection): `displayName` for the front and work tabs its sidebar row reads
+    /// (`SidebarMapping.row`).
+    public func titlebarName(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?) -> String {
+        let front = SidebarMapping.shared.frontTab(workspace, selectedTab: selectedTab)
+        let work = front?.kind == .browser ? SidebarMapping.shared.workTab(workspace, selectedTab: selectedTab) : nil
+        return displayName(workspace, front: front, work: work)
+    }
+
     /// A browser tab's title as a workspace name: the tab's user name, else
     /// its page title (live, else recorded) unless it only repeats the
     /// address, else its host without `www.` (`NewWorkspaceName.forTab`).

@@ -67,12 +67,15 @@ import Testing
         #expect(await delivered.pages["p1"]?.compactMap(\.url.host) == ["one.example", "two.example"])
         #expect(await store.batches(profile: "p1").map(\.history.count) == [2])
 
-        // A Clear History fences its time off: the next read leaves those pages out.
+        // A Clear History fences its time off: Chrome still holds one and two, but the next
+        // read (a new visit wakes it) keeps only the page visited after the clear.
         await sync.forget(profile: "p1", since: nil)
         #expect(await store.batches(profile: "p1").first?.history.isEmpty == true)
-        try Self.history(file, pages: [])
-        try await Task.sleep(for: .milliseconds(300))
-        #expect(await store.batches(profile: "p1").first?.history.isEmpty == true)
+        try await Task.sleep(for: .milliseconds(20))
+        try Self.history(file, pages: ["https://three.example/"])
+        await Self.until { await delivered.pages["p1"]?.count == 3 }
+        #expect(await delivered.pages["p1"]?.last?.url.host == "three.example")
+        #expect(await store.batches(profile: "p1").first?.history.compactMap(\.url.host) == ["three.example"])
 
         try await store.stopSync(profile: "p1")
         await sync.reconcile()
@@ -112,6 +115,116 @@ import Testing
         #expect(await store.batches(profile: "p1").first?.history.map(\.url.path) == ["/old"])
         try await store.forgetHistory(profile: "p1", since: nil)
         #expect(await store.batches(profile: "p1").first?.history.isEmpty == true)
+        // Repeated clears merge into one fence instead of one entry each.
+        #expect(await store.sources().first?.clearedRanges?.count == 1)
+    }
+
+    @Test func reimportingASourceKeepsItsClearedHistoryOut() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "import-reimport-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ImportedDataStore(directory: root)
+        let record = ImportSourceRecord(browser: .chrome, profileDirectory: "Default", displayName: "Google Chrome",
+                                        proposedProfileID: "p1", targetProfileID: "p1")
+        let now = Date()
+        var batch = ImportBatch(source: record, kinds: [.history])
+        batch.history = [ImportedHistoryEntry(url: URL(fileURLWithPath: "/old"), title: nil, visitCount: 1, lastVisit: now.addingTimeInterval(-7200)),
+                         ImportedHistoryEntry(url: URL(fileURLWithPath: "/new"), title: nil, visitCount: 1, lastVisit: now.addingTimeInterval(-60))]
+        try await store.save(batch)
+        try await store.forgetHistory(profile: "p1", since: now.addingTimeInterval(-3600))
+
+        // The same source imported again, with the record a fresh import builds (no fences).
+        let (saved, _) = try await store.save(batch)
+        #expect(saved.history.map(\.url.path) == ["/old"])
+        #expect(await store.batches(profile: "p1").first?.history.map(\.url.path) == ["/old"])
+        #expect(await store.sources().first?.clearedRanges?.count == 1, "the fence survives the re-import for Keep in Sync")
+    }
+
+    @Test func aRemovedPageOrSiteStaysOutOfTheSavedImports() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "import-remove-page-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ImportedDataStore(directory: root)
+        let then = Date().addingTimeInterval(-600)
+        let page = { (url: String, at: Date) in ImportedHistoryEntry(url: URL(string: url)!, title: nil, visitCount: 1, lastVisit: at) }
+        var batches: [ImportBatch] = []
+        for (directory, profile) in [("Default", "p1"), ("Profile 1", "p2")] {
+            var batch = ImportBatch(source: ImportSourceRecord(browser: .chrome, profileDirectory: directory, displayName: "Google Chrome",
+                                                               proposedProfileID: profile, targetProfileID: profile), kinds: [.history])
+            batch.history = [page("https://a.example/one", then), page("https://a.example/two", then), page("https://b.example/", then)]
+            try await store.save(batch)
+            batches.append(batch)
+        }
+        let urls = { (profile: String) async in await store.batches(profile: profile).first?.history.map(\.url.absoluteString) ?? [] }
+
+        // One page, in one profile: its saved copy goes, the other profile keeps its own.
+        try await store.forgetPage(URL(string: "https://a.example/one")!, profile: "p1")
+        #expect(await urls("p1") == ["https://a.example/two", "https://b.example/"])
+        #expect(await urls("p2").count == 3)
+
+        // A site, in every profile.
+        try await store.forgetSite(host: "B.example")
+        #expect(await urls("p1") == ["https://a.example/two"])
+        #expect(await urls("p2") == ["https://a.example/one", "https://a.example/two"])
+
+        // A re-import leaves them out; a visit made after the removal comes back.
+        var again = batches[0]
+        again.history.append(page("https://b.example/new", Date().addingTimeInterval(60)))
+        let (saved, _) = try await store.save(again)
+        #expect(saved.history.map(\.url.absoluteString) == ["https://a.example/two", "https://b.example/new"])
+        again.history = [page("https://a.example/one", Date().addingTimeInterval(60))]
+        #expect(try await store.save(again).saved.history.count == 1)
+    }
+
+    @Test func aRemovedPageStaysOutUnderEverySpellingOfItsURL() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "import-remove-spelling-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ImportedDataStore(directory: root)
+        let then = Date().addingTimeInterval(-600)
+        let page = { (url: String) in ImportedHistoryEntry(url: URL(string: url)!, title: nil, visitCount: 1, lastVisit: then) }
+        var batch = ImportBatch(source: ImportSourceRecord(browser: .chrome, profileDirectory: "Default", displayName: "Google Chrome",
+                                                           proposedProfileID: "p1", targetProfileID: "p1"), kinds: [.history])
+        batch.history = [page("http://www.A.example/One/"), page("https://a.example/one?tab=2")]
+        try await store.save(batch)
+
+        // The omnibar shows these as one row (scheme, www, case, trailing slash), so removing it removes both.
+        try await store.forgetPage(URL(string: "https://a.example/one")!, profile: "p1")
+        #expect(await store.batches(profile: "p1").first?.history.map(\.url.absoluteString) == ["https://a.example/one?tab=2"])
+        batch.history = [page("https://www.a.example/ONE"), page("https://a.example/one?tab=2")]
+        #expect(try await store.save(batch).saved.history.map(\.url.absoluteString) == ["https://a.example/one?tab=2"])
+    }
+
+    @Test func theRemovalFencesStayBounded() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "import-fence-bound-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ImportedDataStore(directory: root)
+        var batch = ImportBatch(source: ImportSourceRecord(browser: .chrome, profileDirectory: "Default", displayName: "Google Chrome",
+                                                           proposedProfileID: "p1", targetProfileID: "p1"), kinds: [.history])
+        batch.history = [ImportedHistoryEntry(url: URL(string: "https://a.example/")!, title: nil, visitCount: 1, lastVisit: Date().addingTimeInterval(-60))]
+        try await store.save(batch)
+
+        // A Clear History of all time covers every earlier removal, so those fences go.
+        try await store.forgetPage(URL(string: "https://a.example/one")!, profile: "p1")
+        try await store.forgetSite(host: "b.example")
+        try await store.forgetHistory(profile: "p1", since: nil)
+        let record = try #require(await store.sources().first)
+        #expect(record.removedPages == nil && record.removedSites == nil)
+        #expect(record.clearedRanges?.count == 1)
+
+        // Past the limit the oldest removals go; a page saved by an older build is keyed the new way.
+        var many = ImportSourceRecord(browser: .chrome, profileDirectory: "Default", displayName: "Google Chrome", proposedProfileID: "p1", targetProfileID: "p1")
+        let base = Date(timeIntervalSince1970: 1_000_000)
+        many.removedPages = Dictionary(uniqueKeysWithValues: (0..<(ImportSourceRecord.fenceLimit + 2)).map { ("https://a.example/\($0)", base.addingTimeInterval(Double($0))) })
+        many.removedPages?["https://www.a.example/Old/"] = base.addingTimeInterval(1_000_000)
+        let compacted = many.compacted()
+        #expect(compacted.removedPages?.count == ImportSourceRecord.fenceLimit)
+        #expect(compacted.removedPages?["a.example/0"] == nil, "the oldest removal goes first")
+        #expect(compacted.removedPages?["a.example/old"] != nil)
+    }
+
+    @Test func clearedRangesMerge() {
+        let base = Date(timeIntervalSince1970: 1_000_000)
+        let range = { (start: Double, end: Double) in DateInterval(start: base.addingTimeInterval(start), end: base.addingTimeInterval(end)) }
+        let merged = ImportedDataStore.coalesced([range(50, 100), range(0, 10), range(5, 20), range(100, 120)])
+        #expect(merged == [range(0, 20), range(50, 120)])
     }
 }
 
