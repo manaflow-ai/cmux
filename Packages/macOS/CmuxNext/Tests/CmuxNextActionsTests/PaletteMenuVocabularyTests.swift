@@ -54,7 +54,7 @@ struct PaletteMenuVocabularyTests {
         let phones = ActionCatalog.all.filter { $0.id.rawValue.hasPrefix("phone.") }
         #expect(!phones.isEmpty)
         for descriptor in phones {
-            let asks = descriptor.arguments.contains(where: \.isRequired)
+            let asks = descriptor.arguments.contains { $0.isRequired }
             #expect(descriptor.title.hasSuffix("…") == asks,
                     "\(descriptor.id) \(descriptor.title): \(asks ? "asks for input, so it ends in …" : "acts at once, so no …")")
         }
@@ -71,12 +71,12 @@ struct PaletteMenuVocabularyTests {
                                   "openTeamPicker", "remote.openBrowserTab"]
         for id in asking {
             let descriptor = try #require(byID[id], "\(id)")
-            #expect(descriptor.arguments.contains(where: \.isRequired), "\(id) no longer asks for input")
+            #expect(descriptor.arguments.contains { $0.isRequired }, "\(id) no longer asks for input")
             #expect(descriptor.title.hasSuffix("…"), "\(id) \(descriptor.title): asks for input, so it ends in …")
         }
         for id: ActionID in ["cloudDiagnostics", "workspaceGroup.editConfig"] {
             let descriptor = try #require(byID[id], "\(id)")
-            #expect(!descriptor.arguments.contains(where: \.isRequired), "\(id) now asks for input")
+            #expect(!descriptor.arguments.contains { $0.isRequired }, "\(id) now asks for input")
             #expect(!descriptor.title.hasSuffix("…"), "\(id) \(descriptor.title): acts at once, so no …")
         }
     }
