@@ -852,6 +852,7 @@ final class ComposeView: UIView {
         tv.textColor = Fixture.incomingText
         tv.insertionPointColor = Fixture.caret
         tv.installCaret()
+        inlineHover.install(on: tv)  // cmux: an inline attachment's remove button on hover
         tv.textContainer?.lineFragmentPadding = 0
         // AppKit puts `textContainerInset.height` above and below the text when it sizes the
         // document; the container origin puts the text at the top inset.
@@ -1074,6 +1075,8 @@ final class ComposeView: UIView {
     private var stripChips: [Attachment] { [] }
     /// The field's inline attachments by id (made once each).
     private(set) var inlineAttachments: [ID: ComposeInlineAttachment] = [:]
+    /// cmux: the remove button over the inline attachment under the pointer.
+    let inlineHover = ComposeInlineRemoveHover()
 
     /// The remove button of an inline attachment: its mark leaves the text as an edit, so the
     /// draft follows through the text view's own change path (`textDidChange`).

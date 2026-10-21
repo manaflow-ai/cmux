@@ -172,6 +172,10 @@ final class ComposeInlineAttachment: NSTextAttachment {
         return provider
     }
 
+    /// Whether the field placed this attachment's own view (with its hover remove button), so
+    /// the field's hover button (`ComposeInlineRemoveHover`) stays out of its way.
+    var showsOwnView: Bool { shownView?.window != nil }
+
     /// The view that shows this attachment (made by the text view's layout).
     func makeView() -> ComposeInlineAttachmentView {
         let v = ComposeInlineAttachmentView(self)

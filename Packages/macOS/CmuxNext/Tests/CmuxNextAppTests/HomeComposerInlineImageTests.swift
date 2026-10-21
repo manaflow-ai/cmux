@@ -222,18 +222,28 @@ import UniformTypeIdentifiers
         #expect(blue > 200, "the picture is drawn in the field (\(seen))")
         #expect(white < 50, "no blank white page where the picture goes (\(seen))")
     }
-    /// The field places the picture's own view, which holds the remove button shown on hover
-    /// (Austin 2026-10-20: hovering a pasted picture showed no remove button).
-    @Test func theFieldPlacesThePicturesViewWithItsRemoveButton() async throws {
+    /// Hovering a picture in the field shows a remove button at its top right; the button takes
+    /// the picture out (Austin 2026-10-20: hovering a pasted picture showed no remove button).
+    @Test func hoveringAPictureShowsItsRemoveButton() async throws {
         let h = try await home()
         defer { h.close() }
+        type("hi", caret: 2, in: h)
         try await attach(.pastePicture, to: h.view)
         h.field.layoutSubtreeIfNeeded()
-        h.field.display()
-        func views(in v: NSView) -> [NSView] { v.subviews + v.subviews.flatMap(views(in:)) }
-        let placed = views(in: h.field).compactMap { $0 as? ComposeInlineAttachmentView }
-        #expect(placed.count == 1, "the field shows the picture's view (\(views(in: h.field).map { String(describing: Swift.type(of: $0)) }))")
-        #expect(placed.first.map { $0.removeButton.superview === $0 } == true, "with its remove button")
+        let hover = h.compose.inlineHover
+        let picture = try #require(hover.attachmentRects().first)
+        #expect(picture.rect.width > 20 && picture.rect.height > 20, "the picture's box in the field (\(picture.rect))")
+        hover.pointerMoved(to: CGPoint(x: picture.rect.midX, y: picture.rect.midY))
+        #expect(!hover.button.isHidden, "the remove button shows over the hovered picture")
+        #expect(hover.button.superview === h.field)
+        #expect(picture.rect.contains(CGPoint(x: hover.button.frame.midX, y: hover.button.frame.midY)), "on the picture (\(hover.button.frame))")
+        hover.pointerMoved(to: CGPoint(x: picture.rect.maxX + 40, y: picture.rect.midY))
+        #expect(hover.button.isHidden, "and hides off it")
+        hover.pointerMoved(to: CGPoint(x: picture.rect.midX, y: picture.rect.midY))
+        hover.button.performClick(nil)
+        #expect(h.inline.isEmpty, "the button takes the picture out of the text")
+        #expect(h.view.transcript.draftAttachments.isEmpty, "and out of the draft")
+        #expect(h.field.string == "hi")
     }
 
     /// Two different pictures pasted one after the other both sit in the text (Austin 2026-10-20:
