@@ -150,6 +150,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 group("settings.group.sessions"),
                 // Whether agent sessions may start sub-sessions, how many and how deep.
                 group("settings.group.subsessions"),
+                // Folders that start an agent without the trust question.
+                group("settings.group.folderTrust"),
             ],
             // Harnesses lists every harness; Your Agents (BRING-YOUR-OWN-HARNESS) adds, checks and
             // removes the ones you added; Chiefs lists every Chief, each opening its editor (u2586).

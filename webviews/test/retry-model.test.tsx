@@ -119,3 +119,57 @@ test("a harness with one model offers Retry alone", async () => {
   expect(button("Retry")).toBeDefined();
   expect(button("Retry with another model")).toBeUndefined();
 });
+
+// Lawrence and Leo 2026-10-20: the menu showed Claude Code's whole list as one raw column, aliases
+// and old releases mixed, Opus 5.5, Sonnet 5.5 and Haiku 5.5 twice. It lists the harness's curated
+// top models first, as the composer's model menu does, every other model under More models, and a
+// model the harness offers twice as one row; the current one stays checked.
+/** A row's name, without its check or its detail ("1M context"). */
+const rowName = (item: Element) => item.querySelector(".acpmux-menu-label")?.textContent?.trim();
+const shownRows = () =>
+  [...dom.window.document.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitemradio"]')].map(rowName);
+
+test("Retry's model menu lists the top models, the rest under More models, one row per model", async () => {
+  const retried: unknown[][] = [];
+  const actions = {
+    retry: () => {},
+    retryWith: {
+      models: [
+        { id: "opus", name: "Opus 5.5", release: "claude-opus-5-5" },
+        { id: "claude-fable-5-1[1m]", name: "Fable 5.1 · 1M context" },
+        { id: "sonnet", name: "Sonnet 5.5", release: "claude-sonnet-5-5" },
+        { id: "opusplan", name: "Opus plan · Sonnet execute" },
+        { id: "claude-fable-5-1", name: "Fable 5.1" },
+        { id: "claude-opus-5-5", name: "Opus 5.5" },
+        { id: "claude-opus-4-8", name: "Opus 4.8" },
+        { id: "claude-sonnet-5-5", name: "Sonnet 5.5" },
+        { id: "claude-haiku-5-5", name: "Haiku 5.5" },
+      ],
+      current: "claude-opus-5-5",
+      harness: "Claude Code",
+      top: ["claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"],
+      retry: (rowId: string, prompt: string, model: string) => retried.push([rowId, prompt, model]),
+    },
+  };
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider value={actions}>
+        <TurnFooter row={summary} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  await act(async () => button("Retry with another model")!.click());
+  const menu = dom.window.document.querySelector('[role="menu"]')!;
+  expect(menu.classList.contains("acpmux-quick-menu"), "the composer model menu's look").toBe(true);
+  expect(shownRows()).toEqual(["Fable 5.1", "Fable 5.1", "Opus 5.5", "Sonnet 5.5", "Haiku 5.5"]);
+  const detail = [...menu.querySelectorAll(".acpmux-quick-value")].map((element) => element.textContent);
+  expect(detail).toEqual(["1M context"]);
+  const checked = [...dom.window.document.querySelectorAll('[role="menuitemradio"][aria-checked="true"]')];
+  expect(checked.map(rowName)).toEqual(["Opus 5.5"]);
+  const more = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) =>
+    item.textContent?.includes("More models"),
+  );
+  expect(more, "older models fold under More models").toBeDefined();
+  await act(async () => menuItem("Fable 5.1")!.click());
+  expect(retried).toEqual([["user-1", "Add retry to the uploader", "claude-fable-5-1"]]);
+});

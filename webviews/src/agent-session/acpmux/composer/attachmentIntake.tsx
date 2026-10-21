@@ -318,7 +318,6 @@ function PdfAttachmentChip({
             className="acpmux-image-viewer-action"
             ref={close}
             aria-label={t("image.close")}
-            title={t("image.close")}
             onClick={() => setPdfOpen(false)}
           >
             <Close />
