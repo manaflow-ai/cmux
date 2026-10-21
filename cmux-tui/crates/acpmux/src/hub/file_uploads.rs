@@ -168,6 +168,34 @@ mod tests {
     }
 
     #[test]
+    fn a_windows_device_name_is_no_file_name_on_windows() {
+        // Windows opens these as devices in any folder (`dir\CON` is the console), and drops a
+        // trailing dot or space, so the write would not land in the upload's own file.
+        for bad in [
+            "CON",
+            "con.txt",
+            "NUL",
+            "nul.tar.gz",
+            "AUX",
+            "PRN",
+            "COM1",
+            "lpt9.log",
+            "COM\u{b9}",
+            "CONIN$",
+            "a.",
+            "a ",
+        ] {
+            assert!(!is_file_name_for(bad, true), "{bad:?}");
+            assert!(is_file_name_for(bad, false), "{bad:?}");
+        }
+        for good in
+            ["CONSOLE.txt", "COM10", "COM0", "nullable.rs", "aux_data.csv", "LPT", "report.pdf"]
+        {
+            assert!(is_file_name_for(good, true), "{good:?}");
+        }
+    }
+
+    #[test]
     fn one_byte_past_the_cap_is_refused_before_it_is_sent() {
         use base64::Engine;
         let encode = |n: usize| base64::engine::general_purpose::STANDARD.encode(vec![0u8; n]);
