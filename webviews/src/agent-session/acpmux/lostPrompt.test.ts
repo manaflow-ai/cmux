@@ -23,8 +23,9 @@ afterAll(() => {
     else delete scope[key];
 });
 
+/// Yields a macrotask at a time until `done`.
 const settle = async (done: () => boolean) => {
-  for (let tries = 0; tries < 50 && !done(); tries += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+  for (let tries = 0; tries < 500 && !done(); tries += 1) await new Promise((resolve) => setTimeout(resolve, 0));
 };
 
 type Hooks = { answer: (method: string, params: any) => Promise<unknown> };
@@ -89,18 +90,21 @@ test("a connection that drops while the prompt waits for its resend waits on the
   const clients = clientWaiter<Waiting>();
   const lost: Waiting = { name: "lost", isClosed: true, awaitResent: async () => false };
   // The next connection drops before the host's resend shows on it.
+  let asked!: () => void;
+  const droppedAsked = new Promise<void>((resolve) => (asked = resolve));
   const dropped: Waiting = {
     name: "dropped",
     isClosed: false,
     awaitResent: async () => {
       dropped.isClosed = true;
+      asked();
       return false;
     },
   };
   const third: Waiting = { name: "third", isClosed: false, awaitResent: async () => true };
   const waited = waitForResend(clients, lost, { sessionId: "s-1", promptId: "p-1" }, 1_000, 1_000);
   clients.connected(dropped);
-  await new Promise((resolve) => setTimeout(resolve, 5));
+  await droppedAsked;
   clients.connected(third);
   expect((await waited)?.name).toBe("third");
   // A connection that stays and never shows it: not sent.
@@ -176,9 +180,9 @@ test("a connection waiting for a resend says no as soon as it closes", async () 
     () => new MockAcpmuxSocket(() => Promise.resolve()) as unknown as WebSocket,
   );
   await client.send("hello", [], "p-hello");
-  const waiting = client.awaitResent(client.selectedSession!, "p-never", 10_000);
+  // Far past the test's own timeout: only the close can settle it.
+  const waiting = client.awaitResent(client.selectedSession!, "p-never", 600_000);
   client.close();
   expect(client.isClosed).toBe(true);
-  const late = new Promise<string>((resolve) => setTimeout(() => resolve("still waiting"), 200));
-  expect(await Promise.race([waiting, late])).toBe(false);
+  expect(await waiting).toBe(false);
 });

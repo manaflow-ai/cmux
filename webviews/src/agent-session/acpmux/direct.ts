@@ -4124,15 +4124,16 @@ export class AcpmuxDirectClient {
     this.emit();
     await this.adoptChat({ ...live.adopt, ifLive: choice });
   }
-  /// A prompt an earlier connection lost before acpmux took it (`lostPrompt.ts`), which the host
-  /// sends again on this one: true once this chat shows it (its record, its queue row, or acpmux's
-  /// acceptance), false when it does not within `timeoutMs` or this pane shows another chat.
   /// This client's connection is gone (`close`): it shows nothing more.
   get isClosed(): boolean {
     return this.closed;
   }
   /// The `awaitResent` waits, each settled false once this connection closes.
   private resendWaits = new Set<() => void>();
+  /// A prompt an earlier connection lost before acpmux took it (`lostPrompt.ts`), which the host
+  /// sends again on this one: true once this chat shows it (its record, its queue row, or acpmux's
+  /// acceptance), false when it does not within `timeoutMs`, this pane shows another chat, or this
+  /// connection closes.
   awaitResent(sessionId: string, promptId: string, timeoutMs: number): Promise<boolean> {
     if (this.closed || this.selectedSessionId !== sessionId) return Promise.resolve(false);
     const shown = () =>
@@ -4539,7 +4540,7 @@ export class AcpmuxDirectClient {
   /// The socket's own onclose ignores a socket close() already let go of, so settle requests here.
   close(): void {
     this.closed = true;
-    for (const closed of [...this.resendWaits]) closed();
+    for (const closed of this.resendWaits) closed();
     const hold = this.snapshotHold;
     if (hold) clearTimeout(hold.timer);
     this.snapshotHold = undefined;

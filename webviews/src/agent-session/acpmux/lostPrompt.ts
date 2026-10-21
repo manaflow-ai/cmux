@@ -34,7 +34,7 @@ export function clientWaiter<Client>() {
   return {
     connected(client: Client): void {
       current = client;
-      for (const resolve of [...waiting]) resolve(client);
+      for (const resolve of waiting) resolve(client);
     },
     next(previous: Client, timeoutMs: number): Promise<Client | undefined> {
       if (current !== undefined && current !== previous) return Promise.resolve(current);
