@@ -161,14 +161,97 @@ fn start_level(
     configured: Option<&str>,
 ) -> (DefaultMode, Source) {
     let current = setting_snapshot().unwrap_or_default();
-    match picked.and_then(DefaultMode::parse) {
+    let (level, source) = match picked.and_then(DefaultMode::parse) {
         Some(level)
             if configured.is_some() || picked_under.is_none_or(|under| under == current) =>
         {
             (level, Source::Pick)
         }
         _ => DefaultMode::resolve(configured),
+    };
+    // `sessions.allowFullAccess` off: no chat starts in a mode that skips every approval.
+    if level == DefaultMode::FullAccess && !full_access_allowed() {
+        return (DefaultMode::Standard, source);
     }
+    (level, source)
+}
+
+/// The cmux setting that allows the modes that skip every approval (Settings > Agents > Agent
+/// Sessions, "Allow Full-Access Modes").
+pub const ALLOW_FULL_ACCESS: &str = "sessions.allowFullAccess";
+
+/// Whether a mode that skips every approval may run now: yes unless the settings file turns
+/// `sessions.allowFullAccess` off. A settings file that cannot be read fails closed (no).
+pub fn full_access_allowed() -> bool {
+    match crate::user_settings::read() {
+        crate::user_settings::Settings::Missing => true,
+        crate::user_settings::Settings::Unreadable(_) => false,
+        crate::user_settings::Settings::Parsed(doc) => !matches!(
+            crate::user_settings::value(&doc, ALLOW_FULL_ACCESS),
+            Some(Value::Bool(false))
+        ),
+    }
+}
+
+/// The markers of a mode id or option value that skips every approval, shared with the cmux NEXT
+/// app (`spec/full-access-modes.json`).
+const FULL_ACCESS_RULE: &str = include_str!("../../../../spec/full-access-modes.json");
+
+fn full_access_markers() -> Option<&'static [String]> {
+    static MARKERS: std::sync::OnceLock<Option<Vec<String>>> = std::sync::OnceLock::new();
+    MARKERS
+        .get_or_init(|| {
+            let rule: Value = serde_json::from_str(FULL_ACCESS_RULE).ok()?;
+            Some(
+                rule.get("markers")?
+                    .as_array()?
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect(),
+            )
+        })
+        .as_deref()
+}
+
+/// Whether a mode id or option value skips every approval, by the shared rule
+/// (`spec/full-access-modes.json`): lowercased, without `-`, `_` or spaces, it contains a
+/// marker. Wider than `FULL_ACCESS_MODES` (the modes acpmux itself picks), so a harness's
+/// `danger-full-access` or `auto-approve` is refused too.
+pub(crate) fn is_full_access(mode: &str) -> bool {
+    let folded: String = mode
+        .chars()
+        .filter(|c| !matches!(c, '-' | '_' | ' '))
+        .flat_map(char::to_lowercase)
+        .collect();
+    // A rule that does not parse names every mode full access: refused while the setting is off.
+    full_access_markers().is_none_or(|markers| markers.iter().any(|m| folded.contains(m.as_str())))
+}
+
+/// The mode a resumed chat runs in: its saved mode, or the harness default (`fallback`) when the
+/// saved one skips every approval and `sessions.allowFullAccess` is off.
+pub(crate) fn resumable_mode(saved: String, fallback: &str) -> String {
+    if is_full_access(&saved) && !full_access_allowed() { fallback.to_owned() } else { saved }
+}
+
+/// Whether a session request switches into a full-access mode: `session/set_mode` to one, or
+/// `session/set_config_option` of any option whose value is one (not only the `mode` option).
+pub(crate) fn requests_full_access(m: &str, params: &Value) -> bool {
+    let value = match m {
+        method::SESSION_SET_MODE => params.get("modeId"),
+        method::SESSION_SET_CONFIG_OPTION => params.get("value"),
+        _ => None,
+    };
+    value.and_then(Value::as_str).is_some_and(is_full_access)
+}
+
+/// The refusal of a full-access mode while `sessions.allowFullAccess` is off.
+pub(crate) fn full_access_off() -> RpcError {
+    RpcError::new(
+        -32000,
+        "full-access modes are turned off in cmux Settings (sessions.allowFullAccess)",
+    )
+    .with_data(json!({"reason": "full_access_off"}))
 }
 
 /// Whether acpmux sets a start mode on a new chat at all (module docs):
@@ -222,6 +305,13 @@ fn asking_mode(family: &str, available: &[String]) -> Option<String> {
         .chain(std::iter::once(&"ask"))
         .find(|m| available.iter().any(|a| a == *m))
         .map(|m| (*m).to_owned())
+}
+
+/// The mode a chat that must leave full access moves to: the family's asking mode, else the first
+/// offered mode that does not skip approvals.
+pub(crate) fn mode_below_full_access(family: &str, available: &[String]) -> Option<String> {
+    asking_mode(family, available)
+        .or_else(|| available.iter().find(|m| !is_full_access(m)).cloned())
 }
 
 /// What `access` gives a harness of `family` offering `available`.
@@ -304,6 +394,64 @@ impl Hub {
         let (level, _) = self.start_level().await;
         mode_for(level, &crate::web_modes::family_of(&meta), &offered)
             .filter(|m| crate::web_modes::mode_of(&meta).as_deref() != Some(m.as_str()))
+    }
+
+    /// A respawned ACP chat that came back in full access (its harness restored the mode on
+    /// load) while `sessions.allowFullAccess` is off: moved to a mode that asks
+    /// (`mode_below_full_access`). A resumed chat never runs above the setting: when the harness
+    /// offers no lower mode or refuses the switch, the answer is `full_access_off` and the caller
+    /// stops the agent.
+    pub(super) async fn leave_full_access_if_off(
+        &self,
+        session: &Arc<Session>,
+        child: &Arc<ChildAgent>,
+    ) -> Result<(), RpcError> {
+        let meta = session.meta();
+        let Some(current) = crate::web_modes::mode_of(&meta) else { return Ok(()) };
+        if !is_full_access(&current) || full_access_allowed() {
+            return Ok(());
+        }
+        let family = crate::web_modes::family_of(&meta);
+        let (Some(sid), Some(mode)) =
+            (meta.agent_session_id.clone(), mode_below_full_access(&family, &available(&meta)))
+        else {
+            tracing::warn!(session = %session.id, "resume: full access is off and {current} offers no other mode");
+            return Err(full_access_off());
+        };
+        if let Err(e) =
+            child.request(method::SESSION_SET_MODE, json!({"sessionId": sid, "modeId": mode})).await
+        {
+            tracing::warn!(session = %session.id, "resume: leaving {current}: {}", e.message);
+            return Err(full_access_off());
+        }
+        tracing::info!(session = %session.id, "resume: full access is off; {current} runs as {mode}");
+        self.write_mode_state(session, [ModeWrite::CurrentMode(json!(mode))]);
+        Ok(())
+    }
+
+    /// `leave_full_access_if_off` for a chat just started (cold or from the pool): when it would
+    /// run in full access, the agent stops and the chat stays open and idle. A profile that pins
+    /// its mode in its argv (`--yolo`) is left alone, as acpmux sets no mode over it anywhere else.
+    pub(super) async fn cap_full_access(
+        &self,
+        session: &Arc<Session>,
+        child: &Arc<ChildAgent>,
+        profile: &HarnessProfile,
+    ) -> Result<(), RpcError> {
+        if profile_sets_mode(profile) {
+            return Ok(());
+        }
+        let Err(e) = self.leave_full_access_if_off(session, child).await else { return Ok(()) };
+        if let Some(started) = session.child.lock().await.take() {
+            started.terminate(super::shutdown::SHUTDOWN_GRACE).await;
+        }
+        // A host that outlived the grace would be re-adopted, still in full access.
+        if Self::host_record_live(&session.id) {
+            self.end_unadopted_host(session).await;
+        }
+        self.set_status(session, SessionStatus::Idle);
+        self.append(session, "mux", "full_access_refused", json!({}));
+        Err(e)
     }
 
     /// The level new chats start at now, and what chose it.
