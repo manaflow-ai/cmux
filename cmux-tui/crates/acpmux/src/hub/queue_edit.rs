@@ -181,6 +181,7 @@ impl Hub {
         if !images.is_empty() {
             msg["images"] = Value::Array(images);
         }
+        super::session::mark_pasted(&mut msg, &run.blocks);
         self.append(session, "mux", "queue_updated", msg);
         true
     }

@@ -695,6 +695,8 @@ export type SessionSummary = {
   waitingOn: (string | null);
   /** The first prompt of the question it waits on, cut to 120 characters. */
   waitingPrompt: (string | null);
+  /** The family of a conversation another app runs that this chat only shows; null otherwise. */
+  watching?: (string | null);
 } & Record<string, unknown>;
 
 /** Also the page fields of `_acpmux/watch` (`hub::session_pages`). */

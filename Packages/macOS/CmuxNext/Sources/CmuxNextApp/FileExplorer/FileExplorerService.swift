@@ -21,9 +21,7 @@ final class FileExplorerService {
     func makeSection(for controller: WindowController) -> FileExplorerSectionView {
         let view = FileExplorerSectionView(
             model: FileExplorerModel(),
-            rootFolder: { [weak self, weak controller] in
-                controller.flatMap { self?.folder(focusedIn: $0) } ?? FileManager.default.homeDirectoryForCurrentUser
-            },
+            rootFolder: { [weak self, weak controller] in controller.flatMap { self?.folder(focusedIn: $0) } },
             perform: { [weak self] id in self?.perform(ActionID(rawValue: id)) })
         sections.setObject(view, forKey: controller)
         return view
@@ -34,6 +32,11 @@ final class FileExplorerService {
         FindSectionView(model: FindSectionModel(), rootFolder: { [weak self, weak controller] in
             controller.flatMap { self?.folder(focusedIn: $0) } ?? FileManager.default.homeDirectoryForCurrentUser
         }, effects: effects)
+    }
+
+    /// Focus moved in `controller`: its Files tree follows the newly focused terminal's folder.
+    func focusChanged(in controller: WindowController) {
+        sections.object(forKey: controller)?.follow()
     }
 
     /// The active window's explorer, once its Files section was shown.

@@ -390,6 +390,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/watch_take_over",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/archive",
       "params": true,
       "result": true
@@ -3200,6 +3206,13 @@
         },
         "waitingPrompt": {
           "description": "The first prompt of the question it waits on, cut to 120 characters.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "watching": {
+          "description": "The family of a conversation another app runs that this chat only shows; null otherwise.",
           "type": [
             "string",
             "null"
