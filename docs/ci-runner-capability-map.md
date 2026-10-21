@@ -146,8 +146,9 @@ every job whose `runs-on:` can route to macOS, what kind of work it does:
 - `macos_jobs` maps `<workflow file>#<job id>` to its class.
 
 `scripts/ci/runner_routing_table.py check` (run by
-`tests/test_runner_routing_table.py` in the `ci` guard group, which every
-workflow edit runs) fails when:
+`tests/test_runner_routing_table.py` in the `ci` guard group on main pull
+requests, and in `cmux-next-guards.yml`'s `tooling-tests` job on feat-cmux-next
+pull requests) fails when:
 
 - a job can run on macOS and has no `macos_jobs` entry;
 - its class runs on Linux;

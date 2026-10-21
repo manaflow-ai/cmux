@@ -251,3 +251,15 @@ jobs:
 
       - name: The backdrop art catalog and brightness range
         run: python3 tests/test_backdrop_art_generator.py
+
+      # ci.yml's guard groups skip feat-cmux-next pull requests, so the routing
+      # table check runs here too.
+      - name: Install PyYAML for the runner routing table check
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/routing-venv"
+          "$RUNNER_TEMP/routing-venv/bin/python" -m pip install \
+            --disable-pip-version-check --no-input PyYAML==6.0.3
+
+      - name: Every macOS job names its job class
+        run: '"$RUNNER_TEMP/routing-venv/bin/python" tests/test_runner_routing_table.py'
