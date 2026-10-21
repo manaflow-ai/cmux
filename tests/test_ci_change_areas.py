@@ -2394,10 +2394,16 @@ def test_helper_a_test_only_unrouted_workflows_run_names_reaches_no_lane() -> No
         "tests/test_unrouted.py": "# runs scripts/ci/helper.py\nimport helper\n",
         ".github/workflows/next.yml": "on: pull_request\njobs:\n  checks:\n    runs-on: macos-15\n"
                                       "    steps:\n      - run: python3 tests/test_unrouted.py\n",
-        # A path list names it without running it.
-        "tests/test-execution.toml": '[[test]]\npath = "tests/test_unrouted.py"\n',
+        # A registry lane no Mac job runs names it without running it.
+        "tests/test-execution.toml": 'version = 1\n[[test]]\npath = "tests/test_unrouted.py"\nlane = "linux-guard"\n',
     }
     assert helper_areas(unrouted_test) == areas()
+    # A macOS registry lane runs it (ci-macos.yml's run_python_test_lane.py), so it fails open.
+    macos_lane = {
+        **unrouted_test,
+        "tests/test-execution.toml": 'version = 1\n[[test]]\npath = "tests/test_unrouted.py"\nlane = "macos-shell"\n',
+    }
+    assert helper_areas(macos_lane) is None
     # A test a routed job names, or that something else runs, still fails open.
     run_by_a_script = {**unrouted_test, "scripts/run-it.sh": "python3 tests/test_unrouted.py\n"}
     assert helper_areas(run_by_a_script) is None

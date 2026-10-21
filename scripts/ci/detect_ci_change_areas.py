@@ -522,12 +522,15 @@ _ROUTING_TABLES = frozenset({
     "scripts/ci/detect_linux_guard_changes.py",
     "scripts/ci/workflow_guard_groups.py",
 })
-# Files that list test paths without running them: the execution registry, the
-# routing tables and cmux-next.yml's path router.
+# Files that list test paths without running them: the routing tables and
+# cmux-next.yml's path router.
 _TEST_PATH_LISTS = _ROUTING_TABLES | frozenset({
-    "tests/test-execution.toml",
     "scripts/ci/cmux_next_route.py",
 })
+# The execution registry runs its entries: ci-macos.yml's run_python_test_lane.py
+# executes every test in the macOS lanes. Only these lanes run no Mac job.
+_TEST_REGISTRY_PATH = "tests/test-execution.toml"
+_TEST_REGISTRY_INERT_LANES = frozenset({"linux-guard", "legacy", "manual"})
 _COMMENT_RE = re.compile(r"(?m)(?:^[ \t]*#(?![{!]).*$|[ \t]+#(?![{!]).*$)")
 
 
@@ -724,7 +727,11 @@ def ci_helper_areas(
                     runners = _files_naming(root, referrer)
                     if runners is None:
                         return every_area(f"could not search for {referrer}")
-                    runners = [runner for runner in runners if runner not in _TEST_PATH_LISTS]
+                    runners = [
+                        runner for runner in runners
+                        if runner not in _TEST_PATH_LISTS
+                        and not (runner == _TEST_REGISTRY_PATH and _registry_lane_is_inert(root, referrer))
+                    ]
                     if runners and all(
                         runner.startswith(".github/workflows/") and runner not in routed for runner in runners
                     ):
@@ -819,6 +826,29 @@ def _load_macos_job_test_references(root: Path) -> Optional[tuple[frozenset[str]
     except OSError:
         return None
     return frozenset(macos), frozenset(everywhere)
+
+
+def _registry_lane_is_inert(root: Path, test: str) -> bool:
+    """Whether the execution registry lists `test` only in lanes no Mac job runs.
+
+    Parsed with run_python_test_lane.py's own registry reader. An unreadable
+    registry, a missing reader (the trusted base router copies only its own
+    files), or a test it names outside an entry counts as run (fails open).
+    """
+    directory = str(Path(__file__).resolve().parent)
+    sys.path.insert(0, directory)
+    try:
+        from test_execution_registry import parse_registry
+
+        entries = parse_registry((root / _TEST_REGISTRY_PATH).read_text(encoding="utf-8"), _TEST_REGISTRY_PATH)
+    except Exception as error:  # pragma: no cover - defensive
+        print(f"Could not read {_TEST_REGISTRY_PATH}: {error}", file=sys.stderr)
+        return False
+    finally:
+        if sys.path and sys.path[0] == directory:
+            sys.path.pop(0)
+    lanes = [entry.get("lane") for entry in entries if entry.get("path") == test]
+    return bool(lanes) and all(lane in _TEST_REGISTRY_INERT_LANES for lane in lanes)
 
 
 def is_unrouted_test(path: str, references: Optional[tuple[frozenset[str], frozenset[str]]]) -> bool:
