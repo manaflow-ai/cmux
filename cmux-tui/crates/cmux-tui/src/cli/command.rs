@@ -156,6 +156,12 @@ pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandP
         .first()
         .map(String::as_str)
         .ok_or_else(|| UsageError::new("missing resource scope"))?;
+    if tokens.argv.is_some() && !takes_argv(scope, &strs(&tokens.words[1..])) {
+        return Err(UsageError::new(format!(
+            "`{}` runs no command: drop the words after --",
+            tokens.words.join(" ")
+        )));
+    }
     let mut selectors = Selectors::default();
     let plan = match scope {
         "server" => parse_server(&tokens.words[1..], &mut tokens.flags)?,
@@ -283,6 +289,37 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
         index += 1;
     }
     Ok(Tokens { words, flags, argv })
+}
+
+/// Whether the command `scope words…` reads the words after `--`: workspace
+/// create and run, pane split and run (also under a workspace or screen
+/// path), the workspace status/progress/log and checklist commands (which
+/// check their own verbs), and agent messages. Every other command would drop
+/// them, so the caller is told instead.
+fn takes_argv(scope: &str, words: &[&str]) -> bool {
+    fn pane(words: &[&str]) -> bool {
+        matches!(words, [_, "split"] | [_, "run", ..])
+    }
+    fn screen(words: &[&str]) -> bool {
+        matches!(words, [_, "pane", tail @ ..] if pane(tail))
+    }
+    fn workspace(words: &[&str]) -> bool {
+        let area = |word: &&str| state::STATUS_AREAS.contains(word) || *word == "checklist";
+        match words {
+            ["create"] | [_, "run", ..] => true,
+            [first, ..] if area(first) => true,
+            [_, second, ..] if area(second) => true,
+            [_, "screen", tail @ ..] => screen(tail),
+            _ => false,
+        }
+    }
+    match scope {
+        "workspace" => workspace(words),
+        "screen" => screen(words),
+        "pane" => pane(words),
+        "agent" => matches!(words, ["message", ..]),
+        _ => false,
+    }
 }
 
 pub(super) fn is_boolean_flag(name: &str) -> bool {
@@ -2265,14 +2302,11 @@ fn run_params(
     }
     if let Some(policy) = flags.take("on-exit") {
         match policy.as_str() {
-            "close" | "keep" => {
+            "close" | "keep" | "shell" => {
                 params.insert("on_exit".into(), Value::String(policy));
             }
-            "shell" => {
-                return Err(UsageError::new("--on-exit shell is not supported yet"));
-            }
             _ => {
-                return Err(UsageError::new("--on-exit must be close or keep"));
+                return Err(UsageError::new("--on-exit must be close, keep or shell"));
             }
         }
     }
@@ -3949,14 +3983,8 @@ mod tests {
             let default = protocol(&[scope[0], scope[1], "run", "--", "true"]);
             assert!(default.params.get("on_exit").is_none());
 
-            let shell_policy = parse(
-                &strings(&[scope[0], scope[1], "run", "--on-exit", "shell", "--", "true"]),
-                super::super::Surface::CmuxTui,
-            );
-            assert!(
-                shell_policy.is_err_and(|error| error.to_string().contains("not supported yet")),
-                "--on-exit shell must be a typed not-yet-supported usage error"
-            );
+            let shell = protocol(&[scope[0], scope[1], "run", "--on-exit", "shell", "--", "true"]);
+            assert_eq!(shell.params["on_exit"], "shell");
             assert!(
                 parse(
                     &strings(&[scope[0], scope[1], "run", "--on-exit", "sh", "--", "true"]),
@@ -4372,6 +4400,7 @@ mod tests {
         }
     }
 
+    mod argv_tail_tests;
     mod name_source_tests;
     mod split_focus_tests;
     mod transport_path_coverage_tests;

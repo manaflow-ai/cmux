@@ -139,6 +139,21 @@ const openGroupedShells = async (ctx: PlayContext) => {
   await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-shell__exit")));
 };
 
+/// Clicks the disclosure line `selector` finds and fails when the line moved once its fold settled:
+/// opening or closing never moves the reader's view (foldAnchor.ts, Leo 2026-10-20).
+const clickHoldsLine = async (ctx: PlayContext, selector: string, expanded: boolean) => {
+  const top = () => ctx.find({ selector }).getBoundingClientRect().top;
+  const before = top();
+  await ctx.click({ selector });
+  await ctx.waitFor(
+    () =>
+      ctx.find({ selector }).getAttribute("aria-expanded") === String(expanded) &&
+      [...ctx.document.querySelectorAll(".cv-fold")].every((fold) => fold.getAnimations().length === 0),
+  );
+  const moved = top() - before;
+  if (Math.abs(moved) > 1) throw new Error(`the clicked line moved ${moved.toFixed(1)}px`);
+};
+
 const shellDisclosureChecks = {
   layoutShiftMax: {
     value: 0.25,
@@ -1573,6 +1588,18 @@ export default agentPaneEntry({
       checks: shellDisclosureChecks,
       snapshot: chat(groupedShellRows),
       play: openGroupedShells,
+    },
+    "fold-holds-clicked-line": {
+      note: "Play: at the latest row, open Worked for, then a command, then close it; each line stays where it was clicked while its fold plays (height and opacity, the chevron turning).",
+      checks: shellDisclosureChecks,
+      snapshot: chat([...longChatRows.slice(-12), ...groupedShellRows]),
+      play: async (ctx) => {
+        await clickHoldsLine(ctx, ".cv-worked", true);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-command").length === 2);
+        await clickHoldsLine(ctx, ".cv-command", true);
+        await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-shell__command")));
+        await clickHoldsLine(ctx, ".cv-command", false);
+      },
     },
   },
 });
