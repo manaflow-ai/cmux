@@ -103,6 +103,9 @@ mkdir -p "$reports"
 printf '%s\n' '{"app_name":"swiftpm-testing-helper","bug_type":"309","name":"swiftpm-testing-helper"}' \
   '{"exception":{"type":"EXC_BREAKPOINT","signal":"SIGTRAP"},"faultingThread":2,"usedImages":[{"name":"libswift_Concurrency.dylib"},{"name":"CmuxNextPackageTests"}],"threads":[{"frames":[{"imageIndex":1,"symbol":"idleThread"}]},{"frames":[]},{"triggered":true,"frames":[{"imageIndex":0,"symbol":"swift_task_checkIsolatedSwift"},{"imageIndex":1,"symbol":"KeyWindowObserver.windowWillClose(_:)"},{"imageIndex":1,"symbol":"closure #1 in BrowserPopupPanelThreadTests.anOpenerCloseNoticePostedOffMainClosesItsPopupsOnMain()"}]}]}' \
   > "$reports/swiftpm-testing-helper-2026-10-09-021500.ips"
+# The run starts at a whole second after this write, so date the report ahead
+# of it; otherwise a write at X.9 and a start at X+1 reads it as from before.
+python3 -c 'import os,sys,time; t=time.time()+60; os.utime(sys.argv[1],(t,t))' "$reports/swiftpm-testing-helper-2026-10-09-021500.ips"
 printf '%s\n' '{"app_name":"swiftpm-testing-helper"}' '{"threads":[{"triggered":true,"frames":[{"imageIndex":0,"symbol":"anOldCrash"}]}],"usedImages":[{"name":"x"}]}' \
   > "$reports/swiftpm-testing-helper-old.ips"
 touch -t 202001010000 "$reports/swiftpm-testing-helper-old.ips"
