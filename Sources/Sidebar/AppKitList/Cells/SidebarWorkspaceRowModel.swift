@@ -28,20 +28,24 @@ struct SidebarWorkspaceRowModel: Equatable {
     /// freeze auto-naming).
     let hasUserCustomTitle: Bool
     let canCloseWorkspace: Bool
-    let accessibilityWorkspaceCount: Int
+    // `var` only for `hasHeightEquivalentContent` (see `index`); every row
+    // carries it, so a create or close changes it on the whole list.
+    var accessibilityWorkspaceCount: Int
     var unreadCount: Int
     var latestNotificationText: String?
     let showsAgentActivity: Bool
-    let rowSpacing: CGFloat
-    let isBeingDragged: Bool
-    let topDropIndicatorVisible: Bool
-    let bottomDropIndicatorVisible: Bool
+    // The fields below through `showsShortcutHints` are `var` only for
+    // `hasHeightEquivalentContent` (see `index`): they paint chrome that the
+    // measurement pass never reads.
+    var rowSpacing: CGFloat
+    var isBeingDragged: Bool
+    var topDropIndicatorVisible: Bool
+    var bottomDropIndicatorVisible: Bool
     let isGrouped: Bool
-    // `var` only for `hasHeightEquivalentContent` (see `index`).
     var isFirstRow: Bool
     /// Resolved modifier-hold hint text (nil hides the pill).
-    let shortcutHintText: String?
-    let showsShortcutHints: Bool
+    var shortcutHintText: String?
+    var showsShortcutHints: Bool
     let colorSchemeIsDark: Bool
     /// Hex of the opaque terminal-matched backdrop (secondary text holds a
     /// contrast floor over it), or `nil` over the sidebar material.
