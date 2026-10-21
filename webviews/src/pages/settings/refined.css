@@ -23,7 +23,7 @@
   --polish-hover: color-mix(in srgb, var(--polish-ink) 5%, transparent);
   --polish-pressed: color-mix(in srgb, var(--polish-ink) 9%, transparent);
   --polish-focus: color-mix(in srgb, var(--polish-ink) 40%, transparent);
-  --polish-duration: 140ms;
+  --polish-duration: var(--cmux-motion-micro, 120ms);
 }
 
 :root[data-settings-look="refined"]:is([data-borders="none"], [data-cmux-borders="none"]) {

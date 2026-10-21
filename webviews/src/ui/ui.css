@@ -353,7 +353,7 @@
 /* Sheets only fade, so they fade under Reduce Motion too. Tooltips fade (and rise) with the
    tooltip surface (pages/shared/desktop.css). */
 .ui-sheet {
-  transition: opacity 90ms ease-out;
+  transition: opacity var(--cmux-motion-quick) ease-out;
 }
 
 .ui-sheet[data-starting-style],

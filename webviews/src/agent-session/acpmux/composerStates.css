@@ -5,19 +5,20 @@
    nothing of its own (Leo 2026-10-19): no shrink and no dip.
 
    Motion tokens: the native host sends its MotionFade durations with the theme
-   (AgentPaneTheme.motion, after ui.animationSpeed and Reduce Motion), and these defaults are
-   its `fast` values for the dev page and the mock. The focus and fade-out tokens are there for
-   the pane's other stylesheets. Every transition sits under prefers-reduced-motion:
-   no-preference, as the transcript's do. */
+   (AgentPaneTheme.motion, after ui.animationSpeed and Reduce Motion). Without the host (the dev
+   page, the mock) they fall back to the motion scale (--cmux-motion-*, pages/shared/desktop.css;
+   the literal inside each var() is the same step, for a page that loads no desktop.css). The
+   focus and fade-out tokens are there for the pane's other stylesheets. Every transition sits
+   under prefers-reduced-motion: no-preference, as the transcript's do. */
 :root {
-  --agent-motion-hover: 80ms;
-  --agent-motion-focus: 100ms;
-  --agent-motion-in: 120ms;
-  --agent-motion-out: 80ms;
-  /* The native move spring's timed equivalent (MotionSpring.move). */
-  --agent-motion-move: 190ms;
+  --agent-motion-hover: var(--cmux-motion-quick, 80ms);
+  --agent-motion-focus: var(--cmux-motion-quick, 80ms);
+  --agent-motion-in: var(--cmux-motion-micro, 120ms);
+  --agent-motion-out: var(--cmux-motion-quick, 80ms);
+  /* The native move spring's timed equivalent (MotionSpring.move: visibly at rest by 180 ms). */
+  --agent-motion-move: var(--cmux-motion-standard, 180ms);
   /* Core Animation's easeOut, which the native fades use. */
-  --agent-ease-out: cubic-bezier(0, 0, 0.58, 1);
+  --agent-ease-out: var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1));
 }
 
 .acpmux-shell {

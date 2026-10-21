@@ -7,6 +7,7 @@ import { StreamReveal } from "../streamReveal";
 import { Markdown } from "./Markdown";
 import { MessageBoundary } from "./MessageBoundary";
 import { pageAway } from "../../shared/pageReveal";
+import { MOTION_MS } from "../../../motion/scale.generated";
 
 /// The display frames the reveal runs on (tests drive their own).
 export const revealFrames = {
@@ -19,8 +20,9 @@ const reducedMotion = () =>
 
 /// Text revealed `count` characters at a time; each step fades in for FADE_MS from `born`.
 export type Reveal = { id: number; count: number; born: number };
-/// How long newly revealed text fades in (acp-streaming.md "Reveal animation").
-export const FADE_MS = 160;
+/// How long newly revealed text fades in (acp-streaming.md "Reveal animation"): the motion scale's
+/// micro step, the default of the `--agent-motion-in` fade `.cv-fresh` runs (composerStates.css).
+export const FADE_MS = MOTION_MS.micro;
 
 type Shown = { length: number; fresh: Reveal[]; now: number };
 /// React commits at most this often while revealing; fades run every display frame on the

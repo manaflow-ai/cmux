@@ -4,6 +4,7 @@ import { useT } from "../i18n";
 import { useFindReveal } from "./chatFind";
 import { ChevronRight } from "./icons";
 import { isAgentMotionOff } from "../../shared/motion";
+import { MOTION_MS } from "../../../motion/scale.generated";
 import { formatDuration } from "./turns";
 
 /// With the live viewport off, a done thought folds once it is taller than the transcript's
@@ -14,8 +15,8 @@ export const THOUGHT_FOLD_MIN_PX = 400;
 /// A long thought still streaming holds a viewport this tall: seven of its 20px lines, the 8.75rem
 /// Codex gives a live reasoning trace. conversation.css caps `.is-live` at the same.
 export const THOUGHT_LIVE_PX = 140;
-/// How long the reader's open or close takes (AI Elements' Trace: `transition-[height] duration-200`).
-export const THOUGHT_FOLD_MS = 200;
+/// How long the reader's open or close takes: a fold opening, the motion scale's standard step.
+export const THOUGHT_FOLD_MS = MOTION_MS.standard;
 
 /// What the row reads from the page; tests swap these.
 export const thoughtLayout = {

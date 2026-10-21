@@ -1447,7 +1447,7 @@ pre.cv-math-source {
 /* With Reduce Motion on, the chevron snaps to its new angle. */
 @media (prefers-reduced-motion: no-preference) {
   .cv-rotor {
-    transition: transform 150ms ease-out;
+    transition: transform var(--cmux-motion-micro) ease-out;
   }
 }
 .cv-rotor.is-open {
