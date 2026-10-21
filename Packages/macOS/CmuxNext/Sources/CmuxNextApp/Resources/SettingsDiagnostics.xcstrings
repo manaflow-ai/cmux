@@ -10,6 +10,18 @@
             "value": "cmux-next.json: تم تجاهل %1$@: %2$@."
           }
         },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: %1$@ je zanemaren: %2$@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: %1$@ blev ignoreret: %2$@."
+          }
+        },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -34,16 +46,76 @@
             "value": "cmux-next.json : %1$@ a été ignoré : %2$@."
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: %1$@ è stato ignorato: %2$@."
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "cmux-next.json: %1$@ は無視されました: %2$@。"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json៖ %1$@ ត្រូវបានមិនអើពើ៖ %2$@។"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "cmux-next.json: %1$@이(가) 무시되었습니다: %2$@."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: %1$@ ble ignorert: %2$@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: zignorowano %1$@: %2$@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: %1$@ foi ignorado: %2$@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: %1$@ проигнорирован: %2$@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: ละเว้น %1$@: %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: %1$@ yok sayıldı: %2$@."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: %1$@ проігноровано: %2$@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: %1$@ đã bị bỏ qua: %2$@."
           }
         },
         "zh-Hans": {
@@ -67,6 +139,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "تعرض الإعدادات القيم الأخرى التي تم تجاهلها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Postavke prikazuju ostale zanemarene vrijednosti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indstillinger viser de andre ignorerede værdier."
           }
         },
         "de": {
@@ -93,16 +177,76 @@
             "value": "Les Réglages indiquent les autres valeurs ignorées."
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le Impostazioni elencano gli altri valori ignorati."
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "無視されたほかの値は設定に表示されます。"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការកំណត់បង្ហាញតម្លៃផ្សេងទៀតដែលត្រូវបានមិនអើពើ។"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "설정에서 무시된 다른 값을 확인할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Innstillinger viser de andre ignorerte verdiene."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ustawienia pokazują pozostałe zignorowane wartości."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Os Ajustes mostram os outros valores ignorados."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Остальные проигнорированные значения показаны в настройках."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การตั้งค่าแสดงค่าอื่นๆ ที่ถูกละเว้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diğer yok sayılan değerler Ayarlar'da listelenir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Інші проігноровані значення показано в налаштуваннях."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cài đặt liệt kê các giá trị bị bỏ qua khác."
           }
         },
         "zh-Hans": {
@@ -126,6 +270,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "فتح الملف"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otvori datoteku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åbn fil"
           }
         },
         "de": {
@@ -152,16 +308,76 @@
             "value": "Ouvrir le fichier"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apri file"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "ファイルを開く"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើកឯកសារ"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "파일 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åpne fil"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otwórz plik"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir arquivo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Открыть файл"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดไฟล์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dosyayı Aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкрити файл"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mở tệp"
           }
         },
         "zh-Hans": {
@@ -185,6 +401,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "عرض في الإعدادات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži u postavkama"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis i Indstillinger"
           }
         },
         "de": {
@@ -211,16 +439,76 @@
             "value": "Afficher dans Réglages"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra nelle Impostazioni"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "設定で表示"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញក្នុងការកំណត់"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "설정에서 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis i Innstillinger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokaż w Ustawieniach"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar nos Ajustes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показать в настройках"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงในการตั้งค่า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ayarlar'da Göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показати в налаштуваннях"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiển thị trong Cài đặt"
           }
         },
         "zh-Hans": {
@@ -244,6 +532,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "تعذرت قراءة cmux-next.json (%@). تظل آخر الإعدادات التي تم تحميلها سارية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json nije moguće pročitati (%@). Posljednje učitane postavke ostaju na snazi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json kunne ikke læses (%@). De senest indlæste indstillinger gælder fortsat."
           }
         },
         "de": {
@@ -270,16 +570,76 @@
             "value": "Impossible de lire cmux-next.json (%@). Les derniers réglages chargés restent en vigueur."
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile leggere cmux-next.json (%@). Restano in vigore le ultime impostazioni caricate."
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "cmux-next.json を読み込めませんでした（%@）。最後に読み込んだ設定がそのまま有効です。"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចអាន cmux-next.json បានទេ (%@)។ ការកំណត់ចុងក្រោយដែលបានផ្ទុកនៅតែមានប្រសិទ្ធភាព។"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "cmux-next.json을 읽을 수 없습니다(%@). 마지막으로 불러온 설정이 계속 적용됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke lese cmux-next.json (%@). De sist innlastede innstillingene gjelder fortsatt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie można odczytać cmux-next.json (%@). Obowiązują ostatnio wczytane ustawienia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível ler cmux-next.json (%@). Os últimos ajustes carregados continuam valendo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось прочитать cmux-next.json (%@). Действуют последние загруженные настройки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่สามารถอ่าน cmux-next.json ได้ (%@) การตั้งค่าที่โหลดล่าสุดยังคงมีผล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json okunamadı (%@). En son yüklenen ayarlar geçerli kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося прочитати cmux-next.json (%@). Діють останні завантажені налаштування."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể đọc cmux-next.json (%@). Các cài đặt được tải gần nhất vẫn có hiệu lực."
           }
         },
         "zh-Hans": {
@@ -303,6 +663,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux-next.json: تم تجاهل %1$@ = %2$@: %3$@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: %1$@ = %2$@ je zanemaren: %3$@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: %1$@ = %2$@ blev ignoreret: %3$@."
           }
         },
         "de": {
@@ -329,16 +701,76 @@
             "value": "cmux-next.json : %1$@ = %2$@ a été ignoré : %3$@."
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: %1$@ = %2$@ è stato ignorato: %3$@."
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "cmux-next.json: %1$@ = %2$@ は無視されました: %3$@。"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json៖ %1$@ = %2$@ ត្រូវបានមិនអើពើ៖ %3$@។"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "cmux-next.json: %1$@ = %2$@이(가) 무시되었습니다: %3$@."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: %1$@ = %2$@ ble ignorert: %3$@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: zignorowano %1$@ = %2$@: %3$@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: %1$@ = %2$@ foi ignorado: %3$@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: %1$@ = %2$@ проигнорирован: %3$@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: ละเว้น %1$@ = %2$@: %3$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: %1$@ = %2$@ yok sayıldı: %3$@."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: %1$@ = %2$@ проігноровано: %3$@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: %1$@ = %2$@ đã bị bỏ qua: %3$@."
           }
         },
         "zh-Hans": {

@@ -3,58 +3,112 @@ import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextSettings
+import CmuxNextSettingsWindow
 
 /// Tells the person when cmux-next.json holds a value this build refuses
 /// (`SettingsDiagnosticNotices`): a toast on the active window names the key,
-/// the value and why, with Show in Settings (the row says it too) or, for a
-/// file that does not parse, Open File. A refusal is announced once, also
-/// across launches, until it is fixed; fixing it closes the toast. An agent or a hand
-/// edit that writes the file past `cmux settings set` no longer fails silently.
-/// Debug Settings `settings.diagnosticToast` keeps it up until closed or turns it off.
+/// the value and why. Its button opens the key's Settings row (which says it
+/// too), Keyboard Shortcuts for a shortcut, or the file for a key Settings has
+/// no row for and for a file that does not parse. A refusal is announced
+/// once, also across launches, until it is fixed; a refusal that finds no
+/// window waits for the next window that becomes key. Fixing the refusal the
+/// toast names closes it. An agent or a hand edit that writes the file past
+/// `cmux settings set` no longer fails silently. Debug Settings
+/// `settings.diagnosticToast` keeps it up until closed or turns it off.
 @MainActor
-enum SettingsDiagnosticToasts {
+final class SettingsDiagnosticToasts {
     static let toastID = "settings-diagnostics"
     /// The announced refusals (`SettingsDiagnosticNotices.remembered`), so a launch does not repeat them.
     static let rememberedKey = "settings.diagnosticNotices.announced"
+    /// The longest value the toast quotes; Settings and the file hold the rest.
+    static let valueLimit = 80
+    private static var current: SettingsDiagnosticToasts?
+
+    private unowned let services: AppServices
+    private let defaults = UserDefaults.standard
+    private var notices: SettingsDiagnosticNotices
+    /// Refusals the last load found that no toast has shown yet.
+    private var pending: [SettingsDiagnosticNotices.Notice] = []
+    private var shown: CmuxToastHandle?
+
+    private init(services: AppServices) {
+        self.services = services
+        notices = SettingsDiagnosticNotices(remembered: Set(UserDefaults.standard.stringArray(forKey: Self.rememberedKey) ?? []))
+    }
 
     static func follow(_ settings: SettingsController, services: AppServices) {
-        Task { [weak settings, weak services] in // task-owner: lives with the settings controller
+        let toasts = SettingsDiagnosticToasts(services: services)
+        current = toasts
+        Task { [weak settings, weak toasts] in // task-owner: lives with the settings controller
             guard let settings else { return }
             await settings.waitForLoad(atLeast: 1)
-            let defaults = UserDefaults.standard
-            var notices = SettingsDiagnosticNotices(remembered: Set(defaults.stringArray(forKey: rememberedKey) ?? []))
-            var shown: CmuxToastHandle?
-            for await (diagnostics, file) in ObservationStream({ (settings.diagnostics, settings.fileRoot) }) {
-                let before = notices.remembered
-                let update = notices.update(diagnostics, file: file)
-                if notices.remembered != before { defaults.set(notices.remembered.sorted(), forKey: rememberedKey) }
-                if update.cleared {
-                    shown?.dismiss()
-                    shown = nil
-                }
-                let style = SettingsDiagnosticToastStyle.tunable.value
-                guard style != .off, let first = update.announce.first, let services,
-                      let window = services.windows.active?.window ?? NSApp.keyWindow ?? NSApp.mainWindow else { continue }
-                shown = show(first, more: update.announce.count > 1, style: style, in: window, services: services)
+            for await (diagnostics, file, managed) in ObservationStream({
+                (settings.diagnostics, settings.fileRoot, Set(settings.managedKeys.keys).union(settings.managedPolicy.keys))
+            }) {
+                toasts?.load(diagnostics, file: file, managed: managed)
+            }
+        }
+        Task { [weak toasts] in // task-owner: retries a refusal that found no window
+            for await _ in NotificationCenter.default.notifications(named: NSWindow.didBecomeKeyNotification) {
+                toasts?.showPending()
             }
         }
     }
 
-    private static func show(_ notice: SettingsDiagnosticNotices.Notice, more: Bool, style: SettingsDiagnosticToastStyle,
-                             in window: NSWindow, services: AppServices) -> CmuxToastHandle {
-        var message = SettingsDiagnosticStrings.message(notice)
+    private func load(_ diagnostics: [SettingsDiagnostic], file: JSONValue, managed: Set<String>) {
+        let update = notices.update(diagnostics, file: file, managed: managed)
+        if update.cleared {
+            shown?.dismiss()
+            shown = nil
+        }
+        pending = update.announce
+        showPending()
+        save()
+    }
+
+    private func showPending() {
+        let style = SettingsDiagnosticToastStyle.tunable.value
+        guard style != .off, let first = pending.first,
+              let window = services.windows.active?.window ?? NSApp.keyWindow ?? NSApp.mainWindow else { return }
+        shown = show(first, more: pending.count > 1, style: style, in: window)
+        notices.announced(pending)
+        pending = []
+        save()
+    }
+
+    private func save() {
+        let remembered = notices.remembered.sorted()
+        if defaults.stringArray(forKey: Self.rememberedKey) ?? [] != remembered { defaults.set(remembered, forKey: Self.rememberedKey) }
+    }
+
+    /// Where the toast's button goes.
+    private enum Destination { case row, shortcuts, file }
+
+    private static func destination(_ path: String) -> Destination {
+        if path.isEmpty { return .file }
+        if SettingsAnchor(key: path) != nil { return .row }
+        return path.hasPrefix("shortcuts.") ? .shortcuts : .file
+    }
+
+    private func show(_ notice: SettingsDiagnosticNotices.Notice, more: Bool, style: SettingsDiagnosticToastStyle,
+                      in window: NSWindow) -> CmuxToastHandle {
+        var message = SettingsDiagnosticStrings.message(notice, valueLimit: Self.valueLimit)
         if more { message += " " + SettingsDiagnosticStrings.more }
-        let wholeFile = notice.path.isEmpty
-        let action = CmuxToast.Action(title: wholeFile ? SettingsDiagnosticStrings.openFile : SettingsDiagnosticStrings.showInSettings)
-        let toast = CmuxToast(id: toastID, message: message, action: action,
+        let destination = Self.destination(notice.path)
+        let action = CmuxToast.Action(title: destination == .file ? SettingsDiagnosticStrings.openFile : SettingsDiagnosticStrings.showInSettings)
+        let toast = CmuxToast(id: Self.toastID, message: message, action: action,
                               duration: style == .untilClosed ? CmuxToast.untilClosed : .seconds(12))
         let handle = CmuxToastCenter.shared.show(toast, in: window)
-        handle.onAction = { [weak services] in
+        handle.onAction = { [weak services = self.services] in
             guard let services else { return }
-            if wholeFile {
-                _ = services.registry.perform("palette.openCmuxSettingsFile", invocation: ActionInvocation(origin: .user))
-            } else {
-                do { try services.settingsWindow.show(section: nil, setting: notice.path) } catch { services.registry.refuse(String(describing: error)) }
+            do {
+                switch destination {
+                case .row: try services.settingsWindow.show(section: nil, setting: notice.path)
+                case .shortcuts: try services.settingsWindow.show(section: .keyboard)
+                case .file: _ = services.registry.perform("palette.openCmuxSettingsFile", invocation: ActionInvocation(origin: .user))
+                }
+            } catch {
+                services.registry.refuse(String(describing: error))
             }
         }
         return handle
@@ -89,14 +143,15 @@ enum SettingsDiagnosticStrings {
     }
 
     /// The reason is the settings layer's English text, as Settings shows it at the row.
-    static func message(_ notice: SettingsDiagnosticNotices.Notice) -> String {
+    static func message(_ notice: SettingsDiagnosticNotices.Notice, valueLimit: Int) -> String {
         if notice.path.isEmpty {
             return format("settings.diagnostic.unreadable", "cmux-next.json could not be read (%@). The last settings that loaded stay in effect.",
                           notice.message)
         }
-        guard let value = notice.value else {
+        guard var value = notice.value else {
             return format("settings.diagnostic.key", "cmux-next.json: %1$@ was ignored: %2$@.", notice.path, notice.message)
         }
+        if value.count > valueLimit { value = String(value.prefix(valueLimit)) + "…" }
         return format("settings.diagnostic.value", "cmux-next.json: %1$@ = %2$@ was ignored: %3$@.", notice.path, value, notice.message)
     }
 

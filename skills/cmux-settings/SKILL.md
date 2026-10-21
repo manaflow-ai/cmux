@@ -54,8 +54,11 @@ also returns `setting_user_only`.
 2. Set it with `cmux settings set <key> <value>`. JSON literals must be valid
    JSON (`true`, `16`, `'"split"'`, `'["localhost"]'`).
 3. Read it back with `cmux settings get <key>`, then run `cmux settings validate`:
-   it checks the whole file against the schema without the app and exits
-   non-zero with one line per refused value (`<message>; expected <accepted>`).
+   it checks the file's schema values (and whether the file parses) without
+   the app, and exits non-zero with one line per refused value
+   (`<message>; expected <accepted>`). It does not check what only the app
+   reads: unknown action ids, unsupported chords and removed keys. Those show
+   in the app's toast and on the key's Settings row.
 4. Tell the user it applied live, and that `cmux settings reset <key>` reverts it.
 
 ## When the app ignores a value
@@ -69,8 +72,11 @@ ignored: expected ...`), with Show in Settings, where the key's row carries the
 same warning. A file that does not parse names the parse error, offers Open
 File, and the last settings that loaded stay in effect. The toast comes once
 per bad value; fixing the value closes it. If you see one after your change,
-your value was refused: run `cmux settings validate`, then set an accepted
-value with `cmux settings set` or `cmux settings reset <key>`.
+your value was refused: run `cmux settings validate` for a schema value (an
+action id, a chord or a removed key appears only in the toast and in
+Settings), then set an accepted value with `cmux settings set` or
+`cmux settings reset <key>`. Values a managed profile (MDM, team policy) sets
+are not announced; Settings shows them at their rows.
 
 For a viewer-specific question, read [the viewer matrix](../cmux-customization/references/viewer-types.md)
 first; do not invent keys the schema does not list.
@@ -99,7 +105,7 @@ against the cmux-next schema instead. Use it only for classic cmux, and pass
 
 ## Rules
 
-- Change settings with `cmux settings set` (it validates the value for the running build) and check with `cmux settings validate`. Never write a schema key into cmux-next.json by hand: the app ignores a value it refuses. Hand-edit only what `settings set` cannot (custom `actions`), copy the file to a timestamped `.bak` first, and run `cmux settings validate` after.
+- Change settings with `cmux settings set` (it validates the value for the running build) and check with `cmux settings validate` (schema values only). Never write a schema key into cmux-next.json by hand: the app ignores a value it refuses. Hand-edit only what `settings set` cannot (custom `actions`), copy the file to a timestamped `.bak` first, run `cmux settings validate` after, and check that the app shows no "was ignored" toast: `validate` does not check action ids, chords or removed keys.
 - Never tell the user to restart cmux. The app reloads on save.
 - Never pass `--confirm` on your own initiative; it asks the person to approve a user-only change.
 - Shortcut action ids must match the schema enum. Look them up before binding.
