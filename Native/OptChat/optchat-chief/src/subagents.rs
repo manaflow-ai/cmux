@@ -667,7 +667,7 @@ impl Spawner {
             );
             return Ok(format!("no cmux workspace ({})", self.no_workspace_reason));
         };
-        let name = crate::workspaces::name(id, task);
+        let name = crate::workspaces::title(task);
         let group = crate::workspaces::topic_group(task);
         let key = key.unwrap_or_else(crate::workspaces::new_key);
         match workspaces.open(&key, &session, &name, &group, &s.cwd) {

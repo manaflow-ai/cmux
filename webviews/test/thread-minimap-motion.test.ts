@@ -8,6 +8,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { webkit, type Browser, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -58,6 +59,7 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
   async function open(reduce: boolean): Promise<Page> {
     const { port } = vite!.httpServer!.address() as { port: number };
     const page = await browser!.newPage({ viewport: { width: 1280, height: 820 } });
+    await installPaintedFrames(page);
     await page.emulateMedia({ reducedMotion: reduce ? "reduce" : "no-preference" });
     await page.goto(`http://127.0.0.1:${port}/test/browser/thread-minimap.html`);
     await page.waitForFunction(() => "__showRows" in window);
@@ -71,14 +73,15 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
     return page;
   }
 
-  /// Samples, every frame for `ms` from now, `probe` (an expression over the page) with its time.
+  /// Samples, after every painted frame for `ms` from now, the tick's bar width and the transcript's
+  /// offset, with the time.
   const sample = (page: Page, ms: number) =>
     page.evaluate((duration) => {
       const samples: { t: number; width: number; scroll: number }[] = [];
       (window as unknown as { __samples: typeof samples }).__samples = samples;
       const start = performance.now();
       return new Promise<void>((resolve) => {
-        const step = () => {
+        window.cmuxAfterPaint(() => {
           const bar = document.querySelector<HTMLElement>('[data-tick="5"] .acpmux-minimap__bar');
           const matrix = bar ? new DOMMatrixReadOnly(getComputedStyle(bar).transform) : undefined;
           samples.push({
@@ -86,10 +89,10 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
             width: 26 * (matrix?.a ?? 0),
             scroll: document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop,
           });
-          if (performance.now() - start < duration) requestAnimationFrame(step);
-          else resolve();
-        };
-        requestAnimationFrame(step);
+          if (performance.now() - start < duration) return true;
+          resolve();
+          return false;
+        });
       });
     }, ms);
   const samples = (page: Page) =>
@@ -245,7 +248,8 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
       const before = scroller.scrollTop;
       document.querySelector<HTMLElement>('[data-tick="9"]')!.click();
       const after = scroller.scrollTop;
-      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      await window.cmuxPaintFrame();
+      await window.cmuxPaintFrame();
       const bubble = document.querySelector<HTMLElement>('.acpmux-row[data-row-id="t9-user"] .cv-user__bubble');
       return {
         moved: after !== before,

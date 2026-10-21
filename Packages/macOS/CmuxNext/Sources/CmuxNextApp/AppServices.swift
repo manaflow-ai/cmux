@@ -22,6 +22,7 @@ import CmuxNextPopups
 import CmuxNextBrowserImport
 import CmuxNextPhone
 import CmuxNextPhoneAccess
+import CmuxNextServer
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTerminal
@@ -71,6 +72,9 @@ final class AppServices {
     /// SSH machines (Connect to Machine…); `serverReach`: paired servers' Chief sessions in the sidebar.
     private(set) lazy var ssh: SSHService = SSHService(machines: machines, bundleID: environment.launch.bundleID)  // first read in init (no IUO)
     private(set) lazy var serverReach = ServerReachService.app(services: self)
+    /// Add Machine and Check Machine (plans/cmux-next/add-machine-DESIGN.md); each machine's last check.
+    private(set) lazy var addMachine = AddMachineCard(services: .app(self))
+    let machineHealth = MachineHealthStore()
     let mobile = MobileHostService(displayName: { await MacName().computerName() })  // phone access; the account layer starts it
     /// iPhone connections for the cmux-next iPhone app (cmux-next-ios, Settings > Mobile).
     let iphone = IPhoneHostService()
