@@ -1,7 +1,7 @@
 //! Subagent workspace names and sidebar groups (Lawrence 2026-10-19: "when
 //! you make a new workspace you do name it better. And you need to group it
-//! better as well", then "I don't like the checkmark"). A workspace is
-//! `aN · Short title`, sits in a topic group, and its name never changes
+//! better as well", then "I don't like the checkmark"). A workspace is named
+//! by its task's short title, sits in a topic group, and its name never changes
 //! when the subagent finishes.
 
 mod common;
@@ -48,7 +48,6 @@ fn titles_drop_the_user_preamble_and_stay_short() {
     ];
     for (task, want) in cases {
         assert_eq!(workspaces::title(task), want, "task: {task}");
-        assert_eq!(workspaces::name("a7", task), format!("a7 · {want}"));
     }
 }
 
