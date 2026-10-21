@@ -867,7 +867,7 @@ const ROOT_HELP_SCOPES_SUFFIX: &str = "\
   closed        List and reopen closed tabs, screens, workspaces
   git           Read a repository's status and changes; capture checkpoints
   status        Show loading indicators for scripts and agents
-  setup         Set up cmux from an agent: list tasks, trust a folder (JSON)
+  setup         Set up cmux from an agent: list tasks, trust a folder, add a machine (JSON)
   sidebar       Manage sidebar views and local plugins
   pairing       Resolve pairing requests
   projection    Read and update frontend projections
