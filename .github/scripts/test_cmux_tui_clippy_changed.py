@@ -23,6 +23,7 @@ import unittest
 SCRIPT = Path(__file__).with_name("cmux-tui-clippy-changed.py")
 FAKE_CARGO = """#!/usr/bin/env bash
 if [[ "$1" == metadata ]]; then
+  [[ -n "${METADATA_FAILS:-}" ]] && { echo "error: failed to parse manifest" >&2; exit 101; }
   cat "$CARGO_METADATA"
   exit
 fi
@@ -84,7 +85,9 @@ class ClippyChangedTests(unittest.TestCase):
             "id": f"path+file://{root / path}#{name}",
             "name": name,
             "manifest_path": str(root / path / "Cargo.toml"),
-            "dependencies": [{"name": dep, "kind": kind, "path": str(root / dep)} for dep, kind in self.uses.get(name, [])],
+            # Each also uses a registry crate, which has no path.
+            "dependencies": [{"name": dep, "kind": kind, "path": str(root / dep)} for dep, kind in self.uses.get(name, [])]
+            + [{"name": "serde", "kind": None, "source": "registry+https://github.com/rust-lang/crates.io-index"}],
         } for path, name in self.members.items()]
         self.metadata.write_text(json.dumps({"packages": packages, "workspace_members": [p["id"] for p in packages]}))
 
@@ -105,9 +108,9 @@ class ClippyChangedTests(unittest.TestCase):
         self.git("add", "-A")
         self.git("commit", "-qm", "change")
 
-    def run_check(self, *args: str, fail: str | None = None) -> subprocess.CompletedProcess[str]:
+    def run_check(self, *args: str, fail: str | None = None, env_extra: dict | None = None) -> subprocess.CompletedProcess[str]:
         self.write_metadata()
-        env = dict(self.env)
+        env = {**self.env, **(env_extra or {})}
         if fail:
             env["FAIL_PACKAGE"] = fail
         return subprocess.run(
@@ -151,6 +154,13 @@ class ClippyChangedTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.calls(), [["clippy", "--locked", "--keep-going", "-p", "pkg-a", "-p", "pkg-c", "-p", "pkg-d", *LINT]])
         self.assertIn("pkg-c, pkg-d depend on pkg-a", result.stdout)
+
+    def test_a_failing_cargo_metadata_fails_the_check_without_linting(self) -> None:
+        self.change("cmux-tui/crates/a/src/lib.rs")
+        result = self.run_check("--base", self.base, env_extra={"METADATA_FAILS": "1"})
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("::error title=cmux-tui clippy::`cargo metadata --no-deps` failed", result.stdout)
+        self.assertEqual(self.calls(), [])
 
     def test_a_package_nothing_depends_on_is_linted_alone(self) -> None:
         self.change("cmux-tui/crates/d/src/lib.rs")

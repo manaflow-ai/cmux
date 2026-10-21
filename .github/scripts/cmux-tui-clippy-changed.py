@@ -84,7 +84,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     repo = (args.repo or Path(fmt_changed.git(Path.cwd(), "rev-parse", "--show-toplevel").strip())).resolve()
     known = fmt_changed.packages(repo)
-    workspace, dependents = workspace_of(repo)
+    try:
+        workspace, dependents = workspace_of(repo)
+    except subprocess.CalledProcessError:
+        print("::error title=cmux-tui clippy::`cargo metadata --no-deps` failed in cmux-tui (its error is above); "
+              "fix the manifest it names")
+        return 1
     base = args.base.strip()
     paths = fmt_changed.changed(repo, base)
     if paths is None or any(path in WHOLE_WORKSPACE for path in paths):
@@ -110,7 +115,8 @@ def main(argv: list[str] | None = None) -> int:
     rc = subprocess.run(command, cwd=repo / ROOT).returncode
     if rc:
         print(f"::error title=cmux-tui clippy::clippy -D warnings failed for {scope}; "
-              f"run `{' '.join(command)}` in cmux-tui and fix each lint (an allow needs a comment saying why)")
+              f"run `{' '.join(command)}` in cmux-tui and fix each lint (an allow needs a comment saying why); "
+              f"a red in a package you did not touch may already be red on the base branch")
     return 1 if rc else 0
 
 
