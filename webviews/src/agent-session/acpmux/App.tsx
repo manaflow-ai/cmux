@@ -214,7 +214,7 @@ import {
   type TurnView,
   turnViewFrom,
 } from "./conversation/turns";
-import { ArrowDown, ChevronRight, Copy } from "./conversation/icons";
+import { ArrowDown, ChevronRight } from "./conversation/icons";
 import { CopyButton } from "./conversation/CopyButton";
 import { PreviewCard } from "./conversation/PreviewCard";
 import { installWheelPassThrough } from "./wheelPassThrough";
@@ -1235,7 +1235,14 @@ const RowFrame = React.memo(function RowFrame({
   const ref = useRef<HTMLElement>(null);
   const [entering] = useState(enter);
   const [olderFade] = useState(older);
-  const [copied, setCopied] = useState(false);
+  const copyRowResult = useCallback(
+    (id: string) =>
+      onCopyRow(id).then(
+        () => true,
+        () => false,
+      ),
+    [onCopyRow],
+  );
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLElement>) => onRowKeyDown(index, event),
     [index, onRowKeyDown],
@@ -1287,23 +1294,14 @@ const RowFrame = React.memo(function RowFrame({
       onFocus={() => onFocus(row.id)}
     >
       {copyable && (
-        <button
-          type="button"
+        // The row's id stands for its text: `onCopyRow` reads and copies what the row shows.
+        <CopyButton
+          text={row.id}
+          label={t("turn.copy")}
           className="acpmux-row__copy cv-iconbtn"
+          copy={copyRowResult}
           {...copyTabStop}
-          aria-label={copied ? t("turn.copied") : t("turn.copy")}
-          onClick={async () => {
-            try {
-              await onCopyRow(row.id);
-              setCopied(true);
-              window.setTimeout(() => setCopied(false), 1200);
-            } catch {
-              setCopied(false);
-            }
-          }}
-        >
-          <Copy />
-        </button>
+        />
       )}
       {children}
     </article>
@@ -1532,6 +1530,8 @@ function JumpToLatest({
       data-working={working ? "" : undefined}
       style={lift > 0 ? ({ "--acpmux-dock-space": `${lift}px` } as React.CSSProperties) : undefined}
       aria-label={label}
+      // The arrow (or, while the agent works, the dots) says nothing by itself.
+      title={label}
       // Hidden, it is inert: out of the tab order and the accessibility tree while it fades out.
       inert={!shown}
       // A click does not focus a button in WebKit, so focus on it means Return or Space.
