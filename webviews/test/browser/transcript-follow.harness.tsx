@@ -38,6 +38,8 @@ const view = createRoot(root);
 // "Worked for" lines open and close as the pane's do: a click toggles the turn in `expanded`.
 let shown: AcpmuxRow[] = [];
 let expanded = new Set<string>();
+// Prompts "sent" from the pane's composer (App's `chat.send`), which put the view at its latest message.
+let sends = 0;
 const draw = () =>
   view.render(
     <VirtualTranscript
@@ -49,9 +51,14 @@ const draw = () =>
         draw();
       }}
       expanded={expanded}
+      sends={sends}
     />,
   );
 (window as unknown as { __showRows: (rows: AcpmuxRow[]) => void }).__showRows = (rows) => {
   shown = rows;
+  draw();
+};
+(window as unknown as { __send: () => void }).__send = () => {
+  sends += 1;
   draw();
 };
