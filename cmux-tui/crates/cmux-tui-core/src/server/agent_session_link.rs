@@ -284,9 +284,10 @@ impl crate::mux::Mux {
             if left.is_zero() {
                 break;
             }
+            // The session env is in the session list: no wait for the chat logs.
             let info = link.call(
                 "_acpmux/info",
-                json!({"sessionId": session}),
+                agent_message_acpmux::info_params(session),
                 left.min(WORKSPACE_LOOKUP_TIMEOUT),
             );
             let key = info.ok().and_then(|info| {
