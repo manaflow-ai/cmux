@@ -39,11 +39,12 @@ extension AgentHandlers {
         })
     }
 
-    /// New Agent Chat that names a pane or a workspace (the CLI, MCP, a script; #23016). A pane no
-    /// window shows gets the chat tab on the workspace store: no window, workspace or focus
-    /// changes, and the run answers the tab, pane and workspace ids. A workspace that is shown
-    /// gets it in its most recently focused pane, never in the focused window's pane. False when
-    /// the run names neither (or a shown pane), so the focused-pane path runs.
+    /// New Agent Chat that a script or agent aims at a pane or a workspace (the CLI, MCP; #23016),
+    /// shown or not. The chat tab opens on the workspace store in that pane (a workspace's most
+    /// recently focused one) with no window, workspace, selection or focus change, starts in
+    /// `cwd` when given, and the run answers the tab, pane and workspace ids. Before, a pane no
+    /// window shows was refused ("That pane is no longer open"). A person's run (context menu) and
+    /// a run that asks for focus keep the shown-pane path. False when this path does not apply.
     static func openTargetedChat(_ invocation: ActionInvocation, context: AppActionContext) -> Bool {
         guard let target = invocation.target, target.kind == .pane || target.kind == .workspace else { return false }
         let services = context.services
@@ -51,14 +52,15 @@ extension AgentHandlers {
             services.registry.refuseNotFound(target.kind == .pane ? RefusalStrings.noPaneID(target.id) : RefusalStrings.noWorkspace(target.id))
             return true
         }
-        if let controller = services.paneController(for: place.pane) {
+        let shown = services.paneController(for: place.pane)
+        if let shown, invocation.allowsViewChange {
             guard target.kind == .workspace else { return false }
-            openNewAgentChat(in: controller, invocation: invocation, context: context)
+            openNewAgentChat(in: shown, invocation: invocation, context: context)
             return true
         }
         let seed = AgentPaneSeed(cwd: place.cwd(invocation["cwd"]?.stringValue))
         do {
-            services.registry.track(result: try place.openTab(seed: seed, services: services))
+            services.registry.track(result: try place.openTab(seed: seed, selects: shown == nil, services: services))
         } catch let failure as ActionFailure {
             services.registry.refuse(failure.message)
         } catch {

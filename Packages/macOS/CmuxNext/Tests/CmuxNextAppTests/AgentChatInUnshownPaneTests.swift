@@ -16,6 +16,8 @@ struct AgentChatInUnshownPaneTests {
     @Test(arguments: [ActionTargetKind.pane, .workspace])
     func aScriptOpensAChatInAWorkspaceNoWindowShows(_ kind: ActionTargetKind) async throws {
         try await PasswordManagerRouteTests.withApp { services, connection in
+            services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-23016")
+            try #require(services.agentTabs.canHostChat, "this build has no agent page")
             let window = try #require(services.windows.active)
             let shown = window.state.workspaceID
             let key = WorkspaceKey.generate()
@@ -41,6 +43,31 @@ struct AgentChatInUnshownPaneTests {
             #expect(pane.tabs.contains { $0.id == tab }, "the chat tab is in the named pane")
             #expect(fields["workspace_key"] == .string(key.rawValue))
             #expect(window.state.workspaceID == shown, "the window stayed on its workspace")
+        }
+    }
+
+    /// A pane a window shows: the script's chat joins its strip, and the tab the person looks at
+    /// stays selected (the run still answers the chat's ids and changes no focus).
+    @Test func aScriptOpensAChatInAShownPaneWithoutChangingItsSelection() async throws {
+        try await PasswordManagerRouteTests.withApp { services, _ in
+            services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-23016")
+            try #require(services.agentTabs.canHostChat, "this build has no agent page")
+            let window = try #require(services.windows.active)
+            try await PasswordManagerRouteTests.until { window.focusedPane?.stripModel.selectedID != nil }
+            let controller = try #require(window.focusedPane)
+            let selected = controller.stripModel.selectedID
+            let tabs = controller.pane.tabs.count
+            let run = RegistryControlBridge(registry: services.registry).performActionTracked(
+                ControlActionRequest(actionID: "palette.newAgentChat", target: ControlTargetRef(kind: "pane", id: controller.paneKey),
+                                     origin: ActionOrigin.cli.rawValue)
+            )
+            #expect(run.outcome == .ran, "\(run.outcome)")
+            let fields = try #require(await run.results.first?.value.get())
+            try await PasswordManagerRouteTests.until({ controller.pane.tabs.count > tabs },
+                                                      report: { "\(controller.pane.tabs.count) tabs, was \(tabs)" })
+            guard case .string(let tab)? = fields["tab"] else { Issue.record("no tab in \(fields)"); return }
+            #expect(controller.pane.tabs.contains { $0.id == tab })
+            #expect(controller.stripModel.selectedID == selected, "the person's selected tab changed")
         }
     }
 }

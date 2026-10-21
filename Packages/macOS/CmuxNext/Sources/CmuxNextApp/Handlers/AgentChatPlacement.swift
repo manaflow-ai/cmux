@@ -41,10 +41,11 @@ struct AgentChatPlacement {
         return tabs.indices.contains(pane.defaultTabIndex) ? tabs[pane.defaultTabIndex].cwd : tabs.first?.cwd
     }
 
-    /// Opens a new chat tab seeded with `seed` on the store in this pane, which no window shows,
-    /// and answers the new tab's ids once the store created it. The tab is selected in the pane,
-    /// so it is the one shown when someone opens the workspace.
-    @MainActor func openTab(seed: AgentPaneSeed, services: AppServices) throws -> ActionResultWork {
+    /// Opens a new chat tab seeded with `seed` on the store in this pane and answers the new
+    /// tab's ids once the store created it. With `selects` (a pane no window shows) the tab is
+    /// selected in the pane, so it is the one shown when someone opens the workspace; a pane a
+    /// window shows keeps the tab the person looks at.
+    @MainActor func openTab(seed: AgentPaneSeed, selects: Bool, services: AppServices) throws -> ActionResultWork {
         let pending: AgentTabPending
         do {
             pending = try services.agentTabs.open(in: pane.handle, of: daemon, seed: AgentPaneSeedSource(seed))
@@ -55,7 +56,9 @@ struct AgentChatPlacement {
         return Task { @MainActor in
             do {
                 let created = try await pending.value()
-                for window in services.windows.controllers { window.state.selection.select(created.key, in: pane.id) }
+                if selects {
+                    for window in services.windows.controllers { window.state.selection.select(created.key, in: pane.id) }
+                }
                 var result: [String: ActionResultValue] = [
                     "tab": .string(created.key),
                     "pane": .string(pane.resourceID?.rawValue ?? pane.id),
