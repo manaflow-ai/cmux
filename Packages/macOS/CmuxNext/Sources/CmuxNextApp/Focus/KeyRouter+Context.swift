@@ -150,11 +150,18 @@ extension KeyRouter {
            let responder = controller.window?.firstResponder as? NSView, responder.isDescendant(of: view) {
             return view.content as? PageWebView
         }
+        var modelPage: PageWebView?
         if case .page(_, _) = controller.focus.state.resolved, let pane = controller.focus.state.resolved.pane,
            case .page(let view)? = controller.content?.paneController(key: pane)?.currentContent {
-            return view.content as? PageWebView
+            modelPage = view.content as? PageWebView
         }
-        return Self.codeEditorHoldingKeys(in: controller.window)
+        return Self.keyPage(modelPage: modelPage, in: controller.window)
+    }
+
+    /// The page that gets the window's keys: the page the focus model names (`modelPage`), else the
+    /// code editor page holding the keys (``codeEditorHoldingKeys(in:)``).
+    @MainActor static func keyPage(modelPage: PageWebView?, in window: NSWindow?) -> PageWebView? {
+        modelPage ?? codeEditorHoldingKeys(in: window)
     }
 
     /// The code editor page whose web view is the window's first responder while the focus
