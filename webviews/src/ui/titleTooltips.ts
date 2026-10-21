@@ -4,7 +4,8 @@
 // with the app's hover intent (ui/hoverIntent.ts): the first waits the hover delay, a neighbor's
 // then shows at once while the group is warm. The text moves to `data-tooltip`, so the native tooltip never also appears;
 // a control with no other name keeps it as its `aria-label`. Controls built on ./Tooltip keep theirs.
-// A `data-tooltip-shortcut` shows after the text in the secondary ink, like the native tooltip's.
+// A `data-tooltip-shortcut` shows after the text in the secondary ink, like the native tooltip's;
+// a `data-tooltip-detail` on a line under it, also secondary (Fork from here, Claude's).
 // Text the element cuts off shows in full, as wide as the element (`tooltipWidth`).
 import { HOVER_INTENT, HoverGroup, HoverIntent, tooltipGroup, type HoverClock } from "./hoverIntent";
 
@@ -137,13 +138,20 @@ export function installTooltips(
     const label = doc.createElement("span");
     label.className = "ui-tooltip-text";
     label.textContent = text;
+    // A `data-tooltip-detail` says what the control does, on its own line under the text.
+    const detail = target.getAttribute("data-tooltip-detail");
+    const note = detail ? doc.createElement("span") : undefined;
+    if (note) {
+      note.className = "ui-tooltip-detail";
+      note.textContent = detail;
+    }
     // The hint floats to the top right, so it comes first.
     if (shortcut) {
       const hint = doc.createElement("span");
       hint.className = "ui-tooltip-hint";
       hint.textContent = shortcut;
-      tip.replaceChildren(hint, label);
-    } else tip.replaceChildren(label);
+      tip.replaceChildren(hint, label, ...(note ? [note] : []));
+    } else tip.replaceChildren(label, ...(note ? [note] : []));
     const anchor = target.getBoundingClientRect();
     const truncated = clips(target);
     const fadeIn = !instant && (tip.hidden === true || ending !== undefined);

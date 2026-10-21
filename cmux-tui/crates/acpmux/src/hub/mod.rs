@@ -17,9 +17,12 @@ mod bookmarks;
 mod cancel;
 mod catalog_reload;
 mod complete;
+pub mod composers;
 mod cursor_ext;
+mod digest;
 mod fork;
 mod fork_at;
+pub mod forum;
 mod handoff;
 mod harness_view;
 mod harness_watch;
@@ -43,9 +46,11 @@ mod paging;
 mod personal_stats;
 mod pool;
 mod prompt_images;
+mod prompt_ledger;
 pub use prompt_images::{ATTACHMENT_URI, expand_put_attachments};
 mod queue;
 mod queue_edit;
+pub use digest::declared_sender;
 pub use queue::QueuedPrompt;
 mod resolve;
 mod route_switch;
@@ -53,6 +58,7 @@ pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
 pub use route_switch::HarnessRestarts;
 pub(crate) use route_switch::route_error;
 pub(crate) use turn_errors::is_limit_error;
+mod git_watch;
 mod offer_results;
 mod offers;
 mod secrets;
@@ -81,8 +87,10 @@ pub use paging::{EventFilter, EventPage};
 pub use spawn::expand_env_value;
 pub mod approvers;
 mod peer_cache;
+mod peer_lease;
+pub use peer_lease::PeerLease;
 mod peers;
-pub(crate) use peers::PEER_PERMISSION_PENDING;
+pub(crate) use peers::{PEER_PERMISSION_PENDING, PEER_SETTLE_BUDGET, is_permission_ask};
 mod permission_groups;
 mod permissions;
 pub mod person;
@@ -218,6 +226,9 @@ pub struct PromptOptions {
     pub interrupt: bool,
     /// Who sent the prompt, when not the person (`prompt_provenance.rs`).
     pub provenance: Option<Value>,
+    /// Another agent's name when it sent the prompt with no provenance: the session a
+    /// connection proved it runs in, or `_meta.acpmux.fromAgent` (`digest.rs`).
+    pub agent: Option<String>,
     /// An automatic continuation (`auto_resume.rs`): runs only while the chat still ends on
     /// this turn, checked again once it holds the turn lock, else refused unrecorded.
     pub after_turn: Option<String>,
@@ -225,9 +236,6 @@ pub struct PromptOptions {
 
 /// The outcome of one client prompt id, shared with a resend of it.
 pub(super) type PromptOutcome = Arc<tokio::sync::watch::Sender<Option<Result<Value, RpcError>>>>;
-
-/// Client prompt ids remembered per session for deduplication.
-pub(super) const PROMPT_LEDGER: usize = 64;
 
 /// What the agent's stream says about the current assistant message, used
 /// to record `message_superseded` and to attach streamed error text to
@@ -252,6 +260,8 @@ pub struct Hub {
     pub config: RwLock<Config>,
     pub(super) store: Box<dyn Store>,
     pub(super) mailbox: Mailbox,
+    /// The forum log (`forum.rs`, `hub/forum.rs`).
+    pub(super) forum: std::sync::OnceLock<crate::forum::Forum>,
     pub(super) sessions: StdMutex<HashMap<String, Arc<Session>>>,
     /// Where adopt looks for harness sessions.
     pub(super) harness_homes: StdMutex<crate::adopt::HarnessHomes>,
@@ -264,6 +274,10 @@ pub struct Hub {
     pub started_at: u64,
     pub(super) peers: StdMutex<HashMap<String, Arc<crate::peer::Peer>>>,
     pub(super) remote_sessions: StdMutex<HashMap<String, RemoteSession>>,
+    /// Leased peers by name, with the generation of the peer each lease
+    /// started (`peer_lease.rs`); never saved. Lock order: this, then
+    /// `peers`; never `peers` first.
+    pub(super) peer_leases: StdMutex<HashMap<String, u64>>,
     pub(super) peer_notices: mpsc::Sender<(String, u64, crate::peer::PeerNotice)>,
     pub(super) peer_notices_rx:
         Mutex<Option<mpsc::Receiver<(String, u64, crate::peer::PeerNotice)>>>,
@@ -335,6 +349,8 @@ pub struct Hub {
     pub(super) harness_watch: harness_watch::HarnessWatchState,
     /// The settings file watched for start-mode changes (`settings_watch.rs`).
     pub(super) settings_watch: settings_watch::SettingsWatchState,
+    /// The HEAD of each attached session's folder, watched for a checkout (`git_watch.rs`).
+    pub(super) git_watch: git_watch::GitWatchState,
     pub catalog: Arc<crate::catalog::CatalogService>,
     /// Agent CLI health (`harness_health`, `hub/health_view.rs`).
     pub health: Arc<crate::harness_health::HealthService>,
@@ -387,6 +403,7 @@ impl Hub {
             config: RwLock::new(config),
             store,
             mailbox,
+            forum: std::sync::OnceLock::new(),
             sessions: StdMutex::new(HashMap::new()),
             harness_homes: StdMutex::new(crate::adopt::HarnessHomes::from_env()),
             events,
@@ -395,6 +412,7 @@ impl Hub {
             started_at: now_ms(),
             peers: StdMutex::new(HashMap::new()),
             remote_sessions: StdMutex::new(HashMap::new()),
+            peer_leases: StdMutex::new(HashMap::new()),
             peer_notices,
             peer_notices_rx: Mutex::new(Some(peer_notices_rx)),
             known_models: StdMutex::new(HashMap::new()),
@@ -428,6 +446,7 @@ impl Hub {
             start_mode_state: Default::default(),
             harness_watch: Default::default(),
             settings_watch: Default::default(),
+            git_watch: Default::default(),
             catalog: Arc::new(crate::catalog::CatalogService::new()),
             health: Arc::new(crate::harness_health::HealthService::new()),
             web_token: WebToken::new(String::new()),
@@ -547,6 +566,15 @@ impl Hub {
     /// daemon runs it after its ready line; prompts wait for it (`wait_logs`).
     pub fn load_logs(self: &Arc<Self>) {
         let started = std::time::Instant::now();
+        // The calls that wait for the load (`wait_logs`) answer even when it fails.
+        let _ready = LogsReady(&self.logs_ready);
+        // Debug builds only: a test makes the load fail as a corrupt log could
+        // (`durable_agents.rs`). Release builds have no seam.
+        #[cfg(debug_assertions)]
+        if std::env::var_os("ACPMUX_TEST_PANIC_IN_LOAD_LOGS").is_some() {
+            // crash-allow: debug-build test seam; the test asks for this panic, like a corrupt log
+            panic!("ACPMUX_TEST_PANIC_IN_LOAD_LOGS");
+        }
         let sessions = self.sessions();
         self.on_every_core(&sessions, |session| self.catch_up(session));
         let waiting = std::mem::take(&mut *self.waiting_at_load.lock().unwrap());
@@ -555,7 +583,6 @@ impl Hub {
         self.mark_lost_waits(&waiting, &hosted);
         self.mark_unknown_outcomes(&hosted);
         self.restore_queues();
-        self.logs_ready.send_replace(true);
         tracing::info!(
             "loaded the chat logs of {} sessions in {} ms",
             sessions.len(),
@@ -566,10 +593,15 @@ impl Hub {
     /// `load_logs` off the executor.
     pub async fn load_logs_async(self: &Arc<Self>) {
         let hub = self.clone();
-        let _ = tokio::task::spawn_blocking(move || hub.load_logs()).await;
+        if let Err(e) = tokio::task::spawn_blocking(move || hub.load_logs()).await {
+            tracing::error!("reading the chat logs failed: {e}");
+            // A task that never ran dropped no guard.
+            self.logs_ready.send_replace(true);
+        }
     }
 
-    /// Wait until the chat logs are read (immediate outside a deferred daemon start).
+    /// Wait until the chat logs are read, or their load failed (immediate outside a deferred
+    /// daemon start).
     pub(crate) async fn wait_logs(&self) {
         let mut rx = self.logs_ready.subscribe();
         let _ = rx.wait_for(|ready| *ready).await;
@@ -594,6 +626,9 @@ impl Hub {
             let mut meta = session.meta.lock().unwrap();
             meta.event_count += extra;
             meta.last_seq = last;
+            // The log ran ahead of the saved session (a hard stop): a newer command list may be
+            // in that tail, so a client reads the log for it instead of trusting the saved one.
+            meta.available_commands = None;
             session.seq.fetch_max(last, Ordering::SeqCst);
         }
     }
@@ -622,6 +657,8 @@ impl Hub {
         // A Claude chat saved without `steering` (an older build) still steers once adopted.
         meta.steering |= crate::claude_stdio::steers_by_info(meta.agent_info.as_ref());
         let steering = meta.steering;
+        // Until it starts, an adopted chat goes by the agent it last ran (its saved `agentInfo`).
+        let backgrounds_work = crate::claude_stdio::steers_by_info(meta.agent_info.as_ref());
         Arc::new(Session {
             id: meta.id.clone(),
             seq: AtomicU64::new(meta.last_seq),
@@ -645,10 +682,15 @@ impl Hub {
             asks_in_flight: std::sync::atomic::AtomicUsize::new(0),
             asks_landed: Notify::new(),
             rehydrate: AtomicBool::new(false),
+            forum_retell: AtomicBool::new(false),
+            forum_retold: std::sync::Mutex::default(),
+            forum_telling: std::sync::Mutex::default(),
+            launched_with_tools: std::sync::atomic::AtomicU8::new(0),
             route_switch: AtomicBool::new(false),
             inbound_tx,
             inbound_rx: Mutex::new(Some(inbound_rx)),
             steering: AtomicBool::new(steering),
+            backgrounds_work: AtomicBool::new(backgrounds_work),
             steer_now: Default::default(),
             steer_end: tokio::sync::watch::channel(None).0,
             fork_from: StdMutex::new(None),
@@ -667,6 +709,7 @@ impl Hub {
             subagents: StdMutex::new(Default::default()),
             processes: StdMutex::new(Default::default()),
             pr_creates: StdMutex::new(Default::default()),
+            composers: StdMutex::new(Default::default()),
         })
     }
 
@@ -1114,5 +1157,23 @@ pub(crate) fn merge_mux_meta(v: &mut Value, fields: Value) {
         for (k, v) in src {
             dst.insert(k.clone(), v.clone());
         }
+    }
+}
+
+/// Ends the startup log load (`Hub::load_logs`) however it stops. A load that panicked
+/// leaves the daemon on the session list and whatever the load finished before the panic
+/// (the logs on disk are untouched; the next start reads them again), and says so in the
+/// daemon log: an answer from that state beats `attach` and prompts that never answer.
+struct LogsReady<'a>(&'a tokio::sync::watch::Sender<bool>);
+
+impl Drop for LogsReady<'_> {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            tracing::error!(
+                "reading the chat logs panicked; chats answer from the session list without \
+                 the rest of the load (queues, cut-off turns, log tails)"
+            );
+        }
+        self.0.send_replace(true);
     }
 }
