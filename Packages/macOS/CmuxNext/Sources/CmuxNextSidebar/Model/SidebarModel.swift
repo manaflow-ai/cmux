@@ -379,17 +379,6 @@ public final class SidebarModel {
         sections = Self.folding(shown, collapsedSections) // the setter skips an unchanged list
     }
 
-    /// `sections` with this window's `collapsed` sections folded and every other one open. A fold applies
-    /// it to the shown list as it is: arranging an arranged list again lists the document's sections above
-    /// the machine lists twice, and the list drops by their height (#23638's folded Chief group).
-    private static func folding(_ sections: [SidebarSection], _ collapsed: Set<SectionID>) -> [SidebarSection] {
-        var sections = sections
-        for index in sections.indices where sections[index].isCollapsed != collapsed.contains(sections[index].id) {
-            sections[index].isCollapsed.toggle()
-        }
-        return sections
-    }
-
     /// Row content of listed workspaces (status, title, unread, progress, icon), written in place with no structural
     /// change, then told to `onRowsPatched`; a row this window does not list is skipped. False, writing nothing, when the
     /// change moves rows (filter, folder buckets, listed tabs); the caller then sets the sections.
