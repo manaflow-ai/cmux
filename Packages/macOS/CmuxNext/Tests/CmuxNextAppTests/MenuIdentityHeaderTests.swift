@@ -63,6 +63,18 @@ struct MenuIdentityHeaderTests {
         #expect(header.field == nil && header.strip != nil)
     }
 
+    /// A rename that can't run on the target keeps its (disabled) row and gets no dead field.
+    @Test func aRenameThatCannotRunKeepsItsRowAndShowsNoField() throws {
+        let registry = ActionRegistry.standard()
+        registry.bind("renameWorkspace", isEnabled: { false }, invoke: { _ in })
+        registry.bind("palette.workspaceColor", invoke: { _ in })
+        let menu = registry.makeContextMenu(for: .workspaceRow, target: target)
+        MenuIdentityHeader.install(in: menu, registry: registry, target: target, name: "api", rename: "renameWorkspace")
+        let header = try #require(menu.items.first?.view as? MenuIdentityHeaderView)
+        #expect(header.field == nil)
+        #expect(menu.items.contains { ActionRegistry.menuRun(of: $0)?.id == "renameWorkspace" })
+    }
+
     /// The group menu's colors are per-color actions (`workspaceGroup.color.<color>`).
     @Test func theGroupMenuReadsItsPerColorRows() {
         let registry = ActionRegistry.standard()
