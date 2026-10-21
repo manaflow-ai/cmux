@@ -170,7 +170,9 @@ export function IncomingMessageLine({
           {reply === "failed" && <output className="cv-message__note is-failed">{t("message.replyFailed")}</output>}
         </div>
       )}
-      {open && reply === "sent" && <output className="cv-message__note cv-received__replied">{t("message.replied")}</output>}
+      {open && reply === "sent" && (
+        <output className="cv-message__note cv-received__replied">{t("message.replied")}</output>
+      )}
       {images && images.length > 0 && <SentImages images={images} className="cv-message__images" />}
     </div>
   );

@@ -661,7 +661,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       await page.close();
     });
 
-    test("R on the focused card opens the reply; Escape closes it unsent", async () => {
+    test("Reply on the card opens the reply under the message; Escape closes it unsent", async () => {
       const page = await openChat({
         offered: [],
         experiment: "off",
@@ -669,19 +669,22 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       });
       const card = incoming(page);
       await card.waitFor({ timeout: 10_000 });
-      await card.getByRole("button", { name: /Message from Grid fix/ }).focus();
-      await page.keyboard.press("r");
+      const reply = card.getByRole("button", { name: /^Reply/ });
+      await reply.focus();
+      await page.keyboard.press("Enter");
       const field = card.getByRole("textbox", { name: "Reply to Grid fix" });
       await field.waitFor({ timeout: 5_000 });
-      // Typing in the field is text, R included.
+      // Reply opens the message: the editor sits under what it answers.
+      const toggle = card.getByRole("button", { name: /Message from Grid fix/ });
+      expect(await toggle.getAttribute("aria-expanded")).toBe("true");
       await page.keyboard.type("Rebase first");
       expect(await field.inputValue()).toBe("Rebase first");
       await page.keyboard.press("Escape");
       await field.waitFor({ state: "detached", timeout: 5_000 });
       expect(calls.some((c) => c.method === "session/prompt" && c.params.sessionId === "child-3")).toBe(false);
-      // Again with R, then Enter: sent.
-      await card.getByRole("button", { name: /^Reply/ }).focus();
-      await page.keyboard.press("r");
+      // Again, then Enter: sent.
+      await reply.focus();
+      await page.keyboard.press("Enter");
       await field.waitFor({ timeout: 5_000 });
       await page.keyboard.type("Rebased.");
       await page.keyboard.press("Enter");
