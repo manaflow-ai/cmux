@@ -97,6 +97,13 @@ public nonisolated enum SidebarTunables {
         help: "A workspace row says needs you, done, failed or lost at the right of its name, in the Priority view's words, for the most urgent agent chat in it on this Mac.",
         default: true, code: "SidebarTunables.rowStatus")
 
+    /// The workspace hover card says what its agents did since the person last looked at it
+    /// (`SidebarLookedStore`): turns done, questions, failures. On by default.
+    public static let sinceLooked = Tunable<Bool>.toggle(
+        "sidebar.sinceLooked", .sidebar, "Since you looked",
+        help: "A workspace's hover card counts the turns its agents finished, the questions they asked and the turns that failed since you last had it open.",
+        default: true, code: "SidebarTunables.sinceLooked")
+
     /// Sample agent lanes on every row (`SidebarLaneFixture`), for captures on a slot with no agents.
     public static let laneFixture = Tunable<Bool>.toggle(
         "sidebar.laneFixture", .sidebar, "Sample agent states on rows",
@@ -151,6 +158,7 @@ public nonisolated enum SidebarTunables {
             laneStatus.descriptor,
             rowStatus.descriptor,
             laneFixture.descriptor,
+            sinceLooked.descriptor,
             NotificationBadgeLook.tunable.descriptor,
             NotificationIconLook.tunable.descriptor,
             presenceDots.descriptor,
