@@ -607,10 +607,11 @@ fn agent_roster_replays_when_persisted_cursor_is_ahead_of_journal() {
             .expect("startup must repair the rejected cursor");
         (registry.session_journal_head().unwrap(), cursor, snapshot)
     };
-    // Mux startup can append unrelated lifecycle records after the roster
-    // checkpoint is repaired. The durable cursor must reach the journal
+    // Mux startup can append records after the roster checkpoint is
+    // repaired, the end of the dead terminal's agent among them (#22995),
+    // which the roster folds. The durable cursor must reach the journal
     // head that existed at reopen, while the live head may have advanced.
-    assert_eq!(cursor, journal_head);
+    assert!(cursor >= journal_head, "{cursor} < {journal_head}");
     assert!(live_head >= cursor);
     assert!(crate::journal_reducers::AgentRoster::restore(&snapshot).is_some());
     reopened.shutdown();
