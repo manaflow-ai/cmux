@@ -58,7 +58,6 @@ final class PaneController: SurfacePresenter, PresentablePane {
         var items: [StripTabItem]
         var groups: [TabGroupItem]
         var defaultIndex: Int
-        var generation: String?
         var hidesStrip = false // PaneTabBarChoices: only the person's Hide Tab Bar
         var fullWidthTab = false // PaneFullWidthTabs: the strip shows only the selected tab
         /// `pinned-dock-v1`: the pane is in a pinned column (the Home dock): its first tab
@@ -180,7 +179,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // (plans/cmux-next/home-chief-pane.md).
         let homeChief = dock.map { LayoutMapping.dock($0).hidesTabBar(shownTabs: tabs.count + local.count) } ?? false
         return Snapshot(tabs: tabs, items: local, groups: groups,
-                         defaultIndex: pane.defaultTabIndex, generation: store.generation?.rawValue,
+                         defaultIndex: pane.defaultTabIndex,
                          // An app workspace's one pane shows its app without a strip (`app-screens-v1`).
                          hidesStrip: hidesTabBar || ownWorkspace?.app != nil || homeChief,
                          fullWidthTab: services.paneFullWidthTabs.contains(paneKey),
