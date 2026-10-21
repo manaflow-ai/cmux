@@ -479,7 +479,9 @@ fn invalid_agent_roster_snapshot_replays_from_the_journal_head() {
         terminal_exit_end_journaled(&reopened, head, terminal_id.as_str()),
         "invalid snapshots must replay the retained journal"
     );
-    assert!(reopened.agent_roster.lock().unwrap().roster.entries.get(terminal_id.as_str()).is_none());
+    assert!(
+        reopened.agent_roster.lock().unwrap().roster.entries.get(terminal_id.as_str()).is_none()
+    );
     reopened.shutdown();
     drop(reopened);
     std::fs::remove_dir_all(root).unwrap();
@@ -594,7 +596,9 @@ fn agent_roster_replays_when_persisted_cursor_is_ahead_of_journal() {
         terminal_exit_end_journaled(&reopened, journal_head, terminal_id.as_str()),
         "an ahead cursor must replay the retained journal"
     );
-    assert!(reopened.agent_roster.lock().unwrap().roster.entries.get(terminal_id.as_str()).is_none());
+    assert!(
+        reopened.agent_roster.lock().unwrap().roster.entries.get(terminal_id.as_str()).is_none()
+    );
     let (live_head, cursor, snapshot) = {
         let registry = reopened.workspace_registry.lock().unwrap();
         let (_, cursor, snapshot) = registry

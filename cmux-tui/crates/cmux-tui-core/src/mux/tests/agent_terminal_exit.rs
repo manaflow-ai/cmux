@@ -16,8 +16,10 @@ fn assert_terminal_end_ends_its_working_agent(
     end: impl FnOnce(&Mux, &str, TerminalExit),
 ) {
     const TERMINAL: &str = "0000000000004000800000000000229e";
-    let root = std::env::temp_dir()
-        .join(format!("cmux-agent-terminal-exit-{case}-{}", crate::workspace_registry::new_uuid_v4()));
+    let root = std::env::temp_dir().join(format!(
+        "cmux-agent-terminal-exit-{case}-{}",
+        crate::workspace_registry::new_uuid_v4()
+    ));
     let mux = open_persistent_test_mux("agent-terminal-exit", &root);
     let workspace = mux
         .create_empty_workspace(
@@ -69,8 +71,12 @@ fn assert_terminal_end_ends_its_working_agent(
         mux.agent_roster.lock().unwrap().roster.entries.get(terminal.as_str()).is_none(),
         "{case}"
     );
-    let projections =
-        mux.workspace_registry.lock().unwrap().public_agent_projections(Some(&terminal), None).unwrap();
+    let projections = mux
+        .workspace_registry
+        .lock()
+        .unwrap()
+        .public_agent_projections(Some(&terminal), None)
+        .unwrap();
     assert!(
         projections.iter().all(|projection| projection.state != "working"),
         "{case}: {projections:?}"
@@ -110,7 +116,14 @@ fn a_kept_terminal_whose_process_ended_has_no_working_agent() {
 fn a_terminal_whose_host_was_lost_has_no_working_agent() {
     // A host lost (a crash, a daemon restart that could not keep it) leaves the tabs in place
     // for a respawn, whatever the exit policy.
-    assert_terminal_end_ends_its_working_agent("host-lost", TerminalOnExit::Close, |mux, host, exit| {
-        assert!(mux.persist_terminal_exit(host, Some(INCARNATION), &TerminalEnd::HostLost(exit)).unwrap());
-    });
+    assert_terminal_end_ends_its_working_agent(
+        "host-lost",
+        TerminalOnExit::Close,
+        |mux, host, exit| {
+            assert!(
+                mux.persist_terminal_exit(host, Some(INCARNATION), &TerminalEnd::HostLost(exit))
+                    .unwrap()
+            );
+        },
+    );
 }
