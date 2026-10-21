@@ -32,6 +32,23 @@ import Testing
 
     enum Look: String, CaseIterable { case rest, hover, pressed, lit }
 
+    /// A lit control is never less visible than at rest (coord-deputy 2026-10-21: the Default theme's
+    /// lit ⋮ drew the text at 40%, dimmer than the rest ink), in every bundled theme and in a light
+    /// and a dark theme that name no accent.
+    @Test func aLitGlyphContrastsAtLeastAsMuchAsAtRest() throws {
+        let files = try FileManager.default.contentsOfDirectory(atPath: Self.repoRoot.appending(path: "Resources/cmux-themes").path)
+        var inputs = try (["Default"] + files.sorted()).map { ($0, try Self.input($0)) }
+        inputs.append(("plain light", ThemeInput(background: ThemeRGB(hex: 0xFFFFFF), foreground: ThemeRGB(hex: 0x1D1D1F), palette: [])))
+        inputs.append(("plain dark", ThemeInput(background: ThemeRGB(hex: 0x1E1E1E), foreground: ThemeRGB(hex: 0xE6E6E6), palette: [])))
+        for (name, input) in inputs {
+            let tokens = ThemeTokens.derive(from: input)
+            let surface = tokens.windowBackground.withAlpha(1)
+            let lit = tokens.focusRing.composited(over: surface).contrast(with: surface)
+            let rest = tokens.textSecondary.composited(over: surface).contrast(with: surface)
+            #expect(lit >= rest, "\(name): lit \(lit) against rest \(rest)")
+        }
+    }
+
     @Test func bothMoreButtonsRenderToTheContactSheet() throws {
         _ = NSApplication.shared
         let original = ThemeStore.shared.input
