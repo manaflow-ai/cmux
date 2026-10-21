@@ -40,6 +40,7 @@ public actor CodexAppServerBrain: ChiefBrain {
     }
 
     private let configuration: Configuration
+    private let allowRules: ChiefAllowRules?
     private var conversations: [ConversationID: CodexConversation] = [:]
     /// Turns `run` handed out that have not reached their conversation yet.
     private let pendingTurns = ChiefPendingTurns()
@@ -47,8 +48,9 @@ public actor CodexAppServerBrain: ChiefBrain {
     /// Creates a brain.
     ///
     /// - Parameter configuration: How to launch Codex.
-    public init(configuration: Configuration) {
+    public init(configuration: Configuration, allowRules: ChiefAllowRules? = nil) {
         self.configuration = configuration
+        self.allowRules = allowRules
     }
 
     nonisolated public func run(_ request: ChiefTurnRequest) -> AsyncThrowingStream<ChiefTurnEvent, any Error> {
@@ -91,7 +93,7 @@ public actor CodexAppServerBrain: ChiefBrain {
         if let existing = conversations[request.conversation] {
             session = existing
         } else {
-            session = CodexConversation(configuration: configuration)
+            session = CodexConversation(configuration: configuration, allowRules: allowRules)
             conversations[request.conversation] = session
         }
         await session.start(request, token: token, continuation: continuation, pending: pendingTurns)
@@ -105,9 +107,13 @@ public actor CodexAppServerBrain: ChiefBrain {
     /// The answer to an approval for `command` (nil for file changes): deny
     /// without a running turn (nobody can answer, and a stopped turn must not
     /// run more), allow what ``ChiefToolPolicy`` allows, ask about the rest.
-    static func approvalDecision(command: String?, turnRunning: Bool) -> ApprovalDecision {
+    static func approvalDecision(
+        command: String?,
+        turnRunning: Bool,
+        allowRules: ChiefAllowRules? = nil
+    ) -> ApprovalDecision {
         guard turnRunning else { return .deny }
-        if let command, ChiefToolPolicy.autoAllowsCommand(command) { return .allow }
+        if let command, ChiefToolPolicy.autoAllowsCommand(command, allowRules: allowRules) { return .allow }
         return .ask
     }
 
@@ -149,6 +155,7 @@ actor CodexConversation {
     private typealias Continuation = AsyncThrowingStream<ChiefTurnEvent, any Error>.Continuation
 
     private let configuration: CodexAppServerBrain.Configuration
+    private let allowRules: ChiefAllowRules?
     private var process: ChiefLineProcess?
     private var generation = 0
     private var parser = CodexAppServerParser()
@@ -160,8 +167,9 @@ actor CodexConversation {
     private var brokenThreads: Set<String> = []
     private var lastThread: String?
 
-    init(configuration: CodexAppServerBrain.Configuration) {
+    init(configuration: CodexAppServerBrain.Configuration, allowRules: ChiefAllowRules? = nil) {
         self.configuration = configuration
+        self.allowRules = allowRules
     }
 
     func start(_ request: ChiefTurnRequest, token: UUID, continuation: AsyncThrowingStream<ChiefTurnEvent, any Error>.Continuation,
@@ -275,7 +283,11 @@ actor CodexConversation {
                     waiter.resume(returning: result ?? .null)
                 }
             case .approval(let requestID, let kind, let command, let prompt):
-                let decision = CodexAppServerBrain.approvalDecision(command: command, turnRunning: continuation != nil)
+                let decision = CodexAppServerBrain.approvalDecision(
+                    command: command,
+                    turnRunning: continuation != nil,
+                    allowRules: allowRules
+                )
                 if decision != .ask {
                     write(CodexAppServerParser.approvalResponse(requestID: requestID, kind: kind, allow: decision == .allow))
                 } else {

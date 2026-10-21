@@ -48,7 +48,7 @@ extension ChiefConversationOwner {
         case .setReadCursor(let id, let seq):
             let state = try conversationState(id)
             guard seq <= state.summary.lastSeq else { throw HomeRejection.invalid("cursor_beyond_end") }
-            moveReadCursor(id, of: me.id, to: seq)
+            _ = try moveReadCursor(id, of: me.id, to: seq)
             return HomeOpResult(rev: conversations[id]?.summary.rev ?? state.summary.rev)
         case .addReaction(let messageID, let id, let kind, let partIndex):
             let reaction = Reaction(author: me.id, partIndex: partIndex, kind: kind)
@@ -144,7 +144,7 @@ extension ChiefConversationOwner {
         let created = now()
         let summary = ConversationSummary(id: ConversationID("conv_\(suffix)"), owner: .local, participants: [me, agent],
                                           createdAt: created, updatedAt: created)
-        insertConversation(summary)
+        try insertConversation(summary)
         return HomeOpResult(rev: inboxRev, conversation: summary.id)
     }
 
@@ -203,7 +203,7 @@ extension ChiefConversationOwner {
         // The rule is the one the card offered (its options carry it), never re-derived from the prompt.
         if answer.selections[Self.approvalAlwaysItem] != nil, ChiefToolPolicy.isAllow(choice),
            let rule = ChiefAllowRules.rule(inOptions: ref.options) {
-            _ = try? ChiefAllowRules.shared.add(rule: rule, in: home)
+            _ = try? allowRules.add(rule: rule, in: home)
         }
         let brain = self.brain
         // task-owner: one answer to the brain; ends when the brain took it

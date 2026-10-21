@@ -98,13 +98,13 @@ import Testing
         "gh run list --limit 5",
         "gh pr list --json number,title | jq length",
         // plain read-only tools
-        "ls -la",
+        "ls /Users/tester/src/app",
         "pwd",
         "date",
         "which cmux",
         "cat README.md | head -20",
         "grep -rn TODO Sources | wc -l",
-        "rg -l ChiefToolPolicy",
+        "rg -l ChiefToolPolicy /Users/tester/src/app",
         // shell wrappers (Claude and Codex)
         "/bin/zsh -lc 'cmux tree --json'",
         "/bin/zsh -lc 'cmux tree --all 2>&1 | head -100'",
@@ -206,6 +206,8 @@ import Testing
         "cmux tree 2>&3",
         "cat < /etc/passwd",
         "cat <<EOF",
+        "cat -n ~/.ssh/id_rsa",
+        "head -n 5 ~/.ssh/id_rsa",
         "cmux tree &",
         "cmux tree |& head",
         // substitution and expansion
@@ -240,6 +242,9 @@ import Testing
         "rg --pre ./run.sh pattern",
         "rg --pre=sh pattern",
         "date -s 2020-01-01",
+        "ls -la",
+        "rg -l ChiefToolPolicy",
+        "grep -r TODO",
         // git and gh that change things
         "git push origin main",
         "git commit -m x",
@@ -441,6 +446,45 @@ import Testing
         let plain = root.appendingPathComponent("plain.txt")
         try Data("p".utf8).write(to: plain)
         #expect(ChiefToolPolicy.autoAllowsClaudeTool("Read", input: ["file_path": .string(plain.path)], home: home.path))
+    }
+
+    @Test func shellReadersResolveRelativeCredentialPaths() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("chief-shell-policy-\(UUID().uuidString)")
+        let home = root.appendingPathComponent("home")
+        let gh = home.appendingPathComponent(".config/gh")
+        try FileManager.default.createDirectory(at: gh, withIntermediateDirectories: true)
+        try Data("token".utf8).write(to: gh.appendingPathComponent("hosts.yml"))
+        let link = home.appendingPathComponent("public.txt")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: gh.appendingPathComponent("hosts.yml"))
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        for command in [
+            "cat README.md", "jq . README.md", "grep token README.md", "cut -d: -f1 README.md",
+            "tr a-z A-Z", "column -t README.md", "rg token README.md", "sort README.md",
+            "uniq README.md", "awk '{print}' README.md", "sed -n 'p' README.md",
+        ] {
+            #expect(ChiefToolPolicy.autoAllowsCommand(command, home: home.path), "expected allow: \(command)")
+        }
+        for command in [
+            "cat .config/gh/hosts.yml", "jq . .config/gh/hosts.yml", "grep token .config/gh/hosts.yml",
+            "cut -d: -f1 .config/gh/hosts.yml", "column -t .config/gh/hosts.yml",
+            "rg token .config/gh/hosts.yml", "sort .config/gh/hosts.yml", "uniq .config/gh/hosts.yml",
+            "awk '{print}' .config/gh/hosts.yml", "sed -n 'p' .config/gh/hosts.yml",
+            "ls .config/gh", "cat public.txt", "cat -- .config/gh/hosts.yml",
+        ] {
+            #expect(!ChiefToolPolicy.autoAllowsCommand(command, home: home.path), "expected approval: \(command)")
+        }
+    }
+
+    @Test func searchReadersRequireSafeRootsUnlessTheyFilterPipeInput() {
+        #expect(!ChiefToolPolicy.autoAllowsCommand("ls -la", home: Self.home))
+        #expect(!ChiefToolPolicy.autoAllowsCommand("rg -l ChiefToolPolicy", home: Self.home))
+        #expect(!ChiefToolPolicy.autoAllowsCommand("grep -r TODO", home: Self.home))
+        #expect(!ChiefToolPolicy.autoAllowsCommand("rg -R TODO /Users/tester/src/app", home: Self.home))
+        #expect(ChiefToolPolicy.autoAllowsCommand("rg -l ChiefToolPolicy /Users/tester/src/app", home: Self.home))
+        #expect(ChiefToolPolicy.autoAllowsCommand("grep -r TODO /Users/tester/src/app", home: Self.home))
+        #expect(ChiefToolPolicy.autoAllowsCommand("cmux tree | grep -c workspace", home: Self.home))
+        #expect(ChiefToolPolicy.autoAllowsCommand("cmux tree | rg -l workspace", home: Self.home))
     }
 
     @Test(arguments: allowed)

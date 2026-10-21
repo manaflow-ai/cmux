@@ -16,12 +16,56 @@ import MessagesLabHome
 /// user's local Chief conversations and can start Chief turns, which run
 /// commands on this Mac.
 extension TerminalController {
+    /// Keep the event-backed read below the normal mobile RPC deadline. An
+    /// idle read returns the current snapshot and the client immediately
+    /// re-arms the wait; a real Chief event wins without waiting for this cap.
+    private static let chiefReadWaitDuration: Duration = .seconds(15)
+
+    /// Runs a `chief.*` request received from the mobile data plane through
+    /// the same parser and Chief conversation-owner path as the local control
+    /// socket. Mobile requests have already passed authenticated host/ticket
+    /// admission; keeping this adapter here makes the owner checks and error
+    /// mapping single-source while avoiding a synthetic control-socket JSON
+    /// round trip.
+    func chiefMobileResult(
+        method: String,
+        params: [String: Any]
+    ) async -> V2CallResult {
+        guard params[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey] == nil else {
+            return .err(
+                code: "not_authorized",
+                message: String(
+                    localized: "socket.chief.error.remoteDenied",
+                    defaultValue: "Chief is not available through a remote session."
+                ),
+                data: nil
+            )
+        }
+
+        var typedParams: [String: JSONValue] = [:]
+        typedParams.reserveCapacity(params.count)
+        for (key, value) in params {
+            guard let json = JSONValue(foundationObject: value) else {
+                return .err(
+                    code: "invalid_params",
+                    message: "Invalid JSON parameter",
+                    data: ["param": key]
+                )
+            }
+            typedParams[key] = json
+        }
+        return await chiefResult(ControlRequest(id: nil, method: method, params: typedParams), allowMobileInteractive: true)
+    }
+
     nonisolated func chiefResponse(_ request: ControlRequest) async -> String {
         let result = await chiefResult(request)
         return Self.v2Encoder.response(id: request.id, Self.controlCallResult(fromLegacy: result))
     }
 
-    private nonisolated func chiefResult(_ request: ControlRequest) async -> V2CallResult {
+    private nonisolated func chiefResult(
+        _ request: ControlRequest,
+        allowMobileInteractive: Bool = false
+    ) async -> V2CallResult {
         // Defense in depth: the relay policy already denies `chief.*`.
         if request.params[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey] != nil {
             return .err(code: "not_authorized",
@@ -37,11 +81,66 @@ extension TerminalController {
             if case .unknownMethod = error { return Self.chiefUnknownMethod }
             return .err(code: "invalid_params", message: error.message, data: error.parameter.map { ["param": $0] })
         }
+        // `chief.open` keeps its established no-op response when the user
+        // turns Chief off. Every other Chief operation must fail closed before
+        // it can start the service or read its local transcript.
+        let chiefEnabled: Bool
+        do {
+            chiefEnabled = try await v2MainAsync { ChiefSettings.isEnabled }
+        } catch let timeout as SocketMainActorHopTimeout {
+            return .err(
+                code: "timeout",
+                message: timeout.retryable
+                    ? String(
+                        localized: "socket.mainActorHop.timeout.notRun",
+                        defaultValue: "cmux did not respond within 10 seconds, so the command was not run. Retry in a moment."
+                    )
+                    : String(
+                        localized: "socket.mainActorHop.timeout.mayHaveRun",
+                        defaultValue: "cmux did not respond within 10 seconds after the command started, so its result is unknown. Check the effect before retrying."
+                    ),
+                data: [
+                    "retryable": timeout.retryable,
+                    "deadline_ms": Self.socketMainActorHopDeadlineMilliseconds,
+                    "stage": "main_actor",
+                ]
+            )
+        } catch is CancellationError {
+            return .err(
+                code: "cancelled",
+                message: String(localized: "socket.request.cancelled", defaultValue: "Request was cancelled"),
+                data: nil
+            )
+        } catch {
+            return .err(
+                code: "request_error",
+                message: String(
+                    localized: "socket.request.failedBeforeResult",
+                    defaultValue: "Request failed before returning a result"
+                ),
+                data: nil
+            )
+        }
+        if !chiefEnabled {
+            switch parsed {
+            case .open:
+                break
+            default:
+                return .err(
+                    code: "not_available",
+                    message: String(
+                        localized: "socket.chief.error.disabled",
+                        defaultValue: "Chief is disabled in Settings."
+                    ),
+                    data: nil
+                )
+            }
+        }
         do {
             switch parsed {
             case .open(let target):
                 return try await chiefOpen(target)
-            case .send(let text, let conversation, let from, let startTurn):
+            case .send(let text, let conversation, let from, let startTurn, let clientMessageID):
                 if let from {
                     let owner = try await chiefOwner()
                     let id = try await Self.chiefOwnerCall {
@@ -51,24 +150,55 @@ extension TerminalController {
                     return .ok(["conversation": conversation ?? ChiefConversationOwner.defaultConversationID.rawValue,
                                 "message_id": id.rawValue, "queued": false, "from": from] as [String: Any])
                 }
-                let sent = try await Self.chiefSendAsUser(text: text, conversation: conversation)
+                let sent = try await Self.chiefSendAsUser(
+                    text: text,
+                    conversation: conversation,
+                    clientMessageID: clientMessageID
+                )
                 var payload: [String: Any] = ["conversation": sent.conversation, "queued": sent.queued]
                 if let id = sent.messageID { payload["message_id"] = id }
+                if let clientMessageID = sent.clientMessageID {
+                    payload["client_message_id"] = clientMessageID
+                }
                 return .ok(payload)
             case .status:
                 let status = try await v2MainAsync { ChiefService.shared.controlStatus() }
                 return .ok(Self.chiefPayload(status))
             case .conversations:
-                let rows = try await v2MainAsync { ChiefService.shared.controlConversations() }
-                return .ok(["conversations": rows.map { Self.chiefPayload($0) }])
-            case .read(let conversation, let limit):
+                let owner = try await chiefOwner()
+                let cursor = await owner.inboxChangeCursor
+                let rows = try await ChiefService.shared.controlConversations()
+                return .ok(["conversations": rows.map { Self.chiefPayload($0) }, "change_cursor": cursor] as [String: Any])
+            case .conversationsAfter(let previousCursor):
+                let owner = try await chiefOwner()
+                await Self.waitForChiefInboxCursor(owner: owner, after: previousCursor)
+                try Task.checkCancellation()
+                let cursor = await owner.inboxChangeCursor
+                let rows = try await ChiefService.shared.controlConversations()
+                return .ok(["conversations": rows.map { Self.chiefPayload($0) }, "change_cursor": cursor] as [String: Any])
+            case .read(let conversation, let beforeSeq, let limit):
                 let owner = try await chiefOwner()
                 let id = conversation.map(ConversationID.init(_:)) ?? ChiefConversationOwner.defaultConversationID
-                let page = try await Self.chiefOwnerCall { try await owner.snapshot(of: id, tail: limit) }
-                let messages = page.messages.map { ChiefControlMessage($0, participants: page.conversation.participants) }
-                let working = await owner.isWorking(id)
-                return .ok(["conversation": id.rawValue, "working": working,
-                            "messages": messages.map { Self.chiefPayload($0) }] as [String: Any])
+                return try await Self.chiefRead(owner: owner, conversation: id, beforeSeq: beforeSeq, limit: limit)
+            case .readAfter(let conversation, let afterSeq, let limit, let afterCursor):
+                let owner = try await chiefOwner()
+                let id = conversation.map(ConversationID.init(_:)) ?? ChiefConversationOwner.defaultConversationID
+                if let afterCursor {
+                    await Self.waitForChiefCursor(owner: owner, after: afterCursor)
+                } else {
+                    await Self.waitForChiefChange(owner: owner, conversation: id, afterSeq: afterSeq)
+                }
+                try Task.checkCancellation()
+                return try await Self.chiefRead(owner: owner, conversation: id, beforeSeq: nil, limit: limit)
+            case .markRead(let conversation, let upToSeq):
+                let owner = try await chiefOwner()
+                let id = conversation.map(ConversationID.init(_:)) ?? ChiefConversationOwner.defaultConversationID
+                _ = try await Self.chiefOwnerCall {
+                    try await owner.submit(HomeIntent(
+                        key: IdempotencyKey("mobile-chief-mark-read-\(id.rawValue)-\(upToSeq)"),
+                        op: .setReadCursor(conversation: id, seq: upToSeq)))
+                }
+                return .ok(["conversation": id.rawValue, "up_to_seq": upToSeq, "marked": true] as [String: Any])
             case .stop(let conversation):
                 let owner = try await chiefOwner()
                 let id = conversation.map(ConversationID.init(_:)) ?? ChiefConversationOwner.defaultConversationID
@@ -77,7 +207,7 @@ extension TerminalController {
                 return .ok(["conversation": id.rawValue, "stopped": stopped] as [String: Any])
             case .approve(let conversation, let request, let choice):
                 // Release builds answer approval cards only in Home (ChiefControlRequest.isAvailable).
-                guard ChiefControlRequest.isAvailable("chief.approve") else {
+                guard allowMobileInteractive || ChiefControlRequest.isAvailable("chief.approve") else {
                     return .err(code: "not_available",
                                 message: String(localized: "socket.chief.error.approveNotAvailable",
                                                 defaultValue: "Answer Chief's approvals in Home; this build doesn't accept them from the socket."),
@@ -102,7 +232,7 @@ extension TerminalController {
                 return .ok(["conversation": id.rawValue, "request": card.request, "choice": option, "decided": true] as [String: Any])
             case .answer(let conversation, let message, let choices, let text):
                 // Release builds answer question cards only in Home (ChiefControlRequest.isAvailable).
-                guard ChiefControlRequest.isAvailable("chief.answer") else {
+                guard allowMobileInteractive || ChiefControlRequest.isAvailable("chief.answer") else {
                     return .err(code: "not_available",
                                 message: String(localized: "socket.chief.error.answerNotAvailable",
                                                 defaultValue: "Answer Chief's questions in Home; this build doesn't accept them from the socket."),
@@ -163,8 +293,9 @@ extension TerminalController {
                 guard let id = self.v2UUIDAny(raw) else { return nil }
                 tabManager = app.tabManagerFor(windowId: id)
                 if tabManager == nil { return nil }
-            } else if let raw = target.workspaceID, let workspace = self.v2UUIDAny(raw),
-                      let owner = app.tabManagerFor(tabId: workspace) {
+            } else if let raw = target.workspaceID {
+                guard let workspace = self.v2UUIDAny(raw),
+                      let owner = app.tabManagerFor(tabId: workspace) else { return nil }
                 tabManager = owner
             } else {
                 tabManager = app.currentScriptableMainWindow()?.tabManager
@@ -283,6 +414,96 @@ extension TerminalController {
 
     // MARK: - Helpers
 
+    private nonisolated static func waitForChiefCursor(owner: ChiefConversationOwner, after cursor: String) async {
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { await owner.waitForChange(after: cursor) }
+            group.addTask { try? await ContinuousClock().sleep(for: Self.chiefReadWaitDuration) }
+            _ = await group.next()
+            group.cancelAll()
+        }
+    }
+
+    private nonisolated static func waitForChiefInboxCursor(owner: ChiefConversationOwner, after cursor: String) async {
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { await owner.waitForInboxChange(after: cursor) }
+            group.addTask { try? await ContinuousClock().sleep(for: Self.chiefReadWaitDuration) }
+            _ = await group.next()
+            group.cancelAll()
+        }
+    }
+
+    /// Waits for the owner's own event stream instead of making mobile
+    /// clients wake on a fixed timer. The initial inbox snapshot is ignored
+    /// unless it already proves that the requested cursor is stale.
+    private nonisolated static func waitForChiefChange(
+        owner: ChiefConversationOwner,
+        conversation: ConversationID,
+        afterSeq: UInt64
+    ) async {
+        let events = await owner.events()
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask {
+                for await event in events {
+                    switch event {
+                    case .inbox(let snapshot):
+                        if snapshot.conversations.first(where: { $0.id == conversation })?.lastSeq ?? 0 > afterSeq {
+                            return
+                        }
+                    case .message(let message, _):
+                        if message.conversation == conversation { return }
+                    case .conversationChanged(_, stream: .conversation(let changed), _),
+                         .typing(let changed, _, _):
+                        if changed == conversation { return }
+                    case .draft(let update):
+                        if update.conversation == conversation { return }
+                    default:
+                        continue
+                    }
+                }
+            }
+            group.addTask {
+                try? await ContinuousClock().sleep(for: Self.chiefReadWaitDuration)
+            }
+            _ = await group.next()
+            group.cancelAll()
+        }
+    }
+
+    /// Builds one `chief.read` result after an event-backed wait (or for a
+    /// regular snapshot/history request).
+    private nonisolated static func chiefRead(
+        owner: ChiefConversationOwner,
+        conversation id: ConversationID,
+        beforeSeq: UInt64?,
+        limit: Int
+    ) async throws -> V2CallResult {
+        let cursor = await owner.changeCursor
+        let summary = try await chiefOwnerCall { try await owner.snapshot(of: id, tail: 1) }
+        let messages: [ChiefControlMessage]
+        let hasMore: Bool
+        if let beforeSeq {
+            let page = try await chiefOwnerCall {
+                try await owner.historyPage(of: id, before: beforeSeq, limit: limit)
+            }
+            messages = page.messages.map { ChiefControlMessage($0, participants: summary.conversation.participants) }
+            hasMore = page.messages.first.map { $0.seq > 1 } ?? false
+        } else {
+            let page = try await chiefOwnerCall { try await owner.snapshot(of: id, tail: limit) }
+            messages = page.messages.map { ChiefControlMessage($0, participants: page.conversation.participants) }
+            // `snapshot` returns the newest tail. A first sequence greater
+            // than one means the phone can request an older page.
+            hasMore = page.messages.first.map { $0.seq > 1 } ?? false
+        }
+        let working = await owner.isWorking(id)
+        let readCursor = summary.conversation.readCursors[owner.me.id] ?? 0
+        let headSeq = summary.conversation.lastSeq
+        let unreadCount = summary.conversation.unreadCount(me: owner.me.id)
+        return .ok(["conversation": id.rawValue, "working": working,
+                    "messages": messages.map { chiefPayload($0) }, "has_more": hasMore,
+                    "last_read_seq": readCursor, "unread_count": unreadCount,
+                    "head_seq": headSeq, "change_cursor": cursor] as [String: Any])
+    }
+
     /// The owner, awaited off the main actor: only starting the service hops
     /// there; a load still running is awaited on the socket task.
     private nonisolated func chiefOwner() async throws -> ChiefConversationOwner {
@@ -296,8 +517,16 @@ extension TerminalController {
         }
     }
 
-    private static func chiefSendAsUser(text: String, conversation: String?) async throws -> ChiefControlSendResult {
-        try await ChiefService.shared.controlSendAsUser(text: text, conversation: conversation)
+    private static func chiefSendAsUser(
+        text: String,
+        conversation: String?,
+        clientMessageID: String?
+    ) async throws -> ChiefControlSendResult {
+        try await ChiefService.shared.controlSendAsUser(
+            text: text,
+            conversation: conversation,
+            clientMessageID: clientMessageID
+        )
     }
 
     /// Runs an owner call; a ``HomeRejection`` becomes a socket error.
@@ -360,7 +589,42 @@ extension TerminalController {
             "id": message.id, "seq": message.seq, "author": message.author, "author_id": message.authorID,
             "author_kind": message.authorKind, "text": message.text, "at": chiefTime(message.at), "parts": message.parts,
         ]
+        if !message.partPayloads.isEmpty {
+            payload["part_payloads"] = message.partPayloads.map { chiefPayload($0) }
+        }
         if let root = message.threadRoot { payload["thread_root"] = root }
+        if let clientMessageID = message.clientMessageID {
+            payload["client_message_id"] = clientMessageID
+        }
+        return payload
+    }
+
+    private nonisolated static func chiefPayload(_ part: ChiefControlPartPayload) -> [String: Any] {
+        var payload: [String: Any] = ["kind": part.kind]
+        if let work = part.work {
+            var workPayload: [String: Any] = [
+                "session": work.session,
+                "title": work.title,
+                "status": work.status.rawValue,
+            ]
+            workPayload["host"] = work.host ?? NSNull()
+            workPayload["preview"] = work.preview ?? NSNull()
+            payload["work"] = workPayload
+        }
+        if let approval = part.approval {
+            var approvalPayload: [String: Any] = [
+                "request": approval.request,
+                "prompt": approval.prompt,
+                "options": approval.options,
+            ]
+            approvalPayload["decided"] = approval.decided ?? NSNull()
+            payload["approval"] = approvalPayload
+        }
+        if let question = part.question,
+           let data = try? JSONEncoder().encode(question),
+           let value = try? JSONSerialization.jsonObject(with: data) {
+            payload["question"] = value
+        }
         return payload
     }
 }

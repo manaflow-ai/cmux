@@ -7,12 +7,12 @@ import MessagesLabHome
 /// what the transcript shows, and a waiting approval said in plain words
 /// ("Needs your approval: Start Codex in “Scratch”", ``ChiefListPreview``; "Waiting
 /// for you" until that line is read) instead of the card's raw prompt ("Run `…`?").
-enum ChiefPreviewText {
+struct ChiefPreviewText {
     /// `markdown` without its markers: inline code and fences, bold, italic and
     /// strike markers, links and images (their text kept), heading hashes,
     /// quote markers and bullets; lines joined with spaces, runs of white space
     /// collapsed. Pure: no catalog, no store.
-    static func plain(_ markdown: String) -> String {
+    func plain(_ markdown: String) -> String {
         var lines: [String] = []
         for raw in markdown.components(separatedBy: .newlines) {
             var line = raw.trimmingCharacters(in: .whitespaces)
@@ -42,12 +42,12 @@ enum ChiefPreviewText {
 
     /// The preview while an approval card waits: "Waiting for you", the transcript's own status
     /// line (the card says what it asks), never the typing dots.
-    static var waitingForYou: String {
+    var waitingForYou: String {
         String(localized: "chief.preview.waitingForYou", defaultValue: "Waiting for you")
     }
 
     /// The newest message's waiting approval prompt, nil when it has none.
-    static func pendingApprovalPrompt(_ message: Message?) -> String? {
+    func pendingApprovalPrompt(_ message: Message?) -> String? {
         guard let message, !message.isRetracted else { return nil }
         for case .approval(let ref) in message.parts where ref.decided == nil { return ref.prompt }
         return nil
@@ -96,10 +96,10 @@ extension ChiefService {
         let me = self.me
         // task-owner: one page read from the owner; ends with its reply
         Task { @MainActor [weak self] in
-            let page = try? await owner.snapshot(of: id, tail: Self.previewTail)
+            let messages = try? await owner.previewMessages(of: id, tail: Self.previewTail)
             guard let self else { return }
             self.previewReads.remove(id)
-            let line = page.flatMap { ChiefListPreview(messages: $0.messages, me: me).line }
+            let line = messages.flatMap { ChiefListPreview(messages: $0, me: me).line }
             let entry = ChiefPreviewEntry(stamp: stamp, line: line)
             guard self.previewLines[id] != entry else { return }
             self.previewLines[id] = entry

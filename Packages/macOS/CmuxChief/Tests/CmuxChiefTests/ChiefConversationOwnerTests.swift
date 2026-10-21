@@ -1,4 +1,4 @@
-import CmuxChief
+@testable import CmuxChief
 import CmuxHomeCore
 import CryptoKit
 import Foundation
@@ -16,6 +16,26 @@ import Testing
         #expect(inbox.me.displayName == "Tester")
         // A row in Home's list, not a lone pinned tile: only the user pins.
         #expect(summary.pinRank == nil)
+    }
+
+    @Test func draftUpdatesDoNotInvalidateTheInboxCursor() async throws {
+        let owner = try ChiefFixture().owner(.replying(["hi"]))
+        let before = await owner.inboxChangeCursor
+        let draft = HomeDraftUpdate(
+            conversation: conversation,
+            participant: ChiefConversationOwner.chiefID,
+            turn: IdempotencyKey("turn-1"),
+            segment: 0,
+            seq: 1,
+            isTalk: true,
+            text: "hi",
+            fresh: true,
+            done: false
+        )
+
+        await owner.publish(.draft(draft))
+
+        #expect(await owner.inboxChangeCursor == before)
     }
 
     /// The order Home expects: user message, Chief read receipt, typing on,

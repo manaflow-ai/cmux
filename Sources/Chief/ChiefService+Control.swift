@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAgentQuestion
 import CmuxChief
 import CmuxHomeCore
 import Foundation
@@ -40,13 +41,28 @@ struct ChiefControlMessage: Sendable {
     var text: String
     var at: Date
     var parts: [String]
+    /// Structured payloads for the interactive/message parts that mobile can
+    /// render. `parts` remains the backwards-compatible kind list.
+    var partPayloads: [ChiefControlPartPayload]
     var threadRoot: String?
+    var clientMessageID: String?
+}
+
+/// A structured part in a `chief.read` message. The optional fields are
+/// intentionally kept alongside `kind` so the wire shape can grow without
+/// replacing the legacy `parts: [String]` list.
+struct ChiefControlPartPayload: Sendable {
+    var kind: String
+    var work: WorkRef?
+    var approval: ApprovalRef?
+    var question: AgentQuestion?
 }
 
 /// The outcome of `chief.send`.
 struct ChiefControlSendResult: Sendable {
     var conversation: String
     var messageID: String?
+    var clientMessageID: String?
     /// The store holds the send until the owner is reachable.
     var queued: Bool
 }
@@ -142,12 +158,67 @@ extension ChiefService {
             defaultConversation: defaultConversationID.rawValue)
     }
 
-    /// `chief.conversations`: pinned first, then newest first (the Home list's order).
-    func controlConversations() -> [ChiefControlConversation] {
-        start()
-        return conversations.map { row in
-            ChiefControlConversation(id: row.id.rawValue, title: row.title, preview: row.preview, unread: row.unread,
-                                     pinned: row.isPinned, working: isWorking(row.id), updatedAt: row.timestamp)
+    /// `chief.conversations`: pinned first, then newest first (the Home list's
+    /// order). This waits for the owner rather than reading `HomeStore.rows`:
+    /// the store receives its first inbox event asynchronously after the owner
+    /// load, so the store projection can still be empty on a cold start.
+    func controlConversations() async throws -> [ChiefControlConversation] {
+        let owner = try await controlOwner()
+        let inbox = await owner.inbox()
+        var previews: [ConversationID: String] = [:]
+        var working = Set<ConversationID>()
+        for summary in inbox.conversations {
+            let messages = (try? await owner.previewMessages(of: summary.id, tail: ChiefService.previewTail))
+                ?? summary.lastMessage.map { [$0] }
+                ?? []
+            previews[summary.id] = Self.controlPreview(messages, me: inbox.me.id)
+            if await owner.isWorking(summary.id) { working.insert(summary.id) }
+        }
+        return Self.controlRows(from: inbox, previews: previews, working: working)
+    }
+
+    /// Converts an owner's inbox into the compact socket rows. Kept pure so a
+    /// cold-start response can be regression-tested without the app singleton.
+    nonisolated static func controlRows(
+        from inbox: InboxSnapshot,
+        previews: [ConversationID: String],
+        working: Set<ConversationID>
+    ) -> [ChiefControlConversation] {
+        inbox.conversations
+            .sorted { left, right in
+                switch (left.pinRank, right.pinRank) {
+                case let (l?, r?) where l != r: return l < r
+                case (.some, nil): return true
+                case (nil, .some): return false
+                default:
+                    let leftDate = left.lastMessage?.createdAt ?? left.updatedAt
+                    let rightDate = right.lastMessage?.createdAt ?? right.updatedAt
+                    if leftDate != rightDate { return leftDate > rightDate }
+                    return left.id.rawValue < right.id.rawValue
+                }
+            }
+            .map { summary in
+                let title = summary.displayTitle(me: inbox.me.id)
+                return ChiefControlConversation(
+                    id: summary.id.rawValue,
+                    title: title.isEmpty ? ChiefStrings.chiefName : title,
+                    preview: previews[summary.id] ?? "",
+                    unread: summary.muted ? 0 : summary.unreadCount(me: inbox.me.id),
+                    pinned: summary.pinRank != nil,
+                    working: working.contains(summary.id),
+                    updatedAt: summary.lastMessage?.createdAt ?? summary.updatedAt
+                )
+            }
+    }
+
+    /// The human-readable line used by Chief Home for a compact list preview.
+    nonisolated static func controlPreview(_ messages: [Message], me: ParticipantID) -> String {
+        guard let line = ChiefListPreview(messages: messages, me: me).line else { return "" }
+        switch line {
+        case .needsApproval(let text), .needsAnswer(let text), .running(let text), .card(let text):
+            return text
+        case .message(let message):
+            return ChiefPreviewText().plain(message.parts.map(\.plainText).joined(separator: "\n"))
         }
     }
 
@@ -156,7 +227,11 @@ extension ChiefService {
     /// (`HomeStore.perform(.sendMessage)`), so the transcript shows it the same.
     ///
     /// - Throws: ``ChiefControlFailure``.
-    func controlSendAsUser(text: String, conversation raw: String?) async throws -> ChiefControlSendResult {
+    func controlSendAsUser(
+        text: String,
+        conversation raw: String?,
+        clientMessageID: String? = nil
+    ) async throws -> ChiefControlSendResult {
         _ = try await controlOwner()
         guard let store else { throw ChiefControlFailure.unavailable(startFailure ?? ChiefStrings.unavailable) }
         let conversation = controlConversationID(raw)
@@ -165,15 +240,18 @@ extension ChiefService {
         } else if store.isInboxCurrent {
             throw ChiefControlFailure.from(.invalid("unknown_conversation"))
         }
-        let key = IdempotencyKey.make()
+        let key = clientMessageID.map { IdempotencyKey($0) } ?? IdempotencyKey.make()
         do {
             _ = try await store.perform(.sendMessage(conversation: conversation, parts: [.text(text)], threadRoot: nil), key: key)
-            return ChiefControlSendResult(conversation: conversation.rawValue, messageID: nil, queued: false)
+            return ChiefControlSendResult(conversation: conversation.rawValue, messageID: nil,
+                                          clientMessageID: key.rawValue, queued: false)
         } catch HomeSendState.pendingResend {
-            return ChiefControlSendResult(conversation: conversation.rawValue, messageID: nil, queued: true)
+            return ChiefControlSendResult(conversation: conversation.rawValue, messageID: nil,
+                                          clientMessageID: key.rawValue, queued: true)
         } catch HomeRejection.ownerUnreachable where !store.isOnline {
             // The store queued the send while offline (`offlineSendDeadline`).
-            return ChiefControlSendResult(conversation: conversation.rawValue, messageID: nil, queued: true)
+            return ChiefControlSendResult(conversation: conversation.rawValue, messageID: nil,
+                                          clientMessageID: key.rawValue, queued: true)
         } catch let rejection as HomeRejection {
             throw ChiefControlFailure.from(rejection)
         } catch {
@@ -236,7 +314,22 @@ extension ChiefControlMessage {
                   author: author?.displayName ?? message.author.rawValue, authorKind: kind,
                   text: message.isRetracted ? "" : message.plainText, at: message.createdAt,
                   parts: message.isRetracted ? ["retracted"] : message.parts.map(Self.kind(of:)),
-                  threadRoot: message.threadRoot?.rawValue)
+                  partPayloads: message.isRetracted ? [] : message.parts.compactMap(Self.payload(of:)),
+                  threadRoot: message.threadRoot?.rawValue,
+                  clientMessageID: message.clientMessageID.rawValue)
+    }
+
+    static func payload(of part: MessagePart) -> ChiefControlPartPayload? {
+        switch part {
+        case .work(let work):
+            ChiefControlPartPayload(kind: "work", work: work, approval: nil, question: nil)
+        case .approval(let approval):
+            ChiefControlPartPayload(kind: "approval", work: nil, approval: approval, question: nil)
+        case .question(let question):
+            ChiefControlPartPayload(kind: "question", work: nil, approval: nil, question: question)
+        case .text, .attachment, .linkPreview, .location:
+            nil
+        }
     }
 
     static func kind(of part: MessagePart) -> String {

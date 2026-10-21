@@ -66,6 +66,7 @@ public actor ClaudeCodeBrain: ChiefBrain {
     }
 
     private let configuration: Configuration
+    private let allowRules: ChiefAllowRules?
     private var conversations: [ConversationID: ClaudeConversation] = [:]
     /// Turns `run` handed out that have not reached their conversation yet.
     private let pendingTurns = ChiefPendingTurns()
@@ -73,8 +74,9 @@ public actor ClaudeCodeBrain: ChiefBrain {
     /// Creates a brain.
     ///
     /// - Parameter configuration: How to launch Claude Code.
-    public init(configuration: Configuration) {
+    public init(configuration: Configuration, allowRules: ChiefAllowRules? = nil) {
         self.configuration = configuration
+        self.allowRules = allowRules
     }
 
     nonisolated public func run(_ request: ChiefTurnRequest) -> AsyncThrowingStream<ChiefTurnEvent, any Error> {
@@ -117,7 +119,7 @@ public actor ClaudeCodeBrain: ChiefBrain {
         if let existing = conversations[request.conversation] {
             session = existing
         } else {
-            session = ClaudeConversation(configuration: configuration)
+            session = ClaudeConversation(configuration: configuration, allowRules: allowRules)
             conversations[request.conversation] = session
         }
         await session.start(request, token: token, continuation: continuation, pending: pendingTurns)
@@ -187,6 +189,7 @@ actor ClaudeConversation {
     private typealias Continuation = AsyncThrowingStream<ChiefTurnEvent, any Error>.Continuation
 
     private let configuration: ClaudeCodeBrain.Configuration
+    private let allowRules: ChiefAllowRules?
     private var process: ChiefLineProcess?
     private var generation = 0
     private var parser = ClaudeStreamParser()
@@ -200,8 +203,9 @@ actor ClaudeConversation {
     private var current: (request: ChiefTurnRequest, content: [ChiefJSON], resumed: Bool, retried: Bool)?
     private var turnOutput = false
 
-    init(configuration: ClaudeCodeBrain.Configuration) {
+    init(configuration: ClaudeCodeBrain.Configuration, allowRules: ChiefAllowRules? = nil) {
         self.configuration = configuration
+        self.allowRules = allowRules
     }
 
     func start(_ request: ChiefTurnRequest, token: UUID, continuation: AsyncThrowingStream<ChiefTurnEvent, any Error>.Continuation,
@@ -249,9 +253,14 @@ actor ClaudeConversation {
     /// The answer to `tool` with `input`: deny without a running turn (nobody
     /// can answer, and an interrupted turn must not run more tools), allow
     /// what ``ChiefToolPolicy`` allows, ask about the rest.
-    static func permissionDecision(tool: String, input: ChiefJSON, turnRunning: Bool) -> PermissionDecision {
+    static func permissionDecision(
+        tool: String,
+        input: ChiefJSON,
+        turnRunning: Bool,
+        allowRules: ChiefAllowRules? = nil
+    ) -> PermissionDecision {
         guard turnRunning else { return .deny }
-        return ChiefToolPolicy.autoAllowsClaudeTool(tool, input: input) ? .allow : .ask
+        return ChiefToolPolicy.autoAllowsClaudeTool(tool, input: input, allowRules: allowRules) ? .allow : .ask
     }
 
     /// Starts `claude`; returns whether it resumes an earlier session.
@@ -295,7 +304,12 @@ actor ClaudeConversation {
             case .event(let event):
                 deliver(event)
             case .permission(let id, let tool, let input):
-                let decision = Self.permissionDecision(tool: tool, input: input, turnRunning: continuation != nil)
+                let decision = Self.permissionDecision(
+                    tool: tool,
+                    input: input,
+                    turnRunning: continuation != nil,
+                    allowRules: allowRules
+                )
                 switch decision {
                 case .allow, .deny:
                     write(ClaudeStreamParser.permissionResponse(requestID: id, allow: decision == .allow, input: input))

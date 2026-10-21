@@ -31,6 +31,16 @@ struct ChiefShellLexer {
         return lexer.run()
     }
 
+    /// The simple commands of `line`, paired with whether each command is
+    /// fed by a preceding pipe. This lets command policy distinguish a
+    /// filter reading stdin from a standalone reader that defaults to the
+    /// Chief home directory.
+    static func stagesWithPipeInput(of line: String) -> [([Word], Bool)]? {
+        var lexer = ChiefShellLexer(scalars: Array(line.unicodeScalars))
+        guard let stages = lexer.run(), stages.count == lexer.stagePipeInputs.count else { return nil }
+        return zip(stages, lexer.stagePipeInputs).map { ($0, $1) }
+    }
+
     private let scalars: [Unicode.Scalar]
     private var index = 0
     private var stages: [[Word]] = []
@@ -39,6 +49,8 @@ struct ChiefShellLexer {
     private var started = false
     private var quoted = false
     private var expands = false
+    private var stageHasPipeInput = false
+    private var stagePipeInputs: [Bool] = []
 
     private init(scalars: [Unicode.Scalar]) {
         self.scalars = scalars
@@ -61,7 +73,9 @@ struct ChiefShellLexer {
         finishWord()
         guard !words.isEmpty else { return false }
         stages.append(words)
+        stagePipeInputs.append(stageHasPipeInput)
         words = []
+        stageHasPipeInput = false
         return true
     }
 
@@ -98,7 +112,9 @@ struct ChiefShellLexer {
                 continue
             case "|":
                 if peek(1) == "&" { return nil }
+                let isPipe = peek(1) != "|"
                 guard finishStage() else { return nil }
+                stageHasPipeInput = isPipe
                 index += peek(1) == "|" ? 2 : 1
                 lastSeparatorWasSequence = false
                 continue

@@ -114,11 +114,11 @@ import Testing
         }
         try await owner.submit(HomeIntent(op: .answerQuestion(message: card.id, conversation: conversation, partIndex: 0,
                                                               answer: Self.answer("Allow", always: true))))
-        #expect(ChiefAllowRules.shared.all.contains(["acme-deploy", "ship"]))
-        #expect(ChiefToolPolicy.autoAllowsCommand("acme-deploy ship --prod"))
+        #expect(fixture.allowRules.all.contains(["acme-deploy", "ship"]))
+        #expect(ChiefToolPolicy.autoAllowsCommand("acme-deploy ship --prod", allowRules: fixture.allowRules))
         // Only that subcommand, one simple command at a time.
-        #expect(!ChiefToolPolicy.autoAllowsCommand("acme-deploy destroy"))
-        #expect(!ChiefToolPolicy.autoAllowsCommand("acme-deploy ship $(whoami)"))
+        #expect(!ChiefToolPolicy.autoAllowsCommand("acme-deploy destroy", allowRules: fixture.allowRules))
+        #expect(!ChiefToolPolicy.autoAllowsCommand("acme-deploy ship $(whoami)", allowRules: fixture.allowRules))
         let file = fixture.home.stateDirectory.appendingPathComponent("allow-rules.json")
         #expect(FileManager.default.fileExists(atPath: file.path))
         await gate.open()
@@ -219,7 +219,7 @@ import Testing
         #expect(rules.allows(["cmux", "tree", "--all"]))
     }
 
-    /// The shared rules may have read another home in the meantime (parallel owners, or
+    /// The rules may have read another home in the meantime (a reused rules object, or
     /// tests); a rule the card allowed is saved to the answering owner's home.
     @Test func aRuleIsSavedToTheHomeThatAllowedIt() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("chief-rules-\(UUID().uuidString)")
@@ -234,6 +234,19 @@ import Testing
         let saved = mine.stateDirectory.appendingPathComponent("allow-rules.json")
         #expect(FileManager.default.fileExists(atPath: saved.path))
         #expect(!FileManager.default.fileExists(atPath: other.stateDirectory.appendingPathComponent("allow-rules.json").path))
+    }
+
+    @Test func changingHomesDoesNotCarryAlwaysAllowRulesAcrossHomes() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("chief-rules-homes-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let first = ChiefHome(root: root.appendingPathComponent("first"))
+        let second = ChiefHome(root: root.appendingPathComponent("second"))
+        let rules = ChiefAllowRules()
+        rules.load(first)
+        #expect(try rules.add(rule: ["git", "status"]) == ["git", "status"])
+        rules.load(second)
+        #expect(rules.all.isEmpty)
+        #expect(!rules.allows(["git", "status"]))
     }
 }
 

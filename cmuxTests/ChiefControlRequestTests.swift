@@ -1,4 +1,5 @@
 import CmuxControlSocket
+import CmuxHomeCore
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -17,6 +18,12 @@ import Testing
     @Test func simpleMethodsTakeNoParams() {
         #expect(parse("chief.status") == .success(.status))
         #expect(parse("chief.conversations") == .success(.conversations))
+        #expect(parse("chief.conversations", ["after_cursor": "cursor-1", "wait_for_change": true])
+            == .success(.conversationsAfter(cursor: "cursor-1")))
+        #expect(parse("chief.conversations", ["after_cursor": "cursor-1"]) == .failure(.invalid("after_cursor")))
+        #expect(parse("chief.mark_read") == .failure(.missing("up_to_seq")))
+        #expect(parse("chief.mark_read", ["up_to_seq": 7, "conversation": "conv_x"])
+            == .success(.markRead(conversation: "conv_x", upToSeq: 7)))
         #expect(parse("chief.stop") == .success(.stop(conversation: nil)))
         #expect(parse("chief.stop", ["conversation": " conv_x "]) == .success(.stop(conversation: "conv_x")))
     }
@@ -59,7 +66,7 @@ import Testing
         // Question cards too: they confirm what the Chief creates (a Cloud machine).
         #expect(!ChiefControlRequest.isAvailable("chief.answer", debugBuild: false))
         #expect(ChiefControlRequest.isAvailable("chief.answer", debugBuild: true))
-        for method in ["chief.open", "chief.send", "chief.status", "chief.conversations", "chief.read", "chief.stop"] {
+        for method in ["chief.open", "chief.send", "chief.status", "chief.conversations", "chief.read", "chief.mark_read", "chief.stop"] {
             #expect(ChiefControlRequest.isAvailable(method, debugBuild: false), "\(method)")
         }
         #expect(ChiefControlRequest.isDebugBuild) // tests build DEBUG
@@ -74,14 +81,16 @@ import Testing
 
     @Test func sendAsUserTrimsText() {
         #expect(parse("chief.send", ["text": "  hi Chief \n"])
-            == .success(.send(text: "hi Chief", conversation: nil, from: nil, startTurn: true)))
+            == .success(.send(text: "hi Chief", conversation: nil, from: nil, startTurn: true, clientMessageID: nil)))
+        #expect(parse("chief.send", ["text": "hi", "client_message_id": "ios-1"])
+            == .success(.send(text: "hi", conversation: nil, from: nil, startTurn: true, clientMessageID: "ios-1")))
     }
 
     @Test func sendFromAgentDefaultsToStartingATurn() {
         #expect(parse("chief.send", ["text": "done", "from": "Build Bot", "conversation": "conv_a"])
-            == .success(.send(text: "done", conversation: "conv_a", from: "Build Bot", startTurn: true)))
+            == .success(.send(text: "done", conversation: "conv_a", from: "Build Bot", startTurn: true, clientMessageID: nil)))
         #expect(parse("chief.send", ["text": "done", "from": "Build Bot", "start_turn": false])
-            == .success(.send(text: "done", conversation: nil, from: "Build Bot", startTurn: false)))
+            == .success(.send(text: "done", conversation: nil, from: "Build Bot", startTurn: false, clientMessageID: nil)))
     }
 
     @Test func sendRefusesBadParams() {
@@ -96,12 +105,30 @@ import Testing
     }
 
     @Test func readClampsLimit() {
-        #expect(parse("chief.read") == .success(.read(conversation: nil, limit: 20)))
-        #expect(parse("chief.read", ["limit": 5, "conversation": "conv_b"]) == .success(.read(conversation: "conv_b", limit: 5)))
-        #expect(parse("chief.read", ["limit": 10_000]) == .success(.read(conversation: nil, limit: 200)))
+        #expect(parse("chief.read") == .success(.read(conversation: nil, beforeSeq: nil, limit: 20)))
+        #expect(parse("chief.read", ["limit": 5, "conversation": "conv_b"]) == .success(.read(conversation: "conv_b", beforeSeq: nil, limit: 5)))
+        #expect(parse("chief.read", ["limit": 10_000]) == .success(.read(conversation: nil, beforeSeq: nil, limit: 200)))
+        #expect(parse("chief.read", ["before_seq": 18, "limit": 4]) == .success(.read(conversation: nil, beforeSeq: 18, limit: 4)))
+        #expect(parse("chief.read", ["before_seq": 0]) == .failure(.invalid("before_seq")))
         #expect(parse("chief.read", ["limit": 0]) == .failure(.invalid("limit")))
         #expect(parse("chief.read", ["limit": 1.5]) == .failure(.invalid("limit")))
         #expect(parse("chief.read", ["limit": true]) == .failure(.invalid("limit")))
+    }
+
+    @Test func readAfterRequiresAnExclusiveCursorWait() {
+        #expect(parse("chief.read", ["after_seq": 7, "wait_for_change": true])
+            == .success(.readAfter(conversation: nil, afterSeq: 7, limit: 20)))
+        #expect(parse("chief.read", ["after_seq": 7, "after_cursor": "cursor-1", "wait_for_change": true])
+            == .success(.readAfter(conversation: nil, afterSeq: 7, limit: 20, afterCursor: "cursor-1")))
+        #expect(parse("chief.read", ["after_seq": 0, "wait_for_change": true, "limit": 500])
+            == .success(.readAfter(conversation: nil, afterSeq: 0, limit: 200)))
+        #expect(parse("chief.read", ["after_seq": 7]) == .failure(.invalid("after_seq")))
+        #expect(parse("chief.read", ["wait_for_change": true]) == .failure(.invalid("after_seq")))
+        #expect(parse("chief.read", ["after_seq": 7, "before_seq": 2, "wait_for_change": true])
+            == .failure(.invalid("after_seq")))
+        #expect(parse("chief.read", ["after_seq": -1, "wait_for_change": true])
+            == .failure(.invalid("after_seq")))
+        #expect(parse("chief.read", ["after_cursor": "cursor-1"]) == .failure(.invalid("after_cursor")))
     }
 
     @Test func debugActions() {
@@ -143,5 +170,26 @@ import Testing
             #expect(TerminalController.commandHasFocusIntent(commandKey: method, isV2: true, params: [:]) == (method == "chief.open"),
                     "\(method)")
         }
+    }
+
+    @Test func conversationRowsUseTheAuthoritativeInboxOnColdStart() throws {
+        let me = Participant(id: .init("me"), kind: .human, displayName: "You")
+        let chief = Participant(id: .init("agent_chief"), kind: .agent, displayName: "Chief", agentClass: .chief)
+        let id = ConversationID("conv_chief")
+        let date = Date(timeIntervalSince1970: 100)
+        let summary = ConversationSummary(id: id, participants: [me, chief], createdAt: date, updatedAt: date,
+                                          pinRank: 0)
+        let inbox = InboxSnapshot(me: me, conversations: [summary], rev: 1)
+
+        // The HomeStore is still empty in this state; the control response is
+        // derived from the owner's inbox snapshot instead.
+        let rows = ChiefService.controlRows(from: inbox, previews: [id: "Ask Chief anything"], working: [id])
+        let row = try #require(rows.first)
+        #expect(rows.count == 1)
+        #expect(row.id == id.rawValue)
+        #expect(row.title == "Chief")
+        #expect(row.preview == "Ask Chief anything")
+        #expect(row.pinned)
+        #expect(row.working)
     }
 }

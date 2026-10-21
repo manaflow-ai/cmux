@@ -17,6 +17,17 @@ extension ChiefConversationOwner {
         return ConversationPage(conversation: state.summary, messages: messages, threads: state.threadSummaries(in: messages))
     }
 
+    /// The newest `tail` messages of a conversation, without calculating thread summaries.
+    /// Use this for list previews that only need message bodies.
+    ///
+    /// - Throws: ``HomeRejection/invalid(_:)`` for an unknown conversation.
+    public func previewMessages(of id: ConversationID, tail: Int) throws -> [Message] {
+        let state = try conversationState(id)
+        let last = state.summary.lastSeq
+        let first = last >= Seq(max(tail, 1)) ? last - Seq(max(tail, 1)) + 1 : 1
+        return state.messages(from: first, through: last)
+    }
+
     /// Up to `limit` messages before `beforeSeq`, ascending, with thread stats of the roots among them.
     ///
     /// - Throws: ``HomeRejection/invalid(_:)`` for an unknown conversation.

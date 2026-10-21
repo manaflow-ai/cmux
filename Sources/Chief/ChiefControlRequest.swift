@@ -8,13 +8,20 @@ enum ChiefControlRequest: Equatable, Sendable {
     /// `chief.open`: shows Chief Home in the target window (explicit focus intent).
     case open(target: ChiefControlWindowTarget)
     /// `chief.send`: as the user (no `from`), or as an agent report.
-    case send(text: String, conversation: String?, from: String?, startTurn: Bool)
+    case send(text: String, conversation: String?, from: String?, startTurn: Bool, clientMessageID: String?)
     /// `chief.status`: working conversations, unread, harness and model, home path.
     case status
     /// `chief.conversations`: every Chief conversation.
     case conversations
-    /// `chief.read`: the newest `limit` messages of one conversation.
-    case read(conversation: String?, limit: Int)
+    /// `chief.conversations` waiting for a change to the last snapshot.
+    case conversationsAfter(cursor: String)
+    /// `chief.read`: the newest `limit` messages, or a page before `beforeSeq`.
+    case read(conversation: String?, beforeSeq: UInt64?, limit: Int)
+    /// `chief.read` waiting on the owner's event stream until the conversation
+    /// changes after `afterSeq`. This keeps mobile refreshes event-driven.
+    case readAfter(conversation: String?, afterSeq: UInt64, limit: Int, afterCursor: String? = nil)
+    /// `chief.mark_read`: advances the signed-in user's read cursor.
+    case markRead(conversation: String?, upToSeq: UInt64)
     /// `chief.stop`: stops the running turn of one conversation.
     case stop(conversation: String?)
     /// `chief.approve`: answers an approval card (`request` nil: the running turn's newest waiting one) with
@@ -29,7 +36,7 @@ enum ChiefControlRequest: Equatable, Sendable {
 
     /// Every method of the family; `chief.debug` answers only in DEBUG builds.
     static let methods: [String] = [
-        "chief.open", "chief.send", "chief.status", "chief.conversations", "chief.read", "chief.stop", "chief.approve",
+        "chief.open", "chief.send", "chief.status", "chief.conversations", "chief.read", "chief.mark_read", "chief.stop", "chief.approve",
         "chief.answer", "chief.debug",
     ]
 
@@ -85,16 +92,45 @@ enum ChiefControlRequest: Equatable, Sendable {
             guard !text.isEmpty else { throw ChiefControlParamError.invalid("text") }
             guard text.utf8.count <= maxTextBytes else { throw ChiefControlParamError.tooLong("text") }
             let from = try optionalString(params, "from", maxLength: maxNameLength)
+            let clientMessageID = try optionalString(params, "client_message_id", maxLength: 200)
             let startTurn = try optionalBool(params, "start_turn") ?? true
-            return .send(text: text, conversation: try conversation(params), from: from, startTurn: startTurn)
+            return .send(text: text, conversation: try conversation(params), from: from, startTurn: startTurn,
+                         clientMessageID: clientMessageID)
         case "chief.status":
             return .status
         case "chief.conversations":
+            let cursor = try optionalString(params, "after_cursor", maxLength: 200)
+            if try optionalBool(params, "wait_for_change") == true {
+                guard let cursor else { throw ChiefControlParamError.missing("after_cursor") }
+                return .conversationsAfter(cursor: cursor)
+            }
+            guard cursor == nil else { throw ChiefControlParamError.invalid("after_cursor") }
             return .conversations
         case "chief.read":
             let limit = try optionalInt(params, "limit") ?? defaultReadLimit
             guard limit >= 1 else { throw ChiefControlParamError.invalid("limit") }
-            return .read(conversation: try conversation(params), limit: min(limit, maxReadLimit))
+            let beforeSeq = try optionalInt(params, "before_seq")
+            if let beforeSeq, beforeSeq < 1 { throw ChiefControlParamError.invalid("before_seq") }
+            let afterSeq = try optionalInt(params, "after_seq")
+            if let afterSeq, afterSeq < 0 { throw ChiefControlParamError.invalid("after_seq") }
+            let waitForChange = try optionalBool(params, "wait_for_change") ?? false
+            let afterCursor = try optionalString(params, "after_cursor", maxLength: 200)
+            if waitForChange {
+                guard beforeSeq == nil, let afterSeq else { throw ChiefControlParamError.invalid("after_seq") }
+                return .readAfter(conversation: try conversation(params), afterSeq: UInt64(afterSeq),
+                                  limit: min(limit, maxReadLimit), afterCursor: afterCursor)
+            }
+            guard afterCursor == nil else { throw ChiefControlParamError.invalid("after_cursor") }
+            guard afterSeq == nil else { throw ChiefControlParamError.invalid("after_seq") }
+            return .read(conversation: try conversation(params),
+                         beforeSeq: beforeSeq.map { UInt64($0) },
+                         limit: min(limit, maxReadLimit))
+        case "chief.mark_read":
+            guard let upToSeq = try optionalInt(params, "up_to_seq") else {
+                throw ChiefControlParamError.missing("up_to_seq")
+            }
+            guard upToSeq >= 1 else { throw ChiefControlParamError.invalid("up_to_seq") }
+            return .markRead(conversation: try conversation(params), upToSeq: UInt64(upToSeq))
         case "chief.stop":
             return .stop(conversation: try conversation(params))
         case "chief.approve":

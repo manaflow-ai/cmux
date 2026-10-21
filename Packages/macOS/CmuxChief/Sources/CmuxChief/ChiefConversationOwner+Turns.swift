@@ -32,13 +32,30 @@ extension ChiefConversationOwner {
     }
 
     func startNextTurnIfIdle(_ conversation: ConversationID) {
-        guard running[conversation] == nil, !stopping.contains(conversation), var queue = pending[conversation], !queue.isEmpty else { return }
+        guard running[conversation] == nil, !stopping.contains(conversation), var queue = pending[conversation], !queue.isEmpty else {
+            cancelReadCursorRetry(for: conversation)
+            return
+        }
+        guard let state = conversations[conversation], let chief = state.chief else {
+            cancelReadCursorRetry(for: conversation)
+            return
+        }
+        // The user's "Always Allow" rules belong to this owner/home.
+        allowRules.load(home)
+        // A turn must not begin until its read cursor is durably advanced. Keep
+        // the queued turn intact when the cursor write fails so a later retry
+        // can preserve the same ordering and unread state.
+        if let seq = queue[0].readSeq {
+            do {
+                _ = try moveReadCursor(conversation, of: chief.id, to: seq)
+            } catch {
+                scheduleReadCursorRetry(for: conversation)
+                return
+            }
+        }
+        cancelReadCursorRetry(for: conversation)
         let next = queue.removeFirst()
         pending[conversation] = queue.isEmpty ? nil : queue
-        guard let state = conversations[conversation], let chief = state.chief else { return }
-        // The user's "Always Allow" rules, for the brain's approval checks (ChiefToolPolicy).
-        ChiefAllowRules.shared.load(home)
-        if let seq = next.readSeq { moveReadCursor(conversation, of: chief.id, to: seq) }
         running[conversation] = ChiefRunningTurn(chief: chief.id, threadRoot: next.threadRoot, startedAt: now())
         guard let turnID = running[conversation]?.id else { return }
         publish(.typing(conversation, chief.id, on: true))
@@ -46,6 +63,38 @@ extension ChiefConversationOwner {
         let input = ChiefTurnContextInput(conversation: conversation, chief: chief, home: home, resumeSession: state.cliSession)
         // Runs on this actor; it cannot start before the assignment below.
         running[conversation]?.task = Task { await self.runTurn(turnID, in: conversation, next, input: input) }
+    }
+
+    private func scheduleReadCursorRetry(for conversation: ConversationID) {
+        guard readCursorRetryTasks[conversation] == nil else { return }
+        let clock = self.clock
+        readCursorRetryTasks[conversation] = Task { [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await clock.sleep(for: .seconds(1))
+                } catch {
+                    return
+                }
+                guard let self else { return }
+                await self.retryReadCursor(for: conversation)
+                if await self.hasReadCursorRetry(for: conversation) == false { return }
+            }
+        }
+    }
+
+    private func retryReadCursor(for conversation: ConversationID) {
+        startNextTurnIfIdle(conversation)
+    }
+
+    private func hasReadCursorRetry(for conversation: ConversationID) -> Bool {
+        readCursorRetryTasks[conversation] != nil
+            && pending[conversation]?.isEmpty == false
+            && running[conversation] == nil
+            && !stopping.contains(conversation)
+    }
+
+    private func cancelReadCursorRetry(for conversation: ConversationID) {
+        readCursorRetryTasks.removeValue(forKey: conversation)?.cancel()
     }
 
     func isCurrent(_ turnID: UUID, _ conversation: ConversationID) -> Bool {
@@ -90,8 +139,12 @@ extension ChiefConversationOwner {
         case .session(let session):
             guard var state = conversations[conversation], state.cliSession != session else { return }
             state.cliSession = session
+            do {
+                try persist(conversation, [.session(session)])
+            } catch {
+                return
+            }
             conversations[conversation] = state
-            persist(conversation, [.session(session)])
         case .textDelta(let text):
             guard !text.isEmpty else { return }
             let fresh = turn.segmentKey == nil

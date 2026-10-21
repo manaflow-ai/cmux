@@ -971,7 +971,8 @@ def test_website_only_does_not_run_agent_session_resource_check() -> None:
 
 
 def test_review_rules_skip_app_builds_but_preserve_unknown_and_mixed_inputs() -> None:
-    paths = [".coderabbit.yaml", ".greptile/rules.md",
+    paths = [".coderabbit.yaml", ".greptile/rules.md", ".greptile/files.json",
+             ".cursor/BUGBOT.md", "REVIEW.md",
              ".github/review-bot-rules/user-facing-errors.md"]
     for changed in [[path] for path in paths] + [paths]:
         assert module.classify_files(changed) == module.ChangeAreas(

@@ -133,6 +133,7 @@ extension TerminalController {
             "vm.agent_updates_set",
             "vm.rename",
             "vm.pause",
+            "vm.hygiene",
             "vm.resume",
             "vm.restart",
             "vm.snapshot",
@@ -330,6 +331,7 @@ extension TerminalController {
             "chief.status",
             "chief.conversations",
             "chief.read",
+            "chief.mark_read",
             "chief.stop",
             "debug.terminals",
             "surface.send_text",
@@ -495,12 +497,14 @@ extension TerminalController {
         }
         methods.append(contentsOf: ControlCommandExecutionPolicy.simulatorMethods)
 #if DEBUG
-        // Release builds answer Chief's approval and question cards only in Home (ChiefControlRequest.isAvailable).
         methods.append("chief.approve")
         methods.append("chief.answer")
         methods.append("chief.debug")
         methods.append(contentsOf: Self.v2DebugMethodNames)
 #endif
+        if !ChiefSettings.isEnabled {
+            methods.removeAll { $0.hasPrefix("chief.") }
+        }
 
         return [
             "protocol": "cmux-socket",

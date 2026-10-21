@@ -228,6 +228,18 @@ def blocking(freezes: list[Freeze], files: list[str], base: str | None, labeler:
     return out
 
 
+def lapsed_at(freeze: Freeze, now: datetime) -> datetime | None:
+    """When an open freeze issue stopped mattering, if it has: an active one at its deadline; a
+    malformed or unauthorised one (never active) once MAX_HOURS have passed since it opened, so it
+    doesn't stay open forever."""
+    if freeze.problems:
+        cap = freeze.created + timedelta(hours=MAX_HOURS)
+        return cap if now >= cap else None
+    if freeze.active(now):
+        return None
+    return freeze.deadline
+
+
 def describe(freeze: Freeze, now: datetime) -> str:
     if freeze.problems:
         state = "malformed: " + "; ".join(freeze.problems)
@@ -265,12 +277,14 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.mode == "expire":
             for freeze in freezes:
-                if freeze.problems or freeze.active(now):
+                lapsed = lapsed_at(freeze, now)
+                if lapsed is None:
                     continue
-                print(f"closing #{freeze.number}: lapsed at {freeze.deadline:%Y-%m-%d %H:%MZ}")
+                state = "lapsed" if not freeze.problems else "isn't active (" + "; ".join(freeze.problems) + ") and is past"
+                print(f"closing #{freeze.number}: {state} {lapsed:%Y-%m-%d %H:%MZ}")
                 if not args.dry_run:
                     gh("issue", "close", str(freeze.number), "--repo", args.repo, "--comment",
-                       f"This freeze lapsed at {freeze.deadline:%Y-%m-%d %H:%MZ} and no longer blocks merges. "
+                       f"This freeze {state} {lapsed:%Y-%m-%d %H:%MZ} and no longer blocks merges. "
                        f"Open a new `{LABEL}` issue to freeze again (docs/ci/merge-freeze.md).")
             return 0
         if args.files:
@@ -290,9 +304,12 @@ def main(argv: list[str] | None = None) -> int:
             events = (read_json_list(args.events_file) if args.events_file is not None
                       else gh_items(f"repos/{args.repo}/issues/{args.pr}/events?per_page=100"))
             labeler = ok_labeler(events)
-    except (subprocess.CalledProcessError, OSError, KeyError, ValueError) as error:
+    # TypeError, AttributeError: GitHub answered with an unexpected shape (a null issue or a missing
+    # timestamp, say). Still unknown, not frozen.
+    except (subprocess.CalledProcessError, OSError, KeyError, ValueError, TypeError, AttributeError) as error:
         detail = getattr(error, "stderr", "") or error
-        print(f"cannot read merge freezes for {args.repo}#{args.pr}: {detail}".strip(), file=sys.stderr)
+        target = f"{args.repo}#{args.pr}" if args.mode == "check" else args.repo
+        print(f"cannot read merge freezes for {target}: {detail}".strip(), file=sys.stderr)
         return 2
     for freeze in freezes:
         if freeze.problems:

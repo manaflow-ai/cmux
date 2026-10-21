@@ -162,19 +162,26 @@ extension ChiefHarness {
     ///   - dangerouslySkipPermissions: Whether the harness may bypass permission prompts.
     ///   - executableOverride: An explicit CLI path; nil looks it up on `PATH`.
     /// - Returns: A brain that starts its processes lazily.
-    public func makeBrain(model: String?, effort: String?, dangerouslySkipPermissions: Bool = false,
-                          executableOverride: URL? = nil) -> any ChiefBrain {
+    public func makeBrain(
+        model: String?,
+        effort: String?,
+        dangerouslySkipPermissions: Bool = false,
+        executableOverride: URL? = nil,
+        allowRules: ChiefAllowRules? = nil
+    ) -> any ChiefBrain {
         let model = model.flatMap { $0.isEmpty ? nil : $0 } ?? defaultModel
         let effort = effort.flatMap { $0.isEmpty || $0 == "default" ? nil : $0 }
         switch self {
         case .claude:
             return ClaudeCodeBrain(configuration: .init(model: model, effort: effort,
                                                         dangerouslySkipPermissions: dangerouslySkipPermissions,
-                                                        executableOverride: executableOverride))
+                                                        executableOverride: executableOverride),
+                                    allowRules: allowRules)
         case .codex:
             return CodexAppServerBrain(configuration: .init(model: model, effort: effort,
                                                             dangerouslySkipPermissions: dangerouslySkipPermissions,
-                                                            executableOverride: executableOverride))
+                                                            executableOverride: executableOverride),
+                                    allowRules: allowRules)
         }
     }
 }

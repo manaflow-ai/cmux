@@ -3,6 +3,9 @@ import CmuxChief
 import CmuxHomeCore
 import Foundation
 import Observation
+import OSLog
+
+private nonisolated let chiefServiceLog = Logger(subsystem: "com.cmuxterm.app", category: "Chief")
 
 /// The app's local Chief: one ``ChiefConversationOwner`` for this build's
 /// Chief home, the ``HomeStore`` every Chief view reads, and the brain chosen
@@ -33,6 +36,7 @@ final class ChiefService {
     /// The owner's load, set by ``start()``; it reads the conversation files off the main thread.
     @ObservationIgnored private(set) var ownerLoad: Task<ChiefConversationOwner, any Error>?
     @ObservationIgnored private(set) var home: ChiefHome?
+    @ObservationIgnored private var allowRules: ChiefAllowRules?
     /// The home is a fresh temporary folder (a scripted DEBUG run, ``resolveHome()``), not the user's.
     @ObservationIgnored private(set) var homeIsTemporary = false
     @ObservationIgnored private var brainSwitch: ChiefBrainSwitch?
@@ -128,20 +132,22 @@ final class ChiefService {
         let (home, temporary) = Self.resolveHome()
         let settings = ChiefSettingsAccess().current
         engine = settings
-        let switcher = ChiefBrainSwitch(brain: Self.makeBrain(settings), settings: settings)
+        let allowRules = ChiefAllowRules()
+        let switcher = ChiefBrainSwitch(brain: Self.makeBrain(settings, allowRules: allowRules), settings: settings)
         let builder = ChiefTurnContextBuilder(engine: { await switcher.settings })
         // task-owner: reads the login shell's PATH before the first turn needs it; ends with the read
         Task.detached(priority: .utility) { _ = await ChiefLoginShellPath.shared.value() }
         let brain = ChiefSwitchingBrain(switcher: switcher)
         // task-owner: one load of the Chief home; ends when the owner is ready or the load failed
         let loading = Task.detached(priority: .userInitiated) {
-            try await ChiefConversationOwner.load(home: home, brain: brain,
+            try await ChiefConversationOwner.load(home: home, brain: brain, allowRules: allowRules,
                                                   context: { input in await builder.context(for: input) })
         }
         let store = HomeStore(source: ChiefLocalSource(loading: loading),
                               blobCacheDirectory: home.stateDirectory.appendingPathComponent("blob-cache", isDirectory: true))
         store.start()
         self.home = home
+        self.allowRules = allowRules
         self.homeIsTemporary = temporary
         self.brainSwitch = switcher
         self.ownerLoad = loading
@@ -161,7 +167,7 @@ final class ChiefService {
 
     private func ownerLoaded(_ owner: ChiefConversationOwner) {
         self.owner = owner
-        for problem in owner.loadProblems { NSLog("chief: load: %@", problem) }
+        for problem in owner.loadProblems { chiefServiceLog.error("load problem: \(problem, privacy: .private)") }
         watchWorking(owner)
     }
 
@@ -169,7 +175,7 @@ final class ChiefService {
         startFailure = ChiefStrings.unavailable
         storeIfStarted?.stop()
         storeIfStarted = nil
-        NSLog("chief: start failed: %@", String(describing: error))
+        chiefServiceLog.error("start failed: \(String(describing: error), privacy: .private)")
     }
 
     /// Stops `conversation`'s running turn. Returns whether one was stopped.
@@ -218,13 +224,14 @@ final class ChiefService {
 
     // MARK: Brain
 
-    static func makeBrain(_ settings: ChiefEngineSettings) -> any ChiefBrain {
+    static func makeBrain(_ settings: ChiefEngineSettings, allowRules: ChiefAllowRules? = nil) -> any ChiefBrain {
 #if DEBUG
         // Dogfood tours and screenshots: a scripted turn, no model or credentials.
-        if usesScriptedBrain { return ChiefScriptedBrain() }
+        if usesScriptedBrain { return ChiefScriptedBrain(allowRules: allowRules) }
 #endif
         return settings.resolvedHarness.makeBrain(model: settings.model, effort: settings.effort,
-                                                  dangerouslySkipPermissions: settings.dangerouslySkipPermissions)
+                                                  dangerouslySkipPermissions: settings.dangerouslySkipPermissions,
+                                                  allowRules: allowRules)
     }
 
 #if DEBUG
@@ -260,7 +267,7 @@ final class ChiefService {
         let settings = ChiefSettingsAccess().current
         guard settings != engine, let brainSwitch else { return }
         engine = settings
-        let brain = Self.makeBrain(settings)
+        let brain = Self.makeBrain(settings, allowRules: allowRules)
         // task-owner: one swap; ends when the old brain is retired
         Task { await brainSwitch.replace(with: brain, settings: settings) }
     }

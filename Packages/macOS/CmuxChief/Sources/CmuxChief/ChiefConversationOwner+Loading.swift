@@ -31,15 +31,22 @@ extension ChiefConversationOwner {
     /// - Parameters: The same as ``init(home:brain:userDisplayName:now:context:)``.
     /// - Returns: The owner, ready to serve.
     /// - Throws: A file system error when the home's directories cannot be created.
-    public static func load(home: ChiefHome, brain: any ChiefBrain, userDisplayName: String? = nil,
+    public static func load(
+                            home: ChiefHome,
+                            brain: any ChiefBrain,
+                            userDisplayName: String? = nil,
+                            allowRules: ChiefAllowRules = ChiefAllowRules(),
                             now: @escaping @Sendable () -> Date = { Date() },
+                            clock: any Clock<Duration> = ContinuousClock(),
                             context: @escaping ChiefTurnContextProvider) async throws -> ChiefConversationOwner {
+        allowRules.load(home)
         let loaded = try await Task.detached(priority: .userInitiated) {
             let people = Self.participants(userDisplayName: userDisplayName)
             return (people, try Self.loadConversations(home: home, me: people.me, chief: people.chief, now: now))
         }.value
-        return ChiefConversationOwner(home: home, brain: brain, me: loaded.0.me, chief: loaded.0.chief, now: now,
-                                      context: context, loaded: loaded.1)
+        return ChiefConversationOwner(home: home, brain: brain, allowRules: allowRules,
+                                      me: loaded.0.me, chief: loaded.0.chief, now: now,
+                                      clock: clock, context: context, loaded: loaded.1)
     }
 
     /// The user and the default Chief.

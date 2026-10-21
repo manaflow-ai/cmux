@@ -90,6 +90,9 @@ extension ChiefConversationOwner {
 /// preselection, its first option (the Chief puts its recommendation first), exactly as pressing
 /// the card's Submit right away would. Pure: tests pin it.
 public struct ChiefQuestionAnswer: Sendable {
+    /// Mobile Chief qualifies an option id with its item id using this
+    /// separator. Bare ids remain accepted for the CLI and older clients.
+    public static let qualifiedChoiceSeparator = "\u{001F}"
     /// Option labels or ids, in the order given.
     public var choices: [String]
     /// Free text for an Other field, if any.
@@ -149,9 +152,13 @@ public struct ChiefQuestionAnswer: Sendable {
     public func answer(for question: AgentQuestion) throws -> AgentQuestionAnswer {
         var chosen: [String: [String]] = [:]
         for choice in choices {
+            let qualified = choice.components(separatedBy: Self.qualifiedChoiceSeparator)
+            let requestedItemID = qualified.count == 2 ? String(qualified[0]) : nil
+            let requestedChoice = qualified.count == 2 ? String(qualified[1]) : choice
             let matches = question.items.compactMap { item -> (item: AgentQuestion.Item, option: String)? in
-                let option = item.options.first { $0.label.caseInsensitiveCompare(choice) == .orderedSame }
-                    ?? item.options.first { $0.id.caseInsensitiveCompare(choice) == .orderedSame }
+                if let requestedItemID, item.id != requestedItemID { return nil }
+                let option = item.options.first { $0.label.caseInsensitiveCompare(requestedChoice) == .orderedSame }
+                    ?? item.options.first { $0.id.caseInsensitiveCompare(requestedChoice) == .orderedSame }
                 return option.map { (item: item, option: $0.id) }
             }
             // The first item that can still take it: a single-choice item takes one option.
