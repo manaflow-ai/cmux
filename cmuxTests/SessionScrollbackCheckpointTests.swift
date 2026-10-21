@@ -39,17 +39,64 @@ struct SessionScrollbackCheckpointPolicyTests {
         let running = UUID()
         let plan = SessionScrollbackCheckpointPolicy.plan(
             candidates: [
-                .init(panelId: changed, isEligible: true, hasPendingOutput: true),
-                .init(panelId: unchanged, isEligible: true, hasPendingOutput: false),
-                .init(panelId: notRealized, isEligible: true, hasPendingOutput: nil),
-                .init(panelId: running, isEligible: false, hasPendingOutput: true),
+                .init(panelId: changed, hasPendingOutput: true),
+                .init(panelId: unchanged, hasPendingOutput: false),
+                .init(panelId: notRealized, hasPendingOutput: nil),
+                .init(panelId: running, hasPendingOutput: true),
             ],
+            checkpointedPanelIds: nil,
+            isEligible: { $0 != running },
             lastCapturedAt: [:]
         )
 
         #expect(plan.captures == [changed])
         #expect(plan.removals == [running])
         #expect(plan.livePanelIds == [changed, unchanged, notRealized, running])
+        #expect(plan.checkpointedPanelIds == [changed, unchanged, notRealized])
+    }
+
+    @Test func planChecksEligibilityOnlyForPendingOrCheckpointedTerminals() {
+        let idle = (0..<100).map { _ in UUID() }
+        let checkpointed = UUID()
+        let pending = UUID()
+        var evaluated: [UUID] = []
+        let plan = SessionScrollbackCheckpointPolicy.plan(
+            candidates: idle.map { .init(panelId: $0, hasPendingOutput: false) } + [
+                .init(panelId: checkpointed, hasPendingOutput: false),
+                .init(panelId: pending, hasPendingOutput: true),
+            ],
+            checkpointedPanelIds: [checkpointed, UUID()],
+            isEligible: { panelId in
+                evaluated.append(panelId)
+                return panelId != checkpointed
+            },
+            lastCapturedAt: [:]
+        )
+
+        #expect(Set(evaluated) == [checkpointed, pending])
+        #expect(evaluated.count == 2)
+        #expect(plan.captures == [pending])
+        #expect(plan.removals == [checkpointed])
+        // The closed panel's file is pruned through `livePanelIds`.
+        #expect(plan.checkpointedPanelIds.isEmpty)
+    }
+
+    @Test func planStopsCheckingPendingTerminalsOnceCapturesAreFull() {
+        let pending = (0..<100).map { _ in UUID() }
+        var evaluations = 0
+        let plan = SessionScrollbackCheckpointPolicy.plan(
+            candidates: pending.map { .init(panelId: $0, hasPendingOutput: true) },
+            checkpointedPanelIds: [],
+            isEligible: { _ in
+                evaluations += 1
+                return true
+            },
+            lastCapturedAt: [:],
+            maxCaptures: 3
+        )
+
+        #expect(plan.captures.count == 3)
+        #expect(evaluations == 3)
     }
 
     @Test func planCapsCapturesAndPrefersLeastRecentlyCaptured() {
@@ -58,8 +105,10 @@ struct SessionScrollbackCheckpointPolicyTests {
         let recent = UUID()
         let plan = SessionScrollbackCheckpointPolicy.plan(
             candidates: [recent, old, never].map {
-                SessionScrollbackCheckpointPolicy.Candidate(panelId: $0, isEligible: true, hasPendingOutput: true)
+                SessionScrollbackCheckpointPolicy.Candidate(panelId: $0, hasPendingOutput: true)
             },
+            checkpointedPanelIds: nil,
+            isEligible: { _ in true },
             lastCapturedAt: [old: 10, recent: 90],
             maxCaptures: 2
         )
@@ -70,13 +119,15 @@ struct SessionScrollbackCheckpointPolicyTests {
     @Test func planSkipsTerminalsInBackoff() {
         let slow = UUID()
         let candidates = [
-            SessionScrollbackCheckpointPolicy.Candidate(panelId: slow, isEligible: true, hasPendingOutput: true),
+            SessionScrollbackCheckpointPolicy.Candidate(panelId: slow, hasPendingOutput: true),
         ]
         #expect(SessionScrollbackCheckpointPolicy.plan(
-            candidates: candidates, lastCapturedAt: [:], deferredUntil: [slow: 200], now: 100
+            candidates: candidates, checkpointedPanelIds: [], isEligible: { _ in true },
+            lastCapturedAt: [:], deferredUntil: [slow: 200], now: 100
         ).captures.isEmpty)
         #expect(SessionScrollbackCheckpointPolicy.plan(
-            candidates: candidates, lastCapturedAt: [:], deferredUntil: [slow: 200], now: 200
+            candidates: candidates, checkpointedPanelIds: [], isEligible: { _ in true },
+            lastCapturedAt: [:], deferredUntil: [slow: 200], now: 200
         ).captures == [slow])
     }
 }
@@ -159,6 +210,8 @@ struct SessionScrollbackCheckpointCoordinatorTests {
         var secondsSinceTyping: TimeInterval?
         var candidates: [SessionScrollbackCheckpointCoordinator.Candidate] = []
         var captureCounts: [UUID: Int] = [:]
+        var eligibilityChecks: [UUID: Int] = [:]
+        var eligible: [UUID: Bool] = [:]
         var batches: [SessionScrollbackCheckpointWriteBatch] = []
         var captureCost: TimeInterval = 0.001
         var onCapture: ((UUID) -> Void)?
@@ -171,10 +224,14 @@ struct SessionScrollbackCheckpointCoordinatorTests {
         func addTerminal(eligible: Bool = true, text: String? = "output") -> UUID {
             let panelId = UUID()
             flags[panelId] = activity.register(surfaceID: panelId)
+            self.eligible[panelId] = eligible
             candidates.append(.init(
                 panelId: panelId,
                 surfaceId: panelId,
-                isEligible: eligible,
+                isEligible: { [unowned self] in
+                    self.eligibilityChecks[panelId, default: 0] += 1
+                    return self.eligible[panelId] ?? false
+                },
                 beginCapture: { [unowned self] in
                     self.captureCounts[panelId, default: 0] += 1
                     self.uptime += self.captureCost
@@ -288,6 +345,71 @@ struct SessionScrollbackCheckpointCoordinatorTests {
         #expect(batch.removals == [running])
         #expect(batch.livePanelIds == [running])
         #expect(harness.captureCounts[running] == nil)
+    }
+
+    @Test func idleTerminalsCostNoEligibilityChecksAtScale() throws {
+        let harness = Harness()
+        let panels = (0..<100).map { _ in harness.addTerminal() }
+        for panel in panels {
+            // Already checkpointed and quiet since.
+            _ = harness.activity.beginCapture(surfaceID: panel)
+        }
+        let coordinator = harness.makeCoordinator()
+        coordinator.noteExistingCheckpoints([])
+
+        harness.output(panels[7])
+        harness.advanceToNextCheckpoint()
+        #expect(coordinator.tickIfDue())
+        let batch = try #require(harness.batches.last)
+        #expect(batch.captures.map(\.panelId) == [panels[7]])
+        #expect(batch.removals.isEmpty)
+        #expect(batch.livePanelIds == Set(panels))
+        #expect(harness.eligibilityChecks == [panels[7]: 1])
+
+        // Nothing new: only the terminal that now has a file is rechecked.
+        harness.advanceToNextCheckpoint()
+        #expect(coordinator.tickIfDue())
+        #expect(harness.eligibilityChecks == [panels[7]: 2])
+        #expect(try #require(harness.batches.last).captures.isEmpty)
+    }
+
+    @Test func removesOnlyCheckpointsThatExist() throws {
+        let harness = Harness()
+        let captured = harness.addTerminal()
+        let running = harness.addTerminal(eligible: false)
+        _ = harness.activity.beginCapture(surfaceID: running)
+        let coordinator = harness.makeCoordinator()
+        coordinator.noteExistingCheckpoints([])
+
+        harness.advanceToNextCheckpoint()
+        #expect(coordinator.tickIfDue())
+        #expect(try #require(harness.batches.last).captures.map(\.panelId) == [captured])
+        #expect(try #require(harness.batches.last).removals.isEmpty)
+
+        // The captured terminal started a command: delete its file once.
+        harness.eligible[captured] = false
+        harness.advanceToNextCheckpoint()
+        #expect(coordinator.tickIfDue())
+        #expect(try #require(harness.batches.last).removals == [captured])
+
+        harness.advanceToNextCheckpoint()
+        #expect(coordinator.tickIfDue())
+        #expect(try #require(harness.batches.last).removals.isEmpty)
+        #expect(harness.eligibilityChecks[running] == nil)
+        #expect(harness.eligibilityChecks[captured] == 2)
+    }
+
+    @Test func filesFromAnEarlierLaunchAreCheckedUntilRemoved() throws {
+        let harness = Harness()
+        let restored = harness.addTerminal(eligible: false)
+        _ = harness.activity.beginCapture(surfaceID: restored)
+        let coordinator = harness.makeCoordinator()
+        coordinator.noteExistingCheckpoints([restored])
+
+        harness.advanceToNextCheckpoint()
+        #expect(coordinator.tickIfDue())
+        #expect(try #require(harness.batches.last).removals == [restored])
+        #expect(coordinator.checkpointedPanelIds == Set<UUID>())
     }
 
     @Test func typingDuringCheckpointLeavesRemainingTerminalsPending() throws {
@@ -429,6 +551,22 @@ struct SessionScrollbackCheckpointStoreTests {
             primarySnapshotURL: URL(fileURLWithPath: "/tmp/cmux/session-com.cmuxterm.app.json")
         )
         #expect(store.directoryURL.path == "/tmp/cmux/session-com.cmuxterm.app-scrollback")
+    }
+
+    @Test func listsPanelsThatHaveCheckpointFiles() throws {
+        let store = makeStore()
+        defer { cleanUp(store) }
+        #expect(store.checkpointedPanelIds().isEmpty)
+        let written = UUID()
+        let empty = UUID()
+        store.apply(.init(
+            captures: [capture(written, at: 1, "text\n"), capture(empty, at: 1, "  \n")],
+            removals: [],
+            livePanelIds: nil
+        ))
+        try Data().write(to: store.directoryURL.appendingPathComponent("notes.txt"))
+
+        #expect(store.checkpointedPanelIds() == [written])
     }
 
     @Test func writesTruncatesRemovesAndPrunes() throws {

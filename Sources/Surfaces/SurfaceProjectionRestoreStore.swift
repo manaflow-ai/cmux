@@ -127,8 +127,15 @@ struct SurfaceProjectionRestoreStore: Sendable {
         }
     }
 
-    /// Returns staged records for capture and emits one breadcrumb per panel.
-    mutating func records(for workspaceID: UUID) -> [SurfaceProjectionRecord] {
+    /// Whether a staged record for `workspaceID` has not been captured yet.
+    func hasUncapturedRecords(for workspaceID: UUID) -> Bool {
+        entriesByPanelID.values.contains {
+            $0.workspaceID == workspaceID && !capturedPanelIDs.contains($0.panelID)
+        }
+    }
+
+    /// Emits one breadcrumb per staged panel of `workspaceID` the first time it is captured.
+    mutating func markRecordsCaptured(for workspaceID: UUID) {
         let pending = entriesByPanelID.values.filter { $0.workspaceID == workspaceID }
         for entry in pending where capturedPanelIDs.insert(entry.panelID).inserted {
             StartupBreadcrumbLog.append(
@@ -142,7 +149,12 @@ struct SurfaceProjectionRestoreStore: Sendable {
                 ]
             )
         }
-        return pending
+    }
+
+    /// Staged records for capture. Read-only, so an observed owner can call it
+    /// while snapshotting without publishing a change.
+    func records(for workspaceID: UUID) -> [SurfaceProjectionRecord] {
+        entriesByPanelID.values
             .filter { $0.workspaceID == workspaceID }
             .map {
                 SurfaceProjectionRecord(
@@ -155,7 +167,7 @@ struct SurfaceProjectionRestoreStore: Sendable {
     }
 
     /// Reconciles live records with staged records without duplicate panel identities.
-    mutating func mergeRecords(into records: inout [SurfaceProjectionRecord], for workspaceID: UUID) {
+    func mergeRecords(into records: inout [SurfaceProjectionRecord], for workspaceID: UUID) {
         let pending = self.records(for: workspaceID)
         let pendingPanelIDs = Set(pending.map(\.panelID))
         records.removeAll { pendingPanelIDs.contains($0.panelID) }
