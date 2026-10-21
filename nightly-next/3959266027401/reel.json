@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "build": "3959266027401",
+  "notes": "notes/3959266027401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 23222,
+      "title": "cmux-worktree-care: fix clippy (base red from #22753)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23281,
+      "title": "fix(next): the CmuxNext package compiles again — three one-line breaks on base",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23303,
+      "title": "webviews gallery: entries for the server choice editor and the Agent Activity page (coverage base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23125,
+      "title": "acpmux: a second crash restores the latest copy of a restored prompt",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
