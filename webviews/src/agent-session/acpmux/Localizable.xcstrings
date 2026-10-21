@@ -173239,265 +173239,265 @@
       }
     },
     "policyUnenforced.ownSettings": {
-      "comment": "Agent pane: transcript note where acpmux logged that OpenCode cannot keep the chat's permission policy, because OpenCode's own settings decide what it asks; {agent} is the harness name, {policy} a permission policy name (policy.* strings)",
+      "comment": "Agent pane: transcript note where acpmux logged that OpenCode cannot keep the chat's permission policy, because OpenCode's own settings decide what it asks; {policy} is a permission policy name (policy.* strings)",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لا يمكن لـ {agent} الالتزام بسياسة الأذونات لهذه الدردشة ({policy}): إعداداته الخاصة تحدد ما يسأل عنه"
+            "value": "لا يمكن لـ OpenCode الالتزام بسياسة الأذونات لهذه الدردشة ({policy}): إعداداته الخاصة تحدد ما يسأل عنه"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} ne može poštovati pravila dozvola ovog chata ({policy}): njegove vlastite postavke određuju šta pita"
+            "value": "OpenCode ne može poštovati pravila dozvola ovog chata ({policy}): njegove vlastite postavke određuju šta pita"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} kan ikke overholde denne chats tilladelsespolitik ({policy}): dens egne indstillinger afgør, hvad den spørger om"
+            "value": "OpenCode kan ikke overholde denne chats tilladelsespolitik ({policy}): dens egne indstillinger afgør, hvad den spørger om"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} kann die Berechtigungsrichtlinie dieses Chats ({policy}) nicht einhalten: Seine eigenen Einstellungen bestimmen, was es fragt"
+            "value": "OpenCode kann die Berechtigungsrichtlinie dieses Chats ({policy}) nicht einhalten: Seine eigenen Einstellungen bestimmen, was es fragt"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "{agent} can't keep this chat's permission policy ({policy}): its own settings decide what it asks"
+            "value": "OpenCode can't keep this chat's permission policy ({policy}): its own settings decide what it asks"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} no puede mantener la política de permisos de este chat ({policy}): su propia configuración decide qué pregunta"
+            "value": "OpenCode no puede mantener la política de permisos de este chat ({policy}): su propia configuración decide qué pregunta"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} ne peut pas respecter la politique d’autorisations de ce chat ({policy}) : ses propres réglages décident de ce qu’il demande"
+            "value": "OpenCode ne peut pas respecter la politique d’autorisations de ce chat ({policy}) : ses propres réglages décident de ce qu’il demande"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} non può rispettare il criterio di autorizzazione di questa chat ({policy}): sono le sue impostazioni a decidere cosa chiede"
+            "value": "OpenCode non può rispettare il criterio di autorizzazione di questa chat ({policy}): sono le sue impostazioni a decidere cosa chiede"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} はこのチャットの権限ポリシー（{policy}）を守れません。何を確認するかはそれ自身の設定で決まります"
+            "value": "OpenCode はこのチャットの権限ポリシー（{policy}）を守れません。何を確認するかはそれ自身の設定で決まります"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} មិនអាចរក្សាគោលការណ៍សិទ្ធិរបស់ការជជែកនេះ ({policy}) បានទេ៖ ការកំណត់ផ្ទាល់ខ្លួនរបស់វាសម្រេចថាវាសួរអ្វី"
+            "value": "OpenCode មិនអាចរក្សាគោលការណ៍សិទ្ធិរបស់ការជជែកនេះ ({policy}) បានទេ៖ ការកំណត់ផ្ទាល់ខ្លួនរបស់វាសម្រេចថាវាសួរអ្វី"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent}은(는) 이 채팅의 권한 정책({policy})을 지킬 수 없음: 무엇을 물을지는 자체 설정이 정함"
+            "value": "OpenCode은(는) 이 채팅의 권한 정책({policy})을 지킬 수 없음: 무엇을 물을지는 자체 설정이 정함"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} kan ikke overholde tillatelsespolicyen for denne chatten ({policy}): dens egne innstillinger avgjør hva den spør om"
+            "value": "OpenCode kan ikke overholde tillatelsespolicyen for denne chatten ({policy}): dens egne innstillinger avgjør hva den spør om"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} nie może przestrzegać zasad uprawnień tego czatu ({policy}): o tym, o co pyta, decydują jego własne ustawienia"
+            "value": "OpenCode nie może przestrzegać zasad uprawnień tego czatu ({policy}): o tym, o co pyta, decydują jego własne ustawienia"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} não consegue manter a política de permissões deste chat ({policy}): as próprias configurações dele decidem o que ele pergunta"
+            "value": "OpenCode não consegue manter a política de permissões deste chat ({policy}): as próprias configurações dele decidem o que ele pergunta"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} не может соблюдать политику разрешений этого чата ({policy}): что спрашивать, решают его собственные настройки"
+            "value": "OpenCode не может соблюдать политику разрешений этого чата ({policy}): что спрашивать, решают его собственные настройки"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} ไม่สามารถทำตามนโยบายสิทธิ์ของแชทนี้ ({policy}) ได้: การตั้งค่าของตัวเองเป็นตัวกำหนดว่าจะถามอะไร"
+            "value": "OpenCode ไม่สามารถทำตามนโยบายสิทธิ์ของแชทนี้ ({policy}) ได้: การตั้งค่าของตัวเองเป็นตัวกำหนดว่าจะถามอะไร"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} bu sohbetin izin politikasını ({policy}) uygulayamıyor: neyi soracağına kendi ayarları karar veriyor"
+            "value": "OpenCode bu sohbetin izin politikasını ({policy}) uygulayamıyor: neyi soracağına kendi ayarları karar veriyor"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} не може дотримуватися політики дозволів цього чату ({policy}): що питати, вирішують його власні налаштування"
+            "value": "OpenCode не може дотримуватися політики дозволів цього чату ({policy}): що питати, вирішують його власні налаштування"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} không thể giữ chính sách quyền của cuộc trò chuyện này ({policy}): cài đặt riêng của nó quyết định nó hỏi gì"
+            "value": "OpenCode không thể giữ chính sách quyền của cuộc trò chuyện này ({policy}): cài đặt riêng của nó quyết định nó hỏi gì"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} 无法遵守此聊天的权限策略（{policy}）：它问什么由它自己的设置决定"
+            "value": "OpenCode 无法遵守此聊天的权限策略（{policy}）：它问什么由它自己的设置决定"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} 無法遵守此聊天的權限原則（{policy}）：它問什麼由它自己的設定決定"
+            "value": "OpenCode 無法遵守此聊天的權限原則（{policy}）：它問什麼由它自己的設定決定"
           }
         }
       }
     },
     "policyUnenforced.noAskingMode": {
-      "comment": "Agent pane: transcript note where acpmux logged that the chat's harness has no mode that asks before acting, so it cannot keep the chat's permission policy; {agent} is the harness name, {policy} a permission policy name (policy.* strings)",
+      "comment": "Agent pane: transcript note where acpmux logged that the chat's harness has no mode that asks before acting, so it cannot keep the chat's permission policy; {policy} is a permission policy name (policy.* strings)",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لا يمكن لـ {agent} الالتزام بسياسة الأذونات لهذه الدردشة ({policy}): يعمل دون أن يسأل"
+            "value": "لا يملك وكيل هذه الدردشة وضعًا يسأل قبل كل تغيير، لذا لا يمكنه الالتزام بسياسة الأذونات ({policy})"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} ne može poštovati pravila dozvola ovog chata ({policy}): radi bez pitanja"
+            "value": "Agent ovog chata nema način rada koji pita prije svake promjene, pa ne može poštovati pravila dozvola ({policy})"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} kan ikke overholde denne chats tilladelsespolitik ({policy}): den kører uden at spørge"
+            "value": "Denne chats agent har ingen tilstand, der spørger før hver ændring, så den kan ikke overholde tilladelsespolitikken ({policy})"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} kann die Berechtigungsrichtlinie dieses Chats ({policy}) nicht einhalten: Es arbeitet, ohne zu fragen"
+            "value": "Der Agent dieses Chats hat keinen Modus, der vor jeder Änderung fragt, und kann die Berechtigungsrichtlinie ({policy}) daher nicht einhalten"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "{agent} can't keep this chat's permission policy ({policy}): it runs without asking"
+            "value": "This chat's agent has no mode that asks before each change, so it can't keep the permission policy ({policy})"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} no puede mantener la política de permisos de este chat ({policy}): funciona sin preguntar"
+            "value": "El agente de este chat no tiene un modo que pregunte antes de cada cambio, así que no puede mantener la política de permisos ({policy})"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} ne peut pas respecter la politique d’autorisations de ce chat ({policy}) : il s’exécute sans demander"
+            "value": "L’agent de ce chat n’a aucun mode qui demande avant chaque modification : il ne peut donc pas respecter la politique d’autorisations ({policy})"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} non può rispettare il criterio di autorizzazione di questa chat ({policy}): funziona senza chiedere"
+            "value": "L’agente di questa chat non ha una modalità che chieda prima di ogni modifica, quindi non può rispettare il criterio di autorizzazione ({policy})"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} はこのチャットの権限ポリシー（{policy}）を守れません。確認せずに実行します"
+            "value": "このチャットのエージェントには変更のたびに確認するモードがないため、権限ポリシー（{policy}）を守れません"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} មិនអាចរក្សាគោលការណ៍សិទ្ធិរបស់ការជជែកនេះ ({policy}) បានទេ៖ វាដំណើរការដោយមិនសួរ"
+            "value": "ភ្នាក់ងាររបស់ការជជែកនេះគ្មានរបៀបដែលសួរមុនរាល់ការផ្លាស់ប្ដូរទេ ដូច្នេះវាមិនអាចរក្សាគោលការណ៍សិទ្ធិ ({policy}) បានទេ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent}은(는) 이 채팅의 권한 정책({policy})을 지킬 수 없음: 묻지 않고 실행함"
+            "value": "이 채팅의 에이전트에는 변경할 때마다 묻는 모드가 없어 권한 정책({policy})을 지킬 수 없음"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} kan ikke overholde tillatelsespolicyen for denne chatten ({policy}): den kjører uten å spørre"
+            "value": "Agenten i denne chatten har ingen modus som spør før hver endring, så den kan ikke overholde tillatelsespolicyen ({policy})"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} nie może przestrzegać zasad uprawnień tego czatu ({policy}): działa bez pytania"
+            "value": "Agent tego czatu nie ma trybu, który pyta przed każdą zmianą, więc nie może przestrzegać zasad uprawnień ({policy})"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} não consegue manter a política de permissões deste chat ({policy}): ele roda sem perguntar"
+            "value": "O agente deste chat não tem um modo que pergunte antes de cada alteração, então não consegue manter a política de permissões ({policy})"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} не может соблюдать политику разрешений этого чата ({policy}): работает, ничего не спрашивая"
+            "value": "У агента этого чата нет режима, который спрашивает перед каждым изменением, поэтому он не может соблюдать политику разрешений ({policy})"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} ไม่สามารถทำตามนโยบายสิทธิ์ของแชทนี้ ({policy}) ได้: ทำงานโดยไม่ถาม"
+            "value": "เอเจนต์ของแชทนี้ไม่มีโหมดที่ถามก่อนการเปลี่ยนแปลงแต่ละครั้ง จึงทำตามนโยบายสิทธิ์ ({policy}) ไม่ได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} bu sohbetin izin politikasını ({policy}) uygulayamıyor: sormadan çalışıyor"
+            "value": "Bu sohbetin ajanının her değişiklikten önce soran bir modu yok, bu yüzden izin politikasını ({policy}) uygulayamıyor"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} не може дотримуватися політики дозволів цього чату ({policy}): працює, нічого не питаючи"
+            "value": "Агент цього чату не має режиму, який питає перед кожною зміною, тому не може дотримуватися політики дозволів ({policy})"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} không thể giữ chính sách quyền của cuộc trò chuyện này ({policy}): nó chạy mà không hỏi"
+            "value": "Tác nhân của cuộc trò chuyện này không có chế độ hỏi trước mỗi thay đổi, nên không thể giữ chính sách quyền ({policy})"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} 无法遵守此聊天的权限策略（{policy}）：它运行时不会询问"
+            "value": "此聊天的代理没有在每次更改前询问的模式，因此无法遵守权限策略（{policy}）"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} 無法遵守此聊天的權限原則（{policy}）：它執行時不會詢問"
+            "value": "此聊天的代理沒有在每次變更前詢問的模式，因此無法遵守權限原則（{policy}）"
           }
         }
       }

@@ -10,7 +10,6 @@
 // A policy note says the chat's harness cannot keep its permission policy (acpmux
 // `policy_unenforced`), which is otherwise invisible too: the chat still names the policy while
 // its agent runs without the asks the policy would answer.
-import { agentName } from "../agents";
 import { type StringKey, useT } from "../i18n";
 import type { AcpmuxCompaction, AcpmuxFailover, AcpmuxPolicyUnenforced } from "../model";
 import { ArrowRight, Lock, Spinner, SummaryToggle } from "./icons";
@@ -69,18 +68,15 @@ const POLICY_NAMES: Record<string, StringKey> = {
 export function PolicyUnenforcedNote({ note }: { note: AcpmuxPolicyUnenforced }) {
   const t = useT();
   const name = POLICY_NAMES[note.policy];
-  const values = {
-    agent: note.harness ? agentName(note.harness) : t("trust.agent"),
-    // A policy this pane does not know yet keeps acpmux's id.
-    policy: name ? t(name) : note.policy,
-  };
+  // A policy this pane does not know yet keeps acpmux's id.
+  const values = { policy: name ? t(name) : note.policy };
   return (
     <div className="cv-tools">
       <div className="cv-tool cv-policy-unenforced">
         <span className="cv-tool__icon">
           <Lock />
         </span>
-        <span className="cv-tool__text">
+        <span className="cv-tool__text cv-policy-unenforced__text">
           {note.why === "ownSettings"
             ? t("policyUnenforced.ownSettings", values)
             : t("policyUnenforced.noAskingMode", values)}

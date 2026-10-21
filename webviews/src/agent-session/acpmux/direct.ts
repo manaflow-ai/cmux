@@ -2543,21 +2543,17 @@ export class AcpmuxDirectClient {
         // (`hub/policy_mode.rs`): its agent runs without the asks the policy would answer.
         if (typeof msg.policy === "string") {
           const id = `policy-unenforced-${event.seq}`;
-          const harness = this.summary?.harness;
-          // acpmux's English reason is only a hint for a chat whose family the pane does not know.
+          // From the record alone, so a rebuild before the summary is back draws the same note: acpmux's
+          // reason (never shown) says whether OpenCode's own settings decide; the family only for a
+          // record without one.
           const opencode =
-            this.summary?.family === "opencode" ||
-            (!this.summary?.family && typeof msg.reason === "string" && msg.reason.startsWith("opencode"));
+            typeof msg.reason === "string" ? msg.reason.startsWith("opencode") : this.summary?.family === "opencode";
           this.rows.set(id, {
             id,
             version: 1,
             at: event.at,
             kind: "policyUnenforced",
-            policyUnenforced: {
-              policy: msg.policy,
-              ...(typeof harness === "string" && harness ? { harness } : {}),
-              why: opencode ? "ownSettings" : "noAskingMode",
-            },
+            policyUnenforced: { policy: msg.policy, why: opencode ? "ownSettings" : "noAskingMode" },
           });
         }
       } else if (event.kind === "session_offer") {
