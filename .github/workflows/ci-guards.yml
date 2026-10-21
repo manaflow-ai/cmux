@@ -1148,9 +1148,13 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_publisher_testing.py
 
-      - name: Validate the cmux-next tour runs on merges and media-tour pull requests only
+      - name: Validate when the cmux-next tour runs (merges, media-tour, Swift UI a tour covers)
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_next_media_tour_gate.py
+
+      - name: Validate which pull requests get a native media tour
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_media_auto_tour.py
 
       - name: Validate webview-only changes tour on Linux, not a Mac
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
