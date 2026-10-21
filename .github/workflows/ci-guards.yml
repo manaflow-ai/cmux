@@ -1225,6 +1225,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_next_dev_daily_dispatch.py
 
+      - name: Validate the cmux NEXT tip Swift suite dispatcher
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_next_tip_swift_suite_dispatch.py
+
       - name: Validate nightly tag permission probe
         if: ${{ matrix.group == 'release-notary' }}
         run: bash ./tests/test_nightly_tag_permission_probe.sh
