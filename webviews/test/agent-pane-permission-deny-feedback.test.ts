@@ -136,10 +136,24 @@ await requireBrowserLane("agent-pane-permission-deny-feedback.test.ts", async ()
             ]
           : [],
     );
-  const settle = async (page: Page, count: number) => {
-    for (let tries = 0; tries < 40 && answers().length < count; tries++) await page.waitForTimeout(50);
-    await page.waitForTimeout(200);
-  };
+  /// Called each time the pane asks acpmux something.
+  let onAsk: (() => void) | undefined;
+  /// Resolves once acpmux has heard `count` answers.
+  const heard = (count: number) =>
+    new Promise<void>((resolve) => {
+      const check = () => {
+        if (answers().length < count) return;
+        onAsk = undefined;
+        resolve();
+      };
+      onAsk = check;
+      check();
+    });
+  /// Whether the keyboard is in the composer: a deny acpmux took has finished (sendFeedback).
+  const inComposer = (page: Page) =>
+    page.waitForFunction(() => Boolean(document.activeElement?.closest(".acpmux-composer")), undefined, {
+      timeout: 10_000,
+    });
   beforeAll(async () => {
     daemon = Bun.serve({
       port: 0,
@@ -151,6 +165,7 @@ await requireBrowserLane("agent-pane-permission-deny-feedback.test.ts", async ()
         message(ws, raw) {
           const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
           asked.push({ method: message.method, params: message.params ?? {} });
+          onAsk?.();
           if (message.id !== undefined && refuseDeny && message.method === "_acpmux/permission_respond")
             ws.send(
               JSON.stringify({ jsonrpc: "2.0", id: message.id, error: { code: -32000, message: "already answered" } }),
@@ -194,10 +209,9 @@ await requireBrowserLane("agent-pane-permission-deny-feedback.test.ts", async ()
     await page.getByRole("button", { name: "No, tell Claude what to do differently" }).click();
     expect(await field.inputValue()).toBe("Run only the unit tests");
     await field.press("Enter");
-    await settle(page, 2);
+    // The keyboard goes back to the composer, as a plain deny's does, once the text has gone too.
+    await inComposer(page);
     expect(answers()).toEqual(["respond reject_once", "prompt (steer) Run only the unit tests"]);
-    // The keyboard goes back to the composer, as a plain deny's does.
-    expect(await page.evaluate(() => Boolean(document.activeElement?.closest(".acpmux-composer")))).toBe(true);
     await page.close();
   });
 
@@ -209,9 +223,18 @@ await requireBrowserLane("agent-pane-permission-deny-feedback.test.ts", async ()
       const field = page.getByRole("textbox", { name: "Tell the agent what to do instead" });
       await field.fill("Use pnpm");
       await field.press("Enter");
-      await settle(page, 1);
+      // The refusal is back: the field can be typed in again and has the keyboard.
+      await page.waitForFunction(
+        () => {
+          const active = document.activeElement;
+          return (
+            active instanceof HTMLTextAreaElement && active.closest(".acpmux-permission-feedback") && !active.readOnly
+          );
+        },
+        undefined,
+        { timeout: 10_000 },
+      );
       expect(answers()).toEqual(["respond reject_once"]);
-      await field.waitFor({ timeout: 5_000 });
       expect(await field.inputValue()).toBe("Use pnpm");
     } finally {
       refuseDeny = false;
@@ -225,7 +248,7 @@ await requireBrowserLane("agent-pane-permission-deny-feedback.test.ts", async ()
     await page.getByRole("button", { name: "Decline" }).waitFor({ timeout: 5_000 });
     await page.getByRole("button", { name: "Deny and tell the agent what to do instead" }).click();
     await page.getByRole("button", { name: "Deny and send" }).click();
-    await settle(page, 1);
+    await inComposer(page);
     expect(answers()).toEqual(["respond denied"]);
     await page.close();
   });
@@ -241,8 +264,10 @@ await requireBrowserLane("agent-pane-permission-deny-feedback.test.ts", async ()
     expect(await page.evaluate(() => document.activeElement?.textContent)).toBe(
       "Deny and tell the agent what to do instead",
     );
-    await page.waitForTimeout(200);
-    expect(answers()).toEqual([]);
+    // Cancel sent nothing: the next answer the card gives is the first acpmux hears.
+    await page.getByRole("button", { name: "Approve" }).click();
+    await heard(1);
+    expect(answers()).toEqual(["respond approved"]);
     await page.close();
   });
 });

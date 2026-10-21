@@ -125,6 +125,12 @@ fn no_plain_udp(options: &DialOptions) -> bool {
     options.relay_only || options.block_udp
 }
 
+/// Asked for a TURN allocation (`wanted`) and got none in time, though a TURN
+/// server is configured: the session takes it once the server answers.
+fn missed_turn(wanted: bool, turn: Option<&TurnCarrier>, options: &DialOptions) -> bool {
+    wanted && turn.is_none() && super::turn::turn_servers(&options.ice_servers) != (None, None)
+}
+
 /// Host endpoints of a socket on `port` (no STUN).
 fn host_endpoints(port: u16, options: &DialOptions) -> Vec<SocketAddr> {
     if no_plain_udp(options) {
@@ -1337,9 +1343,7 @@ impl Dialer for WireGuardDialer {
             if no_plain_udp(options) && turn.is_none() {
                 return Err(DialError::Transport("no TURN allocation, and plain UDP is off".into()));
             }
-            // Asked for TURN and got none in time: the session takes it once the server answers.
-            let turn_missed =
-                turn.is_none() && super::turn::turn_servers(&options.ice_servers) != (None, None);
+            let turn_missed = missed_turn(true, turn.as_ref(), options);
             let Gathered { mut endpoints, stun, .. } = gathered;
             let (relayed, relayed_tls) = relayed_of(turn.as_ref());
             endpoints.extend(relayed.iter().cloned());
@@ -1528,10 +1532,7 @@ impl Dialer for WireGuardDialer {
             if no_plain_udp(options) && turn.is_none() {
                 return Err(DialError::Transport("no TURN allocation, and plain UDP is off".into()));
             }
-            // Asked for TURN and got none in time: the session takes it once the server answers.
-            let turn_missed = wants_turn
-                && turn.is_none()
-                && super::turn::turn_servers(&options.ice_servers) != (None, None);
+            let turn_missed = missed_turn(wants_turn, turn.as_ref(), options);
             let Gathered { mut endpoints, stun, .. } = gathered;
             let (own_relayed, own_relayed_tls) = relayed_of(turn.as_ref());
             endpoints.extend(own_relayed.iter().cloned());

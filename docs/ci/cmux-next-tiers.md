@@ -174,7 +174,13 @@ exports lag the same way, so the defaults-snapshot job passes `--base` (the
 event's parent commit): a stale export of a source the event changed fails, and
 one already stale on the base is a warning. The base autofix
 rewrites it after each merge. The defaults guard judges a pull request by the defaults its
-exports and sources produce, never by a committed snapshot.
+exports and sources produce, never by a committed snapshot. A changed default passes
+with an independent review receipt on the head (a comment or review whose first line is
+`Review (<reviewer>): SHIP at <full head sha>`, from a member, not a self-review; the
+newest verdict naming the head decides, so a later BLOCK beats an earlier SHIP) or an
+approving review from a call owner in `.github/defaults-call-owners.json` other than the
+author. A new setting whose default is off (false, null, `off`, `never`, `none`,
+`disabled` or empty) keeps what everyone had before it existed and passes on its own.
 
 ## Measurements
 

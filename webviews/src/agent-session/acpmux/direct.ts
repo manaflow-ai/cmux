@@ -24,6 +24,7 @@ import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
 import { promptBlocks, promptText, takesAudio, type ComposerAttachment } from "./attachments";
 import { liftInlineImages } from "./inlineImages";
+import { resentAttachments, shownPrompt } from "./pastedText";
 import { peerConnectedFromStatus, peerKindsFromStatus } from "./environments";
 import { hostKind, sessionEntry, summaryActivityAt, text, type AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
@@ -949,6 +950,9 @@ export class AcpmuxDirectClient {
   /// What a prompt's sender is told once acpmux took the prompt (its `user_message` echo, or the
   /// reply), by prompt id. A refusal comes before either, so the composer keeps the prompt.
   private promptAccepts = new Map<string, () => void>();
+  /// The prompt ids this client sent: acpmux's refusal of one answers its request (a failed bubble
+  /// with Retry), so its `prompt_refused` record adds no notice (``noticeRefusal``).
+  private readonly sentPrompts = new Set<string>();
   /// Replies in place waiting for acpmux to take them (`_acpmux/prompt_accepted`), by prompt id.
   private replyAccepts = new Map<string, () => void>();
   /// A prompt that was not sent, by its row: what Retry sends again.
@@ -969,6 +973,10 @@ export class AcpmuxDirectClient {
   private turnOpener?: EventRecord;
   private lastSeq = 0;
   private turnOpen = false;
+  /// The open turn's agent has said nothing since its prompt, past acpmux's `silentTurnMs`
+  /// (`turn_silent`, hub/silent_turn.rs): the line says the model has not answered. acpmux hearing
+  /// the model (`turn_heard`), or the turn's end, clears it; the agent's own bookkeeping does not.
+  private silentTurn = false;
   /// Stop got no answer within STOP_GRACE_MS: the turn no longer shows as working until the next
   /// one starts (an acpmux that waits on an agent ignoring the cancel).
   private stopGaveUp = false;
@@ -1381,6 +1389,7 @@ export class AcpmuxDirectClient {
     this.queue = [];
     this.queueWithdrawn = [];
     this.turnOpen = false;
+    this.silentTurn = false;
     this.streamingAssistant = undefined;
     this.streamingAssistantMessageId = undefined;
     this.streamingActivity = undefined;
@@ -1768,9 +1777,11 @@ export class AcpmuxDirectClient {
   }
 
   /// Stops background process `processId` (Claude's stop_task, Codex's terminate). A harness
-  /// that never answers fails it after 10 s.
+  /// that never answers fails it after 10 s. It names its chat (`<sessionId>/<taskId>`'s): the host
+  /// lets only a chat in the pane's scope stop one, and acpmux stops only that chat's process.
   killProcess(processId: string): Promise<unknown> {
-    return this.request("_acpmux/process/kill", { processId }, 10_000);
+    const sessionId = processId.split("/")[0] ?? "";
+    return this.request("_acpmux/process/kill", { sessionId, processId }, 10_000);
   }
 
   /// Ctrl-B: moves the selected Claude Code chat's foreground work to the background, only the
@@ -2195,7 +2206,28 @@ export class AcpmuxDirectClient {
     this.lastSeq = event.seq;
     this.firstSeq = this.firstSeq === undefined ? event.seq : Math.min(this.firstSeq, event.seq);
     this.reduce(event);
+    this.noticeRefusal(event);
     this.emitInFrame(event.kind);
+  }
+
+  /// A queued prompt acpmux refused when its turn came, heard live, that this client did not send
+  /// (it waited in a chat moved here, or across a restart: hub/queue.rs `resume_queues`): it left
+  /// the queue, and the chat says why in acpmux's words. Only a live record: one in the history
+  /// a page loads was said when it happened, so opening the chat again does not repeat it.
+  private noticeRefusal(event: EventRecord): void {
+    if (event.kind !== "prompt_refused") return;
+    const msg = (event.msg ?? {}) as { promptId?: unknown; error?: unknown };
+    const promptId = typeof msg.promptId === "string" ? msg.promptId : "";
+    if (!promptId || this.sentPrompts.has(promptId)) return;
+    const reason = typeof msg.error === "string" && msg.error ? msg.error : translate("transport.refused");
+    const id = noticeId("notice-refused");
+    this.rows.set(id, {
+      id,
+      version: 1,
+      at: event.at,
+      kind: "notice",
+      text: translate("queue.promptRefused", { reason }),
+    });
   }
 
   /// Snapshots before the next display frame, once for every event that lands before it.
@@ -2225,6 +2257,7 @@ export class AcpmuxDirectClient {
     this.firstSeq = undefined;
     this.lastSeq = 0;
     this.turnOpen = false;
+    this.silentTurn = false;
     this.turnTokens = undefined;
     this.streamingAssistant = undefined;
     this.streamingAssistantMessageId = undefined;
@@ -2645,8 +2678,13 @@ export class AcpmuxDirectClient {
           this.setDelivery(fallbackPromptId, { state: "read", readAt: event.at }, `user-${event.seq}`);
         }
         this.turnOpen = true;
+      } else if (event.kind === "turn_silent") {
+        this.silentTurn = this.turnOpen;
+      } else if (event.kind === "turn_heard") {
+        this.silentTurn = false;
       } else if (event.kind === "turn_started") {
         this.turnOpen = true;
+        this.silentTurn = false;
         this.turnTokens = event.seq >= this.usageFromSeq ? 0 : undefined;
         this.subagents.startTurn();
         this.settleCompactions(event.seq, true);
@@ -2664,6 +2702,7 @@ export class AcpmuxDirectClient {
         }
       } else if (event.kind === "turn_end" || event.kind === "turn_result") {
         this.turnOpen = false;
+        this.silentTurn = false;
         this.turnTokens = undefined;
         this.settleCompactions(event.seq, event.kind === "turn_result" && msg.cancelForced === true);
         this.landSteer();
@@ -3123,6 +3162,7 @@ export class AcpmuxDirectClient {
       isWorking:
         this.replayThrough === undefined && !this.stopGaveUp && (this.turnOpen || summary?.status === "running"),
       ...(this.replayThrough === undefined && this.turnTokens ? { turnTokens: this.turnTokens } : {}),
+      ...(this.replayThrough === undefined && this.turnOpen && this.silentTurn ? { silentTurn: true as const } : {}),
       // Only a peer runs on another clock; this computer's own sessions need no correction.
       ...(summary?.peer && this.clockOffset !== undefined ? { clockOffsetMs: this.clockOffset } : {}),
       canFork: this.canFork,
@@ -3243,7 +3283,8 @@ export class AcpmuxDirectClient {
     const sessionId = shown ?? (await this.ensureSession());
     // No chat took it: the sender gets the prompt back (a started chat's composer let go of it).
     if (!sessionId) throw new Error(translate("error.notOpen"));
-    const text = promptText(input, attachments);
+    // A paste sent as its own block shows in the bubble as acpmux's echo will have it (pastedText.ts).
+    const { text, pasted } = shownPrompt(promptText(input, attachments), attachments);
     const rowId = `local-${promptId}`;
     const at = Date.now();
     this.optimisticPromptRows.set(promptId, rowId);
@@ -3280,6 +3321,7 @@ export class AcpmuxDirectClient {
         at,
         kind: "user",
         text,
+        ...(pasted.length ? { pasted } : {}),
         pending: true,
         delivery,
       });
@@ -3304,6 +3346,7 @@ export class AcpmuxDirectClient {
       release();
     };
     this.promptAccepts.set(promptId, accept);
+    this.sentPrompts.add(promptId);
     // A prompt behind the turn is drawn in the queue now: that row shows the send, so the composer
     // is free for the next prompt without waiting for acpmux (a lagged event stream can lose its
     // `queued` record). The context is spent only when acpmux takes it.
@@ -3586,8 +3629,9 @@ export class AcpmuxDirectClient {
   /// What to send again with prompt row `rowId` (Retry, Edit): the attachments this page sent, else
   /// its images read back from acpmux (a prompt sent before a reload, or from another window).
   async promptAttachments(rowId: string): Promise<ComposerAttachment[]> {
+    // The text sent again is the echo, which holds each paste: the pasted chips stay out.
     const kept = this.retryAttachments.get(rowId);
-    if (kept?.length) return kept;
+    if (kept?.length) return resentAttachments(kept);
     const images = this.rows.get(rowId)?.images ?? [];
     const read = await Promise.all(
       images.map(async (image, index): Promise<ComposerAttachment | undefined> => {
@@ -4597,6 +4641,7 @@ export class AcpmuxDirectClient {
   private foldOlder(older: EventRecord[]): void {
     const live = {
       turnOpen: this.turnOpen,
+      silentTurn: this.silentTurn,
       turnTokens: this.turnTokens,
       streamingAssistant: this.streamingAssistant,
       streamingAssistantMessageId: this.streamingAssistantMessageId,
@@ -4626,6 +4671,7 @@ export class AcpmuxDirectClient {
     };
     const held = new Map(this.rows);
     this.turnOpen = false;
+    this.silentTurn = false;
     this.turnTokens = undefined;
     this.streamingAssistant = undefined;
     this.streamingAssistantMessageId = undefined;

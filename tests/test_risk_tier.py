@@ -354,19 +354,73 @@ class EvidenceTests(unittest.TestCase):
         self.assertIsNone(risk.last_labeler([added, removed], "risk:human-ok"))
 
     def test_only_a_person_other_than_the_author_approving_the_head_counts(self):
-        def review(login, state="APPROVED", sha=HEAD, kind="User", assoc="MEMBER"):
+        def review(login, state="APPROVED", sha=HEAD, kind="User", assoc="MEMBER", at="2026-10-21T20:00:00Z"):
             return {"user": {"login": login, "type": kind}, "state": state, "commit_id": sha,
-                    "author_association": assoc}
-        self.assertEqual(risk.approver([review("lawrencecchen")], HEAD, "teamleaderleo"), "lawrencecchen")
-        self.assertIsNone(risk.approver([review("teamleaderleo")], HEAD, "teamleaderleo"))
-        self.assertIsNone(risk.approver([review("lawrencecchen", sha="f" * 40)], HEAD, "teamleaderleo"))
-        self.assertIsNone(risk.approver([review("coderabbitai[bot]", kind="Bot")], HEAD, "teamleaderleo"))
-        self.assertIsNone(risk.approver([review("drive-by", assoc="NONE")], HEAD, "teamleaderleo"))
+                    "author_association": assoc, "submitted_at": at, "body": ""}
+
+        def signed(*reviews):
+            return risk.signed_off([], list(reviews), HEAD, "teamleaderleo")
+        self.assertEqual(signed(review("lawrencecchen")), "@lawrencecchen")
+        self.assertIsNone(signed(review("teamleaderleo")))
+        self.assertIsNone(signed(review("lawrencecchen", sha="f" * 40)))
+        self.assertIsNone(signed(review("coderabbitai[bot]", kind="Bot")))
+        self.assertIsNone(signed(review("drive-by", assoc="NONE")))
         # A later request for changes withdraws the approval; a comment doesn't.
-        self.assertIsNone(risk.approver([review("lawrencecchen"), review("lawrencecchen", "CHANGES_REQUESTED")],
-                                        HEAD, "teamleaderleo"))
-        self.assertEqual(risk.approver([review("lawrencecchen"), review("lawrencecchen", "COMMENTED")],
-                                       HEAD, "teamleaderleo"), "lawrencecchen")
+        self.assertIsNone(signed(review("lawrencecchen"),
+                                 review("lawrencecchen", "CHANGES_REQUESTED", at="2026-10-21T20:05:00Z")))
+        self.assertEqual(signed(review("lawrencecchen"),
+                                review("lawrencecchen", "COMMENTED", at="2026-10-21T20:05:00Z")), "@lawrencecchen")
+
+
+class ShipReceiptTests(unittest.TestCase):
+    def comment(self, body, at="2026-10-21T20:00:00Z", association="MEMBER", kind="User"):
+        return {"body": body, "created_at": at, "author_association": association,
+                "user": {"login": "teamleaderleo", "type": kind}}
+
+    def review(self, body="", state="COMMENTED", at="2026-10-21T20:00:00Z", login="lawrencecchen"):
+        return {"body": body, "state": state, "commit_id": HEAD, "submitted_at": at,
+                "author_association": "MEMBER", "user": {"login": login, "type": "User"}}
+
+    def test_an_independent_ship_at_the_full_head_signs_off(self):
+        comments = [self.comment(f"Review (subagent, correctness first): SHIP at {HEAD}\n\ndetails")]
+        self.assertEqual(risk.signed_off(comments, [], HEAD), "review (subagent, correctness first)")
+
+    def test_a_short_sha_another_head_or_a_self_review_does_not(self):
+        for line in (f"Review (subagent): SHIP at {HEAD[:12]}", "Review (subagent): SHIP at " + "f" * 40,
+                     f"Review (self): SHIP at {HEAD}", f"Addressed review: nothing blocking at {HEAD}"):
+            self.assertIsNone(risk.signed_off([self.comment(line)], [], HEAD), line)
+
+    def test_the_receipt_must_lead_the_comment(self):
+        self.assertIsNone(risk.signed_off([self.comment(f"Notes\nReview (subagent): SHIP at {HEAD}")], [], HEAD))
+
+    def test_a_newer_block_beats_an_earlier_ship(self):
+        comments = [self.comment(f"Review (subagent): SHIP at {HEAD}", at="2026-10-21T20:00:00Z"),
+                    self.comment(f"Review (codex): BLOCK at {HEAD}: races", at="2026-10-21T20:05:00Z")]
+        self.assertIsNone(risk.signed_off(comments, [], HEAD))
+        comments.append(self.comment(f"Review (codex): SHIP at {HEAD}", at="2026-10-21T20:10:00Z"))
+        self.assertEqual(risk.signed_off(comments, [], HEAD), "review (codex)")
+
+    def test_a_block_in_a_review_body_or_a_change_request_beats_an_earlier_ship(self):
+        ship = [self.comment(f"Review (subagent): SHIP at {HEAD}", at="2026-10-21T20:00:00Z")]
+        later = "2026-10-21T20:05:00Z"
+        self.assertIsNone(risk.signed_off(ship, [self.review(f"Review (codex): BLOCK at {HEAD}", at=later)], HEAD))
+        self.assertIsNone(risk.signed_off(ship, [self.review(state="CHANGES_REQUESTED", at=later)], HEAD))
+        self.assertEqual(risk.signed_off(ship, [self.review(f"Review (codex): SHIP at {HEAD}", at=later)], HEAD),
+                         "review (codex)")
+
+    def test_a_newer_block_comment_beats_an_approval(self):
+        approval = [self.review(state="APPROVED", at="2026-10-21T20:00:00Z")]
+        block = [self.comment(f"Review (subagent): BLOCK at {HEAD}", at="2026-10-21T20:05:00Z")]
+        self.assertIsNone(risk.signed_off(block, approval, HEAD, "teamleaderleo"))
+
+    def test_a_block_wins_a_tie(self):
+        comments = [self.comment(f"Review (codex): BLOCK at {HEAD}"), self.comment(f"Review (subagent): SHIP at {HEAD}")]
+        self.assertIsNone(risk.signed_off(comments, [], HEAD))
+
+    def test_bots_and_outside_accounts_do_not_count(self):
+        line = f"Review (subagent): SHIP at {HEAD}"
+        self.assertIsNone(risk.signed_off([self.comment(line, kind="Bot")], [], HEAD))
+        self.assertIsNone(risk.signed_off([self.comment(line, association="CONTRIBUTOR")], [], HEAD))
 
 
 if __name__ == "__main__":

@@ -13,7 +13,9 @@
 //!   right behind it under the same rules join that turn (`take_joined`), each as it was sent,
 //!   oldest first, under a line naming its sender (`digest_blocks`), up to
 //!   [`DIGEST_MAX_BYTES`] of text; the rest goes in together as the next turn. A slash command
-//!   (`/compact`) runs only as a turn's first words, so it goes in alone and ends the run. A joined prompt
+//!   (`/compact`) runs only as a turn's first words, so it goes in alone and ends the run, and so
+//!   does a sub-session family message: its own turn checks it again (`subsession_guard.rs`
+//!   `family_dispatch_check`), which a joined one would skip. A joined prompt
 //!   leaves the queue with a `dequeued` record naming the turn (`joinedTurnId`), and its
 //!   `session/prompt` answers with that turn's answer (`joined_reply`). When that turn fails,
 //!   the joined messages go back to the head of the queue, held, once (`requeue_joined`):
@@ -213,7 +215,8 @@ impl Hub {
                     && !q.steer
                     && !q.sent_now
                     && q.run.control == head.control
-                    && q.run.trust_gate == head.trust_gate;
+                    && q.run.trust_gate == head.trust_gate
+                    && !super::subsession_guard::is_family_prompt(q.run.provenance.as_ref());
                 let size = blocks_bytes(&q.run.blocks);
                 if !joins || bytes + size > DIGEST_MAX_BYTES {
                     break;

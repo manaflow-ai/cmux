@@ -17,6 +17,7 @@ export const CATEGORY_CARDS = [
   "machines",
   "accounts",
   "agentHarnesses",
+  "agentIntegrations",
   "chiefs",
   "advancedInfo",
   "advancedActions",
@@ -24,6 +25,7 @@ export const CATEGORY_CARDS = [
   "mobile",
   "chiefPet",
   "density",
+  "importSuggestions",
   "channels",
 ] as const;
 
