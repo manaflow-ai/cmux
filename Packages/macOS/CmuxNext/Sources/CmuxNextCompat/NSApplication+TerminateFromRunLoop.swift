@@ -14,7 +14,7 @@ public extension NSApplication {
         // Who asked, read now: inside the callout the stack is only the run loop's.
         let asker = Thread.callStackSymbols
         RunLoop.main.perform(inModes: [.common]) {
-            MainActor.assumeIsolated {
+            MainActor.assumeIsolated { // main-proof: RunLoop.main runs its callouts on the main thread
                 guard NSApp.isRunning else {
                     refusedTerminations.append(site)
                     let stack = asker.joined(separator: "\n")
