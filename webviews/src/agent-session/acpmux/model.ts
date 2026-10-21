@@ -32,6 +32,8 @@ export type AcpmuxCompaction = {
   /// Failed because its turn ended while it ran, not because it said so; a later end replaces it.
   inferred?: boolean;
   reason?: string;
+  /// Why a failed compaction failed, in Claude Code's words ("Prompt is too long").
+  error?: string;
   preTokens?: number;
   postTokens?: number;
 };
@@ -408,6 +410,8 @@ export type AcpmuxSnapshot = {
     };
   }[];
   canLoadOlder: boolean;
+  /** The oldest event seq the pane holds: it moves with each older read, even one that drew no row. */
+  historyFrom?: number;
   /** The agent's slash commands, for the composer's `/` menu. */
   commands?: SlashCommand[];
   /** A harness switch the pane draws ahead of acpmux (harnessSwitch.ts): starting, applying to
@@ -556,9 +560,9 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
   if (row.kind === ACTIVITY_LINE) return 36;
   // The 20px date line with 8px above it.
   if (row.kind === DATE) return 36;
-  // The preview card: its 58px head over the thumbnail, and 6px below (PreviewCard.tsx).
-  // A gallery stage's live frame is taller (previewFrameHeight).
-  if (row.kind === PREVIEW) return 58 + (row.text ? previewFrameHeight(row.text) : PREVIEW_FRAME_HEIGHT) + 6 + 8;
+  // The preview card mounts unloaded: one compact row, and 6px below (PreviewCard.tsx). Once the
+  // reader clicks Load preview, the transcript's ResizeObserver measures the head over its frame.
+  if (row.kind === PREVIEW) return previewCardHeight(row.text, false);
   // The render card: its 36px head over the frame before it reports a height, and 6px below.
   if (row.kind === RENDER) return 36 + RENDER_FRAME_MIN_HEIGHT + 6;
   // Card padding and border, title, button row.
@@ -713,19 +717,10 @@ function lexIncrementally(entry: PreparedRow, text: string): void {
 function measuredRowHeight(row: AcpmuxRow, width: number, cache: Map<string, PreparedRow>): number {
   // A task's result is one 26px line, however long the prompt that brought it (offer/SuggestedTasks.tsx).
   if (row.received) return 26 + 16;
-  // Another agent's message: its route line over two lines of the message; a notice is a tool
+  // Another agent's message: one 26px line (opened, the row measures itself); a notice is a tool
   // row's line (conversation/IncomingMessageCard.tsx).
-  // Its images' 120px row with 6px below (UserBubble.tsx SENT_IMAGE_HEIGHT), and a steer's status line, as under a bubble.
-  if (row.incoming?.kind === "message")
-    return (
-      32 +
-      2 * 19 +
-      7 +
-      8 +
-      (row.incoming.message.text.length > 140 ? 12 : 0) +
-      (row.images?.length ? 126 : 0) +
-      (row.steer ? USER_STATUS_HEIGHT : 0)
-    );
+  // Its images' 120px row with 2px above and 6px below (UserBubble.tsx SENT_IMAGE_HEIGHT); no steer line.
+  if (row.incoming?.kind === "message") return 26 + 4 + (row.images?.length ? 128 : 0);
   if (row.incoming?.kind === "notice") return 26 + 8;
   // Bookkeeping alone: a turn's start that draws nothing (conversation/turns.ts).
   if (row.incoming?.kind === "hidden") return 0;
@@ -880,7 +875,7 @@ export function scrollLeadRanges(
 import { layout, prepare, type PreparedText } from "@chenglou/pretext";
 import { lexer, type Token, type Tokens } from "marked";
 import { isFoldedRun } from "./conversation/toolRunSummary";
-import { PREVIEW_FRAME_HEIGHT, previewFrameHeight } from "./conversation/previewUrl";
+import { previewCardHeight } from "./conversation/previewUrl";
 import { RENDER_FRAME_MIN_HEIGHT } from "./conversation/renderCall";
 import { ACTIVITY_LINE, DATE, isFoldedCopy, PREVIEW, RENDER, THINKING, WORKED, WORKING } from "./conversation/turns";
 import type { AcpmuxSessionEntry } from "./sessionList";
