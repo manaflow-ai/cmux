@@ -191,4 +191,34 @@ import UniformTypeIdentifiers
         #expect(texts.joined().contains("look"))
         #expect(!texts.joined().contains("\u{FFFC}"))
     }
+
+    /// The field draws the pasted picture, not AppKit's blank document page (Austin 2026-10-20: a
+    /// screenshot pasted in the Chief's box showed as a white page with a folded corner). Renders
+    /// the field as the window would and looks for the picture's blue where the attachment sits.
+    @Test func theFieldDrawsThePastedPicture() async throws {
+        let h = try await home()
+        defer { h.close() }
+        try await attach(.pastePicture, to: h.view)
+        let a = try #require(h.inline.first).attachment
+        a.loadThumbnailNow(scale: 2)
+        let field = h.field
+        field.layoutSubtreeIfNeeded()
+        field.display()
+        let views = field.subviews.map { String(describing: type(of: $0)) }
+        let textKit2 = field.textLayoutManager != nil
+        let rep = try #require(field.bitmapImageRepForCachingDisplay(in: field.bounds))
+        field.cacheDisplay(in: field.bounds, to: rep)
+        var blue = 0, white = 0
+        for y in stride(from: 0, to: rep.pixelsHigh, by: 2) {
+            for x in stride(from: 0, to: rep.pixelsWide, by: 2) {
+                guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), c.alphaComponent > 0.9 else { continue }
+                let (r, g, b) = (c.redComponent, c.greenComponent, c.blueComponent)
+                if abs(r - 0.2) < 0.08, abs(g - 0.5) < 0.08, abs(b - 0.9) < 0.08 { blue += 1 }
+                if r > 0.95, g > 0.95, b > 0.95 { white += 1 }
+            }
+        }
+        let seen = "blue \(blue), white \(white), TextKit 2 \(textKit2), subviews \(views)"
+        #expect(blue > 200, "the picture is drawn in the field (\(seen))")
+        #expect(white < 50, "no blank white page where the picture goes (\(seen))")
+    }
 }
