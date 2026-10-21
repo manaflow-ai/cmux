@@ -2526,8 +2526,8 @@ struct SidebarAppKitRowCellTests {
         #expect(secondOpened == Self.linkedMetadataURLs[0])
         #expect(firstOpened == nil)
 
-        // A plain entry in between hides the view without clearing it, and
-        // the same Markdown entry afterward is still a no-op.
+        // A plain entry in between clears the hidden view, so no stale text or
+        // link survives; the same Markdown entry afterward renders again.
         line.configureMetadataEntry(
             SidebarStatusEntry(key: "plain", value: "plain status"),
             model: model,
@@ -2535,10 +2535,11 @@ struct SidebarAppKitRowCellTests {
             onOpenURL: { _ in }
         )
         #expect(textView.isHidden)
+        #expect(textView.string.isEmpty)
         #expect(!Self.activateLink(link, in: textView))
         line.configureMetadataEntry(entry, model: model, color: .secondaryLabelColor) { _ in }
         #expect(!textView.isHidden)
-        #expect(editCounter.count == 0)
+        #expect(textView.string == "acme/widgets • PR#123 • dev-7")
 
         // Changed content still renders.
         line.configureMetadataEntry(
