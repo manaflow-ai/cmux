@@ -136,12 +136,26 @@ if [[ "${CMUX_BASE_AUTOFIX_ACTION_EXPORTS_CURRENT:-}" == 1 ]]; then
 fi
 FAKE
 chmod +x "$tmp/fake-repair.sh"
-# The base gains the files built from the exports and a defaults guard whose check-stamp says
-# whether the settings exports are current (FAKE_STAMP); the bot's repair builds them at its commit.
-setup_built() {
+# The base gains the files built from the exports and a defaults guard that, like the real one, finds
+# the repository from its own path (parents[2]) and, when it cannot read the stamp there, notes it and
+# passes. Its check-stamp passes when the ref's stamp says "fresh". The bot's repair builds them at its commit.
+stamp=schemas/settings-export/settings-schema.sources.sha256
+setup_built() { # <stamp on the base: fresh or stale>
   setup
-  lane_commit "built files" "$shortcuts" "shortcuts old" "$snapshot" "snapshot old" scripts/ci/defaults_guard.py \
-    'import os, sys; sys.exit(0 if sys.argv[1:2] != ["check-stamp"] or os.environ.get("FAKE_STAMP") == "current" else 1)'
+  cat > "$tmp/guard.py" <<'GUARD'
+import pathlib, subprocess, sys
+root = pathlib.Path(__file__).resolve().parents[2]
+if sys.argv[1:2] == ["check-stamp"]:
+    ref = sys.argv[sys.argv.index("--ref") + 1]
+    read = subprocess.run(["git", "-C", str(root), "show", f"{ref}:schemas/settings-export/settings-schema.sources.sha256"],
+                          capture_output=True, text=True)
+    if read.returncode != 0:
+        print("note: the stamp is missing; the settings exports are not checked")
+        sys.exit(0)
+    sys.exit(0 if read.stdout.strip() == "fresh" else 1)
+GUARD
+  lane_commit "built files" "$shortcuts" "shortcuts old" "$snapshot" "snapshot old" "$stamp" "$1" \
+    scripts/ci/defaults_guard.py "$(cat "$tmp/guard.py")"
   rm -rf "$tmp/bot"
   git clone -q --depth=1 -b feat "file://$tmp/remote.git" "$tmp/bot"
   base="$(git -C "$tmp/bot" rev-parse HEAD)"
@@ -159,10 +173,10 @@ land_at() { # <actions made at> [env...]
 # 8. The run of 2026-10-21: CmuxNextActions moved during the run, the Mac job made the exports after
 #    it (T1). The exports land at the first push; the shortcuts and snapshot built at the run's
 #    commit wait there, and are made again on the tip from the exports that landed, and land too.
-setup_built
+setup_built fresh
 lane_commit "lane edits an action" "$actions_src" "action v2"
 made="$(remote_tip)"
-land_at "$made" FAKE_STAMP=current > "$tmp/out" 2>&1 || fail "the files built from the exports did not land on the tip: $(cat "$tmp/out")"
+land_at "$made" > "$tmp/out" 2>&1 || fail "the files built from the exports did not land on the tip: $(cat "$tmp/out")"
 [[ "$(remote_show "$surfaces")" == "surfaces new" ]] || fail "the action exports did not land"
 [[ "$(remote_show "$shortcuts")" == "shortcuts for surfaces new, action v2" ]] \
   || fail "the shortcuts were not made on the tip from its exports: $(remote_show "$shortcuts")"
@@ -171,28 +185,28 @@ grep -qx "CMUX_BASE_AUTOFIX_ACTION_EXPORTS_CURRENT=1" "$tmp/seen" || fail "the r
 
 # 9. The settings stamp is stale on the tip: the shortcuts land, the snapshot (it reads the settings
 #    exports too) waits, and the run fails so the next run repairs it.
-setup_built
+setup_built stale
 lane_commit "lane edits an action" "$actions_src" "action v2"
 made="$(remote_tip)"
-if land_at "$made" FAKE_STAMP=stale > "$tmp/out" 2>&1; then fail "a run whose snapshot waits passed: $(cat "$tmp/out")"; fi
+if land_at "$made" > "$tmp/out" 2>&1; then fail "a run whose snapshot waits passed: $(cat "$tmp/out")"; fi
 [[ "$(remote_show "$shortcuts")" == "shortcuts for surfaces new, action v2" ]] || fail "the shortcuts did not land: $(remote_show "$shortcuts")"
 [[ "$(remote_show "$snapshot")" == "snapshot old" ]] || fail "the snapshot landed with stale settings exports"
 grep -qF "$snapshot" "$tmp/out" || fail "the run does not name the waiting snapshot: $(cat "$tmp/out")"
 
 # 10. The actions area moved after T1: the tip's exports are not known current, so nothing built
 #     from them is made there; it all waits and the run fails.
-setup_built
+setup_built fresh
 lane_commit "lane edits an action" "$actions_src" "action v2"
 made="$(remote_tip)"
 lane_commit "lane edits it again" "$actions_src" "action v3"
-if land_at "$made" FAKE_STAMP=current > "$tmp/out" 2>&1; then fail "files built from stale exports passed: $(cat "$tmp/out")"; fi
+if land_at "$made" > "$tmp/out" 2>&1; then fail "files built from stale exports passed: $(cat "$tmp/out")"; fi
 [[ "$(remote_show "$shortcuts")" == "shortcuts old" ]] || fail "the shortcuts were made from exports not known current"
 grep -q "ACTION_EXPORTS_CURRENT=1" "$tmp/seen" && fail "the repair was told stale exports are current"
 
 # 11. Without ACTIONS_MADE_AT (no Mac exports in this run) nothing proves the tip's exports current.
-setup_built
+setup_built fresh
 lane_commit "lane edits an action" "$actions_src" "action v2"
-if land_at "" FAKE_STAMP=current > "$tmp/out" 2>&1; then fail "files built from unproven exports passed"; fi
+if land_at "" > "$tmp/out" 2>&1; then fail "files built from unproven exports passed"; fi
 [[ "$(remote_show "$shortcuts")" == "shortcuts old" ]] || fail "the shortcuts were made from unproven exports"
 
 # base-autofix-action-exports.sh (the Mac job). A stand-in for regenerate-action-exports.sh writes
