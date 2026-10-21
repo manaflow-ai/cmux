@@ -175,7 +175,6 @@ public final class HomeChiefSettingsView: NSView {
         // The rest of the Chief's settings (the pet, the chat's look, every Chief) live in Settings.
         let allSettings = HomeChiefLinkButton(title: HomeEngineStrings.allChiefSettings, target: self, action: #selector(openAllSettings))
         allSettings.setAccessibilityIdentifier("cmux.home.chief.allSettings")
-        allSettings.setAccessibilityLabel(HomeEngineStrings.allChiefSettings)
         stack.addArrangedSubview(allSettings)
         stack.setCustomSpacing(Metrics.space4, after: allSettings)
         addFullWidth(diagnosticsRow())

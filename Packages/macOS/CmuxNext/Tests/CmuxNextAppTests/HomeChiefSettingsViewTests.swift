@@ -58,7 +58,7 @@ import Testing
         var opened = 0
         view.onAllSettings = { opened += 1 }
         let link = try #require(Self.subviews(of: view).compactMap { $0 as? NSButton }
-            .first { $0.identifier?.rawValue == "cmux.home.chief.allSettings" })
+            .first { $0.accessibilityIdentifier() == "cmux.home.chief.allSettings" })
         #expect(!link.isHidden)
         #expect(link.accessibilityLabel() == HomeEngineStrings.allChiefSettings)
         link.performClick(nil)
