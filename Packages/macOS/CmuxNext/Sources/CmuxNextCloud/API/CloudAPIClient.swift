@@ -70,9 +70,16 @@ public struct CloudAPIClient: Sendable {
         _ = try await send("POST", "/api/vm/\(id)/resume", timeout: .seconds(960), as: Ignored.self)
     }
 
-    public func attachEndpoint(_ id: String) async throws -> CloudAttachEndpoint {
-        try await send("POST", "/api/vm/\(id)/attach-endpoint", body: ["transport": "cmux-remote"], timeout: .seconds(30),
+    public func attachEndpoint(_ id: String, deviceFingerprint: String? = nil) async throws -> CloudAttachEndpoint {
+        var body: [String: any Sendable] = ["transport": "cmux-remote"]
+        if let deviceFingerprint { body["deviceFingerprint"] = deviceFingerprint }
+        return try await send("POST", "/api/vm/\(id)/attach-endpoint", body: body, timeout: .seconds(30),
                        as: CloudAttachEndpoint.self)
+    }
+
+    public func approveCmuxRemoteEnrollment(_ id: String, invitationID: String) async throws -> CloudEnrollmentApproval {
+        try await send("POST", "/api/vm/\(id)/cmux-remote/approve", body: ["invitationId": invitationID],
+                       timeout: .seconds(60), as: CloudEnrollmentApproval.self)
     }
 
     public func stats(_ id: String) async throws -> CloudMachineStats {
