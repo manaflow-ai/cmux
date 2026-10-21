@@ -6,12 +6,13 @@
 //! screen_recording, helper}`. Turned off, setup turns it on with
 //! `settings.set computerUse.enabled true` and `confirm: true`: the key is
 //! the person's, so the app asks them on a native sheet and setup waits for
-//! that one click (the app bounds the sheet). The undo turns it off the same
-//! way. The macOS grants (Accessibility, Screen Recording) are the person's
-//! switches in System Settings: each missing one is a `user_action` whose
-//! command opens its pane. Managed settings that turn Computer Use off, and
-//! a helper that does not run, are named and left. Capture consent is not
-//! reported by the app yet.
+//! that one click (the app bounds the sheet; one left unanswered reads as
+//! declined). The undo turns it off the same way. The macOS grants
+//! (Accessibility, Screen Recording) are the person's switches in System
+//! Settings: each missing one is a `user_action` whose command opens its
+//! pane. Managed settings that turn Computer Use off, and a helper that
+//! does not run, are named and left. Capture consent is not reported by the
+//! app yet.
 //!
 //! The app serves all of it, so without the app the task says to open it;
 //! off macOS, where there is no cmux app, it is `not_applicable`.
@@ -119,9 +120,12 @@ pub(super) fn status(global: &GlobalArgs) -> Value {
     }
     match read(global) {
         Ok(status) => {
-            let action = next_step(&status);
+            // Off but already allowed: the phase lags the setting, and `run`
+            // says to wait rather than ask again; so does the check.
+            let lags = status["phase"] == "off" && enabled(global);
+            let action = if lags { Some(wait_step()) } else { next_step(&status) };
             let state = match (&action, status["phase"].as_str()) {
-                (_, Some("off")) => "needs_setup",
+                (_, Some("off")) if !lags => "needs_setup",
                 (Some(_), _) => "needs_user",
                 (None, _) => "ok",
             };
@@ -194,6 +198,14 @@ fn turn_on(global: &GlobalArgs) -> Result<(), Value> {
             "text": "Computer Use was not allowed: the person declined, or cmux had no window to \
                      show the sheet in; ask the person before running `cmux setup computer-use` \
                      again",
+            "command": Value::Null,
+            "url": Value::Null,
+        })),
+        // The app bounds the sheet (120 s): left unanswered, it ends `timeout`.
+        Err(error) if error.get("code").and_then(Value::as_str) == Some("timeout") => Err(json!({
+            "kind": "declined",
+            "text": "Computer Use was not allowed: the person did not answer the sheet in cmux in \
+                     time; ask the person before running `cmux setup computer-use` again",
             "command": Value::Null,
             "url": Value::Null,
         })),

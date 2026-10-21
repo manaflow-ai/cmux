@@ -323,6 +323,9 @@ def event_context(branch: str) -> dict[str, object]:
         "github.base_ref": branch,
         "github.event.pull_request.base.ref": branch,
         "github.ref": "refs/pull/0/merge",
+        # ci.yml's legacy lanes skip the cmux NEXT line by this output (scripts/ci/next_line.sh),
+        # which is true for every pull request into feat-cmux-next.
+        "needs.changes.outputs.next_line": "true" if branch == "feat-cmux-next" else "false",
     }
 
 

@@ -38,6 +38,9 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// `off` the bootstrap stylesheet makes every CSS transition and animation instant
     /// (`ui.animations.web` or the master switch `ui.animations.enabled` off).
     public let motion: String
+    /// `lens`, `plain` or `spectrum` (``GlassLensMode/current``, already `plain` under Reduce
+    /// Transparency and Low Power Mode): `data-glass` on `<html>`, which `.ui-glass` reads.
+    public let glass: String
 
     /// The terminal colors a page highlights code with: the scope's opaque background and
     /// readable foreground, and its ANSI palette as the theme names it (the page lifts each
@@ -74,10 +77,11 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// - Parameter scrollers: `overlay` or `legacy`; nil reads the system setting.
     /// - Parameter app: The app theme the page's `--cmux-app-*` tokens come from: the store's
     ///   (`appearance.appTheme`) when it names one, else the scope's own (`tokens.app`).
+    /// - Parameter glass: The glass mode pages draw; nil reads ``GlassLensMode/current``.
     @MainActor
     public init(_ tokens: ThemeTokens, reduceTransparency: Bool = false, surface surfaceKind: SurfaceKind? = nil,
                 backgrounds: SurfaceBackgrounds = ThemeScope.app.surfaceBackgrounds, scrollers: String? = nil,
-                app: AppTheme? = nil) {
+                app: AppTheme? = nil, glass: GlassLensMode? = nil) {
         let pageOpaque = WindowBackdrop.current(tokens, reduceTransparency: reduceTransparency).panesPaintBackground
         let surface = tokens.surfaceBackground
         let windowTint = WindowBackdrop.currentTint(tokens)
@@ -133,6 +137,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         statusIndicators = !Motion.indicators.animatesLoops || DesignSettings.shared.statusIndicator.animation == .static ? "static" : "animated"
         workingLook = StatusWorkingLook.tunable.value.rawValue
         motion = Self.motionValue(Motion.web.policy)
+        self.glass = (glass ?? .current).rawValue
     }
 
     /// `data-cmux-motion` for `policy`: `off` when the web category, the master switch or speed
@@ -143,7 +148,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         return policy.reduceMotion ? "reduced" : "full"
     }
 
-    /// The payload `window.cmuxTheme.apply` takes: `{variables, colorScheme, scrollers, terminal, statusIndicators, workingLook, motion}`
+    /// The payload `window.cmuxTheme.apply` takes: `{variables, colorScheme, scrollers, terminal, statusIndicators, workingLook, motion, glass}`
     /// (`terminal.fontFamily` is null when the terminal has no named face).
     /// How the page's color variables move to new values (`appearance.colorTransition`, the same
     /// duration, curve and blend space as native): `{duration, easing, space}`.
@@ -152,7 +157,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     public var payloadJSON: String {
         let object: [String: Any] = ["variables": variables, "colorScheme": colorScheme, "scrollers": scrollers,
                                      "terminal": terminal.json, "transition": transition, "statusIndicators": statusIndicators,
-                                     "workingLook": workingLook, "motion": motion]
+                                     "workingLook": workingLook, "motion": motion, "glass": glass]
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
               let json = String(data: data, encoding: .utf8) else { return "{}" }
         return json
@@ -161,8 +166,9 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// Applies this theme to a page that ran ``bootstrapScript``.
     public var applyScript: String { "window.cmuxTheme && window.cmuxTheme.apply(\(payloadJSON));" }
 
-    /// Defines `window.cmuxTheme` and the page background rule. Install it
-    /// at document start in every cmux-owned web view.
+    /// Defines `window.cmuxTheme` (`apply(payload)` and `backdrop(partial)`, which merges into
+    /// `window.cmuxBackdropState` and dispatches `cmux-backdrop`) and the page background rule.
+    /// Install it at document start in every cmux-owned web view.
     public static let bootstrapScript = """
     (function () {
       if (window.cmuxTheme) return;
@@ -265,9 +271,18 @@ public nonisolated struct WebTheme: Equatable, Sendable {
           if (payload.statusIndicators) root.setAttribute('data-status-indicators', payload.statusIndicators);
           if (payload.workingLook) root.setAttribute('data-working-look', payload.workingLook);
           if (payload.motion) root.setAttribute('data-cmux-motion', payload.motion);
+          if (payload.glass) root.setAttribute('data-glass', payload.glass);
           window.cmuxTheme.current = payload;
           window.dispatchEvent(new CustomEvent('cmux-theme', { detail: payload }));
           if (!first) settled(payload);
+        },
+        // The wallpaper still the page's glass lenses (GlassBackdropFeed): each push carries only
+        // what changed, merged over the last state, then `cmux-backdrop` tells the page.
+        backdrop: function (partial) {
+          var next = Object.assign({}, window.cmuxBackdropState || {});
+          for (var field in partial) if (Object.prototype.hasOwnProperty.call(partial, field)) next[field] = partial[field];
+          window.cmuxBackdropState = next;
+          window.dispatchEvent(new Event('cmux-backdrop'));
         }
       };
       ensureStyle();
