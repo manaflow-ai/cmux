@@ -1009,7 +1009,7 @@ pub mod peer_text;
 mod pending;
 mod processes;
 mod worktrees;
-pub use pending::event_value;
+pub use pending::{event_value, into_event_value};
 use pending::{is_permission_ask, peer_permission_pending, permission_pending};
 mod redact;
 pub(crate) mod remote_guard;

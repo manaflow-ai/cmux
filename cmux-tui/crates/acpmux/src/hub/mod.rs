@@ -143,12 +143,12 @@ pub const IDLE_CHILD: std::time::Duration = std::time::Duration::from_secs(5 * 6
 /// Git hash and date stamped at build time (see build.rs).
 pub const BUILD: &str = env!("ACPMUX_BUILD");
 
-/// Fan-out item: one appended record for one session. `remote` carries the
-/// peer name and the peer's session summary when the session lives elsewhere.
+/// Fan-out item: one appended record for one session, shared by every receiver, never copied.
+/// `remote` carries the peer name and the peer's summary when the session lives elsewhere.
 #[derive(Debug, Clone)]
 pub struct HubEvent {
     pub session_id: String,
-    pub record: EventRecord,
+    pub record: Arc<EventRecord>,
     pub remote: Option<RemoteRef>,
 }
 
@@ -846,7 +846,7 @@ impl Hub {
         }
         let _ = self.events.send(HubEvent {
             session_id: session.id.clone(),
-            record: record.clone(),
+            record: Arc::new(record.clone()),
             remote: None,
         });
         (record, stored)

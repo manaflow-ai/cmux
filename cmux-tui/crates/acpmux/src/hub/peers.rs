@@ -297,14 +297,14 @@ impl Hub {
         };
         let _ = self.events.send(HubEvent {
             session_id: id,
-            record: EventRecord {
+            record: Arc::new(EventRecord {
                 seq: 0,
                 at: now_ms(),
                 dir: "peer".into(),
                 kind: kind.into(),
                 msg: Value::Null,
                 host_seq: None,
-            },
+            }),
             remote: Some(RemoteRef { peer: peer.to_owned(), summary }),
         });
     }
@@ -426,14 +426,14 @@ impl Hub {
                         self.save_peer_cache(&peer, generation, false);
                         let _ = self.events.send(HubEvent {
                             session_id: mux_id.clone(),
-                            record: EventRecord {
+                            record: Arc::new(EventRecord {
                                 seq,
                                 at: now_ms(),
                                 dir: "peer".into(),
                                 kind,
                                 msg: Value::Null,
                                 host_seq: None,
-                            },
+                            }),
                             remote: Some(RemoteRef {
                                 peer: peer.clone(),
                                 summary: removed.unwrap_or_else(|| json!({"sessionId": mux_id})),
@@ -464,14 +464,14 @@ impl Hub {
                     self.save_peer_cache(&peer, generation, false);
                     let _ = self.events.send(HubEvent {
                         session_id: mux_id,
-                        record: EventRecord {
+                        record: Arc::new(EventRecord {
                             seq,
                             at: now_ms(),
                             dir: "peer".into(),
                             kind,
                             msg: Value::Null,
                             host_seq: None,
-                        },
+                        }),
                         remote: Some(RemoteRef { peer: peer.clone(), summary }),
                     });
                 }
@@ -549,7 +549,7 @@ impl Hub {
                     };
                     let _ = self.events.send(HubEvent {
                         session_id: id,
-                        record,
+                        record: Arc::new(record),
                         remote: Some(RemoteRef { peer: peer.clone(), summary }),
                     });
                 }
