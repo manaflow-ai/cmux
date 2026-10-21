@@ -220,7 +220,7 @@ extension CloudHandlers {
         }
         bind("palette.cloud.snapshot", registry, reason: reason) { invocation in
             let session = try machine(invocation, context); guard session.machine.allows(.snapshot) else { throw operationUnavailable }
-            answer("snapshot machine", invocation, context) {
+            answer("snapshot machine", invocation, context, pendingAfter: snapshotAnswerWait, pending: ["machine_id": .string(session.machineID)]) {
                 let snapshot = try await cloud.api.snapshot(session.machineID, name: nil)
                 return CloudAnswer(title: CloudStrings.snapshotTitle, text: CloudStrings.snapshotBody(snapshot.id),
                                    fields: ["machine_id": .string(session.machineID), "snapshot_id": .string(snapshot.id)])
@@ -240,7 +240,7 @@ extension CloudHandlers {
         // machine, which Restore Cloud Machine then starts new machines from.
         bind("palette.cloud.promoteTemplate", registry, reason: reason) { invocation in
             let session = try machine(invocation, context); guard session.machine.allows(.snapshot) else { throw operationUnavailable }
-            answer("promote machine to template", invocation, context) {
+            answer("promote machine to template", invocation, context, pendingAfter: snapshotAnswerWait, pending: ["machine_id": .string(session.machineID)]) {
                 let snapshot = try await cloud.api.snapshot(session.machineID, name: templateName(session.machineID, at: Date()))
                 return CloudAnswer(title: CloudStrings.templateTitle, text: CloudStrings.templateBody(snapshot.id),
                                    fields: ["machine_id": .string(session.machineID), "snapshot_id": .string(snapshot.id)])
@@ -283,6 +283,11 @@ extension CloudHandlers {
         return ["\(machine.title) (\(machine.id))", "provider: \(machine.provider.isEmpty ? "?" : machine.provider)", "status: \(machine.status.rawValue)",
                 "attach: cmux cloud open-machine \(target)", "inspect: cmux cloud machine-tools \(target)"].joined(separator: "\n")
     }
+
+    /// How long a CLI or agent snapshot waits for its id before it answers
+    /// `pending` (a snapshot may take minutes): inside `action.run`'s 40 s
+    /// result deadline. The snapshot finishes either way.
+    static let snapshotAnswerWait: Duration = .seconds(30)
 
     /// `template-<first 12 of the id>-<unix seconds>`, the old CLI's name.
     static func templateName(_ machineID: String, at date: Date) -> String {
