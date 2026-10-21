@@ -4107,6 +4107,18 @@
       "title" : "UpdateChannel",
       "type" : "string"
     },
+    "updates.channel" : {
+      "default" : "nightly",
+      "description" : "Canary and Dev get builds before they reach Nightly. Stable gets only builds that have run a week without problems, so switching to it may mean no updates for a while.",
+      "enum" : [
+        "stable",
+        "nightly",
+        "canary",
+        "dev"
+      ],
+      "title" : "Update Channel",
+      "type" : "string"
+    },
     "updates.checkAutomatically" : {
       "default" : true,
       "description" : "updates.checkAutomatically",
