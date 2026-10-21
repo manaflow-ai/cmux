@@ -27,8 +27,8 @@
   display: flex;
   flex-direction: column;
   max-height: calc(100% - 44px - var(--acpmux-transcript-min, 96px));
-  /* The stack is a no-scroll zone (wheelPassThrough.ts): its parts take the wheel, gutters too (the
-     composer leaves the scrollbar's lane). The dock itself passes clicks through the gaps between them. */
+  /* The gutters beside and under the card pass the wheel to the transcript under them (Leo
+     2026-10-20: "if it's not in the composer it should just scroll"). */
   pointer-events: none;
 }
 /* Claude Code's split adds the quiet row (28 px and its 4 px gap) under the card: the transcript
@@ -37,19 +37,9 @@
 .acpmux-main[data-dock="float"]:has(.acpmux-composer-foot) > .acpmux-dock {
   max-height: calc(100% - 44px - max(64px, var(--acpmux-transcript-min, 96px) - 32px));
 }
-.acpmux-main[data-dock="float"] > .acpmux-dock > * {
+.acpmux-main[data-dock="float"] > .acpmux-dock > :not(.acpmux-composer),
+.acpmux-main[data-dock="float"] > .acpmux-dock > .acpmux-composer > * {
   pointer-events: auto;
-}
-/* The composer's gutters take the wheel too, all but the scrollbar's lane at the pane's right edge,
-   where the transcript's thumb rests at the latest message: the composer stops short of it, its
-   right padding the same amount smaller, so the card keeps its place (100% is the dock's width
-   either way). */
-.acpmux-main[data-dock="float"] > .acpmux-dock > .acpmux-composer {
-  margin-right: var(--acpmux-scrollbar-lane, 16px);
-  padding-right: max(
-    0px,
-    calc(var(--cv-inset, max(18px, calc((100% - 760px) / 2))) - var(--acpmux-scrollbar-lane, 16px))
-  );
 }
 .acpmux-dock > .acpmux-agents-pill-anchor {
   position: relative;

@@ -4,7 +4,9 @@
 // stack (questions, notices, the queue, the composer and its footer) is a no-scroll zone (Leo
 // 2026-10-20: "all of these areas are essentially a no-scroll zone"): the wheel over its parts
 // scrolls neither the transcript nor the stack, and a part that scrolls itself (a long prompt, the
-// queue, a menu's list) keeps the wheel at its ends too.
+// queue, a menu's list) keeps the wheel at its ends too. The gutters beside and under the composer's
+// card are not part of it: the dock passes them through, so the wheel there scrolls the transcript
+// (Leo 2026-10-20: "if it's not in the composer it should just scroll"; bottomStack.css).
 
 /// The event's vertical distance in pixels (a line is 16px, a page the scroller's height).
 export function wheelPixels(event: Pick<WheelEvent, "deltaY" | "deltaMode">, pageHeight: number): number {

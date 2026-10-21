@@ -89,10 +89,10 @@ await requireBrowserLane("agent-pane-wheel-pass-through.test.ts", async () => {
         await page.close();
       });
 
-      // Leo 2026-10-20: "all of these areas are essentially a no-scroll zone." The wheel over the
-      // bottom stack's parts moves neither the transcript nor the stack: over the composer's card,
-      // in the gutter beside it and in the composer's padding under its footer row.
-      test("the bottom stack is a no-scroll zone", async () => {
+      // Leo 2026-10-20: "all of these areas are essentially a no-scroll zone", but "if it's not in
+      // the composer it should just scroll". The wheel over the composer's card moves neither the
+      // transcript nor the stack; the wheel in the gutter beside the card scrolls the transcript.
+      test("the wheel over the composer's card scrolls nothing, and beside it scrolls the transcript", async () => {
         current = browsers.get(name);
         const page = await pane!.open();
         // Up from the latest message, so the transcript can scroll either way.
@@ -100,17 +100,14 @@ await requireBrowserLane("agent-pane-wheel-pass-through.test.ts", async () => {
         const card = (await page.locator(".acpmux-composer-box").first().boundingBox())!;
         const composer = (await page.locator(".acpmux-dock > .acpmux-composer").first().boundingBox())!;
         expect(card.x).toBeGreaterThan(composer.x + 12);
-        const points: [string, number, number][] = [
-          ["card", card.x + card.width / 2, card.y + card.height / 2],
-          ["gutter", card.x - 8, card.y + card.height / 2],
-          ["foot", card.x + card.width / 2, composer.y + composer.height - 6],
-        ];
+        const [x, y] = [card.x + card.width / 2, card.y + card.height / 2];
         // A wheel that got through moves the transcript 300 px; under 2 px is rows settling mid-history.
-        for (const [where, x, y] of points)
-          for (const deltaY of [-300, 300]) {
-            const moved = await wheelAt(page, x, y, deltaY);
-            expect([where, deltaY, Math.abs(moved) < 2 ? 0 : moved]).toEqual([where, deltaY, 0]);
-          }
+        for (const deltaY of [-300, 300]) {
+          const moved = await wheelAt(page, x, y, deltaY);
+          expect([deltaY, Math.abs(moved) < 2 ? 0 : moved]).toEqual([deltaY, 0]);
+        }
+        expect(await wheelAt(page, card.x - 8, y, -300)).toBeLessThan(-100);
+        expect(await wheelAt(page, card.x - 8, y, 300)).toBeGreaterThan(100);
         await page.close();
       });
 
