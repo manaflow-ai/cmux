@@ -432,6 +432,27 @@ async fn wireguard_survives_one_way_udp_through_the_peers_turn() {
     assert!(run.changes.is_empty(), "path flapped: {run:?}");
 }
 
+/// The phone's TURN server misses the dial's allocation window (UDP to it is
+/// lost for the first seconds, as when it answers slowly), and the Mac's UDP
+/// to the phone is lost, so TURN is the only route. The dial goes on without
+/// an allocation; the session takes one once the server answers and the link
+/// comes up through it. (A phone that dialed without TURN used to keep
+/// retrying the handshake until the dial timed out: the CI flake of
+/// `wireguard_survives_one_way_udp_through_the_peers_turn`.)
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wireguard_takes_the_turn_allocation_it_missed_while_dialing() {
+    let turn = TestTurn::start().await;
+    turn.set_udp_blocked(true);
+    let phone = DialOptions { ice_servers: vec![turn.udp_only()], ..options() };
+    let mac = DialOptions { drop_udp_to: Some(|addr| addr.port() < TEST_RELAY_PORTS_START), ..options() };
+    let (run, ()) = tokio::join!(exercise_turn_for(phone, mac, Duration::from_secs(2)), async {
+        // Past the dial's 2 s allocation window, well inside its 20 s timeout.
+        tokio::time::sleep(Duration::from_secs(4)).await;
+        turn.set_udp_blocked(false);
+    });
+    assert_eq!(run.mac, Some(LinkPath::Turn), "{run:?}");
+}
+
 /// While set, the Mac's plain UDP to anything but TURN relayed addresses is
 /// lost (`wireguard_upgrades_from_the_peers_turn_once_direct_works`).
 static MAC_LAN_DOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);

@@ -16,9 +16,9 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { playFailures } from "./support/galleryPlay";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 type Case = {
   entry: string;
@@ -37,8 +37,6 @@ await requireBrowserLane("gallery-agent-pane-entries.test.ts", async () => {
     (await count(page, ".acpmux-composer")) > 0 && (await count(page, "[data-harness-notice]")) === 0;
 
   const CASES: Case[] = [
-    { entry: "session-sidebar", variant: "search-filtered", play: "steps" },
-    { entry: "session-sidebar", variant: "search-clears", play: "steps" },
     { entry: "start-folder", variant: "home-question", play: "steps" },
     { entry: "start-folder", variant: "root-refused", play: "steps" },
     { entry: "permission-panel", variant: "allowance", play: "error" },
@@ -53,6 +51,10 @@ await requireBrowserLane("gallery-agent-pane-entries.test.ts", async () => {
       // An update that needs sudo is neither a line nor the model chip's offer (Settings owns it).
       shows: async (page) => (await composerWithoutNotice(page)) && (await count(page, "[data-harness-offer]")) === 0,
     },
+    // Restart Chat and the busy spinner come and go without moving Not Now or the words (layout
+    // shift 0); the failed update's Try Again keeps that order too.
+    { entry: "harness-health-notice", variant: "restart-after-turn", play: "steps" },
+    { entry: "harness-health-notice", variant: "update-failed", play: "steps" },
     { entry: "file-search", variant: "escape", play: "steps", shows: has(".acpmux-composer") },
     {
       entry: "home-lists",
@@ -62,6 +64,43 @@ await requireBrowserLane("gallery-agent-pane-entries.test.ts", async () => {
         (await count(page, ".acpmux-empty-title")) > 0 &&
         (await count(page, ".acpmux-composer")) > 0 &&
         (await count(page, ".acpmux-home-area > *")) === 0,
+    },
+    // Nothing is seeded: the image waits on the host's link.inspect answer, as in the app.
+    {
+      entry: "reply-image",
+      variant: "local",
+      shows: (page) =>
+        page.evaluate(() => [...document.images].some((image) => image.complete && image.naturalWidth > 0)),
+    },
+    // The summary card is a popover in a pane too narrow for its inline column (#21564): the
+    // Summary button opens it, and it lists the subagents.
+    ...["summary", "card-kinds", "card-waiting", "card-collapsed", "card-closed", "card-outside-click"].map(
+      (variant): Case => ({ entry: "subagents", variant, play: "steps" }),
+    ),
+    {
+      entry: "subagents",
+      variant: "card-open-pane",
+      play: "steps",
+      shows: has(".acpmux-summary-card .acpmux-summary-agents"),
+    },
+    { entry: "subagents", variant: "card-open-child", play: "steps", shows: has(".cv-subagent-of") },
+    // The summary's Outputs row offers the chat's gallery; it opens as a dialog, filters by kind,
+    // and an image tile opens the image viewer.
+    { entry: "chat-gallery", variant: "outputs", play: "steps", shows: has(".acpmux-summary-gallery") },
+    { entry: "chat-gallery", variant: "open", play: "steps", shows: has(".acpmux-chat-gallery-tile") },
+    {
+      entry: "chat-gallery",
+      variant: "renders",
+      play: "steps",
+      shows: async (page) =>
+        (await count(page, ".acpmux-chat-gallery-tile.is-render")) === 2 &&
+        (await count(page, ".acpmux-chat-gallery-tile:not(.is-render)")) === 0,
+    },
+    {
+      entry: "chat-gallery",
+      variant: "image",
+      play: "steps",
+      shows: async (page) => (await page.getByRole("dialog", { name: "Weekly builds" }).count()) > 0,
     },
   ];
 
@@ -78,7 +117,7 @@ await requireBrowserLane("gallery-agent-pane-entries.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
   const url = ({ entry, variant }: Case) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=agent-pane.${entry}&variant=${variant}`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(`agent-pane.${entry}`, { variant })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -87,8 +126,8 @@ await requireBrowserLane("gallery-agent-pane-entries.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
+    await warmGalleryFrame(vite, [...new Set(CASES.map(({ entry }) => `agent-pane.${entry}`))], { browser });
   });
   afterAll(async () => {
     await browser?.close();

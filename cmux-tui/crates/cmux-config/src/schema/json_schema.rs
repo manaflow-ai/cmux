@@ -75,8 +75,9 @@ fn kind_schema(row: &Row) -> Value {
     match row.validation {
         Validation::Domain(DomainKind::BackdropSelection) => {
             let Kind::Choice(choices) = &row.kind else { return json!({ "type": "string" }) };
-            // `system:<absolute path>` (a macOS wallpaper) or `file:<absolute path>`.
-            let path = json!({ "type": "string", "pattern": "^(system|file):/" });
+            // `system:<absolute path>` (a macOS wallpaper), `file:<absolute path>`
+            // or `folder:<absolute path>` (not `/` alone).
+            let path = json!({ "type": "string", "pattern": "^((system|file):/|folder:/.)" });
             return json!({ "anyOf": [choice(choices), path] });
         }
         Validation::Domain(DomainKind::ChatRoots) => {

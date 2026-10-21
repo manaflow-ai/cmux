@@ -11,6 +11,20 @@ pub(super) fn session_receipt(summary: &Value) -> Option<SessionReceipt> {
 /// ssh peer may take its ssh connect, tunnel and WebSocket timeouts in turn.
 pub(crate) const PEER_SETTLE_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
 
+/// A record that asks a client to answer a prompt: a new one, or one the
+/// next daemon adopted with a new decision nonce (`hub/hosts.rs`).
+pub(crate) fn is_permission_ask(kind: &str) -> bool {
+    matches!(kind, "permission_request" | "permission_reissued")
+}
+
+/// Which run of a peer asked an ask (`Hub::peer_ask_run`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PeerAskRun {
+    Current,
+    Older,
+    Forged,
+}
+
 /// The record kind of a peer's `_acpmux/permission_pending`, relayed to
 /// this daemon's watchers (`server/mod.rs` `deliver`); never stored.
 pub(crate) const PEER_PERMISSION_PENDING: &str = "peer_permission_pending";
@@ -297,14 +311,14 @@ impl Hub {
         };
         let _ = self.events.send(HubEvent {
             session_id: id,
-            record: EventRecord {
+            record: Arc::new(EventRecord {
                 seq: 0,
                 at: now_ms(),
                 dir: "peer".into(),
                 kind: kind.into(),
                 msg: Value::Null,
                 host_seq: None,
-            },
+            }),
             remote: Some(RemoteRef { peer: peer.to_owned(), summary }),
         });
     }
@@ -426,14 +440,14 @@ impl Hub {
                         self.save_peer_cache(&peer, generation, false);
                         let _ = self.events.send(HubEvent {
                             session_id: mux_id.clone(),
-                            record: EventRecord {
+                            record: Arc::new(EventRecord {
                                 seq,
                                 at: now_ms(),
                                 dir: "peer".into(),
                                 kind,
                                 msg: Value::Null,
                                 host_seq: None,
-                            },
+                            }),
                             remote: Some(RemoteRef {
                                 peer: peer.clone(),
                                 summary: removed.unwrap_or_else(|| json!({"sessionId": mux_id})),
@@ -464,14 +478,14 @@ impl Hub {
                     self.save_peer_cache(&peer, generation, false);
                     let _ = self.events.send(HubEvent {
                         session_id: mux_id,
-                        record: EventRecord {
+                        record: Arc::new(EventRecord {
                             seq,
                             at: now_ms(),
                             dir: "peer".into(),
                             kind,
                             msg: Value::Null,
                             host_seq: None,
-                        },
+                        }),
                         remote: Some(RemoteRef { peer: peer.clone(), summary }),
                     });
                 }
@@ -508,22 +522,32 @@ impl Hub {
                             msg: json!({"jsonrpc": "2.0", "method": method::SESSION_UPDATE, "params": params}),
                             host_seq: None,
                         },
-                        method::MUX_EVENT => EventRecord {
-                            seq: params.get("seq").and_then(Value::as_u64).unwrap_or(0),
-                            at: params.get("at").and_then(Value::as_u64).unwrap_or_else(now_ms),
-                            dir: params
-                                .get("dir")
-                                .and_then(Value::as_str)
-                                .unwrap_or("mux")
-                                .to_owned(),
-                            kind: params
-                                .get("kind")
-                                .and_then(Value::as_str)
-                                .unwrap_or("")
-                                .to_owned(),
-                            msg: params.get("msg").cloned().unwrap_or(Value::Null),
-                            host_seq: None,
-                        },
+                        // A record of the peer's session; an ask in it reaches
+                        // an attached client as `_acpmux/permission_pending`
+                        // (`server/mod.rs` `deliver`), so the same rule.
+                        method::MUX_EVENT => {
+                            let record = EventRecord {
+                                seq: params.get("seq").and_then(Value::as_u64).unwrap_or(0),
+                                at: params.get("at").and_then(Value::as_u64).unwrap_or_else(now_ms),
+                                dir: params
+                                    .get("dir")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("mux")
+                                    .to_owned(),
+                                kind: params
+                                    .get("kind")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("")
+                                    .to_owned(),
+                                msg: params.get("msg").cloned().unwrap_or(Value::Null),
+                                host_seq: None,
+                            };
+                            if !self.peer_record_counts(&peer, &id, &record.kind, &record.msg) {
+                                tracing::warn!(peer = %peer, session = %id, "a peer's ask for a session or run that is not its own: dropped");
+                                return;
+                            }
+                            record
+                        }
                         // A prompt the person must answer, to watchers of this
                         // daemon that did not attach the session (attached
                         // clients derive it from the permission_request event):
@@ -532,7 +556,7 @@ impl Hub {
                         // (`hub/person.rs` (c)). Only the peer's own session
                         // in its own run, never one of this daemon's.
                         method::MUX_PERMISSION_PENDING
-                            if !self.peer_pending_counts(&peer, &id, &params) =>
+                            if !self.peer_ask_counts(&peer, &id, &params) =>
                         {
                             tracing::warn!(peer = %peer, session = %id, "a peer's pending prompt for a session or run that is not its own: dropped");
                             return;
@@ -549,7 +573,7 @@ impl Hub {
                     };
                     let _ = self.events.send(HubEvent {
                         session_id: id,
-                        record,
+                        record: Arc::new(record),
                         remote: Some(RemoteRef { peer: peer.clone(), summary }),
                     });
                 }
@@ -557,17 +581,31 @@ impl Hub {
         }
     }
 
-    /// Whether peer `peer`'s `_acpmux/permission_pending` for session `id`
-    /// may reach this daemon's watchers (`hub/person.rs` (c)): a session the
-    /// peer listed as its own and that is not one of this daemon's, in the
-    /// daemon run the peer named at its handshake, which is not this run and
-    /// no other peer's. A prompt with this daemon's session or run would let
-    /// the peer show the person other text for one of this daemon's real
-    /// prompts, whose allow the app proves with this daemon's key.
-    fn peer_pending_counts(&self, peer: &str, id: &str, params: &Value) -> bool {
-        let Some(instance) = params.get("personInstance").and_then(Value::as_str) else {
-            return false;
-        };
+    /// Whether peer `peer` may put `ask`, a pending ask for session `id`,
+    /// before this daemon's clients (`hub/person.rs` (c)): a session the peer
+    /// listed as its own and that is not one of this daemon's, in the daemon
+    /// run the ask names (`personInstance`), which is the run the peer named
+    /// at its handshake, not this run and no other peer's. A prompt with this
+    /// daemon's session or run would let the peer show the person other text
+    /// for one of this daemon's real prompts, whose allow the app proves with
+    /// this daemon's key. The one rule for every path a peer's asks take: its
+    /// `_acpmux/permission_pending` to watchers and its live `_acpmux/event`
+    /// records (above, through `peer_record_counts`), and the pending entries
+    /// and records of a forwarded reply (`server/peer_forward.rs`
+    /// `strip_asks`). An ask that fails is dropped; the session stays
+    /// readable.
+    pub fn peer_ask_counts(&self, peer: &str, id: &str, ask: &Value) -> bool {
+        self.peer_ask_run(peer, id, ask) == PeerAskRun::Current
+    }
+
+    /// Which run of peer `peer` asked `ask` for its session `id`: the one it
+    /// named at its handshake (`Current`, what `peer_ask_counts` lets
+    /// through), an older one of its own (`Older`: a run before the peer
+    /// restarted, or none named), or not its own to show (`Forged`: a
+    /// session it never listed or one of this daemon's, this daemon's run,
+    /// or the run another connected peer named).
+    fn peer_ask_run(&self, peer: &str, id: &str, ask: &Value) -> PeerAskRun {
+        let instance = ask.get("personInstance").and_then(Value::as_str);
         let listed = self
             .remote_sessions
             .lock()
@@ -575,12 +613,55 @@ impl Hub {
             .values()
             .any(|r| r.peer == peer && r.receipt.mux_session_id == id);
         let local = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).contains_key(id);
+        if !listed || local {
+            return PeerAskRun::Forged;
+        }
+        let Some(instance) = instance else { return PeerAskRun::Older };
+        if instance == self.person.instance() {
+            return PeerAskRun::Forged;
+        }
         let peers: Vec<_> =
             self.peers.lock().unwrap_or_else(|e| e.into_inner()).values().cloned().collect();
         let named = |p: &crate::peer::Peer| p.person_instance().as_deref() == Some(instance);
-        let own_run = peers.iter().any(|p| p.name == peer && named(p));
-        let others = peers.iter().any(|p| p.name != peer && named(p));
-        listed && !local && own_run && !others && instance != self.person.instance()
+        if peers.iter().any(|p| p.name != peer && named(p)) {
+            return PeerAskRun::Forged;
+        }
+        if peers.iter().any(|p| p.name == peer && named(p)) {
+            PeerAskRun::Current
+        } else {
+            PeerAskRun::Older
+        }
+    }
+
+    /// Whether an ask record's `msg` that peer `peer` sends in the history of
+    /// its session `id` (the `events` of a forwarded `_acpmux/attach` or
+    /// `_acpmux/events`) may stay. An ask in the run the peer named at its
+    /// handshake stays whole. Its own ask from an older run (it restarted
+    /// since: each run has its own `personInstance`, `permissions.rs`) stays
+    /// as history without its `decisionNonce`, so the chat still draws what
+    /// was asked and answered, while no app keeps a decision context for it
+    /// (`AcpmuxDecisionContexts` needs the nonce) and no allow can be proven
+    /// over it; that run's daemon is gone and answers nothing. A forged one
+    /// (`peer_ask_run`) is dropped. Pending lists and live records keep the
+    /// strict rule (`peer_ask_counts`).
+    pub fn peer_history_ask_counts(&self, peer: &str, id: &str, ask: &mut Value) -> bool {
+        match self.peer_ask_run(peer, id, ask) {
+            PeerAskRun::Current => true,
+            PeerAskRun::Forged => false,
+            PeerAskRun::Older => {
+                if let Some(ask) = ask.as_object_mut() {
+                    ask.remove("decisionNonce");
+                }
+                true
+            }
+        }
+    }
+
+    /// Whether a record of kind `kind` with `msg` that peer `peer` sends for
+    /// its session `id` may reach this daemon's clients: any record but an
+    /// ask (`is_permission_ask`, in any `dir`) that fails `peer_ask_counts`.
+    pub fn peer_record_counts(&self, peer: &str, id: &str, kind: &str, msg: &Value) -> bool {
+        !is_permission_ask(kind) || self.peer_ask_counts(peer, id, msg)
     }
 
     /// Look a key up among peer sessions: exact id, `peer/name`, or a unique name.

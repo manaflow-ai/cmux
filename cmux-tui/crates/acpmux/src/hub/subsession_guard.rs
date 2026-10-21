@@ -112,6 +112,13 @@ pub(super) fn refusal(reason: &str, message: String, data: Value) -> RpcError {
     RpcError::invalid_params(message).with_data(data)
 }
 
+/// Whether `provenance` is a family prompt's (`subsessions::PROVENANCE_KIND`), which
+/// [`Hub::family_dispatch_check`] holds when it runs.
+pub(super) fn is_family_prompt(provenance: Option<&Value>) -> bool {
+    provenance.and_then(|p| p.get("kind")).and_then(Value::as_str)
+        == Some(super::subsessions::PROVENANCE_KIND)
+}
+
 /// The refusal of a child that would ask less than its caller.
 pub(super) fn asks_less(why: &str) -> RpcError {
     refusal(
@@ -423,10 +430,7 @@ impl Hub {
         session: &Session,
         provenance: Option<&Value>,
     ) -> Result<(), RpcError> {
-        let kind = |p: &&Value| {
-            p.get("kind").and_then(Value::as_str) == Some(super::subsessions::PROVENANCE_KIND)
-        };
-        let Some(p) = provenance.filter(kind) else { return Ok(()) };
+        let Some(p) = provenance.filter(|p| is_family_prompt(Some(p))) else { return Ok(()) };
         let from = p.get("from").and_then(Value::as_str).unwrap_or_default();
         let sender = self.resolve(from).ok().filter(|s| s.id == from).ok_or_else(|| {
             refusal(

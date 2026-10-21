@@ -1,14 +1,12 @@
 //! Sub-sessions: an agent session starts, messages, watches and stops its own
 //! child sessions (Lawrence 2026-10-18, after the Claude app's `ccd_session`).
 //!
-//! A sub-session is a normal session (it resumes, forks, moves and lists like
-//! any other) with one more field, [`SubsessionLink`]: the parent session's
-//! id (`startedBy`), its short name among the parent's children, and its
-//! depth (1 under a root). Agents get the tools from the `cmux-subsessions`
-//! MCP server (`subsession_mcp.rs`, every local session by default,
-//! `agent_tools.rs`); the server reaches these methods over the unix socket
-//! with the session's caller token, so the daemon, not a request field, says
-//! which session acts (`hub/person.rs` (a)).
+//! A sub-session is a normal session (it resumes, forks, moves and lists like any other) with one
+//! more field, [`SubsessionLink`]: the parent session's id (`startedBy`), its short name among the
+//! parent's children, and its depth (1 under a root). Agents get the tools from the
+//! `cmux-subsessions` MCP server (`subsession_mcp.rs`, every local session by default,
+//! `agent_tools.rs`); the server reaches these methods over the unix socket with the session's
+//! caller token, so the daemon, not a request field, says which session acts (`hub/person.rs` (a)).
 //!
 //! Limits, decided here and nowhere else:
 //! - Width: a session has at most `maxChildren` open children (not closed).
@@ -55,20 +53,18 @@
 //!
 //! A family lives on one daemon: there is no start on another host. What
 //! the tools read back of a family member (its title, last reply, capped
-//! at [`MAX_REPLY_CHARS`], and error) is masked (`secret_scan`), and only
-//! the caller's descendants and its own parent are read. A start or a
-//! message never attaches, so the receiver's unread mark stays.
+//! at [`MAX_REPLY_CHARS`], error, running prompt and what it does now) is masked (`secret_scan`),
+//! the reply and the prompt before their cut, and only the caller's descendants and its own parent
+//! are read. A start or a message never attaches, so the receiver's unread mark stays.
 //!
-//! A chat the person starts from a suggested task (`offers.rs`) becomes the
-//! offering chat's sub-session too ([`Hub::offer_link`]), so the agent that
-//! suggested it reads and waits on it with the same tools; only the person
-//! prompts, stops or closes it (`subsession_write_target`).
+//! A chat the person starts from a suggested task (`offers.rs`) becomes the offering chat's
+//! sub-session too ([`Hub::offer_link`]), so the agent that suggested it reads and waits on it with
+//! the same tools; only the person prompts, stops or closes it (`subsession_write_target`).
 //!
-//! With `worktree: true` a child works in a new git worktree of its folder's
-//! repository (`subsession_worktree.rs`, laid out as the app's
-//! `git.worktree.create`), made in the daemon without running anything from
-//! that repository: its files are checked out without the repository's
-//! config. A start that fails after it is made removes it again.
+//! With `worktree: true` a child works in a new git worktree of its folder's repository
+//! (`subsession_worktree.rs`, laid out as the app's `git.worktree.create`), made in the daemon
+//! without running anything from that repository: its files are checked out without the
+//! repository's config. A start that fails after it is made removes it again.
 //!
 //! The index of open children per parent is a leaf lock: nothing else is
 //! locked while it is held, so it may be taken under any other lock.
@@ -81,6 +77,7 @@ use std::collections::BTreeSet;
 pub const SETTING_ENABLED: &str = "agents.subsessions.enabled";
 pub const SETTING_MAX_CHILDREN: &str = "agents.subsessions.maxChildren";
 pub const SETTING_MAX_DEPTH: &str = "agents.subsessions.maxDepth";
+pub const SETTING_ANSWER_QUESTIONS: &str = "agents.subsessions.answerQuestions";
 /// The settings catalog source of those keys: their defaults and ranges have
 /// one definition, shared with the app's Settings.
 const CATALOG_SOURCE: &str =
@@ -96,6 +93,7 @@ pub struct NumberSetting {
 /// The catalog rows the daemon reads.
 pub struct Catalog {
     pub enabled: bool,
+    pub answer_questions: bool,
     pub max_children: NumberSetting,
     pub max_depth: NumberSetting,
 }
@@ -109,7 +107,7 @@ pub fn catalog() -> &'static Catalog {
     })
 }
 
-/// The three agents.subsessions rows of a settings source file, or None when one is missing.
+/// The agents.subsessions rows of a settings source file, or None when one is missing.
 fn parse_catalog(source: &str) -> Option<Catalog> {
     let doc: Value = serde_json::from_str(source).ok()?;
     let row = |key: &str| -> Option<Value> {
@@ -128,6 +126,7 @@ fn parse_catalog(source: &str) -> Option<Catalog> {
     };
     Some(Catalog {
         enabled: row(SETTING_ENABLED)?["default"].as_bool()?,
+        answer_questions: row(SETTING_ANSWER_QUESTIONS)?["default"].as_bool()?,
         max_children: number(SETTING_MAX_CHILDREN)?,
         max_depth: number(SETTING_MAX_DEPTH)?,
     })
@@ -351,7 +350,7 @@ impl Drop for KeptWorktree {
     }
 }
 
-use super::subsession_guard::refusal as refused;
+pub(super) use super::subsession_guard::refusal as refused;
 
 /// A short name from the request or the prompt: lowercase words joined by
 /// dashes, at most [`MAX_SHORT_NAME`] characters.
@@ -643,7 +642,8 @@ impl Hub {
             return Err(self.close_refused(&probe, e).await);
         }
         let cm = probe.meta();
-        let accepted = self.send_family_prompt(parent, &probe, &req.prompt, None, false).await;
+        let accepted =
+            self.send_family_prompt(parent, &probe, &req.prompt, None, false, false).await;
         let accepted = match accepted {
             Ok(v) => v,
             Err(e) => {
@@ -651,7 +651,11 @@ impl Hub {
                 return Err(e);
             }
         };
-        let summary = self.session_summary(&probe);
+        // The row get_session reads, not the session summary: a summary's
+        // `shown` says whether a client has the chat open right now, which a
+        // parent read as "the user cannot see it" (it is under the parent's
+        // chat in the sidebar from the start).
+        let row = self.subsession_row(&probe, false);
         let mut reply = json!({
             "sessionId": probe.id,
             "name": cm.name,
@@ -660,7 +664,7 @@ impl Hub {
             "harness": cm.harness,
             "mode": crate::web_modes::mode_of(&probe.meta()),
             "turnId": accepted.get("turnId"),
-            "session": summary,
+            "session": row,
         });
         if let Some(kept) = &worktree {
             let w = &kept.made;
@@ -705,22 +709,29 @@ impl Hub {
     }
 
     /// Sends `text` from `from` to `to` as a prompt with the family provenance; answers once it
-    /// is accepted (started or queued). `interrupt`: `Hub::interrupt_once_queued`.
-    async fn send_family_prompt(
+    /// is accepted (started or queued). `steer`: into the running turn (`Delivery::NextStep`);
+    /// `interrupt`: `Hub::interrupt_once_queued`.
+    pub(super) async fn send_family_prompt(
         self: &Arc<Self>,
         from: &Arc<Session>,
         to: &Arc<Session>,
         text: &str,
         prompt_id: Option<String>,
+        steer: bool,
         interrupt: bool,
     ) -> Result<Value, RpcError> {
         let fm = from.meta();
-        let provenance = json!({
+        let mut provenance = json!({
             "kind": PROVENANCE_KIND,
             "from": from.id,
             "fromName": fm.name,
             "to": to.id,
+            // Who the sender is to the receiver, for its chat's label.
+            "fromRole": super::subsession_send::family_role(&fm, &to.meta()),
         });
+        if let Some(link) = &fm.subsession {
+            provenance["fromShortName"] = json!(link.short_name);
+        }
         let (tx, rx) = tokio::sync::oneshot::channel::<Value>();
         // An agent a remote device drove (its turn, or its last one, is a Web
         // turn) prompts under the remote floor, and so does a prompt to a
@@ -742,7 +753,7 @@ impl Hub {
         let (hub, to2) = (self.clone(), to.clone());
         // The turn runs on: only its acceptance is awaited here.
         let turn = tokio::spawn(async move {
-            hub.prompt_with(&to2, blocks, "acpmux-subsession", false, opts).await
+            hub.prompt_with(&to2, blocks, "acpmux-subsession", steer, opts).await
         });
         match rx.await {
             Ok(v) => Ok(v),
@@ -757,7 +768,11 @@ impl Hub {
 
     /// One family row for the tools: the session's place, state and last reply.
     pub fn subsession_row(&self, s: &Session, with_reply: bool) -> Value {
-        let summary = self.session_summary(s);
+        let mut summary = self.session_summary(s);
+        // Masked before its cut (`TurnInfo::masked_preview`), for `turn.prompt` and `doing`.
+        if let Some(t) = s.turn().filter(|t| summary["turn"]["turnId"] == t.turn_id.as_str()) {
+            summary["turn"]["prompt"] = json!(t.masked_preview);
+        }
         let pick = |k: &str| summary.get(k).cloned().unwrap_or(Value::Null);
         let mut row = json!({
             "sessionId": s.id,
@@ -776,18 +791,26 @@ impl Hub {
             "queued": pick("queued"),
             // Non-null from the moment a prompt is accepted to its turn's end.
             "turn": pick("turn"),
+            // working, input, failed, lost or idle, and since when (`views::lane`).
+            "state": summary["lane"]["state"].clone(),
+            "stateSince": summary["lane"]["since"].clone(),
+            "doing": super::subsession_send::doing(&summary),
+            // question or permission: only the person allows a permission, in the app.
+            "waitingOn": pick("waitingOn"),
+            "questions": self.subsession_questions(s), // ancestors may answer them
         });
         if with_reply {
             row["lastReply"] = json!(self.last_reply(s));
         }
         // The tools hand this to another session's agent: a secret in the
         // child's text (one it read from a file, say) is masked.
-        for key in ["title", "lastReply"] {
+        for key in ["title", "lastReply", "doing"] {
             if let Some(text) = row[key].as_str() {
                 row[key] = json!(crate::secret_scan::mask(text));
             }
         }
-        // The running turn's prompt (below, masked before its cut) and the last turn's text.
+        // The last turn's text, and the running turn's prompt again (a turn that changed
+        // between the two reads above): a parent may have pasted a key into it.
         for pointer in ["/lastTurn/errorText", "/lastTurn/prompt", "/turn/prompt"] {
             if let Some(slot) = row.pointer_mut(pointer)
                 && let Some(text) = slot.as_str()
@@ -795,8 +818,12 @@ impl Hub {
                 *slot = json!(crate::secret_scan::mask(text));
             }
         }
-        if let Some(t) = s.turn().filter(|t| row["turn"]["turnId"] == t.turn_id.as_str()) {
-            row["turn"]["prompt"] = json!(t.masked_preview);
+        // What the running turn does now is a tool call's title, often a command with its
+        // arguments.
+        for key in ["activity", "planStep"] {
+            if let Some(text) = row["turn"][key].as_str() {
+                row["turn"][key] = json!(crate::secret_scan::mask(text));
+            }
         }
         row
     }
@@ -899,43 +926,6 @@ impl Hub {
         Ok(target)
     }
 
-    /// `_acpmux/subsession/send`: a prompt from `caller` to a descendant or
-    /// to its parent, queued behind a running turn, or after stopping it.
-    pub async fn subsession_send(
-        self: &Arc<Self>,
-        caller: &Arc<Session>,
-        target: &Arc<Session>,
-        text: &str,
-        interrupt: bool,
-        prompt_id: Option<String>,
-    ) -> Result<Value, RpcError> {
-        if text.trim().is_empty() {
-            return Err(RpcError::invalid_params("text must not be empty"));
-        }
-        if target.meta().status == SessionStatus::Closed {
-            return Err(refused(
-                "subsessions.closed",
-                "that session is closed; start a new one with start_session".to_owned(),
-                json!({"sessionId": target.id}),
-            ));
-        }
-        // A child reports to its parent; it never stops the parent's turn.
-        let to_parent =
-            caller.meta().subsession.as_ref().is_some_and(|l| l.started_by == target.id);
-        if interrupt && to_parent {
-            return Err(RpcError::invalid_params(
-                "a sub-session never interrupts its parent: send without interrupt, and the message waits for the parent's turn to end",
-            ));
-        }
-        self.receiver_check(caller, target).await?;
-        let accepted = self.send_family_prompt(caller, target, text, prompt_id, interrupt).await?;
-        Ok(json!({
-            "sessionId": target.id,
-            "queued": accepted.get("queued").cloned().unwrap_or(json!(false)),
-            "turnId": accepted.get("turnId"),
-        }))
-    }
-
     /// `_acpmux/subsession/stop`: stops a descendant's turn, or with `close`
     /// closes it and every session under it (deepest first), which frees
     /// their slots.
@@ -1025,8 +1015,9 @@ impl Hub {
     }
 
     /// The text of the session's last agent message (its own, not a
-    /// harness subagent's), from the newest records, masked and at most
-    /// [`MAX_REPLY_CHARS`] long; null before any.
+    /// harness subagent's), from the newest records; null before any.
+    /// Secrets are masked (`secret_scan`) before the text is cut at
+    /// `MAX_REPLY_CHARS`, so a cut never leaves a secret's head unmasked.
     pub fn last_reply(&self, s: &Session) -> Option<String> {
         let last = s.meta().last_seq;
         let after = last.saturating_sub(4000);
@@ -1058,13 +1049,15 @@ impl Hub {
                 _ => {}
             }
         }
-        // Masked whole, then cut: a secret across the cap leaves no head.
-        let reply = crate::secret_scan::mask(reply.trim());
+        let reply = reply.trim();
         if reply.is_empty() {
             return None;
         }
-        let mut cut: String = reply.chars().take(MAX_REPLY_CHARS).collect();
-        if reply.chars().count() > MAX_REPLY_CHARS {
+        // Mask before the cut: a cut through a secret leaves a head the
+        // scanner no longer recognizes, and that head would go out unmasked.
+        let masked = crate::secret_scan::mask(reply);
+        let mut cut: String = masked.chars().take(MAX_REPLY_CHARS).collect();
+        if masked.chars().count() > MAX_REPLY_CHARS {
             cut.push('…');
         }
         Some(cut)

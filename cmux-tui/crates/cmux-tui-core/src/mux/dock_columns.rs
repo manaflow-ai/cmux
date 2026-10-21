@@ -434,8 +434,10 @@ pub(crate) fn ensure_permanent_columns_kept(
 }
 
 /// The close planner's guard: the projected state of a close, or the
-/// refusal when the close would remove a permanent column. A terminal that
-/// exited still closes, and closing the whole workspace is no removal.
+/// refusal when the close would remove a permanent column or break a pinned
+/// one. A terminal that exited still closes, and closing the whole workspace
+/// (or its last screen) is no removal; a tab or pane close that empties the
+/// workspace still may not take a pinned tab with it.
 pub(crate) fn close_keeping_permanent(
     operation: ResourceOperation,
     before: &State,
@@ -443,7 +445,12 @@ pub(crate) fn close_keeping_permanent(
 ) -> anyhow::Result<State> {
     if !matches!(operation, ResourceOperation::TerminalClose | ResourceOperation::WorkspaceClose) {
         ensure_permanent_columns_kept(operation.wire_name(), &permanent_columns(before), &after)?;
-        ensure_pinned_columns_kept(operation.wire_name(), &pinned_columns(before), &after)?;
+        let pinned = pinned_columns(before);
+        if matches!(operation, ResourceOperation::TabClose | ResourceOperation::PaneClose) {
+            ensure_pinned_tabs_not_closed(operation.wire_name(), &pinned, &after)?;
+        } else {
+            ensure_pinned_columns_kept(operation.wire_name(), &pinned, &after)?;
+        }
     }
     Ok(after)
 }
