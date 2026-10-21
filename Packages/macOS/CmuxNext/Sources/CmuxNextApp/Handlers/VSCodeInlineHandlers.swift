@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextVSCodeServer
 
@@ -29,10 +30,10 @@ enum VSCodeInlineHandlers {
     }
 
     private static func openFolder(_ invocation: ActionInvocation, context: AppActionContext) throws {
-        let pane = try context.pane(invocation)
+        let pane = try targetPane(invocation, context: context)
         guard context.services.daemon(for: pane.pane).isLocal else { throw ActionFailure(message: VSCodeInlineStrings.thisMacOnly) }
         let vscode = try installedVSCode()
-        let folder = focusedFolder(invocation, context: context)
+        let folder = folder(of: pane, invocation)
         let byPerson = invocation.origin == .user
         guard byPerson else {
             guard let folder else { throw ActionFailure(message: VSCodeInlineStrings.noFolder) }
@@ -72,9 +73,26 @@ enum VSCodeInlineHandlers {
         }
     }
 
-    /// The focused terminal's folder, if it reports one.
-    private static func focusedFolder(_ invocation: ActionInvocation, context: AppActionContext) -> String? {
-        guard let (pane, id) = context.scope(invocation).tab, let tab = pane.tab(id), tab.kind == .pty,
+    /// The pane the folder opens beside: a workspace target's (the sidebar row's menu) focused
+    /// pane, shown first in the window that lists it; else the targeted or focused pane.
+    static func targetPane(_ invocation: ActionInvocation, context: AppActionContext) throws -> PaneController {
+        guard let target = invocation.target ?? invocation["workspace"]?.targetValue, target.kind == .workspace else {
+            return try context.pane(invocation)
+        }
+        let model = try context.workspace(invocation).model
+        let windows = context.services.windows
+        func shown() -> PaneController? { windows.controllers.first { $0.workspaceContent?.workspace === model }?.focusedPane }
+        if let pane = shown() { return pane }
+        // A row of a workspace no window shows: show it where it lives, as a click on the row does.
+        if let state = windows.active?.state { windows.show(workspaceID: model.id, in: state) }
+        guard let pane = shown() else { throw ActionFailure(message: RefusalStrings.notShownInAnyWindow(target.description)) }
+        return pane
+    }
+
+    /// The folder of the targeted terminal tab, else of `pane`'s selected one, if it reports one.
+    private static func folder(of pane: PaneController, _ invocation: ActionInvocation) -> String? {
+        let targeted = invocation.target.flatMap { $0.kind == .tab ? StripTabID($0.id) : nil }
+        guard let id = targeted ?? pane.stripModel.selectedID, let tab = pane.tab(id), tab.kind == .pty,
               let cwd = tab.cwd?.trimmingCharacters(in: .whitespacesAndNewlines), cwd.hasPrefix("/") else { return nil }
         return cwd
     }
