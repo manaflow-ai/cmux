@@ -193,7 +193,9 @@ const SECRET_KINDS = ["secret_request", "secret_decision"];
 const OFFER_RESULT_PROMPT = "offer-result-";
 /// A queued prompt sent now (`queue_order` `next`) or edited (`queue_updated`): not transcript in
 /// acpmux (`paging.rs`), so attach asks for them by kind, or the queue never hears either live.
-const QUEUE_KINDS = ["queue_order", "queue_updated"];
+/// `prompt_refused`: acpmux refused a prompt sent now at dispatch (hub/web_control.rs), after it left the
+/// queue; it is not a transcript record, so the pane asks for it by name.
+const QUEUE_KINDS = ["queue_order", "queue_updated", "prompt_refused"];
 /// acpmux's refusals of an answer to a card it no longer has (hub/secrets.rs): a restart lost it,
 /// or the agent stopped waiting.
 const SECRET_GONE = ["no secret request with that id", "the agent stopped waiting"];
@@ -1842,13 +1844,16 @@ export class AcpmuxDirectClient {
         this.queuedSends.add(id);
         this.promptAccepts.get(id)?.();
       }
+    } else if (event.kind === "turn_error") {
+      // The Send now's own turn failed before it was recorded: it never ran.
+      if (this.awaiting !== undefined) this.dropContinuation(this.awaiting);
     } else if (event.kind === "queue_removed" || event.kind === "dequeued" || event.kind === "prompt_refused") {
       const id = String(msg.promptId ?? "");
       this.queue = this.queue.filter((entry) => entry.id !== id);
       // A prompt sent now that will never run: the turn it stopped ends as it did.
       if (event.kind !== "dequeued") {
         if (id === this.interrupting) this.interrupting = undefined;
-        if (id === this.awaiting) this.dropContinuation(id, true);
+        if (id === this.awaiting) this.dropContinuation(id);
       }
     } else if (event.kind === "permission_request") {
       const asked = msg.permissionId
@@ -2112,7 +2117,7 @@ export class AcpmuxDirectClient {
         const steer = msg.steer === true ? "waiting" : undefined;
         const continues = promptId !== undefined && this.continuations.has(promptId);
         if (continues) this.continueTurn(promptId!);
-        else if (this.awaiting !== undefined && msg.steer !== true) this.dropContinuation(this.awaiting, true);
+        else if (this.awaiting !== undefined && msg.steer !== true) this.dropContinuation(this.awaiting);
         if (steer === "waiting") this.waitingSteers.push({ rowId: `user-${event.seq}`, promptId });
         this.rows.set(`user-${event.seq}`, {
           id: `user-${event.seq}`,
@@ -2413,37 +2418,22 @@ export class AcpmuxDirectClient {
   }
 
   /// Closes the assistant text being streamed, so later text starts a new row below.
-  /// The prompt sent now `promptId` ran: the turn it ended goes on under it (again, if the chat read
-  /// idle for a moment before it ran).
+  /// The prompt sent now `promptId` ran: the turn it ended goes on under it.
   private continueTurn(promptId: string): void {
     if (this.awaiting === promptId) this.awaiting = undefined;
-    const id = this.continuations.get(promptId);
-    const summary = id ? this.rows.get(id) : undefined;
-    if (summary && !summary.continued)
-      this.rows.set(summary.id, { ...summary, continued: true, version: summary.version + 1 });
   }
 
-  /// The prompt sent now `promptId` has not run: the turn it ended reads as ended (Stop's "You
-  /// stopped after", its footer and checkpoint). `forGood` when it never will (removed, refused, or
-  /// another prompt ran first); otherwise the chat is only idle and its run puts the turn back.
-  private dropContinuation(promptId: string, forGood: boolean): void {
+  /// The prompt sent now `promptId` will not run (removed, refused, its turn failed, or another
+  /// prompt ran first): the turn it ended reads as ended (Stop's "You stopped after", its footer and
+  /// checkpoint). Only on a record that says so: between `dequeued` and its own record the chat reads
+  /// idle while the prompt is about to run.
+  private dropContinuation(promptId: string): void {
     const id = this.continuations.get(promptId);
     const summary = id ? this.rows.get(id) : undefined;
     if (summary?.continued)
       this.rows.set(summary.id, { ...summary, continued: undefined, version: summary.version + 1 });
-    if (forGood) {
-      this.continuations.delete(promptId);
-      if (this.awaiting === promptId) this.awaiting = undefined;
-    }
-  }
-
-  /// A prompt sent now that is neither queued nor running once the chat is idle (acpmux refused it,
-  /// and does not stream its refusal): its turn reads as ended until it runs.
-  private settleAwaiting(): void {
-    const id = this.awaiting;
-    if (id === undefined || this.turnOpen || this.summary?.status === "running") return;
-    if (this.queue.some((entry) => entry.id === id)) return;
-    this.dropContinuation(id, false);
+    this.continuations.delete(promptId);
+    if (this.awaiting === promptId) this.awaiting = undefined;
   }
 
   /// The waiting steers (or the one `promptId` names) were read: their rows say so.
@@ -2484,7 +2474,6 @@ export class AcpmuxDirectClient {
   }
 
   private emitNow(connection: string): void {
-    this.settleAwaiting();
     if (this.snapshotHold) {
       this.snapshotHold.connection = connection;
       // The release draws everything since: no frame-batched snapshot is left waiting.
@@ -2721,6 +2710,12 @@ export class AcpmuxDirectClient {
       this.optimisticPromptAttachments.delete(promptId);
     } catch (error) {
       this.promptAccepts.delete(promptId);
+      // A Send now refused at dispatch answers its sender with the refusal (a remote acpmux sends the
+      // pane no prompt_refused record): the turn it ended reads as ended.
+      if (promptId === this.awaiting) {
+        this.dropContinuation(promptId);
+        this.emit();
+      }
       // A refused prompt did not use the context: the next send carries it.
       if (context && !taken) this.contextInFlight = false;
       // A queued prompt refused when its turn came gets its bubble back, to fail with Retry.
