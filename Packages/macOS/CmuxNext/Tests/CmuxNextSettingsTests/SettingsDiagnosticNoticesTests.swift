@@ -28,6 +28,13 @@ struct SettingsDiagnosticNoticesTests {
         #expect(!again.cleared)
     }
 
+    @Test func aRefusalAnnouncedAtAnEarlierLaunchStaysQuiet() {
+        var first = SettingsDiagnosticNotices()
+        _ = first.update([background], file: file("folder:~/Pictures"))
+        var relaunched = SettingsDiagnosticNotices(remembered: first.remembered)
+        #expect(relaunched.update([background], file: file("folder:~/Pictures")).announce.isEmpty)
+    }
+
     @Test func anotherBadValueAtTheSameKeyIsAnnounced() {
         var notices = SettingsDiagnosticNotices()
         _ = notices.update([background], file: file("folder:~/Pictures"))
