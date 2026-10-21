@@ -2914,8 +2914,7 @@ struct RestorableAgentSessionIndex: Sendable {
         homeDirectory: String,
         fileManager: FileManager
     ) -> AgentLaunchCommandSnapshot? {
-        guard var launchCommand,
-              normalizedNonEmptyValue(launchCommand.environment?["CLAUDE_CONFIG_DIR"]) == nil else {
+        guard normalizedNonEmptyValue(launchCommand?.environment?["CLAUDE_CONFIG_DIR"]) == nil else {
             return launchCommand
         }
         let defaultConfigDirectory = ((homeDirectory as NSString).appendingPathComponent(".claude") as NSString)
@@ -2928,14 +2927,54 @@ struct RestorableAgentSessionIndex: Sendable {
             configDirectory = normalizedNonEmptyValue(liveProcessEnvironment?["CLAUDE_CONFIG_DIR"])
         }
         guard let configDirectory else { return launchCommand }
-        var environment = launchCommand.environment ?? [:]
+        // A record whose capture was dropped as untrusted still restores
+        // through the bare resume verb; it keeps the account as an argv-less
+        // capture, the shape the hook writes when no argv was available.
+        var savedLaunchCommand = launchCommand ?? claudeAccountOnlyLaunchCommand(environment: [:])
+        var environment = savedLaunchCommand.environment ?? [:]
         environment["CLAUDE_CONFIG_DIR"] = ClaudeConfigDirectoryPath.preferredPath(
             configDirectory,
             fileManager: fileManager,
             homeDirectory: homeDirectory
         )
-        launchCommand.environment = environment
-        return launchCommand
+        savedLaunchCommand.environment = environment
+        return savedLaunchCommand
+    }
+
+    /// The launch capture a restored session keeps from its hook record: the
+    /// trusted capture, and for Claude the account a dropped or missing capture
+    /// would otherwise lose. Crash recovery reopens sessions by this same rule.
+    static func restorableLaunchCommand(
+        _ launchCommand: AgentLaunchCommandSnapshot?,
+        kind: RestorableAgentKind,
+        transcriptPath: String?,
+        homeDirectory: String,
+        fileManager: FileManager = .default
+    ) -> AgentLaunchCommandSnapshot? {
+        let trusted = trustedLaunchCommand(launchCommand, kind: kind)
+        guard kind == .claude else { return trusted }
+        return claudeLaunchCommandNamingConfigDirectory(
+            trusted,
+            liveProcessEnvironment: nil,
+            transcriptPath: transcriptPath,
+            homeDirectory: homeDirectory,
+            fileManager: fileManager
+        )
+    }
+
+    /// Claude's account selection: the config directory and the secure-storage
+    /// directory its login lives under.
+    private static let claudeAccountEnvironmentKeys = ["CLAUDE_CONFIG_DIR", "CLAUDE_SECURESTORAGE_CONFIG_DIR"]
+
+    /// An argv-less Claude capture that carries only the account. It resumes
+    /// through the bare `claude` verb, exactly as a record without a capture.
+    private static func claudeAccountOnlyLaunchCommand(environment: [String: String]) -> AgentLaunchCommandSnapshot {
+        AgentLaunchCommandSnapshot(
+            rejectedOn: .argvUnavailable,
+            launcher: RestorableAgentKind.claude.rawValue,
+            environment: environment.isEmpty ? nil : environment,
+            source: "environment"
+        )
     }
 
     /// Drops launch captures that cannot describe this agent kind: a capture
@@ -2943,6 +2982,9 @@ struct RestorableAgentSessionIndex: Sendable {
     /// carries claude's `CMUX_AGENT_LAUNCH_*`) or the hook dispatch shell's own
     /// argv. Resume/fork then fall back to the kind's bare verbs instead of
     /// rendering the foreign binary. Existing poisoned records heal on load.
+    /// A dropped Claude capture keeps its account: the hook recorded its own
+    /// process's environment, so `CLAUDE_CONFIG_DIR` there is the session's
+    /// even when the argv beside it described another process.
     private static func trustedLaunchCommand(
         _ launchCommand: AgentLaunchCommandSnapshot?,
         kind: RestorableAgentKind
@@ -2950,7 +2992,11 @@ struct RestorableAgentSessionIndex: Sendable {
         guard let launchCommand else { return nil }
         guard AgentLaunchCaptureTrust.launcherDescribesKind(launchCommand.launcher, kind: kind.rawValue),
               !AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(launchCommand.arguments) else {
-            return nil
+            guard kind == .claude else { return nil }
+            let account = (launchCommand.environment ?? [:]).filter { key, value in
+                claudeAccountEnvironmentKeys.contains(key) && normalizedNonEmptyValue(value) != nil
+            }
+            return account.isEmpty ? nil : claudeAccountOnlyLaunchCommand(environment: account)
         }
         return launchCommand
     }
