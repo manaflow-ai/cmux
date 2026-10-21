@@ -58,6 +58,8 @@ const RENEW_AFTER_ATTEMPTS: u64 = 3;
 const PROBE_BUDGET: Duration = Duration::from_secs(15);
 /// The budget of one request to this Mac's acpmux while checking the lease.
 const CALL_BUDGET: Duration = Duration::from_secs(15);
+/// The budget of a `_acpmux/peer_lease` that waits for the first connect.
+const LEASE_BUDGET: Duration = Duration::from_secs(45);
 /// Most bytes read of one VM file.
 const MAX_FILE_BYTES: u32 = 1 << 20;
 const AREA: &str = "acpmux-peer";
@@ -282,9 +284,10 @@ impl Live {
             "peerToken": self.tokens.peer_token,
             "wait": true,
         });
-        self.acpmux
-            .request("_acpmux/peer_lease", params)
+        // The daemon answers within its 30 s settle budget (`wait`).
+        tokio::time::timeout(LEASE_BUDGET, self.acpmux.request("_acpmux/peer_lease", params))
             .await
+            .map_err(|_| format!("peer_lease: no answer in {}s", LEASE_BUDGET.as_secs()))?
             .map(drop)
             .map_err(|e| format!("peer_lease: {e:#}"))
     }

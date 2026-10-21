@@ -155,34 +155,60 @@ mod tests {
 
     /// Leasing and listing peers at once never deadlock: `peers()` reads the
     /// leases before it locks the peers, the order `lease_peer` takes them in.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn leasing_while_listing_peers_never_deadlocks() {
-        let hub = hub();
-        let cfg = crate::config::Config::default();
-        let lister = {
-            let hub = hub.clone();
-            tokio::task::spawn_blocking(move || {
+    /// Plain threads, so a deadlock fails the test instead of hanging it.
+    #[test]
+    fn leasing_while_listing_peers_never_deadlocks() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let hub = {
+            let _entered = runtime.enter();
+            hub()
+        };
+        let (done, finished) = std::sync::mpsc::channel();
+        {
+            let (hub, done) = (hub.clone(), done.clone());
+            std::thread::spawn(move || {
                 for _ in 0..2_000 {
                     let _ = hub.peers();
                 }
-            })
-        };
-        let leaser = {
-            let hub = hub.clone();
-            let runtime = tokio::runtime::Handle::current();
-            tokio::task::spawn_blocking(move || {
-                let _entered = runtime.enter();
+                let _ = done.send(());
+            });
+        }
+        {
+            let handle = runtime.handle().clone();
+            std::thread::spawn(move || {
+                let _entered = handle.enter();
+                let cfg = crate::config::Config::default();
                 for _ in 0..2_000 {
                     let (lease, _) =
                         hub.lease_peer("vm", "ws://127.0.0.1:1", "t".into(), None, &cfg).unwrap();
                     hub.end_peer_lease(&lease);
                 }
-            })
-        };
-        let both = async { (lister.await.unwrap(), leaser.await.unwrap()) };
-        tokio::time::timeout(std::time::Duration::from_secs(60), both)
-            .await
-            .expect("leasing and listing peers deadlocked");
+                let _ = done.send(());
+            });
+        }
+        for _ in 0..2 {
+            finished
+                .recv_timeout(std::time::Duration::from_secs(60))
+                .expect("leasing and listing peers deadlocked");
+        }
+    }
+
+    /// A saved peer added under a leased name ends the lease and drops the
+    /// leased machine's rows.
+    #[tokio::test]
+    async fn a_saved_peer_takes_a_leased_name_over_and_drops_its_rows() {
+        let hub = hub();
+        let cfg = crate::config::Config::default();
+        let (lease, _) = hub.lease_peer("vm", "ws://127.0.0.1:9", "t".into(), None, &cfg).unwrap();
+        let row = json!({"sessionId": "m1", "name": "lane", "status": "idle", "updatedAt": 5});
+        hub.apply_peer_notice("vm", crate::peer::PeerNotice::Sessions(vec![row]));
+        hub.add_peer("vm", "ws://127.0.0.1:8", None, None, false).await.unwrap();
+        assert!(!hub.is_leased("vm"));
+        assert!(hub.remote_sessions().is_empty(), "{:?}", hub.remote_sessions());
+        assert_eq!(hub.peers()[0]["url"], "ws://127.0.0.1:8");
+        // The old lease's end leaves the saved peer alone.
+        hub.end_peer_lease(&lease);
+        assert_eq!(hub.peers().len(), 1);
     }
 
     /// A leased peer's sessions are listed but never saved as last-known

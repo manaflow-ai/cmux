@@ -49,11 +49,20 @@ fn hub(cfg: Config) -> Arc<Hub> {
     Hub::new(cfg, store)
 }
 
-fn scratch(tag: &str) -> PathBuf {
+/// A scratch folder, removed when the test ends (also when it fails).
+struct Scratch(PathBuf);
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+fn scratch(tag: &str) -> Scratch {
     let d = std::env::temp_dir().join(format!("apl-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&d);
     std::fs::create_dir_all(&d).unwrap();
-    d
+    Scratch(d)
 }
 
 struct C {
@@ -107,8 +116,9 @@ impl C {
 async fn serving_b(tag: &str) -> (Arc<Hub>, u16, String) {
     let b = hub(config());
     let home = scratch(&format!("{tag}-b"));
-    let auth = PeerAuth::create(&home).unwrap();
-    let peer_token = std::fs::read_to_string(acpmux::server::peer_auth::token_path(&home)).unwrap();
+    let auth = PeerAuth::create(&home.0).unwrap();
+    let peer_token =
+        std::fs::read_to_string(acpmux::server::peer_auth::token_path(&home.0)).unwrap();
     let l = bind_ws("127.0.0.1:0").await.unwrap();
     let port = l.local_addr().unwrap().port();
     let auth = WsAuth { local_app: None, peer: Some(Arc::new(auth)) };
@@ -118,8 +128,6 @@ async fn serving_b(tag: &str) -> (Arc<Hub>, u16, String) {
     let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [],
         "_meta": {"acpmux": {"name": "vm-one"}}});
     cb.call(method::SESSION_NEW, new).await.unwrap();
-    // The listener read its token at start; the folder is not needed again.
-    let _ = std::fs::remove_dir_all(&home);
     (b, port, peer_token)
 }
 
@@ -150,7 +158,8 @@ async fn a_leased_peers_sessions_are_listed_and_served_as_a_peer() {
 #[tokio::test]
 async fn a_peer_lease_never_changes_config_json_and_ends_with_its_connection() {
     let (_b, port, peer_token) = serving_b("close").await;
-    let dir = scratch("close-a");
+    let scratch_a = scratch("close-a");
+    let dir = &scratch_a.0;
     let mut cfg = config();
     cfg.path = Some(dir.join("config.json"));
     cfg.save().unwrap();
@@ -184,7 +193,6 @@ async fn a_peer_lease_never_changes_config_json_and_ends_with_its_connection() {
         a.all_session_summaries()
     );
     assert_eq!(std::fs::read(dir.join("config.json")).unwrap(), before, "ending saved config");
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[tokio::test]

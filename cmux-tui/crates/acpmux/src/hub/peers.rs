@@ -106,7 +106,10 @@ impl Hub {
             // under the lease lock so no notice of the leased peer finds the
             // name unleased first (lock order: `peer_leases`, then `peers`).
             let mut leases = self.peer_leases.lock().unwrap_or_else(|e| e.into_inner());
-            leases.remove(name);
+            if leases.remove(name).is_some() {
+                // The leased machine's rows go; the saved peer lists its own.
+                self.purge_peer_rows(name);
+            }
             self.start_peer(name, &pc)
         };
         if wait {
