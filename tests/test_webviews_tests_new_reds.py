@@ -9,6 +9,7 @@ a test file's `FAIL <name>` lines are the tests it fails, `CRASH` makes it fail 
 `HANG` makes it time out, `SCOPED` crashes it like prScope.ts does when CMUX_PR_CHANGED_FILES is
 set and HEAD^1 is missing (the base checkout: the job fetched only the merge commit and its parents),
 `FLAKY` fails `sometimes` on its first run only (a test red only under the shard's load),
+`CROWDED` fails `crowded` when another test file runs at the same time,
 and `RULE` fails `the rules hold` as a prScope rule test with findings does unless
 CMUX_NEXT_STYLE_GUARDS=warn. `bun install` leaves a fake Playwright whose install exits
 FAKE_PLAYWRIGHT_STATUS.
@@ -43,6 +44,12 @@ fi
 status=0
 stamp="$(git rev-parse --git-common-dir)/ran-$(basename "$2")"
 if grep -q '^FLAKY' "$2" && [ ! -e "$stamp" ]; then touch "$stamp"; echo "(fail) sometimes [5.00ms]"; status=1; fi
+running="$(git rev-parse --git-common-dir)/running"
+if grep -q '^CROWDED' "$2"; then
+  mkdir -p "$running" && touch "$running/$$" && sleep 1
+  if [ "$(ls "$running" | wc -l)" -gt 1 ]; then echo "(fail) crowded [5.00ms]"; status=1; fi
+  rm "$running/$$"
+fi
 if grep -q '^RULE' "$2" && [ "${CMUX_NEXT_STYLE_GUARDS:-}" != warn ]; then echo "(fail) the rules hold [3.00ms]"; status=1; fi
 while read -r word name; do
   if [ "$word" = FAIL ]; then echo "(fail) $name [12.50ms]"; status=1; fi
@@ -173,6 +180,15 @@ class Wrapper(unittest.TestCase):
         done, out = self.run_pr({"test/a.test.ts": body([])}, {"test/a.test.ts": "FLAKY\n" + body(["new red"])})
         self.assertEqual(done.returncode, 1, out)
         self.assertIn("::error title=Webview test red on this change::test/a.test.ts > new red", out)
+
+    def test_files_red_only_beside_each_other_rerun_one_at_a_time(self):
+        # composer-draft-wrap timed out beside the other red files on the head rerun and passed on
+        # the base, which reran it with nothing else (#23209's react-apps-check (1), 7a2323c9).
+        files = {f"test/{n}.test.ts": "CROWDED\n" + body([]) for n in "ab"}
+        done, out = self.run_pr({name: body([]) for name in files}, files)
+        self.assertEqual(done.returncode, 0, out)
+        self.assertNotIn("::error", out)
+        self.assertEqual(out.count("::warning title=Webview test file red only beside the others::"), 2, out)
 
     def test_the_bases_rule_findings_do_not_hide_the_changes_own(self):
         # On a main PR (CMUX_NEXT_STYLE_GUARDS=fail) the head's ui-rules test fails on the change's own
