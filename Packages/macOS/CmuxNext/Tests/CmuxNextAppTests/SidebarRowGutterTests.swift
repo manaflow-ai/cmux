@@ -10,6 +10,9 @@ import Testing
 /// (`SidebarStyle.horizontalInset`) now sets the pill's distance from the
 /// sidebar's edges and the content's distance from the pill's, on both sides,
 /// selected or not, and the badge is as tall as the glyph, with tabular digits.
+/// Since Leo 2026-10-20 (#22733) the pill also stops `SidebarStyle.rowTrailingTrim`
+/// short of the right inset, so its right edge never runs to the sidebar's edge;
+/// the content's insets inside the pill stay equal.
 @MainActor @Suite(.serialized) struct SidebarRowGutterTests {
     private static let pinnedID = WorkspaceID("ws-pinned")
     private static let unreadID = WorkspaceID("ws-unread")
@@ -64,9 +67,11 @@ import Testing
         for (name, row) in [("unselected", unread), ("selected", selected)] {
             let (leading, trailing) = try Self.insets(row)
             #expect(leading == trailing, "\(name): text \(leading) pt in, marks \(trailing) pt in")
-            // The pill's own inset from the list's edges is the same token.
+            // The pill's own inset from the list's edges is the same token, plus the trim on the right.
             #expect(leading == gutter, "\(name): text \(leading) pt in, pill inset \(gutter)")
-            #expect(row.frame.minX == gutter && sidebar.list.bounds.width - row.frame.maxX == gutter)
+            #expect(row.frame.minX == gutter)
+            #expect(sidebar.list.bounds.width - row.frame.maxX == gutter + SidebarStyle.rowTrailingTrim,
+                    "\(name): pill ends \(sidebar.list.bounds.width - row.frame.maxX) pt in")
         }
     }
 
@@ -78,7 +83,9 @@ import Testing
             let pill = list.convert(try Self.row(sidebar, id).frame, to: sidebar)
             let headerFrame = list.convert(header.frame, to: sidebar)
             #expect(pill.minX == headerFrame.minX, "pill \(pill.minX), header \(headerFrame.minX)")
-            #expect(pill.maxX == sidebar.aboveLine.frame.maxX, "pill \(pill.maxX), divider \(sidebar.aboveLine.frame.maxX)")
+            // The divider runs to the inset; the pill stops the trim short of it (#22733).
+            #expect(pill.maxX == sidebar.aboveLine.frame.maxX - SidebarStyle.rowTrailingTrim,
+                    "pill \(pill.maxX), divider \(sidebar.aboveLine.frame.maxX)")
             #expect(pill.minX == sidebar.aboveLine.frame.minX, "pill \(pill.minX), divider \(sidebar.aboveLine.frame.minX)")
         }
     }
