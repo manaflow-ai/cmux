@@ -11,6 +11,9 @@
 //   draws in the pane's frame; `shows` checks the frame is still there (the stage is not blank)
 //   and that the component itself drew what the variant is for.
 //
+// Every play acts through `trustedGalleryInput`, the matrix runner's trusted mouse and keyboard
+// (scripts/gallery-matrix/runner.ts), so a target the play cannot reach on screen fails here too.
+//
 // Real Chromium from Playwright, on the gallery's dev server; CI fails the file when it cannot
 // launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -27,9 +30,33 @@ type Case = {
   play?: "steps" | "error";
   /** What the stage must show when it is ready. */
   shows?: (page: Page) => Promise<boolean>;
+  /** The page size, when the state breaks only in a smaller gallery-matrix frame (default 1000x800). */
+  viewport?: { width: number; height: number };
 };
 
 await requireBrowserLane("gallery-agent-pane-entries.test.ts", async () => {
+  /**
+   * Installs the matrix runner's trusted input driver (`window.cmuxGalleryInput`) on a page before it
+   * loads: play steps then click, hover and type through Playwright's mouse and keyboard at the
+   * target's on-screen point, as in the gallery matrix, instead of the stage's synthetic DOM events.
+   */
+  const trustedGalleryInput = (page: Page) =>
+    page.exposeFunction("cmuxGalleryInput", async (action: { kind: string; x?: number; y?: number; text?: string }) => {
+      const { kind, x = 0, y = 0, text = "" } = action;
+      if (kind === "click") await page.mouse.click(x, y);
+      else if (kind === "hover" || kind === "move") await page.mouse.move(x, y);
+      else if (kind === "down") {
+        await page.mouse.move(x, y);
+        await page.mouse.down();
+      } else if (kind === "up") {
+        await page.mouse.move(x, y);
+        await page.mouse.up();
+      } else if (kind === "contextmenu") await page.mouse.click(x, y, { button: "right" });
+      else if (kind === "press") await page.keyboard.press(text);
+      else if (kind === "type") await page.keyboard.type(text);
+      else throw new Error(`gallery-agent-pane-entries: no trusted ${kind}`);
+    });
+
   const count = (page: Page, selector: string) => page.locator(selector).count();
   const has = (selector: string) => async (page: Page) => (await count(page, selector)) > 0;
   /** The pane's composer is in view and no harness notice is drawn. */
@@ -84,6 +111,39 @@ await requireBrowserLane("gallery-agent-pane-entries.test.ts", async () => {
       shows: has(".acpmux-summary-card .acpmux-summary-agents"),
     },
     { entry: "subagents", variant: "card-open-child", play: "steps", shows: has(".cv-subagent-of") },
+    // Run boards: a person reviews a candidate's evidence and approves it for integration. Each is
+    // "error", not "steps": its own labels change width when the state changes (a width follow-up,
+    // not a missing state). Timeline: "Approve for integration" becomes "Approval recorded" and
+    // shifts the review label. Compare (alone and in the tournament): the review state's words and
+    // the approve button change width, and alone the right-aligned capture receipt grows, so its
+    // anchor moves 92 px.
+    { entry: "run-board-timeline", variant: "approved", play: "error", shows: has('[data-approved="attempt-a"]') },
+    {
+      entry: "run-board-tournament",
+      variant: "approve-winner",
+      play: "error",
+      shows: has('[data-tournament-pane="compare"] [data-approved="attempt-a"]'),
+    },
+    {
+      entry: "run-board-tournament",
+      variant: "select-review",
+      play: "error",
+      shows: has('[data-tournament-pane="compare"] [data-review-state="reviewed"]'),
+    },
+    { entry: "run-board.compare", variant: "approve-winner", play: "error", shows: has('[data-approved="attempt-a"]') },
+    // In the matrix's short frames the model menu scrolls and its last row, Fast mode, is half
+    // clipped; the artifact panel's first Open preview is scrolled out above the latest reply.
+    { entry: "composer-row", variant: "fast-off", play: "steps", viewport: { width: 720, height: 300 } },
+    { entry: "composer-row", variant: "fast-on", play: "steps", viewport: { width: 720, height: 300 } },
+    { entry: "composer-pickers", variant: "fast-mode", play: "steps", viewport: { width: 640, height: 260 } },
+    // "error", not "steps": the panel opens beside the chat and narrows it, a layout shift by design.
+    {
+      entry: "artifact-panel",
+      variant: "versions",
+      play: "error",
+      viewport: { width: 760, height: 640 },
+      shows: has(".acpmux-artifact .acpmux-artifact-versions"),
+    },
   ];
 
   setDefaultTimeout(240_000);
@@ -118,7 +178,8 @@ await requireBrowserLane("gallery-agent-pane-entries.test.ts", async () => {
 
   for (const item of CASES)
     test(`agent-pane.${item.entry}#${item.variant} shows the product`, async () => {
-      const page = await browser!.newPage({ viewport: { width: 1000, height: 800 } });
+      const page = await browser!.newPage({ viewport: item.viewport ?? { width: 1000, height: 800 } });
+      await trustedGalleryInput(page);
       const errors: string[] = [];
       page.on("pageerror", (error) => errors.push(error.message));
       for (;;) {
