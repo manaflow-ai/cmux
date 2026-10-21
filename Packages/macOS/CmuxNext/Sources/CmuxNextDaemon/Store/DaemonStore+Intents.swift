@@ -155,20 +155,20 @@ extension DaemonStore {
     /// pending create shows it under the same key, updated in place (as ``confirmedPane(_:)``);
     /// else a new model.
     func confirmedWorkspace(_ snapshot: WorkspaceSnapshot) -> WorkspaceModel {
-        guard let model = provisionalWorkspaces.workspaces[WorkspaceModel.identity(snapshot)] else { return WorkspaceModel(snapshot) }
+        guard let model = provisionalWorkspaces.workspacesByID[WorkspaceModel.identity(snapshot)] else { return WorkspaceModel(snapshot) }
         model.update(snapshot)
         return model
     }
 
     /// The models of a workspace create that left the log (settled or refused) are no longer provisional.
     private func releaseSettledProvisionalWorkspaces() {
-        guard !provisionalWorkspaces.workspaces.isEmpty || !provisionalWorkspaces.screens.isEmpty else { return }
+        guard !provisionalWorkspaces.workspacesByID.isEmpty || !provisionalWorkspaces.screensByID.isEmpty else { return }
         let pending = Set(intentLog.entries.compactMap { entry -> String? in
             if case .createWorkspace(let provisional, _) = entry.kind { return provisional.key.rawValue }
             return nil
         })
-        provisionalWorkspaces.workspaces = provisionalWorkspaces.workspaces.filter { pending.contains($0.key) }
-        provisionalWorkspaces.screens = provisionalWorkspaces.screens.filter { pending.contains($0.key) }
+        provisionalWorkspaces.workspacesByID = provisionalWorkspaces.workspacesByID.filter { pending.contains($0.key) }
+        provisionalWorkspaces.screensByID = provisionalWorkspaces.screensByID.filter { pending.contains($0.key) }
     }
 
     /// A new connection replaces the last one (`run(connection:)`): its

@@ -8,15 +8,7 @@ A save is a minimal-change write (`sourceMap.ts`). The editor keeps each top-lev
 
 ## Host contract
 
-`host.ts` lists the ops and streams the native host (diff-host.md S6) implements: `cmux.markdown.config`, `cmux.markdown.save {path, text, baseHash}` (refused with `cmux.markdown.conflict` on a hash mismatch), `cmux.markdown.open` (also for followed links), `cmux.markdown.openLink`, `cmux.markdown.resolveLinks`, `cmux.markdown.listFiles`, the page commands `save`, `back`, `forward` and `link`, the streams `cmux.markdown.changes` and `cmux.markdown.look`, the `save` page command (Cmd-S), and same-origin resources for images (`assetBase`, the file's folder only) and the diagram libraries (`libBase`: `ondine.js`, `mermaid.js`, `vega.js`; Mermaid source always draws with Ondine; Mermaid only as the automatic fallback for a source Ondine refuses, no flag or setting). The page runs under the strict PageCSP plus `'wasm-unsafe-eval'` for Ondine: Vega uses `vega-interpreter`, code highlighting the Shiki JavaScript engine.
-
-## Editable everywhere
-
-Every markdown file opens editable, whoever opened it (Open File..., `cmux open`, an agent, a link) and in any workspace, Home included. The host sends `readOnly` with a `readOnlyReason` only for a real reason, and the page names it: `encoding` (not UTF-8), `binary`, `permission` (the file is not writable) or `transcript` (a chat transcript the host opens read only). A change on disk reloads the page when it has no unsaved edits and raises the conflict banner when it has.
-
-## Text size
-
-Cmd-= (also Cmd-Shift-=, Cmd-+) and Cmd-- are the app key dispatcher's `zoomIn` and `zoomOut` page commands: one pixel per step, 8 to 40, in rich and source mode. Cmd-0 (`zoomReset`) goes back to the default, `markdown.font.size` (Settings > Appearance > Markdown Viewer > Default Font Size, 16 when unset). The page applies the size as `--cmux-md-zoom` (size over the default) on the body and code sizes (`fontZoom.ts`); a viewer keeps its size across a page reload, and a viewer at the default follows a new default.
+`host.ts` lists the ops and streams the native host (diff-host.md S6) implements: `cmux.markdown.config`, `cmux.markdown.save {path, text, baseHash}` (refused with `cmux.markdown.conflict` on a hash mismatch), `cmux.markdown.open` (also for followed links), `cmux.markdown.openLink`, `cmux.markdown.resolveLinks`, `cmux.markdown.listFiles`, the page commands `save`, `back`, `forward`, `link` and `goToTop` (scrolls to the top), the streams `cmux.markdown.changes` and `cmux.markdown.look`, the `save` page command (Cmd-S), and same-origin resources for images (`assetBase`, the file's folder only) and the diagram libraries (`libBase`: `ondine.js`, `mermaid.js`, `vega.js`; Mermaid source always draws with Ondine; Mermaid only as the automatic fallback for a source Ondine refuses, no flag or setting). The page runs under the strict PageCSP plus `'wasm-unsafe-eval'` for Ondine: Vega uses `vega-interpreter`, code highlighting the Shiki JavaScript engine.
 
 ## Editable everywhere
 

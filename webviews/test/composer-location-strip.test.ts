@@ -11,6 +11,8 @@
 //   - while the session has not reported effort and access, no skeleton or placeholder draws, and
 //     the controls keep their places when the values arrive;
 //   - the folder popover filters with its search field and tells duplicate names apart;
+//   - the folder popover folds a repository's worktrees under one row (Austin 2026-10-20: each cmux
+//     worktree listed as a project of its own), opened by → or the count and found by branch;
 //   - the strip and the card read as one surface: no hairline draws across the seam where the
 //     strip stands on the card (Leo: the card's top hairline showed under the strip).
 //   - design panel (compact composer): the strip's first and last marks line up with the prompt's
@@ -201,7 +203,9 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
           model: left(".acpmux-model"),
           effort: left(".acpmux-effort"),
           access: left(".acpmux-access"),
-          send: left(".acpmux-send"),
+          // Claude desktop's box: no Send until there is a draft (Leo 2026-10-20); the mic is the
+          // trailing control of this empty new chat.
+          mic: left(".acpmux-mic"),
         };
       });
       await page.close();
@@ -211,7 +215,7 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     const arrived = await controls("reported");
     expect(loading.placeholders).toBe(0);
     expect(arrived.placeholders).toBe(0);
-    for (const name of ["plus", "model", "effort", "access", "send"] as const) {
+    for (const name of ["plus", "model", "effort", "access", "mic"] as const) {
       expect(loading[name]).toBeDefined();
       expect(Math.abs(loading[name]! - arrived[name]!)).toBeLessThanOrEqual(1);
     }
@@ -268,6 +272,65 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     await page.keyboard.press("Escape");
     await page.waitForFunction(() => !document.querySelector(".acpmux-location-menu"));
     expect(await page.evaluate(() => document.activeElement?.getAttribute("aria-label"))).toBe("Folder");
+    await page.close();
+  });
+
+  test("the folder popover folds worktrees under their repository and opens them by arrow or count", async () => {
+    const page = await open("agent-pane.composer-context", "repo-worktrees", 720);
+    const rows = () =>
+      page
+        .locator('.acpmux-location-menu [role="option"] .acpmux-location-row')
+        .evaluateAll((all) =>
+          all.map(
+            (row) =>
+              (row.hasAttribute("data-worktree") ? "  " : "") +
+              (row.querySelector(".acpmux-menu-text")?.textContent ?? "").replace(/\s+/g, " ").trim(),
+          ),
+        );
+    // One cmux row, named by the current worktree's branch; its five folders are one project.
+    expect(await rows()).toEqual(["cmux · issue-22273-runaway-children", "atlas-web", "relay", "notes"]);
+    expect(await page.locator(".acpmux-location-worktrees").first().textContent()).toBe("4");
+    // The strip names the repository, not the worktree's folder.
+    expect(await page.getByRole("button", { name: "Folder", exact: true }).textContent()).toContain("cmux");
+    // → opens the highlighted repository's other worktrees, newest first; ← closes them.
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowRight");
+    await page.waitForFunction(() => document.querySelector(".acpmux-location-row[data-worktree]"));
+    expect(await rows()).toEqual([
+      "cmux · issue-22273-runaway-children",
+      "  feat-cmux-next-unread-ring-classic",
+      "  feat-cmux-next",
+      "  agent-caller-scoped-current-selector",
+      "  agent-21352-sidebar-drag",
+      "atlas-web",
+      "relay",
+      "notes",
+    ]);
+    await page.keyboard.press("ArrowLeft");
+    await page.waitForFunction(() => !document.querySelector(".acpmux-location-row[data-worktree]"));
+    // The count opens them too, and a press on it never picks the row.
+    await page.locator(".acpmux-location-worktrees").first().click();
+    await page.waitForFunction(() => document.querySelector(".acpmux-location-row[data-worktree]"));
+    expect(await page.locator(".acpmux-location-menu").count()).toBe(1);
+    // A branch search lists the worktree it names under its repository; the repository's name, once.
+    await page.getByRole("combobox", { name: "Search projects" }).fill("unread");
+    await page.waitForFunction(
+      () => document.querySelectorAll(".acpmux-location-menu .acpmux-location-row").length === 2,
+    );
+    expect(await rows()).toEqual(["cmux · issue-22273-runaway-children", "  feat-cmux-next-unread-ring-classic"]);
+    await page.getByRole("combobox", { name: "Search projects" }).fill("cmux");
+    await page.waitForFunction(
+      () => document.querySelectorAll(".acpmux-location-menu .acpmux-location-row").length === 1,
+    );
+    await page.close();
+  });
+
+  test("an older host's worktrees still fold under their repository by path", async () => {
+    const page = await open("agent-pane.composer-context", "repo-worktrees-guessed", 720);
+    const names = await page
+      .locator('.acpmux-location-menu [role="option"] .acpmux-location-row')
+      .evaluateAll((all) => all.map((row) => (row.querySelector(".acpmux-menu-label")?.textContent ?? "").trim()));
+    expect(names).toEqual(["cmux", "atlas-web", "relay", "notes"]);
     await page.close();
   });
 
@@ -332,6 +395,13 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       prompt: rect(
         document.querySelector(".acpmux-composer-box .acpmux-input, .acpmux-composer-box [contenteditable]"),
       ),
+      // The Claude desktop box (composerLocation.css): + and the trailing actions sit beside the
+      // prompt, so the box's columns are the + glyph's 16 px box and the last action's glyph: the
+      // mic in this empty new chat (no Send until there is a draft, Leo 2026-10-20), Send with one.
+      plusGlyph: rect(document.querySelector(".acpmux-composer-inner .acpmux-composer-plus .acpmux-icon")),
+      trailGlyph: rect(
+        [...document.querySelectorAll(".acpmux-composer-inner .acpmux-composer-actions .acpmux-icon")].at(-1),
+      ),
       strip: rect(strip),
       folderIcon: rect(pickers[0]?.querySelector(".acpmux-location-icon")),
       branchChevron: rect(branch.querySelector(".ui-ghost-icon:last-child")),
@@ -371,9 +441,13 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       const prompt = marks.prompt!;
       const folderIcon = marks.folderIcon!;
       const branchChevron = marks.branchChevron!;
-      // A 14 px stroke icon's ink starts ~1.5 px inside its box; the chevron's ink ends 4 px inside.
-      expect(Math.abs(folderIcon.left + 1.5 - prompt.left)).toBeLessThanOrEqual(2);
-      expect(Math.abs(branchChevron.right - 4 - prompt.right)).toBeLessThanOrEqual(2);
+      // The marks sit over the box's content edges: the prompt's, or + and the last action's
+      // (the mic at rest) where they stand beside it. A 14 px stroke icon's ink starts ~1.5 px inside its box; the chevron's
+      // ink ends 4 px inside.
+      const lead = marks.plusGlyph?.left ?? prompt.left;
+      const trail = marks.trailGlyph?.right ?? prompt.right;
+      expect(Math.abs(folderIcon.left + 1.5 - lead)).toBeLessThanOrEqual(2);
+      expect(Math.abs(branchChevron.right - 4 - trail)).toBeLessThanOrEqual(2);
       expect(marks.text).not.toContain("·");
       // At or under 460 px the computer is its icon (the strip's first step).
       expect(marks.computerLabelShown).toBe(width > 460);

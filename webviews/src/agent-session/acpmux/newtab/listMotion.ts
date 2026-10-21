@@ -7,6 +7,7 @@
 // fades and drops the slides (rule 7): its move token is 0.
 import { type RefObject, useLayoutEffect, useRef } from "react";
 import { isAgentMotionOff } from "../../shared/motion";
+import { entranceAllowed } from "../../shared/pageReveal";
 
 type Places = Map<string, { x: number; y: number }>;
 
@@ -125,10 +126,12 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
       shownKeys.current = [];
       return;
     }
-    // A hidden page (an earlier New Tab page parked behind a newer one, Leo 2026-10-19) moves
-    // nothing either: its rows take their new places at once. WebKit suspends a hidden page's
-    // animations, so a slide or fade started now would play when the page shows again.
-    if (isAgentMotionOff() || root.ownerDocument.visibilityState === "hidden") {
+    // A hidden page (an earlier New Tab page parked behind a newer one, Leo 2026-10-19; a tab in
+    // another workspace) moves nothing either: its rows take their new places at once. WebKit
+    // suspends a hidden page's animations, so a slide or fade started now would play when the page
+    // shows again. A change landing before the first frame back was made while the user was away
+    // (Leo 2026-10-20), so it takes its places at once too (shared/pageReveal.ts).
+    if (isAgentMotionOff() || !entranceAllowed(root.ownerDocument)) {
       cancelRunning(running);
       places.current = measure(root, elements, currentKeys);
       shown.current = signature;

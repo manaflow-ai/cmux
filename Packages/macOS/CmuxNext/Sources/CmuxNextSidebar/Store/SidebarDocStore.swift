@@ -88,6 +88,8 @@ public final class SidebarDocStore {
     /// The app's one document store (one home session per app); the
     /// App's composition root sets it.
     public static var current: SidebarDocStore?
+    /// The records of the current document while the sidebar draws it; nil on the older path.
+    public static var activeRecords: SidebarDocRecords? { current.flatMap { $0.isActive && $0.shown != nil ? $0.records : nil } }
 
     public init(remote: (any SidebarDocRemote)?, mirror: SidebarMirror? = SidebarMirror.make()) {
         self.remote = remote
@@ -183,9 +185,19 @@ public final class SidebarDocStore {
         isActive ? mirror?.rows(request) : nil
     }
 
+    /// Group item `item` sits in Pinned as the sidebar draws it, pending changes included, so a second
+    /// Pin/Unpin before the daemon answers undoes the first; nil while the document is not shown. It reads
+    /// the projection over the live set `show` used, so the mirror's rows (a drag reads them) stay as shown.
+    public func showsPinned(group item: String) -> Bool? {
+        guard isActive, shown != nil else { return nil }
+        let projection = projection(live: projectionCache?.live ?? Array(lastLive))
+        return projection.map { $0.bandGroups.contains { $0.id == item && $0.pinned } } ?? records.isPinned(group: item)
+    }
+
     /// What a drop of `items` may do beside each row (one FFI call per drag).
+    /// Pinned takes only what is pinned already (`SidebarDocRecords.keepingPinned`).
     public func acceptance(dragging items: [String]) -> [String: SidebarDocAcceptance] {
-        isActive ? mirror?.acceptance(dragging: items) ?? [:] : [:]
+        isActive ? records.keepingPinned(mirror?.acceptance(dragging: items) ?? [:], dragging: items) : [:]
     }
 
     nonisolated public static let pinnedSection = "sec_pinned"

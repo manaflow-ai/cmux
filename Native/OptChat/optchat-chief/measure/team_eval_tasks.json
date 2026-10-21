@@ -1,0 +1,83 @@
+{
+  "about": "Tasks for team_eval.py (cmuxterm-hq knowledge/inspiration/coordinator-mode-eval.md). Each is a 2026-10-20 GUI-push lane brief whose PR merged: base is the merge's first parent, reference the merge. {repo} is the task checkout's path. Follow-ups are sent at `at` seconds after the brief; each adds the checklist item `adds`. These two are the pilot set and never part of the counted ten.",
+  "tasks": [
+    {
+      "id": "composer-scroll",
+      "size": "small",
+      "pilot": true,
+      "base": "7a449d6384c51bc382835b5352717b03a9742d6b",
+      "reference": "1ce88c4fdc112804f17be8c4b2a3bfabadff3e09",
+      "reference_pr": 22728,
+      "hidden_tests": [
+        "webviews/test/agent-pane-wheel-pass-through.test.ts"
+      ],
+      "brief": "The cmux repo is checked out at {repo} (a git repo; commit your work there, no pushes, no PRs). Task: scrolling inside the cmux NEXT agent-chat composer must not shift anything. Leo: \"me scrolling within the composer, when I reach the top or the bottom, I don't want that to shift.\" With a long draft, reaching the top or bottom of the composer text makes the box or page shift (scroll chaining into the transcript, a rubber-band bounce moving the box, or the box height changing as the scrollbar appears). Do: no chaining into the transcript and no bounce that moves the box; a fixed max height with an internal scroll that never changes the box's outer size; no jump when the scrollbar appears or disappears. The composer is one shared component under webviews/src/agent-session/acpmux/; keep the diff small and scroller-only. Add a test under webviews/test/. Run `bun run check` in webviews/ before you say it is done.",
+      "followups": [
+        {
+          "id": "status",
+          "at": 120,
+          "text": "how's it going?",
+          "adds": "answers where the work stands"
+        },
+        {
+          "id": "scope",
+          "at": 360,
+          "text": "also make sure the caret line stays visible while typing at the bottom of a long draft",
+          "adds": "the caret line stays visible while typing in a long draft"
+        },
+        {
+          "id": "side",
+          "at": 600,
+          "text": "unrelated quick one: which file defines the composer's max height?",
+          "adds": "names the file that sets the composer's max height",
+          "truth": "webviews/src/agent-session/acpmux/markdownField.css (line 8, the editor's max-height) or composerStates.css (line 267); either is right"
+        },
+        {
+          "id": "correction",
+          "at": 900,
+          "text": "actually, don't touch the transcript's own scrolling at all, only the composer",
+          "adds": "the transcript's scrolling is unchanged"
+        }
+      ]
+    },
+    {
+      "id": "compaction-rows",
+      "size": "medium",
+      "pilot": true,
+      "base": "1a8eefea6656b69a109f348b6fdb696a043239ef",
+      "reference": "26b1262ade8e52580112d39180286cc89e0ab7d6",
+      "reference_pr": 22727,
+      "hidden_tests": [
+        "webviews/test/agent-pane-compaction-rows.test.ts"
+      ],
+      "brief": "The cmux repo is checked out at {repo} (a git repo; commit your work there, no pushes, no PRs). Task: fix bogus \"Compaction failed\" rows in the cmux NEXT agent chat transcript. Leo's Claude chat (ACP, claude-stdio) showed three \"Compaction failed\" rows followed by \"Conversation compacted · context 352k → 24k\", and another \"Compaction failed\" row later, while compaction actually succeeded (Leo ran /compact once). Find where the transcript derives these rows (the webview transcript under webviews/src/agent-session/acpmux/ and the acpmux claude-stdio event mapping under cmux-tui/crates/acpmux/src/claude_stdio/): likely intermediate status or retry events mapped to a failure, or one compaction rendered several times. Fix it so one compaction shows exactly one row: in progress while it runs, then \"Conversation compacted · before → after\" on success, and \"Compaction failed\" only on a real terminal failure, with the reason. Add a test from a recorded event sequence. Run `bun run check` in webviews/ before you say it is done.",
+      "followups": [
+        {
+          "id": "status",
+          "at": 120,
+          "text": "how's it going?",
+          "adds": "answers where the work stands"
+        },
+        {
+          "id": "scope",
+          "at": 360,
+          "text": "also: the in-progress row should say what it is doing, e.g. \"Compacting the conversation…\"",
+          "adds": "the in-progress row has a text such as \"Compacting the conversation…\""
+        },
+        {
+          "id": "side",
+          "at": 600,
+          "text": "unrelated quick one: what event name does claude-stdio use for a finished compaction?",
+          "adds": "names the claude-stdio event for a finished compaction",
+          "truth": "the system event subtype compact_boundary (cmux-tui/crates/acpmux/src/claude_stdio/inbound.rs); a failed one writes no boundary"
+        },
+        {
+          "id": "correction",
+          "at": 900,
+          "text": "actually keep the failure row's existing wording, just add the reason after it",
+          "adds": "the failure row keeps its existing wording, with the reason added"
+        }
+      ]
+    }
+  ]
+}

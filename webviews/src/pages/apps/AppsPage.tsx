@@ -4,6 +4,7 @@
 import { useSyncExternalStore, type KeyboardEvent } from "react";
 import type { Strings } from "../shared/i18n";
 import { AppDetailView } from "./AppDetailView";
+import { CloudFeature } from "./CloudFeature";
 import { InstalledView } from "./InstalledView";
 import { categoryLabel, isRemovable, TierLabel } from "./model";
 import { AppIcon, Badge } from "./parts";
@@ -16,10 +17,6 @@ export function AppsPage({ store, strings }: { store: AppsStore; strings: String
   return (
     <div className="apps-page">
       <header className="apps-toolbar">
-        <div className="apps-toolbar-title">
-          <span className="apps-eyebrow">{t("store.tab.discover")}</span>
-          <h1>{t("store.window.title")}</h1>
-        </div>
         <div className="apps-tabs" role="tablist">
           {(["discover", "installed"] as const).map((tab) => (
             <button
@@ -98,13 +95,7 @@ function Discover({ snap, store, strings }: { snap: AppsSnapshot; store: AppsSto
   const catalog = featured.length ? snap.visible.filter((app) => !featuredIds.has(app.id)) : snap.visible;
   const listing = (
     <div className="apps-discover-list">
-      <div className="apps-discover-intro">
-        <div>
-          <span className="apps-eyebrow">{t("store.tab.discover")}</span>
-          <h2>{t("store.category.all")}</h2>
-        </div>
-        <span className="apps-discover-rule" aria-hidden="true" />
-      </div>
+      {!snap.query && !snap.category && <CloudFeature store={store} strings={strings} />}
       <div className="apps-chips">
         <button
           type="button"

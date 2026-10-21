@@ -5,6 +5,8 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow, ConversationLayout } from "../src/agent-session/acpmux/model";
+// These tests drive the compact (Codex) rail; the full-height map is the default arm (layout.experiment.ts).
+(globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -99,6 +101,7 @@ async function mount() {
         scroller,
         scrollTop: 0,
         viewportHeight: 600,
+        scrolls: true,
         width: 1040,
       }),
     ),

@@ -60,6 +60,7 @@ extension SettingsSchema {
         "tabs.newTabPosition",
         "newTerminal.opensWorkspace",
         "tabs.cmdWClosesPinnedTabs",
+        "app.hideDockIconWithoutWindows", // Dock icon and Cmd-Tab entry with no window open; ends no work
         "tabs.overflow",
         "tabs.swapCmdTAndCmdN",
         "palette.scopes.tabs.prefix",
@@ -79,6 +80,7 @@ extension SettingsSchema {
         "layout.frameOrientation",
         "layout.rows",
         "layout.focusFollowsMouse",
+        "layout.scrollAreas",
         "layout.minimumPaneWidth",
         "layout.minimumPaneHeight",
         "appearance.theme",
@@ -88,7 +90,9 @@ extension SettingsSchema {
         "appearance.backdropArt",
         "appearance.backgroundOpacity",
         "appearance.backgroundBlur",
+        "appearance.inactiveWindowDim",
         "appearance.background",
+        "appearance.backgroundRotation",
         "appearance.paneBackgrounds",
         "appearance.experimentalControls",
         "app.uiScale",
@@ -121,6 +125,7 @@ extension SettingsSchema {
         "ui.animations.feedback",
         "ui.animations.web",
         "ui.paneAnimations",
+        "ui.calm",
         "appearance.colorTransition.enabled",
         "appearance.colorTransition.duration",
         "appearance.colorTransition.curve",
@@ -161,7 +166,7 @@ extension SettingsSchema {
         "sidebar.sectionLook",
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
-        "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.showChats",
+        "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.showChats", "sidebar.sessionTree",
         "sidebar.cards.tips", "sidebar.hoverCards.enabled", "sidebar.hoverCards.delay", "sidebar.hoverCards.layout", "sidebar.hoverCards.maxRows",
         "sidebar.hoverCards.sections.timings", "sidebar.hoverCards.sections.prompts", "sidebar.hoverCards.sections.waiting",
         "sidebar.hoverCards.sections.git", "sidebar.hoverCards.sections.ports", "sidebar.hoverCards.groups.workspaceGroups", "sidebar.hoverCards.groups.tabGroups",
@@ -169,6 +174,7 @@ extension SettingsSchema {
         "sidebar.hoverCards.groups.sections.status", "sidebar.hoverCards.groups.sections.members",
         "sidebar.hoverCards.groups.sections.activity", "sidebar.hoverCards.groups.sections.git",
         "sidebar.hoverCards.groups.sections.ports", "sidebar.nowPlaying.enabled", "tabs.newTabNowPlaying", "sidebar.showProjects", "sidebar.showSpaces", "sidebar.showProfileControl", "sidebar.showSearchButton", "sidebar.groupBy",
+        "sidebar.priorityView.enabled", "sidebar.priorityView.shown",
         "browser.defaultEngine",
         "browser.siteEngines",
         "browser.newTabPage",
@@ -206,7 +212,9 @@ extension SettingsSchema {
         "labs.classicHome",
         // Which Home entries the sidebar shows (looks only; `cmux home enable-channels` runs as an agent writer).
         "home.channelsEnabled",
-        // The floating Chief pet's character (looks only); turning the pet on is the person's.
+        // The floating Chief pet and its character: a display the person can hide again; its reply
+        // box types only what the person writes.
+        "home.chiefPetEnabled",
         "home.chiefPetMascot",
         "updates.notify",
         "updates.showWhatsNew",
@@ -280,23 +288,32 @@ extension SettingsSchema {
         "updates.checkIntervalSeconds": .network,
         "updates.downloadAutomatically": .network,
         "updates.meteredNetwork": .network,
+        // Which builds this Mac installs (a faster ring runs less-tested code): the person's call.
+        "updates.channel": .userOnly,
         "announcements.fetch": .network,
         // On, cmux starts a helper that sees and controls other apps; only the person turns it on.
         // What a new chat may do without asking: an agent must not widen its own approvals.
         "agents.defaultPermissionMode": .userOnly,
         "computerUse.enabled": .userOnly,
-        // The Chief pet puts agent output over every app and a reply box that types into terminals.
-        "home.chiefPetEnabled": .userOnly,
         "computerUse.driver": .userOnly,
         // How hard cmux pulls the person back from another app: theirs to pick, not an agent's.
         "notifications.dockBounce": .userOnly,
         // Battery and sleep are the person's call: an agent must not keep the Mac up for itself.
         "sessions.keepAwake": .userOnly,
+        // Whether agents start again by themselves after a restart is the person's call.
+        "sessions.resumeAgents": .userOnly,
+        // An agent must not let itself, or another agent, skip the person's approvals.
+        "sessions.allowFullAccess": .destructive,
         // How many agent sessions an agent may start, and how deep, is the person's call: an agent
         // must not raise its own limits.
         "agents.subsessions.enabled": .userOnly,
         "agents.subsessions.maxChildren": .userOnly,
         "agents.subsessions.maxDepth": .userOnly,
+        // Which folders an agent may open without asking is the person's call: an agent must not
+        // widen what it may open without asking.
+        "agents.trust.autoTrust": .userOnly,
+        "agents.trust.projectRoots": .userOnly,
+        "agents.trust.ownOrgs": .userOnly,
         // What reaches this Mac from outside and what leaves it: only the person opens phone access.
         "phone.allowConnections": .network,
         "phone.startSessions": .network,
