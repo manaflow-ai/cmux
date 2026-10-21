@@ -11,7 +11,7 @@ public nonisolated enum SessionKeepAwakeSetting: String, Sendable, Hashable, Cas
     case always
 }
 
-/// How a phone on the account that is not on this Mac's allowed list (MobileHostPairedDevices in phone-access/paired-devices.json) gets in: the person allows it on the Mac once (PhoneAdmission), or the account check alone admits it, the behavior before this setting. Code pairing from the phone comes later.
+/// How a phone on the account that is not on this Mac's allowed list (Settings > Mobile, MobileHostPairedStore) gets in: the person allows it on the Mac once (PhoneAdmission), or the account check alone admits it, the behavior before this setting. Code pairing from the phone comes later.
 public nonisolated enum PhoneNewDevicesSetting: String, Sendable, Hashable, CaseIterable {
     /// One question per new phone; the answer is remembered.
     case ask

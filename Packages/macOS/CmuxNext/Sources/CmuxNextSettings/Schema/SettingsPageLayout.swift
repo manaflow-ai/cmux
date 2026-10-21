@@ -12,7 +12,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
     /// studio, file actions). Raw values are the export's card ids.
     public nonisolated enum Card: String, Sendable, Hashable, CaseIterable {
         case themeStudio, terminalInfo, ghosttyDiagnostics, computerUse, harnesses, spaces, browserProfiles
-        case machines, phones, accounts, agentHarnesses, chiefs, advancedInfo, advancedActions, backdrops, mobile, chiefPet
+        case machines, accounts, agentHarnesses, chiefs, advancedInfo, advancedActions, backdrops, mobile, chiefPet
         /// The density tiles, preview and custom density editor (plans/cmux-next/density-DESIGN.md).
         case density
     }
@@ -211,7 +211,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
             id: "accounts", title: section(.accounts), symbol: "person.crop.circle",
             // Phone access sits beside the account it signs in with and the machines list.
             groups: [group("settings.group.phone"), group("settings.group.messagesServer")],
-            lead: [.accounts, .machines], trail: [.phones], actions: [.accounts, .machines], aliases: [.accounts, .machines]),
+            lead: [.accounts, .machines], actions: [.accounts, .machines], aliases: [.accounts, .machines]),
         // Phones reaching this Mac: the iPhone host's switch, then its live status and phones.
         CategorySpec(
             id: "mobile", title: SettingsText.keyed("settings.category.mobile", "Mobile"), symbol: "iphone",

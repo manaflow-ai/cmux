@@ -53,8 +53,6 @@ final class SettingsPageProvider: PageProvider {
     /// The registry's buttons for a section (`SettingsSchema.actions(in:)`): id, localized title,
     /// and whether it can run now.
     var sectionActions: (@MainActor (SettingsSection) -> JSONValue)?
-    /// Settings > Accounts > Phone Access: Remove (`cmux.settings.phones.remove`).
-    var removePhone: (@MainActor (String) throws -> Void)?
     /// Results of recent writes by idempotency key (a retried key replays its first answer).
     private var replies: [(key: String, value: JSONValue)] = []
     private static let replayLimit = 64
@@ -103,11 +101,6 @@ final class SettingsPageProvider: PageProvider {
                 await self.settings.reload()
                 return SettingsSchema.all.filter { $0.storedValue(in: before) != $0.storedValue(in: self.settings.snapshot.root) }.map(\.id)
             }
-        case "cmux.settings.phones.remove":
-            // Only the person's own click on this page removes a phone.
-            guard Self.writer(context) == .user, let id = params["id"]?.stringValue else { throw PageError(code: "cmux.settings.user_only", message: "a click on this page, with an id, removes a phone") }
-            try Self.available(removePhone, "no phones")(id)
-            return .object([:])
         case "cmux.settings.host.lists":
             return try Self.available(hostLists, "no host lists")()
         case "cmux.settings.accounts.state":

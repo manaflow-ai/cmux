@@ -15,7 +15,6 @@ export const CATEGORY_CARDS = [
   "spaces",
   "browserProfiles",
   "machines",
-  "phones",
   "accounts",
   "agentHarnesses",
   "chiefs",

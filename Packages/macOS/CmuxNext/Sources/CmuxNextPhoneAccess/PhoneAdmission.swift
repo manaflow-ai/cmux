@@ -5,127 +5,62 @@ import CmuxNextMobile
 import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
-public import CmuxNextSettingsWindow
-public import Observation
 
-/// The phones allowed on this Mac over the Iroh link, for the signed-in user: base's
-/// ``MobileHostPairedDevices`` in its own 0600 file (`phone-access/paired-devices.json`), apart
-/// from the iPhone host's list, so it never reaches acpmux's approvers. Thread-safe, so the host
-/// can check a connection without a main-actor hop; a change counts only once it is written.
-nonisolated final class AllowedPhones: Sendable {
-    private let file: MobileHostPairedDevicesFile
-    private let list = Mutex<MobileHostPairedDevices?>(nil)
-
-    init(directory: URL) {
-        file = MobileHostPairedDevicesFile(directory: directory.appendingPathComponent("phone-access", isDirectory: true))
-    }
-
-    /// The signed-in user's list; nil (no user) allows no phone.
-    func load(userID: String?) {
-        list.withLock { $0 = userID.map { file.load(userID: $0) } }
-    }
-
-    var hasUser: Bool { list.withLock { $0 != nil } }
-
-    var devices: [MobileHostPairedDevice] { list.withLock { $0?.devices ?? [] } }
-
-    func trusts(_ request: MobileHostPairRequest) -> Bool {
-        list.withLock { $0?.decision(for: request) == .trusted }
-    }
-
-    func contains(_ id: String) -> Bool {
-        list.withLock { $0?.devices.contains { $0.id == id } ?? false }
-    }
-
-    /// Lists `request`'s phone. Throws, listing nothing, with no user or when the list cannot be saved.
-    func approve(_ request: MobileHostPairRequest, at date: Date = Date()) throws {
-        try change { $0.approve(request, at: date) }
-    }
-
-    /// Takes `id` off the list. A failed write keeps it listed (and allowed) and throws.
-    func remove(_ id: String) throws {
-        try change { $0.remove(id) }
-    }
-
-    private func change(_ edit: (inout MobileHostPairedDevices) -> Void) throws {
-        try list.withLock { current in
-            guard var next = current else { throw CocoaError(.userCancelled) }
-            edit(&next)
-            try file.save(next)
-            current = next
-        }
-    }
-}
-
-/// Who may use this Mac from a phone (`phone.newDevices`): a phone on the
-/// allowed list gets in; a new one waits for the person's Allow on this Mac,
-/// or, set to Any Phone on My Account, gets in on the account check alone
-/// (and is listed, so it can be removed once the setting asks again).
-@Observable
+/// Who may use this Mac from a phone over the Iroh link (`phone.newDevices`): a phone on the
+/// allowed list (``MobileHostPairedStore``, Settings > Mobile's one list, as an Iroh entry keyed
+/// by its endpoint key) gets in; a new one waits for the person's Allow on this Mac, or, set to
+/// Any Phone on My Account, gets in on the account check alone (and is listed, so it can be
+/// removed once the setting asks again). An Iroh entry carries no Face ID approval key, so it
+/// never reaches hostd or acpmux's approvers.
 public final class PhoneAdmission {
-    @ObservationIgnored let phones: AllowedPhones
-    @ObservationIgnored var mode: PhoneNewDevicesSetting = SessionSettings.newDevicesDefault
-    /// The allowed phones, for the Settings page's list (observed; the list is not).
-    private(set) var devices: [MobileHostPairedDevice] = []
-    /// When each phone last connected while this app ran; the list keeps only when it was allowed.
-    private(set) var lastSeen: [String: Date] = [:]
+    let phones: MobileHostPairedStore
+    var mode: PhoneNewDevicesSetting = SessionSettings.newDevicesDefault
     /// A Deny holds for this long, so a phone that keeps reconnecting does not
     /// keep asking.
     static let denialHold: Duration = .seconds(600)
     /// The Allow question's dialog id: only the person answers it (`debug.dialog` refuses it).
     public static let allowDialogIdentifier = "cmux.dialog.phoneAccessAllow"
-    @ObservationIgnored private var denied: [String: ContinuousClock.Instant] = [:]
+    private var denied: [String: ContinuousClock.Instant] = [:]
     /// One question per phone, however many connections it opens meanwhile.
-    @ObservationIgnored private var asking: [String: Task<Bool, Never>] = [:]
+    private var asking: [String: Task<Bool, Never>] = [:]
     /// At most this many phones wait on a question at once; another new phone is turned away
     /// unasked (no hold), so a burst of devices cannot stack dialogs.
     static let questionCap = 2
     /// An unanswered question closes as a Deny after this long.
     static let questionTimeout: Duration = .seconds(120)
     /// Shows the question; tests answer it themselves.
-    @ObservationIgnored var ask: @MainActor (MobileHostPairRequest) async -> Bool = PhoneAdmission.askOnThisMac
+    var ask: @MainActor (MobileHostPairRequest) async -> Bool = PhoneAdmission.askOnThisMac
     /// The time a Deny's hold starts from (when it was answered); tests move it.
-    @ObservationIgnored var clock: () -> ContinuousClock.Instant = { .now }
+    var clock: () -> ContinuousClock.Instant = { .now }
 
-    init(phones: AllowedPhones) {
+    /// - Parameter disconnect: Closes the open sessions of a phone (its endpoint key) taken off
+    ///   the list, by Remove in Settings > Mobile or a sign-out.
+    init(phones: MobileHostPairedStore, disconnect: @escaping @Sendable (String) async -> Void) {
         self.phones = phones
+        phones.observe { [weak self] change in
+            let gone = change.removed.filter { $0.transport == .iroh }.map(\.id)
+            guard !gone.isEmpty else { return }
+            // task-owner: one main-actor hop per removal; disconnect is idempotent
+            Task { @MainActor [weak self] in
+                for id in gone {
+                    self?.denied[id] = nil
+                    await disconnect(id)
+                }
+            }
+        }
     }
 
     /// The signed-in user changed (nil: signed out): their own list, and nothing held over.
     func setUser(_ userID: String?) {
         phones.load(userID: userID)
         denied = [:]
-        lastSeen = [:]
-        devices = phones.devices
-    }
-
-    /// The Settings page's Allowed Phones rows: the most recently seen first, each with when it
-    /// last connected, or was allowed (observed through `devices`).
-    public var rows: [SettingsListRow] {
-        let seen = { (device: MobileHostPairedDevice) in self.lastSeen[device.id] ?? device.pairedAt }
-        return devices.sorted { seen($0) > seen($1) }.map { device in
-            SettingsListRow(id: device.id, title: device.name,
-                            subtitle: seen(device).formatted(.relative(presentation: .named)), symbol: "iphone")
-        }
-    }
-
-    /// Removes `id` from the allowed list; its next connection asks again. Throws, keeping the
-    /// phone listed and allowed, when the list cannot be saved.
-    public func remove(_ id: String) throws {
-        defer { devices = phones.devices }
-        try phones.remove(id)
-        denied[id] = nil
-        lastSeen[id] = nil
     }
 
     func decide(_ device: MobileHostPairRequest) async -> Bool {
         let id = device.phoneDeviceID
         // Signed out: no list to put a phone on, so nothing to ask.
-        guard phones.hasUser else { return false }
-        if phones.trusts(device) {
-            lastSeen[id] = Date()
-            return true
-        }
+        guard phones.current != nil else { return false }
+        if phones.trusts(device) { return true }
         if mode == .account {
             // Admitted only once listed, so it can always be removed.
             return listed(device)
@@ -148,10 +83,7 @@ public final class PhoneAdmission {
     }
 
     private func listed(_ device: MobileHostPairRequest) -> Bool {
-        defer { devices = phones.devices }
-        guard (try? phones.approve(device)) != nil else { return false }
-        lastSeen[device.phoneDeviceID] = Date()
-        return true
+        (try? phones.change { $0.approve(device, at: Date()) }) != nil
     }
 
     /// The native question, over the key window (or the app when none is open).
@@ -180,7 +112,7 @@ enum PhoneAccessStrings {
 
     static var message: String {
         String(localized: "phoneAccess.allow.message",
-               defaultValue: "It can see your workspaces and terminals, type into them and, unless you turned it off, start new ones. You can remove it in Settings > Accounts.",
+               defaultValue: "It can see your workspaces and terminals, type into them and, unless you turned it off, start new ones. You can remove it in Settings > Mobile.",
                table: "PhoneAccess", bundle: .module)
     }
 

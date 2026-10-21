@@ -156,13 +156,13 @@ extension MobileIrxHost {
             await irx.close(code: .revoked, origin: .local)
             return
         }
-        // Settings > Accounts > Phone Access: an allowed phone, or one the person allows now. A phone
-        // is the connection's endpoint key (its TLS identity), never the device id it registered with
-        // the account, which another device on the same account could claim. The Iroh link has no
-        // Face ID approval key: the list it is kept in never reaches acpmux's approvers.
+        // Settings > Mobile's list: an allowed phone, or one the person allows now. A phone is the
+        // connection's endpoint key (its TLS identity), never the device id it registered with the
+        // account, which another device on the same account could claim. The Iroh link has no Face ID
+        // approval key, and its entries never reach hostd or acpmux's approvers.
         let key = peer.endpointIDHex.lowercased()
         let device = MobileHostPairRequest(phoneDeviceID: key, name: descriptor?.metadata.displayName ?? peer.deviceID,
-                                           identityKey: key, approvalKey: "")
+                                           identityKey: key, approvalKey: "", transport: .iroh)
         guard await access.admits(device) else {
             journal.record("next-host", "phone-not-allowed", ["session": sessionID])
             await irx.close(code: .revoked, origin: .local)

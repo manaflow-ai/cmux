@@ -749,7 +749,7 @@ let package = Package(
         .target(
             name: "CmuxNextPhoneAccess",
             dependencies: ["CmuxNextCompat", "CmuxNextControl", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextDesign",
-                           "CmuxNextKeepAwake", "CmuxNextMobile", "CmuxNextSettings", "CmuxNextSettingsWindow", "CmuxNextWakeups"],
+                           "CmuxNextKeepAwake", "CmuxNextMobile", "CmuxNextSettings", "CmuxNextWakeups"],
             resources: [.process("Resources")],
             swiftSettings: uiSwiftSettings
         ),

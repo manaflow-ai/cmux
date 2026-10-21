@@ -1113,7 +1113,6 @@
         "CmuxNextKeepAwake",
         "CmuxNextMobile",
         "CmuxNextSettings",
-        "CmuxNextSettingsWindow",
         "CmuxNextWakeups"
       ],
       "packages": []

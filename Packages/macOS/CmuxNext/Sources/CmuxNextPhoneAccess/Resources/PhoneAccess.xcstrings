@@ -138,127 +138,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "It can see your workspaces and terminals, type into them and, unless you turned it off, start new ones. You can remove it in Settings > Accounts."
+            "value": "It can see your workspaces and terminals, type into them and, unless you turned it off, start new ones. You can remove it in Settings > Mobile."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يمكنه رؤية مساحات العمل والطرفيات والكتابة فيها، وبدء مساحات جديدة ما لم توقف ذلك. يمكنك إزالته من الإعدادات > الحسابات."
+            "value": "يمكنه رؤية مساحات العمل والطرفيات والكتابة فيها، وبدء مساحات جديدة ما لم توقف ذلك. يمكنك إزالته من الإعدادات > الجوال."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Može vidjeti vaše radne prostore i terminale, kucati u njih i, osim ako to niste isključili, pokretati nove. Možete ga ukloniti u Postavke > Računi."
+            "value": "Može vidjeti vaše radne prostore i terminale, kucati u njih i, osim ako to niste isključili, pokretati nove. Možete ga ukloniti u Postavke > Mobilni."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Den kan se dine arbejdsområder og terminaler, skrive i dem og starte nye, medmindre du har slået det fra. Du kan fjerne den under Indstillinger > Konti."
+            "value": "Den kan se dine arbejdsområder og terminaler, skrive i dem og starte nye, medmindre du har slået det fra. Du kan fjerne den under Indstillinger > Mobil."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Es kann deine Workspaces und Terminals sehen, darin tippen und, sofern du das nicht ausgeschaltet hast, neue starten. Du kannst es unter Einstellungen > Accounts entfernen."
+            "value": "Es kann deine Workspaces und Terminals sehen, darin tippen und, sofern du das nicht ausgeschaltet hast, neue starten. Du kannst es unter Einstellungen > Mobil entfernen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Podrá ver tus espacios de trabajo y terminales, escribir en ellos y, salvo que lo hayas desactivado, iniciar otros nuevos. Puedes quitarlo en Ajustes > Cuentas."
+            "value": "Podrá ver tus espacios de trabajo y terminales, escribir en ellos y, salvo que lo hayas desactivado, iniciar otros nuevos. Puedes quitarlo en Ajustes > Móvil."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Il pourra voir vos espaces de travail et terminaux, y saisir du texte et, sauf si vous l’avez désactivé, en créer de nouveaux. Vous pouvez le retirer dans Réglages > Comptes."
+            "value": "Il pourra voir vos espaces de travail et terminaux, y saisir du texte et, sauf si vous l’avez désactivé, en créer de nouveaux. Vous pouvez le retirer dans Réglages > Mobile."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Potrà vedere spazi di lavoro e terminali, scriverci e, a meno che tu non l’abbia disattivato, avviarne di nuovi. Puoi rimuoverlo in Impostazioni > Account."
+            "value": "Potrà vedere spazi di lavoro e terminali, scriverci e, a meno che tu non l’abbia disattivato, avviarne di nuovi. Puoi rimuoverlo in Impostazioni > Mobile."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペースやターミナルを表示して入力できるほか、オフにしていなければ新しいものも開始できます。設定 > アカウントで削除できます。"
+            "value": "ワークスペースやターミナルを表示して入力できるほか、オフにしていなければ新しいものも開始できます。設定 > モバイルで削除できます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "វាអាចមើលកន្លែងធ្វើការ និងស្ថានីយរបស់អ្នក វាយបញ្ចូលក្នុងវា ហើយចាប់ផ្ដើមថ្មីបាន លុះត្រាតែអ្នកបានបិទ។ អ្នកអាចដកវាចេញក្នុងការកំណត់ > គណនី។"
+            "value": "វាអាចមើលកន្លែងធ្វើការ និងស្ថានីយរបស់អ្នក វាយបញ្ចូលក្នុងវា ហើយចាប់ផ្ដើមថ្មីបាន លុះត្រាតែអ្នកបានបិទ។ អ្នកអាចដកវាចេញក្នុងការកំណត់ > ទូរសព្ទចល័ត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간과 터미널을 보고 입력할 수 있으며, 끄지 않았다면 새로 시작할 수도 있습니다. 설정 > 계정에서 제거할 수 있습니다."
+            "value": "작업 공간과 터미널을 보고 입력할 수 있으며, 끄지 않았다면 새로 시작할 수도 있습니다. 설정 > 모바일에서 제거할 수 있습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Den kan se arbeidsområdene og terminalene dine, skrive i dem og, med mindre du har slått det av, starte nye. Du kan fjerne den under Innstillinger > Kontoer."
+            "value": "Den kan se arbeidsområdene og terminalene dine, skrive i dem og, med mindre du har slått det av, starte nye. Du kan fjerne den under Innstillinger > Mobil."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Będzie widzieć Twoje obszary robocze i terminale, pisać w nich oraz, o ile tego nie wyłączysz, tworzyć nowe. Możesz je usunąć w Ustawienia > Konta."
+            "value": "Będzie widzieć Twoje obszary robocze i terminale, pisać w nich oraz, o ile tego nie wyłączysz, tworzyć nowe. Możesz je usunąć w Ustawienia > Urządzenia mobilne."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ele poderá ver seus espaços de trabalho e terminais, digitar neles e, a menos que você tenha desativado, iniciar novos. Você pode removê-lo em Ajustes > Contas."
+            "value": "Ele poderá ver seus espaços de trabalho e terminais, digitar neles e, a menos que você tenha desativado, iniciar novos. Você pode removê-lo em Ajustes > Celular."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Устройство сможет видеть ваши рабочие пространства и терминалы, вводить в них текст и, если вы это не выключили, создавать новые. Удалить его можно в разделе «Настройки» > «Учётные записи»."
+            "value": "Устройство сможет видеть ваши рабочие пространства и терминалы, вводить в них текст и, если вы это не выключили, создавать новые. Удалить его можно в разделе «Настройки» > «Мобильные»."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "อุปกรณ์นี้จะเห็นพื้นที่ทำงานและเทอร์มินัลของคุณ พิมพ์ในนั้นได้ และเริ่มรายการใหม่ได้ เว้นแต่คุณปิดไว้ คุณลบได้ที่การตั้งค่า > บัญชี"
+            "value": "อุปกรณ์นี้จะเห็นพื้นที่ทำงานและเทอร์มินัลของคุณ พิมพ์ในนั้นได้ และเริ่มรายการใหม่ได้ เว้นแต่คุณปิดไว้ คุณลบได้ที่การตั้งค่า > มือถือ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Çalışma alanlarınızı ve terminallerinizi görebilir, onlara yazabilir ve kapatmadıysanız yenilerini başlatabilir. Ayarlar > Hesaplar'dan kaldırabilirsiniz."
+            "value": "Çalışma alanlarınızı ve terminallerinizi görebilir, onlara yazabilir ve kapatmadıysanız yenilerini başlatabilir. Ayarlar > Mobil'den kaldırabilirsiniz."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Пристрій зможе бачити ваші робочі простори й термінали, вводити в них текст і, якщо ви це не вимкнули, створювати нові. Вилучити його можна в «Налаштування» > «Облікові записи»."
+            "value": "Пристрій зможе бачити ваші робочі простори й термінали, вводити в них текст і, якщо ви це не вимкнули, створювати нові. Вилучити його можна в «Налаштування» > «Мобільні»."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Thiết bị này có thể xem không gian làm việc và terminal của bạn, gõ vào đó và, trừ khi bạn đã tắt, mở cái mới. Bạn có thể gỡ nó trong Cài đặt > Tài khoản."
+            "value": "Thiết bị này có thể xem không gian làm việc và terminal của bạn, gõ vào đó và, trừ khi bạn đã tắt, mở cái mới. Bạn có thể gỡ nó trong Cài đặt > Di động."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "它可以查看你的工作区和终端、在其中输入，并且除非你已关闭，还能新建工作区。你可以在“设置”>“账户”中移除它。"
+            "value": "它可以查看你的工作区和终端、在其中输入，并且除非你已关闭，还能新建工作区。你可以在“设置”>“移动设备”中移除它。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "它可以查看你的工作區和終端機、在其中輸入，而且除非你已關閉，還能建立新的工作區。你可以在「設定」>「帳號」中移除它。"
+            "value": "它可以查看你的工作區和終端機、在其中輸入，而且除非你已關閉，還能建立新的工作區。你可以在「設定」>「行動裝置」中移除它。"
           }
         }
       }
