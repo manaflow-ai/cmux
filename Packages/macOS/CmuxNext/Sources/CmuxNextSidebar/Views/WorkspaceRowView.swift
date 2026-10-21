@@ -32,6 +32,10 @@ final class WorkspaceRowView: SidebarRowView {
     /// A muted workspace (`notifications.mutedWorkspaces`): a quiet bell-slash
     /// in the trailing cluster, in the tertiary text color; hidden otherwise.
     let mutedMark = DecorativeImageView()
+    /// The computer the workspace runs on (`WorkspaceRowContent.machine`): its glyph in its
+    /// color, in the trailing cluster; hidden while the sidebar lists one machine.
+    let machineMark = DecorativeImageView() // the row's label names the machine
+    internal(set) var machine: SidebarMachineMark?
     /// The workspace's tabs play sound (or are muted): a small speaker in the
     /// trailing cluster, always shown while they do, crossed out while they
     /// are muted. A click mutes or unmutes them (`onToggleAudio`).
@@ -122,7 +126,9 @@ final class WorkspaceRowView: SidebarRowView {
         mutedMark.imageScaling = .scaleProportionallyDown
         mutedMark.isHidden = true
         mutedMark.setAccessibilityElement(false)
-        [icon, title, subtitle, timeLabel, metaLabel, elapsedLabel, activity, agentMark, mutedMark, audioButton, badge, rowBadge, presenceDots, closeButton, moreButton, pinButton, disclosureButton, tabCount, prBadge, placeholderBar, statusBlock,
+        machineMark.imageScaling = .scaleProportionallyDown
+        machineMark.isHidden = true
+        [icon, title, subtitle, timeLabel, metaLabel, elapsedLabel, activity, agentMark, mutedMark, machineMark, audioButton, badge, rowBadge, presenceDots, closeButton, moreButton, pinButton, disclosureButton, tabCount, prBadge, placeholderBar, statusBlock,
          treeLine, pullRequests, keycap].forEach(addSubview)
         setUpSessionTree()
         disclosureButton.isHidden = true
@@ -278,6 +284,12 @@ final class WorkspaceRowView: SidebarRowView {
         // The bell-slash alone does not say what is muted: notifications, not the tabs' sound
         // (the row's accessibility label says it too).
         mutedMark.themedToolTip = mutedMark.isHidden ? nil : Strings.notificationsMuted
+        machine = isShowingPlaceholder ? nil : shown.machine
+        let machineSize = CGFloat.iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1)
+        machineMark.image = machine.map { mark in
+            mark.symbol.map { NSImage.icon(symbol: $0, size: machineSize) } ?? NSImage.icon(mark.kindIcon, size: machineSize)
+        }
+        machineMark.isHidden = machineMark.image == nil
         audio = isShowingPlaceholder ? nil : ws.audio
         audioButton.isHidden = audio == nil
         audioButton.icon = audio == .muted ? .browserTabMuted : .browserTabAudio

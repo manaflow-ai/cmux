@@ -2407,16 +2407,6 @@
       "title" : "Open Links and Files",
       "type" : "string"
     },
-    "layout.mainPane" : {
-      "default" : "agent-chats",
-      "description" : "Agent Chats keeps an agent chat as the main pane: links, files, subagents and side chats it opens appear as tabs in a column on its right, and closing that column gives the chat its full width back.",
-      "enum" : [
-        "agent-chats",
-        "off"
-      ],
-      "title" : "Main Pane",
-      "type" : "string"
-    },
     "layout.minimumPaneHeight" : {
       "default" : 64,
       "description" : "layout.minimumPaneHeight",
@@ -3443,6 +3433,12 @@
       "default" : true,
       "description" : "On the New Tab page, the Threads and Console styles list every coding agent chat on this computer, newest first. Off, they show the recent chats only.",
       "title" : "Show All Chats on New Tab",
+      "type" : "boolean"
+    },
+    "sidebar.showLocalMachine" : {
+      "default" : false,
+      "description" : "With workspaces on more than one computer, a workspace on another computer shows that computer's icon in its color. On, this Mac's workspaces show its icon too.",
+      "title" : "Mark This Mac's Workspaces",
       "type" : "boolean"
     },
     "sidebar.showProfileControl" : {
