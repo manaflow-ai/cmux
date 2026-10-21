@@ -155,6 +155,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `focusRing.color` | string |  |  | Color |
 | `focusRing.width` | real | `1` | 0.5 to 8 | Width |
 | `focusRing.showWhenSinglePane` | boolean | `false` |  | Show With One Pane |
+| `appearance.backgroundVideo` | string | `"play"` | `play`, `whenActive`, `still` | Video Background. A video background plays while you can see it. It pauses when hidden or covered, in Low Power Mode and with Reduce Motion. |
+| `appearance.backgroundVideoOnBattery` | string | `"play"` | `play`, `pause` | On Battery. Whether a video background keeps playing on battery. Low Power Mode always pauses it. |
 | `ui.calm` | string | `"off"` | `off`, `calm`, `still` | Calm Mode. Calm: nothing slides, springs or spins, hover cards stay closed and the pointer leaves no highlight on tabs, rows and buttons. Still: Calm, and every animation is instant. Your other motion and hover card settings come back when it is off. |
 | `ui.animations.enabled` | boolean | `true` |  | Play Animations. Off turns every animation in cmux off: rows, tabs, panes, menus, cards, the agent cursor, spinners and cmux web pages change at once. On, the switches below choose area by area. |
 | `ui.animations.sidebar` | boolean | `true` |  | Animate the Sidebar. Rows and groups slide when they reorder, open, close, pin or move to the top, and the sidebar slides when it shows or hides. Off: they change at once. |
@@ -462,6 +464,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `home.chiefBubbleStyle` | string | `"imessage"` | `imessage`, `theme` | Bubble Style. iMessage shows your messages in blue and the Chief's in gray. Theme uses your theme's accent and surface colors. |
 | `home.attachments.keepLocation` | boolean | `false` |  | Keep Location in Photos and Videos. When off, location data is removed from photos and videos before they are attached. |
 | `home.channelsEnabled` | boolean | `false` |  | Channels. Show Channels below Home in the sidebar. You can also turn it on or off from the command palette. |
+| `home.chiefPictureMotion` | string | `"hover"` | `always`, `hover`, `never` | Animated Pictures. Whether a Chief's GIF or animated picture moves on Home pages. Reduce Motion always shows its first frame. |
 | `home.chiefPetEnabled` | boolean | `false` |  | Show Chief Pet. A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session. While it shows, ⌃⌥⌘C opens its reply box from any app. |
 | `home.chiefPetMascot` | string | `"orb"` | `orb`, `orb-spark`, `orb-hood`, `machine`, `machine-cyan`, `machine-blue`, `moon`, `moon-blue`, `fox` | Character |
 | `notifications.dismissal` | string | `"click"` | `keystroke`, `click`, `focus`, `explicit`, `timeout`, `never` | Clear Notification When |

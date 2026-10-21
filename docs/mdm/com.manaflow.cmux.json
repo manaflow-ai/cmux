@@ -665,6 +665,27 @@
       "title" : "Change Picture",
       "type" : "string"
     },
+    "appearance.backgroundVideo" : {
+      "default" : "play",
+      "description" : "A video background plays while you can see it. It pauses when hidden or covered, in Low Power Mode and with Reduce Motion.",
+      "enum" : [
+        "play",
+        "whenActive",
+        "still"
+      ],
+      "title" : "Video Background",
+      "type" : "string"
+    },
+    "appearance.backgroundVideoOnBattery" : {
+      "default" : "play",
+      "description" : "Whether a video background keeps playing on battery. Low Power Mode always pauses it.",
+      "enum" : [
+        "play",
+        "pause"
+      ],
+      "title" : "On Battery",
+      "type" : "string"
+    },
     "appearance.borders" : {
       "default" : "default",
       "description" : "None removes every border, hairline and separator in the app.",
@@ -2255,6 +2276,17 @@
         "fox"
       ],
       "title" : "Character",
+      "type" : "string"
+    },
+    "home.chiefPictureMotion" : {
+      "default" : "hover",
+      "description" : "Whether a Chief's GIF or animated picture moves on Home pages. Reduce Motion always shows its first frame.",
+      "enum" : [
+        "always",
+        "hover",
+        "never"
+      ],
+      "title" : "Animated Pictures",
       "type" : "string"
     },
     "home.server" : {
