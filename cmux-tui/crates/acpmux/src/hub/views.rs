@@ -418,6 +418,12 @@ impl Hub {
             "version": VERSION,
             "build": BUILD,
             "pid": std::process::id(),
+            // Its own executable and command line, so a client (host enroll)
+            // tells which program runs it without scanning processes.
+            "exe": std::env::current_exe().ok(),
+            "argv": std::env::args_os()
+                .map(|a| a.to_string_lossy().into_owned())
+                .collect::<Vec<_>>(),
             "startedAt": self.started_at,
             // Whether this run holds a person key, and its id (`hub/person.rs`):
             // the app checks that a daemon it started with a key still runs.
