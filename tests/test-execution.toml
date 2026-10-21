@@ -1398,6 +1398,10 @@ path = "tests/test_cmux_tui_superseded_push.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_tui_publisher_testing.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_media_tour_gate.py"
 lane = "linux-guard"
 

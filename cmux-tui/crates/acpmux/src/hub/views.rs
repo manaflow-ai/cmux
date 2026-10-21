@@ -261,7 +261,9 @@ impl Hub {
     }
 
     pub fn session_summary(&self, session: &Session) -> Value {
-        use crate::protocol::session::{QueuedPromptSummary, SessionSummary, TurnSummary};
+        use crate::protocol::session::{
+            QueuedImage, QueuedPromptSummary, SessionSummary, TurnSummary,
+        };
         let m = session.meta();
         let turn = session.turn();
         let summary = SessionSummary {
@@ -316,6 +318,15 @@ impl Hub {
                     prompt: q.preview,
                     queued_at: q.queued_at,
                     held: q.held,
+                    // By attachment id: `_acpmux/attachment` reads each back.
+                    images: super::prompt_images::named(&q.run.blocks)
+                        .into_iter()
+                        .map(|image| QueuedImage {
+                            id: image["id"].as_str().unwrap_or_default().to_owned(),
+                            mime_type: image["mimeType"].as_str().unwrap_or_default().to_owned(),
+                            name: image["name"].as_str().map(str::to_owned),
+                        })
+                        .collect(),
                 })
                 .collect(),
             pending_permissions: session.pending_permissions().len() as u64,
