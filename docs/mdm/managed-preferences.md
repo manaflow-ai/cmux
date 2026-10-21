@@ -131,7 +131,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.metrics.titlebarHeight` | real |  | 24 to 56 | Titlebar Height |
 | `appearance.borders` | string | `"default"` | `default`, `none` | Borders. None removes every border, hairline and separator in the app. |
 | `appearance.focusIndicator` | string | `"tabs"` | `border`, `tabs`, `both`, `none` | Focused Pane. How the focused pane stands out: its border, subtler tabs in the other panes, both or neither. |
-| `focus.inactiveTabStyle` | string | `"fade"` | `fade`, `tonal`, `quiet` | Unfocused Pane Tabs. How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet drops the selected pill. |
+| `focus.inactiveTabStyle` | string | `"fade"` | `fade`, `tonal`, `quiet` | Unfocused Pane Tabs. How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet keeps only a faint selected pill. |
 | `ui.animationSpeed` | string | `"fast"` | `fast`, `normal`, `off` | Animations |
 | `appearance.chromeStyle` | string | `"flat-sidebar-line"` | `default`, `card`, `card-outlined`, `flat`, `flat-sidebar-line`, `bare`, `panes`, `two-tone`, `floating` | Window Style. The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them. |
 | `ui.paneAnimations` | boolean | `true` |  | Animate Panes. Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once. |
@@ -229,6 +229,10 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.display.code.scale` | real |  | 0.6 to 1.25 | Chat Code Size. Code as a share of the chat's text size. Empty uses the Markdown viewer's. |
 | `terminal.fontFamily` | string |  |  | Font Family. A monospaced font installed on this Mac. |
 | `terminal.fontSize` | real |  | 4 to 96 | Font Size |
+| `terminal.persistence.mode` | string | `"snapshot"` | `memory`, `snapshot`, `full` | Terminal Output on Disk. Memory Only: nothing is written to disk. A restart of the Mac loses terminal output; a restart of cmux reconnects to the running terminals. Snapshot: each terminal saves one compressed screen and its recent lines, only when they changed (at most every 30 seconds, and at quit). Full Scrollback: each terminal saves all of its output, compressed, every few seconds. After a restart or a lost terminal, the terminal gets its saved output back; terminal.output_read can read all of it. |
+| `terminal.persistence.maxBytesPerTerminal` | real |  | 1048576 to 107374182400 | Disk Limit per Terminal (Bytes). The most saved output for one terminal, in bytes. Snapshot: 1 MiB to 4 MiB (default 4 MiB), the largest uncompressed screen replay. Full Scrollback: 1 MiB to 100 GiB (default 100 MiB); the oldest output goes first. Empty uses the mode's default. It is never more than the disk limit for all terminals. |
+| `terminal.persistence.maxTotalBytes` | real |  | 1048576 to 107374182400 | Disk Limit for All Terminals (Bytes). The most saved output all terminals keep on disk together, in bytes, from 1 MiB to 100 GiB. Empty uses the mode's limit: 50 MiB in Snapshot, 2 GiB in Full Scrollback. The oldest saved output goes first. |
+| `terminal.scrollback.maxTotalMemoryBytes` | real | `268435456` | 16777216 to 68719476736 | Scrollback Memory for All Terminals (Bytes). The most memory all terminals use together for scrollback, in bytes, from 16 MiB to 64 GiB. The default is 256 MiB. The limit for one terminal is Ghostty's scrollback-limit. When the total is over this limit, the terminals that printed least recently give back scrollback first. |
 | `editor.fontFamily` | string |  |  | Font Family. Empty uses the terminal font. |
 | `editor.fontSize` | real |  | 6 to 72 | Font Size. Empty uses the terminal font size. Cmd-= and Cmd-- change it in one editor. |
 | `editor.fontWeight` | string | `"normal"` | `normal`, `bold`, `300`, `500`, `600` | Font Weight |
@@ -457,7 +461,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `home.channelsEnabled` | boolean | `false` |  | Channels. Show Channels below Home in the sidebar. You can also turn it on or off from the command palette. |
 | `home.chiefPetEnabled` | boolean | `false` |  | Show Chief Pet. A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session. While it shows, ⌃⌥⌘C opens its reply box from any app. |
 | `home.chiefPetMascot` | string | `"orb"` | `orb`, `orb-spark`, `orb-hood`, `machine`, `machine-cyan`, `machine-blue`, `moon`, `moon-blue`, `fox` | Character |
-| `notifications.dismissal` | string | `"focus"` | `keystroke`, `click`, `focus`, `explicit`, `timeout`, `never` | Clear Notification When |
+| `notifications.dismissal` | string | `"click"` | `keystroke`, `click`, `focus`, `explicit`, `timeout`, `never` | Clear Notification When |
 | `notifications.timeoutSeconds` | real | `30` | 1 to 86400 | Timeout. Used when a source clears after a timeout. |
 | `notifications.sources.agent.dismissal` | string |  | `keystroke`, `click`, `focus`, `explicit`, `timeout`, `never` | Agents |
 | `notifications.sources.terminal.dismissal` | string |  | `keystroke`, `click`, `focus`, `explicit`, `timeout`, `never` | Terminal Programs |
@@ -473,7 +477,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `feed.mirrorNotifications.agents` | boolean | `true` |  | Copy Agent Notifications to the Feed. Notifications from agents and cmux notify go to your cmux account's feed and can reach your iPhone. |
 | `feed.mirrorNotifications.terminal` | string | `"off"` | `off`, `title`, `full` | Copy Terminal Notifications to the Feed. Notifications that programs send through the terminal can contain secrets. Off sends nothing to your cmux account. |
 | `feed.agentPermissionPrompts` | boolean | `false` |  | Send Agent Permission Requests to the Feed. Each request's tool and command summary goes to your own cmux feed, so your iPhone can answer it. |
-| `notifications.attention.style` | string | `"blink"` | `blink`, `pulse`, `steady`, `none` | Style |
+| `notifications.attention.style` | string | `"steady"` | `blink`, `pulse`, `steady`, `none` | Style |
 | `notifications.attention.color` | string |  |  | Color |
 | `notifications.attention.width` | real | `2` | 0.5 to 8 | Width |
 | `notifications.attention.blinkCount` | real | `2` | 1 to 10 | Blinks |
@@ -481,7 +485,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `notifications.attention.persist` | boolean | `true` |  | Keep Ring Until Read |
 | `notifications.attention.showOnTab` | boolean | `true` |  | Mark the Tab |
 | `notifications.attention.showOnSidebar` | boolean | `true` |  | Mark the Sidebar Row |
-| `notifications.attention.moveToTop` | boolean | `true` |  | Move the Workspace to the Top. A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane. |
+| `notifications.attention.moveToTop` | boolean | `false` |  | Move the Workspace to the Top. A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane. |
 | `notifications.mutedWorkspaces` | array | `[]` |  | Muted Workspaces. Workspace ids whose notifications are silent. Mute a workspace from its sidebar row menu. |
 | `labs.previewFeatures` | boolean | `false` |  | Show Preview Features. Unfinished surfaces, such as the agent session's coverage label and Pull requests view. |
 | `labs.classicHome` | boolean | `false` |  | Classic Home. Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts. |
