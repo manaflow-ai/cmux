@@ -557,14 +557,10 @@ async fn background_on_a_chat_that_is_not_claude_is_refused() {
     hub.shutdown_all().await;
 }
 
-/// Whether Ctrl-B can move a chat's work goes by its harness's kind, not its
-/// name, and every chat's summary says so (`backgroundsWork`), so a client
-/// offers Ctrl-B only where acpmux takes it. `cmux`, the model router's
-/// profile, is Claude Code (claude-stdio) under a name that is not
-/// `claude*`: it says yes and Ctrl-B moves its work. An ACP agent a user's
-/// config named `claude-acp` says no and is refused.
-#[tokio::test]
-async fn a_chats_summary_says_whether_ctrl_b_moves_its_work() {
+/// A hub whose default harness is `cmux`, the model router's profile: Claude
+/// Code (claude-stdio, fake_claude.py) under a name that is not `claude*`,
+/// beside `claude-acp`, an ACP agent.
+async fn router_hub() -> (Arc<Hub>, TestClient, std::path::PathBuf) {
     let root = std::env::temp_dir().join(format!("acpmux-proc-{}", uuid::Uuid::now_v7()));
     let claude_home = root.join("claude");
     std::fs::create_dir_all(&claude_home).unwrap();
@@ -583,7 +579,19 @@ async fn a_chats_summary_says_whether_ctrl_b_moves_its_work() {
     cfg.store.mode = StoreMode::Memory;
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(cfg, store);
-    let mut c = connect(&hub).await;
+    let c = connect(&hub).await;
+    (hub, c, root)
+}
+
+/// Whether Ctrl-B can move a chat's work goes by its harness's kind, not its
+/// name, and every chat's summary says so (`backgroundsWork`), so a client
+/// offers Ctrl-B only where acpmux takes it. `cmux`, the model router's
+/// profile, is Claude Code (claude-stdio) under a name that is not
+/// `claude*`: it says yes and Ctrl-B moves its work. An ACP agent a user's
+/// config named `claude-acp` says no and is refused.
+#[tokio::test]
+async fn a_chats_summary_says_whether_ctrl_b_moves_its_work() {
+    let (hub, mut c, root) = router_hub().await;
     let new_on = |harness: &str| json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"harness": harness}}});
 
     let acp = c.request(method::SESSION_NEW, new_on("claude-acp")).await.unwrap();
@@ -610,6 +618,32 @@ async fn a_chats_summary_says_whether_ctrl_b_moves_its_work() {
     let (answer, _) = c.response(turn).await;
     assert_eq!(answer.unwrap()["stopReason"], "end_turn");
     assert_eq!(listed(&mut c, &id).await[0]["origin"], "user_backgrounded");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A chat's Ctrl-B is decided by the kind its harness started as. A config
+/// being written (a mode or model pick saves it) does not turn its summary's
+/// `backgroundsWork` off mid-turn, and a reload that changes its profile's
+/// kind flips neither the summary nor what Ctrl-B takes.
+#[tokio::test]
+async fn a_chats_ctrl_b_goes_by_the_kind_it_started_as() {
+    let (hub, mut c, root) = router_hub().await;
+    let (id, turn) = fg_shell(&mut c).await;
+    let says =
+        |hub: &Arc<Hub>| hub.session_summary(&hub.resolve(&id).unwrap())["backgroundsWork"].clone();
+    {
+        let _saving = hub.config.write().await;
+        assert_eq!(says(&hub), json!(true), "a config write hid Ctrl-B");
+    }
+    hub.config.write().await.harnesses.get_mut("cmux").unwrap().kind =
+        acpmux::config::HarnessKind::Acp;
+    assert_eq!(says(&hub), json!(true), "a reload flipped a running chat's Ctrl-B");
+    let mut other = connect(&hub).await;
+    let r = other.request(BACKGROUND, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(r, json!({"backgrounded": true}));
+    let (answer, _) = c.response(turn).await;
+    assert_eq!(answer.unwrap()["stopReason"], "end_turn");
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }
