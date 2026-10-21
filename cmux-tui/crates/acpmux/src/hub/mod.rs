@@ -51,6 +51,7 @@ mod policy_mode;
 mod pool;
 mod prompt_images;
 mod prompt_ledger;
+mod prompt_line;
 mod queue;
 mod queue_edit;
 pub use digest::declared_sender;

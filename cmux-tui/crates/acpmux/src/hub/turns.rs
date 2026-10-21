@@ -314,7 +314,9 @@ impl Hub {
         let mut blocks = blocks;
         {
             let mut m = session.meta.lock().unwrap();
-            m.last_prompt = Some(short_text(&text, 200));
+            // Another agent's message leaves its sender and words, not its envelope (`prompt_line.rs`).
+            let line = super::prompt_line::prompt_line(&text, client, provenance.as_ref());
+            m.last_prompt = Some(short_text(&line, 200));
             drafts::clear_sent_draft(&mut m, &text);
             super::titles::set_fallback_title(&mut m, &text);
             m.preview = Some(String::new());
