@@ -258,6 +258,8 @@ final class AppServices {
     var chromiumLikelyObservations: [Task<Void, Never>] = []
     /// Repaints on `appearance.borders` changes (`observeBorders`).
     var borderObservation: Task<Void, Never>?
+    /// Debug Settings "Simulate pending update" (`observeSimulatedUpdate`).
+    var simulatedUpdateObservation: Task<Void, Never>?
     /// Page menus and the open-menu diagnostic shared by browser hosts.
     let contextMenus: BrowserContextMenuBuilder
     /// Sized browser popups (OAuth, payment), each in its own Chrome-style popup window.

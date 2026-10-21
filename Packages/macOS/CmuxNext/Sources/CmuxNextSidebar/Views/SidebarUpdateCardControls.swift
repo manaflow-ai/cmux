@@ -7,7 +7,11 @@ import QuartzCore
 /// `sidebar.updateCard.button`, the UPDATE-CARD prototype switch; Lawrence
 /// picks one). Every variant is a theme token, never the system blue.
 public nonisolated enum SidebarUpdateButtonStyle: String, Sendable, CaseIterable, Hashable, TunableChoice {
-    /// The app's button (the default, Leo 2026-10-19: no light slab): the
+    /// The app's primary action (the default, Leo 2026-10-20: "give Restart to Update the primary
+    /// button style"): the theme's accent fill and its ink (`Palette.accentFill` / `onAccent`, the
+    /// selected menu row's pair), emphasized text. A theme with no chosen accent draws its neutral.
+    case primary
+    /// The app's button (the default until 2026-10-20, Leo 2026-10-19: no light slab): the
     /// hover fill with a hairline edge and the primary text, as the Updated
     /// card's See What's New and every themed popover button.
     case bordered
@@ -22,6 +26,7 @@ public nonisolated enum SidebarUpdateButtonStyle: String, Sendable, CaseIterable
 
     public var tunableTitle: String {
         switch self {
+        case .primary: "Primary"
         case .bordered: "App button"
         case .inverted: "Inverted"
         case .accent: "App accent"
@@ -34,7 +39,7 @@ nonisolated extension SidebarTunables {
     public static let updateCardButton = Tunable<SidebarUpdateButtonStyle>.choice(
         "sidebar.updateCard.button", .sidebar, "Update card button",
         help: "The fill of the update card's Restart to Update button (UPDATE-CARD prototype).",
-        default: .bordered, code: "SidebarTunables.updateCardButton")
+        default: .primary, code: "SidebarTunables.updateCardButton")
 }
 
 /// The update card's full-width Restart to Update button: one click
@@ -115,6 +120,7 @@ final class SidebarUpdateButton: NSView {
     /// `performWithTheme`).
     static func colors(_ style: SidebarUpdateButtonStyle) -> (fill: NSColor, text: NSColor) {
         switch style {
+        case .primary: (Palette.accentFill, Palette.onAccent)
         case .bordered: (Palette.hoverFill, Palette.textPrimary)
         case .themeAccent where Palette.hasThemeAccent: (Palette.highlight, Palette.highlightText)
         case .accent: (Palette.accent, Palette.textPrimary)
@@ -204,136 +210,5 @@ final class SidebarUpdateButton: NSView {
     override func keyDown(with event: NSEvent) {
         guard SidebarUpdateCheckbox.isActivationKey(event) else { return super.keyDown(with: event) }
         press()
-    }
-}
-
-/// The update card's Automatic Updates checkbox, drawn in theme colors (a
-/// system checkbox would draw the system accent). It shows the setting and
-/// a click asks to change it; the box follows when the setting changes.
-final class SidebarUpdateCheckbox: NSView {
-    var onToggle: ((Bool) -> Void)?
-    private(set) var isOn = false
-    private let box = CALayer()
-    private let mark = DecorativeImageView() // the checkbox's AXValue says it
-    private let label = ChromeLabel(labelWithString: "")
-
-    /// Full Keyboard Access focus: the box's edge in the theme's focus color, not the system's blue ring.
-    private var isKeyFocused = false { didSet { if isKeyFocused != oldValue { needsDisplay = true } } }
-    private var showsKeyFocus: Bool { KeyWindowRepaint.showsFocus(self, focused: isKeyFocused) }
-    private lazy var keyRepaint = KeyWindowRepaint(self)
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        wantsLayer = true
-        focusRingType = .none
-        box.cornerCurve = .continuous
-        box.borderWidth = 1
-        box.actions = ["borderColor": NSNull(), "borderWidth": NSNull()]
-        layer?.addSublayer(box)
-        mark.imageScaling = .scaleProportionallyDown
-        label.lineBreakMode = .byTruncatingTail
-        label.maximumNumberOfLines = 1
-        [mark, label].forEach(addSubview)
-        setAccessibilityElement(true)
-        setAccessibilityRole(.checkBox)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError() }
-
-    nonisolated override var isFlipped: Bool { true }
-    nonisolated override var wantsUpdateLayer: Bool { true }
-    override var mouseDownCanMoveWindow: Bool { false }
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-
-    static var font: NSFont { Typography.caption }
-    static var boxSize: CGFloat { Metrics.smallIconSize - Metrics.space1 }
-    static var height: CGFloat { max(boxSize, ceil(font.boundingRectForFont.height)) }
-
-    func configure(title: String, isOn: Bool) {
-        label.stringValue = title
-        self.isOn = isOn
-        setAccessibilityLabel(title)
-        setAccessibilityValue(isOn ? 1 : 0)
-        needsLayout = true
-        needsDisplay = true
-    }
-
-    /// The label as drawn.
-    var title: String { label.stringValue }
-
-    override func layout() {
-        super.layout()
-        let side = Self.boxSize, b = bounds
-        label.font = Self.font
-        let boxFrame = CGRect(x: 0, y: (b.height - side) / 2, width: side, height: side)
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        box.frame = boxFrame
-        box.cornerRadius = Metrics.space1
-        CATransaction.commit()
-        let inset = side * 0.18
-        mark.image = NSImage.icon(.stateSelected, size: side - 2 * inset)
-        mark.frame = boxFrame.insetBy(dx: inset, dy: inset)
-        let th = ceil(label.intrinsicContentSize.height)
-        let x = boxFrame.maxX + Metrics.space2
-        label.frame = NSRect(x: x, y: (b.height - th) / 2, width: max(0, b.width - x), height: th)
-    }
-
-    override func updateLayer() {
-        performWithTheme {
-            box.backgroundColor = (isOn ? Palette.textPrimary : NSColor.clear).cgColor
-            box.borderColor = (showsKeyFocus ? Palette.focusRing : isOn ? Palette.textPrimary : Palette.textTertiary).cgColor
-            box.borderWidth = showsKeyFocus ? Metrics.lineWidth(1.5) : 1
-            mark.contentTintColor = Palette.textOnPrimary
-            mark.isHidden = !isOn
-            label.textColor = Palette.textSecondary
-        }
-    }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        needsDisplay = true
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        guard bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
-        toggle()
-    }
-
-    /// A click: asks for the other state; the box changes when the setting does.
-    func toggle() { onToggle?(!isOn) }
-
-    override func accessibilityPerformPress() -> Bool {
-        toggle()
-        return true
-    }
-
-    override var acceptsFirstResponder: Bool { NSApp.isFullKeyboardAccessEnabled }
-    override var canBecomeKeyView: Bool { acceptsFirstResponder && !isHiddenOrHasHiddenAncestor }
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        keyRepaint.track()
-    }
-
-    override func becomeFirstResponder() -> Bool {
-        isKeyFocused = true
-        return true
-    }
-
-    override func resignFirstResponder() -> Bool {
-        isKeyFocused = false
-        return true
-    }
-
-    override func keyDown(with event: NSEvent) {
-        guard Self.isActivationKey(event) else { return super.keyDown(with: event) }
-        toggle()
-    }
-
-    /// Space or Return without modifiers.
-    static func isActivationKey(_ event: NSEvent) -> Bool {
-        event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.function).isEmpty
-            && [" ", "\r", "\u{3}"].contains(event.charactersIgnoringModifiers ?? "")
     }
 }

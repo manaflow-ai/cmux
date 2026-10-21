@@ -8,6 +8,8 @@ import CmuxNextUpdater
 /// into an update, then terminates. R138 check update-relaunch-no-prompt.
 /// `{action: "stage", version?, changes?}` shows a staged update with fake
 /// release notes (UPDATE-CARD screenshots; nothing downloads or installs);
+/// `{action: "simulate"}` stages one with real published notes, as Debug Settings "Simulate
+/// pending update" does (`DebugUpdater+Simulate.swift`);
 /// `{action: "unstage"}` follows the real updater again. `{action: "tip",
 /// id?}` shows a "Did you know" tip; `{action: "untip"}` hides it;
 /// `{action: "tips", press?, at?}`: `UpdaterService.debugTips`.
@@ -33,6 +35,10 @@ enum DebugUpdater {
             let count = max(0, Int(params["changes"]?.doubleValue ?? 12))
             services.updater.debugStage(version: version, notes: .debugFake(version: version, changes: count))
             return .object(["staged": .string(version), "changes": JSONValue(count)])
+        case "simulate":
+            let updater = services.updater
+            Task { await stageSimulated(updater) }
+            return .object(["simulating": .bool(true)])
         case "available":
             services.updater.debugIndicatorPhase = .available(version: params["version"]?.stringValue ?? "1.99.0")
             return .object(["notice": .string(services.updater.card?.kind ?? "none")])
@@ -63,7 +69,7 @@ enum DebugUpdater {
             services.updater.debugStage(version: nil, notes: nil)
             return .object(["staged": .null])
         default:
-            throw ControlError.invalidParams("debug.updater: action must be \"relaunch\", \"stage\", \"unstage\", \"available\", \"snooze\", \"tip\", \"tips\", \"untip\", \"updated\", \"share\" or \"share-copy\"")
+            throw ControlError.invalidParams("debug.updater: action must be \"relaunch\", \"stage\", \"simulate\", \"unstage\", \"available\", \"snooze\", \"tip\", \"tips\", \"untip\", \"updated\", \"share\" or \"share-copy\"")
         }
     }
 
