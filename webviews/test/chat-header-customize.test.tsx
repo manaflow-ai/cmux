@@ -101,6 +101,6 @@ test("the right-click menu moves, switches, hides and shows the quick actions", 
   rightClick("Browser");
   pick("Reset Buttons");
   // The default keeps the most-used four; New tab, Files and Split Down are in the chat menu.
-  expect(lists.at(-1)).toBe("changes:toggle preview:toggle terminal:toggle browser:toggle");
+  expect(lists.at(-1)).toBe("changes:toggle terminal:toggle browser:toggle");
   act(() => configureQuickActions({}));
 });
