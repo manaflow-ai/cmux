@@ -25,6 +25,12 @@ extension DaemonConnection {
         try await request(CreateWorkspaceRequest(name: name, key: key, mutation: mutation()))
     }
 
+    /// The same, with deadline `timeout` (``createTimeout`` for a person's create).
+    @discardableResult
+    public func createWorkspace(name: String?, key: WorkspaceKey, timeout: Duration?) async throws -> WorkspaceMutationResult {
+        try await request(CreateWorkspaceRequest(name: name, key: key, mutation: mutation()), timeout: timeout)
+    }
+
     @discardableResult
     public func renameWorkspace(_ key: WorkspaceKey, to name: String, source: WorkspaceNameSource? = nil,
                                 expectedNameRevision: UInt64? = nil, release: Bool = false) async throws -> WorkspaceMutationResult {

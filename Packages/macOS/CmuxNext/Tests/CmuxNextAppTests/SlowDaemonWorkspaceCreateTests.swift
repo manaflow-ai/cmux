@@ -71,6 +71,12 @@ import Testing
         let commands = recorded["commands"]?.arrayValue?.compactMap(\.stringValue) ?? []
         #expect(!commands.contains("close-workspace"), "a slow daemon never closes the new workspace: \(commands)")
     }
+
+    @Test func aPersonsCreateHasALongerDeadlineThanAControlRequest() {
+        let connection = connection()
+        #expect(connection.createTimeout == DaemonConnection.defaultCreateTimeout)
+        #expect(DaemonConnection.defaultCreateTimeout > DaemonConnection.defaultSpawnTimeout)
+    }
 }
 
 private extension Result where Failure == any Error {

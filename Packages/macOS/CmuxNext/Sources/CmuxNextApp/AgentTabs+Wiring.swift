@@ -40,7 +40,7 @@ extension AgentTabStore {
             seedFirstChat(chat, in: workspace)
         }
         defer { firstChats[workspace] = nil; firstPageTokens[workspace] = nil }
-        let response = try await connection.request(request)
+        let response = try await connection.request(request, timeout: connection.createTimeout)
         let key = response.tabResourceID?.rawValue ?? "surface:\(response.surface.rawValue)"
         if chat != nil {
             // No view took the seed while the request ran: the tab's view takes it.
