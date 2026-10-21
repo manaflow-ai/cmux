@@ -1,0 +1,36 @@
+<!doctype html>
+<!-- Glass-to-glass marker page for the cloud browser bench: the cmux-rd marker
+     (20 cells of 32x32 px at (0,0); cells 0..15 = bit i of the counter, LSB first;
+     cells 16..19 = guard 1,0,1,0; see cmux-tui/crates/cmux-rd-host/src/marker.rs).
+     The counter increments on every keydown, mousedown and wheel event and repaints inside the handler, so the
+     measured time is the browser's real input-to-paint path. Below it: text to scroll. -->
+<html><head><meta charset="utf-8"><title>cmux cloud browser bench</title>
+<style>
+html,body{margin:0;background:#fff;font:15px/1.5 -apple-system,"Noto Sans",sans-serif;color:#222}
+#m{position:fixed;left:0;top:0;width:640px;height:32px;image-rendering:pixelated;z-index:9}
+main{padding:48px 32px;max-width:900px}
+</style></head><body>
+<canvas id="m" width="640" height="32"></canvas>
+<main id="t"></main>
+<script>
+const c = document.getElementById('m').getContext('2d');
+let n = 0;
+function paint() {
+  for (let i = 0; i < 20; i++) {
+    const on = i < 16 ? ((n >> i) & 1) === 1 : (i % 2 === 0);
+    c.fillStyle = on ? '#fff' : '#000';
+    c.fillRect(i * 32, 0, 32, 32);
+  }
+}
+const bump = () => { n = (n + 1) & 0xffff; paint(); };
+addEventListener('keydown', bump);
+addEventListener('mousedown', bump);
+addEventListener('wheel', bump, { passive: true });
+paint();
+const t = document.getElementById('t');
+for (let i = 0; i < 400; i++) {
+  const p = document.createElement('p');
+  p.textContent = `${i}. The quick brown fox jumps over the lazy dog. Sphinx of black quartz, judge my vow. 0123456789 — cmux cloud browser text crispness line.`;
+  t.appendChild(p);
+}
+</script></body></html>

@@ -8,6 +8,14 @@ import CmuxNextSettings
 enum PaletteSourcesBridge {
     static func make(services: AppServices) -> PaletteSources {
         var sources = makeBase(services: services)
+        // Search (Cmd-P and the sidebar's Search button, plans/cmux-next/sidebar-search.md): history by kind
+        // and the agent chats join the palette's own sources. Agent chats and agent sessions also make up
+        // the Chats & agents chip (Cmd-Shift-A).
+        sources.searchContributions = HistoryPalettePages.searchContributions(services) + [
+            PaletteSearchContribution(id: "agentChats", title: AgentChatsPaletteStrings.title, order: 30, searchesChats: true) { [weak services] in
+                services.map { AgentChatsPalettePage(services: $0).page() }
+            },
+        ]
         // A typed path or web address: Open it, or Ask Agent about it (Cmd-P and Cmd-Shift-P).
         sources.goTo = AppPaletteGoToSource(services: services)
         // cmux.json `palette.scopes.<id>.prefix`, read on every open.
@@ -131,12 +139,12 @@ enum PaletteSourcesBridge {
             }
         }
 
+        /// Switch to tab: `tab.focus`, the one reveal that shows the tab's workspace and screen,
+        /// selects the tab and focuses its pane. Selecting through the pane alone missed a tab in
+        /// another workspace: the window swaps that workspace's content in on a later turn, so
+        /// its pane was not there yet and the jump landed on the workspace (Leo 2026-10-19).
         func selectTab(id: String) {
-            guard let (_, pane) = services.locateTab(id),
-                  let workspace = services.machines.allWorkspaces.map(\.0).first(where: { $0.screens.contains { $0.panes.contains { $0 === pane } } }),
-                  let window = services.windows.reveal(workspaceID: workspace.id) else { return }
-            window.state.selection.select(id, in: pane.id)
-            services.paneController(for: pane)?.select(StripTabID(id))
+            _ = services.registry.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: id), origin: .user))
         }
 
         func renameTab(id: String, to title: String) {

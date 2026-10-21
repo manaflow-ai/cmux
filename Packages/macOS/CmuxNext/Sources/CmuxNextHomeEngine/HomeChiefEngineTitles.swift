@@ -17,7 +17,7 @@ nonisolated struct HomeChiefEngineTitles {
         // The models acpmux offers for the engine's harness and the efforts the brain takes
         // (cx-miuo); acpmux's own "default" is the picker's first item.
         models = snapshot.models.filter { $0.id != "default" }.map { ($0.id, $0.name) }
-        efforts = snapshot.efforts.map { ($0, $0) }
+        efforts = snapshot.efforts.map { ($0, HomeEngineStrings.effortTitle($0)) }
         // The effective engine is engine.json over the brain's defaults, so it names what
         // Default runs only for a field with no choice; a chosen field's Default stays plain.
         let engine = snapshot.effective
@@ -25,7 +25,7 @@ nonisolated struct HomeChiefEngineTitles {
         // A model id the offer names shows by its name.
         let model = snapshot.model == nil ? engine?.model : nil
         defaultModel = Self.titled(model.map { id in snapshot.models.first { $0.id == id }?.name ?? id })
-        defaultEffort = Self.titled(snapshot.effort == nil ? engine?.effort : nil)
+        defaultEffort = Self.titled((snapshot.effort == nil ? engine?.effort : nil).map(HomeEngineStrings.effortTitle))
     }
 
     /// "Default (value)", or "Default" when the brain did not say (or says "default").

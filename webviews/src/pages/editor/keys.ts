@@ -1,6 +1,7 @@
 // The editor's keys. Monaco handles plain typing, navigation and its own editing chords inside the
 // editor; the app's single key dispatcher resolves every chord first (keybindings.md 4.2), so a chord
-// bound in the app (Cmd-S, Cmd-P, Cmd-D, Cmd-Shift-[ ...) never reaches Monaco. App actions the
+// bound in the app (Cmd-S, Cmd-P, Cmd-W ...) never reaches Monaco, except the app chords that yield
+// to the editor (Cmd-D, Shift-Cmd-L, Cmd-L ...). App actions the
 // editor should run arrive as page commands (`cmux.page.command`), mapped here to Monaco actions:
 // the shared ones (`find`, `save`) and `editorAction` with a Monaco action id from `EDITOR_ACTIONS`,
 // so the Keys lead can bind any of them under an editor context without a page change.

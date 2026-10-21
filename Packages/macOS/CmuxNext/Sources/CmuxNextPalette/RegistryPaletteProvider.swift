@@ -52,6 +52,7 @@ public final class RegistryPaletteProvider: PaletteProvider {
 
     public func makeItems() -> [PaletteItem] {
         var items: [PaletteItem] = []
+        var tiers: [String: PaletteTier] = [:]
         // Localized once per open, not once per action (hundreds of rows).
         let unbound = PaletteStrings.unbound
         let copyActionID = PaletteStrings.copyActionID
@@ -69,10 +70,14 @@ public final class RegistryPaletteProvider: PaletteProvider {
         for entry in registry.entries {
             let descriptor = entry.descriptor
             guard descriptor.isPaletteVisible, !hiddenIDs.contains(descriptor.id), registry.isAvailable(descriptor.id) else { continue }
-            let override = effectOverrides[descriptor.id]?()
+            // An override is decided when its row runs (`PaletteEffect.deferred`), never on open:
+            // Rename Tab and Rename Workspace read every tab and workspace, an action page builds
+            // its page. Declining there (nothing to rename) falls back to the action itself.
+            let override = effectOverrides[descriptor.id]
             guard entry.isBound || override != nil || includeUnbound else { continue }
             let isEnabled = override != nil || registry.canPerform(descriptor.id)
-            let effect = override ?? defaultEffect(for: descriptor)
+            let fallback = defaultEffect(for: descriptor)
+            let effect = override.map { decide in PaletteEffect.deferred { decide() ?? fallback } } ?? fallback
             let actionID = descriptor.id
             var item = PaletteItem(
                 id: "action:\(actionID.rawValue)",
@@ -109,9 +114,12 @@ public final class RegistryPaletteProvider: PaletteProvider {
             item.actionRefs = [PaletteActionRef(actionID, isDestructive: descriptor.isDestructive)]
             item.ball = PaletteGroupColor.ball(forAction: actionID)
             item.suggestedRank = descriptor.paletteSuggestionRank
+            item.keywords += ActionDescriptor.paletteAliases[actionID] ?? []
+            item.rankBias = Self.rankBias(for: descriptor.paletteTier)
+            tiers[item.id] = descriptor.paletteTier
             items.append(item)
         }
-        return items
+        return Self.arranged(items, tiers: tiers)
     }
 
     /// Decided when the row runs (`PaletteEffect.deferred`): an action

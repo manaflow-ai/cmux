@@ -41,12 +41,104 @@ enum PhoneHandlers {
         work("phone.boot") { invocation, phones in
             try await phones.boot(try await device(invocation, phones).id)
         }
-        work("phone.screenshot") { invocation, phones in
+        /// Work that answers fields (`action.run` `result`), so the CLI and MCP get data back.
+        func answer(_ id: ActionID, _ body: @escaping @MainActor (ActionInvocation, PhoneService) async throws -> [String: ActionResultValue]) {
+            registry.bind(id, run: { invocation in
+                let phones = services.phones
+                // task-owner: the action run; a capturing caller awaits it through the registry.
+                registry.track(result: Task { @MainActor in
+                    do {
+                        return .success(try await body(invocation, phones))
+                    } catch {
+                        let reason = (error as? PhoneError)?.description ?? String(describing: error)
+                        registry.refuse(reason)
+                        return .failure(ActionWorkFailure(stringLiteral: reason))
+                    }
+                })
+            })
+        }
+
+        answer("phone.screenshot") { invocation, phones in
             let device = try await device(invocation, phones)
             let file = invocation["path"]?.stringValue.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
             let saved = try await phones.screenshot(device.id, to: file)
             if invocation.origin == .user { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(saved.path, forType: .string) }
+            return ["path": .string(saved.path), "device": .string(device.id.description)]
         }
+        answer("phone.list") { _, phones in
+            let listed = try await phones.reload()
+            let rows = listed.map { device -> [String: Any] in
+                ["id": device.id.description, "name": device.name, "model": device.model, "os": device.osVersion,
+                 "ready": device.state.isReady, "capabilities": phones.capabilities(device).names]
+            }
+            var result: [String: ActionResultValue] = ["count": .int(listed.count), "devices": .string(try json(rows))]
+            let missing = await phones.missingTools.map(\.rawValue).sorted()
+            if !missing.isEmpty { result["missing"] = .string(missing.joined(separator: ",")) }
+            return result
+        }
+        work("phone.shutdown") { invocation, phones in
+            try await phones.shutdown(try await device(invocation, phones).id)
+        }
+        work("phone.tap") { invocation, phones in
+            try await phones.send(.tap(PhonePoint(x: try number(invocation, "x"), y: try number(invocation, "y"))),
+                                  to: try await device(invocation, phones).id)
+        }
+        work("phone.swipe") { invocation, phones in
+            let from = PhonePoint(x: try number(invocation, "fromX"), y: try number(invocation, "fromY"))
+            let to = PhonePoint(x: try number(invocation, "toX"), y: try number(invocation, "toY"))
+            let seconds = invocation["seconds"]?.stringValue.flatMap(Double.init) ?? 0.3
+            try await phones.send(.swipe(from: from, to: to, seconds: seconds), to: try await device(invocation, phones).id)
+        }
+        work("phone.type") { invocation, phones in
+            try await phones.send(.text(invocation["text"]?.stringValue ?? ""), to: try await device(invocation, phones).id)
+        }
+        work("phone.button") { invocation, phones in
+            guard let name = invocation["button"]?.stringValue, let button = PhoneButton(rawValue: name) else {
+                throw PhoneError.unreadable(what: "the button name")
+            }
+            try await phones.send(.button(button), to: try await device(invocation, phones).id)
+        }
+        answer("phone.ui") { invocation, phones in
+            let device = try await device(invocation, phones)
+            let tree = try await phones.accessibilityTree(device.id)
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            return ["device": .string(device.id.description), "elements": .int(tree.flattened.count),
+                    "tree": .string(String(decoding: try encoder.encode(tree), as: UTF8.self))]
+        }
+        work("phone.appearance") { invocation, phones in
+            guard let name = invocation["appearance"]?.stringValue, let appearance = PhoneAppearance(rawValue: name) else {
+                throw PhoneError.unreadable(what: "the appearance")
+            }
+            try await phones.send(.appearance(appearance), to: try await device(invocation, phones).id)
+        }
+        work("phone.location") { invocation, phones in
+            try await phones.send(.location(latitude: try number(invocation, "latitude"), longitude: try number(invocation, "longitude")),
+                                  to: try await device(invocation, phones).id)
+        }
+        work("phone.locale") { invocation, phones in
+            try await phones.send(.locale(invocation["locale"]?.stringValue ?? "en_US"), to: try await device(invocation, phones).id)
+        }
+        work("phone.install") { invocation, phones in
+            guard let path = invocation["path"]?.stringValue else { throw PhoneError.unreadable(what: "the app path") }
+            try await phones.send(.install(URL(fileURLWithPath: (path as NSString).expandingTildeInPath)), to: try await device(invocation, phones).id)
+        }
+        work("phone.launch") { invocation, phones in
+            guard let app = invocation["app"]?.stringValue, !app.isEmpty else { throw PhoneError.unreadable(what: "the app id") }
+            try await phones.send(.launch(app), to: try await device(invocation, phones).id)
+        }
+        work("phone.rotate") { invocation, phones in
+            try await phones.rotate(try await device(invocation, phones).id)
+        }
+        work("phone.logs") { invocation, phones in
+            let line = try await phones.logShellLine(try await device(invocation, phones).id)
+            guard let pane = context.paneController(invocation) else {
+                throw PhoneError.unsupported(mode: .simulator, what: "logs without a window")
+            }
+            pane.newTerminalTab(typing: line + "\r")
+        }
+        // The pane menu's New Simulator Pane opens the phone tab (one model for both names).
+        registry.bind("palette.newSimulatorPane", run: { invocation in registry.perform("phone.show", invocation: invocation) })
         work("phone.recordStart") { invocation, phones in
             try await phones.startRecording(try await device(invocation, phones).id)
         }
@@ -65,6 +157,18 @@ enum PhoneHandlers {
         work("phone.paste") { invocation, phones in
             try await phones.send(.pasteboard(invocation["text"]?.stringValue ?? ""), to: try await device(invocation, phones).id)
         }
+    }
+
+    /// A required number argument (sent as a string so points may have fractions).
+    static func number(_ invocation: ActionInvocation, _ name: String) throws -> Double {
+        guard let text = invocation[name]?.stringValue ?? invocation[name]?.intValue.map(String.init), let value = Double(text), value.isFinite else {
+            throw PhoneError.unreadable(what: name)
+        }
+        return value
+    }
+
+    static func json(_ object: Any) throws -> String {
+        String(decoding: try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]), as: UTF8.self)
     }
 
     /// The phone named by `device` (`sim:<udid>`, `dev:<udid>`, or a name), else the default.

@@ -57,6 +57,7 @@ struct FeedHeader: View {
             .buttonStyle(.plain)
             .foregroundStyle(colors.secondary)
             .themedHelp(FeedStrings.markAllRead)
+            .accessibilityLabel(FeedStrings.markAllRead).accessibilityIdentifier("cmux.feed.markAllRead")
             .disabled(counts.unreadNotices == 0)
         }
         .padding(.horizontal, 14)

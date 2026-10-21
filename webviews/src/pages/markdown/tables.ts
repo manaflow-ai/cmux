@@ -5,11 +5,14 @@
 //   selection to a caret.
 // - Copying a cell selection writes a Markdown table (text/plain) and an HTML table (text/html, for
 //   spreadsheets).
+// - A drag that starts in a cell and leaves the table selects text from the press to the pointer
+//   (MARKDOWN-SELECTION). prosemirror-tables kept a one-cell selection for the rest of such a drag:
+//   it holds the selection while its drag runs and finds no cell under the pointer.
 // - Column widths: a handle on each column's right edge; a drag sets the width, a double-click fits
 //   the column to its content. Widths are a view setting kept per file (`TableWidths`), never
 //   written to the file: GFM has no column widths, and a resize must not mark the file edited.
 import type { Node as ProseNode, Schema } from "@milkdown/kit/prose/model";
-import { TextSelection, type EditorState } from "@milkdown/kit/prose/state";
+import { Plugin, TextSelection, type EditorState } from "@milkdown/kit/prose/state";
 import {
   CellSelection,
   TableMap,
@@ -20,16 +23,135 @@ import {
   selectedRect,
 } from "@milkdown/kit/prose/tables";
 import type { EditorView, ViewMutationRecord } from "@milkdown/kit/prose/view";
+import { $prose } from "@milkdown/kit/utils";
 
-/** Column widths, in CSS pixels, for each table of the open file (by its index in the file). */
+/**
+ * Column widths, in CSS pixels, for each table of the open file. A table is known by its index in
+ * the file and the key of its header row (`headerKey`): an edit elsewhere keeps its widths, a table
+ * added above it moves its widths with it, and a changed header drops them
+ * (plans/cmux-next/MARKDOWN-TABLE-WIDTHS-DESIGN.md).
+ */
 export interface TableWidths {
-  /** The saved widths of table `index`, one per column, or null for the natural widths. */
-  get(index: number): number[] | null;
-  /** Saves (or with null forgets) the widths of table `index`. */
-  set(index: number, widths: number[] | null): void;
+  /** The saved widths of table `index` with header `header`, one per column, or null. */
+  get(index: number, header: string): number[] | null;
+  /**
+   * Saves (or with null forgets) the widths of table `index`. `live` is every table's header key
+   * in the file now, in order: a saved table no longer among them is dropped in the same write.
+   */
+  set(index: number, header: string, widths: number[] | null, live: readonly string[]): void;
+  /** Forgets the widths of every table of the open file. */
+  clear(): void;
+  /** Calls `listener` after `clear` (each table view lays itself out again); returns the unsubscribe. */
+  subscribe(listener: () => void): () => void;
 }
 
-/** The storage widths survive a reload and a reopen in (localStorage; a stand-in in tests). */
+/** One saved table: index `i`, header key `h`, widths `w`. */
+export interface SavedTable {
+  i: number;
+  h: string;
+  w: number[];
+}
+
+/** The value a file's widths are kept as (the host stores it as is: `cmux.markdown.setTableWidths`). */
+export interface SavedTableWidths {
+  v: 1;
+  tables: SavedTable[];
+}
+
+/** The most tables and columns one file keeps (the host refuses more than 256 of either). */
+const MAX_TABLES = 128;
+const MAX_COLUMNS = 128;
+
+/** A short key of a table's header row: its cell texts (FNV-1a, 32 bits, hex) and column count. */
+export function headerKey(cells: readonly string[]): string {
+  let hash = 0x811c9dc5;
+  for (const char of cells.join("\u001f")) {
+    hash ^= char.codePointAt(0)!;
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return `${cells.length}-${hash.toString(16).padStart(8, "0")}`;
+}
+
+/** The saved tables in `value`, or [] when it is not a `SavedTableWidths`. */
+export function parseSavedTableWidths(value: unknown): SavedTable[] {
+  const tables = (value as Partial<SavedTableWidths> | null)?.tables;
+  if ((value as Partial<SavedTableWidths> | null)?.v !== 1 || !Array.isArray(tables)) return [];
+  return tables.filter(
+    (table): table is SavedTable =>
+      Number.isInteger(table?.i) &&
+      table.i >= 0 &&
+      typeof table.h === "string" &&
+      Array.isArray(table.w) &&
+      table.w.length > 0 &&
+      table.w.every((width: unknown) => typeof width === "number" && width > 0),
+  );
+}
+
+/** Where a file's tables are loaded from and saved to. `save(path, null)` forgets the file. */
+export interface TableWidthBackend {
+  load(path: string): SavedTable[];
+  save(path: string, value: SavedTableWidths | null): void;
+}
+
+/**
+ * `TableWidths` over a backend, for the file `path()` names (read on each call: link navigation
+ * changes the file). Each file's tables are loaded once and kept; each `set` or `clear` is one
+ * backend save, so a column drag (one `set` when it ends) is one write.
+ */
+export function tableWidthsOver(path: () => string | undefined, backend: TableWidthBackend): TableWidths {
+  const files = new Map<string, SavedTable[]>();
+  const listeners = new Set<() => void>();
+  const tables = (file: string) => {
+    let saved = files.get(file);
+    if (!saved) files.set(file, (saved = backend.load(file)));
+    return saved;
+  };
+  const save = (file: string, saved: SavedTable[]) => {
+    files.set(file, saved);
+    backend.save(file, saved.length ? { v: 1, tables: saved } : null);
+  };
+  return {
+    get(index, header) {
+      const file = path();
+      if (!file) return null;
+      const saved = tables(file);
+      const exact = saved.find((table) => table.i === index && table.h === header);
+      if (exact) return exact.w;
+      // A table added or removed above moves the others: the one saved table with this header.
+      const moved = saved.filter((table) => table.h === header);
+      return moved.length === 1 ? moved[0]!.w : null;
+    },
+    set(index, header, widths, live) {
+      const file = path();
+      if (!file) return;
+      // Each saved table stays where its header is now (moved when it is the one table with that
+      // header), and a header no table has any more is dropped.
+      const kept: SavedTable[] = [];
+      for (const table of tables(file)) {
+        let at = table.i;
+        if (live[at] !== table.h) {
+          const first = live.indexOf(table.h);
+          at = first >= 0 && live.lastIndexOf(table.h) === first ? first : -1;
+        }
+        if (at >= 0 && at !== index && !kept.some((other) => other.i === at)) kept.push({ ...table, i: at });
+      }
+      if (widths) kept.push({ i: index, h: header, w: widths.slice(0, MAX_COLUMNS).map((width) => Math.round(width)) });
+      save(file, kept.sort((a, b) => a.i - b.i).slice(0, MAX_TABLES));
+    },
+    clear() {
+      const file = path();
+      if (!file) return;
+      save(file, []);
+      for (const listener of listeners) listener();
+    },
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+}
+
+/** The storage the page-only fallback keeps widths in (localStorage; a stand-in in tests). */
 export interface WidthStorage {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
@@ -44,50 +166,66 @@ function localStore(): WidthStorage | null {
   }
 }
 
-/** Widths kept per file path (`path` is read on each call: link navigation changes the file). */
+/**
+ * Widths kept in the page's own storage, per file path: the dev page and an older host with no
+ * `setTableWidths`. In the app the page's storage does not outlive the tab (its WebKit data store
+ * is not persistent), so the app keeps them with the file (`hostTableWidths`).
+ */
 export function storedTableWidths(
   path: () => string | undefined,
   storage: WidthStorage | null = localStore(),
 ): TableWidths {
-  const key = () => {
-    const file = path();
-    return file ? `cmux.markdown.columnWidths:${file}` : null;
-  };
-  const read = (): Record<string, number[]> => {
-    const name = key();
-    if (!name || !storage) return {};
-    try {
-      const value = JSON.parse(storage.getItem(name) ?? "{}");
-      return value && typeof value === "object" ? value : {};
-    } catch {
-      return {};
-    }
-  };
-  return {
-    get(index) {
-      const widths = read()[index];
-      return Array.isArray(widths) && widths.every((width) => typeof width === "number" && width > 0) ? widths : null;
-    },
-    set(index, widths) {
-      const name = key();
-      if (!name || !storage) return;
-      const all = read();
-      if (widths) all[index] = widths.map((width) => Math.round(width));
-      else delete all[index];
+  const key = (file: string) => `cmux.markdown.columnWidths:${file}`;
+  return tableWidthsOver(path, {
+    load(file) {
       try {
-        if (Object.keys(all).length === 0) storage.removeItem(name);
-        else storage.setItem(name, JSON.stringify(all));
+        return parseSavedTableWidths(JSON.parse(storage?.getItem(key(file)) ?? "null"));
       } catch {
-        // A full or refused storage only loses the widths on the next reload.
+        return [];
       }
     },
-  };
+    save(file, value) {
+      try {
+        if (value) storage?.setItem(key(file), JSON.stringify(value));
+        else storage?.removeItem(key(file));
+      } catch {
+        // A full or refused storage only loses the widths on the next reopen.
+      }
+    },
+  });
+}
+
+/**
+ * Widths the host keeps with the file (its extended attribute, then an app-side copy): `initial`
+ * answers what the host sent for a file in its config (`tableWidths`), `write` sends one
+ * `cmux.markdown.setTableWidths` per change.
+ */
+export function hostTableWidths(
+  path: () => string | undefined,
+  initial: (path: string) => unknown,
+  write: (path: string, value: SavedTableWidths | null) => void,
+): TableWidths {
+  return tableWidthsOver(path, { load: (file) => parseSavedTableWidths(initial(file)), save: write });
+}
+
+/** Each table view by its `.tableWrapper` (the right-click's Reset Column Widths finds its table). */
+const viewsByWrapper = new WeakMap<Element, ResizableTableView>();
+
+/** The table view around `target`, or null. */
+export function tableViewAt(target: Element | null): ResizableTableView | null {
+  const wrapper = target?.closest?.(".tableWrapper");
+  return wrapper ? (viewsByWrapper.get(wrapper) ?? null) : null;
 }
 
 /** The narrowest a column can be dragged to, in CSS pixels. */
 export const MIN_COLUMN_WIDTH = 40;
 
-/** How close to a cell's right edge, in pixels, the pointer shows that column's handle. */
+/**
+ * How close to a column boundary, in pixels either side, the pointer shows that column's line. The
+ * handle (the element that carries `cursor: col-resize` and takes the press) covers exactly this
+ * zone, so the line, the cursor and the drag always agree (user 2026-10-20: the line showed while
+ * the cursor stayed a text cursor).
+ */
 const EDGE = 5;
 
 /**
@@ -115,18 +253,102 @@ export class ResizableTableView extends TableView {
     this.handle.setAttribute("aria-hidden", "true");
     this.dom.append(this.handle);
     this.dom.addEventListener("mousemove", this.hover);
-    this.dom.addEventListener("mouseleave", () => {
-      if (!this.dragging) this.hide();
-    });
+    this.dom.addEventListener("mouseleave", this.leave);
     this.handle.addEventListener("mousedown", this.startDrag);
     this.handle.addEventListener("dblclick", this.fit);
+    this.dom.addEventListener("scroll", this.layoutChanged, { passive: true });
+    this.dom.addEventListener("wheel", this.shiftWheel, { passive: false });
+    // The box and the table change size with the pane, the text width, an edit and a column drag.
+    this.resize = new ResizeObserver(this.layoutChanged);
+    this.resize.observe(this.dom);
+    this.resize.observe(this.table);
+    this.unsubscribe = widths?.subscribe(() => this.applySaved()) ?? (() => {});
+    viewsByWrapper.set(this.dom, this);
     this.applySaved();
   }
+
+  private readonly unsubscribe: () => void;
+
+  private readonly resize: ResizeObserver;
+  /** Where the pointer last was over the table's box (client coordinates); null once it left. */
+  private pointer: { x: number; y: number } | null = null;
+
+  /**
+   * A scroll or a size change moved the boundaries under a still pointer: the line follows the
+   * pointer (shown only if it is on a boundary now), never stays where the pointer no longer is.
+   */
+  private readonly layoutChanged = (): void => {
+    this.markOverflow();
+    if (!this.dragging) this.refresh();
+  };
+
+  private readonly leave = (): void => {
+    this.pointer = null;
+    if (!this.dragging) this.hide();
+  };
+
+  /**
+   * Marks which edges have more table past them (`data-overflow`: "start", "end" or both; absent
+   * when the table fits). The stylesheet fades those edges, so a wide table shows that it scrolls
+   * even with overlay scrollbars hidden (MARKDOWN-TABLE-SCROLL, user 2026-10-20).
+   */
+  private readonly markOverflow = (): void => {
+    const box = this.dom;
+    const max = box.scrollWidth - box.clientWidth;
+    const edges = [box.scrollLeft > 1 && "start", box.scrollLeft < max - 1 && "end"].filter(Boolean).join(" ");
+    if (max > 1 && edges) {
+      if (box.dataset.overflow !== edges) box.dataset.overflow = edges;
+    } else if (box.dataset.overflow !== undefined) {
+      delete box.dataset.overflow;
+    }
+  };
+
+  /**
+   * Shift and a vertical wheel scroll a wide table sideways. macOS turns a mouse's Shift-wheel into
+   * a horizontal one before the page sees it, but not every engine or device does (WebKit keeps
+   * it vertical when the event arrives as deltaY), and then the page scrolled down instead.
+   */
+  private readonly shiftWheel = (event: WheelEvent): void => {
+    if (!event.shiftKey || event.deltaX !== 0 || event.deltaY === 0 || event.ctrlKey || event.metaKey) return;
+    const box = this.dom;
+    const max = box.scrollWidth - box.clientWidth;
+    if (max <= 1) return;
+    const step =
+      event.deltaMode === WheelEvent.DOM_DELTA_LINE
+        ? 16
+        : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+          ? box.clientWidth
+          : 1;
+    event.preventDefault();
+    box.scrollLeft = Math.max(0, Math.min(max, box.scrollLeft + event.deltaY * step));
+  };
 
   override update(node: ProseNode): boolean {
     if (!super.update(node)) return false;
     this.applySaved();
     return true;
+  }
+
+  /** The header key (`headerKey`) of every table of the document, in order. */
+  private liveHeaders(): string[] {
+    const headers: string[] = [];
+    this.view.state.doc.descendants((node) => {
+      if (node.type.name !== "table") return true;
+      headers.push(tableHeaderKey(node));
+      return false;
+    });
+    return headers;
+  }
+
+  /** Saves (null: forgets) this table's widths: one write, at the end of a drag or a fit. */
+  private save(widths: number[] | null): void {
+    this.widths?.set(this.index(), tableHeaderKey(this.node), widths, this.liveHeaders());
+  }
+
+  /** Forgets this table's widths and lays it out at its natural widths (Reset Column Widths). */
+  resetWidths(): void {
+    this.layout(null);
+    this.save(null);
   }
 
   /** The table's index among the document's tables (its key in `TableWidths`). */
@@ -148,7 +370,7 @@ export class ResizableTableView extends TableView {
 
   private applySaved(): void {
     if (!this.widths || this.view.isDestroyed) return;
-    const saved = this.widths.get(this.index());
+    const saved = this.widths.get(this.index(), tableHeaderKey(this.node));
     this.layout(saved && saved.length === this.columns().length ? saved : null);
   }
 
@@ -175,30 +397,69 @@ export class ResizableTableView extends TableView {
   }
 
   private readonly hover = (event: MouseEvent): void => {
-    if (this.dragging || event.target === this.handle) return;
-    const cell = (event.target as Element | null)?.closest?.("td, th") as HTMLTableCellElement | null;
-    if (!cell || !this.table.contains(cell)) return this.hide();
-    const rect = cell.getBoundingClientRect();
-    let column = -1;
-    if (event.clientX >= rect.right - EDGE) column = cell.cellIndex;
-    else if (event.clientX <= rect.left + EDGE && cell.cellIndex > 0) column = cell.cellIndex - 1;
-    if (column < 0) return this.hide();
-    this.show(column);
+    this.pointer = { x: event.clientX, y: event.clientY };
+    if (!this.dragging) this.refresh();
   };
 
-  /** Shows the handle on the right edge of `column`. */
-  private show(column: number): void {
+  /** Shows the line of the boundary under the pointer, or hides it. */
+  private refresh(): void {
+    const hit = this.pointer && this.hit(this.pointer.x, this.pointer.y);
+    if (hit) this.place(hit);
+    else this.hide();
+  }
+
+  /**
+   * The zone of each column's right boundary in client x: `EDGE` either side of the line, kept
+   * inside the box's visible width and the table's right edge (the last column's handle never
+   * sticks out of the scroll box). The one hit test and the one handle geometry use it.
+   */
+  private zones(): Array<{ column: number; line: number; start: number; end: number }> {
     const row = this.table.querySelector("tr");
-    const cell = row?.children[column] as HTMLElement | undefined;
-    if (!cell) return this.hide();
-    this.column = column;
-    const wrapper = this.dom.getBoundingClientRect();
+    if (!row) return [];
+    const box = this.dom.getBoundingClientRect();
+    const visibleStart = box.left + this.dom.clientLeft;
+    const visibleEnd = visibleStart + (this.dom.clientWidth || box.width);
+    const tableEnd = this.table.getBoundingClientRect().right;
+    return [...row.children].map((cell, column) => {
+      const line = cell.getBoundingClientRect().right;
+      const start = Math.max(line - EDGE, visibleStart);
+      const end = Math.min(line + EDGE, visibleEnd, tableEnd);
+      return { column, line, start, end };
+    });
+  }
+
+  /** The zone the point is in (the nearest boundary when two overlap), within the table's height. */
+  private hit(x: number, y: number): { column: number; line: number; start: number; end: number } | null {
     const table = this.table.getBoundingClientRect();
-    const right = cell.getBoundingClientRect().right;
-    this.handle.style.left = `${right - wrapper.left + this.dom.scrollLeft}px`;
-    this.handle.style.top = `${table.top - wrapper.top}px`;
+    if (y < table.top || y >= table.bottom) return null;
+    let best: ReturnType<ResizableTableView["zones"]>[number] | null = null;
+    for (const zone of this.zones()) {
+      if (x < zone.start || x >= zone.end || zone.end <= zone.start) continue;
+      if (!best || Math.abs(x - zone.line) < Math.abs(x - best.line)) best = zone;
+    }
+    return best;
+  }
+
+  /** Shows the handle over exactly `zone`, its line on the boundary. */
+  private place(zone: { column: number; line: number; start: number; end: number }): void {
+    this.column = zone.column;
+    const box = this.dom.getBoundingClientRect();
+    const table = this.table.getBoundingClientRect();
+    const origin = box.left + this.dom.clientLeft - this.dom.scrollLeft;
+    this.handle.style.left = `${zone.start - origin}px`;
+    this.handle.style.width = `${zone.end - zone.start}px`;
+    this.handle.style.marginLeft = "0px";
+    this.handle.style.setProperty("--md-col-line", `${zone.line - zone.start}px`);
+    this.handle.style.top = `${table.top - box.top - this.dom.clientTop}px`;
     this.handle.style.height = `${table.height}px`;
     this.handle.hidden = false;
+  }
+
+  /** Shows the handle on the right boundary of `column` (during a drag and after a fit). */
+  private show(column: number): void {
+    const zone = this.zones()[column];
+    if (zone && zone.end > zone.start) this.place(zone);
+    else this.hide();
   }
 
   private hide(): void {
@@ -225,10 +486,11 @@ export class ResizableTableView extends TableView {
     const up = (next: MouseEvent) => {
       move(next);
       this.dragging = false;
+      this.pointer = { x: next.clientX, y: next.clientY };
       this.dom.classList.remove("md-col-resizing");
       removeEventListener("mousemove", move, true);
       removeEventListener("mouseup", up, true);
-      this.widths?.set(this.index(), widths);
+      this.save(widths);
     };
     addEventListener("mousemove", move, true);
     addEventListener("mouseup", up, true);
@@ -240,15 +502,14 @@ export class ResizableTableView extends TableView {
     event.stopPropagation();
     const column = this.column;
     if (column < 0) return;
-    const index = this.index();
-    const saved = this.widths?.get(index);
+    const saved = this.widths?.get(this.index(), tableHeaderKey(this.node));
     // The natural width: the auto layout's width for this column.
     this.layout(null);
     const natural = this.measured()[column];
     if (saved && natural !== undefined) {
       const widths = saved.map((width, at) => (at === column ? natural : width));
       this.layout(widths);
-      this.widths?.set(index, widths);
+      this.save(widths);
     }
     this.show(column);
   };
@@ -267,7 +528,19 @@ export class ResizableTableView extends TableView {
 
   destroy(): void {
     this.dom.removeEventListener("mousemove", this.hover);
+    this.dom.removeEventListener("mouseleave", this.leave);
+    this.dom.removeEventListener("scroll", this.layoutChanged);
+    this.dom.removeEventListener("wheel", this.shiftWheel);
+    this.resize.disconnect();
+    this.unsubscribe();
   }
+}
+
+/** `headerKey` of a table node's first row. */
+export function tableHeaderKey(table: ProseNode): string {
+  const cells: string[] = [];
+  table.firstChild?.forEach((cell) => cells.push(cell.textContent.trim()));
+  return headerKey(cells);
 }
 
 /** The cell (table_cell or table_header) around the selection's head, with its position. */
@@ -450,3 +723,45 @@ export function tableClipboard(
   }
   return true;
 }
+
+/**
+ * A drag from a cell out of its table selects text from the press to the pointer, as a drag
+ * between paragraphs does. Inside the table, prosemirror-tables' cell selection stays.
+ */
+export const tableDragOutPlugin = $prose(
+  () =>
+    new Plugin({
+      props: {
+        handleDOMEvents: {
+          mousedown(view, event) {
+            if (event.button !== 0 || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return false;
+            if (!(event.target as Element | null)?.closest?.("td, th")) return false;
+            const press = view.posAtCoords({ left: event.clientX, top: event.clientY });
+            const table = press ? findTable(view.state.doc.resolve(press.pos)) : null;
+            if (!press || !table) return false;
+            const anchor = press.pos;
+            const tablePos = table.pos;
+            const window = view.dom.ownerDocument.defaultView;
+            if (!window) return false;
+            const move = (moved: MouseEvent) => {
+              if (moved.buttons === 0 || view.isDestroyed) return stop();
+              const hit = view.posAtCoords({ left: moved.clientX, top: moved.clientY });
+              if (!hit) return;
+              const { doc } = view.state;
+              const $head = doc.resolve(hit.pos);
+              if (findTable($head)?.pos === tablePos) return;
+              const selection = TextSelection.between(doc.resolve(Math.min(anchor, doc.content.size)), $head);
+              if (!selection.eq(view.state.selection)) view.dispatch(view.state.tr.setSelection(selection));
+            };
+            const stop = () => {
+              window.removeEventListener("mousemove", move);
+              window.removeEventListener("mouseup", stop);
+            };
+            window.addEventListener("mousemove", move);
+            window.addEventListener("mouseup", stop);
+            return false;
+          },
+        },
+      },
+    }),
+);

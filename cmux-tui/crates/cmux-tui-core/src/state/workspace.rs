@@ -59,6 +59,8 @@ impl Mux {
             "title": update.title,
             "color": update.color,
             "icon": update.icon,
+            "description": update.description,
+            "task_status": update.task_status,
         });
         self.commit_state(
             mutation,

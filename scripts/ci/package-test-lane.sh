@@ -627,6 +627,33 @@ ensure_web_bundles() {
   echo "::endgroup::"
 }
 
+# The live-daemon suites (FirstLaunchTests, ClassicImportTests,
+# ClassicMigrationTests, ...) start this tree's hosted cmux-tui; without it
+# they skip. Fetch it once, as run-swift-testing-suites.sh does: this head's
+# tree, else the newest published tree when the head changes no cmux-tui input.
+# Never waits for an unpublished tree, and a failed fetch only means those
+# suites skip. CMUX_NEXT_TUI_TREE_PATH names the binary for the tests.
+ensure_cmux_tui_tree() {
+  [ -z "${CMUX_NEXT_TUI_TREE_PATH:-}" ] || return 0
+  local pin=scripts/cmux-next/pin-cmux-tui.sh tree_path key
+  [ -f "$pin" ] || return 0
+  echo "::group::cmux-tui for the live-daemon suites"
+  export CMUX_TUI_TREE_WAIT_SECONDS="${CMUX_TUI_TREE_WAIT_SECONDS:-0}"
+  if tree_path="$(bash "$pin" path 2>/dev/null)" && [ -n "$tree_path" ]; then
+    if [ ! -x "$tree_path" ] && ! bash "$pin" fetch >&2; then
+      tree_path=""
+      if key="$(bash "$pin" fallback-key 2>/dev/null)" && [ -n "$key" ] && CMUX_TUI_TREE_KEY="$key" bash "$pin" fetch >&2; then
+        tree_path="$(CMUX_TUI_TREE_KEY="$key" bash "$pin" path 2>/dev/null)" || tree_path=""
+        echo "This head's cmux-tui tree is not published; the live-daemon suites use the newest published tree $key."
+      else
+        echo "pin-cmux-tui.sh fetch failed; the live-daemon suites will skip."
+      fi
+    fi
+    [ -z "$tree_path" ] || [ ! -x "$tree_path" ] || export CMUX_NEXT_TUI_TREE_PATH="$tree_path"
+  fi
+  echo "::endgroup::"
+}
+
 run_suite() {
   select_xcode
   echo "Xcode: $DEVELOPER_DIR"
@@ -650,6 +677,7 @@ run_suite() {
   fi
   if [ "$suite_package" = Packages/macOS/CmuxNext ]; then
     ensure_web_bundles
+    ensure_cmux_tui_tree
   fi
   local scratch="$suite_package/.build${CMUX_SWIFT_SANITIZE:+-sanitize-$CMUX_SWIFT_SANITIZE}"
   swiftpm_binary_module_guard "$suite_package" "$scratch"
