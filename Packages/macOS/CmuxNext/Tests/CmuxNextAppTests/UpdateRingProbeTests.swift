@@ -42,6 +42,24 @@ import Testing
         #expect(item.version == offered)
     }
 
+    /// A test feed's URL has no `/nightly-next/` path, but Sparkle's `allowedChannels` reads the
+    /// baked feed, so the probe filters by the baked cmux-next feed's ring too.
+    @MainActor @Test func probeOfATestFeedFiltersByTheBakedFeedsRing() async throws {
+        let defaults = try #require(UserDefaults(suiteName: "UpdateRingProbeTests.\(UUID().uuidString)"))
+        let updater = UpdaterService(identity: Self.identity, policy: ManagedUpdatePolicy { false },
+                                     prober: UpdateProber(fetcher: StaticFeed(xml: Self.feed), architecture: .arm64),
+                                     defaults: defaults, enableSparkle: false, recordsUpdates: false)
+        updater.announcementsFetch = false
+        try updater.useTestFeed("http://127.0.0.1:8080/appcast.xml", pinned: false)
+        updater.follow(ring: "canary")
+        #expect(await updater.probe().value == nil)
+        guard case .updateAvailable(let item) = updater.lastProbe?.outcome else {
+            Issue.record("\(String(describing: updater.lastProbe))")
+            return
+        }
+        #expect(item.version == "400")
+    }
+
     @Test func untaggedItemsAreOfferedOnEveryRing() {
         let item = AppcastItem(version: "1")
         for ring in UpdateRing.allCases {
