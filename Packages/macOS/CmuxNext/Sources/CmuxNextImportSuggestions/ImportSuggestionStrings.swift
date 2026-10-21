@@ -118,7 +118,7 @@ public nonisolated struct ImportSuggestionStrings: Sendable {
         String(localized: "importSuggestions.status.done", defaultValue: "Done: \(summary)", table: "ImportSuggestions", bundle: .module)
     }
     static var doneNothing: String { String(localized: "importSuggestions.status.doneNothing", defaultValue: "Done. Nothing new to bring over.", table: "ImportSuggestions", bundle: .module) }
-    static var doneChats: String { String(localized: "importSuggestions.status.doneChats", defaultValue: "Your chats are in All chats.", table: "ImportSuggestions", bundle: .module) }
+    static var doneChats: String { String(localized: "importSuggestions.status.doneChats", defaultValue: "Your chats are searchable in cmux.", table: "ImportSuggestions", bundle: .module) }
     static var doneTheme: String { String(localized: "importSuggestions.status.doneTheme", defaultValue: "Your colors are a theme now.", table: "ImportSuggestions", bundle: .module) }
     static var doneClassic: String { String(localized: "importSuggestions.status.doneClassic", defaultValue: "Your Classic workspaces are open.", table: "ImportSuggestions", bundle: .module) }
 
@@ -131,6 +131,27 @@ public nonisolated struct ImportSuggestionStrings: Sendable {
     static func cookies(_ count: Int) -> String {
         String(localized: "importSuggestions.count.cookies", defaultValue: "\(count) cookies", table: "ImportSuggestions", bundle: .module)
     }
+
+    // MARK: Refusals and the Home strip
+
+    public static func noSuchCard(_ id: String) -> String {
+        String(localized: "importSuggestions.refusal.noSuchCard", defaultValue: "No import card \(id).", table: "ImportSuggestions", bundle: .module)
+    }
+    public static func unknownBrowser(_ name: String) -> String {
+        String(localized: "importSuggestions.refusal.unknownBrowser", defaultValue: "cmux can't import from \(name).", table: "ImportSuggestions", bundle: .module)
+    }
+    public static func invalidSite(_ site: String) -> String {
+        String(localized: "importSuggestions.refusal.invalidSite", defaultValue: "\(site) is not a site name, like github.com.", table: "ImportSuggestions", bundle: .module)
+    }
+    public static func unknownButton(_ action: String) -> String {
+        String(localized: "importSuggestions.refusal.unknownButton", defaultValue: "An import card has no \(action) button.", table: "ImportSuggestions", bundle: .module)
+    }
+    public static var settingsEmpty: String {
+        String(localized: "importSuggestions.settings.empty", defaultValue: "Nothing to bring over right now. cmux looks again when you come back to it.",
+               table: "ImportSuggestions", bundle: .module)
+    }
+    public static var showAll: String { String(localized: "importSuggestions.button.showAll", defaultValue: "Show All", table: "ImportSuggestions", bundle: .module) }
+    public static var cardsOff: String { String(localized: "importSuggestions.refusal.off", defaultValue: "Import suggestions are turned off in Debug Settings.", table: "ImportSuggestions", bundle: .module) }
 
     /// "history, cookies and bookmarks" in the person's language.
     static func list(_ items: [String]) -> String {

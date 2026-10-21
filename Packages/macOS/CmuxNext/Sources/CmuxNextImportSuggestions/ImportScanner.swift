@@ -58,6 +58,8 @@ public nonisolated struct ImportScanner: Sendable {
             let directory = environment.dataDirectory(browser)
             // Two registry rows on one folder (Zen and Zen Twilight) count once.
             guard seenFolders.insert(directory.standardizedFileURL.path).inserted else { return nil }
+            // Another app's container: even a listing there asks the person for "data from other apps".
+            guard browser.family == .safari || !Self.isContainer(directory) else { return nil }
             return finding(for: browser, in: directory)
         }
     }
@@ -76,7 +78,9 @@ public nonisolated struct ImportScanner: Sendable {
                 guard !importedProfiles.contains("\(browser.rawValue)/Safari") else { return nil }
                 var kinds: [ImportDataKind] = [.history]
                 if probe(directory.appending(path: "Bookmarks.plist")) == .readable { kinds.append(.bookmarks) }
-                if let cookies = browser.safariCookieFile, probe(home.appending(path: cookies)) == .readable { kinds.append(.cookies) }
+                // The cookie file is in Safari's container: opening it to look would ask the person
+                // for "data from other apps". With Full Disk Access (History.db is readable) it reads.
+                if browser.safariCookieFile != nil { kinds.append(.cookies) }
                 return ImportFinding(id: id, kind: .browser, browser: browser, name: browser.displayName,
                                      profiles: [.init(directoryName: "Safari", kinds: kinds)])
             }
@@ -200,6 +204,12 @@ public nonisolated struct ImportScanner: Sendable {
     func listing(_ folder: URL) -> [String] {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
         return Array(names.lazy.filter { !$0.hasPrefix(".") }.prefix(Self.listingLimit))
+    }
+
+    /// Inside `~/Library/Containers` or `~/Library/Group Containers`, where macOS guards each app's data.
+    static func isContainer(_ url: URL) -> Bool {
+        let path = url.standardizedFileURL.path
+        return path.contains("/Library/Containers/") || path.contains("/Library/Group Containers/")
     }
 
     func exists(_ url: URL) -> Bool { FileManager.default.fileExists(atPath: url.path) }

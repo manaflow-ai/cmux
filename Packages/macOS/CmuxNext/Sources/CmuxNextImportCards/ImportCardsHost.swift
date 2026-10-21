@@ -1,0 +1,24 @@
+public import CmuxNextBrowserImport
+public import Foundation
+
+/// What the cards need from the App, which owns the importer's stores: the
+/// same import run the Import from Browser window uses, what was imported
+/// before, and Settings at a page route.
+@MainActor
+public struct ImportCardsHost {
+    /// Runs one plan through the App's importer (cookies into the profile's Chromium store,
+    /// history and bookmarks into its stores), reporting progress on the main actor.
+    public var runImport: (ImportPlan, @escaping @MainActor (ImportProgress) -> Void) async throws -> ImportSummary
+    /// The browser profiles imported before (`ImportSourceRecord.sourceKey`, `chrome/Default`).
+    public var importedProfiles: () async -> Set<String>
+    /// Opens Settings at a page route (`#/settings/import`).
+    public var openSettings: (String) -> Void
+
+    public init(runImport: @escaping (ImportPlan, @escaping @MainActor (ImportProgress) -> Void) async throws -> ImportSummary,
+                importedProfiles: @escaping () async -> Set<String>,
+                openSettings: @escaping (String) -> Void) {
+        self.runImport = runImport
+        self.importedProfiles = importedProfiles
+        self.openSettings = openSettings
+    }
+}

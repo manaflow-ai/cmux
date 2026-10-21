@@ -25,6 +25,7 @@ test("the categories are the approved ones, in order", () => {
     "agents",
     "notifications",
     "browser",
+    "import",
     "keyboard",
     "privacy",
     "accounts",
