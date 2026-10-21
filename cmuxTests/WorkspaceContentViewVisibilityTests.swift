@@ -499,18 +499,18 @@ final class WorkspaceContentViewVisibilityTests {
         )
     }
 
-    /// Sparkle records its last-check date in the app's defaults after every
-    /// background check, and other subsystems write keys no view reads. Each
-    /// write posts `UserDefaults.didChangeNotification`. A write to a key that
-    /// no view displays must not rebuild the window's chrome or pane content:
-    /// with many panes each rebuild runs every pane's `updateNSView` and portal
-    /// reconciliation, which is the 0.65.x idle hang (issue 22703).
+    /// `SharedLiveAgentIndex` reloads at most every 5 s while agent hooks write
+    /// the hook store, and each full reload posts `.sharedLiveAgentIndexDidChange`
+    /// without `userInfo`. Every workspace used to answer with
+    /// `objectWillChange`, which re-ran `WorkspaceContentView` and every pane's
+    /// `updateNSView` and portal reconciliation while the user was idle: the
+    /// burst that precedes the 0.65.x idle hangs (issue 22703).
     @Test(.timeLimit(.minutes(1)))
     @MainActor
-    func testUnrelatedDefaultsWriteDoesNotReevaluateChromeBodies() async throws {
+    func testSharedAgentIndexReloadDoesNotReevaluatePaneContent() async throws {
         _ = NSApplication.shared
 
-        let suiteName = "WorkspaceContentViewDefaultsWriteTests.\(UUID().uuidString)"
+        let suiteName = "WorkspaceContentViewAgentIndexReloadTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
         defer {
@@ -569,24 +569,30 @@ final class WorkspaceContentViewVisibilityTests {
         counts.reset()
         counts.isMeasuringInvalidations = true
         defer { counts.isMeasuringInvalidations = false }
-        // The key Sparkle's SPUUpdater writes after each scheduled check, plus
-        // a key no cmux code reads at all.
-        defaults.set(Date(), forKey: "SULastCheckTime")
-        defaults.set(UUID().uuidString, forKey: "cmux.tests.unrelatedDefaultsWrite")
+        var workspacePublishes = 0
+        let publishes = tabManager.tabs.map { workspace in
+            workspace.objectWillChange.sink { _ in workspacePublishes += 1 }
+        }
+        defer { publishes.forEach { $0.cancel() } }
+        // The post a full reload makes (SharedLiveAgentIndex.startReload).
+        NotificationCenter.default.post(
+            name: .sharedLiveAgentIndexDidChange,
+            object: SharedLiveAgentIndex.shared
+        )
         await Self.drainMainRunLoop(for: window)
         counts.isMeasuringInvalidations = false
 
         #expect(
-            counts.contentViewBody == 0,
-            "An unrelated defaults write must not re-evaluate ContentView (\(counts.contentViewBody) evaluations)."
+            workspacePublishes == 0,
+            "An agent-index reload must not publish any workspace (\(workspacePublishes) publishes)."
         )
         #expect(
             counts.workspaceContentBody == 0,
-            "An unrelated defaults write must not rebuild pane content (\(counts.workspaceContentBody) evaluations)."
+            "An agent-index reload must not rebuild pane content (\(counts.workspaceContentBody) evaluations)."
         )
         #expect(
-            counts.verticalTabsSidebarBody == 0,
-            "An unrelated defaults write must not rebuild the sidebar (\(counts.verticalTabsSidebarBody) evaluations)."
+            counts.contentViewBody == 0,
+            "An agent-index reload must not re-evaluate ContentView (\(counts.contentViewBody) evaluations)."
         )
     }
 
