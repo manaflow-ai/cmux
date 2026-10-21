@@ -42,7 +42,7 @@ extension NSView {
         guide.identifier = Self.tabRowCoverID
         addLayoutGuide(guide)
         let height = guide.heightAnchor.constraint(equalToConstant: 0)
-        height.identifier = Self.tabRowCoverID
+        height.identifier = Self.tabRowCoverID.rawValue
         NSLayoutConstraint.activate([
             guide.topAnchor.constraint(equalTo: topAnchor),
             guide.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -55,7 +55,7 @@ extension NSView {
     /// Sets ``tabRowCover``'s height: the row's height in points while the view's tools are in it, else 0.
     public func setTabRowCover(_ points: CGFloat) {
         let guide = tabRowCover
-        let height = constraints.first { $0.identifier == Self.tabRowCoverID && $0.firstItem === guide }
+        let height = constraints.first { $0.identifier == Self.tabRowCoverID.rawValue && $0.firstItem === guide }
         if height?.constant != max(0, points) { height?.constant = max(0, points) }
     }
 
