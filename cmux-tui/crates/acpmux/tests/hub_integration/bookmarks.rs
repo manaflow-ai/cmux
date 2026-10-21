@@ -48,7 +48,7 @@ fn local_hub(dir: &std::path::Path) -> (Config, Arc<Hub>) {
 }
 
 #[tokio::test]
-async fn a_bookmark_marks_only_a_prompt_and_survives_a_daemon_restart() {
+async fn a_bookmark_marks_only_a_prompt_or_answer_and_survives_a_daemon_restart() {
     let dir = std::env::temp_dir().join(format!("acpmux-bookmarks-{}", uuid::Uuid::now_v7()));
     let (cfg, hub) = local_hub(&dir);
     let mut c = connect(&hub).await;
@@ -64,14 +64,22 @@ async fn a_bookmark_marks_only_a_prompt_and_survives_a_daemon_restart() {
     let prompts = seqs(&mut c, &id, "user_message").await;
     assert_eq!(prompts.len(), 2, "{prompts:?}");
     let reply = seqs(&mut c, &id, "turn_result").await[0];
+    let other_record = (1..reply)
+        .find(|seq| !prompts.contains(seq))
+        .expect("a record that is neither a prompt nor an answer");
 
     let empty = c.request(GET, json!({"sessionId": id})).await.unwrap();
     assert_eq!(empty["bookmarks"], json!([]), "{empty}");
 
-    // Only the chat's own prompts can be marked.
+    // Only the chat's own prompts and answers can be marked.
     let not_a_prompt =
-        c.request(SET, json!({"sessionId": id, "seq": reply, "bookmarked": true})).await;
+        c.request(SET, json!({"sessionId": id, "seq": other_record, "bookmarked": true})).await;
     assert!(not_a_prompt.as_ref().is_err_and(|e| e.contains("not a prompt")), "{not_a_prompt:?}");
+    // An answer's Pin marks its turn's `turn_result`.
+    let pinned =
+        c.request(SET, json!({"sessionId": id, "seq": reply, "bookmarked": true})).await.unwrap();
+    assert_eq!(pinned["bookmarks"], json!([reply]), "{pinned}");
+    c.request(SET, json!({"sessionId": id, "seq": reply, "bookmarked": false})).await.unwrap();
     let past_the_end =
         c.request(SET, json!({"sessionId": id, "seq": 1_000_000, "bookmarked": true})).await;
     assert!(past_the_end.as_ref().is_err_and(|e| e.contains("not a prompt")), "{past_the_end:?}");

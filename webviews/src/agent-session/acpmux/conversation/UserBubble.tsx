@@ -1,41 +1,37 @@
-// A prompt's bubble, with its action row under it as Claude Code desktop draws one: the prompt's age
-// ("1 hour ago", its time on hover), two ticks once the agent has it, then Copy, Edit, Fork and
-// Bookmark (cx-ncc.60, Claude parity). The latest prompt shows the row always, older ones on hover
-// (VirtualTranscript marks the latest `data-last-prompt`). Edit opens the prompt in
-// place; Send forks the chat through the turn before it and sends the edited text there (the App's
-// `edit.send`), Escape or Cancel puts the bubble back. Edit shows only on a prompt the chat can fork
-// before (`editableTurns`), so it is never dead. A prompt with versions (an edit made it, or replaced
-// it) shows < n/m > before them, always (branches.ts, cx-ncc.61). Fork forks the chat through the
-// prompt's own turn, as its right-click Fork does. The row is Claude's whole
-// row (GUI push 2026-10-20), not the `hover-actions` experiment's one action. The images a prompt
-// sent show above its bubble, each opening the image viewer (Leo, 2026-10-13: they vanished once sent).
+// A prompt's bubble, with its action row under its right edge as Claude Code desktop draws one:
+// the prompt's age ("8 minutes ago", its date and time on hover), its read receipt (one check once
+// acpmux has it, two once the agent read it, "Read by Claude Code" on hover), then Copy, Edit, Retry,
+// Fork from here and Pin (cx-ncc.60, Claude parity; Leo, GUI push 2026-10-20). The row shows on
+// hover or keyboard focus only, its height kept, so nothing moves when it appears. Edit opens the
+// prompt in place; Send forks the chat through the turn before it and sends the edited text there
+// (the App's `edit.send`), Escape or Cancel puts the bubble back. Edit shows only on a prompt the
+// chat can fork before (`editableTurns`), so it is never dead. Retry sends the prompt again; it shows
+// on the prompt of the last ended turn only (VirtualTranscript marks it `data-retryable`). A prompt
+// with versions (an edit made it, or replaced it) shows < n/m > before them, always (branches.ts,
+// cx-ncc.61). Fork forks the chat through the prompt's own turn, as its right-click Fork does. The
+// images a prompt sent show above its bubble, each opening the image viewer (Leo, 2026-10-13: they
+// vanished once sent).
 import { useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AcpmuxRow, PromptImage } from "../model";
-import { useMinuteClock } from "../clock";
-import { usePaneLanguage, useT } from "../i18n";
+import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
-import { copyText } from "./clipboard";
-import { Check, ChevronLeft, ChevronRight, Copy, ImageIcon, Pencil, TurnFork } from "./icons";
-import { relativeTime } from "./relativeTime";
+import { Check, ChevronLeft, ChevronRight, DoubleCheck, ImageIcon, Pencil, Retry } from "./icons";
 import { ImageViewerContext } from "./imageViewerContext";
+import { CopyButton, ForkButton, MessageTime, PinButton } from "./MessageActions";
+import { RetryModelMenu } from "./TurnRows";
 import { TurnActionsContext } from "./turnActions";
-import { BookmarkIcon } from "../threadMinimap/BookmarkIcon";
-import { usePromptRowMark } from "../threadMinimap/promptMarks";
 
 export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
   const t = useT();
-  const { edit, branches, fork, forkSeq, forkAny, promptTurns } = useContext(TurnActionsContext);
-  const now = useMinuteClock();
-  const language = usePaneLanguage();
+  const { edit, branches, fork, forkSeq, forkAny, promptTurns, retry, retryWith, route } =
+    useContext(TurnActionsContext);
   const branch = branches?.of.get(row.id);
   const [editing, setEditing] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const mark = usePromptRowMark(row);
   const through = edit?.seqs.get(row.id);
-  const unread = row.pending || row.steer === "waiting";
   // Fork goes through the prompt's own turn, as its right-click Fork does, so the new chat keeps it.
   const own = promptTurns?.get(row.id);
   const forkThrough = fork && own !== undefined && (forkAny || own === forkSeq) ? own : undefined;
+  const resend = row.resend ?? row.text ?? text;
   // An open editor stays while the chat changes under it (a reconnect, a turn starting), so the
   // draft is kept; Send waits until the prompt can be forked before again. A resend that fails
   // (the fork refused, the reader opened another chat) leaves the draft open too.
@@ -88,34 +84,9 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
               </button>
             </span>
           )}
-          <time className="cv-user__time" dateTime={new Date(row.at).toISOString()}>
-            {relativeTime(row.at, now, language)}
-          </time>
-          {/* Claude's single check: Read once the agent has the prompt, Unread while it is still
-              being sent or waits as a steer. */}
-          {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- an icon with a spoken state, not an image file. */}
-          <span
-            className={`cv-user__read${unread ? " is-unread" : ""}`}
-            role="img"
-            aria-label={t(unread ? "message.unread" : "message.read")}
-            title={t(unread ? "message.unread" : "message.read")}
-          >
-            <Check size={14} />
-          </span>
-          <button
-            type="button"
-            className="cv-iconbtn cv-iconbtn--compact"
-            aria-label={copied ? t("turn.copied") : t("turn.copy")}
-            title={copied ? t("turn.copied") : t("turn.copy")}
-            onClick={() =>
-              void copyText(row.text ?? text).then(
-                () => setCopied(true),
-                () => setCopied(false),
-              )
-            }
-          >
-            <Copy size={14} />
-          </button>
+          <MessageTime at={row.at} className="cv-user__time" />
+          <ReadReceipt row={row} agent={route?.name} />
+          <CopyButton text={row.text ?? text} />
           {through !== undefined && (
             <button
               type="button"
@@ -127,33 +98,52 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
               <Pencil size={14} />
             </button>
           )}
-          {forkThrough !== undefined && (
-            <button
-              type="button"
-              className="cv-iconbtn cv-iconbtn--compact"
-              aria-label={t("turn.fork")}
-              title={t("turn.fork")}
-              onClick={() => fork!(forkThrough)}
-            >
-              <TurnFork size={14} />
-            </button>
+          {retry && resend && (
+            <span className="cv-user__retry">
+              <button
+                type="button"
+                className="cv-iconbtn cv-iconbtn--compact"
+                aria-label={t("turn.retry")}
+                title={t("turn.retryLabel")}
+                onClick={() => retry(row.id, resend)}
+              >
+                <Retry size={14} />
+              </button>
+              {retryWith && retryWith.models.length > 1 && (
+                <RetryModelMenu retryWith={retryWith} onPick={(model) => retryWith.retry(row.id, resend, model)} />
+              )}
+            </span>
           )}
-          {/* The prompt's bookmark, the same mark as the thread minimap's dot and card. */}
-          {mark.can && (
-            <button
-              type="button"
-              className="cv-iconbtn cv-iconbtn--compact cv-user__bookmark"
-              aria-pressed={mark.marked}
-              aria-label={t(mark.marked ? "minimap.bookmarkRemove" : "minimap.bookmarkAdd")}
-              title={t(mark.marked ? "minimap.bookmarkRemove" : "minimap.bookmarkAdd")}
-              onClick={mark.toggle}
-            >
-              <BookmarkIcon filled={mark.marked} size={14} />
-            </button>
-          )}
+          {forkThrough !== undefined && <ForkButton onFork={() => fork!(forkThrough)} />}
+          <PinButton rowId={row.id} />
         </div>
       )}
     </>
+  );
+}
+
+/// A prompt's read receipt, as Claude Code desktop's: nothing while it is being sent, one check
+/// once acpmux holds it (a steer waiting for the agent's step to end), two once the agent read it.
+function ReadReceipt({ row, agent }: { row: AcpmuxRow; agent?: string }) {
+  const t = useT();
+  if (row.pending) return null;
+  const read = row.steer !== "waiting";
+  const label = read
+    ? agent
+      ? t("message.readBy", { agent })
+      : t("message.readByAgent")
+    : t("message.delivered");
+  return (
+    // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- an icon with a spoken state, not an image file.
+    <span
+      className={`cv-user__read${read ? "" : " is-unread"}`}
+      role="img"
+      aria-label={label}
+      title={label}
+      data-read={read ? "true" : "false"}
+    >
+      {read ? <DoubleCheck size={14} /> : <Check size={14} />}
+    </span>
   );
 }
 
