@@ -596,9 +596,10 @@ image cannot add that missing capability to an installed Mac app.
 The probe creates its own VPC, VM from the requested snapshot, and temporary
 WireGuard tunnel. For a compatibility image it confirms the trusted-carrier
 listener and dials with `--carrier`; a client-grant image instead uses the
-production invitation and approval path. It reads the session snapshot through
-the private hub, then reconnects with the resulting enrollment. The report
-records both commits, auth mode, reconnect, and snapshot results.
+production invitation and approval path, then proves a separate `--carrier`
+dial is rejected over the same live network path. It reads the session snapshot
+through the private hub, then reconnects with the resulting enrollment. The
+report records both commits, auth mode, carrier refusal, reconnect, and snapshot results.
 The client need not match the image's older baked commit: successful protocol
 operations are the compatibility check.
 
