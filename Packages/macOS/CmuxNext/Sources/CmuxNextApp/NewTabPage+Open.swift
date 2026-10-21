@@ -9,7 +9,6 @@ import CmuxNextPalette
 import CmuxNextSettings
 import CmuxNextTabs
 import Foundation
-import os
 
 /// Runs a new tab page's close on the frame after its replacement shows.
 @MainActor private let closeFrame = FrameBatcher(owner: "NewTabPage.close")
