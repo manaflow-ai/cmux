@@ -88,7 +88,8 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
     for (const { name: row, tabRow } of rows)
       test(`${name}, ${row}: the toggle is above the open overlay and a click on it closes the Inspector`, async () => {
         current = browsers.get(name)!;
-        const page = await pane!.open({ width: 900, height: 520 });
+        // Wide enough that the panel floats in the gutter beside the transcript (ChatInspector.tsx pushes).
+      const page = await pane!.open({ width: 1600, height: 520 });
         try {
           const { panel, toggle } = await openInspector(page, tabRow);
           expect(await toggle.getAttribute("aria-pressed")).toBe("true");

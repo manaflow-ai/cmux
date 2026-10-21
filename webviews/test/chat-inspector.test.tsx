@@ -5,8 +5,9 @@
 // it used (Context), its MCP servers (Connectors), the pull requests it opened or touched
 // (Changes), its subagents and the chats its agent started, a Cloud VM's included, its background
 // commands and what it produced (Outputs). It is open by
-// default, stays open (or closed) across chat panes, lies over the chat so it never reflows it
-// (Settings Push moves the chat aside unless the pane is too narrow), hides a section with nothing
+// default, stays open (or closed) across chat panes, floats in the chat's right gutter so it never
+// reflows the chat, pushes the chat aside when the gutter has no room (Settings Push always), so it
+// never lies over the transcript's text, hides a section with nothing
 // in it, and lists every row, scrolling instead of a "Show more".
 import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
 import { act, useState, type ReactNode } from "react";
@@ -18,11 +19,12 @@ import { ChatHeaderTools } from "../src/agent-session/acpmux/header/ChatHeaderTo
 import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
 import {
   ChatInspector,
+  pushedWidth,
   pushes,
-  PUSH_MIN_CHAT,
   useChatInspector,
 } from "../src/agent-session/acpmux/inspector/ChatInspector";
 import {
+  INSPECTOR_WIDTH,
   inspectorState,
   resetInspectorState,
   setInspectorSection,
@@ -285,33 +287,53 @@ test("the running line's counts open a closed Inspector with Subagents or Backgr
   expect(inspectorState().sections.subagents).toBe(true);
 });
 
-test("it lies over the chat; Settings Push moves the chat aside unless the pane is too narrow for it", async () => {
-  expect(pushes("push", 0, 320)).toBe(true);
-  expect(pushes("push", 320 + PUSH_MIN_CHAT, 320)).toBe(true);
-  expect(pushes("push", 320 + PUSH_MIN_CHAT - 1, 320)).toBe(false);
-  expect(pushes("overlay", 2000, 320)).toBe(false);
+test("it floats in the gutter beside the transcript when there is room and pushes the chat when there is not", async () => {
+  // A 1600px pane: the 800px column leaves a 400px gutter, room for 320px and its two 12px margins.
+  expect(pushes("overlay", 1600, 320)).toBe(false);
+  expect(pushes("overlay", 1600, 376)).toBe(false);
+  expect(pushes("overlay", 1600, 377)).toBe(true);
+  // 1200px: a 225px gutter; 600px: the page edge alone. Unmeasured, it pushes.
+  expect(pushes("overlay", 1200, 320)).toBe(true);
+  expect(pushes("overlay", 600, 320)).toBe(true);
+  expect(pushes("overlay", 0, 320)).toBe(true);
+  // A wider column (the user's Text Width) leaves less gutter.
+  expect(pushes("overlay", 1600, 320, { min: 720, max: 1100, share: 1, prose: Infinity })).toBe(true);
+  // Settings Push always pushes.
+  expect(pushes("push", 1600, 320)).toBe(true);
+  // Pushed, it narrows to keep a readable chat, down to its own narrowest width.
+  expect(pushedWidth(1200, 320)).toBe(320);
+  expect(pushedWidth(720, 320)).toBe(280);
+  expect(pushedWidth(500, 320)).toBe(INSPECTOR_WIDTH.min);
+  expect(pushedWidth(0, 320)).toBe(320);
 
   const container = installDom(true);
-  paneWidth = 1200;
+  paneWidth = 1600;
   await render(container, localChat);
-  // The default: over the chat, even in a wide pane, so opening it never reflows the chat.
+  // The default in a wide pane: floating in the gutter, so opening it never reflows the chat.
   expect(panel(container)?.dataset.placement).toBe("overlay");
   expect(panel(container)?.style.width).toBe("320px");
-  // Settings > Agent Chat > Inspector: Push.
-  await act(async () => setChatDisplay({ [INSPECTOR_PLACEMENT_KEY]: "push" }));
-  expect(panel(container)?.dataset.placement).toBe("push");
-  // A narrow pane: it lies over the chat instead.
-  await act(async () => {
-    paneWidth = 600;
-    for (const observer of observers) observer();
-  });
-  expect(panel(container)?.dataset.placement).toBe("overlay");
-  // Back to Overlay.
+  // A narrower pane: no room in the gutter, so it pushes the chat aside instead of covering it.
   await act(async () => {
     paneWidth = 1200;
     for (const observer of observers) observer();
-    setChatDisplay({ [INSPECTOR_PLACEMENT_KEY]: "overlay" });
   });
+  expect(panel(container)?.dataset.placement).toBe("push");
+  expect(panel(container)?.style.width).toBe("320px");
+  await act(async () => {
+    paneWidth = 720;
+    for (const observer of observers) observer();
+  });
+  expect(panel(container)?.dataset.placement).toBe("push");
+  expect(panel(container)?.style.width).toBe("280px");
+  // Settings > Agent Chat > Inspector: Push, even in a wide pane.
+  await act(async () => {
+    paneWidth = 1600;
+    for (const observer of observers) observer();
+    setChatDisplay({ [INSPECTOR_PLACEMENT_KEY]: "push" });
+  });
+  expect(panel(container)?.dataset.placement).toBe("push");
+  // Back to the default.
+  await act(async () => setChatDisplay({ [INSPECTOR_PLACEMENT_KEY]: "overlay" }));
   expect(panel(container)?.dataset.placement).toBe("overlay");
   paneWidth = 0;
 });
