@@ -102,6 +102,12 @@ struct ImportCardDeckTests {
         let later = Self.now.addingTimeInterval(ImportCardDeck.doneLingers + 1)
         #expect(Self.deck([], jobs: ledger).cards(for: .home, now: later).isEmpty)
         #expect(Self.deck([], jobs: ledger).cards(for: .settings, now: later).count == 1)
+        // The browser's own Import card does not come back on Home in its place.
+        #expect(Self.deck([Self.chrome], jobs: ledger).cards(for: .home, now: later).isEmpty)
+    }
+
+    @Test func onlyStartResumeAndTryAgainReadAnotherAppsData() {
+        #expect(ImportCardAction.allCases.filter(\.startsWork) == [.start, .resume, .retry])
     }
 
     @Test func aJobCutOffByAQuitIsPausedAndResumesOnlyWhenNoPromptIsLeft() throws {

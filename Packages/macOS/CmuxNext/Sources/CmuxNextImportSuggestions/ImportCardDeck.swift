@@ -54,9 +54,10 @@ public nonisolated struct ImportCardDeck: Sendable {
         let order: [ImportJob.Phase: Int] = [.running: 0, .paused: 1, .failed: 2, .done: 3]
         for job in jobs.jobs.sorted(by: { (order[$0.phase] ?? 9, $1.updatedAt) < (order[$1.phase] ?? 9, $0.updatedAt) }) {
             guard !placed.contains(job.id) else { continue }
+            // A finished job past its linger leaves Home and New Tab, and so does its source's card.
+            placed.insert(job.id)
             if surface != .settings, job.phase == .done, now.timeIntervalSince(job.updatedAt) > Self.doneLingers { continue }
             cards.append(card(for: job, finding: findings.first { $0.id == job.id }))
-            placed.insert(job.id)
         }
         for finding in findings where !placed.contains(finding.id) {
             let dismissed = state.hides(finding)

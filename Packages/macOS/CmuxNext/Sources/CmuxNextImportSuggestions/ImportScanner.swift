@@ -55,11 +55,14 @@ public nonisolated struct ImportScanner: Sendable {
         let rank = { (browser: ImportBrowser) in Self.leading.firstIndex(of: browser) ?? Self.leading.count }
         var seenFolders = Set<String>()
         return candidates.enumerated().sorted { (rank($0.element), $0.offset) < (rank($1.element), $1.offset) }.compactMap { _, browser in
-            let directory = environment.dataDirectory(browser)
+            // Another app's container: even a look there can ask the person for "data from other
+            // apps", so a registry folder in one is never checked (Safari's is its own grant).
+            let folders = (browser.dataDirectories.isEmpty ? [browser.dataDirectory] : browser.dataDirectories)
+                .map { environment.homeDirectory.appending(path: $0, directoryHint: .isDirectory) }
+                .filter { browser.family == .safari || !Self.isContainer($0) }
+            guard let directory = folders.first(where: exists) ?? folders.first else { return nil }
             // Two registry rows on one folder (Zen and Zen Twilight) count once.
             guard seenFolders.insert(directory.standardizedFileURL.path).inserted else { return nil }
-            // Another app's container: even a listing there asks the person for "data from other apps".
-            guard browser.family == .safari || !Self.isContainer(directory) else { return nil }
             return finding(for: browser, in: directory)
         }
     }

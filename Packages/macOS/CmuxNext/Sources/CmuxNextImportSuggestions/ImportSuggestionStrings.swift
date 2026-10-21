@@ -151,6 +151,11 @@ public nonisolated struct ImportSuggestionStrings: Sendable {
                table: "ImportSuggestions", bundle: .module)
     }
     public static var showAll: String { String(localized: "importSuggestions.button.showAll", defaultValue: "Show All", table: "ImportSuggestions", bundle: .module) }
+    /// `import.card` start, resume or try again from an agent, a script or another client.
+    public static var personOnly: String {
+        String(localized: "importSuggestions.refusal.personOnly", defaultValue: "Only you can start an import: press its button in cmux.",
+               table: "ImportSuggestions", bundle: .module)
+    }
     public static var cardsOff: String { String(localized: "importSuggestions.refusal.off", defaultValue: "Import suggestions are turned off in Debug Settings.", table: "ImportSuggestions", bundle: .module) }
 
     /// "history, cookies and bookmarks" in the person's language.

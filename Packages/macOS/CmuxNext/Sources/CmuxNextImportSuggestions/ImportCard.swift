@@ -20,6 +20,11 @@ public nonisolated enum ImportCardAction: String, Codable, Sendable, CaseIterabl
     case hide
 }
 
+extension ImportCardAction {
+    /// Start, Resume and Try Again read another app's data, so only the person runs them.
+    public var startsWork: Bool { self == .start || self == .resume || self == .retry }
+}
+
 /// One card as every surface draws it (Home, New Tab, Settings › Import):
 /// every text is already in the person's language.
 public nonisolated struct ImportCard: Codable, Sendable, Equatable, Identifiable {

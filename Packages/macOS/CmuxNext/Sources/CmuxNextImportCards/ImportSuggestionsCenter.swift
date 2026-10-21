@@ -71,7 +71,8 @@ public final class ImportSuggestionsCenter {
         state.expire(now: now())
         AgentPaneImportCards.shared.onAction = { [weak self] id, action in
             guard let action = ImportCardAction(rawValue: action) else { return }
-            try? self?.perform(id, action)
+            // A New Tab page's button: a first-party control, so a cookie request still asks.
+            try? self?.perform(id, action, caller: ActionInvocation(arguments: [:], origin: .page))
         }
         follow()
         activation = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil,
@@ -80,7 +81,7 @@ public final class ImportSuggestionsCenter {
         }
         scan { [weak self] in
             // A job the quit cut off goes on by itself only when nothing it has left asks the person.
-            guard let self else { return }
+            guard let self, isEnabled else { return }
             for job in ledger.jobs where job.phase == .paused && job.pause == .interrupted && job.resumesQuietly {
                 try? perform(job.id, .resume)
             }
@@ -103,7 +104,8 @@ public final class ImportSuggestionsCenter {
         let variables = ProcessInfo.processInfo.environment
         Task { [weak self] in
             let imported = await host.importedProfiles()
-            let classic = await ClassicWorkspaceCount().count()
+            // Classic's session file is up to 32 MB of JSON: read and planned off the main actor.
+            let classic = await Task.detached(priority: .utility) { await ClassicWorkspaceCount().count() }.value
             let found = await Task.detached(priority: .utility) {
                 ImportScanner(home: environment.homeDirectory, environment: environment, variables: variables,
                               importedProfiles: imported, classicWorkspaces: { classic }).scan()
@@ -159,15 +161,22 @@ public final class ImportSuggestionsCenter {
 
     // MARK: Buttons
 
-    /// Runs a card's button (a page, the Home strip, `import.card`).
-    public func perform(_ id: String, _ action: ImportCardAction) throws {
+    /// Runs a card's button (the Home strip, a page, `import.card`). `caller` is the run that
+    /// pressed it, the person's own click when nil; a cookie request it starts asks first unless
+    /// that is the person (`browser.importCookies`' consent).
+    public func perform(_ id: String, _ action: ImportCardAction, caller: ActionInvocation? = nil) throws {
         switch action {
-        case .start: try start(id)
+        case .start: try start(id, caller: caller)
         case .resume, .retry:
             guard var job = ledger.job(id), job.phase != .running else { throw ImportCardsFailure.noSuchCard(id) }
             job.resumed(now: now())
-            put(job)
-            run(id)
+            switch job.kind {
+            case .browser:
+                put(job)
+                run(id)
+            case .iterm2: run(id, writingTheme: job)
+            case .claudeCode, .codex, .cmuxClassic, .ghostty: finish(job)
+            }
         case .dismiss:
             if state.requests.contains(where: { $0.id == id }) {
                 state.drop(request: id)
@@ -183,9 +192,15 @@ public final class ImportSuggestionsCenter {
             _ = registry?.perform("importFromBrowser")
         case .open: open(id)
         case .hide:
+            // Done, or Not Now on a paused or failed job: the card goes, and like a dismissed
+            // card it comes back only when the scan finds something new for that source.
             guard ledger.job(id)?.isActive != true else { return }
             ledger.remove(id)
             saveLedger()
+            if let finding = findings.first(where: { $0.id == id }) {
+                state.dismiss(finding)
+                state.save(to: defaults)
+            }
         }
     }
 
@@ -195,13 +210,16 @@ public final class ImportSuggestionsCenter {
         state.save(to: defaults)
     }
 
-    private func start(_ id: String) throws {
+    private func start(_ id: String, caller: ActionInvocation?) throws {
         if let request = state.requests.first(where: { $0.id == id }) {
-            // The person's click: Import Cookies from Browser for that site only, as the person.
+            // Import Cookies from Browser for that site only, as whoever pressed it: the person's
+            // own click runs it, a page's control or anything else gets the consent panel first.
             let arguments: [String: ActionValue] = [
                 "from": .string(request.browser.rawValue), "domain": .string(request.site), "reason": .string(request.reason),
             ]
-            _ = registry?.perform("browser.importCookies", invocation: ActionInvocation(arguments: arguments, origin: .user))
+            var invocation = ActionInvocation(arguments: arguments, origin: caller?.origin ?? .user)
+            invocation.callerAgentSession = caller?.callerAgentSession
+            _ = registry?.perform("browser.importCookies", invocation: invocation)
             state.drop(request: id)
             state.save(to: defaults)
             return
@@ -280,6 +298,8 @@ public final class ImportSuggestionsCenter {
         running[id] = Task { [weak self] in
             await self?.runSteps(id, browser: browser, host: host)
             self?.running[id] = nil
+            // What is left of that browser to bring over, now that this import is in.
+            self?.scan()
         }
     }
 

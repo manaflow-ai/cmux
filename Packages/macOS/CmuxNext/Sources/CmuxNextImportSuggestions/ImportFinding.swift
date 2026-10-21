@@ -69,8 +69,10 @@ public nonisolated struct ImportFinding: Codable, Sendable, Hashable, Identifiab
 
     /// Every kind any profile holds, in `ImportDataKind` order.
     public var kinds: [ImportDataKind] {
+        // History first, as the cards name them ("history, bookmarks and cookies"), then the rest.
         let held = Set(profiles.flatMap(\.kinds))
-        return ImportDataKind.allCases.filter(held.contains)
+        let order: [ImportDataKind] = [.history, .bookmarks] + ImportDataKind.allCases.filter { $0 != .history && $0 != .bookmarks }
+        return order.filter(held.contains)
     }
 
     /// What has to change for a dismissed card to come back: a new profile

@@ -7635,6 +7635,137 @@
         }
       }
     },
+    "importSuggestions.refusal.personOnly" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "أنت وحدك من يمكنه بدء الاستيراد: اضغط على زره في cmux."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Samo vi možete pokrenuti uvoz: pritisnite njegovo dugme u cmuxu."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kun du kan starte en import: tryk på dens knap i cmux."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nur du kannst einen Import starten: Drück dafür die Taste in cmux."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Only you can start an import: press its button in cmux."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solo tú puedes iniciar una importación: pulsa su botón en cmux."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vous seul pouvez lancer une importation : appuyez sur son bouton dans cmux."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solo tu puoi avviare un’importazione: premi il suo pulsante in cmux."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "読み込みを始められるのはあなただけです。cmux でそのボタンを押してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "មានតែអ្នកទេដែលអាចចាប់ផ្ដើមការនាំចូល៖ ចុចប៊ូតុងរបស់វាក្នុង cmux។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "가져오기는 직접 시작해야 합니다. cmux에서 해당 버튼을 누르세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bare du kan starte en import: trykk på knappen i cmux."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tylko Ty możesz rozpocząć import: naciśnij jego przycisk w cmux."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Só você pode iniciar uma importação: toque no botão dela no cmux."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Начать импорт можете только вы: нажмите его кнопку в cmux."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "มีเพียงคุณเท่านั้นที่เริ่มการนำเข้าได้ กดปุ่มของมันใน cmux"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "İçe aktarmayı yalnızca siz başlatabilirsiniz: cmux'ta düğmesine basın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Почати імпорт можете лише ви: натисніть його кнопку в cmux."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chỉ bạn mới có thể bắt đầu nhập: hãy nhấn nút của nó trong cmux."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "只有你能开始导入：请在 cmux 中按下它的按钮。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "只有你能開始匯入：請在 cmux 中按下它的按鈕。"
+          }
+        }
+      }
+    },
     "importSuggestions.refusal.unknownBrowser" : {
       "extractionState" : "manual",
       "localizations" : {

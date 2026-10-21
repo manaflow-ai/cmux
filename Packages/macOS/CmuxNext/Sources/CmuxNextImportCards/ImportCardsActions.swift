@@ -21,8 +21,13 @@ extension ImportSuggestionsCenter {
             let id = invocation.arguments["id"]?.stringValue ?? ""
             let name = invocation.arguments["action"]?.stringValue ?? ""
             guard let action = ImportCardAction(rawValue: name) else { return registry.refuse(ImportSuggestionStrings.unknownButton(name)) }
+            // Reading another app's data is the person's call: an agent, a script or another
+            // client may raise, dismiss or open a card but never start one.
+            if action.startsWork, !Self.personCanStart(invocation.origin) {
+                return registry.refuse(ImportSuggestionStrings.personOnly)
+            }
             do {
-                try perform(id, action)
+                try perform(id, action, caller: invocation)
             } catch {
                 registry.refuseNotFound(ImportSuggestionStrings.noSuchCard(id))
             }
@@ -37,6 +42,12 @@ extension ImportSuggestionsCenter {
             raise(browser: browser, site: site, reason: invocation.arguments["reason"]?.stringValue ?? "")
         })
         registry.bind("import.open", invoke: { [weak self] _ in self?.openSettings() })
+    }
+
+    /// A person's click in this app, or a control a first-party page drew (Settings › Import,
+    /// New Tab); never the CLI, MCP, a script or another client.
+    nonisolated static func personCanStart(_ origin: ActionOrigin) -> Bool {
+        origin == .user || origin == .page
     }
 
     /// A browser by registry id (`chrome`) or name (`Google Chrome`), one whose cookies cmux reads.
