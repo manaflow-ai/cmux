@@ -227,7 +227,7 @@ describe("rendered replies", () => {
     const container = dom.window.document.createElement("div");
     dom.window.document.body.append(container);
     const root = createRoot(container);
-    await act(async () => root.render(createElement(Markdown, { githubRepository: REPO }, markdown)));
+    await act(async () => root.render(createElement(Markdown, { githubRepository: REPO, children: markdown })));
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
     return { container, unmount: () => act(async () => root.unmount()) };
   }
