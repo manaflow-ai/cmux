@@ -1762,6 +1762,10 @@ export function VirtualTranscript({
   const [dockSpace, setDockSpace] = useState(0);
   const dockSpaceRef = useRef(0);
   dockSpaceRef.current = dockSpace;
+  /// The composer card's height, in that stack: what grows a line at a time (Shift-Return, a wrap).
+  const [dockCard, setDockCard] = useState(0);
+  const dockCardRef = useRef(0);
+  dockCardRef.current = dockCard;
   /// A queued prompt left the bottom stack this frame: a sent one is about to come in as the latest
   /// row; a withdrawn one (deleted from the queue) never does.
   const queueLeft = useRef(false);
@@ -1793,6 +1797,7 @@ export function VirtualTranscript({
   useLayoutEffect(() => {
     if (!dock) {
       setDockSpace(0);
+      setDockCard(0);
       return;
     }
     // Before the frame paints, as the viewport's own size is: a composer that grew a line, or a
@@ -1804,14 +1809,24 @@ export function VirtualTranscript({
       const view = ref.current?.getBoundingClientRect();
       return stack.height > 0 && view ? Math.max(0, Math.min(stack.height, view.bottom - stack.top)) : 0;
     };
+    // The composer card's height, while the stack reaches over the view.
+    const card = (space: number) =>
+      space > 0 ? (dock.querySelector(".acpmux-composer-box")?.getBoundingClientRect().height ?? 0) : 0;
     const observer = new ResizeObserver(() => {
       noteQueue();
       const next = over();
-      if (Math.abs(next - dockSpaceRef.current) >= 0.5) flushSync(() => setDockSpace(next));
+      const nextCard = card(next);
+      if (Math.abs(next - dockSpaceRef.current) >= 0.5 || Math.abs(nextCard - dockCardRef.current) >= 0.5)
+        flushSync(() => {
+          setDockSpace(next);
+          setDockCard(nextCard);
+        });
     });
     observer.observe(dock);
     noteQueue();
-    setDockSpace(over());
+    const space = over();
+    setDockSpace(space);
+    setDockCard(card(space));
     return () => observer.disconnect();
   }, [dock, noteQueue]);
   const [width, setWidth] = useState(() => lastTranscriptBox.width);
@@ -2048,6 +2063,20 @@ export function VirtualTranscript({
   const previousViewport = useRef({ height, width, dockSpace });
   /// The room kept under the last row (`room` below) as of the last placement pass.
   const heldRoom = useRef(dockSpace);
+  /// The composer card's height the room under the last row was last made for (`grown` below).
+  const cardRest = useRef(0);
+  /// How far the rows were drawn up by the composer's growth (`lift` below) as of the last pass.
+  const appliedLift = useRef(0);
+  /// The composer's growth kept out of the room under the last row (`lifted` below) as of that pass.
+  const liftedBefore = useRef(0);
+  /// Before the offset is written where rows lay out (a row's place), not where a lift draws them:
+  /// the view stops following, and the commit that follows (from an event or a layout effect,
+  /// before the frame paints) drops the lift without moving the offset by it.
+  const unlift = () => {
+    if (!appliedLift.current) return;
+    appliedLift.current = 0;
+    follow(false);
+  };
   const [, roomTaken] = useReducer((count: number) => count + 1, 0);
   /// Gives the room under the last row the stack's height again, at once, before Jump to latest
   /// follows again (`room` below).
@@ -2199,39 +2228,76 @@ export function VirtualTranscript({
   const kept = following && keptFor && floor.current.width === width && floor.current.sessionId === sessionId;
   const box = previousViewport.current;
   const footDropped = height - dockSpace > box.height - box.dockSpace;
+  // Held as the end the view would have with all the stack's room (the composer's growth not taken
+  // out, `lifted` below): the content end the reader sees is that less the lift on screen.
   const floorHeight = !kept
     ? 0
     : queueLeft.current && footDropped && previousLayout.current
-      ? Math.max(floor.current.height, previousLayout.current.totalHeight - box.height + height)
+      ? Math.max(floor.current.height, previousLayout.current.totalHeight + liftedBefore.current - box.height + height)
       : floor.current.height;
   // The room under the last row is the stack's height while the view follows the latest row, so
   // the latest row ends above a composer that grows. Scrolled up, nothing under the stack is in view:
   // the room stays as it was, and a composer that grows or shrinks a line (Shift-Return, a wrap)
   // leaves the scroller's height, offset and scrollbar where they were (Leo 2026-10-20: a newline
   // made the transcript's scrollbar jump). Back at the latest row, the room is the stack's again.
+  // Followed, the composer card's own growth since the view began following stays out of the room
+  // too (`lifted` of it): the rows are drawn up by it instead (`lift`), so the latest row still ends
+  // above the card while the scroller's height, offset and scrollbar stay as they were. The rest of
+  // the stack (a queue, an ask) still makes room as before.
   const sessionSwitched = previousSession.current !== sessionId;
-  const room = sessionSwitched || following ? dockSpace : heldRoom.current;
-  const rowsHeight = measured.layout.totalHeight + THREAD_TOP + TRANSCRIPT_RUNWAY + room;
-  const layout = useMemo(
-    () => ({ ...measured.layout, totalHeight: Math.max(floorHeight, rowsHeight) }),
-    [measured, rowsHeight, floorHeight],
+  const lifting =
+    following && !sessionSwitched && didOpenAtLatest.current && dockSpace > 0 && dockCard > 0 && cardRest.current > 0;
+  const grown = lifting ? Math.min(dockSpace, dockCard - cardRest.current) : 0;
+  // The content's end with all the stack's height as room, as the view would hold it unlifted.
+  const rowsAtDock = measured.layout.totalHeight + THREAD_TOP + TRANSCRIPT_RUNWAY + dockSpace;
+  const atDock = Math.max(floorHeight, rowsAtDock);
+  // A card that grew is drawn up by at most what the offset can take back: the view keeps more than
+  // the follow deadband to scroll, so the reader's scroll up still leaves the latest row (and the
+  // lift with it) in a transcript about a screen tall; the rest of the growth is room. While a room
+  // held for a sent prompt (`floor`) reaches past the rows, it already covers the card: the lift on
+  // screen stays as it is (shrinking it drew every row down by the queue card that left, and up
+  // again as its prompt came), and growth meanwhile never adds to it. A card shorter than it was
+  // draws the rows down within the room it left. Whole pixels, as the offset.
+  const floorHolds = floorHeight > rowsAtDock;
+  const lifted = Math.round(
+    grown > 0
+      ? Math.max(
+          0,
+          Math.min(grown, atDock - height - FOLLOW_BOTTOM_DEADBAND_PX - 1, floorHolds ? liftedBefore.current : grown),
+        )
+      : grown,
   );
+  const room = sessionSwitched || following ? dockSpace - lifted : heldRoom.current;
+  const rowsHeight = measured.layout.totalHeight + THREAD_TOP + TRANSCRIPT_RUNWAY + room;
+  // The held room less the lift, as the rows' end is: what the reader sees stays where it was drawn.
+  const layout = useMemo(
+    () => ({ ...measured.layout, totalHeight: Math.max(floorHeight - lifted, rowsHeight) }),
+    [measured, rowsHeight, floorHeight, lifted],
+  );
+  // Where the rows draw against where they lay out: the followed offset of this layout against the
+  // one the unlifted layout would hold. Negative draws them up, positive down.
+  const lift = lifted ? Math.round(Math.max(0, layout.totalHeight - height) - Math.max(0, atDock - height)) : 0;
+  const liftRef = useRef(lift);
+  liftRef.current = lift;
   const reportedLayout = useRef<typeof measured | null>(null);
   const reportedEstimate = useRef<typeof estimated | null>(null);
   // The old scroll state remains in React until the transition layout effect runs. Render the
   // new session from the top once so its first paint cannot reuse the previous chat's mounted rows.
   const renderScroll = sessionSwitched ? { top: 0, delta: 0 } : scroll;
   const renderFollowing = sessionSwitched || following;
+  // The content in view starts at the offset less `lift`: rows drawn up by it show content that much
+  // further down.
+  const shownTop = renderScroll.top - lift;
   const ahead = scrollLeadRanges(
     layout,
-    renderScroll.top,
+    shownTop,
     renderScroll.delta,
     height,
     SCROLL_LEAD_STEPS,
     height * MAX_SCROLL_LEAD_VIEWPORTS,
   );
   // The run of mounted rows the reader sees.
-  const view = visibleLayoutRange(layout, renderScroll.top, height);
+  const view = visibleLayoutRange(layout, shownTop, height);
   const range = ahead.find((each) => each.first <= view.first && view.first < each.last) ?? view;
   // The rows a viewport either side of where the reader was also mount, in a deferred render
   // between frames: a scroll then finds the rows it brings in already drawn and measured instead
@@ -2283,6 +2349,7 @@ export function VirtualTranscript({
         pendingFocus.current = undefined;
         return;
       }
+      unlift();
       const top = layout.tops[nextIndex] ?? 0;
       const maximum = Math.max(0, layout.totalHeight - node.clientHeight);
       const nextTop = Math.max(0, Math.min(maximum, top));
@@ -2419,6 +2486,16 @@ export function VirtualTranscript({
     const old = switched ? null : previousLayout.current;
     const oldRows = previousRows.current;
     const node = ref.current;
+    // The view stopped following with its rows drawn up by the composer's growth (`lift`): that
+    // growth is room now (`heldRoom`), and the offset moves by it in this same frame, so nothing the
+    // reader sees moves.
+    if (old && node && !following && appliedLift.current) {
+      node.scrollTop -= appliedLift.current;
+      scrolledTo.current = { ...scrolledTo.current, top: scrolledTo.current.top - appliedLift.current };
+      // The rows mounted for this frame read the offset too, before its scroll event comes.
+      const moved = node.scrollTop;
+      setScroll((current) => ({ top: moved, delta: moved - current.top }));
+    }
     const rewrapped = width !== previousViewport.current.width;
     // The bottom stack's room changing (a composer line, a queue) is the view's foot moving, as a
     // resize is: a followed view moves its offset at once and nothing glides.
@@ -2580,9 +2657,14 @@ export function VirtualTranscript({
     previousLayout.current = layout;
     previousRows.current = rows;
     previousViewport.current = { height, width, dockSpace };
-    heldRoom.current = room;
+    // With the composer's growth, which is room again once the view stops following.
+    heldRoom.current = room + lifted;
+    appliedLift.current = lift;
+    liftedBefore.current = lifted;
+    // A view that follows keeps the card height it began following at; any other takes the card's.
+    if (!lifting) cardRest.current = dockCard;
     // The room a followed view keeps (`floor` above), until the rows fill it or it stops following.
-    const holding = didOpenAtLatest.current && followingRef.current && floorHeight > rowsHeight;
+    const holding = didOpenAtLatest.current && followingRef.current && floorHeight - lifted > rowsHeight;
     // Held for a sent prompt: once, for the prompt to arrive. Held only for a withdrawn one (the
     // reply was working): again at each pass, so it lasts while the reply grows and goes soon after.
     const forSent = [...heldFor.current].some((id) => !withdrawn.current.has(id));
@@ -2606,7 +2688,7 @@ export function VirtualTranscript({
     // The minimap's band reads the offset this pass settled on.
     minimapPlaced.current?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- openAt is read once, at the first open
-  }, [layout, rows, range.first, height, width, dockSpace, room, sessionId, seekExpired, canLoadOlder]);
+  }, [layout, rows, range.first, height, width, dockSpace, room, lift, sessionId, seekExpired, canLoadOlder]);
   // Commit before this frame paints; deferring to the next animation frame left the edge blank.
   // The page picks adaptive rendering; the host supplies the display interval and applies it.
   const renderRate = useMemo(() => new AdaptiveRenderRate(), []);
@@ -2672,7 +2754,10 @@ export function VirtualTranscript({
     if (!node || !findTarget || !targetKey) return;
     const top = layout.tops[findIndex];
     const bottom = top + layout.heights[findIndex];
-    if (top >= node.scrollTop && bottom <= node.scrollTop + node.clientHeight - dockSpaceRef.current) return;
+    // In view where it draws (`lift` from its place while the rows follow a grown composer).
+    const drawn = node.scrollTop - liftRef.current;
+    if (top >= drawn && bottom <= drawn + node.clientHeight - dockSpaceRef.current) return;
+    unlift();
     node.scrollTop = Math.max(0, top - node.clientHeight / 3);
     findMoved(node);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new target scrolls, not a layout change
@@ -2693,7 +2778,10 @@ export function VirtualTranscript({
     if (!node || revealIndex < 0) return;
     const top = layout.tops[revealIndex];
     const bottom = top + layout.heights[revealIndex];
-    if (top >= node.scrollTop && bottom <= node.scrollTop + node.clientHeight - dockSpaceRef.current) return;
+    // In view where it draws (`lift` from its place while the rows follow a grown composer).
+    const drawn = node.scrollTop - liftRef.current;
+    if (top >= drawn && bottom <= drawn + node.clientHeight - dockSpaceRef.current) return;
+    unlift();
     // The reader asked for this row: the view stops following the reply, or the run opening below
     // would pull it back to the latest line.
     const next = Math.max(0, top - node.clientHeight / 3);
@@ -3084,6 +3172,7 @@ export function VirtualTranscript({
             <div
               ref={thread}
               className="acpmux-thread"
+              style={lift ? { transform: `translateY(${lift}px)` } : undefined}
               onPointerOver={(event) => pointAt(event.target)}
               onPointerLeave={() => pointAt(null)}
             >
