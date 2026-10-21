@@ -544,7 +544,7 @@ export default agentPaneEntry({
       snapshot: steering(false),
     },
     "working-stop": {
-      note: "Play: stop a running turn; the circular control returns to Send after the host acknowledges cancellation.",
+      note: "Play: stop a running turn; Stop leaves after the host acknowledges cancellation, and with no draft the mic alone keeps the right edge.",
       snapshot: chat(working, { isWorking: true }),
       afterCall: { "chat.cancel": chat(working, { isWorking: false }) },
       checks: {
@@ -555,11 +555,11 @@ export default agentPaneEntry({
       },
       play: async (ctx) => {
         await ctx.click({ role: "button", name: "Stop" });
-        await ctx.waitFor(() => ctx.document.querySelector('button[aria-label="Send"]'));
+        await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-cancel"));
       },
     },
     "working-steer": {
-      note: "A prompt typed while the turn runs: one ↵ control puts it into the turn now (⌘Return), Return queues it for after the turn, and Stop keeps its place at the row's end.",
+      note: "A prompt typed while the turn runs: one ↵ control puts it into the turn now (⌘Return), Return queues it for after the turn, and Stop sits left of the mic, as in Claude's desktop app.",
       snapshot: steering(true),
       ready: { draft: "Use the new tokenizer instead" },
       play: async (ctx) => {
@@ -568,7 +568,7 @@ export default agentPaneEntry({
           return steer?.getAttribute("aria-label") === "Steer now" && steer.textContent?.trim() === "";
         });
         await ctx.waitFor(() =>
-          ctx.document.querySelector('.acpmux-composer-actions > button:last-child[aria-label="Stop"]'),
+          ctx.document.querySelector('.acpmux-composer-actions > button[aria-label="Stop"] + .acpmux-fit-mic'),
         );
       },
     },

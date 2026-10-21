@@ -4,9 +4,12 @@
 // cycle's snapshots through the pane's bridge, as the app's arrive: running, one then three
 // subagents, a subagent's permission ask, a queued prompt, finished. Across the cycle the prompt,
 // the controls row, the footer and every control keep their boxes (within 0.5 px); the ask and the
-// queue grow upward over the transcript. Typing while the turn runs (↵ joins Stop)
-// moves neither the mic nor Stop. In every phase the row shows no context ring or spinner (the
-// running state is Send turned Stop, nothing else) and one lock at most (hq#1957 item 15 compact
+// queue grow upward over the transcript. The draft is empty, so the idle and finished phases draw
+// no Send (Claude desktop's box: no Send until there is a draft, Leo 2026-10-20): the mic holds the
+// right edge throughout, Stop comes in before it while the turn runs and keeps one box, and the
+// prompt keeps its left, top and height while its column gives Stop room. Typing while the turn
+// runs (↵ joins Stop) moves neither the mic nor Stop. In every phase the row shows no context ring
+// or spinner (the running state is Stop, nothing else) and one lock at most (hq#1957 item 15 compact
 // row). The quiet row under the box (ComposerFoot.tsx) ends on the context ring, which holds its
 // place from the first frame, so the first usage report moves nothing.
 //
@@ -71,6 +74,7 @@ await requireBrowserLane("composer-turn-cycle.test.ts", async () => {
     effort: ".acpmux-effort .acpmux-picker-button",
     access: ".acpmux-access-trigger",
     mic: ".acpmux-mic",
+    // Stop while the turn runs; an idle row with an empty draft has none (no Send until there is a draft).
     "send or stop": ".acpmux-send:not(.acpmux-steer-now)",
     "context ring": ".acpmux-composer-foot .acpmux-context-ring",
   };
@@ -137,6 +141,9 @@ await requireBrowserLane("composer-turn-cycle.test.ts", async () => {
       const page = await open(width, TURN_CYCLE[0]!.name);
       const start = await boxes(page);
       const problems: string[] = (await calm(page)).map((problem) => `${TURN_CYCLE[0]!.name}: ${problem}`);
+      // An empty draft at rest draws no Send; Stop's box is held to the first running phase's.
+      if (start["send or stop"] !== "missing") problems.push(`${TURN_CYCLE[0]!.name}: Send shows with no draft`);
+      let firstStop: number[] | "missing" | undefined;
       for (const { name, snapshot } of TURN_CYCLE.slice(1)) {
         await page.evaluate(
           (next) =>
@@ -144,21 +151,30 @@ await requireBrowserLane("composer-turn-cycle.test.ts", async () => {
           snapshot,
         );
         await page.waitForFunction(
-          (working) => document.querySelector(working ? ".acpmux-cancel" : ".acpmux-send:not(.acpmux-cancel)"),
+          (working) => (document.querySelector(".acpmux-cancel") !== null) === working,
           snapshot.isWorking,
         );
         // Two frames: the pane renders the snapshot, then any effect it lays out from.
         await page.evaluate(
           () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
         );
-        problems.push(...moved(start, await boxes(page)).map((problem) => `${name}: ${problem}`));
+        const now = await boxes(page);
+        if (snapshot.isWorking) firstStop ??= now["send or stop"];
+        const expected = { ...start, "send or stop": snapshot.isWorking ? firstStop! : start["send or stop"] };
+        // While Stop shows, the prompt's column narrows by its width: the prompt keeps its left, top and height.
+        const prompt = (all: typeof now) => {
+          const box = all.prompt!;
+          return { ...all, prompt: box === "missing" ? box : [box[0]!, box[1]!, box[3]!] };
+        };
+        problems.push(...moved(prompt(expected), prompt(now)).map((problem) => `${name}: ${problem}`));
+        if (snapshot.isWorking && now["send or stop"] === "missing") problems.push(`${name}: no Stop`);
         problems.push(...(await calm(page)).map((problem) => `${name}: ${problem}`));
       }
       await page.close();
       expect(problems).toEqual([]);
     });
 
-    test(`at ${width} px typing while the turn runs moves neither the mic nor Send`, async () => {
+    test(`at ${width} px typing while the turn runs moves neither the mic nor Stop`, async () => {
       const page = await open(width, "subagents-three");
       const before = await boxes(page);
       await page.click("[contenteditable='true']");

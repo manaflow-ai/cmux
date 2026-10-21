@@ -302,17 +302,18 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
         for (const name of ["model", "mode"])
           if (!names(rows.foot).includes(name)) problems.push(`${name} is not in the quiet row`);
         // Claude desktop's, measured (Leo 2026-10-20): the + glyph 16 px in from the box's left
-        // edge, Send's disc 8 px in from its right edge, as far as it sits off the bottom (below).
+        // edge, the last control's 28 px box (the mic; Stop sits left of it) 8 px in from its right
+        // edge, as far as it sits off the bottom (below).
         const { inner } = rows;
-        const send = inner.controls.find((control) => control.name === "send");
+        const last = inner.controls.at(-1);
         const lead = inner.controls[0] ? drawn(inner.controls[0]).left - inner.bar.left : 0;
-        const trail = send ? inner.bar.right - drawn(send).right : 0;
+        const trail = last ? inner.bar.right - last.box.right : 0;
         if (Math.abs(lead - 16) > 1) problems.push(`the + glyph sits ${lead.toFixed(1)} px in, not 16 px`);
         const below =
-          send?.box.bottom !== undefined && inner.bar.bottom !== undefined ? inner.bar.bottom - send.box.bottom : 0;
-        if (send && Math.abs(below - trail) > 1)
+          last?.box.bottom !== undefined && inner.bar.bottom !== undefined ? inner.bar.bottom - last.box.bottom : 0;
+        if (last && Math.abs(below - trail) > 1)
           problems.push(
-            `Stop sits ${below.toFixed(1)} px off the box's bottom and ${trail.toFixed(1)} px off its side`,
+            `${last.name} sits ${below.toFixed(1)} px off the box's bottom and ${trail.toFixed(1)} px off its side`,
           );
         expect(problems).toEqual([]);
       });

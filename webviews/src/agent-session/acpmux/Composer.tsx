@@ -341,6 +341,8 @@ export function Composer({
   const composing = useRef(false);
   // Send and Stop are separate buttons, so focus on Send moves to whichever replaces it.
   const refocusSend = useRef(false);
+  /** Stop had focus when pressed: it leaves with the turn, so the prompt takes focus back. */
+  const refocusField = useRef(false);
   /// The session id owns the prompt. A page can switch sessions without remounting the composer.
   const persistedSession = useRef(sessionId);
   const hydratedSession = useRef<string | undefined>(undefined);
@@ -394,6 +396,10 @@ export function Composer({
     handle.writeText(before + inserted + value.slice(selectionEnd), caret, caret);
   };
   useLayoutEffect(() => {
+    if (refocusField.current && !snapshot.isWorking) {
+      refocusField.current = false;
+      if (!document.activeElement || document.activeElement === document.body) field.current?.focus();
+    }
     if (!refocusSend.current) return;
     const focused = document.activeElement;
     // The user moved on before the turn started: leave their focus alone.
@@ -804,7 +810,10 @@ export function Composer({
     }
   };
   const stopTurn = () => {
-    if (Date.now() - sentAt.current > STOP_GUARD_MS) onStop();
+    if (Date.now() - sentAt.current > STOP_GUARD_MS) {
+      refocusField.current = document.activeElement === sendButton.current;
+      onStop();
+    }
   };
   const keyDown = (event: KeyboardEvent) => {
     // Every key belongs to the input method while it composes, not only Enter.
@@ -1148,6 +1157,24 @@ export function Composer({
   ) : keepLocationSlot ? (
     <div className="acpmux-composer-strip-placeholder" aria-hidden="true" />
   ) : null;
+  // Stop, for the whole turn. Claude desktop's box (Leo 2026-10-20) draws it left of the mic, the
+  // mic keeping the right edge; the other look keeps it at the cluster's end.
+  const stopButton = running ? (
+    <button
+      key="stop"
+      ref={sendButton}
+      type="button"
+      className="acpmux-send acpmux-cancel"
+      data-escape-armed={escapeStop.armed ? "" : undefined}
+      aria-label={t(escapeStop.armed ? COMPOSER_LABELS.escapeAgainToStop : COMPOSER_LABELS.stop)}
+      // tooltip-allow: names the icon-only Stop, and once armed says to press the Esc it shows again.
+      title={t(escapeStop.armed ? COMPOSER_LABELS.escapeAgainToStop : COMPOSER_LABELS.stop)}
+      onClick={stopTurn}
+    >
+      {/* The first Esc of the double press: Stop says which key stops the turn. */}
+      {escapeStop.armed ? <span className="acpmux-escape-key">{t(COMPOSER_LABELS.escapeKey)}</span> : <StopIcon />}
+    </button>
+  ) : null;
   return (
     <form
       ref={form}
@@ -1437,6 +1464,7 @@ export function Composer({
                 </button>
               )}
               {!plainFooter && speed && <FastToggle speed={speed} />}
+              {plainFooter && stopButton}
               {/* The mic stays at every width; the prompt shrinks instead (composerRowFit.ts). */}
               {accessory && (
                 <span className="acpmux-fit-mic" data-fit-part="mic" data-fit-forms="full">
@@ -1444,24 +1472,9 @@ export function Composer({
                 </span>
               )}
               {running ? (
-                <button
-                  key="stop"
-                  ref={sendButton}
-                  type="button"
-                  className="acpmux-send acpmux-cancel"
-                  data-escape-armed={escapeStop.armed ? "" : undefined}
-                  aria-label={t(escapeStop.armed ? COMPOSER_LABELS.escapeAgainToStop : COMPOSER_LABELS.stop)}
-                  // tooltip-allow: names the icon-only Stop, and once armed says to press the Esc it shows again.
-                  title={t(escapeStop.armed ? COMPOSER_LABELS.escapeAgainToStop : COMPOSER_LABELS.stop)}
-                  onClick={stopTurn}
-                >
-                  {/* The first Esc of the double press: Stop says which key stops the turn. */}
-                  {escapeStop.armed ? (
-                    <span className="acpmux-escape-key">{t(COMPOSER_LABELS.escapeKey)}</span>
-                  ) : (
-                    <StopIcon />
-                  )}
-                </button>
+                plainFooter ? null : (
+                  stopButton
+                )
               ) : remote.canSend && (shell || !plainFooter || hasDraft) ? (
                 // Claude desktop's box (Leo 2026-10-20): no Send until there is a draft, the mic
                 // alone on the right; Send comes in after it with the first letter.

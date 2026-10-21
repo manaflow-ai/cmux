@@ -562,7 +562,10 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
           `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`,
         );
         await page.locator(".acpmux-composer-prompt").click();
-        await page.getByRole("button", { name: "Send" }).waitFor({ timeout: 5_000 });
+        // The finished chat has drawn: its prompt's bubble comes with the turn's end in one attach.
+        // The empty draft draws no Send (Claude desktop's box: no Send until there is a draft,
+        // Leo 2026-10-20), so the bubble, not Send, says the idle chat is in.
+        await page.locator(".cv-user__bubble", { hasText: turn.prompt }).waitFor({ timeout: 5_000 });
         expect(await stopButton(page).count()).toBe(0);
         await page.keyboard.press("Escape");
         await page.waitForTimeout(200);

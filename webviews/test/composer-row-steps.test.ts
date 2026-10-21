@@ -2,7 +2,7 @@
 // footer), and effort is a chip of its own (Leo 2026-10-15: "move it back out"). A narrower
 // composer swaps whole units, never letters, and shortens labels before it drops a control
 // (cg-ui-coord 2026-10-15: "collapse faster and keep more visible"):
-//   - always: +, the model, effort, the access glyph, Send and every chevron; no label under 3
+//   - always: +, the model, effort, the access glyph, Send (with a draft typed) and every chevron; no label under 3
 //     characters; no two controls overlap;
 //   - first effort shows the level's short name ("Med"), then the model its family ("Opus"), then
 //     its harness mark alone (its name in its tooltip);
@@ -157,6 +157,11 @@ await requireBrowserLane("composer-row-steps.test.ts", async () => {
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
     await page.locator(".acpmux-model .acpmux-picker-button").waitFor();
     await page.evaluate(() => document.fonts.ready);
+    // Claude desktop's box: no Send until there is a draft (Leo 2026-10-20). A typed prompt brings
+    // Send in, so the row is measured with every control it can hold.
+    await page.locator(".acpmux-composer-prompt [contenteditable]").click();
+    await page.keyboard.type("Retry");
+    await page.locator(".acpmux-composer-actions .acpmux-send").waitFor();
     // Two frames: the row's fit runs on layout and on its resize observer.
     await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
     const measured = await page.evaluate(measure);
