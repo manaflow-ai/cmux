@@ -15,6 +15,12 @@ What runs, per area touched by the change:
 * web/: ESLint, errors only, on the changed files, with a cache. web/ as a whole
   is not lint-clean, so only the files a change touches are held to it.
 
+A push, or --head SHA, is linted as that commit: when the checkout is not exactly
+that commit (another branch is checked out, or it has uncommitted or untracked
+files), the checks run in a temporary worktree of it, reusing the checkout's
+node_modules where the commit's bun.lock is the same. Linting the working tree
+let a commit with an error through when its fix sat uncommitted (0b115ab).
+
 Usage:
     scripts/web-lint.sh                 # lint what differs from origin/feat-cmux-next
     scripts/web-lint.sh --fix           # autofix (Oxfmt, Oxlint --fix, ESLint --fix), then re-check
@@ -28,11 +34,13 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import contextlib
 import json
 import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -203,7 +211,8 @@ def check_pieces(repo: Path, package: ScriptPackage, script: str) -> list[str]:
 
 
 def package_env(repo: Path, directory: str) -> dict[str, str]:
-    env = dict(os.environ)
+    # A hook's GIT_DIR names the checkout's repository; a check run in a lint tree must see that tree.
+    env = {k: v for k, v in os.environ.items() if k not in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE")}
     env["PATH"] = f"{repo / directory / 'node_modules' / '.bin'}{os.pathsep}{env.get('PATH', '')}"
     return env
 
@@ -265,6 +274,37 @@ def run_plan(repo: Path, plan: Plan, fix: bool) -> list[Result]:
         return list(pool.map(lambda job: run(*job), jobs))
 
 
+def is_checked_out(repo: Path, sha: str) -> bool:
+    """The checkout is exactly `sha`: HEAD is it and nothing is modified or untracked."""
+    return (git(repo, "rev-parse", "HEAD").strip() == git(repo, "rev-parse", f"{sha}^{{commit}}").strip()
+            and not git(repo, "status", "--porcelain", "--untracked-files=normal").strip())
+
+
+@contextlib.contextmanager
+def tree_of(repo: Path, sha: str | None):
+    """A directory holding exactly commit `sha` (the checkout when it already is), or the checkout for None."""
+    if sha is None or is_checked_out(repo, sha):
+        yield repo
+        return
+    holder = Path(tempfile.mkdtemp(prefix="cmux-web-lint-"))
+    tree = holder / "tree"
+    try:
+        # No hooks: a checkout hook must not run for a lint tree.
+        git(repo, "-c", "core.hooksPath=/dev/null", "worktree", "add", "--quiet", "--detach", str(tree), sha)
+        for directory in [p.directory for p in SCRIPT_PACKAGES] + [p.directory for p in ESLINT_PACKAGES]:
+            deps, lock = repo / directory / "node_modules", "bun.lock"
+            same_lock = ((repo / directory / lock).is_file() == (tree / directory / lock).is_file()
+                         and (not (tree / directory / lock).is_file()
+                              or (repo / directory / lock).read_bytes() == (tree / directory / lock).read_bytes()))
+            if deps.is_dir() and (tree / directory).is_dir() and same_lock:
+                (tree / directory / "node_modules").symlink_to(deps)  # else ensure_deps installs into the tree
+        yield tree
+    finally:
+        if tree.exists():
+            git(repo, "worktree", "remove", "--force", str(tree), check=False)
+        shutil.rmtree(holder, ignore_errors=True)
+
+
 def report(results: list[Result], seconds: float, mode: str, timings: bool = False) -> int:
     failed = [r for r in results if r.returncode != 0]
     if timings:
@@ -315,39 +355,40 @@ def main(argv: list[str] | None = None) -> int:
     repo = (args.repo or Path(git(Path.cwd(), "rev-parse", "--show-toplevel").strip())).resolve()
     if args.pre_push:
         ranges = pushed_ranges(repo, sys.stdin.read().splitlines())
-        files = sorted({f for base, head in ranges for f in changed_files(repo, base, head)})
-        heads = {head for _base, head in ranges}
     else:
-        head = args.head
-        base = args.base or default_base(repo, head or "HEAD")
-        files = changed_files(repo, base, head)
-        heads = {head} if head else set()
+        base = args.base or default_base(repo, args.head or "HEAD")
+        ranges = [(base, args.head)]
+    # One lint per pushed commit, in a tree holding exactly that commit. --fix edits the working tree itself.
+    heads: dict[str | None, list[str]] = {}
+    for base, head in ranges:
+        heads.setdefault(None if args.fix else head, []).extend(changed_files(repo, base, head))
 
-    if args.all:
-        files = [f"{package.directory}/package.json" for package in SCRIPT_PACKAGES]
-    plan = make_plan(repo, files, guard_executed=args.pre_push)
-    for directory, risky in plan.untrusted:
-        print(f"{mode}: {directory}: not linted here: this push changes code the lint runs "
-              f"({', '.join(risky[:5])}{' …' if len(risky) > 5 else ''}). The `web lint` CI job checks it; "
-              f"run `{FIX_COMMAND}` yourself if you trust this branch.", file=sys.stderr)
-    if not plan.script_packages and not plan.eslint_files:
-        if args.dry_run:
-            print("nothing to lint")
-        return 0
-    if args.dry_run:
-        for package in plan.script_packages:
-            print(f"{package.directory}: {' && '.join(check_pieces(repo, package, 'check'))}")
-        for directory, targets in plan.eslint_files.items():
-            print(f"{directory}: eslint {' '.join(targets)}")
-        return 0
-
-    head_sha = git(repo, "rev-parse", "HEAD").strip()
-    if args.pre_push and any(git(repo, "rev-parse", h).strip() != head_sha for h in heads):
-        print(f"{mode}: warning: the pushed commit is not HEAD; the lint reads the working tree.", file=sys.stderr)
     started = time.monotonic()
-    results = run_plan(repo, plan, args.fix)
+    results: list[Result] = []
+    for head, changed in heads.items():
+        files = sorted(set(changed))
+        if args.all:
+            files = [f"{package.directory}/package.json" for package in SCRIPT_PACKAGES]
+        with tree_of(repo, head) as tree:
+            plan = make_plan(tree, files, guard_executed=args.pre_push)
+            for directory, risky in plan.untrusted:
+                print(f"{mode}: {directory}: not linted here: this push changes code the lint runs "
+                      f"({', '.join(risky[:5])}{' …' if len(risky) > 5 else ''}). The `web lint` CI job checks it; "
+                      f"run `{FIX_COMMAND}` yourself if you trust this branch.", file=sys.stderr)
+            if not plan.script_packages and not plan.eslint_files:
+                if args.dry_run:
+                    print("nothing to lint")
+                continue
+            if args.dry_run:
+                for package in plan.script_packages:
+                    print(f"{package.directory}: {' && '.join(check_pieces(tree, package, 'check'))}")
+                for directory, targets in plan.eslint_files.items():
+                    print(f"{directory}: eslint {' '.join(targets)}")
+                continue
+            results += run_plan(tree, plan, args.fix)
+    if not results:
+        return 0
     return report(results, time.monotonic() - started, mode, args.timings)
-
 
 if __name__ == "__main__":
     sys.exit(main())
