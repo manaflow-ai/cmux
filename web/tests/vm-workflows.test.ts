@@ -9481,7 +9481,7 @@ describe("Cloud snapshot idempotency", () => {
       }),
       finishSnapshotRequest: ({ vmId, idempotencyKey, outcome }) => Effect.sync(() => {
         const key = `${vmId}/${idempotencyKey}`;
-        if (outcome.kind === "failed") {
+        if (outcome.kind === "rejected") {
           requests.delete(key);
           return;
         }
@@ -9682,14 +9682,15 @@ describe("Cloud snapshot request ledger (Postgres)", () => {
     expect(await begin("k1", "nightly")).toEqual({ kind: "succeeded", snapshot: { id: "snap-1", createdAt: 1234, name: "nightly" } });
 
     expect(await begin("k2", null)).toEqual({ kind: "started" });
-    await Effect.runPromise(repo.finishSnapshotRequest!({ vmId: vm.id, idempotencyKey: "k2", outcome: { kind: "failed" } }));
-    expect(await begin("k2", null)).toEqual({ kind: "in_progress" });
+    await Effect.runPromise(repo.finishSnapshotRequest!({ vmId: vm.id, idempotencyKey: "k2", outcome: { kind: "rejected" } }));
+    expect(await begin("k2", null)).toEqual({ kind: "started" });
 
     // An old pending attempt can represent a provider success whose response
     // was lost, so time alone never makes the same key safe to replay.
+    expect(await begin("k3", null)).toEqual({ kind: "started" });
     await sql`update cloud_vm_snapshot_requests set updated_at = now() - interval '20 minutes' where vm_id = ${vm.id}`;
-    expect(await begin("k2", null)).toEqual({ kind: "in_progress" });
-    expect(await begin("k2", null)).toEqual({ kind: "in_progress" });
+    expect(await begin("k3", null)).toEqual({ kind: "in_progress" });
+    expect(await begin("k3", null)).toEqual({ kind: "in_progress" });
 
     // Deleting the machine row deletes its requests.
     await sql`delete from cloud_vms where id = ${vm.id}`;
@@ -9724,11 +9725,8 @@ describe("Cloud snapshot request ledger (Postgres)", () => {
     const startedKey = concurrent[0]?.kind === "started" ? "last-a" : "last-b";
     const refusedKey = startedKey === "last-a" ? "last-b" : "last-a";
 
-    await Effect.runPromise(repo.finishSnapshotRequest!({
-      vmId: vm.id,
-      idempotencyKey: startedKey,
-      outcome: { kind: "failed" },
-    }));
+    // The caller lost the provider outcome, so the started reservation stays
+    // pending and continues to occupy the final quota slot.
     expect(await claim(refusedKey)).toEqual({ kind: "quota_exceeded", limit: 10 });
 
     await sql`update cloud_vm_snapshot_requests set updated_at = now() - interval '20 minutes' where vm_id = ${vm.id}`;

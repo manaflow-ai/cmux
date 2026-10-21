@@ -4400,6 +4400,37 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         metadata: input.metadata ?? {},
       });
     }),
+  recordSnapshotUsageEventIfMissing: (input) =>
+    dbEffect("recordSnapshotUsageEventIfMissing", async () => {
+      const snapshotId = input.metadata?.snapshotId;
+      if (typeof snapshotId !== "string" || !snapshotId) {
+        throw new Error("snapshot usage event requires snapshotId");
+      }
+      const db = cloudDb();
+      await db.transaction(async (tx) => {
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`vm-snapshot-event:${input.vmId}:${snapshotId}`}, 0))`);
+        const [existing] = await tx
+          .select({ id: cloudVmUsageEvents.id })
+          .from(cloudVmUsageEvents)
+          .where(and(
+            eq(cloudVmUsageEvents.vmId, input.vmId),
+            eq(cloudVmUsageEvents.eventType, "vm.snapshot.created"),
+            sql`${cloudVmUsageEvents.metadata}->>'snapshotId' = ${snapshotId}`,
+          ))
+          .limit(1);
+        if (existing) return;
+        await tx.insert(cloudVmUsageEvents).values({
+          userId: input.userId,
+          billingTeamId: input.billingTeamId ?? null,
+          billingPlanId: input.billingPlanId ?? null,
+          vmId: input.vmId,
+          eventType: input.eventType,
+          provider: input.provider,
+          imageId: input.imageId,
+          metadata: input.metadata ?? {},
+        });
+      });
+    }),
   recordUsageEvents: (inputs) =>
     dbEffect("recordUsageEvents", async () => {
       if (inputs.length === 0) return;
