@@ -52,6 +52,9 @@ public struct HomeTurnDraft: Hashable, Sendable {
     }
 
     mutating func apply(_ update: HomeDraftUpdate) {
+        // A repeated or older item is a replay (a reconnect, a duplicate frame): it changes nothing.
+        // Only a jump past the next number is a gap.
+        if lastSeq != 0, update.seq <= lastSeq { return }
         let follows = lastSeq != 0 && update.seq == lastSeq + 1
         lastSeq = max(lastSeq, update.seq)
         guard update.isTalk else { return }

@@ -45,6 +45,9 @@ extension WorkspaceRowView {
         // name (wrapped), so no second popover (a tooltip) shows with it.
         layoutSubtreeIfNeeded()
         title.startMarquee()
+        // Calm mode (`ui.calm`) runs no marquee and opens no hover card, so a clipped name shows
+        // as the row's plain tooltip instead (the title view takes no hits).
+        toolTip = DesignSettings.shared.calmMode != .off && title.isTruncated ? title.stringValue : nil
     }
 
     override func updateLayer() {
@@ -58,7 +61,7 @@ extension WorkspaceRowView {
             agentMark.setTint(waits ? Palette.attention : Palette.textSecondary)
             // Fills only, no borders: drop target, selection, multi-selection, hover.
             let fill = isDropTarget || isSelected ? Palette.selectionFill : isSecondarySelected ? Palette.secondarySelectionFill
-                : isHovered && !isPlaceholderRow ? Palette.hoverFill : nil
+                : isHovered && !isPlaceholderRow && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil
             paintFill(fill)
             (rowBadge.ringColor, rowBadge.chipColor) = (Self.badgeBackdrop(fill), Palette.sidebarStep.cgColor)
             // The sidebar's own tonal step, once more: a bar a step apart.
@@ -147,7 +150,11 @@ extension WorkspaceRowView {
         let pinStart = layoutPin(showMore: showMore, control: control, fades: fades)
         let overlayStart = [showClose ? closeButton.frame.minX : nil, showMore ? moreButton.frame.minX : nil, pinStart].compactMap { $0 }.min()
         let ind = SidebarStyle.indicatorSize
-        trailing = layoutRowBadge(trailing: trailing, cy: cy)
+        // With nothing else at the row's end, the lone dot or spinner takes the trailing column,
+        // centered on the group header chevron's x (SidebarStyle+TrailingColumn).
+        let columnFree = trailing == b.width - SidebarStyle.horizontalInset
+        trailing = layoutRowBadge(trailing: trailing, cy: cy,
+                                  columnCenterX: columnFree ? SidebarStyle.trailingColumnCenterX(rowWidth: b.width) : nil)
         let markReplacesStatus = !agentMark.isHidden && agentMarkVariant == .replacesStatus
         activity.isHidden = markReplacesStatus
         if markReplacesStatus {

@@ -122,7 +122,8 @@ import Testing
         #expect(frame.minY >= button.maxY && frame.minY - button.maxY <= 8)
     }
 
-    /// A right-click on a group header opens the editor at the pointer, not at a button.
+    /// The editor opened at a point opens there, not at a button. (A right-click on the header
+    /// now shows the group's flat menu, Lawrence 2026-10-20; the pointer opener stays for callers.)
     @Test func aRightClickOpensTheGroupEditorAtThePointer() throws {
         let (sidebar, id, window) = try Self.sidebar(width: 700)
         defer { sidebar.list.groupEditor.hide(); window.close() }

@@ -90,6 +90,10 @@ public final class UpdaterService {
     public internal(set) var stagedVersion: String?
     public internal(set) var stagedNotes: ReleaseNotes?
     @ObservationIgnored var stagedNotesTask: (build: String, task: Task<Void, Never>)?
+    /// This build's own verified notes, read once when the Updated card has
+    /// no change list of its record (``loadCurrentBuildNotesIfNeeded()``).
+    public internal(set) var currentBuildNotes: ReleaseNotes?
+    @ObservationIgnored var currentBuildNotesTask: Task<Void, Never>?
     /// The staged appcast item's build (replaced by tests).
     @ObservationIgnored var stagedBuild: () -> String? = { nil }
     /// `updates.downloadAutomatically` (the card's Automatic Updates box).
@@ -115,6 +119,8 @@ public final class UpdaterService {
     @ObservationIgnored var activationObservation: Task<Void, Never>?
     /// The test feed in use ("Use Test Update Feed"), or nil.
     public internal(set) var testFeedURL: String?
+    /// The release ring followed in the cmux-next appcast (`updates.channel`, ``follow(ring:)``).
+    public internal(set) var ring: UpdateRing = .nightly
     /// The `updates.*` settings the gate reads (set by the App).
     public var preferences = UpdatePreferences.defaults
     /// Sparkle's staged install and its cancel (replaced by tests).
@@ -298,12 +304,14 @@ public final class UpdaterService {
         if let probeTask { return probeTask }
         isProbing = true
         let prober = prober
+        // Sparkle's allowedChannels reads the baked feed, not a test feed: the probe does the same.
+        let allowed = identity.feed().channel.allowedSparkleChannels(ring: ring)
         var identity = identity
         if let testFeedURL { identity.infoFeedURL = testFeedURL }
         let task = Task { [weak self] () -> String? in
             let failure: String?
             do {
-                let result = try await prober.probe(identity)
+                let result = try await prober.probe(identity, allowedChannels: allowed)
                 self?.lastProbe = result
                 self?.lastProbeError = nil
                 self?.log.append("probe \(result.outcome.kind) feed=\(result.feedURL) items=\(result.itemCount)")
@@ -337,6 +345,8 @@ public final class UpdaterService {
         clearUpdateSnooze()
         controller.model.setOverrideState(nil)
         syncFlowPhase()
+        // As for a check: the loading card shows in the next frame, not one observation hop later.
+        defer { syncFlowPhase() }
         switch flow.phase {
         case .ready, .available, .downloading, .checking:
             // The gate installs once the update is staged and no agent is busy.
@@ -410,6 +420,7 @@ public final class UpdaterService {
             lastProbeError: lastProbeError,
             channelSwitchTarget: identity.channelSwitchTarget,
             testFeedURL: testFeedURL,
+            ring: ring,
             card: card,
             cardPresentation: cardPresentation,
             badge: footerPill?.title

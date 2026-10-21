@@ -2,17 +2,17 @@ import { useSyncExternalStore } from "react";
 
 export type TurnActionsPlacement = "left" | "right";
 
-let current: TurnActionsPlacement = "right";
+let current: TurnActionsPlacement = "left";
 const listeners = new Set<() => void>();
 
-/// The native host sends this with the AgentPaneTheme. Missing or invalid values preserve the
-/// existing right-aligned footer until a host opts into the left placement.
+/// The native host sends this with the AgentPaneTheme. The answer's row sits on the left under its
+/// text, as Claude Code desktop's; only "right" moves it to the column's right edge.
 export function configureTurnActionsPlacement(value: unknown): void {
-  const next: TurnActionsPlacement = value === "left" ? "left" : "right";
+  const next: TurnActionsPlacement = value === "right" ? "right" : "left";
   if (next === current) return;
   current = next;
   if (typeof document !== "undefined") {
-    if (next === "left") document.documentElement.dataset.turnActionsPlacement = next;
+    if (next === "right") document.documentElement.dataset.turnActionsPlacement = next;
     else delete document.documentElement.dataset.turnActionsPlacement;
   }
   for (const listener of listeners) listener();

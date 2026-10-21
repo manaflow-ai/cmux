@@ -110,12 +110,23 @@ import UniformTypeIdentifiers
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 900), styleMask: [.titled], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
         defer { window.close() }
-        let view = MessagesLabHomeView(store: store, conversation: Self.conversation, me: me, wake: NoWake())
+        let view = MessagesLabHomeView(store: store, conversation: Self.conversation, me: me, wake: NoWake(), replies: .streaming)
         defer { view.stop() }
         view.frame = NSRect(x: 0, y: 0, width: 700, height: 900)
         window.contentView = view
         view.layoutSubtreeIfNeeded()
         let projection = view.projection
+        // The display frame: work the view schedules for the next frame (one streamed-text commit per
+        // frame, HomeStreamPacer) runs at the start of each loop step (an offscreen window's link may not fire).
+        var pending: [() -> Void] = []
+        view.controller.nextFrame = { pending.append($0) }
+        func frameStart() {
+            while !pending.isEmpty {
+                let w = pending
+                pending.removeAll()
+                for f in w { f() }
+            }
+        }
         let field = try #require(view.controller.demo?.compose.textView.view)
 
         // The host's type check (Home's intake reads the drag's types and file URLs, a round trip to
@@ -198,9 +209,10 @@ import UniformTypeIdentifiers
             let a0 = CACurrentMediaTime()
             projection.refreshAttachments()
             attachMs.append(Self.ms(a0))
+            frameStart()
             MessagesWindowView.commitLog = []
             let f0 = CACurrentMediaTime()
-            store.drafts[Self.conversation] = draft
+            store.showDraft(draft, turn: draft.turn, author: draft.participant, in: Self.conversation)
             projection.refresh()
             token.append(Self.ms(f0))
             var c = 0.0

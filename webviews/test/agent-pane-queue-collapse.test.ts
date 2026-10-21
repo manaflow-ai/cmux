@@ -92,12 +92,23 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
           queue = queue.filter((q) => q !== entry);
           queue.splice(params.index, 0, entry);
           event(ws, "queue_order", { promptId: entry.promptId, order: queue.map((q) => q.promptId) });
+        } else if (params.op === "update") {
+          entry.prompt = String(params.text);
+          event(ws, "queue_updated", { promptId: entry.promptId, text: entry.prompt });
         } else if (params.op === "send_now") {
           queue = queue.filter((q) => q !== entry);
           event(ws, "dequeued", { promptId: entry.promptId });
           event(ws, "user_message", { text: entry.prompt, promptId: entry.promptId, turnId: "turn-1", steer: true });
         }
         return { ok: true, ...(params.op === "send_now" ? { sent: "steer" } : {}) };
+      }
+      case "_acpmux/queue_remove": {
+        edits.push({ op: "remove", promptId: params.promptId });
+        const before = queue.length;
+        queue = queue.filter((q) => q.promptId !== params.promptId);
+        if (queue.length === before) return { removed: false };
+        event(ws, "queue_removed", { promptId: params.promptId });
+        return { removed: true };
       }
       default:
         return null;
@@ -454,6 +465,98 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
         expect({ lines, ...(await drawn(page)) }).toEqual({ lines, ...clean });
         await page.close();
       }
+    });
+
+    /// Opens an eight-prompt queue with a click on its fold.
+    async function openedQueue(): Promise<Page> {
+      const page = await openChat(["one", "two", "three", "four", "five", "six", "seven", "eight"]);
+      await page.locator(".acpmux-queue-fold").click();
+      await page.waitForFunction(() => document.querySelectorAll(".acpmux-queued").length === 8);
+      return page;
+    }
+    /// Where the opened list rests once any snap or scroll settles: at its end or not, and whether
+    /// its last row shows whole.
+    const resting = (page: Page) =>
+      page.evaluate(
+        () =>
+          new Promise<{ atEnd: boolean; lastWhole: boolean }>((resolve) =>
+            setTimeout(() => {
+              const list = document.querySelector<HTMLElement>(".acpmux-composer-queue")!;
+              const box = list.getBoundingClientRect();
+              const last = [...list.querySelectorAll(".acpmux-queued")].at(-1)!.getBoundingClientRect();
+              resolve({
+                atEnd: list.scrollTop >= list.scrollHeight - list.clientHeight - 1,
+                lastWhole: last.top >= box.top - 1 && last.bottom <= box.bottom + 1,
+              });
+            }, 600),
+          ),
+      );
+
+    test("an opened queue scrolled to its end stays there, its last row whole (Leo, 2026-10-20)", async () => {
+      // Leo: the queue "scrolls to the bottom then shoots back up", and the last row is cut off.
+      // Every row snapped its top to the list's, and the list's end is no row's top.
+      const page = await openedQueue();
+      const box = (await page.locator(".acpmux-composer-queue").boundingBox())!;
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.wheel(0, 2000);
+      expect(await resting(page)).toEqual({ atEnd: true, lastWhole: true });
+      await page.locator(".acpmux-composer-queue").evaluate((list) => (list.scrollTop = 0));
+      await page.locator(".acpmux-composer-queue").evaluate((list) => (list.scrollTop = list.scrollHeight));
+      expect(await resting(page)).toEqual({ atEnd: true, lastWhole: true });
+      await page.close();
+    });
+
+    /// Rests the opened list half a row down, so its bottom edge cuts row 4, and returns the middle
+    /// of the shown part of that row's `action` button.
+    async function cutRowAction(page: Page, action: string) {
+      return page.evaluate((action) => {
+        const list = document.querySelector<HTMLElement>(".acpmux-composer-queue")!;
+        const rows = [...list.querySelectorAll<HTMLElement>(".acpmux-queued")];
+        list.scrollTop = rows[0].getBoundingClientRect().height / 2;
+        const box = list.getBoundingClientRect();
+        const cut = rows.find((row) => {
+          const rect = row.getBoundingClientRect();
+          return rect.top < box.bottom - 2 && rect.bottom > box.bottom + 1;
+        })!;
+        const button = cut.querySelector<HTMLElement>(`[data-action="${action}"]`)!.getBoundingClientRect();
+        return {
+          id: cut.dataset.promptId!,
+          x: button.left + button.width / 2,
+          y: (button.top + Math.min(button.bottom, box.bottom)) / 2,
+        };
+      }, action);
+    }
+
+    test("Remove and Edit on a row the list's edge cuts do what they say (Leo, 2026-10-20)", async () => {
+      // The press focused the row, which scrolled the list to show it whole before the release: the
+      // click landed on another row or none.
+      const page = await openedQueue();
+      const remove = await cutRowAction(page, "remove");
+      await page.mouse.click(remove.x, remove.y);
+      await page.waitForFunction((id) => !document.querySelector(`.acpmux-queued[data-prompt-id="${id}"]`), remove.id, {
+        timeout: 5_000,
+      });
+      expect(edits).toEqual([{ op: "remove", promptId: remove.id }]);
+
+      const edit = await cutRowAction(page, "edit");
+      await page.mouse.click(edit.x, edit.y);
+      const field = page.locator(`.acpmux-queued[data-prompt-id="${edit.id}"] textarea`);
+      await field.waitFor({ timeout: 5_000 });
+      await page.keyboard.press("ControlOrMeta+a");
+      await page.keyboard.type("edited");
+      await page.keyboard.press("Enter");
+      await page.waitForFunction(
+        (id) =>
+          document.querySelector(`.acpmux-queued[data-prompt-id="${id}"] .acpmux-queued-text`)?.textContent ===
+          "edited",
+        edit.id,
+        { timeout: 5_000 },
+      );
+      expect(edits).toEqual([
+        { op: "remove", promptId: remove.id },
+        { op: "update", promptId: edit.id, text: "edited" },
+      ]);
+      await page.close();
     });
 
     test("sending the next prompt keeps the fold's count right; a move into the fold opens it", async () => {

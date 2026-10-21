@@ -4,8 +4,12 @@ public import Foundation
 public nonisolated enum BrowserNewTabDisposition: Hashable, Sendable {
     /// A new selected tab next to the opener (plain `target=_blank`).
     case foregroundTab
-    /// A new unselected tab (Cmd-click, middle click).
+    /// A new unselected tab (middle click; Cmd-click with Chrome's mapping).
     case backgroundTab
+    /// Where the host puts every link the person opens (cmux's Cmd-click,
+    /// `browser.links.cmdClick`; the host's one rule, `layout.linkPlacement`,
+    /// the same place a terminal's Cmd-click lands).
+    case linkPlacement
     /// `window.open` with window features (OAuth, payment popups). Callers may
     /// show it as a tab or a small floating pane; it keeps `window.opener`.
     case popup
@@ -65,6 +69,9 @@ public enum BrowserTabIntent {
     /// `new Notification(...)` with notifications allowed). The host shows
     /// a banner and runs `notification.click` when it is clicked.
     case webNotification(BrowserWebNotification)
+    /// The page asked for protected media (a Widevine key system) that this engine cannot serve
+    /// (``BrowserProtectedMedia``). The host may reopen the tab in WebKit.
+    case protectedMediaUnavailable(BrowserProtectedMedia)
     /// The page's popup window asked for a new size or position
     /// (`chrome.windows.update` with bounds). A popup panel follows; a tab
     /// ignores it.
@@ -73,6 +80,9 @@ public enum BrowserTabIntent {
     /// `VerificationPageScripts`, saw a one-time-code field or "we sent you a code" text).
     /// The host's `VerificationAutofillCoordinator` may offer that site's code.
     case verificationPageWaiting
+    /// A design mode message from the top frame's isolated world (`BrowserDesignModeScript`):
+    /// the runtime's `{type, ...}` as JSON. The host's design mode controller reads it.
+    case designMode(Data)
 }
 
 /// Receives intents from a tab.

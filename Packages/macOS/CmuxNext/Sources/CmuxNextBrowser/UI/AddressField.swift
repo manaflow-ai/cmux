@@ -7,6 +7,9 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
     var onFocus: (() -> Void)?
     var onPasteAndGo: (() -> Void)?
     var pasteAndGoTitle: (() -> String?)?
+    /// The address bar's own items at the end of the context menu ("Always
+    /// Show Full URLs", "Manage Search Engines…").
+    var extraMenuItems: (() -> [NSMenuItem])?
     weak var sink: (any OmnibarFieldEditorSink)? {
         didSet { (cell as? AddressFieldCell)?.editor.sink = sink }
     }
@@ -38,6 +41,11 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
     /// The last written style, so a theme change can recolor the text.
     private var lastStyle: OmnibarPresentation.Style = .plain
 
+    // AppKit refuses the keyboard to a selectable field that is not editable
+    // (a read-only sign-in bar): Cmd-L would do nothing there. The bar still
+    // takes it, to select and copy the address.
+    override var acceptsFirstResponder: Bool { super.acceptsFirstResponder || (isEnabled && isSelectable) }
+
     override func becomeFirstResponder() -> Bool {
         probe?("field.becomeFirstResponder")
         let accepted = super.becomeFirstResponder()
@@ -60,6 +68,7 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
         sink?.fieldEditorMouseDown(clickCount: event.clickCount, button: .left, word: nil)
         super.mouseDown(with: event)
         probe?("field.tracked")
+        if event.omnibarDragged(to: NSApp.currentEvent) { sink?.fieldEditorMouseDragged() }
         sink?.fieldEditorMouseUp()
         probe?("field.mouseUpDone")
     }
@@ -179,11 +188,17 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
 
     /// The field editor's context menu (the field is its delegate).
     @objc(textView:menu:forEvent:atIndex:) func textView(_ textView: NSTextView, menu: NSMenu, for event: NSEvent, at charIndex: Int) -> NSMenu? {
-        guard let title = pasteAndGoTitle?() else { return menu }
-        let item = NSMenuItem(title: title, action: #selector(performPasteAndGo(_:)), keyEquivalent: "")
-        item.target = self
-        let paste = menu.items.firstIndex { $0.action == #selector(NSText.paste(_:)) }
-        menu.insertItem(item, at: paste.map { $0 + 1 } ?? 0)
+        if let title = pasteAndGoTitle?() {
+            let item = NSMenuItem(title: title, action: #selector(performPasteAndGo(_:)), keyEquivalent: "")
+            item.target = self
+            let paste = menu.items.firstIndex { $0.action == #selector(NSText.paste(_:)) }
+            menu.insertItem(item, at: paste.map { $0 + 1 } ?? 0)
+        }
+        let extras = extraMenuItems?() ?? []
+        if !extras.isEmpty {
+            menu.addItem(.separator())
+            extras.forEach(menu.addItem)
+        }
         return menu
     }
 

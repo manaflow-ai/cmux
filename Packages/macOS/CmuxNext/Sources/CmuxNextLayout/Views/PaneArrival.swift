@@ -18,7 +18,7 @@ struct PaneArrival: Equatable {
     /// frame before (`previous`) and after (`next`) the change; nil when no
     /// existing pane gave up the space (a strip column appended, a pane moved
     /// in from elsewhere), which then lands in place. The pane that gave it up
-    /// shrank inside its old frame and ends beside the new pane, on the side it
+    /// shrank, still overlaps its old frame and ends beside the new pane, on the side it
     /// gave up (a column inserted mid-strip pushes its neighbor along instead).
     static func of(target: CGRect, previous: [PaneID: CGRect], next: [PaneID: CGRect]) -> PaneArrival? {
         let slack: CGFloat = 1, gap: CGFloat = 32
@@ -26,7 +26,9 @@ struct PaneArrival: Equatable {
         // Beside: at most a pane gap apart (a pane further along the chain shrinks too).
         func beside(_ near: CGFloat, _ far: CGFloat) -> Bool { far >= near - slack && far - near <= gap }
         let shrank = previous.compactMap { pane, before -> (before: CGRect, after: CGRect)? in
-            guard let after = next[pane], before.insetBy(dx: -slack, dy: -slack).contains(after),
+            // Overlaps its old frame, not inside it: with even sizing shown in the split's own
+            // layout (`LayoutModel.showSplitSizing`) the split pane also slides along the chain.
+            guard let after = next[pane], before.insetBy(dx: -slack, dy: -slack).intersects(after),
                   after.width * after.height < before.width * before.height - 1 else { return nil }
             return (before, after)
         }

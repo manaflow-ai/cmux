@@ -1038,9 +1038,9 @@ impl Terminal {
             cell_width: cell_width_px,
             cell_height: cell_height_px,
         };
-        self.bump_history_epoch();
-        self.reset_history_anchor();
         if reflows {
+            self.bump_history_epoch();
+            self.reset_history_anchor();
             self.history_markers_reflowed();
         }
         Ok(())
@@ -1312,6 +1312,18 @@ impl Terminal {
             Ok(sys::GHOSTTY_TERMINAL_SCREEN_ALTERNATE) => Screen::Alternate,
             _ => Screen::Primary,
         }
+    }
+
+    /// Whether shell integration itself marked the primary screen as at a
+    /// prompt (OSC 133 prompt or input), with no guess from cell contents.
+    pub fn prompt_is_marked(&self) -> bool {
+        self.active_screen() != Screen::Alternate
+            && matches!(
+                self.prompt_semantic.semantic(Screen::Primary),
+                PromptSemantic::Prompt
+                    | PromptSemantic::Input
+                    | PromptSemantic::InputUntilEndOfLine
+            )
     }
 
     /// Whether OSC 133 metadata identifies the cursor as an active shell

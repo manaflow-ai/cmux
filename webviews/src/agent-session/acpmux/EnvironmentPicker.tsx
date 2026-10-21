@@ -33,9 +33,11 @@ export type SavedEnvironmentRows = {
 };
 
 /// The environment picker (preview, `labs.previewFeatures`): one searchable list with Local, SSH
-/// and Cloud sections, ⌥⌘1–9 on the first nine, and New environment at the bottom: the host's SSH…
-/// and cmux Cloud… connect flows. ⌥⌘1–9 also work while the composer it heads has focus. On the
-/// New Tab page it also lists the saved environments (`saved`) first.
+/// and Cloud sections, ⌥⌘1–9 on the first nine. Cloud is always a section: its machines, then New
+/// Cloud Machine (the host's create flow) with what one gives, so a cloud machine is one click away
+/// even before the first. New environment at the bottom holds the SSH… connect flow. ⌥⌘1–9 also
+/// work while the composer it heads has focus. On the New Tab page it also lists the saved
+/// environments (`saved`) first.
 export function EnvironmentPicker({
   label,
   menu,
@@ -46,6 +48,7 @@ export function EnvironmentPicker({
   onPick,
   onConnect,
   saved,
+  onOpen,
 }: {
   label: string;
   /// The name automation opens it by (`openPicker`).
@@ -59,6 +62,8 @@ export function EnvironmentPicker({
   onPick(id: string): void;
   onConnect?(kind: "ssh" | "cloud"): void;
   saved?: SavedEnvironmentRows;
+  /// The list opened: the host reads the machines again, so each one's status is current.
+  onOpen?(): void;
 }) {
   // A picked saved environment is the current row: every machine row is then a change.
   const currentRow = saved?.current !== undefined ? SAVED + saved.current : current;
@@ -104,15 +109,36 @@ export function EnvironmentPicker({
       ),
     [shown],
   );
-  // New environment, last: Create environment (the New Tab page's saved ones) and the host's two
-  // connect flows under one heading; Edit environment while a saved one is picked.
+  // New Cloud Machine closes the Cloud section (it heads the section when there is no cloud machine);
+  // New environment, last: Create environment (the New Tab page's saved ones), Edit environment
+  // while a saved one is picked, and the SSH connect flow.
   const editing = saved?.current;
-  const actions: { value: string; text: string; icon: React.ReactNode; run(): void }[] = [
+  type Action = {
+    value: string;
+    text: string;
+    detail?: string;
+    kind: "ssh" | "cloud" | "saved";
+    icon?: React.ReactNode;
+    run(): void;
+  };
+  const actions: Action[] = [
+    ...(onConnect
+      ? [
+          {
+            value: ACTION + "cloud",
+            text: t("composer.newCloudMachine"),
+            detail: t("composer.newCloudMachineDetail"),
+            kind: "cloud" as const,
+            run: () => onConnect("cloud"),
+          },
+        ]
+      : []),
     ...(saved
       ? [
           {
             value: ACTION + "create",
             text: t("environment.create"),
+            kind: "saved" as const,
             icon: <PlusIcon />,
             run: saved.onCreate,
           },
@@ -123,26 +149,14 @@ export function EnvironmentPicker({
           {
             value: ACTION + "edit",
             text: t("environment.edit"),
+            kind: "saved" as const,
             icon: <PencilIcon />,
             run: () => saved.onEdit(editing),
           },
         ]
       : []),
     ...(onConnect
-      ? [
-          {
-            value: ACTION + "ssh",
-            text: t("composer.connectSSH"),
-            icon: <EnvironmentIcon kind="ssh" />,
-            run: () => onConnect("ssh"),
-          },
-          {
-            value: ACTION + "cloud",
-            text: t("composer.connectCloud"),
-            icon: <EnvironmentIcon kind="cloud" />,
-            run: () => onConnect("cloud"),
-          },
-        ]
+      ? [{ value: ACTION + "ssh", text: t("composer.connectSSH"), kind: "ssh" as const, run: () => onConnect("ssh") }]
       : []),
   ];
   const suggestions = [
@@ -150,9 +164,14 @@ export function EnvironmentPicker({
     ...shown.map((environment) => environment.id),
     ...actions.map((action) => action.value),
   ];
+  const cloudShown = shown.some((environment) => environment.kind === "cloud");
+  const firstNew = actions.find((action) => action.kind !== "cloud");
 
-  const latest = useRef({ ordered, current: currentRow, onPick });
-  latest.current = { ordered, current: currentRow, onPick };
+  const latest = useRef({ ordered, current: currentRow, onPick, onOpen });
+  latest.current = { ordered, current: currentRow, onPick, onOpen };
+  useEffect(() => {
+    if (open) latest.current.onOpen?.();
+  }, [open]);
   const close = () => {
     setOpen(false);
     reset();
@@ -188,10 +207,13 @@ export function EnvironmentPicker({
       if (environment.id !== latest.current.current) latest.current.onPick(environment.id);
       else focusPromptRef.current();
     };
+    // ui-allow: ⌥⌘1–9 pick an environment while the list is open or the composer has focus, like an app menu key.
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [control]);
 
+  // The row Base UI highlighted by itself (reason "none"), not by the arrow keys or the pointer.
+  const autoHighlighted = useRef<string | undefined>(undefined);
   const submit = (value: string) => {
     const action = actions.find((candidate) => candidate.value === value);
     close();
@@ -202,16 +224,33 @@ export function EnvironmentPicker({
   };
   const row = (value: string) => {
     const action = actions.find((candidate) => candidate.value === value);
-    if (action)
+    if (action) {
+      // The cloud action heads its section only when no cloud machine does; the first other action
+      // heads New environment.
+      const section =
+        action.kind === "cloud"
+          ? cloudShown
+            ? undefined
+            : t(SECTION_LABELS.cloud)
+          : action === firstNew
+            ? t("composer.newEnvironment")
+            : undefined;
+      const first = section && savedShown.length === 0 && shown.length === 0 && action === actions[0];
       return (
         <span
           className="acpmux-location-row acpmux-env-row acpmux-env-new"
-          data-section={action === actions[0] ? t("composer.newEnvironment") : undefined}
+          data-kind={action.kind === "saved" ? undefined : action.kind}
+          data-section={section}
+          data-first-section={first ? "" : undefined}
         >
-          {action.icon}
-          <span className="acpmux-menu-label">{action.text}</span>
+          {action.kind === "saved" ? action.icon : <EnvironmentIcon kind={action.kind} />}
+          <span className="acpmux-menu-text acpmux-location-name">
+            <span className="acpmux-menu-label">{action.text}</span>
+            {action.detail && <span className="acpmux-env-detail">{action.detail}</span>}
+          </span>
         </span>
       );
+    }
     if (value.startsWith(SAVED)) {
       const index = savedShown.findIndex((environment) => SAVED + environment.id === value);
       const environment = savedShown[index];
@@ -250,6 +289,14 @@ export function EnvironmentPicker({
         <span className="acpmux-menu-text acpmux-location-name">
           <span className="acpmux-menu-label">{environment.label}</span>
         </span>
+        {/* Only an SSH or Cloud machine acpmux lists has a status; this Mac never shows one. */}
+        {environment.kind !== "local" && environment.connected !== undefined && (
+          <span className="acpmux-env-status" data-connected={String(environment.connected)}>
+            <span className="acpmux-env-status-text">
+              {t(environment.connected ? "composer.envConnected" : "composer.envNotConnected")}
+            </span>
+          </span>
+        )}
         {number !== undefined && <kbd className="acpmux-env-key">⌥⌘{number}</kbd>}
         <span className="acpmux-location-check" aria-hidden="true">
           {environment.id === currentRow && <CheckIcon />}
@@ -293,6 +340,16 @@ export function EnvironmentPicker({
           onCommand={(event) => {
             if (event.key === "Escape") escaped.current = true;
             if (event.key === "Tab") event.preventDefault();
+            // Return runs New Cloud Machine (it creates a machine) or SSH… only once the arrow keys
+            // or the pointer reached it, never when Base UI highlighted it on its own: a search that
+            // leaves no machine moves that highlight onto the first action.
+            if (event.key === "Enter" && autoHighlighted.current?.startsWith(ACTION)) {
+              event.preventDefault();
+              event.preventBaseUIHandler?.();
+            }
+          }}
+          onHighlight={(value, by) => {
+            autoHighlighted.current = by === "none" ? value : undefined;
           }}
           label={t("composer.environmentSearch")}
           placeholder={t("composer.environmentSearch")}

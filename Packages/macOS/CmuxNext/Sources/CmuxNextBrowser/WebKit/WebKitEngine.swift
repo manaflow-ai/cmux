@@ -56,6 +56,9 @@ public final class WebKitEngine: BrowserEngine {
     /// What modified link clicks do (cmux.json `browser.links.*`). Read on
     /// each click.
     public var linkClicks: BrowserLinkClickMapping = .chrome
+    /// The organization's URL blocklist and allowlist (Chrome's `URLBlocklist`
+    /// and `URLAllowlist` policies); the App sets it from the managed policy.
+    public var urlFilter: BrowserURLFilter = .none
 
     public init(
         profileStore: WebKitProfileStore = WebKitProfileStore(),

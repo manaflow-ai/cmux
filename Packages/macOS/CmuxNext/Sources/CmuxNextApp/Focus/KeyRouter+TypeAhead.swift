@@ -18,18 +18,32 @@ extension KeyRouter {
     func typesIntoPrimaryInput(_ event: NSEvent, in window: NSWindow?) -> Bool {
         guard let window, !(window.firstResponder is TerminalSurfaceView), event.type == .keyDown,
               !Self.isChord(event.modifierFlags) else { return false }
-        let (controller, kind) = focus(for: window)
-        guard let controller, kind == .content else { return false }
-        let focus = controller.focus.state
-        guard Self.mayHavePrimaryInput(focus.resolved), let pane = focus.resolved.pane,
-              let target = controller.content?.paneController(key: pane)?.currentContent?.primaryInput,
-              target.routesToPrimaryInput(event) else { return false }
+        guard let focused = focusedPrimaryInput(in: window), focused.input.routesToPrimaryInput(event) else { return false }
+        let (focus, target) = (focused.focus, focused.input)
         let facts = Facts(hasMarkedText: (window.firstResponder as? any NSTextInputClient)?.hasMarkedText() == true,
                           primaryInputReady: target.acceptsRedirectedTyping, primaryInputClaimsKey: true)
-        guard decide(event, focus: focus, keyWindow: kind, facts: facts) == .primaryInput else { return false }
+        guard decide(event, focus: focus, keyWindow: .content, facts: facts) == .primaryInput else { return false }
         decided.add(event)
         target.beginTyping(with: event)
         return true
+    }
+
+    /// The focused pane's primary input in `window`, a main window, with the
+    /// focus it was resolved from; nil when the pane shows none.
+    func focusedPrimaryInput(in window: NSWindow?) -> (focus: FocusState, input: any PrimaryInputTarget)? {
+        let (controller, kind) = focus(for: window)
+        guard let controller, kind == .content else { return nil }
+        let focus = controller.focus.state
+        guard Self.mayHavePrimaryInput(focus.resolved), let pane = focus.resolved.pane,
+              let target = controller.content?.paneController(key: pane)?.currentContent?.primaryInput else { return nil }
+        return (focus: focus, input: target)
+    }
+
+    /// The target of a nil-targeted paste command in `window` instead of
+    /// AppKit's `found` (``PrimaryInputPasteRoute``); nil keeps `found`.
+    func pasteTarget(for action: Selector, found: AnyObject?, in window: NSWindow?) -> AnyObject? {
+        guard PrimaryInputPasteRoute.actions.contains(action), let focused = focusedPrimaryInput(in: window) else { return nil }
+        return PrimaryInputPasteRoute().target(for: action, found: found, in: window, input: focused.input)
     }
 
     /// Pages whose keys may wait for their document: agent pages (the new

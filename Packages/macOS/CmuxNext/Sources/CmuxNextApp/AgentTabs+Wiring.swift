@@ -111,12 +111,16 @@ extension AgentTabStore {
         let tabs = AgentTabStore(build: services.environment.build, registry: services.registry, environment: services.agentPaneEnvironment ?? ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
                                  linkScheme: services.linkScheme, settings: services.settings)
         tabs.launchImages = AgentPaneLaunchImages(beside: services.environment.sidebarSnapshotFile)
-        tabs.unsentDrafts = AgentUnsentDrafts(beside: services.environment.sidebarSnapshotFile)
-        tabs.pageChats.environments = services.environment.sidebarSnapshotFile.map {
-            SavedEnvironments(url: $0.url.deletingLastPathComponent().appending(path: "environments.json"))
-        }
+        let state = services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()
+        tabs.unsentDrafts = AgentUnsentDrafts(directory: state)
+        tabs.pageChats.environments = state.map { SavedEnvironments(url: $0.appending(path: "environments.json")) }
+        // The composer chips and shell commands chat pages held at the last quit (every relaunch's quit).
+        tabs.relaunchWake = AgentPaneRelaunchWake(directory: state)
+        tabs.wakeStates = tabs.relaunchWake.take()
         // The Chief home's acpmux: the Chief host's subagent tabs attach there.
-        let chief = ChiefHomeAcpmux(home: ChiefHome.resolve(tag: services.environment.tag))
+        let chief = ChiefHomeAcpmux(home: ChiefHome.resolve(tag: services.environment.tag)) { [weak services] in
+            await MainActor.run { _ = services?.home.brain.ensure(asked: false) }
+        }
         (tabs.chiefHost, tabs.chiefPaneHost) = (chief.host, chief.paneHost)
         tabs.localSessionHost = chief.localRouter(tabs.host)
         // This Mac's stable install id (the Cloud device id): only this host attaches to its acpmux.
@@ -152,6 +156,10 @@ extension AgentTabStore {
                 return nil
             }
             return AgentSessionRef.host(installID: id)
+        }
+        tabs.openProcess = { [weak services] chat, viewer in
+            guard let services else { return false }
+            return AgentProcessTerminal(services: services).open(viewer, beside: chat)
         }
         tabs.lookup = { [weak services] key in
             guard let services, let (tab, _) = services.locateTab(key), let record = tab.agentSession else { return nil }

@@ -56,7 +56,7 @@ final class SidebarSectionHeaderView: NSView {
         let alpha: CGFloat = collapsed || isHovered ? 1 : 0
         guard chevron.alphaValue != alpha else { return }
         guard window != nil, Motion.canAnimate(in: self) else { chevron.alphaValue = alpha; return }
-        Motion.animate(.hover, in: self) { chevron.animator().alphaValue = alpha }
+        Motion.feedback.animate(.hover, in: self) { chevron.animator().alphaValue = alpha }
     }
 
     override func updateLayer() {
