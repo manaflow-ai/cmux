@@ -97,6 +97,14 @@ public nonisolated enum SidebarTunables {
         help: "Hovering a row's pull request badge (with the session tree on) lists each pull request with its state, repository and size; a click opens it.",
         default: true, code: "SidebarTunables.pullRequestCard")
 
+    /// Leo 2026-10-21 (item D, multi-view): a press on a workspace row selects nothing; the click
+    /// (mouse-up on the same row) navigates, and a hold-then-drag moves the row without leaving the
+    /// workspace on screen. Rows of every workspace on screen draw a soft fill (`SidebarModel.onScreen`).
+    public static let multiView = Tunable<Bool>.toggle(
+        "sidebar.multiView", .sidebar, "Navigate on release (multi-view prototype)",
+        help: "A press on a workspace row changes nothing until the button comes up on that row; holding and dragging moves the row without switching to it. Rows of every workspace on screen get a soft highlight.",
+        default: false, code: "SidebarTunables.multiView")
+
     /// Sample rows with 1 to 7 pending items (`SidebarSection.rowBadgePreview()`).
     public static let rowBadgePreview = Tunable<Bool>.toggle(
         "sidebar.rowBadgePreview", .sidebar, "Row badge preview rows",
@@ -136,6 +144,7 @@ public nonisolated enum SidebarTunables {
             groupEdgeFraction.descriptor,
             groupExitFraction.descriptor,
             laneStatus.descriptor,
+            multiView.descriptor,
             NotificationBadgeLook.tunable.descriptor,
             NotificationIconLook.tunable.descriptor,
             presenceDots.descriptor,
