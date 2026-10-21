@@ -518,6 +518,8 @@ const staysOut = (row: AcpmuxRow) =>
   // who answers it; folded, nobody would see it happened.
   row.kind === "compaction" ||
   row.kind === "failover" ||
+  // A policy the harness cannot keep: the agent runs without the asks the person chose.
+  row.kind === "policyUnenforced" ||
   // A paused agent pair waits for the person's Resume.
   row.kind === "agentPair" ||
   // Where the session started: what it runs on and how it compacts.
