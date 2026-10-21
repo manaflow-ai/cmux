@@ -248,8 +248,11 @@ impl Hub {
         if if_live == IfLive::Refuse {
             // The holder the harness records in the store that holds the chat, as an adopt
             // checks it (`hub/adoption.rs`); one that has exited does not count.
+            // The harness's env (profile, preset, the chat's own store), as fork and aside read it:
+            // a store a profile sets is where the original app records its holder.
             let meta = session.meta();
-            let homes = self.harness_homes().with_env(&[&meta.session_env]);
+            let (_, env) = self.harness_env(&meta).await;
+            let homes = self.harness_homes().with_env(&[&env]);
             let root = meta.chat_store.clone().unwrap_or_else(|| match family.as_str() {
                 "codex" => homes.codex.clone(),
                 _ => homes.claude.clone(),
