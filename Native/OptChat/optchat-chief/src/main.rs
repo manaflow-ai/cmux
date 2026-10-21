@@ -260,7 +260,14 @@ fn main() -> std::process::ExitCode {
         }
         Some("browse") => {
             let paths = Paths::new(&home(&flags));
-            let page = optchat_chief::tools::ask_browse(&paths.tools_socket).or_else(|_| {
+            let page = optchat_chief::tools::ask_browse(&paths.tools_socket).or_else(|e| {
+                // The host's refusal stands, and a subagent gets no page
+                // from the files either (the settings arm above).
+                if e.contains("subagents have no owner controls")
+                    || optchat_chief::turn_caller::this_process_is_a_subagent()
+                {
+                    return Err("subagents have no owner controls".to_owned());
+                }
                 let chat = optchat_chief::browse::open_offline(&paths.chat, &paths.memory_db)?;
                 let page = optchat_chief::browse::html(&chat);
                 chat.shutdown();

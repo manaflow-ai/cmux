@@ -124,13 +124,13 @@ pub fn under_this_process(pid: i32) -> bool {
 }
 
 /// Whether this process runs under any Chief's subagent session
-/// (`optchat-sub-<home id>-a<N>`): by the session name acpmux set on the
-/// agent above it, or by its own `ACPMUX_SESSION_NAME`. Used where no host
-/// answers to bind the caller (the settings CLI's file fallback).
+/// (`optchat-sub-…`, as the host's `subagent_prefix` matches): by the session
+/// name acpmux set on the agent above it, or by its own
+/// `ACPMUX_SESSION_NAME`. Used where no host answers to bind the caller (the
+/// settings and browse CLI's file fallbacks).
 pub fn this_process_is_a_subagent() -> bool {
-    let named = |name: Option<String>| {
-        name.is_some_and(|name| crate::tools::subagent_of_session(&name).is_some())
-    };
+    let named =
+        |name: Option<String>| name.is_some_and(|name| name.trim().starts_with("optchat-sub-"));
     named(std::env::var("ACPMUX_SESSION_NAME").ok())
         || crate::acpmux_peer::expected()
             .is_some_and(|acpmux| named(agent_session_name(std::process::id() as i32, &acpmux)))

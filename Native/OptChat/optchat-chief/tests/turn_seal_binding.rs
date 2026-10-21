@@ -56,12 +56,17 @@ fn settings(home: &Path, session: Option<&str>) -> Output {
     settings_with(home, session, &["show"])
 }
 
-/// `optchat-chief settings WORDS` on `home`, under a `/bin/bash` agent host
-/// with `session`'s name, or (None) straight from this test as the owner.
 fn settings_with(home: &Path, session: Option<&str>, words: &[&str]) -> Output {
+    chief_cli(home, session, &[&["settings"][..], words].concat())
+}
+
+/// `optchat-chief WORDS --mux-home home`, under a `/bin/bash` agent host with
+/// `session`'s name, or (None) straight from this test as the owner.
+fn chief_cli(home: &Path, session: Option<&str>, words: &[&str]) -> Output {
     let exe = env!("CARGO_BIN_EXE_optchat-chief");
-    let args: Vec<String> = std::iter::once("settings")
-        .chain(words.iter().copied())
+    let args: Vec<String> = words
+        .iter()
+        .copied()
         .chain(["--mux-home"])
         .map(str::to_owned)
         .chain([home.display().to_string()])
@@ -75,8 +80,12 @@ fn settings_with(home: &Path, session: Option<&str>, words: &[&str]) -> Output {
             sh
         }
         None => {
+            // Not under any acpmux agent, whatever session runs the tests.
             let mut direct = Command::new(exe);
-            direct.args(&args).env_remove("ACPMUX_SESSION_NAME");
+            direct
+                .args(&args)
+                .env_remove("ACPMUX_SESSION_NAME")
+                .env("ACPMUX_BIN", "/nonexistent/acpmux");
             direct
         }
     };
@@ -259,4 +268,31 @@ fn a_subagent_gets_no_owner_settings_when_no_host_answers() {
         before,
         "the owner's set is saved"
     );
+}
+
+/// `browse` reads the whole chat and memory. The host refuses it to a
+/// subagent; the CLI must not answer that refusal (or a missing host) by
+/// opening the files itself.
+#[test]
+fn a_subagent_gets_no_offline_browse_page() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("chief");
+    let page = dir.path().join("page.html");
+    let browse = ["browse", "--out", page.to_str().unwrap()];
+
+    let no_host = chief_cli(&home, Some("optchat-sub-home-a1"), &browse);
+    assert!(refused_as_subagent(&no_host), "no host: {no_host:?}");
+    assert!(!page.exists());
+
+    serve(&home, Arc::new(ChiefTools::none()));
+    let refused_by_host = chief_cli(&home, Some("optchat-sub-home-a1"), &browse);
+    assert!(
+        refused_as_subagent(&refused_by_host),
+        "host up: {refused_by_host:?}"
+    );
+    assert!(!page.exists());
+
+    let owner = chief_cli(&home, None, &browse);
+    assert!(owner.status.success(), "owner: {owner:?}");
+    assert!(page.exists());
 }
