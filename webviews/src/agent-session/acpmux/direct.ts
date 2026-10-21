@@ -1481,7 +1481,8 @@ export class AcpmuxDirectClient {
     this.rebuild();
     // After the replay, not before: a `session_changed` the tail holds would take the live state back.
     this.summary = { ...kept.summary, ...listed };
-    this.turnOpen = listed?.status === "running";
+    // A paused queue runs nothing, whatever status acpmux last listed (`isWorking`).
+    this.turnOpen = listed?.status === "running" && listed.queuePaused !== true;
     // Only acpmux says what is pending (attach's `session.pending`): a replayed ask is history
     // here. The marks it left on its own rows (an edit "awaiting permission") stand until the
     // attach replays the page, as they do on a page whose decision it does not hold either.
