@@ -31,12 +31,17 @@
 # (defaults_guard.py check-stamp), someone else regenerated them: they are
 # dropped from the repair, and nothing waits for them.
 #
+# The action exports are judged the same way from ACTIONS_MADE_AT, the commit the Mac job made them
+# at (base-autofix-action-exports.sh; without it, BASE_SHA): they land whole, as made there, when
+# nothing in ACTIONS_MADE_AT..tip moved the actions area or wrote one of them. Their inputs are the
+# actions area only; the shortcuts and app-host areas hold what is built from them, not the exports.
+#
 # The rest lands; when anything waited the run still fails, so the next run
 # diffs from an older successful one and repairs it. Nothing already on the tip
 # is pushed again (no empty commit). Each push is a plain push, retried on a
 # moved tip up to CMUX_BASE_AUTOFIX_PUSH_ATTEMPTS times (5).
 #
-# Usage: scripts/cmux-next/base-autofix-push.sh REMOTE BRANCH BASE_SHA [SETTINGS_MADE_AT]
+# Usage: scripts/cmux-next/base-autofix-push.sh REMOTE BRANCH BASE_SHA [SETTINGS_MADE_AT] [ACTIONS_MADE_AT]
 # Credentials come from the caller's environment (GIT_CONFIG_* extraheader).
 # CMUX_BASE_AUTOFIX_AREAS names the area script (default: autofix-areas.sh beside this one).
 # CMUX_BASE_AUTOFIX_HELD names a file for the list of held files.
@@ -45,6 +50,7 @@ remote="${1:?usage: $0 REMOTE BRANCH BASE_SHA}"
 branch="${2:?usage: $0 REMOTE BRANCH BASE_SHA}"
 base="${3:?usage: $0 REMOTE BRANCH BASE_SHA [SETTINGS_MADE_AT]}"
 settings_made_at="${4:-}"
+actions_made_at="${5:-}"
 attempts="${CMUX_BASE_AUTOFIX_PUSH_ATTEMPTS:-5}"
 # The subject of base autofix's own commits (cmux-next-base-autofix.yml); the
 # SHA after "at" is the tree the repair was made from. Only the subject counts.
@@ -60,6 +66,8 @@ settings_exports=(
   schemas/settings/settings-schema.json
   schemas/settings-export/settings-schema.sources.sha256
 )
+# Every file of the action export (regenerate-action-exports.sh writes the same list).
+action_exports=(plans/cmux-next/action-surfaces.json plans/cmux-next/actions.md plans/cmux-next/links.json)
 areas_script="${CMUX_BASE_AUTOFIX_AREAS:-$(dirname "${BASH_SOURCE[0]}")/autofix-areas.sh}"
 
 # The areas whose inputs a list of changed paths (stdin) touches.
@@ -77,8 +85,8 @@ output_areas() {
       Packages/macOS/CmuxNext/ci-target-graph.json) echo graph ;;
       */generated/strings.json) echo strings; echo webviews ;;
       cmux-tui/bindings/*) echo sdk ;;
-      plans/cmux-next/action-surfaces.json | plans/cmux-next/actions.md | plans/cmux-next/links.json)
-        echo actions; echo shortcuts; echo apphost ;;
+      # The exports read the actions area only; what is built from them follows them (built_from).
+      plans/cmux-next/action-surfaces.json | plans/cmux-next/actions.md | plans/cmux-next/links.json) echo actions ;;
       schemas/settings/settings-schema.json | schemas/settings-export/* | docs/mdm/*) echo settings ;;
       "$snapshot") echo settings; echo actions ;;
       web/data/cmux-shortcuts.generated.json) echo shortcuts; echo actions ;;
@@ -140,6 +148,15 @@ newer_writes() { # <from> <tip>
   done <<<"$log"
 }
 is_settings_export() { [[ "$(export_of "$1")" == settings ]]; }
+is_action_export() { [[ "$(export_of "$1")" == actions ]]; }
+# The commit an export was made at: MADE_AT when it is a commit between BASE_SHA and TIP; else it
+# prints nothing and fails (the caller holds the export).
+made_from() { # <made-at> <tip>
+  local from=""
+  [[ "$1" =~ ^[0-9a-f]{40}$ ]] && from="$(git rev-parse -q --verify "$1^{commit}" 2>/dev/null || true)"
+  [[ -n "$from" ]] && git merge-base --is-ancestor "$base" "$from" 2>/dev/null \
+    && git merge-base --is-ancestor "$from" "$2" 2>/dev/null && echo "$from"
+}
 # The settings exports' inputs are what their stamp hashes (CmuxNextSettings and the two export
 # tests; defaults_guard.py source-stamp gives it for a commit). Exports whose stamp the tip's
 # sources give, made by the same regeneration, are exactly what the tip would make, however
@@ -188,7 +205,17 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
       settings_from="$base"
     fi
   fi
-  if [[ "$tip" == "$base" && "$settings_from" == "$base" && -z "$settings_unproven" ]]; then
+  # Where the action exports were made, the same way.
+  actions_from="$base"
+  actions_unproven=""
+  if [[ -n "$actions_made_at" ]]; then
+    actions_from="$(made_from "$actions_made_at" "$tip")" || {
+      actions_unproven="the action exports were made at ${actions_made_at:0:12}, which is not a commit between ${base:0:12} and ${tip:0:12}"
+      actions_from="$base"
+    }
+  fi
+  if [[ "$tip" == "$base" && "$settings_from" == "$base" && -z "$settings_unproven" \
+    && "$actions_from" == "$base" && -z "$actions_unproven" ]]; then
     git checkout --quiet --detach "$repair"
   else
     newer="$(newer_writes "$base" "$tip")" || {
@@ -223,6 +250,31 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
       moved_areas="$(grep . <<<"$moved_areas" | sort -u || true)"
       todo="$( { printf '%s\n' "$repaired"; git diff --name-only --no-renames "$settings_from" "$repair" -- "${settings_exports[@]}"; } | grep . | sort -u)"
     fi
+    newer_actions="$newer"
+    if [[ "$actions_from" != "$base" ]]; then
+      # The action exports are judged from where they were made, and land whole as made there.
+      newer_actions="$(newer_writes "$actions_from" "$tip")" || {
+        echo "::error::cannot read the commits ${actions_from:0:12}..${tip:0:12} wrote, so nothing lands over them" >&2
+        exit 1
+      }
+      newer_actions="$(grep . <<<"$newer_actions" | sort -u || true)"
+      actions_changed="$(git diff --name-only --no-renames "$actions_from" "$tip")" || {
+        echo "::error::cannot read what ${actions_from:0:12}..${tip:0:12} changed, so the action exports made at ${actions_from:0:12} do not land" >&2
+        exit 1
+      }
+      actions_areas="$(input_areas <<<"$actions_changed")" || {
+        echo "::error::cannot read the input areas ${actions_from:0:12}..${tip:0:12} changed, so the action exports made at ${actions_from:0:12} do not land" >&2
+        exit 1
+      }
+      moved_areas="$(grep -vx actions <<<"$moved_areas" || true)"
+      if grep -qx actions <<<"$actions_areas"; then moved_areas+=$'\n'actions; fi
+      moved_areas="$(grep . <<<"$moved_areas" | sort -u || true)"
+      todo="$( { printf '%s\n' "$todo"; git diff --name-only --no-renames "$actions_from" "$repair" -- "${action_exports[@]}"; } | grep . | sort -u)"
+    fi
+    if [[ -n "$actions_unproven" ]]; then
+      echo "::error::$actions_unproven; they wait." >&2
+      moved_areas="$(printf '%s\nactions\n' "$moved_areas" | grep . | sort -u)"
+    fi
     [[ -z "$settings_unproven" ]] || moved_areas="$(printf '%s\nsettings\n' "$moved_areas" | grep . | sort -u)"
     if [[ -z "$settings_unproven" ]] && grep -qx settings <<<"$moved_areas" \
       && grep -q . <(while IFS= read -r path; do is_settings_export "$path" && echo "$path"; done <<<"$todo") \
@@ -256,6 +308,8 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
       [[ "$path" != "$snapshot" ]] || continue
       if is_settings_export "$path"; then
         writes="$newer_settings"
+      elif is_action_export "$path"; then
+        writes="$newer_actions"
       else
         writes="$newer"
       fi

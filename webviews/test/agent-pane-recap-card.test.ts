@@ -10,6 +10,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { TRANSCRIPT_RUNWAY } from "../src/agent-session/acpmux/model";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -233,9 +234,10 @@ await requireBrowserLane("agent-pane-recap-card.test.ts", async () => {
         };
       });
     await page.waitForTimeout(300);
-    // Font metrics differ between hosts: the pane is sized from the chat as drawn, 4px to spare.
+    // Font metrics differ between hosts: the pane is sized from the chat as drawn, with the runway
+    // under its last row and 4px to spare.
     const { spare } = await view();
-    await page.setViewportSize({ width: 900, height: 760 - spare + 4 });
+    await page.setViewportSize({ width: 900, height: 760 - spare + TRANSCRIPT_RUNWAY + 4 });
     await page.waitForTimeout(300);
     expect(await view()).toMatchObject({ overflows: false, below: 0 });
     await setSessionStatus(page);

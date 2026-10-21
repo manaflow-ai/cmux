@@ -3,21 +3,22 @@
 //!
 //! `list` names every setup task and the command that checks and does it,
 //! whether `setup` itself runs it yet or an older command does. A task that
-//! `setup` runs (`trust` and `machine` today) checks before it changes
-//! anything, changes nothing when the state is already right, prints what it
-//! would do with `--dry-run`, and names the command that undoes it. Only
-//! what a person must do themselves (an OAuth sign-in, a secret, a macOS
-//! grant, a key on an ssh machine) comes back as `user_action`. Output is
-//! always JSON: these commands are for agents.
+//! `setup` runs (`trust`, `machine` and `harness` today) checks before it
+//! changes anything, changes nothing when the state is already right, prints
+//! what it would do with `--dry-run`, and names the command that undoes it.
+//! Only what a person must do themselves (an OAuth sign-in, a secret,
+//! installing a CLI, a macOS grant, a key on an ssh machine) comes back as
+//! `user_action`. Output is always JSON: these commands are for agents.
 
 use serde_json::{Value, json};
 
 use super::{GlobalArgs, OutputMode, parse_globals, wire};
 
+mod harness;
 mod machine;
 mod trust;
 
-const HELP: &str = "Usage: cmux setup <list|status|trust|machine>\n\nSet up cmux for the person, from an agent. Every command prints one JSON object.\n\n  cmux setup list                 Every setup task and the commands that check and do it\n  cmux setup status               Read-only checks of the tasks setup runs\n  cmux setup trust [FOLDER] [--level trusted|untrusted|unknown] [--dry-run]\n                                  Record the person's trust for a folder (default: this folder, trusted)\n  cmux setup machine SSH_TARGET [--name NAME] [--dry-run]\n                                  Add an ssh machine as an agent peer, or update or repair it (key-only ssh)\n\nA task result is {schema_version, task, state, dry_run, ..., undo, user_action}. state is ok (nothing to do), changed, planned (--dry-run), needs_user (user_action says what the person must do) or failed. undo is the command that puts the old state back, or null. Exits 0 unless the task failed (1) or the arguments are wrong (2).\n";
+const HELP: &str = "Usage: cmux setup <list|status|trust|machine|harness>\n\nSet up cmux for the person, from an agent. Every command prints one JSON object.\n\n  cmux setup list                 Every setup task and the commands that check and do it\n  cmux setup status               Read-only checks of the tasks setup runs\n  cmux setup trust [FOLDER] [--level trusted|untrusted|unknown] [--dry-run]\n                                  Record the person's trust for a folder (default: this folder, trusted)\n  cmux setup machine SSH_TARGET [--name NAME] [--dry-run]\n                                  Add an ssh machine as an agent peer, or update or repair it (key-only ssh)\n  cmux setup harness [ID ...] [--dry-run]\n                                  Check that each harness is installed, signed in and current (default: every configured or found one)\n\nA task result is {schema_version, task, state, dry_run, ..., undo, user_action}. state is ok (nothing to do), changed, planned (--dry-run), needs_user (user_action says what the person must do) or failed. undo is the command that puts the old state back, or null. Exits 0 unless the task failed (1) or the arguments are wrong (2).\n";
 
 /// The result of a setup task: the JSON the agent reads, and whether it failed.
 pub(super) struct Outcome {
@@ -56,6 +57,7 @@ fn run(global: &GlobalArgs, args: &[String]) -> i32 {
         Some("status") => no_arguments(&args[1..]).and_then(|()| status()),
         Some("trust") => trust::run(&args[1..]),
         Some("machine") => machine::run(&args[1..]),
+        Some("harness") => harness::run(&args[1..]),
         Some(other) => Err(Refusal::Usage(format!(
             "cmux: setup: unknown task {other:?}; `cmux setup list` names every task"
         ))),
@@ -113,12 +115,8 @@ const TASKS: &[Task] = &[
     Task {
         id: "harness",
         summary: "Install and sign in an agent harness (Claude Code, Codex, OpenCode, Gemini, ...)",
-        setup: None,
-        check: &[
-            "cmux harness list --json",
-            "cmux harness doctor ID --json",
-            "cmux harness login ID --status --json",
-        ],
+        setup: Some("cmux setup harness [ID ...] [--dry-run]"),
+        check: &["cmux setup harness [ID ...]", "cmux harness doctor ID --json"],
         apply: &["cmux harness add ...", "cmux harness login ID"],
         person: Some("the harness's own sign-in (OAuth in a browser) and installing its CLI"),
     },
@@ -235,9 +233,9 @@ fn list() -> Value {
 }
 
 /// The read-only check of every task `setup` runs: this folder's trust,
-/// and every acpmux peer with whether it is connected and on this build.
+/// every acpmux peer with whether it is connected and on this build, and
+/// every harness with whether it is installed, signed in and current.
 fn status() -> Result<Outcome, Refusal> {
-    let trust = trust::status()?;
-    let machine = machine::status()?;
-    Ok(Outcome { report: json!({"schema_version": 1, "checks": [trust, machine]}), failed: false })
+    let checks = [trust::status()?, machine::status()?, harness::status()];
+    Ok(Outcome { report: json!({"schema_version": 1, "checks": checks}), failed: false })
 }

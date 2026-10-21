@@ -55,9 +55,26 @@ one.
   Trust only a folder the user named or asked you to work in: trust lets
   agents run the folder's own hooks and configs without asking.
   `--level untrusted` records a refusal; `--level unknown` forgets the
-  answer. It never edits Claude Code's or Codex's own files.
-- Harness install and sign-in: `cmux harness doctor ID --json` names the
-  failing step and its fix; `cmux harness login ID` starts the sign-in.
+  answer. A worktree shares its repository's answer: `via` names the folder
+  that answer was made for, and forgetting it there makes every worktree of
+  the repository ask again (`written` says which folder changed). It never
+  edits Claude Code's or Codex's own files.
+- Harness install and sign-in: `cmux setup harness [ID ...]` (default:
+  every configured or found harness) says per harness whether it is
+  installed, signed in and outdated. A signed-out one is `needs_user` with
+  `cmux harness login ID` (a harness not configured yet: its own login
+  command, such as `codex login`): run `user_action.command` in a terminal
+  beside your chat and the user finishes the sign-in in the browser. A
+  missing CLI is `needs_user` with the install docs as `url`. An outdated
+  one names its `update` command; run it only when the user wants the
+  update. Run `cmux setup harness ID` again after the user acts.
+  `signed_in: null` means cmux cannot see the sign-in; it is still `ok`,
+  and `auth_detail` says why when cmux knows. Setup never reads the login
+  keychain itself and does not start a harness whose sign-in may be there
+  (a Keychain item in its profile env, Codex keeping its login in the
+  keychain, a Claude Code adapter).
+  `cmux harness doctor ID --json` runs a real prompt turn when a harness
+  that looks ready still fails.
 - Add an ssh machine: `cmux setup machine SSH_TARGET [--name NAME]`. It is
   `ok` when the peer is already connected and current, updates a peer on an
   older build, and otherwise installs acpmux there and registers the peer;
@@ -65,6 +82,10 @@ one.
   when the machine refuses or does not answer, the result is `needs_user`
   with `user_action.command`, the ssh command to try. Hand the user that
   command; never ask for their password and never edit their ssh keys or
-  `~/.ssh/config`. Ask first before adding a machine the user did not name.
+  `~/.ssh/config`. Without `--name` the peer is named after the host's first
+  label; when that name already belongs to another peer, the result is
+  `needs_user` with `user_action.kind` `name` and nothing changed: pick a
+  new `--name`, or ask before passing the taken one (that moves the peer).
+  Ask first before adding a machine the user did not name.
   `cmux setup status` lists every peer with `connected` and `outdated`, and
   the `fix` for each one that needs it.

@@ -33,6 +33,7 @@ use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use cmux_chief::acp::{TurnFolder, TurnOutput};
 use optchat_host::OptChat;
 use serde_json::{Value, json};
 
@@ -652,7 +653,7 @@ impl Spawner {
             tx,
         )?;
         let _ = self.to_brain(Input::SubagentPrompted { id: id.to_owned() });
-        self.forward_answer(id, rx);
+        self.forward_answer(id, &session, &prompt_id, rx);
         self.trace.emit(
             "subagent.start",
             json!({"id": id, "spawn": spawn, "session": session, "harness": s.harness, "harness_profile": admitted.profile, "harness_kind": admitted.kind, "harness_argv0": admitted.argv0, "ms": began.elapsed().as_millis() as u64}),
@@ -766,18 +767,45 @@ impl Spawner {
         }
     }
 
-    /// Sends the prompt's answer (token use, cost) to the brain.
-    fn forward_answer(&self, id: &str, rx: std::sync::mpsc::Receiver<TurnSignal>) {
+    /// Sends the start of the task prompt's turn (`SubagentTurnStarted`),
+    /// then the prompt's answer (token use, cost), to the brain.
+    fn forward_answer(
+        &self,
+        id: &str,
+        session: &str,
+        prompt_id: &str,
+        rx: std::sync::mpsc::Receiver<TurnSignal>,
+    ) {
         let tx = self
             .tx
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone();
-        let id = id.to_owned();
+        let agents = self.agents.clone();
+        let (id, session, prompt_id) = (id.to_owned(), session.to_owned(), prompt_id.to_owned());
         std::thread::spawn(move || {
+            // Folded until the session's first turn starts, then no more.
+            let mut start = Some(TurnFolder::default());
             while let Ok(signal) = rx.recv() {
                 match signal {
-                    TurnSignal::Changed | TurnSignal::Noted | TurnSignal::Streamed => {}
+                    TurnSignal::Changed | TurnSignal::Noted => {
+                        let Some(folder) = start.as_mut() else {
+                            continue;
+                        };
+                        match first_turn_start(&*agents, &session, &prompt_id, folder) {
+                            None => {}
+                            Some(ours) => {
+                                start = None;
+                                if ours {
+                                    let _ = tx.send(Input::SubagentTurnStarted {
+                                        id: id.clone(),
+                                        prompt_id: prompt_id.clone(),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    TurnSignal::Streamed => {}
                     TurnSignal::Done(answer) => {
                         let _ = tx.send(Input::SubagentAnswer { id, answer });
                         return;
@@ -1477,6 +1505,26 @@ pub fn recover_launch(
         }
     }
     None
+}
+
+/// Reads `session`'s new events into `folder` and says whether its first
+/// turn started: Some(true) when it is the turn of prompt `prompt_id`
+/// (acpmux's `turn_started` after that prompt's `user_message`),
+/// Some(false) when it is another's, None while none has started (or the
+/// events could not be read: the next signal reads them again).
+fn first_turn_start(
+    agents: &dyn AgentPort,
+    session: &str,
+    prompt_id: &str,
+    folder: &mut TurnFolder,
+) -> Option<bool> {
+    let events = agents.events(session, folder.seq()).ok()?;
+    events.iter().find_map(|e| {
+        folder.apply(e).into_iter().find_map(|out| match out {
+            TurnOutput::Started { turn, .. } => Some(turn.prompt_id.as_deref() == Some(prompt_id)),
+            _ => None,
+        })
+    })
 }
 
 /// The answer of a prompt to a subagent: its token use and cost.

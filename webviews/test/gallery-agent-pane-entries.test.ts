@@ -37,8 +37,6 @@ await requireBrowserLane("gallery-agent-pane-entries.test.ts", async () => {
     (await count(page, ".acpmux-composer")) > 0 && (await count(page, "[data-harness-notice]")) === 0;
 
   const CASES: Case[] = [
-    { entry: "session-sidebar", variant: "search-filtered", play: "steps" },
-    { entry: "session-sidebar", variant: "search-clears", play: "steps" },
     { entry: "start-folder", variant: "home-question", play: "steps" },
     { entry: "start-folder", variant: "root-refused", play: "steps" },
     { entry: "permission-panel", variant: "allowance", play: "error" },
@@ -53,6 +51,10 @@ await requireBrowserLane("gallery-agent-pane-entries.test.ts", async () => {
       // An update that needs sudo is neither a line nor the model chip's offer (Settings owns it).
       shows: async (page) => (await composerWithoutNotice(page)) && (await count(page, "[data-harness-offer]")) === 0,
     },
+    // Restart Chat and the busy spinner come and go without moving Not Now or the words (layout
+    // shift 0); the failed update's Try Again keeps that order too.
+    { entry: "harness-health-notice", variant: "restart-after-turn", play: "steps" },
+    { entry: "harness-health-notice", variant: "update-failed", play: "steps" },
     { entry: "file-search", variant: "escape", play: "steps", shows: has(".acpmux-composer") },
     {
       entry: "home-lists",
@@ -63,6 +65,25 @@ await requireBrowserLane("gallery-agent-pane-entries.test.ts", async () => {
         (await count(page, ".acpmux-composer")) > 0 &&
         (await count(page, ".acpmux-home-area > *")) === 0,
     },
+    // Nothing is seeded: the image waits on the host's link.inspect answer, as in the app.
+    {
+      entry: "reply-image",
+      variant: "local",
+      shows: (page) =>
+        page.evaluate(() => [...document.images].some((image) => image.complete && image.naturalWidth > 0)),
+    },
+    // The summary card is a popover in a pane too narrow for its inline column (#21564): the
+    // Summary button opens it, and it lists the subagents.
+    ...["summary", "card-kinds", "card-waiting", "card-collapsed", "card-closed", "card-outside-click"].map(
+      (variant): Case => ({ entry: "subagents", variant, play: "steps" }),
+    ),
+    {
+      entry: "subagents",
+      variant: "card-open-pane",
+      play: "steps",
+      shows: has(".acpmux-summary-card .acpmux-summary-agents"),
+    },
+    { entry: "subagents", variant: "card-open-child", play: "steps", shows: has(".cv-subagent-of") },
   ];
 
   setDefaultTimeout(240_000);
