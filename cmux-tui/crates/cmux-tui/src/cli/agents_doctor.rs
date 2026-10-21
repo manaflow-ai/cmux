@@ -29,9 +29,9 @@ const HELP: &str = "Usage: cmux agents doctor [--json]\n\nReports whether this m
 pub(super) const STATUS_METHOD: &str = "computer_use.status";
 /// The MCP server name cmux uses for computer use, and its binary.
 const CUA_SERVER: &str = "cmux-cua";
-const ACCESSIBILITY_URL: &str =
+pub(super) const ACCESSIBILITY_URL: &str =
     "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility";
-const SCREEN_RECORDING_URL: &str =
+pub(super) const SCREEN_RECORDING_URL: &str =
     "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

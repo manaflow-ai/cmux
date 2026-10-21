@@ -142,8 +142,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-b17c7f9395f1fed20891728654581ac30af6a4d4/CCmuxAppFFI.xcframework.zip",
-    checksum: "891bb8c8a69dcf5ae5b88035992856bd781e8ce93a99a06433bb8b3b3f887614"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-baaef75ede8be6e9848546b907dd1c8afb82620b/CCmuxAppFFI.xcframework.zip",
+    checksum: "603406bb46fbe3fff156ca22eaf80766ae0ddf313eeca112b0d47390d26614b1"
 )
 
 let package = Package(
@@ -275,6 +275,7 @@ let package = Package(
                 "CmuxNextAgentActivity",
                 "CmuxNextScreenshots",
                 "CmuxNextAgentLanes",
+                "CmuxNextChiefViews",
                 "CmuxNextAgentCursor",
                 .product(name: "CmuxAgentCursor", package: "CmuxAgentCursor"),
                 "CmuxNextAgentCursorVisibility",
@@ -837,6 +838,33 @@ let package = Package(
             dependencies: ["CmuxNextChiefMemory"],
             swiftSettings: uiSwiftSettings
         ),
+        // The Chief view gallery (webviews/src/pages/chief-views): the page's provider over the
+        // agent lanes, terminal hook agents, the CI fleet dashboard and GitHub search, its Debug
+        // Settings toggle and strings. The App passes its machines and navigation (ChiefViewsHost).
+        .target(
+            name: "CmuxNextChiefViews",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextActions",
+                "CmuxNextAgentActivity",
+                "CmuxNextBridge",
+                "CmuxNextCompat",
+                "CmuxNextDaemon",
+                "CmuxNextDaemonService",
+                "CmuxNextDesign",
+                "CmuxNextHome",
+                "CmuxNextPages",
+                "CmuxNextSettings",
+            ],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextChiefViewsTests",
+            dependencies: ["CmuxNextAgentActivity", "CmuxNextChiefViews", "CmuxNextPages", "CmuxNextSettings"],
+            swiftSettings: uiSwiftSettings
+        ),
         // The acpmux watch feed (turn states and lanes), the sidebar's top items (Lanes, cx-v9k2f), its Chief item
         // (with its App Store card, Chief in Sidebar) and the Chief's tools in the docked Home's tab row.
         .target(
@@ -914,6 +942,11 @@ let package = Package(
             resources: [
                 .process("Resources"),
             ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextRemoteViewTests",
+            dependencies: ["CmuxNextRemoteView"],
             swiftSettings: uiSwiftSettings
         ),
         // Remote tab client (remote-tab.md r2): the page of a browser tab

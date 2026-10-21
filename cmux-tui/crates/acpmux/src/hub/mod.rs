@@ -47,6 +47,7 @@ mod model_hint;
 mod models_view;
 mod paging;
 mod personal_stats;
+mod policy_mode;
 mod pool;
 mod prompt_images;
 mod prompt_ledger;

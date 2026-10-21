@@ -55,10 +55,16 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     /// family's index harness and the agent's own session id. Nil for a family the index has none
     /// of, or before the agent named its session. The session tree's chat history leaves it out.
     public let chat: String?
+    /// When the session last changed (its last output), when the summary carries it: the Chief
+    /// view gallery's "time since last output".
+    public let updatedAt: Date?
+    /// When the session started, when the summary carries it.
+    public let createdAt: Date?
 
     public init(id: String, name: String, title: String, peer: String?, parent: String?, state: State, since: Date?, error: String?,
                 workspaceID: String? = nil, harness: String? = nil, step: String? = nil, unread: Bool = false, project: String? = nil,
-                spawnedBy: String? = nil, cwd: String? = nil, pullRequests: [String] = [], chat: String? = nil) {
+                spawnedBy: String? = nil, cwd: String? = nil, pullRequests: [String] = [], chat: String? = nil,
+                updatedAt: Date? = nil, createdAt: Date? = nil) {
         self.id = id
         self.name = name
         self.title = title
@@ -76,6 +82,8 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
         self.cwd = cwd
         self.pullRequests = pullRequests
         self.chat = chat
+        self.updatedAt = updatedAt
+        self.createdAt = createdAt
     }
 
     /// A person should look: it waits on them, failed or was lost.
@@ -106,7 +114,15 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
                                  harness: harness, step: step, unread: unread, project: project,
                                  spawnedBy: nonEmpty(summary["spawnedBy"]), cwd: nonEmpty(summary["cwd"]),
                                  pullRequests: (summary["pullRequests"] as? [Any] ?? []).compactMap { nonEmpty($0) },
-                                 chat: chatKey(family: nonEmpty(summary["family"]), agentSession: nonEmpty(summary["agentSessionId"])))
+                                 chat: chatKey(family: nonEmpty(summary["family"]), agentSession: nonEmpty(summary["agentSessionId"])),
+                                 updatedAt: date(summary["updatedMs"] ?? summary["updatedAt"]),
+                                 createdAt: date(summary["createdMs"] ?? summary["createdAt"]))
+    }
+
+    /// A summary's epoch-milliseconds field as a date; nil when absent or not a number.
+    private static func date(_ value: Any?) -> Date? {
+        guard let value = value as? NSNumber, value.doubleValue > 0 else { return nil }
+        return Date(timeIntervalSince1970: value.doubleValue / 1000)
     }
 
     /// acpmux's `session_chat_key`: only the claude and codex families are indexed.

@@ -1071,6 +1071,7 @@ async fn dispatch_request(
                 .parse()
                 .map_err(RpcError::invalid_params)?;
             hub.set_policy_unless_moving(&s, policy).await?;
+            hub.follow_policy(&s).await;
             Ok(hub.session_summary(&s))
         }
         method::MUX_EXPORT => {
