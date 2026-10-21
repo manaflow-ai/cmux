@@ -454,6 +454,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/attachment_put",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/mail/send",
       "params": {
         "$ref": "#/types/MailSendParams"

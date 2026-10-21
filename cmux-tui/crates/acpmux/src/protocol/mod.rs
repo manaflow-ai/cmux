@@ -197,6 +197,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_INFO, Request),
         request::<events::EventsParams, events::EventsResult>(method::MUX_EVENTS),
         untyped(method::MUX_ATTACHMENT, Request),
+        untyped(method::MUX_ATTACHMENT_PUT, Request),
         request::<MailSendParams, MailSendResult>(method::MUX_MAIL_SEND),
         request::<MailReadParams, MailPageResult>(method::MUX_MAIL_READ),
         request::<MailWaitParams, MailPageResult>(method::MUX_MAIL_WAIT),
