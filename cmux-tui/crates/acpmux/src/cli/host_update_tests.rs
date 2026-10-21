@@ -125,7 +125,8 @@ const UNITS: &str = ".config/systemd/user";
 const TARGET: &str = "x86_64-unknown-linux-musl";
 
 /// A fake acpmux of `build` whose daemon, once started, reports `runs`
-/// (None: it never answers). `$HOME/daemon` holds the build of the daemon
+/// (None: it never answers). Like cmux-tui, it answers as acpmux only
+/// under that file name. `$HOME/daemon` holds the build of the daemon
 /// that runs (absent: none), `$HOME/started` every build started.
 #[cfg(unix)]
 fn fake_acpmux(build: &str, runs: Option<&str>) -> String {
@@ -137,7 +138,7 @@ fn fake_acpmux(build: &str, runs: Option<&str>) -> String {
         r#"#!/bin/sh
 echo "acpmux $*" >> "$HOME/calls"
 case "$*" in
---version) echo "acpmux 1.0.0 ({build})";;
+--version) if [ "${{0##*/}}" = acpmux ]; then echo "acpmux 1.0.0 ({build})"; else echo "cmux 1.0.0"; fi;;
 "--json daemon status") if [ -f "$HOME/daemon" ]; then printf '{{\n  "build": "%s",\n  "pid": 4242\n}}\n' "$(cat "$HOME/daemon")"; else printf '{{\n  "running": false,\n  "error": "daemon not running"\n}}\n'; fi;;
 "--json ls") cat "$HOME/sessions.json";;
 "daemon shutdown"*) rm -f "$HOME/daemon";;
@@ -348,7 +349,7 @@ impl FakePeer {
     /// The binary and daemon are as they were, and nothing but reads ran.
     fn assert_only_read(&self, binary: &str, daemon: &str) {
         assert_eq!(self.read(".local/bin/acpmux"), binary);
-        assert!(!self.exists(".local/bin/acpmux.new"));
+        assert!(!self.exists(".local/bin/.acpmux-new"));
         assert_eq!(self.daemon(), daemon);
         assert!(self.exists("agents"));
         let calls = self.take_calls();
@@ -391,6 +392,7 @@ fn a_turn_that_starts_during_the_push_keeps_its_daemon() {
     assert_eq!(up.outcome, Outcome::Busy, "{up:?}");
     assert_eq!(up.reason.as_deref(), Some("busy"));
     assert!(up.error.as_deref().unwrap_or_default().contains("late"), "{up:?}");
+    assert_eq!(up.version, None);
     // The old binary is back and its daemon was never restarted.
     assert_eq!(peer.read(".local/bin/acpmux"), fake_acpmux(OLD, Some(OLD)));
     assert_eq!(peer.daemon(), OLD);

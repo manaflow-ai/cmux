@@ -127,23 +127,28 @@ fn ssh(host: &str, script: &str) -> Result<String> {
     remote_ok(&Ssh(host), script)
 }
 
-/// Copy `local` to the remote `~/.local/bin/acpmux` (rm then mv, never in
+/// Copy `local` to the remote `~/.local/bin/acpmux` (by a rename, never in
 /// place: macOS kills a running binary that is overwritten); answers the
 /// new binary's `--version`. Only the file goes (`self_command.rs`'s
 /// executable); no subcommand runs here, so no prefix: the remote copy is
-/// named `acpmux`, which cmux-tui runs as acpmux by its argv0.
+/// named `acpmux`, which cmux-tui runs as acpmux by its argv0. So the copy
+/// waits as `.acpmux-new/acpmux`, the same name, while it is checked.
 fn push_binary(remote: &dyn Remote, local: &Path) -> Result<String> {
-    remote_ok(remote, "mkdir -p ~/.local/bin ~/.acpmux")?;
-    remote.copy(local, ".local/bin/acpmux.new")?;
+    remote_ok(
+        remote,
+        "mkdir -p ~/.local/bin ~/.acpmux && rm -rf ~/.local/bin/.acpmux-new && mkdir ~/.local/bin/.acpmux-new",
+    )?;
+    remote.copy(local, ".local/bin/.acpmux-new/acpmux")?;
     remote_ok(remote, INSTALL_PUSHED)
 }
 
-/// Install the pushed `acpmux.new` once its `--version` runs (else delete
-/// it and leave the installed binary alone), keeping the binary it replaces
-/// as `acpmux.prev` (a hard link, else a copy; none when nothing was
-/// installed, so a rollback never brings back an older one) for a rollback. The rename
-/// swaps the two in one step; prints the new binary's version.
-const INSTALL_PUSHED: &str = "cd ~/.local/bin && chmod +x acpmux.new && { v=$(./acpmux.new --version) || { rm -f acpmux.new; echo 'the pushed acpmux does not run on this host' >&2; exit 1; }; } && { if [ -e acpmux ]; then ln -f acpmux acpmux.prev 2>/dev/null || cp -p acpmux acpmux.prev; else rm -f acpmux.prev; fi; } && mv -f acpmux.new acpmux && printf '%s\\n' \"$v\"";
+/// Install the pushed `.acpmux-new/acpmux` once its `--version` runs (else
+/// delete it and leave the installed binary alone), keeping the binary it
+/// replaces as `acpmux.prev` (a hard link, else a copy; none when nothing
+/// was installed, so a rollback never brings back an older one) for a
+/// rollback. The rename swaps the two in one step; prints the new binary's
+/// version.
+const INSTALL_PUSHED: &str = "cd ~/.local/bin && chmod +x .acpmux-new/acpmux && { v=$(.acpmux-new/acpmux --version) || { rm -rf .acpmux-new; echo 'the pushed acpmux does not run on this host' >&2; exit 1; }; } && { if [ -e acpmux ]; then ln -f acpmux acpmux.prev 2>/dev/null || cp -p acpmux acpmux.prev; else rm -f acpmux.prev; fi; } && mv -f .acpmux-new/acpmux acpmux && rmdir .acpmux-new && printf '%s\\n' \"$v\"";
 
 /// Put `acpmux.prev` back as `~/.local/bin/acpmux`; fails without one.
 const RESTORE_PREV: &str = "(cd ~/.local/bin && [ -f acpmux.prev ] && rm -f acpmux && { ln acpmux.prev acpmux 2>/dev/null || cp -p acpmux.prev acpmux; })";

@@ -456,6 +456,7 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
             _ => Some(("unknown", "its sessions could not be read, so one may be mid-turn".into())),
         };
         if let Some((reason, mut why)) = busy {
+            up.version = None;
             if let Err(e) = remote_ok(remote, RESTORE_PREV) {
                 why.push_str(&format!("; putting the previous binary back failed: {e}"));
                 return up.end(Outcome::Failed, reason, why);
@@ -597,7 +598,8 @@ fn cut(mut text: String, max: usize) -> String {
 ///   or without it this binary is for another target),
 ///   `rolledBack` (the restarted daemon failed its check; the previous
 ///   binary and unit run again) or `failed`. Only `updated` and `rolledBack`
-///   changed the peer; `ok` is false for `rolledBack` and `failed`.
+///   restarted the daemon (a `busy` after the push only refreshed
+///   `acpmux.prev`); `ok` is false for `rolledBack` and `failed`.
 /// - `build`: the build the peer's daemon runs afterwards, null when none
 ///   answers. `target`: the peer's release target, once known.
 /// - `version` and `status`: the pushed binary's `--version` and the
