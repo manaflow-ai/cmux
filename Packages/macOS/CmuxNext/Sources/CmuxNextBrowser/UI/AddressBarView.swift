@@ -282,7 +282,7 @@ public final class AddressBarView: NSView {
 
     /// Browser focus mode's badge: nil hides it, else "Focus Mode" or, once
     /// the first Escape armed the exit, "Esc again to exit". It fades in and
-    /// out (at once under Reduce Motion or the app's motion setting).
+    /// out (at once with fades off in the motion settings; Reduce Motion keeps a short fade).
     public func setFocusModeBadge(armed: Bool?) {
         if let armed { focusModeBadgeView.show(armed: armed) }
         let shown = armed != nil
