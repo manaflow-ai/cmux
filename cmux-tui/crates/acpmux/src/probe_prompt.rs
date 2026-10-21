@@ -4,48 +4,51 @@
 //! `cmux acp run` and such a prompt (2026-10-20). That chat then read "Reply with only: OK"
 //! in Leo's list, the chats it started read "Subagent of · Reply with only: OK", and it
 //! folded under the agent that ran the check. A probe titles no chat (`hub/titles.rs`: the
-//! first real message does) and makes no chat a subagent of its caller (`client.rs`).
+//! first real message does), and a one-shot probe from an agent's shell runs ephemeral: its
+//! chat goes after the reply, never kept as the agent's subagent (`cli/run/standard.rs`).
 
 /// The longest prompt that can still be a probe.
 const MAX_CHARS: usize = 80;
-/// One-word checks, whole.
-const WORDS: &[&str] = &["ping", "ok", "test", "hi", "hello"];
+/// The fixed replies a check asks for, and the one-word checks.
+const REPLIES: &[&str] =
+    &["ok", "pong", "ping", "yes", "done", "ack", "ready", "hi", "hello", "test"];
 /// Openers of the "answer with this one word" checks.
 const OPENERS: &[&str] = &[
     "reply with",
     "respond with",
     "answer with",
-    "reply only",
-    "respond only",
-    "say only",
+    "reply",
+    "respond",
+    "say",
+    "print",
     "just say",
     "just reply",
-    "say ok",
-    "say pong",
 ];
+/// Words that may stand between an opener and the fixed reply, or after it.
+const FILLER: &[&str] =
+    &["only", "exactly", "just", "the", "word", "a", "single", "and", "nothing", "else"];
 
-/// Whether `text` is a probe: one short line asking for a fixed reply.
+/// Whether `text` is a probe: one short line asking for a fixed reply ("Reply with only: OK",
+/// "Say pong", "ping"), never a task that opens the same way ("Reply with only the files that
+/// changed", "Answer with a haiku").
 pub fn is_probe(text: &str) -> bool {
     let text = text.trim();
     if text.is_empty() || text.chars().count() > MAX_CHARS || text.contains('\n') {
         return false;
     }
     let lower = text.to_lowercase();
-    let bare = lower.trim_end_matches(|c: char| c.is_ascii_punctuation() || c.is_whitespace());
-    WORDS.contains(&bare) || OPENERS.iter().any(|opener| asks_fixed_reply(bare, opener))
-}
-
-/// `text` opens with `opener` and asks for a fixed reply: "only", "exactly" or "just" what
-/// follows, or a few words at most ("Reply with OK"), never a task ("Reply with a summary of
-/// the failing tests").
-fn asks_fixed_reply(text: &str, opener: &str) -> bool {
-    let Some(rest) = text.strip_prefix(opener) else { return false };
-    if rest.chars().next().is_some_and(char::is_alphanumeric) {
-        return false;
-    }
     let words: Vec<&str> =
-        rest.split(|c: char| !c.is_alphanumeric()).filter(|word| !word.is_empty()).collect();
-    matches!(words.first(), Some(&("only" | "exactly" | "just"))) || words.len() <= 4
+        lower.split(|c: char| !c.is_alphanumeric()).filter(|word| !word.is_empty()).collect();
+    if let [word] = words.as_slice() {
+        return REPLIES.contains(word);
+    }
+    let rest = OPENERS.iter().find_map(|opener| {
+        let opener: Vec<&str> = opener.split(' ').collect();
+        words.starts_with(&opener).then(|| &words[opener.len()..])
+    });
+    let Some(rest) = rest else { return false };
+    let replies = rest.iter().filter(|word| REPLIES.contains(word)).count();
+    replies == 1 && rest.iter().all(|word| REPLIES.contains(word) || FILLER.contains(word))
 }
 
 #[cfg(test)]
@@ -77,6 +80,15 @@ mod tests {
             "pinging the daemon fails after a restart, why?",
             "Reply with only: OK\nthen read COMMON.md and start on the brief",
             "Replying to the review: the second finding is right, fix it and push",
+            "Reply with only the files that changed in the last commit",
+            "Respond with just the list of failing tests",
+            "Reply with exactly what the error said",
+            "Answer with a haiku about autumn",
+            "Reply with a joke",
+            "Respond with a plan",
+            "Just reply to Bob's email",
+            "Reply only in French",
+            "Say hello to the new teammate in the channel",
         ] {
             assert!(!is_probe(text), "{text:?}");
         }

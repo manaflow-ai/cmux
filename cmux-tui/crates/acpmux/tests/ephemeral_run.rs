@@ -172,7 +172,7 @@ fn ephemeral_run_with_a_bad_flag_value_leaves_no_session() {
 }
 
 /// A session an agent's shell starts (`ACPMUX_SESSION_ID` set) folds under that agent's chat,
-/// unless it is a throwaway check: a probe prompt or an ephemeral run is no subagent.
+/// unless it is a throwaway check: a probe runs ephemeral and leaves no chat at all.
 #[test]
 fn a_probe_from_an_agents_shell_is_not_its_subagent() {
     let daemon = Daemon::start("parent");
@@ -190,10 +190,9 @@ fn a_probe_from_an_agents_shell_is_not_its_subagent() {
     let parent = started("Plan the release", None);
     let probe = started("Reply with only: OK", Some(&parent));
     let child = started("Review the release diff", Some(&parent));
-    let spawned_by = |id: &str| -> Value {
-        let session = daemon.sessions().into_iter().find(|s| s["sessionId"] == id);
-        session.unwrap_or_else(|| panic!("{id} is not listed"))["spawnedBy"].clone()
-    };
-    assert_eq!(spawned_by(&child), json!(parent), "a real task from the agent is its subagent");
-    assert_eq!(spawned_by(&probe), Value::Null, "the probe is not");
+    let listed = daemon.sessions();
+    let find = |id: &str| listed.iter().find(|s| s["sessionId"] == id);
+    let child = find(&child).unwrap_or_else(|| panic!("{child} is not listed: {listed:?}"));
+    assert_eq!(child["spawnedBy"], json!(parent), "a real task from the agent is its subagent");
+    assert!(find(&probe).is_none(), "the probe left its chat: {listed:?}");
 }

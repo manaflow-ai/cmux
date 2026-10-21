@@ -176,8 +176,8 @@ impl Client {
         Ok(reply)
     }
 
-    /// A `session/new` that never tags its caller's session as the parent: a throwaway
-    /// check (`acpmux run --ephemeral`, a probe prompt, `probe_prompt.rs`) is no subagent.
+    /// A `session/new` that never tags its caller's session as the parent: an ephemeral run
+    /// (`acpmux run --ephemeral`, an agent's probe, `probe_prompt.rs`) is no subagent.
     pub async fn request_parentless(&self, m: &str, params: Value) -> Result<Value> {
         self.send_request(m, params).await
     }

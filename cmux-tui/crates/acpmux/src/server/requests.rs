@@ -419,7 +419,8 @@ async fn dispatch_request(
                 hub.start_in_mode(conn.is_person(), conn.caller(), &params, &s, adopting).await?;
             }
             attach(hub, conn, &s.id);
-            if super::ephemeral::requested(&params) {
+            // An adopted id may name a chat that already exists: never tied to this connection.
+            if !adopting && super::ephemeral::requested(&params) {
                 super::ephemeral::own(hub, conn, &s).await;
             }
             let meta = s.meta();
