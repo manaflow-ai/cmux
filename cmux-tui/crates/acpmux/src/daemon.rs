@@ -429,6 +429,16 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     {
         let hub = hub.clone();
         tokio::spawn(async move {
+            // Debug builds only: `ACPMUX_TEST_DELAY_LOAD_LOGS_MS` holds the chat-log
+            // load, as a large log store does, so integration tests can ask in that
+            // window. Bounded; release builds have no seam.
+            #[cfg(debug_assertions)]
+            if let Some(ms) = std::env::var("ACPMUX_TEST_DELAY_LOAD_LOGS_MS")
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+            {
+                tokio::time::sleep(Duration::from_millis(ms.min(10_000))).await;
+            }
             // The chat logs (tails, cut-off turns, queues), before adoption as before.
             hub.load_logs_async().await;
             // Agents that outlived the previous daemon come back first.

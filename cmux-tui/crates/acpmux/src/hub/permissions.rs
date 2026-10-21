@@ -128,6 +128,7 @@ impl Hub {
                 super::pull_requests::absorb(session, update, &mut m)
             }
             "usage_update" => m.usage = Some(update.clone()),
+            "available_commands_update" => m.available_commands = Some(update.clone()),
             "current_mode_update" => {
                 mode_write = update.get("currentModeId").cloned().map(ModeWrite::CurrentMode);
             }

@@ -13,6 +13,7 @@ newer commit wrote itself, and its own cases are in scripts/cmux-next/tests/base
 """
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -38,11 +39,58 @@ def git(cwd, *args):
 
 
 class BaseAutofixFinishes(unittest.TestCase):
-    def test_a_running_regeneration_or_repair_finishes(self):
-        # A newer push still replaces a pending run, so at most one waits.
-        for job in ("action-exports", "autofix"):
+    def test_a_running_repair_finishes(self):
+        # A newer push still replaces a pending autofix, so at most one waits.
+        self.assertFalse(DOC["jobs"]["autofix"]["concurrency"]["cancel-in-progress"])
+
+    def test_a_queued_mac_export_job_keeps_its_place(self):
+        # 2026-10-21 11:15-11:36Z: with the Mac runners saturated, every run's Mac job waited minutes for a
+        # runner and the next push replaced it while pending, so none ever started (no export after 02:14Z).
+        # It has no concurrency group now: nothing replaces it.
+        self.assertNotIn("concurrency", DOC["jobs"]["action-exports"])
+
+    def test_a_run_skips_its_mac_job_while_another_is_queued_or_running(self):
+        areas = DOC["jobs"]["action-areas"]
+        self.assertIn("mac_busy", areas["outputs"])
+        busy = next(s for s in areas["steps"] if "base-autofix-mac-busy.sh" in s.get("run", ""))
+        self.assertIn("$GITHUB_RUN_ID", busy["run"])
+        self.assertIn("GITHUB_OUTPUT", busy["run"])
+        self.assertIn("needs.action-areas.outputs.mac_busy != 'true'", DOC["jobs"]["action-exports"]["if"])
+
+    def test_a_deferred_run_is_not_red(self):
+        # While the Mac runners are saturated most runs defer, and base-red-watch would blame each red one
+        # on whoever pushed. A deferred run ends green and names the run that carries its exports.
+        self.assertNotIn("action-areas", DOC["jobs"]["autofix"]["needs"])
+        for step in DOC["jobs"]["autofix"]["steps"]:
+            self.assertNotIn("mac_busy", str(step.get("if", "")))
+        job = DOC["jobs"]["mac-exports-deferred"]
+        self.assertEqual(job["name"], "Mac exports deferred")
+        self.assertEqual(job["if"], "needs.action-areas.outputs.mac_busy == 'true'")
+        self.assertNotIn("continue-on-error", job)
+        run = "\n".join(s.get("run", "") for s in job["steps"])
+        self.assertIn("GITHUB_STEP_SUMMARY", run)
+        self.assertIn("mac_busy_run", str(job["steps"]))
+        self.assertNotIn("exit 1", run)
+        self.assertNotIn("::error::", run)
+
+    def test_both_change_lookups_skip_runs_that_deferred_their_exports(self):
+        # A deferred run is green but exported nothing: the next run's "since" must reach past it.
+        for job in ("action-areas", "autofix"):
             with self.subTest(job=job):
-                self.assertFalse(DOC["jobs"][job]["concurrency"]["cancel-in-progress"])
+                areas = next(s for s in DOC["jobs"][job]["steps"] if s.get("id") == "areas")
+                self.assertIn("scripts/cmux-next/base-autofix-since.sh", areas["run"])
+                self.assertNotIn("status=success", areas["run"])
+        self.assertIn("scripts/cmux-next/base-autofix-since.sh", DOC[True]["push"]["paths"])
+
+    def test_the_autofix_that_carries_mac_exports_is_never_replaced_while_pending(self):
+        # 2026-10-21: runs whose own Mac job a newer push replaced still run autofix (about 1.5 minutes,
+        # every minute or two), so the run whose Mac job finished queued its autofix behind one of them,
+        # and the next push replaced it: half an hour of Mac exports lost. That autofix has a group of
+        # its own; the others still queue only the latest, one group per branch.
+        group = DOC["jobs"]["autofix"]["concurrency"]["group"]
+        self.assertIn("needs.action-exports.outputs.exports == 'true'", group)
+        self.assertIn("github.run_id", group)
+        self.assertIn("github.ref_name", group)
 
     def push(self, moved: dict[str, str] | None, *, repair: dict[str, str] | None = None,
              reject_without_moving=False, move_again: dict[str, str] | None = None):
@@ -193,8 +241,10 @@ class BaseAutofixFinishes(unittest.TestCase):
         self.assertNotIn("kept moving", out)
 
     def test_the_workflow_pushes_through_the_script(self):
+        # base-autofix-land.sh pushes with base-autofix-push.sh, and makes a held repair again on the tip.
         push = next(step for step in DOC["jobs"]["autofix"]["steps"] if step.get("name") == "Push the repairs")["run"]
-        self.assertIn("scripts/cmux-next/base-autofix-push.sh", push)
+        self.assertIn("scripts/cmux-next/base-autofix-land.sh", push)
+        self.assertIn("base-autofix-push.sh", (ROOT / "scripts/cmux-next/base-autofix-land.sh").read_text())
 
     def test_the_mac_job_regenerates_the_settings_exports_on_the_newest_tip(self):
         # 2026-10-21: a run takes ~28 minutes and feat-cmux-next takes a push a minute, so some push
@@ -235,6 +285,101 @@ class BaseAutofixFinishes(unittest.TestCase):
             return set(body.split())
         self.assertEqual(listed(PUSH_SCRIPT, "settings_exports"),
                          listed(ROOT / "scripts/cmux-next/regenerate-settings-exports.sh", "exports"))
+
+    def mac_busy(self, runs: dict[int, list[tuple[str, str]]], self_run: int = 1, fail: bool = False) -> str:
+        """Runs base-autofix-mac-busy.sh with a gh stand-in: `runs` maps an unfinished run to its (job, status)."""
+        work = Path(tempfile.mkdtemp())
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(work)])
+        (work / "bin").mkdir()
+        data = work / "runs.json"
+        data.write_text(json.dumps({str(k): v for k, v in runs.items()}))
+        gh = work / "bin/gh"
+        gh.write_text(f"""#!/usr/bin/env python3
+import json, re, sys
+if {fail!r}:
+    sys.exit(1)
+runs = json.load(open({str(data)!r}))
+path = sys.argv[2]
+m = re.search(r"/runs/(\\d+)/jobs", path)
+if m:
+    jobs = runs[m.group(1)]
+    print(sum(1 for name, status in jobs if name == "action exports (Mac)" and status != "completed"))
+else:
+    for run in runs:
+        print(run)
+""")
+        gh.chmod(0o755)
+        done = subprocess.run(["bash", str(ROOT / "scripts/cmux-next/base-autofix-mac-busy.sh"), str(self_run)],
+                              capture_output=True, text=True, env={**os.environ, "PATH": f"{work / 'bin'}:{os.environ['PATH']}"})
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return done.stdout
+
+    def test_mac_busy_sees_another_runs_queued_or_running_mac_job(self):
+        for status in ("queued", "in_progress", "waiting"):
+            with self.subTest(status=status):
+                out = self.mac_busy({1: [], 7: [("action exports (Mac)", status)]})
+                self.assertEqual(out, "mac_busy=true\nmac_busy_run=7\n")
+
+    def test_mac_busy_is_false_without_another_unfinished_mac_job(self):
+        self.assertEqual(self.mac_busy({1: [("action exports (Mac)", "queued")]}), "mac_busy=false\n")  # its own
+        self.assertEqual(self.mac_busy({1: [], 7: [("action exports (Mac)", "completed"), ("autofix feat-cmux-next",
+                                                                                          "in_progress")]}),
+                         "mac_busy=false\n")
+        self.assertEqual(self.mac_busy({}), "mac_busy=false\n")
+
+    def test_mac_busy_fails_open_when_github_cannot_be_read(self):
+        # Two Mac jobs beat none.
+        self.assertEqual(self.mac_busy({7: [("action exports (Mac)", "queued")]}, fail=True), "mac_busy=false\n")
+
+    def since(self, runs: list[tuple[int, str, list[tuple[str, str]] | None]], fail: bool = False) -> str:
+        """Runs base-autofix-since.sh with a gh stand-in: `runs` lists successful runs, newest first, as
+        (id, head sha, its (job, conclusion) list, or None when its jobs cannot be read)."""
+        work = Path(tempfile.mkdtemp())
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(work)])
+        (work / "bin").mkdir()
+        data = work / "runs.json"
+        data.write_text(json.dumps(runs))
+        gh = work / "bin/gh"
+        gh.write_text(f"""#!/usr/bin/env python3
+import json, re, sys
+if {fail!r}:
+    sys.exit(1)
+runs = json.load(open({str(data)!r}))
+path = sys.argv[2]
+m = re.search(r"/runs/(\\d+)/jobs", path)
+if m:
+    jobs = next(j for i, _, j in runs if str(i) == m.group(1))
+    if jobs is None:
+        sys.exit(1)
+    print(sum(1 for name, c in jobs if name == "Mac exports deferred" and c == "success"))
+else:
+    assert "status=success" in path and "event=push" in path, path
+    for i, sha, _ in runs:
+        print(i, sha)
+""")
+        gh.chmod(0o755)
+        done = subprocess.run(["bash", str(ROOT / "scripts/cmux-next/base-autofix-since.sh")], capture_output=True,
+                              text=True, env={**os.environ, "PATH": f"{work / 'bin'}:{os.environ['PATH']}"})
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return done.stdout
+
+    def test_since_is_the_newest_successful_run_that_made_its_own_exports(self):
+        deferred = [("action export areas", "success"), ("Mac exports deferred", "success")]
+        made = [("action exports (Mac)", "success"), ("Mac exports deferred", "skipped")]
+        self.assertEqual(self.since([(9, "c" * 40, deferred), (8, "b" * 40, deferred), (7, "a" * 40, made)]),
+                         "a" * 40 + "\n")
+        self.assertEqual(self.since([(9, "c" * 40, made), (8, "b" * 40, deferred)]), "c" * 40 + "\n")
+        # A run with no Mac areas at all made nothing to defer.
+        self.assertEqual(self.since([(9, "c" * 40, [("action export areas", "success")])]), "c" * 40 + "\n")
+
+    def test_since_passes_a_run_whose_jobs_cannot_be_read(self):
+        self.assertEqual(self.since([(9, "c" * 40, None), (7, "a" * 40, [])]), "a" * 40 + "\n")
+
+    def test_since_is_empty_when_no_run_qualifies_or_github_cannot_be_read(self):
+        # The caller then runs every repair.
+        self.assertEqual(self.since([(9, "c" * 40, [("Mac exports deferred", "success")])]), "")
+        self.assertEqual(self.since([]), "")
+        self.assertEqual(self.since([(7, "a" * 40, [])], fail=True), "")
 
     def test_ci_runs_this_test(self):
         steps = DOC_NEXT["jobs"]

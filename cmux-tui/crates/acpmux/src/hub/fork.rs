@@ -6,6 +6,10 @@
 use super::*;
 use std::sync::atomic::Ordering;
 
+/// Why a chat with no turn cannot fork: its agent holds no conversation to copy yet.
+const NOTHING_TO_FORK: &str =
+    "the chat has no turn yet, so there is nothing to fork; send a message first";
+
 impl Hub {
     /// Whether the session runs Claude Code, and its profile env plus its
     /// preset's (`agent_tools::left_out`, where Claude keeps its store).
@@ -57,6 +61,12 @@ impl Hub {
                 .and_then(|p| crate::config::turn_cut(&parent_meta.harness, p))
         };
         let cut = through.filter(|_| turn_cut.is_some());
+        // Claude forks by `--resume <parent> --fork-session`, which needs a stored
+        // conversation; a chat with no turn has none, and its fork would fail at its
+        // first prompt ("No conversation found"). Refuse before a chat is made.
+        if is_claude && cut.is_none() && parent_meta.turn_count == 0 {
+            return Err(RpcError::invalid_params(NOTHING_TO_FORK));
+        }
         let mut turn_count = parent_meta.turn_count;
         let (res, new_sid) = if let Some(through) = cut {
             // The fork resumes a copy of the agent's transcript through that turn.
@@ -98,6 +108,14 @@ impl Hub {
             (json!({}), String::new())
         } else {
             let child = self.child_for(session).await?;
+            // An agent that does not offer session/fork (Kimi, DeepSeek) answers it
+            // with a bare internal error: refuse with the reason instead.
+            if !offers_fork(session.meta().agent_capabilities.as_ref()) {
+                return Err(RpcError::invalid_params(format!(
+                    "{} cannot fork a chat: its agent does not offer session/fork",
+                    parent_meta.harness
+                )));
+            }
             // The list the parent's agent got at its start (`spawn.rs`).
             let all = child.all_tools.load(std::sync::atomic::Ordering::Relaxed);
             let res = child
@@ -105,7 +123,21 @@ impl Hub {
                     method::SESSION_FORK,
                     json!({"sessionId": sid, "cwd": cwd, "mcpServers": crate::agent_tools::acp_servers_for(parent_meta.remote_origin, &fork_env, &id, all)}),
                 )
-                .await?;
+                .await
+                // The agent's own error is often bare ("Internal error"): say whose fork failed,
+                // and why when the chat has no turn (Claude's ACP adapter fails those) or is
+                // working (OMP fails those).
+                .map_err(|e| {
+                    let working = matches!(session.meta().status, SessionStatus::Running | SessionStatus::Waiting);
+                    let why = if parent_meta.turn_count == 0 {
+                        NOTHING_TO_FORK.to_owned()
+                    } else if working {
+                        format!("the chat is working; fork it when the turn ends ({})", e.message)
+                    } else {
+                        e.message.clone()
+                    };
+                    RpcError { message: format!("{} could not fork this chat: {why}", parent_meta.harness), ..e }
+                })?;
             let new_sid = res
                 .get("sessionId")
                 .and_then(Value::as_str)
@@ -136,12 +168,17 @@ impl Hub {
             agent_info: parent_meta.agent_info.clone(),
             agent_capabilities: parent_meta.agent_capabilities.clone(),
             steering: parent_meta.steering,
-            modes: res.get("modes").cloned().filter(|v| !v.is_null()).or(parent_meta.modes.clone()),
-            config_options: res
-                .get("configOptions")
-                .cloned()
-                .filter(|v| !v.is_null())
-                .or(parent_meta.config_options.clone()),
+            // The chat's own mode, model and effort, which the fork's agent is told again when it
+            // loads (`replay_config`): an agent may answer session/fork with its defaults
+            // instead (Codex), and the fork would then run another model than the chat.
+            modes: parent_meta
+                .modes
+                .clone()
+                .or_else(|| res.get("modes").cloned().filter(|v| !v.is_null())),
+            config_options: parent_meta
+                .config_options
+                .clone()
+                .or_else(|| res.get("configOptions").cloned().filter(|v| !v.is_null())),
             models: parent_meta.models.clone(),
             permission_policy: parent_meta.permission_policy.clone(),
             title: None,
@@ -154,6 +191,7 @@ impl Hub {
             event_count: 0,
             turn_count,
             usage: None,
+            available_commands: parent_meta.available_commands.clone(),
             permission_rules: None,
             tags: Default::default(),
             unread: false,
@@ -243,4 +281,10 @@ impl Hub {
         self.save_meta(&new);
         Ok(new)
     }
+}
+
+/// Whether an ACP agent's `initialize` capabilities offer `session/fork`. Capabilities
+/// not known yet (the agent never started) count as offered: the agent then answers.
+pub(crate) fn offers_fork(caps: Option<&Value>) -> bool {
+    caps.is_none_or(|c| c.pointer("/sessionCapabilities/fork").is_some_and(|f| !f.is_null()))
 }
