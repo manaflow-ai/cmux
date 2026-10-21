@@ -93,6 +93,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/threadMinimap/ThreadMinimap.tsx#ThreadMinimap",
     "agent-session/acpmux/threadMinimap/ScrollMap.tsx#ScrollMap",
     "agent-session/acpmux/threadMinimap/BookmarkIcon.tsx#BookmarkIcon",
+    "agent-session/acpmux/threadMinimap/PreviewCard.tsx#PreviewCard",
   ],
   experiment: {
     definition: threadMinimapLayout,
