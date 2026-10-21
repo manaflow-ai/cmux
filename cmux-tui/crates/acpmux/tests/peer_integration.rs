@@ -871,7 +871,12 @@ async fn a_peer_sessions_bookmarks_are_kept_by_the_daemon_that_owns_it() {
     let page = page.unwrap();
     let events = page["events"].as_array().unwrap();
     let seq_of = |kind: &str| events.iter().find(|e| e["kind"] == kind).unwrap()["seq"].clone();
-    let (prompt_seq, reply_seq) = (seq_of("user_message"), seq_of("turn_result"));
+    let prompt_seq = seq_of("user_message");
+    // Neither a prompt nor an answer (a turn's `turn_result`), which a Pin also marks.
+    let other_seq =
+        events.iter().find(|e| e["kind"] != "user_message" && e["kind"] != "turn_result").unwrap()
+            ["seq"]
+            .clone();
 
     let a = hub(config(PermissionPolicy::ApproveAll)).await;
     a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
@@ -881,7 +886,7 @@ async fn a_peer_sessions_bookmarks_are_kept_by_the_daemon_that_owns_it() {
     let refused = ca
         .call(
             "_acpmux/bookmark_set",
-            json!({"sessionId": remote_id, "seq": reply_seq, "bookmarked": true}),
+            json!({"sessionId": remote_id, "seq": other_seq, "bookmarked": true}),
         )
         .await;
     assert!(refused.as_ref().is_err_and(|e| e.contains("not a prompt")), "{refused:?}");

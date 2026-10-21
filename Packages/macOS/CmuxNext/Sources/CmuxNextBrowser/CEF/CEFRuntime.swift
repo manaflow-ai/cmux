@@ -239,7 +239,9 @@ final class CEFRuntime {
             let started = clock.now
             try CEFStartSteps.shared.initialize { () throws(BootError) in try initialize(library, environment: environment) }
             state = .ready
-            CEFStartSteps.shared.timed("ready_hooks") { startChildMonitor(); windowGuard.start(); onReady?() }
+            CEFStartSteps.shared.timed("ready_hooks") {
+                startChildMonitor(); windowGuard.start(); ChromiumPageWindowMain.install(); onReady?()
+            }
             self.trigger = trigger
             loadDuration = library.loadDuration
             initializeDuration = clock.now - started

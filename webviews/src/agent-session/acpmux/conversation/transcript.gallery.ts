@@ -498,6 +498,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/PromptDelivery.tsx#DeliveryFailure",
     "agent-session/acpmux/conversation/PromptDelivery.tsx#DeliveryMark",
     "agent-session/acpmux/conversation/icons.tsx#Clock",
+    "agent-session/acpmux/conversation/icons.tsx#DoubleCheck",
     "agent-session/acpmux/PermissionCard.tsx",
   ],
   variants: {
@@ -922,6 +923,46 @@ export default agentPaneEntry({
         ],
         { isWorking: true },
       ),
+    },
+    "agent-messages": {
+      note: "Messages to other agents say how far they got (Sending…, Sent, Delivered to …) without the receipt's id; a shell call reads without its leading cd and, opened, names its folder beside Shell.",
+      snapshot: chat(
+        [
+          user("Tell the coordinator the fix is pushed, then check the branch.", 2),
+          activity(
+            [
+              tool("Run", "execute", "completed", {
+                command: 'tell-coordinator "sidebar-drag: fix pushed as #22990, review next"',
+                output: "delivered to leoli-24 (id 9defc4d0ed87)\n",
+              }),
+            ],
+            1.9,
+          ),
+          activity(
+            [
+              tool("Run", "execute", "completed", {
+                command: 'cmux send --surface reviewer "sidebar-drag: CI green, merging"',
+                output: "",
+              }),
+            ],
+            1.8,
+          ),
+          activity(
+            [
+              tool("Run", "execute", "in_progress", {
+                command: 'tell-coordinator "sidebar-drag: merged, cleaning up"',
+              }),
+            ],
+            1.7,
+          ),
+          activity([shellTool("cd ~/wt/lanes/sidebar-drag && git status --short && git log --oneline -3")], 1.6),
+        ],
+        { isWorking: true },
+      ),
+      play: async (ctx: PlayContext) => {
+        await ctx.click({ selector: ".cv-tool.is-toggle" });
+        await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-shell__folder")));
+      },
     },
     "dense-ended-run": {
       note: "An ended turn folds under Worked for; opened, its commentary, each group and each call keep their own lines, with no Used tools summary to click through.",
