@@ -113,13 +113,19 @@ pub struct SessionMeta {
     pub title: Option<String>,
     /// Who set `title` (`hub/titles.rs`): `prompt` (its first prompt's line),
     /// `harness` (its own `session_info_update`), `asked` (a generated title
-    /// is on its way or failed; never asked again), `generated` or `adopted`.
+    /// is on its way or came back empty; a later turn asks again, `hub/titles.rs`), `generated` or `adopted`.
     /// None: a chat titled before acpmux generated titles; kept as is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title_source: Option<String>,
     /// The first prompt a `prompt` title came from, until a title is asked for.
     #[serde(skip)]
     pub title_prompt: Option<String>,
+    /// A title request is running (`hub/titles.rs`); this daemon run only.
+    #[serde(skip)]
+    pub title_asking: bool,
+    /// Title requests that came back with no title in this daemon run (`hub/titles.rs`).
+    #[serde(skip)]
+    pub title_failures: u8,
     #[serde(default)]
     pub last_prompt: Option<String>,
     #[serde(default)]
