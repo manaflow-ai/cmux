@@ -1,10 +1,10 @@
 import { resolveVmProvisioningAccountScope, runAfterResponse, withAuthedVmApiRoute } from "../../../services/vms/routeHelpers";
 import { runError, runJson, jsonBodyObject } from "../../../services/runs/http";
-import { createRun, requestDigest } from "../../../services/runs/repository";
+import { requestDigest } from "../../../services/runs/repository";
 import { launchQueuedCloudVmAttempts } from "../../../services/runs/dogfood";
 import { ALLOWED_RUN_RECIPES, type RunRoutingRequest } from "../../../services/runs/model";
 import { runAdmissionFor, runRoutingFor } from "../../../services/runs/view";
-import { enforceVmAllocationRateLimit } from "../../../services/vms/allocationRateLimit";
+import { createRunWithAllocationAdmission } from "../../../services/runs/allocationAdmission";
 
 export const maxDuration = 960;
 
@@ -92,23 +92,23 @@ export async function POST(request: Request): Promise<Response> {
           retryable: false,
         }, 400);
       }
-      const limited = await enforceVmAllocationRateLimit({
-        request,
-        route: "run.create",
-        billingTeamId: scope.entitlements.billingTeamId,
-      });
-      if (limited) return limited;
       try {
-        const run = await createRun({
-          userId: user.id,
+        const admitted = await createRunWithAllocationAdmission({
+          request,
           billingTeamId: scope.entitlements.billingTeamId,
-          idempotencyKey,
-          requestDigest: requestDigest(parsed),
-          source: parsed.source,
-          recipe: parsed.recipe,
-          provider: parsed.provider,
-          desiredAttempts: parsed.desiredAttempts,
+          run: {
+            userId: user.id,
+            billingTeamId: scope.entitlements.billingTeamId,
+            idempotencyKey,
+            requestDigest: requestDigest(parsed),
+            source: parsed.source,
+            recipe: parsed.recipe,
+            provider: parsed.provider,
+            desiredAttempts: parsed.desiredAttempts,
+          },
         });
+        if (admitted.kind === "limited") return admitted.response;
+        const run = admitted.run;
         runAfterResponse(async () => {
           await launchQueuedCloudVmAttempts({
             user,

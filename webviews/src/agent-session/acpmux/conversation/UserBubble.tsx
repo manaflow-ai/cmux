@@ -1,14 +1,15 @@
 // A prompt's bubble, with its action row under it as Claude Code desktop draws one: the prompt's age
 // ("1 hour ago", its time on hover), a check that reads Read once the agent has it, Unread before,
-// then Copy, Edit, Fork and Bookmark (cx-ncc.60, Claude parity). A steer's read state ends the row. The latest prompt shows the row always, older ones on hover
-// (VirtualTranscript marks the latest `data-last-prompt`). Edit opens the prompt in
-// place; Send forks the chat through the turn before it and sends the edited text there (the App's
-// `edit.send`), Escape or Cancel puts the bubble back. Edit shows only on a prompt the chat can fork
-// before (`editableTurns`), so it is never dead. A prompt with versions (an edit made it, or replaced
-// it) shows < n/m > before them, always (branches.ts, cx-ncc.61). Fork forks the chat through the
-// prompt's own turn, as its right-click Fork does. The row is Claude's whole
-// row (GUI push 2026-10-20), not the `hover-actions` experiment's one action. The images a prompt
-// sent show above its bubble, each opening the image viewer (Leo, 2026-10-13: they vanished once sent).
+// then Copy, Edit, Fork and Bookmark (cx-ncc.60, Claude parity). A steer's read state ends the row.
+// The latest prompt shows the row always, older ones on hover (VirtualTranscript marks the latest
+// `data-last-prompt`). Edit opens the prompt in place; Send forks the chat through the turn before
+// it and sends the edited text there (the App's `edit.send`), Escape or Cancel puts the bubble
+// back. Edit shows only on a prompt the chat can fork before (`editableTurns`), so it is never dead.
+// A prompt with versions (an edit made it, or replaced it) shows < n/m > before them, always
+// (branches.ts, cx-ncc.61). Fork forks the chat through the prompt's own turn, as its right-click
+// Fork does. The row is Claude's whole row (GUI push 2026-10-20), not the `hover-actions`
+// experiment's one action. The images a prompt sent show above its bubble, each opening the image
+// viewer (Leo, 2026-10-13: they vanished once sent).
 import { useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AcpmuxRow, PromptImage } from "../model";
 import { useMinuteClock } from "../clock";
