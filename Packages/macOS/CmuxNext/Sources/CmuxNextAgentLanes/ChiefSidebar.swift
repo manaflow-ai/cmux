@@ -4,7 +4,7 @@ import CmuxNextCompat
 public import CmuxNextDesign
 public import CmuxNextSidebar
 import Foundation
-import Observation
+public import Observation
 
 /// The sidebar's Chief item (the `chief` built-in) and its subagent rows
 /// (`SidebarTransientItem.chiefSubagents`): Leo 2026-10-20, talk to the Chief from the left side
