@@ -1320,6 +1320,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         label: "com.cmuxterm.app.sessionScrollbackCheckpoint",
         qos: .utility
     )
+    /// Display geometry read once for one session snapshot; see `withSessionSnapshotDisplayGeometries`.
+    var sessionSnapshotDisplayGeometries: (available: [SessionDisplayGeometry], fallback: SessionDisplayGeometry?)?
     /// Holds back primary snapshot writes from a launch that restored less
     /// than it started from; installed by startup snapshot preparation or the
     /// first save, whichever comes first.
@@ -4054,7 +4056,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func currentDisplayGeometries() -> (available: [SessionDisplayGeometry], fallback: SessionDisplayGeometry?) {
-        let available = NSScreen.screens.map { screen in
+        if let sessionSnapshotDisplayGeometries { return sessionSnapshotDisplayGeometries }
+        func geometry(_ screen: NSScreen) -> SessionDisplayGeometry {
             SessionDisplayGeometry(
                 displayID: screen.cmuxDisplayID,
                 stableID: screen.cmuxStableDisplayKey,
@@ -4062,15 +4065,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 visibleFrame: screen.visibleFrame
             )
         }
-        let fallback = (NSScreen.main ?? NSScreen.screens.first).map { screen in
-            SessionDisplayGeometry(
-                displayID: screen.cmuxDisplayID,
-                stableID: screen.cmuxStableDisplayKey,
-                frame: screen.frame,
-                visibleFrame: screen.visibleFrame
-            )
+        let screens = NSScreen.screens
+        let available = screens.map(geometry)
+        let fallback = (NSScreen.main ?? screens.first).map { screen in
+            screens.firstIndex(of: screen).map { available[$0] } ?? geometry(screen)
         }
         return (available, fallback)
+    }
+
+    /// Runs `body` with `currentDisplayGeometries()` read once. A session
+    /// snapshot folds every window's frame into its per-display ring, and each
+    /// fold would otherwise query the window server for every screen again.
+    func withSessionSnapshotDisplayGeometries<T>(_ body: () -> T) -> T {
+        guard sessionSnapshotDisplayGeometries == nil else { return body() }
+        sessionSnapshotDisplayGeometries = currentDisplayGeometries()
+        defer { sessionSnapshotDisplayGeometries = nil }
+        return body()
     }
 
     private func resolvedPersistedWindowGeometryFrame() -> NSRect? {
@@ -5226,6 +5236,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         includeScrollback: Bool,
         restorableAgentIndex suppliedRestorableAgentIndex: RestorableAgentSessionIndex? = nil,
         surfaceResumeBindingIndex suppliedSurfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
+    ) -> (snapshot: AppSessionSnapshot?, didRemoveCrashDiagnosticData: Bool) {
+        withSessionSnapshotDisplayGeometries {
+            buildSessionSnapshotResultReadingDisplaysOnce(
+                includeScrollback: includeScrollback,
+                restorableAgentIndex: suppliedRestorableAgentIndex,
+                surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex
+            )
+        }
+    }
+
+    private func buildSessionSnapshotResultReadingDisplaysOnce(
+        includeScrollback: Bool,
+        restorableAgentIndex suppliedRestorableAgentIndex: RestorableAgentSessionIndex?,
+        surfaceResumeBindingIndex suppliedSurfaceResumeBindingIndex: SurfaceResumeBindingIndex?
     ) -> (snapshot: AppSessionSnapshot?, didRemoveCrashDiagnosticData: Bool) {
         let preflightRoutes = orderedSessionRouteSnapshots(
             restorableAgentIndex: suppliedRestorableAgentIndex,

@@ -1041,8 +1041,20 @@ enum SurfaceResumeApprovalStore {
         case parsed([String: Any])
     }
 
-    static func defaultURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
-        if let override = environment["CMUX_SURFACE_RESUME_APPROVAL_STORE_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+    private static let storePathEnvironmentKey = "CMUX_SURFACE_RESUME_APPROVAL_STORE_PATH"
+
+    /// Called per terminal from autosave and scrollback checkpoints, so it reads
+    /// the one override variable instead of copying the whole process environment.
+    static func defaultURL() -> URL {
+        defaultURL(storePathOverride: getenv(storePathEnvironmentKey).map { String(cString: $0) })
+    }
+
+    static func defaultURL(environment: [String: String]) -> URL {
+        defaultURL(storePathOverride: environment[storePathEnvironmentKey])
+    }
+
+    private static func defaultURL(storePathOverride: String?) -> URL {
+        if let override = storePathOverride?.trimmingCharacters(in: .whitespacesAndNewlines),
            !override.isEmpty {
             return URL(fileURLWithPath: (override as NSString).expandingTildeInPath, isDirectory: false)
         }
@@ -1307,7 +1319,9 @@ enum SurfaceResumeApprovalStore {
     }
 
     private static func environmentSigningSecret() -> Data? {
-        guard let encoded = ProcessInfo.processInfo.environment["CMUX_SURFACE_RESUME_APPROVAL_SECRET_B64"],
+        // getenv reads one variable; ProcessInfo.environment copies all of them
+        // on every call, and this runs per terminal on the main actor.
+        guard let encoded = getenv("CMUX_SURFACE_RESUME_APPROVAL_SECRET_B64").map({ String(cString: $0) }),
               let data = Data(base64Encoded: encoded),
               !data.isEmpty else {
             return nil

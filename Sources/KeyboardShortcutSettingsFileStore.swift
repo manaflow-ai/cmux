@@ -16,9 +16,34 @@ final class CmuxSettingsFileStore {
     fileprivate static let socketPasswordBackupIdentifier = "automation.socketPassword"
 
     static var defaultPrimaryPath: String {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return (home as NSString).appendingPathComponent(".config/cmux/cmux.json")
+        // Session autosave and scrollback checkpoints resolve this once per
+        // terminal on the main actor. `homeDirectoryForCurrentUser` standardizes
+        // the path on every call, so reuse the result while the variables that
+        // choose the home directory are unchanged.
+        let key = HomeDirectoryEnvironmentKey.current()
+        return defaultPrimaryPathCache.withLock { cached in
+            if let cached, cached.key == key { return cached.path }
+            let home = FileManager.default.homeDirectoryForCurrentUser.path
+            let path = (home as NSString).appendingPathComponent(".config/cmux/cmux.json")
+            cached = (key, path)
+            return path
+        }
     }
+
+    private struct HomeDirectoryEnvironmentKey: Equatable {
+        let fixedUserHome: String?
+        let home: String?
+
+        static func current() -> Self {
+            Self(
+                fixedUserHome: getenv("CFFIXED_USER_HOME").map { String(cString: $0) },
+                home: getenv("HOME").map { String(cString: $0) }
+            )
+        }
+    }
+
+    private static let defaultPrimaryPathCache =
+        OSAllocatedUnfairLock<(key: HomeDirectoryEnvironmentKey, path: String)?>(initialState: nil)
 
     static var defaultFallbackPath: String? {
         let home = FileManager.default.homeDirectoryForCurrentUser.path

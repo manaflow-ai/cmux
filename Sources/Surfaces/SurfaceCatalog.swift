@@ -1407,6 +1407,12 @@ final class SurfaceCatalog {
                     remoteTabID: $0.remoteTabID
                 )
             }
+        // Session autosave calls this for every workspace. Write the observed
+        // store only for the one-time capture breadcrumb, so an unchanged
+        // snapshot does not invalidate observers or the cloud projection index.
+        if pendingRestoredProjections.hasUncapturedRecords(for: workspaceID) {
+            pendingRestoredProjections.markRecordsCaptured(for: workspaceID)
+        }
         pendingRestoredProjections.mergeRecords(into: &records, for: workspaceID)
         return records.sorted { $0.panelID.uuidString < $1.panelID.uuidString }
     }
