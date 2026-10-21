@@ -53,6 +53,7 @@ pub async fn run() -> Result<()> {
         SERVER_NAME,
         SESSION_ENV,
         tools(),
+        None,
         |daemon, _session, params| async move { call(&daemon, &params).await },
     )
     .await
