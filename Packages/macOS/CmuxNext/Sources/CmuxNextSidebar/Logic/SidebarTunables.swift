@@ -89,6 +89,13 @@ public nonisolated enum SidebarTunables {
         help: "Adds sample rows with 1 to 7 pending items to the sidebar, to compare the row badges without real sessions.",
         default: false, code: "SidebarTunables.rowBadgePreview")
 
+    /// A detail line adds exactly its own height to a row, so one-line and two-line rows keep the
+    /// same room above and below their text (Leo 2026-10-20). Off: the app's fixed 12 pt step.
+    public static let evenRowText = Tunable<Bool>.toggle(
+        "sidebar.evenRowText", .sidebar, "Even row text spacing",
+        help: "A row's detail line adds its own height, so rows with one line and rows with two keep the same space above and below their text.",
+        default: true, code: "SidebarTunables.evenRowText")
+
     /// The width transition used when the sidebar is collapsed or expanded.
     /// `.slide` is the shipped behavior; `.slideFade` is a DEV/NIGHTLY
     /// prototype for comparing a fast opacity fade against the same geometry.
@@ -111,6 +118,7 @@ public nonisolated enum SidebarTunables {
             agentMark.descriptor,
             collapseMotion.descriptor,
             dragThreshold.descriptor,
+            evenRowText.descriptor,
             groupEdgeFraction.descriptor,
             groupExitFraction.descriptor,
             NotificationBadgeLook.tunable.descriptor,

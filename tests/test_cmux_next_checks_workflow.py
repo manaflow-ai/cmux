@@ -651,7 +651,7 @@ class PathRoutingStructure(unittest.TestCase):
                 self.assertIn("push-head-preflight", needs)
                 self.assertIn("needs.push-head-preflight.outputs.current == 'true'", job["if"])
         # The Release compile is the base's compile check: a superseded feat-cmux-next push still
-        # compiles (ReleaseCompileRouting covers it); its job group keeps one running, the newest waiting.
+        # compiles (ReleaseCompileOnCmuxNextSwiftPullRequests covers it); its job group keeps one running, the newest waiting.
         self.assertIn("|| github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')",
                       jobs["release-compile"]["if"])
 
@@ -874,7 +874,7 @@ printf '%064d  cmux-tui-aarch64-apple-darwin\\n' 3
     def test_current_push_keeps_native_compile(self):
         self.assertEqual(self.run_preflight()["current"], "true")
 
-    def test_superseded_push_skips_native_compile(self):
+    def test_superseded_push_is_not_current(self):
         self.assertEqual(self.run_preflight(remote="b" * 40)["current"], "false")
 
     def test_ref_lookup_failure_keeps_current_compile_enabled(self):
