@@ -58,7 +58,6 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .tabRowTools: "tabRowTools"
         case .sideChat: "sideChat"
         case .chatTab: "chatTab"
-        case .offerOpen: "offerOpen"
         case .subagentPane: "subagentPane"
         case .processTerminal: "processTerminal"
         case .newChatHere: "newChatHere"
