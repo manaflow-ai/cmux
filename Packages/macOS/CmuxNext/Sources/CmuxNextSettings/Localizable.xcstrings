@@ -2235,268 +2235,6 @@
         }
       }
     },
-    "settings.sessions.promptSuggestions": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Suggest Follow-Up Tasks"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "اقتراح مهام متابعة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Predlaži naredne zadatke"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Foreslå opfølgende opgaver"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Folgeaufgaben vorschlagen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sugerir tareas de seguimiento"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Suggérer des tâches de suivi"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Suggerisci attività successive"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "次のタスクを提案"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ណែនាំកិច្ចការបន្ត"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "후속 작업 제안"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Foreslå oppfølgingsoppgaver"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Proponuj kolejne zadania"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sugerir tarefas de acompanhamento"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Предлагать следующие задачи"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แนะนำงานต่อเนื่อง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Takip görevleri öner"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Пропонувати наступні завдання"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gợi ý việc tiếp theo"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "建议后续任务"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "建議後續任務"
-          }
-        }
-      }
-    },
-    "settings.sessions.promptSuggestions.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agents can suggest next tasks, which you start as child chats beside the current one. Agents started after the change get it."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يمكن للوكلاء اقتراح مهام تالية تبدؤها كمحادثات فرعية بجانب المحادثة الحالية. يحصل عليها الوكلاء الذين يبدؤون بعد التغيير."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agenti mogu predložiti sljedeće zadatke, koje pokrećete kao podređene razgovore pored trenutnog. Važi za agente pokrenute nakon promjene."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agenter kan foreslå næste opgaver, som du starter som underchats ved siden af den aktuelle. Gælder for agenter, der startes efter ændringen."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agenten können nächste Aufgaben vorschlagen, die du als Unterchats neben dem aktuellen startest. Gilt für Agenten, die nach der Änderung starten."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Los agentes pueden sugerir próximas tareas, que inicias como chats secundarios junto al actual. Se aplica a los agentes que se inicien después del cambio."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Les agents peuvent suggérer des tâches suivantes, que vous lancez comme chats enfants à côté du chat actuel. S’applique aux agents lancés après le changement."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gli agenti possono suggerire le prossime attività, che avvii come chat secondarie accanto a quella attuale. Vale per gli agenti avviati dopo la modifica."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントが次のタスクを提案し、現在のチャットの横に子チャットとして開始できます。変更後に開始したエージェントに適用されます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ភ្នាក់ងារអាចណែនាំកិច្ចការបន្ទាប់ ដែលអ្នកចាប់ផ្ដើមជាការជជែករងនៅក្បែរការជជែកបច្ចុប្បន្ន។ អនុវត្តចំពោះភ្នាក់ងារដែលចាប់ផ្ដើមក្រោយការផ្លាស់ប្ដូរ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "에이전트가 다음 작업을 제안하면 현재 채팅 옆에 하위 채팅으로 시작할 수 있습니다. 변경 후 시작된 에이전트에 적용됩니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agenter kan foreslå neste oppgaver, som du starter som underchatter ved siden av den nåværende. Gjelder agenter som startes etter endringen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agenci mogą proponować kolejne zadania, które uruchamiasz jako czaty podrzędne obok bieżącego. Dotyczy agentów uruchomionych po zmianie."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Os agentes podem sugerir próximas tarefas, que você inicia como chats filhos ao lado do atual. Vale para agentes iniciados depois da mudança."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Агенты могут предлагать следующие задачи, которые вы запускаете как дочерние чаты рядом с текущим. Действует для агентов, запущенных после изменения."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เอเจนต์สามารถแนะนำงานถัดไป ซึ่งคุณเริ่มเป็นแชตย่อยข้างแชตปัจจุบันได้ มีผลกับเอเจนต์ที่เริ่มหลังการเปลี่ยนแปลง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ajanlar sonraki görevleri önerebilir; bunları mevcut sohbetin yanında alt sohbet olarak başlatırsınız. Değişiklikten sonra başlatılan ajanlar için geçerlidir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Агенти можуть пропонувати наступні завдання, які ви запускаєте як дочірні чати поруч із поточним. Діє для агентів, запущених після зміни."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tác tử có thể gợi ý việc tiếp theo, bạn bắt đầu chúng thành cuộc trò chuyện con bên cạnh cuộc hiện tại. Áp dụng cho tác tử khởi động sau khi thay đổi."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "智能体可以建议后续任务，你可以在当前聊天旁把它们作为子聊天开始。更改后启动的智能体生效。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "代理程式可以建議後續任務，你可以在目前聊天旁把它們當成子聊天開始。變更後啟動的代理程式生效。"
-          }
-        }
-      }
-    },
     "settings.sidebar.nowPlaying.enabled": {
       "extractionState": "manual",
       "localizations": {
@@ -73576,268 +73314,6 @@
         }
       }
     },
-    "settings.tabs.terminalFirst": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "New Tabs and Splits Open a Terminal"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "علامات التبويب والتقسيمات الجديدة تفتح طرفية"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nove kartice i podjele otvaraju terminal"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nye faner og opdelinger åbner en terminal"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Neue Tabs und Teilungen öffnen ein Terminal"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Las pestañas y divisiones nuevas abren una terminal"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Les nouveaux onglets et divisions ouvrent un terminal"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nuove schede e divisioni aprono un terminale"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新しいタブと分割でターミナルを開く"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ផ្ទាំង និងការបំបែកថ្មីបើកទែមីណាល់"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "새 탭과 분할에서 터미널 열기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nye faner og delinger åpner en terminal"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nowe karty i podziały otwierają terminal"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Novas abas e divisões abrem um terminal"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Новые вкладки и разделения открывают терминал"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แท็บและการแบ่งใหม่เปิดเทอร์มินัล"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Yeni Sekmeler ve Bölmeler Terminal Açar"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Нові вкладки й поділи відкривають термінал"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Thẻ và vùng chia mới mở terminal"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新标签页和拆分打开终端"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新分頁和分割開啟終端機"
-          }
-        }
-      }
-    },
-    "settings.tabs.terminalFirst.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "When on, Cmd-T, Cmd-D and Cmd-Shift-D open a terminal, as in cmux classic, instead of the New Tab page."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "عند التشغيل، تفتح Cmd-T وCmd-D وCmd-Shift-D طرفية كما في cmux classic بدلاً من صفحة علامة التبويب الجديدة."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kada je uključeno, Cmd-T, Cmd-D i Cmd-Shift-D otvaraju terminal, kao u cmux classic, umjesto stranice nove kartice."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Når den er slået til, åbner Cmd-T, Cmd-D og Cmd-Shift-D en terminal som i cmux classic i stedet for siden Ny fane."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wenn an, öffnen Cmd-T, Cmd-D und Cmd-Shift-D ein Terminal wie in cmux classic statt der Seite „Neuer Tab“."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Si está activado, Cmd-T, Cmd-D y Cmd-Shift-D abren una terminal, como en cmux classic, en lugar de la página Nueva pestaña."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Activé, Cmd-T, Cmd-D et Cmd-Shift-D ouvrent un terminal, comme dans cmux classic, au lieu de la page Nouvel onglet."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Se attivato, Cmd-T, Cmd-D e Cmd-Shift-D aprono un terminale, come in cmux classic, invece della pagina Nuova scheda."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "オンのとき、Cmd-T、Cmd-D、Cmd-Shift-D は新規タブページではなく、cmux classic と同じようにターミナルを開きます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ពេលបើក Cmd-T, Cmd-D និង Cmd-Shift-D បើកទែមីណាល់ ដូចក្នុង cmux classic ជំនួសឱ្យទំព័រផ្ទាំងថ្មី។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "켜면 Cmd-T, Cmd-D, Cmd-Shift-D가 새 탭 페이지 대신 cmux classic처럼 터미널을 엽니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Når på, åpner Cmd-T, Cmd-D og Cmd-Shift-D en terminal som i cmux classic i stedet for Ny fane-siden."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gdy włączone, Cmd-T, Cmd-D i Cmd-Shift-D otwierają terminal, jak w cmux classic, zamiast strony nowej karty."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Quando ativado, Cmd-T, Cmd-D e Cmd-Shift-D abrem um terminal, como no cmux classic, em vez da página Nova Aba."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Если включено, Cmd-T, Cmd-D и Cmd-Shift-D открывают терминал, как в cmux classic, а не страницу новой вкладки."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เมื่อเปิด Cmd-T, Cmd-D และ Cmd-Shift-D จะเปิดเทอร์มินัลเหมือนใน cmux classic แทนหน้าแท็บใหม่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Açıkken Cmd-T, Cmd-D ve Cmd-Shift-D, Yeni Sekme sayfası yerine cmux classic'teki gibi bir terminal açar."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Якщо ввімкнено, Cmd-T, Cmd-D і Cmd-Shift-D відкривають термінал, як у cmux classic, замість сторінки нової вкладки."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Khi bật, Cmd-T, Cmd-D và Cmd-Shift-D mở terminal như trong cmux classic thay vì trang Thẻ mới."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "开启时，Cmd-T、Cmd-D 和 Cmd-Shift-D 会像 cmux classic 一样打开终端，而不是新标签页页面。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "開啟時，Cmd-T、Cmd-D 和 Cmd-Shift-D 會像 cmux classic 一樣開啟終端機，而不是新分頁頁面。"
-          }
-        }
-      }
-    },
     "settings.tabs.cmdWClosesPinnedTabs": {
       "extractionState": "manual",
       "localizations": {
@@ -74096,6 +73572,530 @@
           "stringUnit": {
             "state": "translated",
             "value": "關閉時，在固定的分頁上按 Cmd-W 會選取下一個分頁並保留固定的分頁。請從分頁選單關閉固定的分頁。"
+          }
+        }
+      }
+    },
+    "settings.tabs.verticalTabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Vertical Tabs for All Workspaces"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدام علامات التبويب العمودية لكل مساحات العمل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koristi vertikalne tabove za sve radne prostore"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug lodrette faner i alle arbejdsområder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vertikale Tabs für alle Arbeitsbereiche verwenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar pestañas verticales en todos los espacios de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser les onglets verticaux pour tous les espaces de travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa schede verticali per tutti gli spazi di lavoro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのワークスペースで垂直タブを使用"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រើថេបបញ្ឈរសម្រាប់កន្លែងធ្វើការទាំងអស់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 워크스페이스에 세로 탭 사용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk loddrette faner i alle arbeidsområder"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Używaj pionowych kart we wszystkich obszarach roboczych"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar Abas Verticais em Todos os Espaços de Trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вертикальные вкладки во всех рабочих пространствах"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้แท็บแนวตั้งในทุกพื้นที่ทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tüm Çalışma Alanlarında Dikey Sekmeleri Kullan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вертикальні вкладки в усіх робочих просторах"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dùng tab dọc cho mọi không gian làm việc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在所有工作区使用垂直标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在所有工作區使用垂直標籤頁"
+          }
+        }
+      }
+    },
+    "settings.tabs.verticalTabs.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show every workspace's tabs as a list beside its panes instead of a strip above them. Turn vertical tabs on or off for one workspace from its tab bar's menu."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اعرض علامات تبويب كل مساحة عمل كقائمة بجانب أجزائها بدلاً من شريط فوقها. شغّل علامات التبويب العمودية أو أوقفها لمساحة عمل واحدة من قائمة شريط علامات التبويب الخاص بها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži kartice svakog radnog prostora kao listu pored njegovih panela umjesto trake iznad njih. Uključi ili isključi vertikalne kartice za jedan radni prostor iz menija njegove trake kartica."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis hvert arbejdsområdes faner som en liste ved siden af dets ruder i stedet for en bjælke over dem. Slå lodrette faner til eller fra for ét arbejdsområde fra menuen i dets fanelinje."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt die Tabs jedes Arbeitsbereichs als Liste neben seinen Bereichen statt als Leiste darüber. Vertikale Tabs für einen einzelnen Arbeitsbereich im Menü seiner Tableiste ein- oder ausschalten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra las pestañas de cada espacio de trabajo como una lista junto a sus paneles en lugar de una barra encima. Activa o desactiva las pestañas verticales de un espacio de trabajo desde el menú de su barra de pestañas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche les onglets de chaque espace de travail sous forme de liste à côté de ses panneaux au lieu d'une barre au-dessus. Activez ou désactivez les onglets verticaux d'un seul espace de travail depuis le menu de sa barre d'onglets."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra le schede di ogni area di lavoro come elenco accanto ai suoi riquadri invece che come barra sopra di essi. Attiva o disattiva le schede verticali per una sola area di lavoro dal menu della sua barra delle schede."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各ワークスペースのタブを、上部のバーではなくペインの横にリストとして表示します。1つのワークスペースだけ垂直タブをオンまたはオフにするには、そのタブバーのメニューを使います。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញផ្ទាំងរបស់កន្លែងធ្វើការនីមួយៗជាបញ្ជីនៅក្បែរផ្ទាំងរងរបស់វា ជំនួសឱ្យរបារនៅខាងលើ។ បើក ឬបិទផ្ទាំងបញ្ឈរសម្រាប់កន្លែងធ្វើការមួយពីម៉ឺនុយរបារផ្ទាំងរបស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "각 워크스페이스의 탭을 위쪽 막대 대신 패널 옆의 목록으로 표시합니다. 워크스페이스 하나만 세로 탭을 켜거나 끄려면 해당 탭 막대의 메뉴를 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis fanene i hvert arbeidsområde som en liste ved siden av rutene i stedet for en linje over dem. Slå loddrette faner av eller på for ett arbeidsområde fra menyen i fanelinjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokazuje karty każdego obszaru roboczego jako listę obok jego paneli zamiast paska nad nimi. Włącz lub wyłącz pionowe karty dla jednego obszaru roboczego w menu jego paska kart."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra as abas de cada espaço de trabalho como uma lista ao lado dos painéis, em vez de uma barra acima deles. Ative ou desative as abas verticais de um espaço de trabalho pelo menu da barra de abas dele."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать вкладки каждого рабочего пространства списком рядом с его панелями, а не полосой над ними. Включить или выключить вертикальные вкладки для одного рабочего пространства можно в меню его панели вкладок."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงแท็บของแต่ละพื้นที่ทำงานเป็นรายการข้างบานหน้าต่าง แทนแถบด้านบน เปิดหรือปิดแท็บแนวตั้งสำหรับพื้นที่ทำงานเดียวได้จากเมนูของแถบแท็บนั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Her çalışma alanının sekmelerini üstte bir şerit yerine bölmelerinin yanında liste olarak gösterir. Tek bir çalışma alanı için dikey sekmeleri sekme çubuğunun menüsünden açın veya kapatın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати вкладки кожного робочого простору списком поруч із його панелями замість смуги над ними. Увімкнути чи вимкнути вертикальні вкладки для одного робочого простору можна в меню його панелі вкладок."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiển thị các tab của mỗi không gian làm việc thành danh sách bên cạnh các ngăn thay vì một thanh phía trên. Bật hoặc tắt tab dọc cho một không gian làm việc từ menu thanh tab của nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将每个工作区的标签页显示为窗格旁的列表，而不是上方的标签栏。要只为一个工作区打开或关闭垂直标签页，请使用其标签栏的菜单。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將每個工作區的標籤頁顯示為窗格旁的列表，而不是上方的標籤列。要只為一個工作區開啟或關閉垂直標籤頁，請使用其標籤列的選單。"
+          }
+        }
+      }
+    },
+    "settings.tabs.verticalTabsExpandOnHover": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expand Collapsed Vertical Tabs on Hover"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توسيع علامات التبويب العمودية المطوية عند التمرير"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proširi skupljene vertikalne kartice pri prelasku mišem"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udvid sammenklappede lodrette faner ved hover"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eingeklappte vertikale Tabs beim Darüberfahren ausklappen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expandir pestañas verticales contraídas al pasar el puntero"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Développer les onglets verticaux réduits au survol"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espandi le schede verticali compresse al passaggio del puntatore"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "折りたたんだ垂直タブをホバー時に展開"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពង្រីកផ្ទាំងបញ្ឈរដែលបានបង្រួម នៅពេលដាក់ទស្សន៍ទ្រនិចលើ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "접힌 세로 탭을 마우스를 올리면 펼치기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utvid sammenslåtte loddrette faner ved peking"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rozwijaj zwinięte pionowe karty po najechaniu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expandir abas verticais recolhidas ao passar o ponteiro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разворачивать свёрнутые вертикальные вкладки при наведении"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขยายแท็บแนวตั้งที่ยุบไว้เมื่อวางเมาส์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Daraltılmış dikey sekmeleri üzerine gelince genişlet"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розгортати згорнуті вертикальні вкладки під час наведення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mở rộng tab dọc đã thu gọn khi di chuột"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "悬停时展开已折叠的垂直标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "懸停時展開已收合的垂直標籤頁"
+          }
+        }
+      }
+    },
+    "settings.tabs.verticalTabsExpandOnHover.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When the vertical tab list is collapsed to icons, show the titles while the pointer is over it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند طي قائمة علامات التبويب العمودية إلى أيقونات، اعرض العناوين أثناء وجود المؤشر فوقها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada je lista vertikalnih kartica skupljena na ikone, prikaži naslove dok je pokazivač iznad nje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når listen med lodrette faner er klappet sammen til ikoner, vises titlerne, mens markøren er over den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ist die vertikale Tabliste auf Symbole eingeklappt, werden die Titel angezeigt, solange der Zeiger darüber ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuando la lista de pestañas verticales está contraída a iconos, muestra los títulos mientras el puntero está sobre ella."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lorsque la liste des onglets verticaux est réduite aux icônes, affiche les titres tant que le pointeur la survole."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando l'elenco delle schede verticali è compresso alle icone, mostra i titoli mentre il puntatore è sopra di esso."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "垂直タブのリストをアイコンだけに折りたたんでいるとき、ポインタを重ねている間はタイトルを表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅពេលបញ្ជីផ្ទាំងបញ្ឈរត្រូវបានបង្រួមជារូបតំណាង បង្ហាញចំណងជើងខណៈពេលទស្សន៍ទ្រនិចនៅលើវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세로 탭 목록이 아이콘으로 접혀 있을 때, 포인터를 올려 둔 동안 제목을 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når listen med loddrette faner er slått sammen til ikoner, vises titlene mens pekeren er over den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdy lista pionowych kart jest zwinięta do ikon, pokazuje tytuły, dopóki wskaźnik jest nad nią."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando a lista de abas verticais está recolhida em ícones, mostra os títulos enquanto o ponteiro estiver sobre ela."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда список вертикальных вкладок свёрнут до значков, показывать названия, пока над ним находится указатель."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อรายการแท็บแนวตั้งยุบเหลือแต่ไอคอน ให้แสดงชื่อขณะที่ตัวชี้อยู่เหนือรายการ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dikey sekme listesi simgelere daraltıldığında, işaretçi üzerindeyken başlıkları gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Коли список вертикальних вкладок згорнуто до значків, показувати назви, поки над ним вказівник."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi danh sách tab dọc được thu gọn thành biểu tượng, hiển thị tiêu đề trong lúc con trỏ nằm trên đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "垂直标签页列表折叠为图标时，指针停留在其上方期间显示标题。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "垂直標籤頁列表收合為圖示時，指標停留在其上方期間顯示標題。"
           }
         }
       }
@@ -150226,6 +150226,268 @@
         }
       }
     },
+    "settings.tabs.terminalFirst": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Tabs and Splits Open a Terminal"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "علامات التبويب والتقسيمات الجديدة تفتح طرفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nove kartice i podjele otvaraju terminal"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nye faner og opdelinger åbner en terminal"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neue Tabs und Teilungen öffnen ein Terminal"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las pestañas y divisiones nuevas abren una terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les nouveaux onglets et divisions ouvrent un terminal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuove schede e divisioni aprono un terminale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいタブと分割でターミナルを開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំង និងការបំបែកថ្មីបើកទែមីណាល់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 탭과 분할에서 터미널 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nye faner og delinger åpner en terminal"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nowe karty i podziały otwierają terminal"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Novas abas e divisões abrem um terminal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новые вкладки и разделения открывают терминал"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แท็บและการแบ่งใหม่เปิดเทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni Sekmeler ve Bölmeler Terminal Açar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нові вкладки й поділи відкривають термінал"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thẻ và vùng chia mới mở terminal"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新标签页和拆分打开终端"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新分頁和分割開啟終端機"
+          }
+        }
+      }
+    },
+    "settings.tabs.terminalFirst.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When on, Cmd-T, Cmd-D and Cmd-Shift-D open a terminal, as in cmux classic, instead of the New Tab page."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند التشغيل، تفتح Cmd-T وCmd-D وCmd-Shift-D طرفية كما في cmux classic بدلاً من صفحة علامة التبويب الجديدة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada je uključeno, Cmd-T, Cmd-D i Cmd-Shift-D otvaraju terminal, kao u cmux classic, umjesto stranice nove kartice."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når den er slået til, åbner Cmd-T, Cmd-D og Cmd-Shift-D en terminal som i cmux classic i stedet for siden Ny fane."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn an, öffnen Cmd-T, Cmd-D und Cmd-Shift-D ein Terminal wie in cmux classic statt der Seite „Neuer Tab“."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Si está activado, Cmd-T, Cmd-D y Cmd-Shift-D abren una terminal, como en cmux classic, en lugar de la página Nueva pestaña."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activé, Cmd-T, Cmd-D et Cmd-Shift-D ouvrent un terminal, comme dans cmux classic, au lieu de la page Nouvel onglet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se attivato, Cmd-T, Cmd-D e Cmd-Shift-D aprono un terminale, come in cmux classic, invece della pagina Nuova scheda."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オンのとき、Cmd-T、Cmd-D、Cmd-Shift-D は新規タブページではなく、cmux classic と同じようにターミナルを開きます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពេលបើក Cmd-T, Cmd-D និង Cmd-Shift-D បើកទែមីណាល់ ដូចក្នុង cmux classic ជំនួសឱ្យទំព័រផ្ទាំងថ្មី។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "켜면 Cmd-T, Cmd-D, Cmd-Shift-D가 새 탭 페이지 대신 cmux classic처럼 터미널을 엽니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når på, åpner Cmd-T, Cmd-D og Cmd-Shift-D en terminal som i cmux classic i stedet for Ny fane-siden."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdy włączone, Cmd-T, Cmd-D i Cmd-Shift-D otwierają terminal, jak w cmux classic, zamiast strony nowej karty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando ativado, Cmd-T, Cmd-D e Cmd-Shift-D abrem um terminal, como no cmux classic, em vez da página Nova Aba."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Если включено, Cmd-T, Cmd-D и Cmd-Shift-D открывают терминал, как в cmux classic, а не страницу новой вкладки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อเปิด Cmd-T, Cmd-D และ Cmd-Shift-D จะเปิดเทอร์มินัลเหมือนใน cmux classic แทนหน้าแท็บใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Açıkken Cmd-T, Cmd-D ve Cmd-Shift-D, Yeni Sekme sayfası yerine cmux classic'teki gibi bir terminal açar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Якщо ввімкнено, Cmd-T, Cmd-D і Cmd-Shift-D відкривають термінал, як у cmux classic, замість сторінки нової вкладки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi bật, Cmd-T, Cmd-D và Cmd-Shift-D mở terminal như trong cmux classic thay vì trang Thẻ mới."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开启时，Cmd-T、Cmd-D 和 Cmd-Shift-D 会像 cmux classic 一样打开终端，而不是新标签页页面。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟時，Cmd-T、Cmd-D 和 Cmd-Shift-D 會像 cmux classic 一樣開啟終端機，而不是新分頁頁面。"
+          }
+        }
+      }
+    },
     "settings.browser.toolbarPosition": {
       "extractionState": "manual",
       "localizations": {
@@ -150484,6 +150746,268 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "瀏覽器和 Markdown 窗格中網址列一行的位置。放在底部時，其建議和選單會向上開啟。"
+          }
+        }
+      }
+    },
+    "settings.sessions.promptSuggestions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suggest Follow-Up Tasks"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اقتراح مهام متابعة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Predlaži naredne zadatke"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Foreslå opfølgende opgaver"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Folgeaufgaben vorschlagen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sugerir tareas de seguimiento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suggérer des tâches de suivi"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suggerisci attività successive"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次のタスクを提案"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ណែនាំកិច្ចការបន្ត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "후속 작업 제안"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Foreslå oppfølgingsoppgaver"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proponuj kolejne zadania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sugerir tarefas de acompanhamento"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Предлагать следующие задачи"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แนะนำงานต่อเนื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Takip görevleri öner"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пропонувати наступні завдання"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gợi ý việc tiếp theo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "建议后续任务"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "建議後續任務"
+          }
+        }
+      }
+    },
+    "settings.sessions.promptSuggestions.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents can suggest next tasks, which you start as child chats beside the current one. Agents started after the change get it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكن للوكلاء اقتراح مهام تالية تبدؤها كمحادثات فرعية بجانب المحادثة الحالية. يحصل عليها الوكلاء الذين يبدؤون بعد التغيير."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenti mogu predložiti sljedeće zadatke, koje pokrećete kao podređene razgovore pored trenutnog. Važi za agente pokrenute nakon promjene."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenter kan foreslå næste opgaver, som du starter som underchats ved siden af den aktuelle. Gælder for agenter, der startes efter ændringen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten können nächste Aufgaben vorschlagen, die du als Unterchats neben dem aktuellen startest. Gilt für Agenten, die nach der Änderung starten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los agentes pueden sugerir próximas tareas, que inicias como chats secundarios junto al actual. Se aplica a los agentes que se inicien después del cambio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les agents peuvent suggérer des tâches suivantes, que vous lancez comme chats enfants à côté du chat actuel. S’applique aux agents lancés après le changement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gli agenti possono suggerire le prossime attività, che avvii come chat secondarie accanto a quella attuale. Vale per gli agenti avviati dopo la modifica."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントが次のタスクを提案し、現在のチャットの横に子チャットとして開始できます。変更後に開始したエージェントに適用されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងារអាចណែនាំកិច្ចការបន្ទាប់ ដែលអ្នកចាប់ផ្ដើមជាការជជែករងនៅក្បែរការជជែកបច្ចុប្បន្ន។ អនុវត្តចំពោះភ្នាក់ងារដែលចាប់ផ្ដើមក្រោយការផ្លាស់ប្ដូរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트가 다음 작업을 제안하면 현재 채팅 옆에 하위 채팅으로 시작할 수 있습니다. 변경 후 시작된 에이전트에 적용됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenter kan foreslå neste oppgaver, som du starter som underchatter ved siden av den nåværende. Gjelder agenter som startes etter endringen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenci mogą proponować kolejne zadania, które uruchamiasz jako czaty podrzędne obok bieżącego. Dotyczy agentów uruchomionych po zmianie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os agentes podem sugerir próximas tarefas, que você inicia como chats filhos ao lado do atual. Vale para agentes iniciados depois da mudança."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агенты могут предлагать следующие задачи, которые вы запускаете как дочерние чаты рядом с текущим. Действует для агентов, запущенных после изменения."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์สามารถแนะนำงานถัดไป ซึ่งคุณเริ่มเป็นแชตย่อยข้างแชตปัจจุบันได้ มีผลกับเอเจนต์ที่เริ่มหลังการเปลี่ยนแปลง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajanlar sonraki görevleri önerebilir; bunları mevcut sohbetin yanında alt sohbet olarak başlatırsınız. Değişiklikten sonra başlatılan ajanlar için geçerlidir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агенти можуть пропонувати наступні завдання, які ви запускаєте як дочірні чати поруч із поточним. Діє для агентів, запущених після зміни."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tác tử có thể gợi ý việc tiếp theo, bạn bắt đầu chúng thành cuộc trò chuyện con bên cạnh cuộc hiện tại. Áp dụng cho tác tử khởi động sau khi thay đổi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智能体可以建议后续任务，你可以在当前聊天旁把它们作为子聊天开始。更改后启动的智能体生效。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式可以建議後續任務，你可以在目前聊天旁把它們當成子聊天開始。變更後啟動的代理程式生效。"
           }
         }
       }

@@ -227,7 +227,7 @@ nonisolated extension ActionSurfaceCatalog {
         "terminal.clear": [p(.terminalSelection, .reset, 302, folder: .options)],
         "terminal.sendText": [p(.terminalSelection, .edit, 4)],
         "bookmark.addPage": [p(.browserPage, .inspect, 100), p(.bookmark, .create, 200), p(.bookmarksBar, .create, 0)],
-        "bookmark.addAllTabs": [p(.bookmarksBar, .create, 2), p(.bookmark, .create, 202, folder: .new)],
+        "bookmark.addAllTabs": [p(.bookmarksBar, .create, 2), p(.bookmark, .create, 202, folder: .new), p(.tabStrip, .create, 2)],
         "bookmark.newFolder": [p(.bookmark, .create, 201, folder: .new), p(.bookmarksBar, .create, 1)],
         "bookmark.open": [p(.bookmark, .create, 0)],
         "bookmark.openInNewTab": [p(.bookmark, .create, 1)],

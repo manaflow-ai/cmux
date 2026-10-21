@@ -29,6 +29,7 @@
             "key" : "settings.group.tabs",
             "rows" : [
               "tabs.newTabTemplate",
+              "tabs.terminalFirst",
               "tabs.newTabPosition",
               "tabs.plusButton",
               "tabs.barPosition",
@@ -40,6 +41,8 @@
               "appearance.metrics.tabMinInactiveWidth",
               "appearance.metrics.tabPinnedWidth",
               "tabs.cmdWClosesPinnedTabs",
+              "tabs.verticalTabs",
+              "tabs.verticalTabsExpandOnHover",
               "tabs.swapCmdTAndCmdN",
               "tabs.newTabNowPlaying"
             ],
@@ -784,7 +787,8 @@
             "rows" : [
               "sessions.keepAwake",
               "sessions.resumeAgents",
-              "sessions.allowFullAccess"
+              "sessions.allowFullAccess",
+              "sessions.promptSuggestions"
             ],
             "title" : {
               "key" : "settings.group.sessions",
@@ -2133,6 +2137,57 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.terminalFirst.help",
+        "text" : "When on, Cmd-T, Cmd-D and Cmd-Shift-D open a terminal, as in cmux classic, instead of the New Tab page."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.terminalFirst",
+      "keywords" : [
+        "terminal",
+        "classic",
+        "new tab",
+        "split",
+        "cmd-t",
+        "cmd-d",
+        "new tab page",
+        "default"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "terminalFirst"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.terminalFirst",
+        "text" : "New Tabs and Splits Open a Terminal"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "afterCurrent",
         "end",
         "start"
@@ -2999,6 +3054,110 @@
       "title" : {
         "key" : "settings.tabs.cmdWClosesPinnedTabs",
         "text" : "Cmd-W Closes Pinned Tabs"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.verticalTabs.help",
+        "text" : "Show every workspace's tabs as a list beside its panes instead of a strip above them. Turn vertical tabs on or off for one workspace from its tab bar's menu."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.verticalTabs",
+      "keywords" : [
+        "vertical",
+        "tabs",
+        "list",
+        "side",
+        "sidebar",
+        "edge",
+        "chrome",
+        "horizontal",
+        "strip",
+        "workspace"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "verticalTabs"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.verticalTabs",
+        "text" : "Use Vertical Tabs for All Workspaces"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.verticalTabsExpandOnHover.help",
+        "text" : "When the vertical tab list is collapsed to icons, show the titles while the pointer is over it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.verticalTabsExpandOnHover",
+      "keywords" : [
+        "vertical",
+        "tabs",
+        "collapse",
+        "collapsed",
+        "expand",
+        "hover",
+        "icons",
+        "auto"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "verticalTabsExpandOnHover"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.verticalTabsExpandOnHover",
+        "text" : "Expand Collapsed Vertical Tabs on Hover"
       },
       "validation" : "portable"
     },
@@ -4496,6 +4655,55 @@
         true,
         false
       ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sessions",
+        "text" : "Agent Sessions"
+      },
+      "help" : {
+        "key" : "settings.sessions.promptSuggestions.help",
+        "text" : "Agents can suggest next tasks, which you start as child chats beside the current one. Agents started after the change get it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sessions.promptSuggestions",
+      "keywords" : [
+        "suggestions",
+        "prompt",
+        "follow-up",
+        "tasks",
+        "child chats",
+        "subagents"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sessions",
+        "promptSuggestions"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sessions.promptSuggestions",
+        "text" : "Suggest Follow-Up Tasks"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "network",
       "agent_settable" : false,
       "consumers" : [
@@ -5919,7 +6127,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "top",
+      "default" : "afterCurrent",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",

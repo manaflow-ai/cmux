@@ -770,9 +770,9 @@
     {
       "cli" : "guiOnly",
       "cli_name" : "app task-manager",
-      "context_menu" : "noObject",
+      "context_menu" : "offered",
       "context_menus" : [
-
+        "tabStrip"
       ],
       "default_aliases" : [
 
@@ -3620,7 +3620,8 @@
       "cli_name" : "pane move-to-new-workspace",
       "context_menu" : "offered",
       "context_menus" : [
-        "pane"
+        "pane",
+        "tabStrip"
       ],
       "default_aliases" : [
 
@@ -7450,9 +7451,9 @@
     {
       "cli" : "offered",
       "cli_name" : "tab new",
-      "context_menu" : "duplicateOfDefault",
+      "context_menu" : "offered",
       "context_menus" : [
-
+        "tabStrip"
       ],
       "default_aliases" : [
 
@@ -9196,9 +9197,9 @@
     {
       "cli" : "offered",
       "cli_name" : "tab reopen-last-closed",
-      "context_menu" : "noObject",
+      "context_menu" : "offered",
       "context_menus" : [
-
+        "tabStrip"
       ],
       "default_aliases" : [
 
@@ -9226,6 +9227,118 @@
       "title" : "Reopen Last Closed Tab",
       "title_key" : "action.reopenClosedBrowserPanel",
       "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "pane toggle-vertical-tabs",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "tabStrip"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "tabs.verticalTabs.toggle",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Turn On Vertical Tabs",
+      "title_key" : "action.tabs.verticalTabs.toggle",
+      "title_table" : "SettingsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action tabs-vertical-tabs-all-workspaces",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "tabStrip"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "tabs.verticalTabs.allWorkspaces",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Use Vertical Tabs for All Workspaces",
+      "title_key" : "action.tabs.verticalTabs.allWorkspaces",
+      "title_table" : "SettingsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action tabs-vertical-tabs-collapse",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "tabStrip"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "tabs.verticalTabs.collapse",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Collapse Tabs",
+      "title_key" : "action.tabs.verticalTabs.collapse",
+      "title_table" : "SettingsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action tabs-vertical-tabs-expand-on-hover",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "tabStrip"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "tabs.verticalTabs.expandOnHover",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Auto-Expand Tabs on Hover",
+      "title_key" : "action.tabs.verticalTabs.expandOnHover",
+      "title_table" : "SettingsActions"
     },
     {
       "cli" : "offered",
@@ -29702,7 +29815,8 @@
       "context_menu" : "offered",
       "context_menus" : [
         "bookmarksBar",
-        "bookmark"
+        "bookmark",
+        "tabStrip"
       ],
       "default_aliases" : [
 
@@ -30292,6 +30406,34 @@
       "palette_suggested" : null,
       "title" : "Show Idle Chief Subagents",
       "title_key" : "action.sidebar.chief.toggleIdleSubagents",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
+      "cli" : "focusMove",
+      "cli_name" : "action chief-open-subagent",
+      "context_menu" : "focusMove",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "chief.openSubagent",
+      "main_menu" : null,
+      "mcp" : "focusMove",
+      "palette" : "focusMove",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Open Chief Subagent",
+      "title_key" : "action.chief.openSubagent",
       "title_table" : "SidebarSectionActions"
     },
     {
@@ -35001,77 +35143,36 @@
           }
         },
         {
-          "children" : [
-            {
-              "enabled_when" : "can_perform",
-              "id" : "browserProfile.setColor",
-              "kind" : "action",
-              "order" : 0,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "browserProfile.clearColor",
-              "kind" : "action",
-              "order" : 1,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "browserProfile.setIcon",
-              "kind" : "action",
-              "label" : "Set Icon…",
-              "order" : 2,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "browserProfile.clearIcon",
-              "kind" : "action",
-              "label" : "Remove Icon",
-              "order" : 3,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            }
-          ],
-          "folder" : "appearance",
-          "kind" : "folder",
+          "enabled_when" : "can_perform",
+          "id" : "browserProfile.setColor",
+          "kind" : "action",
           "order" : 7,
-          "title" : "Appearance",
-          "title_key" : "menu.folder.appearance",
-          "title_table" : "Localizable"
-        },
-        {
-          "kind" : "separator",
-          "order" : 8
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "browserProfile.manageExtensions",
+          "id" : "browserProfile.clearColor",
           "kind" : "action",
+          "order" : 8,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "browserProfile.setIcon",
+          "kind" : "action",
+          "label" : "Set Icon…",
           "order" : 9,
           "visible_when" : {
             "debug_only" : false,
@@ -35082,14 +35183,11 @@
           }
         },
         {
-          "kind" : "separator",
-          "order" : 10
-        },
-        {
           "enabled_when" : "can_perform",
-          "id" : "browserProfile.removeImportedData",
+          "id" : "browserProfile.clearIcon",
           "kind" : "action",
-          "order" : 11,
+          "label" : "Remove Icon",
+          "order" : 10,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -35099,8 +35197,12 @@
           }
         },
         {
+          "kind" : "separator",
+          "order" : 11
+        },
+        {
           "enabled_when" : "can_perform",
-          "id" : "browserProfile.clearBrowsingData",
+          "id" : "browserProfile.manageExtensions",
           "kind" : "action",
           "order" : 12,
           "visible_when" : {
@@ -35117,9 +35219,39 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "browserProfile.delete",
+          "id" : "browserProfile.removeImportedData",
           "kind" : "action",
           "order" : 14,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "browserProfile.clearBrowsingData",
+          "kind" : "action",
+          "order" : 15,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 16
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "browserProfile.delete",
+          "kind" : "action",
+          "order" : 17,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -40814,6 +40946,140 @@
           "kind" : "action",
           "label" : "Close Group",
           "order" : 11,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        }
+      ],
+      "implied" : [
+
+      ]
+    },
+    "tabStrip" : {
+      "entries" : [
+        {
+          "enabled_when" : "can_perform",
+          "id" : "newTab.default",
+          "kind" : "action",
+          "order" : 0,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "reopenClosedBrowserPanel",
+          "kind" : "action",
+          "label" : "Reopen Closed Tab",
+          "order" : 1,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "bookmark.addAllTabs",
+          "kind" : "action",
+          "order" : 2,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "pane.moveToNewWorkspace",
+          "kind" : "action",
+          "label" : "Move All Tabs to a New Workspace",
+          "order" : 3,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 4
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "tabs.verticalTabs.toggle",
+          "kind" : "action",
+          "order" : 5,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "tabs.verticalTabs.allWorkspaces",
+          "kind" : "action",
+          "order" : 6,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "tabs.verticalTabs.collapse",
+          "kind" : "action",
+          "order" : 7,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "tabs.verticalTabs.expandOnHover",
+          "kind" : "action",
+          "order" : 8,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 9
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "palette.openTaskManager",
+          "kind" : "action",
+          "order" : 10,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,

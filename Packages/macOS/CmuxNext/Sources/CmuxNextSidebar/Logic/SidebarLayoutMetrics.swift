@@ -105,6 +105,8 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var machineStatusLabels: [MachineID: String] = [:]
     /// Include tab rows beneath each visible workspace.
     public var showWorkspaceTabs = false
+    /// Workspaces that list their tabs themselves (vertical tabs): no tab rows and no disclosure here.
+    public var inWorkspaceTabs = SidebarInWorkspaceTabs()
     /// With `showWorkspaceTabs`, the workspaces whose disclosure hid their tabs.
     public var collapsedWorkspaces: Set<WorkspaceID> = []
     /// Keep the active workspace visible beneath a collapsed group so the
