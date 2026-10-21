@@ -5,6 +5,7 @@ import type { AcpmuxActivity } from "../model";
 import type { Translate } from "../i18n";
 import { agentMessage, type AgentMessage } from "./agentMessages";
 import { mcpCall, mcpKey } from "./mcpCalls";
+import { mergeThoughts } from "./thoughts";
 
 /// The kinds of call that group with their neighbors.
 export type ToolGroupKind = "commands" | "reads" | "edits" | "searches";
@@ -43,6 +44,7 @@ export function toolGroupKind(tool: Tool): ToolGroupKind | undefined {
 /// Commands, reads and searches group from two calls; an edit with a diff groups alone, so it
 /// still reads "Edited App.tsx +12 -3". Calls to one MCP tool group from one call, so even a lone
 /// one reads as what it did. A lone call of any other kind keeps its own row and title.
+/// Consecutive thoughts are one thought (thoughts.ts `mergeThoughts`).
 export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
   const groups: ToolGroup[] = [];
   let run: { kind: ToolGroupKind; items: AcpmuxActivity[] } | undefined;
@@ -56,7 +58,7 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
     else groups.push({ type: "item", item: run.items[0]! });
     run = undefined;
   };
-  for (const item of items) {
+  for (const item of mergeThoughts(items)) {
     const tool = item.tool;
     const message = tool && agentMessage(tool);
     const call = tool && !message ? mcpCall(tool) : undefined;

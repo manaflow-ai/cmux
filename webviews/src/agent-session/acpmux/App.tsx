@@ -295,6 +295,7 @@ import { importedPrompt, parseImportedSession } from "./importSession";
 import { useCheckpoints } from "./checkpoints/controller";
 import { PermissionPanel } from "./permissions/Panel";
 import { groupAskedCalls, withoutAskedCalls } from "./permissions/askRows";
+import { withoutQuietThoughts } from "./conversation/thoughts";
 import type { PermissionDecision } from "./permissions/protocol";
 import { checkpointStrings } from "./checkpoints/strings";
 import { QUICK_MESSAGES, readSurface, useEscapeToDismiss, type PaneSurface } from "./paneSurface";
@@ -3513,8 +3514,9 @@ function AcpmuxPane() {
       : individualPermission
         ? snapshot.rows.filter((row) => row.permission?.permissionId !== individualPermission.permissionId)
         : snapshot.rows;
-    return rows;
-  }, [snapshot.rows, snapshot.permissionGroups, individualPermission]);
+    // Each step's consecutive thoughts as one, and none that says nothing (conversation/thoughts.ts).
+    return withoutQuietThoughts(rows, snapshot.isWorking);
+  }, [snapshot.rows, snapshot.permissionGroups, individualPermission, snapshot.isWorking]);
   // A call the permission panel asks about is drawn by the panel's row while it waits
   // (withoutAskedCalls); with the panel hidden behind folder trust, it stays in the transcript.
   const trustBlocked = trustAsk.holdsAsks;
@@ -3596,7 +3598,7 @@ function AcpmuxPane() {
   /// Debug Settings `agent.sessionStatus`: a running turn's activity line under its todo list.
   const sessionStatus = useSessionStatus();
   const transcriptRows = useMemo(() => {
-    if (childRows) return withoutAskedCalls(childRows, panelAsks);
+    if (childRows) return withoutAskedCalls(withoutQuietThoughts(childRows), panelAsks);
     const rows = withStartedSessions(sourceRows, started, startedCache.current);
     return acpmuxPerf.timed("app.rows", () => {
       const last = lastTurns.current;
