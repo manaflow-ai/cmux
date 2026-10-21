@@ -107,7 +107,8 @@ impl NativeReceiver {
                         break Err(error);
                     }
                 }
-                () = expired(expires) => {
+                result = expired(expires) => {
+                    if result.is_err() { break Err(anyhow!("cloud.receiver.clock_unavailable")); }
                     // This timer belongs to the installed topology. A newer
                     // source snapshot may already be queued, so it must not
                     // invalidate the source owner's newer publication.
@@ -261,9 +262,9 @@ impl NativeReceiver {
     }
 }
 
-async fn expired(deadline: Option<(Instant, Option<Deadline>)>) {
+async fn expired(deadline: Option<(Instant, Option<Deadline>)>) -> std::io::Result<()> {
     match deadline {
-        Some((active, elapsed)) => super::receiver_deadline::expired(active, elapsed).await,
+        Some((active, elapsed)) => super::receiver_deadline::wait(active, elapsed).await,
         None => std::future::pending().await,
     }
 }

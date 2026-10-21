@@ -58,6 +58,12 @@ impl Deadline {
         Some(Self { source: self.source.clone(), at: self.at.checked_sub(debit)? })
     }
 
+    /// Retry scheduling keeps the owner's clock failure latch, while starting
+    /// a new wait budget rather than extending an authority lease.
+    pub fn after(&self, delay: Duration) -> Option<Self> {
+        self.source.restart()?.deadline_at(delay)
+    }
+
     pub(crate) fn bounded_by(mut self, other: Self) -> Option<Self> {
         if self.source.started != other.source.started
             || !Arc::ptr_eq(&self.source.state, &other.source.state)

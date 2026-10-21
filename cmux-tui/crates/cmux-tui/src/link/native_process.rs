@@ -82,7 +82,7 @@ async fn refresh(source: &Arc<AgentReceiver>) -> anyhow::Result<ReceiverSnapshot
     let mut task = tokio::task::spawn_blocking(move || reader.refresh_prepared(prepared));
     let result = tokio::select! {
         biased;
-        () = super::receiver_deadline::expired(active, Some(elapsed)) => None,
+        _ = super::receiver_deadline::wait(active, Some(elapsed)) => None,
         result = &mut task => Some(result),
     };
     match result {
@@ -143,7 +143,10 @@ async fn renew(
     loop {
         // A snapshot's own renewal deadline or a failed request's backoff,
         // never a timer that polls unrelated state.
-        super::receiver_deadline::expired(next.0, Some(next.1)).await;
+        let clock = next.1.clone();
+        super::receiver_deadline::wait(next.0, Some(next.1))
+            .await
+            .map_err(|_| anyhow!("cloud.receiver.clock_unavailable"))?;
         match refresh(&source).await {
             Ok(snapshot) => {
                 next = renewal_at(&snapshot)?;
@@ -158,8 +161,8 @@ async fn renew(
                 }
                 source.invalidate();
                 send.send(None).await.map_err(|_| anyhow!("cloud.receiver.stopped"))?;
-                let elapsed = Elapsed::system()
-                    .and_then(|source| source.deadline_at(retry))
+                let elapsed = clock
+                    .after(retry)
                     .ok_or_else(|| anyhow!("cloud.receiver.clock_unavailable"))?;
                 next = (Instant::now() + retry, elapsed);
                 retry = (retry * 2).min(Duration::from_secs(30));
@@ -181,7 +184,10 @@ async fn run_child(parent: StdStream, control: StdStream, session: PathBuf) -> a
         biased;
         result = closed(&mut parent) => return result,
         result = &mut shutdown => return result,
-        () = super::receiver_deadline::expired(active, Some(elapsed)) => bail!("cloud.receiver.bootstrap_expired"),
+        result = super::receiver_deadline::wait(active, Some(elapsed)) => {
+            result.map_err(|_| anyhow!("cloud.receiver.clock_unavailable"))?;
+            bail!("cloud.receiver.bootstrap_expired");
+        },
         result = read_bootstrap(&mut control) => result?,
     };
     // No service futures exist during startup; dropping this future still

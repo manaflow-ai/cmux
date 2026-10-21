@@ -6,6 +6,17 @@ use std::time::Instant;
 
 use cmux_link::elapsed::Deadline;
 
+/// Timer setup failures stop the actor and preserve its retry backoff.
+pub(super) async fn wait(active: Instant, elapsed: Option<Deadline>) -> std::io::Result<()> {
+    let retained = elapsed.clone();
+    expired(active, elapsed).await;
+    match retained {
+        Some(budget) if budget.remaining().is_none() => Ok(()),
+        None if active <= Instant::now() => Ok(()),
+        _ => Err(std::io::Error::other("receiver deadline unavailable")),
+    }
+}
+
 pub(super) async fn expired(active: Instant, elapsed: Option<Deadline>) {
     let Some(budget) = elapsed else {
         tokio::time::sleep_until(tokio::time::Instant::from_std(active)).await;
