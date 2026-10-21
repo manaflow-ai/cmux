@@ -122,8 +122,7 @@ enum AppActions {
         // One owner per action: a second binding silently replaces the first. The check is a test
         // (noActionIsBoundTwice); at runtime a Debug dogfood build must not crash, so only a fault.
         if !registry.duplicateBindings.isEmpty {
-            Logger(subsystem: "com.cmuxterm.app.next", category: "actions")
-                .fault("actions bound twice: \(registry.duplicateBindings.map(\.rawValue).joined(separator: ", "), privacy: .public)")
+            Logger(subsystem: "com.cmuxterm.app.next", category: "actions").fault("actions bound twice: \(registry.duplicateBindings.map(\.rawValue).joined(separator: ", "), privacy: .public)")
         }
     }
 
