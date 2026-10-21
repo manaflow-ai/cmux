@@ -175,17 +175,16 @@ export function PromptActions({ row, text }: { row: AcpmuxRow; text: string }) {
   );
 }
 
-/// The row under another agent's message (IncomingMessageCard), at its text's left edge: its age,
-/// its read receipt, Copy, Retry and Pin.
+/// The row at the end of another agent's message line (IncomingMessageCard.tsx IncomingMessageLine):
+/// its age, Copy, Retry and Pin. No read receipt: the message is the agent's to read.
 export function ReceivedActions({ row, text }: { row: AcpmuxRow; text: string }) {
   return (
-    <div className="cv-received-actions">
+    <span className="cv-received-actions">
       <MessageTime at={row.at} className="cv-user__time" />
-      <ReadReceipt row={row} />
       <CopyButton text={text} />
       <PromptRetry rowId={row.id} prompt={row.resend ?? row.text ?? ""} />
       <PinButton rowId={row.id} />
-    </div>
+    </span>
   );
 }
 
