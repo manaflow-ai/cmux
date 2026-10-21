@@ -145,7 +145,7 @@ export function SessionRail({
   const percent = known ? Math.round(Math.min(1, Math.max(0, usage.used / usage.size)) * 100) : 0;
   const tokens = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
   return (
-    <aside className="acpmux-rail" aria-label={t("rail.toggle")}>
+    <aside className="acpmux-rail" data-enter="right" aria-label={t("rail.toggle")}>
       <RailCard title={t("rail.environment")} open={state.environment} onOpenChange={fold("environment")}>
         <Environment summary={summary} machineName={machineName} />
       </RailCard>

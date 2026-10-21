@@ -64,3 +64,17 @@
   min-height: var(--acpmux-stack-row-min, 34px);
   overflow-y: auto;
 }
+
+/* What joins the bottom stack rises out of the composer as it appears (Leo 2026-10-20, directional
+   motion): a question, a notice, the pull request dock, the agents pill and a queued prompt fade in
+   from a few points below where they land (ui-enter, ui/popupSurface.css). Their space opens in one
+   frame, as the stack's flow takes it; only the drawing travels. */
+.acpmux-dock > :not(.acpmux-composer, .acpmux-home-area, .acpmux-asks-stack),
+.acpmux-asks-stack > *,
+.acpmux-composer-queue > li:not(.acpmux-queue-header) {
+  --ui-enter-y: var(--ui-enter-distance);
+  animation: ui-enter var(--ui-enter-duration) var(--ui-enter-ease) both;
+}
+.acpmux-composer-queue > li {
+  --ui-enter-distance: 4px;
+}
