@@ -3,9 +3,9 @@
 // became the solid popup surface, `--surface-popup`: the host's `--cmux-popup-surface`, the same
 // opaque fill as the native overlays (`Palette.popupSurface`), with no backdrop blur. Since the
 // liquid glass (2026-10-20, Leo: popups are glass, never opaque) every menu, popover and picker is
-// `.ui-glass` (ui/popupSurface.css): translucent and frosted; under Plain glass and Reduce
-// Transparency it is that solid popup surface again, unblurred. Floating surfaces that are not
-// popups keep the solid surface. The two
+// `.ui-glass` (ui/popupSurface.css): translucent and frosted in every glass mode, Plain included;
+// only under Reduce Transparency is it that solid popup surface again, unblurred. Floating surfaces
+// that are not popups keep the solid surface. The two
 // web tooltips (Base UI's `.ui-tooltip`, the title tooltip) match the native tooltip: primary ink,
 // 5 px radius, 4×8 padding, a separator hairline and the caption font; since 2026-10-14 they are
 // frosted glass instead (tooltip-surface.test.ts).
@@ -81,7 +81,7 @@ await requireBrowserLane("popup-surface.test.ts", async () => {
     body: `<div class="ui-positioner"><div class="ui-popup ui-glass" id="menu">Menu</div></div>
 ${tooltips}
 <div class="page-menu" id="page-menu">Sort</div>
-<div class="icon-bar-pill" id="icon-bar-pill">Icons</div>
+<div class="ui-glass icon-bar-pill" id="icon-bar-pill">Icons</div>
 <div class="md-link-bubble" id="md-link-bubble">https://example.com</div>
 <div class="md-link-popover" id="md-link-popover">Edit link</div>
 <div class="hc-msg-toolbar" id="hc-msg-toolbar">React</div>
@@ -89,7 +89,7 @@ ${tooltips}
 <div class="lg-form" id="lg-form">New message</div>
 <div id="editor-widget" style="background: var(--cmux-editor-widget-background)">Suggest</div>`,
     // Tooltips are frosted glass (tooltip-surface.test.ts).
-    glass: ["menu"],
+    glass: ["menu", "icon-bar-pill"],
     surfaces: [
       "menu",
       "page-menu",
@@ -124,7 +124,7 @@ ${tooltips}
 <div class="ui-popup ui-glass acpmux-slash-menu" id="slash">/compact</div>
 <div class="acpmux-composer"><div class="ui-popup ui-glass acpmux-slash-menu acpmux-mention-menu" id="composer-menu">@file</div></div>
 <div class="ui-popup ui-glass ui-picker-popup acpmux-mp" id="model-picker">Models</div>
-<div class="acpmux-changes"><div class="acpmux-file-menu-list" id="file-menu">Open</div></div>
+<div class="acpmux-changes"><div class="ui-popup ui-glass acpmux-file-menu-list" id="file-menu">Open</div></div>
 </div>
 <div class="ui-positioner"><div class="ui-popup ui-glass" id="popup">Menu</div></div>
 <div class="ui-positioner"><div class="ui-popup ui-glass ui-context-menu" id="context-menu">Copy</div></div>
@@ -142,6 +142,7 @@ ${tooltips}`,
       // The slash, mention and access menus open inside the composer: never its solid card tint.
       "composer-menu",
       "model-picker",
+      "file-menu",
       "popup",
       "context-menu",
       "effort",

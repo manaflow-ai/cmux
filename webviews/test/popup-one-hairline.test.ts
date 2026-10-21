@@ -145,13 +145,7 @@ describe("web popups draw one hairline edge", () => {
   // The popups the coherence passes moved onto the shared elevation; each must still be covered.
   test("the pane's menus and popovers are all checked", () => {
     const selectors = uses.map((use) => use.selector).join("\n");
-    for (const popup of [
-      ".acpmux-omni",
-      ".acpmux-summary-card",
-      ".lg-palette",
-      ".acpmux-file-menu-list",
-      ".find-pill",
-    ]) {
+    for (const popup of [".acpmux-omni", ".acpmux-summary-card", ".lg-palette", ".find-pill"]) {
       expect(selectors).toContain(popup);
     }
   });
@@ -173,6 +167,9 @@ describe("web popups draw one hairline edge", () => {
     ".acpmux-chat-menu-popover",
     ".acpmux-pr-status",
     ".nt-popover",
+    ".acpmux-file-menu-list",
+    ".acpmux-needs-you",
+    ".acpmux-agents-list",
   ];
   test("a glass popup's elevation is the drop alone, under the glass's one rim", () => {
     const elevations = css.flatMap(({ text }) =>
