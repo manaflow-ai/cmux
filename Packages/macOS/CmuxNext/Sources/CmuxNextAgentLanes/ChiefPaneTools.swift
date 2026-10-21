@@ -118,8 +118,12 @@ public final class ChiefPaneTools: NSView {
     }
 }
 
-/// Strings of the Chief's pane tools (Resources/Localizable.xcstrings).
+/// Strings of the Chief's pane tools and Open Chief Subagent (Resources/Localizable.xcstrings).
 enum ChiefToolStrings {
     static var subagents: String { String(localized: "chief.tools.subagents", defaultValue: "Subagents", bundle: .module) }
     static var actions: String { String(localized: "chief.tools.actions", defaultValue: "Chief Actions", bundle: .module) }
+    /// Open Chief Subagent's refusal when its run names no subagent row.
+    static var noSubagent: String {
+        String(localized: "chief.openSubagent.noSubagent", defaultValue: "Choose a subagent from the Subagents menu or the sidebar.", bundle: .module)
+    }
 }
