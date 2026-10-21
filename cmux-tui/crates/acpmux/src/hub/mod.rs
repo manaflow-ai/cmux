@@ -55,6 +55,7 @@ pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
 pub use route_switch::HarnessRestarts;
 pub(crate) use route_switch::route_error;
 pub(crate) use turn_errors::is_limit_error;
+mod git_watch;
 mod offer_results;
 mod offers;
 mod secrets;
@@ -342,6 +343,8 @@ pub struct Hub {
     pub(super) harness_watch: harness_watch::HarnessWatchState,
     /// The settings file watched for start-mode changes (`settings_watch.rs`).
     pub(super) settings_watch: settings_watch::SettingsWatchState,
+    /// The HEAD of each attached session's folder, watched for a checkout (`git_watch.rs`).
+    pub(super) git_watch: git_watch::GitWatchState,
     pub catalog: Arc<crate::catalog::CatalogService>,
     /// Agent CLI health (`harness_health`, `hub/health_view.rs`).
     pub health: Arc<crate::harness_health::HealthService>,
@@ -437,6 +440,7 @@ impl Hub {
             start_mode_state: Default::default(),
             harness_watch: Default::default(),
             settings_watch: Default::default(),
+            git_watch: Default::default(),
             catalog: Arc::new(crate::catalog::CatalogService::new()),
             health: Arc::new(crate::harness_health::HealthService::new()),
             web_token: WebToken::new(String::new()),
