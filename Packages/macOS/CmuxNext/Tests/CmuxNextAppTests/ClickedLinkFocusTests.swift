@@ -1,10 +1,13 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextDaemon
+import CmuxNextFocus
 import CmuxNextTabs
 import Foundation
 import Testing
+import WebKit
 
 /// Leo 2026-10-21: a link clicked in a chat opened its github.com tab without the focus, so his
 /// Cmd-W closed the chat instead of the tab. As in Chrome: a plain click's tab takes the focus,
@@ -122,6 +125,42 @@ struct ClickedLinkFocusTests {
         }
     }
 
+    /// The page a link is clicked in asks for the keyboard by itself (WebKit's `makeFirstResponder`,
+    /// its composer's own focus) while the pane change that lands the link's tab is still queued.
+    /// The window judged the ask against the focus before that change and let the page have it; the
+    /// queued change, reduced first, put the focus on the link's tab, and the page's report took it
+    /// straight back: the link's tab showed selected with the keyboard still in the page (four in
+    /// eight runs of the click tests above).
+    @Test func aPagesOwnFocusAskLosesToAQueuedLinkTabFocus() async throws {
+        try await PinnedPageTests.withApp { services, _ in
+            let store = services.daemon.store
+            let content = try #require(services.windows.active?.workspaceContent)
+            let window = try #require(services.windows.active?.window)
+            let model = try #require(store.workspaces.first?.screens.first?.panes.first)
+            let pane = try #require(services.paneController(for: model))
+            let panes = Set(content.panes.keys)
+            #expect(services.registry.perform("splitRight", invocation: ActionInvocation(origin: .user)))
+            try await PinnedPageTests.until({ content.panes.keys.contains { !panes.contains($0) } })
+            let right = try #require(content.panes.first { !panes.contains($0.key) }?.value)
+            try await PinnedPageTests.until({ Self.page(in: pane.view) != nil }, report: { "the source pane shows no agent page" })
+            let page = try #require(Self.page(in: pane.view))
+            PaneHandlers.focus(pane.layoutPaneID, in: content)
+            try await PinnedPageTests.until({ content.focusedPane === pane })
+            try await PinnedPageTests.until({ content.focus.state.topology.pane(right.paneKey) != nil })
+            // The link's tab: expected now, listed by a pane change that is still queued.
+            let link = FocusTopology.Tab(id: "tab_clicked_link", kind: .browser)
+            content.focus.expect(.tab(link.id), generation: content.beginFocusIntent())
+            var queued = content.focus.state.topology
+            let column = try #require(queued.panes.firstIndex { $0.id == right.paneKey })
+            queued.panes[column].tabs.append(link)
+            let owner = NSObject()
+            content.focus.setNeedsTopology(owner: owner) { queued }
+            // The page's own ask, outside an input event and the focus model's moves.
+            _ = window.makeFirstResponder(page)
+            #expect(content.focus.state.pane == right.paneKey, "the page's own focus ask took the focus from the link's tab")
+        }
+    }
+
     /// An agent's open beside its lone chat docks the chat left and keeps the focus in it. That
     /// refocus is the app's, not the person's: it must not read as the person acting, or a second
     /// open in flight (Changes then Preview, two agents in one window) would skip selecting its tab.
@@ -222,6 +261,14 @@ struct ClickedLinkFocusTests {
         }
         try await PinnedPageTests.until({ opened() != nil }, report: { "the link opened no tab" })
         return try #require(opened())
+    }
+
+    /// The web view of the agent page `view` shows.
+    private static func page(in view: NSView) -> WKWebView? {
+        if let page = view as? WKWebView, sequence(first: page.superview, next: { $0?.superview }).contains(where: { $0 is AgentPaneView }) {
+            return page
+        }
+        return view.subviews.lazy.compactMap { page(in: $0) }.first
     }
 
     private static func describe(_ content: WorkspaceContentController, _ tab: String) -> String {
