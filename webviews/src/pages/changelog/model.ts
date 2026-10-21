@@ -274,7 +274,8 @@ export function mergedView(notes: ReleaseNotes[], language: string): ReleaseView
 }
 
 /** A release day's title, Conductor style (2026-10-20): the curated headline of its newest build
-    that has curated entries. Undefined when none has one: such a day says "Maintenance and fixes". */
+    that has curated entries. Undefined when none has one: such a day lists its readable
+    changes, or says "Maintenance and fixes" when it has none. */
 export function releaseTitle(notes: ReleaseNotes[], language: string): string | undefined {
   for (const n of notes) {
     if (!n.whatsNew || n.whatsNew.entries.length === 0) continue;
