@@ -57,7 +57,8 @@ enum AgentSessionWorkspace {
         let machine = services.machines.machineName(daemon.machineID) ?? daemon.machineID
         let repair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
         // `group`: that machine's group of the name (made when missing), once the row is listed.
-        let join: (@MainActor @Sendable (String, SidebarBridge) -> Void)? = group.map { name in { id, sidebar in joinGroup(id, named: name, sidebar: sidebar) } }
+        var join: (@MainActor @Sendable (String, SidebarBridge) -> Void)?
+        if let group { join = { id, sidebar in joinGroup(id, named: group, sidebar: sidebar) } }
         NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: nil, then: join, windows: services.windows)
         return Task { @MainActor in
             do {
