@@ -233,6 +233,17 @@ fn start(scratch: &Path, home: &Path) -> (Child, PathBuf) {
     panic!("daemon did not start and read its logs");
 }
 
+/// Stops the daemon however the test ends, a failed assert included.
+struct Stop(Child);
+
+impl Drop for Stop {
+    fn drop(&mut self) {
+        // SAFETY: the pid is this test's own child.
+        unsafe { libc::kill(self.0.id() as i32, libc::SIGTERM) };
+        let _ = self.0.wait();
+    }
+}
+
 fn seqs(page: &Value) -> Vec<u64> {
     page["events"].as_array().unwrap().iter().map(|e| e["seq"].as_u64().unwrap()).collect()
 }
@@ -263,8 +274,9 @@ fn a_long_chat_opens_on_its_newest_page_and_scrolls_to_its_first_message() {
     std::fs::write(session.join("session.json"), meta.to_string()).unwrap();
     set_private(&session.join("session.json"));
 
-    let (mut child, socket) = start(&dir, &home);
+    let (child, socket) = start(&dir, &home);
     let pid = child.id();
+    let daemon = Stop(child);
     let mut rpc = Rpc::connect(&socket);
     rpc.call("session/list", json!({}));
 
@@ -338,9 +350,7 @@ fn a_long_chat_opens_on_its_newest_page_and_scrolls_to_its_first_message() {
         json!({"log_mb": mb, "records": log.records, "open_read_mb": open_read as f64 / 1e6, "attach_read_mb": attach_read as f64 / 1e6,
                "scroll_pages": pages, "scroll_read_mb": scroll_read as f64 / 1e6, "log_bytes_mb": log.bytes as f64 / 1e6})
     );
-    // SAFETY: the pid is this test's own child.
-    unsafe { libc::kill(pid as i32, libc::SIGTERM) };
-    let _ = child.wait();
+    drop(daemon);
     let _ = std::fs::remove_dir_all(&dir);
     if cfg!(target_os = "linux") {
         assert!(
