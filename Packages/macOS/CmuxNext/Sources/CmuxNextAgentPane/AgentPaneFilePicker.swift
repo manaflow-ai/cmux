@@ -16,8 +16,7 @@ public struct AgentPaneFilePicker {
         panel.prompt = String(localized: "agentPane.addFiles.prompt", defaultValue: "Add", bundle: .module)
         panel.message = String(localized: "agentPane.addFiles.message",
                                defaultValue: "Every chat in this folder reads the files you add.", bundle: .module)
-        let response = await panel.beginSheetModal(for: window)
-        return response == .OK ? panel.urls : []
+        return await sheet(panel, on: window)
     }
 
     /// Attach files or folders (`chat.attach.choose`): the same sheet for files and folders, several
@@ -30,7 +29,14 @@ public struct AgentPaneFilePicker {
         panel.allowsMultipleSelection = true
         panel.resolvesAliases = true
         panel.prompt = String(localized: "agentPane.attach.prompt", defaultValue: "Attach", bundle: .module)
-        let response = await panel.beginSheetModal(for: window)
-        return response == .OK ? panel.urls : []
+        return await sheet(panel, on: window)
+    }
+
+    /// The chosen files, read in the sheet's own handler: once it ends, the shared panel is free
+    /// for the next picker, which would reconfigure it before an `await` resumed here.
+    @MainActor private static func sheet(_ panel: NSOpenPanel, on window: NSWindow) async -> [URL] {
+        await withCheckedContinuation { done in
+            panel.beginSheetModal(for: window) { response in done.resume(returning: response == .OK ? panel.urls : []) }
+        }
     }
 }

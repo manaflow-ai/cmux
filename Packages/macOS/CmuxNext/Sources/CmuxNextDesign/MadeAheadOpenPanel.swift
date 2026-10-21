@@ -70,11 +70,11 @@ public final class MadeAheadOpenPanel {
             // Only in a running app: a process that never ran its event loop (a test host, a ci-step
             // mini with no open-panel service) would wait 10 s per ViewBridge endpoint, then die.
             // Checked here, not at schedule time: launch windows come before the loop runs.
-            guard made == nil, NSApp.isRunning else { return }
+            guard made == nil, NSApp?.isRunning == true else { return }
             // In the background the person types elsewhere: nothing here waits on the main thread.
             // In front, the time since the last input event (kCGAnyInputEventType, ~0).
             let anyInput = CGEventType(rawValue: ~0) ?? .null
-            let idle = NSApp.isActive ? CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: anyInput) : .infinity
+            let idle = NSApp?.isActive == true ? CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: anyInput) : .infinity
             // Never inside a tracking loop (a drag, a menu, a resize): those count as busy.
             // RunLoop.current is unavailable in async code; this closure runs on the main actor.
             guard idle >= 1, RunLoop.main.currentMode == .default else {
