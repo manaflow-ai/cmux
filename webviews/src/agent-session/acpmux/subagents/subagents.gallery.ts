@@ -1,5 +1,6 @@
 // l10n-allow-file: gallery fixtures (sample prompts, subagent names and tasks), not shipped UI.
-// A batch of subagents inline in the transcript (SubagentGroup.tsx): the group row in each state,
+// With Debug Settings agentPane.debug.subagentTray off (the tray above the composer is the default,
+// SubagentTray.gallery.ts), a batch of subagents inline in the transcript (SubagentGroup.tsx): the group row in each state,
 // as the snapshot rows the pane receives after direct.ts folds a session's subagent updates; an
 // open group's list (SubagentListRow), opened by a click; and the summary card at the pane's top
 // right (summary/SummaryCard.tsx), which shows itself for a chat with subagents and lists them with
@@ -7,7 +8,7 @@
 // list line opens that subagent's own view (the child view): a "Subagent of" pill naming its
 // parent, then its rows, nested groups included. A pane the app opened on a subagent shows it read
 // only: a line naming the chat where the composer would be (SubagentPaneFooter.tsx).
-import { agentPaneEntry } from "../../../gallery/format";
+import { agentPaneEntry, type AgentPaneVariant } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
@@ -200,6 +201,17 @@ const openGroup = (count: number) => async (ctx: PlayContext) => {
   if (ctx.document.activeElement !== disclosure) throw new Error("subagent disclosure lost focus while opening");
 };
 
+/** These variants show the group card in the transcript and the agents pill, which Debug Settings
+ * agentPane.debug.subagentTray off keeps; the tray, the default, is SubagentTray.gallery.ts. The
+ * summary card is the same either way. */
+const groupCards = (variants: Record<string, AgentPaneVariant>): Record<string, AgentPaneVariant> =>
+  Object.fromEntries(
+    Object.entries(variants).map(([name, variant]) => [
+      name,
+      { ...variant, theme: { subagentTray: false, ...variant.theme } },
+    ]),
+  );
+
 export default agentPaneEntry({
   id: "agent-pane.subagents",
   title: "Subagents",
@@ -218,7 +230,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/summary/SubagentStack.tsx#SubagentStack",
     "agent-session/acpmux/summary/SubagentStatusList.tsx#SubagentStatusList",
   ],
-  variants: {
+  variants: groupCards({
     "agents-pill": {
       note: "The agents pill while two of four subagents run (after Codex's phone app). It opens Active and Completed, a dot per agent in the color its name has in the open group; a click on an agent opens it.",
       height: 640,
@@ -509,5 +521,5 @@ export default agentPaneEntry({
         );
       },
     },
-  },
+  }),
 });

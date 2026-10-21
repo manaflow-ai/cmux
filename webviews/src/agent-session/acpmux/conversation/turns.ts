@@ -13,7 +13,7 @@ import { findRowIndex } from "./chatFind";
 import { turnPreviewCardsOn, turnPreviewUrl } from "./previewUrl";
 import { renderCall } from "./renderCall";
 import { showsTimestamp, type TurnTimes } from "./timestamps";
-import { isSubagentGroup } from "../subagents/subagentRows";
+import { isSubagentGroup, SUBAGENT_DONE } from "../subagents/subagentRows";
 import { STARTED_SESSIONS } from "../started/startedSessions";
 import { QUESTION_RECORD } from "../question/record";
 import type { Translate } from "../i18n";
@@ -512,6 +512,8 @@ const staysOut = (row: AcpmuxRow) =>
   isSubagentGroup(row) ||
   (row.kind === "plan" && row.plan !== undefined) ||
   row.kind === "backgroundTask" ||
+  // Where a subagent ended (the tray showed it while it ran, subagents/runningTray.ts).
+  row.kind === SUBAGENT_DONE ||
   // A compaction or a move to the fallback harness changes what the rest of the turn knows or
   // who answers it; folded, nobody would see it happened.
   row.kind === "compaction" ||

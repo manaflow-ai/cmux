@@ -30,6 +30,7 @@ import time
 from pathlib import Path
 
 import browser_resize
+import sidebar_content
 
 EPS = 0.75  # points: a value this close to its start or end counts as there
 
@@ -147,8 +148,17 @@ class Driver:
             time.sleep(0.6)
 
     def sidebar(self, prefix: str) -> None:
+        """Each toggle with the sidebar width, the panes beside it, and the work the toggle cost.
+
+        The pane rows say what each pane's content is laid out at on every display frame, and
+        `debug.layout_counters` says how often that reached the costly parts: one PTY resize and
+        shell redraw per `terminal_grid_reports`. A sidebar slide should add one per terminal, at
+        the landing, not one per frame (`sidebar_content.py`).
+        """
         for name in ("collapse", "expand"):
-            trace = self.trace(["sidebar"], lambda: self.call("action.run", {"action": "toggleSidebar"}), 0.8)
+            before = self.call("debug.layout_counters", {})
+            trace = self.trace(["sidebar", "panes"], lambda: self.call("action.run", {"action": "toggleSidebar"}), 0.8)
+            trace["counters"] = {"before": before, "after": self.call("debug.layout_counters", {})}
             self.save(f"{prefix}sidebar_{name}", trace)
             time.sleep(0.3)
 
@@ -409,6 +419,7 @@ def judge(out: Path) -> dict[str, dict]:
                 verdict["ok"] = False
         elif "sidebar" in name:
             verdict = judge_motion(name, sidebar_series(data), refresh)
+            verdict["content"] = sidebar_content.metrics(data)
         elif name == "transcript_follow":
             verdict = judge_transcript(data, refresh)
         else:
@@ -510,6 +521,8 @@ def markdown(out: Path, verdicts: dict[str, dict]) -> str:
             notes.append("spare" if verdict["opening"].get("spare") else "cold")
         if "lag_frames" in verdict:
             notes.append(f"content lagged the edge {verdict['lag_frames']} frame(s) at most (reported only)")
+        if "content" in verdict:
+            notes.append(sidebar_content.note(verdict["content"]))
         if verdict.get("neighbors"):
             notes.append("neighbors " + ", ".join(str(n["intermediate"]) for n in verdict["neighbors"]))
         lines.append(f"| {name} | {'ok' if verdict['ok'] else 'FAIL'} | {verdict.get('intermediate', '')} ({bound}) "

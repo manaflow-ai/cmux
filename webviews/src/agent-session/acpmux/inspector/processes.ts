@@ -8,8 +8,8 @@
 // The transcript knows commands too: Claude's background Bash calls, those Ctrl-B moved there
 // included (conversation/runInBackground.ts), and their `background_task_update` ends
 // (summary/sessionSummary.ts). `backgroundCommands` merges the two into the one list the
-// Inspector's Background tasks, the summary card, the running turn's line and the transcript's
-// "Running in background" row read. The registry wins: a transcript task whose call started a
+// Inspector's Background tasks, the summary card, the running turn's line and the tray above the
+// composer (subagents/runningTray.ts) read. The registry wins: a transcript task whose call started a
 // listed process is that process.
 import { useEffect, useState } from "react";
 import type { SummaryBackgroundTask } from "../summary/sessionSummary";
@@ -291,8 +291,8 @@ export function inspectorLists(
   };
 }
 
-/// The Inspector section the running line's background counts open (App.tsx `openBackground`,
-/// `openCommands`): Background tasks while a command that is not a dev server runs, Servers when
+/// The Inspector section a background command opens (App.tsx `openCommands` and
+/// `openTrayCommand`): Background tasks while a command that is not a dev server runs, Servers when
 /// every running command is one (the Inspector draws no Background tasks for those), else
 /// Subagents (only subagents and started chats run). `running` is the chat's running commands,
 /// servers included, as the running line counts them.

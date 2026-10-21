@@ -735,7 +735,10 @@
         "CMUXMobileCore",
         "CmuxTheme"
       ],
-      "reads": []
+      "reads": [
+        "Resources/cmux-themes/",
+        "Resources/ghostty/themes/"
+      ]
     },
     "CmuxNextDictation": {
       "kind": "regular",
