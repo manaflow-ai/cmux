@@ -3,14 +3,22 @@
 //! its socket and accepts connections but never answers; the option stops it
 //! (found through the socket's peer credentials) and starts a new owner. A
 //! responsive owner is kept.
+//!
+//! An owner at its connection limit (issue 22311: a wedged owner whose 64
+//! connection threads never end) refuses every new connection with a
+//! `server.busy` line. A plain ensure must neither read that as no owner
+//! (spawn a second one that loses the bind) nor fail as `server.unavailable`;
+//! it reports `server.busy`, and the replace option replaces such an owner.
 
 #![cfg(any(target_os = "linux", target_os = "macos"))]
 
 use std::fs;
+use std::io::{BufRead, BufReader, Write};
 use std::os::unix::fs::PermissionsExt;
+use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
 
@@ -33,6 +41,14 @@ impl Fixture {
     }
 
     fn server(&self, action: &str, extra: &[&str]) -> Value {
+        let (success, value) = self.run(action, extra);
+        assert!(success, "server {action} {extra:?} failed: {value}");
+        value
+    }
+
+    /// Whether a `server` command succeeded, and its result or JSON error
+    /// (the last JSON line on stdout or stderr).
+    fn run(&self, action: &str, extra: &[&str]) -> (bool, Value) {
         let output = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
             .args(["server", action, "--json", "--session", &self.session, "--socket"])
             .arg(&self.socket)
@@ -42,15 +58,42 @@ impl Fixture {
             .output()
             .unwrap();
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let last = stdout.lines().last().unwrap_or_default();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stream = if output.status.success() { &stdout } else { &stderr };
+        let last = stream.lines().rfind(|line| line.starts_with('{')).unwrap_or_default();
         let value: Value = serde_json::from_str(last).unwrap_or_else(|_| {
-            panic!(
-                "server {action} printed no JSON: stdout {stdout:?} stderr {:?}",
-                String::from_utf8_lossy(&output.stderr)
-            )
+            panic!("server {action} printed no JSON: stdout {stdout:?} stderr {stderr:?}")
         });
-        assert!(output.status.success(), "server {action} {extra:?} failed: {value}");
-        value
+        (output.status.success(), value)
+    }
+
+    /// Takes every connection the owner accepts until it refuses one at its
+    /// connection limit; the owner holds a permit for each until it closes.
+    fn fill_connections(&self) -> Vec<UnixStream> {
+        let mut held = Vec::new();
+        loop {
+            assert!(held.len() < 512, "the owner never refused a connection");
+            let stream = UnixStream::connect(&self.socket).unwrap();
+            // macOS refuses the timeout (EINVAL) once the owner has closed a
+            // refused connection; its refusal line is still readable.
+            let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            // The refusal may close the socket before this write lands.
+            let _ = writeln!(&stream, r#"{{"id":1,"cmd":"identify"}}"#);
+            loop {
+                let mut line = String::new();
+                assert_ne!(reader.read_line(&mut line).unwrap(), 0, "closed after {}", held.len());
+                let reply: Value = serde_json::from_str(&line).unwrap();
+                if reply["type"] == "refused" {
+                    assert_eq!(reply["code"], "server.busy", "{reply}");
+                    return held;
+                }
+                if reply["id"] == 1 {
+                    break;
+                }
+            }
+            held.push(stream);
+        }
     }
 }
 
@@ -136,4 +179,59 @@ fn replace_unresponsive_keeps_a_responsive_owner() {
     assert_eq!(again["status"], "running", "{again}");
     assert_eq!(pid_of(&again), pid_of(&first), "{again}");
     assert!(again.get("replaced_pid").is_none(), "{again}");
+}
+
+#[test]
+fn ensure_reports_an_owner_at_its_connection_limit_as_busy_and_adopts_it_later() {
+    let fixture = Fixture::new("ensure-full");
+    let first = fixture.server("ensure", &[]);
+    let mut held = fixture.fill_connections();
+
+    // Not `server.unavailable` ("did not become ready"), and no second owner.
+    // A permit of an earlier command's connection may free only after the
+    // fill: then this ensure is served, and the fill tops up and asks again.
+    let busy = (0..3)
+        .find_map(|_| match fixture.run("ensure", &[]) {
+            (false, failure) => Some(failure),
+            (true, _) => {
+                held.extend(fixture.fill_connections());
+                None
+            }
+        })
+        .expect("the full owner served every ensure");
+    assert_eq!(busy["code"], "server.busy", "{busy}");
+
+    // One client leaves: the same owner serves the next ensure.
+    held.pop();
+    let again = fixture.server("ensure", &[]);
+    assert_eq!(again["status"], "running", "{again}");
+    assert_eq!(pid_of(&again), pid_of(&first), "{again}");
+}
+
+#[test]
+fn replace_unresponsive_replaces_an_owner_at_its_connection_limit() {
+    let fixture = Fixture::new("replace-full");
+    let first = fixture.server("ensure", &[]);
+    let old = pid_of(&first);
+    let mut held = fixture.fill_connections();
+
+    // As above: a late-freed permit answers the probe, and the owner is kept.
+    let replaced = (0..3)
+        .find_map(|_| {
+            let result = fixture.server("ensure", &["--replace-unresponsive"]);
+            if result["status"] == "running" {
+                held.extend(fixture.fill_connections());
+                return None;
+            }
+            Some(result)
+        })
+        .expect("the full owner answered every replace probe");
+    assert_eq!(replaced["status"], "replaced", "{replaced}");
+    assert_eq!(replaced["replaced_pid"], old, "{replaced}");
+    let new = pid_of(&replaced);
+    assert_ne!(new, old, "{replaced}");
+    assert!(!running(old), "the full owner {old} still runs");
+
+    let status = fixture.server("status", &[]);
+    assert_eq!(pid_of(&status), new, "{status}");
 }
