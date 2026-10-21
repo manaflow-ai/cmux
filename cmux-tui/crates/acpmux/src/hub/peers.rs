@@ -3,7 +3,7 @@
 use super::*;
 use crate::session_identity::SessionReceipt;
 
-fn session_receipt(summary: &Value) -> Option<SessionReceipt> {
+pub(super) fn session_receipt(summary: &Value) -> Option<SessionReceipt> {
     summary.get("sessionReceipt").and_then(|value| serde_json::from_value(value.clone()).ok())
 }
 
@@ -46,7 +46,10 @@ impl Hub {
         let settled = peer.settled();
         if let Some(old) = self.peers.lock().unwrap().insert(name.to_owned(), peer.clone()) {
             old.stop();
+            // A reconnect keeps when the peer was last seen.
+            peer.seed_last_seen(old.link().last_seen);
         }
+        self.load_peer_cache(&peer);
         tokio::spawn(peer.run());
         settled
     }
@@ -123,6 +126,7 @@ impl Hub {
             return Err(RpcError::not_found(format!("no peer {name:?}")));
         };
         peer.stop();
+        self.forget_peer_cache(name);
         let gone: Vec<Value> = {
             let mut map = self.remote_sessions.lock().unwrap();
             let ids: Vec<String> =
@@ -251,26 +255,34 @@ impl Hub {
         }
     }
 
-    fn apply_peer_notice(&self, peer: &str, notice: crate::peer::PeerNotice) {
+    pub(super) fn apply_peer_notice(&self, peer: &str, notice: crate::peer::PeerNotice) {
         use crate::peer::PeerNotice;
         let peer = peer.to_owned();
         {
             match notice {
                 PeerNotice::Connected => tracing::info!(peer = %peer, "peer ready"),
                 PeerNotice::Disconnected(e) => {
-                    tracing::warn!(peer = %peer, "peer disconnected: {e}");
+                    let link = self.peer(&peer).map(|p| p.link()).unwrap_or_default();
+                    // One line per drop, not per failed attempt while it is down.
+                    if link.attempts <= 1 {
+                        tracing::warn!(peer = %peer, "peer disconnected: {e}");
+                    } else {
+                        tracing::debug!(peer = %peer, attempts = link.attempts, "peer still unreachable: {e}");
+                    }
                     // Keep the last known list, but flag it.
                     let changed: Vec<Value> = {
                         let mut map = self.remote_sessions.lock().unwrap();
                         map.values_mut()
                             .filter(|r| r.peer == peer)
-                            .map(|r| {
-                                r.summary["status"] = Value::String("unreachable".into());
-                                super::views::decide(&mut r.summary);
-                                r.summary.clone()
+                            .filter_map(|r| {
+                                super::peer_cache::mark_stale(&mut r.summary, link.last_seen)
+                                    .then(|| r.summary.clone())
                             })
                             .collect()
                     };
+                    if !changed.is_empty() {
+                        self.save_peer_cache(&peer, true);
+                    }
                     for summary in changed {
                         self.announce_remote(&peer, summary, "status");
                     }
@@ -298,6 +310,7 @@ impl Hub {
                         }
                         (changed, old.into_values().collect::<Vec<_>>())
                     };
+                    self.save_peer_cache(&peer, true);
                     for summary in changed {
                         self.announce_remote(&peer, summary, "status");
                     }
@@ -320,6 +333,7 @@ impl Hub {
                                 .map(|(key, _)| key.clone());
                             key.and_then(|key| map.remove(&key).map(|r| r.summary))
                         };
+                        self.save_peer_cache(&peer, false);
                         let _ = self.events.send(HubEvent {
                             session_id: mux_id.clone(),
                             record: EventRecord {
@@ -354,6 +368,7 @@ impl Hub {
                             RemoteSession { peer: peer.clone(), summary: summary.clone(), receipt },
                         );
                     }
+                    self.save_peer_cache(&peer, false);
                     let _ = self.events.send(HubEvent {
                         session_id: mux_id,
                         record: EventRecord {
@@ -514,8 +529,27 @@ impl Hub {
         }
     }
 
+    /// Every peer's sessions, each with its peer's current `peerState` and
+    /// whether the row is `stale` (last-known while the peer is down).
     pub fn remote_sessions(&self) -> Vec<Value> {
-        self.remote_sessions.lock().unwrap().values().map(|r| r.summary.clone()).collect()
+        let states: HashMap<String, &'static str> = self
+            .peers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .values()
+            .map(|p| (p.name.clone(), p.state().as_str()))
+            .collect();
+        let map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+        map.values()
+            .map(|r| {
+                let mut summary = r.summary.clone();
+                summary["stale"] = Value::Bool(summary["stale"] == true);
+                if let Some(state) = states.get(&r.peer) {
+                    summary["peerState"] = Value::String((*state).to_owned());
+                }
+                summary
+            })
+            .collect()
     }
 
     /// Every session, local and remote, newest first.

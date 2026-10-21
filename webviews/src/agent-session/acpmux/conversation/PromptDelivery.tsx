@@ -30,15 +30,22 @@ export function DeliveryMark({ delivery }: { delivery: PromptDelivery }) {
   }, [sending, late, delivery.sentAt]);
   if (!sending || (!late && !delivery.slow)) return null;
   const label = t(delivery.slow ? "prompt.delivery.stillSending" : "prompt.delivery.sending");
+  // The clock alone names itself in a tooltip; once the send is slow its words show, and no tooltip.
+  if (!delivery.slow)
+    return (
+      <output
+        className="cv-user__status cv-user__delivery"
+        data-delivery={delivery.state}
+        aria-label={label}
+        title={label}
+      >
+        <Clock size={12} />
+      </output>
+    );
   return (
-    <output
-      className="cv-user__status cv-user__delivery"
-      data-delivery={delivery.state}
-      aria-label={label}
-      title={label}
-    >
+    <output className="cv-user__status cv-user__delivery" data-delivery={delivery.state} aria-label={label}>
       <Clock size={12} />
-      {delivery.slow && <span>{label}</span>}
+      <span>{label}</span>
     </output>
   );
 }

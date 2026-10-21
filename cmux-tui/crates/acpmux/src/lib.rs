@@ -55,6 +55,7 @@ pub mod offer_mcp;
 #[cfg(windows)]
 mod owner_only;
 pub mod peer;
+pub mod peer_link;
 #[cfg(not(unix))]
 mod platform;
 pub mod probe_cleanup;
@@ -86,8 +87,10 @@ pub mod subsession_mcp;
 pub mod subsession_worktree;
 pub mod transcript;
 pub mod trust;
+pub mod trust_auto;
 pub mod tui;
 pub mod user_settings;
 pub mod web_modes;
+pub mod worktree_sessions;
 
 pub mod model_catalog;

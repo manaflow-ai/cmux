@@ -2335,7 +2335,13 @@
     "value": 0.1,
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:32 (MotionTunables.fadeDefaults)",
     "unit": "s",
-    "use": "Pane focus ring and inactive dim"
+    "use": "Pane focus ring"
+   },
+   "paneDim": {
+    "value": 0.15,
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.fadeDefaults)",
+    "unit": "s",
+    "use": "The dim over an unfocused pane easing in and out when focus moves"
    },
    "fadeIn": {
     "value": 0.12,

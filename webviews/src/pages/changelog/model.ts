@@ -11,6 +11,7 @@ import type {
   WhatsNewCategory,
   WhatsNewEntry,
 } from "./types";
+import { subjectArea, type AreaKey } from "./areas";
 import { readableChange, revertedSubject, shortTitle, tidyTitle, titleTail } from "./readableChange";
 
 export const CATEGORY_ORDER: readonly WhatsNewCategory[] = ["new", "improved", "fixed", "security"];
@@ -34,13 +35,20 @@ export interface ReleaseItem {
   docs?: string;
 }
 
+/** A change with the app area its subject names (areas.ts), none when it names no area. */
+export interface AreaChange extends ChangeItem {
+  area?: AreaKey;
+}
+
 export interface ReleaseView {
   hero?: ReleaseItem;
   groups: { category: WhatsNewCategory; items: ReleaseItem[] }[];
-  /** Every change a person would notice (readable titles, each pull request once), shown folded. */
-  changes: ChangeItem[];
-  /** Changes left out of `changes` as internal work (CI, tests, perf measurement). */
+  /** Every change a person would notice (readable titles, each pull request once), listed by area. */
+  changes: AreaChange[];
+  /** How many changes were left out of `changes` as internal work (CI, tests, perf measurement). */
   internalChanges: number;
+  /** Those changes, readable, each pull request once: "Under the hood". */
+  underTheHood: ChangeItem[];
   /** Every change the release lists (hero and groups), for counts. */
   count: number;
 }
@@ -169,10 +177,10 @@ function bareSubject(text: string): string {
   return text.replace(/\s*\(#\d+\)\s*$/u, "").trim();
 }
 
-/** The changes a person would notice, readable and each pull request (or title) once, and how
-    many internal ones were left out. A pull request reads as its human commit when it has one; a
-    change reverted in the same span, and its revert, are left out. */
-export function readableChanges<T extends ChangeItem>(items: T[]): { changes: T[]; internal: number } {
+/** The changes a person would notice, readable and each pull request (or title) once, and the
+    internal ones left out (`hidden`, `internal` of them). A pull request reads as its human commit
+    when it has one; a change reverted in the same span, and its revert, are left out. */
+export function readableChanges<T extends ChangeItem>(items: T[]): { changes: T[]; internal: number; hidden: T[] } {
   const reverted = new Set(
     items.map((item) => revertedSubject(item.title)).flatMap((subject) => (subject ? [bareSubject(subject)] : [])),
   );
@@ -189,10 +197,16 @@ export function readableChanges<T extends ChangeItem>(items: T[]): { changes: T[
       rows.push(row);
     } else if (rows[at]!.internal && !readable.internal) rows[at] = row;
   }
-  return {
-    changes: rows.filter((r) => !r.internal).map((r) => r.item),
-    internal: rows.filter((r) => r.internal).length,
-  };
+  const hidden = rows.filter((r) => r.internal).map((r) => r.item);
+  return { changes: rows.filter((r) => !r.internal).map((r) => r.item), internal: hidden.length, hidden };
+}
+
+/** The changes of `items` for the page: by area, internal work apart. */
+function pageChanges(items: ChangeItem[]): Pick<ReleaseView, "changes" | "internalChanges" | "underTheHood"> {
+  const { changes, internal, hidden } = readableChanges(
+    items.map((item) => ({ ...item, area: subjectArea(item.title) })),
+  );
+  return { changes, internalChanges: internal, underTheHood: hidden };
 }
 
 export function releaseView(notes: ReleaseNotes, language: string): ReleaseView {
@@ -226,8 +240,7 @@ export function releaseView(notes: ReleaseNotes, language: string): ReleaseView 
     category,
     items: rest.filter((i) => i.category === category),
   })).filter((g) => g.items.length > 0);
-  const { changes, internal } = readableChanges(raw);
-  return { hero, groups, changes, internalChanges: internal, count: items.length };
+  return { hero, groups, ...pageChanges(raw), count: items.length };
 }
 
 /** The notes' structured changes, else one item per commit subject (no PR without the provider). */
@@ -257,15 +270,16 @@ export function mergedView(notes: ReleaseNotes[], language: string): ReleaseView
     category,
     items: rest.filter((i) => i.category === category),
   })).filter((g) => g.items.length > 0);
-  const { changes, internal } = readableChanges(notes.flatMap(changeItems));
-  return { hero, groups, changes, internalChanges: internal, count: items.length };
+  return { hero, groups, ...pageChanges(notes.flatMap(changeItems)), count: items.length };
 }
 
 /** A release day's title, Conductor style (2026-10-20): the curated headline of its newest build
-    that has curated entries. Undefined when none has one: such a day says "Maintenance and fixes". */
+    that has curated entries. A digest made from summary lines ("summary-N") is not curated: the
+    pipeline heads it with its first line, a commit subject. Undefined when none has one: such a
+    day lists its readable changes, or says "Maintenance and fixes" when it has none. */
 export function releaseTitle(notes: ReleaseNotes[], language: string): string | undefined {
   for (const n of notes) {
-    if (!n.whatsNew || n.whatsNew.entries.length === 0) continue;
+    if (!n.whatsNew?.entries.some((e) => !e.id.startsWith("summary-"))) continue;
     const title = localized(n.whatsNew.headline, language).trim();
     if (title) return title;
   }

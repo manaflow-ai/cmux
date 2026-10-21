@@ -124,6 +124,14 @@ final class CEFRuntime {
         OffTheRecordProfiles.shared.observeEnd { [weak self] profile in self?.releaseOffTheRecordContexts(of: profile) }
     }
 
+    /// `cef_log_severity_t` LOGSEVERITY_WARNING for cef.log and every helper.
+    /// At Chromium's default (INFO), each console call of a page or an
+    /// extension that no handler takes became an `INFO:CONSOLE` line in
+    /// cef.log (an idle 1Password extension wrote 32 lines a minute, all
+    /// day). DevTools and the automation console read the inspector
+    /// protocol, not this log; warnings, errors and FATAL lines stay.
+    nonisolated static let logSeverity: Int32 = 3
+
     /// Process start, from the kernel (`kinfo_proc.p_starttime`).
     nonisolated static let launchUptime: Double = {
         var info = kinfo_proc()
@@ -236,7 +244,7 @@ final class CEFRuntime {
             loadDuration = library.loadDuration
             initializeDuration = clock.now - started
             readyAfterLaunch = ProcessInfo.processInfo.systemUptime - Self.launchUptime
-            logger.notice("CEF ready trigger=\(trigger, privacy: .public) shim_abi=\(CEFShimABI.short(library.shimABI), privacy: .public) fork_api=\(library.shim.forkAPIVersion()) load=\(library.loadDuration, privacy: .public) initialize=\(clock.now - started, privacy: .public)")
+            logger.notice("CEF ready trigger=\(trigger, privacy: .public) shim_abi=\(CEFShimABI.short(library.shimABI), privacy: .public) fork_api=\(library.shim.forkAPIVersion()) load=\(library.loadDuration, privacy: .public) map=\(CEFFrameworkPrefetch.last?.map ?? .zero, privacy: .public) initialize=\(clock.now - started, privacy: .public)")
         } catch {
             // A trust failure names the rejected item in the log, but the
             // user-facing refusal stays the existing localized summary.
@@ -294,11 +302,17 @@ final class CEFRuntime {
         let shim: CEFShimLibrary
         let shimABI = CEFShimABI.bundledIdentity()
         do { shim = try CEFShimLibrary.open(layout.shim, expected: shimABI) } catch { return .failure(.shim(error)) }
+        // Read the binary before mapping it: `dlopen` holds dyld's loader
+        // lock for the whole map, and every main-thread dlopen/dladdr waits
+        // on that lock (CEFFrameworkPrefetch).
+        CEFFrameworkPrefetch.readBinary(layout)
         var message = [CChar](repeating: 0, count: 512)
+        let mapStarted = clock.now
         guard shim.load(layout.frameworkBinary.path, &message, message.count) == 1 else {
             let text = String(decoding: message.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
             return .failure(.framework(text))
         }
+        CEFFrameworkPrefetch.noteMapped(clock.now - mapStarted)
         CEFFrameworkPrefetch.warm(layout)
         // Lists the framework's locale directories here, off the main thread.
         let locale = CEFLocale.current(frameworkDirectory: layout.frameworkDirectory)
@@ -380,7 +394,7 @@ final class CEFRuntime {
             buffer.baseAddress?.withMemoryRebound(to: UnsafePointer<CChar>?.self, capacity: buffer.count) { list in
                 CEFStartSteps.shared.timed("cef_initialize") { shim.initialize(
                     layout.frameworkDirectory.path, layout.mainBundle.path, layout.helperExecutable.path,
-                    storage.root.path, storage.logFile.path, 0, locale.locale, locale.acceptLanguages, list, context,
+                    storage.root.path, storage.logFile.path, Self.logSeverity, locale.locale, locale.acceptLanguages, list, context,
                     cefScheduleCallback, cefEventCallback, cefKeyCallback
                 ) }
             } ?? 0

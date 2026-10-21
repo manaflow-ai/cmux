@@ -37,7 +37,7 @@ extension UpdaterService {
     }
 
     /// The checkbox: writes the setting; the setting's change comes back
-    /// through ``configure(checkAutomatically:checkInterval:downloadAutomatically:metered:)``.
+    /// through ``configure(checkAutomatically:checkInterval:downloadAutomatically:metered:ring:)``.
     public func setAutomaticUpdates(_ on: Bool) {
         writeSetting?(.automaticUpdates, on)
     }
