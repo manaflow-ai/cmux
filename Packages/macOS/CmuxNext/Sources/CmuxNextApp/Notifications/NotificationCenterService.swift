@@ -491,14 +491,9 @@ final class NotificationCenterService {
     /// tab in the store); `owner` (default `tab`) is the tab whose read withdraws it. The title is
     /// where it came from (`workspaceName › tab`), which the app writes, so a terminal program
     /// cannot pose as another terminal; the poster's title is the subtitle.
-    ///
-    /// `subtitle` overrides what goes under the title for a banner the app names itself: a
-    /// notification with no tab (`cmux notify --workspace ws_…`) keeps the poster's headline as
-    /// the title and names its workspace there, which is what a reader needs when there is no
-    /// `workspace › tab` to put above it.
     private func post(_ notification: DaemonNotification, tab: TabModel?, workspace: String?, workspaceName: String? = nil,
-                      sound: String?, subtitle: String? = nil, program: ProgramStatusNotification? = nil,
-                      headline: String? = nil, owner: TabModel? = nil) {
+                      sound: String?, program: ProgramStatusNotification? = nil, headline: String? = nil,
+                      owner: TabModel? = nil) {
         let id = "cmux-notification-\(notification.notification.rawValue)"
         let owner = owner ?? tab
         // An OSC 7501 alert reads in the app's language; the daemon's English is the fallback.
@@ -507,7 +502,7 @@ final class NotificationCenterService {
         withApproval(of: notification, tab: owner) { [weak self] approval in
             guard let self else { return }
             let content = self.bannerFormatter.content(
-                headline: headline, posterSubtitle: subtitle ?? notification.shownSubtitle,
+                headline: headline, posterSubtitle: notification.shownSubtitle,
                 body: approval?.summary ?? notification.bannerBody(previews: self.previews, screenLocked: self.screenLocked()),
                 workspace: workspaceName, tab: tab?.displayTitle, host: tab?.remote?.sessionName, plain: approval == nil)
             self.desktop.post(id: id, title: content.title, subtitle: content.subtitle, body: content.body,

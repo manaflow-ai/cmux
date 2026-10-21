@@ -13,6 +13,10 @@
 // ends, the "Worked for" disclosure takes its place. While the turn waits on the person (an ask
 // above the composer, waitingOn.ts), the line says so in place of the time and the call: the clock
 // would read as the agent still working.
+//
+// Drawn as the turn's last row (`row.below`, Debug Settings `agentPane.debug.liveLineBelow`), it
+// has no rule under it and its clock never stops while the turn runs, and before any output
+// (`row.thinkingNow`) it reads "Thinking" beside the time.
 import { createContext, useContext, useEffect, useState } from "react";
 import { type PaneLanguage, type Translate, usePaneLanguage, useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
@@ -51,21 +55,26 @@ export const workingTokens = (t: Translate, language: PaneLanguage, tokens: numb
 
 export const WorkingCountsContext = createContext<WorkingCounts | undefined>(undefined);
 
+/// `now()`, again each second while `running`.
+export function useTicking(running: boolean, now: () => number = Date.now): number {
+  const [time, setTime] = useState(now);
+  useEffect(() => {
+    if (!running) return;
+    setTime(now());
+    const timer = setInterval(() => setTime(now()), 1000);
+    return () => clearInterval(timer);
+  }, [now, running]);
+  return time;
+}
+
 export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () => number }) {
   const t = useT();
   const language = usePaneLanguage();
   const counts = useContext(WorkingCountsContext);
   const waiting = useContext(WaitingOnContext);
-  const [time, setTime] = useState(now);
-  const held = row.durationMs !== undefined;
+  const held = !row.below && row.durationMs !== undefined;
   // No tick while the line waits on the person: it shows no time.
-  const still = held || waiting !== undefined;
-  useEffect(() => {
-    if (still) return;
-    setTime(now());
-    const timer = setInterval(() => setTime(now()), 1000);
-    return () => clearInterval(timer);
-  }, [now, still]);
+  const time = useTicking(!held && waiting === undefined, now);
   const until = held ? row.at + row.durationMs! : time;
   // While the call's group is open, its own row under the line names it (turns.ts `ownRow`).
   const [groupOpen] = useTranscriptDisclosure(row.doingGroup ?? "", row.doingGroupOpen === true);
@@ -89,10 +98,10 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
         },
       ].filter((part) => part !== false)
     : [];
-  // Find counts and visits transcript rows only (chatFind.ts findMatches skips this row), so the
-  // line is not painted either: the call it names is matched on its own tool row.
   return (
-    <div className="cv-worked has-divider" data-find-skip>
+    // Find counts and visits transcript rows only (chatFind.ts findMatches skips this row), so the
+    // line is not painted either: the call it names is matched on its own tool row.
+    <div className={row.below ? "cv-worked is-below" : "cv-worked has-divider"} data-find-skip>
       {!waiting && doing && row.doingCommand && (
         <span className="cv-worked__glyph" aria-hidden="true">
           <TerminalSquare />
@@ -102,9 +111,11 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
         <output className="cv-worked__label cv-waiting" data-waiting={waiting}>
           {t(WAITING_LABEL[waiting])}
         </output>
-      ) : doing ? (
+      ) : doing || row.thinkingNow ? (
         <>
-          <span className="cv-worked__label cv-worked__doing">{doing}</span>
+          <span className={doing ? "cv-worked__label cv-worked__doing" : "cv-worked__label"}>
+            {doing ?? t("thinking")}
+          </span>
           <span className="cv-worked__time">{formatDuration(Math.max(0, until - row.at))}</span>
         </>
       ) : (
