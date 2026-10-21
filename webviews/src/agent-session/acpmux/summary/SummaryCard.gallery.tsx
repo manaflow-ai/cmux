@@ -92,7 +92,7 @@ export default componentEntry<Props>({
   pane: true,
   height: 560,
   widths: { narrow: 300, normal: 360 },
-  covers: ["agent-session/acpmux/summary/SummaryTasks.tsx", "agent-session/acpmux/summary/ChildSessionRows.tsx"],
+  covers: ["agent-session/acpmux/summary/SummaryTasks.tsx", "agent-session/acpmux/inspector/ChildSessionRows.tsx"],
   load: async () => GallerySummaryCard,
   variants: {
     "background-work": {

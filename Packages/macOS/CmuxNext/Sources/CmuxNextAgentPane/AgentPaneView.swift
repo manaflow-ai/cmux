@@ -120,6 +120,7 @@ public final class AgentPaneView: NSView {
         self.model = model
         self.source = source
         self.renderRate = renderRate
+        Self.warmupNoLongerNeeded = true
         let webView: WKWebView
         if pageHost, case .bundled(let index) = source {
             let provider = AgentPageProvider { [weak model] _ in model }

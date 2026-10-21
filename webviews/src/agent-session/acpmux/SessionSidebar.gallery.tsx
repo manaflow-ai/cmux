@@ -94,17 +94,31 @@ const baseProps: Props = {
 const waitForActiveRow = (ctx: PlayContext, id: string) =>
   ctx.waitFor(() => ctx.document.activeElement?.getAttribute("data-session-id") === id);
 
+// The field's label is "Search chats" since #19895 (the lists say chats).
+const SEARCH = 'input[aria-label="Search chats"]';
+
 const search = async (ctx: PlayContext) => {
-  await ctx.type("sidebar", { selector: 'input[aria-label="Search sessions"]' });
-  await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-session-row").length === 2);
+  await ctx.type("sidebar", { selector: SEARCH });
+  // "sidebar" matches one chat, by its title and branch; its project's header stays.
+  await ctx.waitFor(() => {
+    const rows = ctx.document.querySelectorAll(".acpmux-session-row");
+    return rows.length === 1 && rows[0]?.getAttribute("data-session-id") === "sidebar-second";
+  });
+};
+
+// A search removes rows, so the matches and the Settled section below them move up inside the
+// scroll region (about 0.004); the sidebar frame and the rail, the anchors, stay put.
+const searchChecks = {
+  layoutShiftMax: {
+    value: 0.01,
+    reason: "Filtering moves the remaining rows up inside the scroll region; the sidebar frame and rail do not move.",
+  },
 };
 
 const searchThenClear = async (ctx: PlayContext) => {
   await search(ctx);
   await ctx.press("Escape");
-  await ctx.waitFor(
-    () => ctx.document.querySelector<HTMLInputElement>('input[aria-label="Search sessions"]')?.value === "",
-  );
+  await ctx.waitFor(() => ctx.document.querySelector<HTMLInputElement>(SEARCH)?.value === "");
 };
 
 const rowKeyboard = async (ctx: PlayContext) => {
@@ -230,7 +244,17 @@ const entry = componentEntry<Props>({
   },
   covers: ["agent-session/acpmux/SessionSidebar.tsx#SessionSidebar"],
   styles: () => import("./styles.css"),
-  load: () => import("./SessionSidebar").then((module) => module.SessionSidebar),
+  load: () =>
+    import("./SessionSidebar").then(({ SessionSidebar: Sidebar }) => {
+      // The pane's shell is a flex row the window's height, so the sidebar fills it and a filtered
+      // list never moves the rail; the stage itself is a block that would size it to its rows.
+      const GallerySessionSidebar = (props: Props) => (
+        <div className="acpmux-shell" style={{ height: "100%" }}>
+          <Sidebar {...props} />
+        </div>
+      );
+      return GallerySessionSidebar;
+    }),
   variants: {
     baseline: {
       note: "Grouped projects, an open tab, local and cloud placement, status marks, and the account footer.",
@@ -244,11 +268,13 @@ const entry = componentEntry<Props>({
       note: "Search narrows rows by title, branch, project or host while preserving project context.",
       props: { ...baseProps, groupProjects: false },
       play: search,
+      checks: searchChecks,
     },
     "search-clears": {
       note: "Escape clears the sidebar query before it can dismiss the surrounding surface.",
       props: { ...baseProps, groupProjects: false },
       play: searchThenClear,
+      checks: searchChecks,
     },
     "row-keyboard": {
       note: "ArrowDown, End and Home move through visible session rows without leaving the list.",
