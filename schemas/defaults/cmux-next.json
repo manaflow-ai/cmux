@@ -387,6 +387,7 @@
     "setting.browser.toolbar.profile": true,
     "setting.browser.toolbar.reload": true,
     "setting.browser.toolbarButtons": ["media", "zoom", "downloads"],
+    "setting.browser.toolbarPosition": "top",
     "setting.browser.urlsToAlwaysOpenExternally": [],
     "setting.browser.verificationAutofill.enabled": false,
     "setting.computerUse.driver": "legacy",
