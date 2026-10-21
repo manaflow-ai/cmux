@@ -125,7 +125,8 @@ public final class UpdaterService {
     public var preferences = UpdatePreferences.defaults
     /// Sparkle's staged install and its cancel (replaced by tests).
     @ObservationIgnored var installStaged: () -> Void = {}
-    @ObservationIgnored var cancelStaged: () -> Void = {}
+    /// The cancel returns whether an installer was held and is now cancelled.
+    @ObservationIgnored var cancelStaged: () -> Bool = { false }
     @ObservationIgnored var acceptAvailable: () -> Void = {}
     @ObservationIgnored var phaseObservation: Task<Void, Never>?
     @ObservationIgnored var pathMonitor: NWPathMonitor?
@@ -208,7 +209,7 @@ public final class UpdaterService {
         }
         if let controller {
             installStaged = { [weak controller] in controller?.installStagedUpdate() }
-            cancelStaged = { [weak controller] in controller?.cancelStagedUpdate() }
+            cancelStaged = { [weak controller] in controller?.cancelStagedUpdate() ?? false }
             acceptAvailable = { [weak controller] in controller?.acceptAvailableUpdate() }
             stagedBuild = { [weak controller] in controller?.stagedUpdate?.versionString }
         }
