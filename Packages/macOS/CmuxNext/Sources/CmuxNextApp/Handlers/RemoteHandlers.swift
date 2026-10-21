@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextRemote
+import CmuxNextServer
 
 /// SSH machine actions (`SSHService`). A machine is the invocation's
 /// `machine:` target (a section header's context menu, CLI `--machine`,
@@ -111,6 +112,19 @@ enum RemoteHandlers {
                 return nil
             }
             registry.track(work)
+        }
+        // The Add Machine card (plans/cmux-next/add-machine-DESIGN.md). A destination starts the add
+        // at once; a capturing caller (the CLI) gets the run's answer.
+        CloudHandlers.bind("machine.add", registry, reason: available) { invocation in
+            let card = context.services.addMachine, destination = invocation["destination"]?.stringValue
+            card.open(destination: destination, name: invocation["name"]?.stringValue, over: CloudHandlers.window(context))
+            if destination != nil { registry.track(Task { await card.finished().map { ActionWorkFailure($0) } }) }
+        }
+        // Check Machine: the same card's checklist for one SSH machine, with Fix.
+        CloudHandlers.bind("machine.doctor", registry, reason: hasMachine) { invocation in
+            let session = try machine(invocation, context), card = context.services.addMachine
+            card.check(host: session.host.destination.description, machineID: session.machineID, over: CloudHandlers.window(context))
+            registry.track(Task { await card.finished().map { ActionWorkFailure($0) } })
         }
     }
 
