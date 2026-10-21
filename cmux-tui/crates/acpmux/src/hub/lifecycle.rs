@@ -132,11 +132,11 @@ impl Hub {
             (session_env, chat_store, adopted_cwd, git.branch, git.head);
         meta.workspace_id = workspace_id;
         meta.subsession = subsession;
-        // A pooled session of exactly this shape (`pool/`) gives the session
-        // its id; `ensure_child` then takes it instead of starting cold.
-        // A pooled harness started without this session's env or route: never claimed.
+        // A pooled session of exactly this shape (`pool/`) gives the session its id; `ensure_child`
+        // then takes it instead of starting cold. Never with this session's own env or route, nor
+        // in a folder a sub-session start checked: a pooled harness started wherever the path led.
         let pooled = match &adopt {
-            None if meta.session_env.is_empty() && route.is_none() => {
+            None if meta.session_env.is_empty() && route.is_none() && checked_cwd.is_none() => {
                 self.pool_claim(&meta, &profile, &defaults.env).await
             }
             _ => None,
