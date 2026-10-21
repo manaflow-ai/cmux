@@ -77,6 +77,9 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// The Priority view's chip for the workspace's most urgent agent chat on this Mac
     /// (`sidebar.rowStatus`): needs you, done, failed or lost. Nil when every chat works or is idle.
     public var agentChip: SidebarPriorityEntry.State?
+    /// What the agent working in the workspace does right now (its acpmux lane's step, masked by
+    /// acpmux; `sidebar.nowLine`): the row's "Now:" line. Nil while no chat on this Mac works.
+    public var agentStep: String?
     /// Set only when the user chose an icon or color. When nil, the row
     /// draws no icon (WORKSPACE-ROWS-NO-DEFAULT-ICON).
     public var icon: WorkspaceIcon?

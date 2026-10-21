@@ -190,9 +190,17 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_macos_xcode_selection.py
 
+      - name: Validate the CEF shim C++ tests run on Linux
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_next_shim_cpp_linux.py
+
       - name: Validate Xcode pin audit
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_xcode_pin_audit.py
+
+      - name: Validate the bash 3.2 parse job runs on Linux
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_bash32_linux_job.py
 
       - name: Validate v0.64.25 rpath repair workflow contract
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -896,6 +904,10 @@ jobs:
       - name: Validate signing secrets are read only in protected environments
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_signing_secrets_need_release_environment.py
+
+      - name: Validate the nightly-next train runs only feat-cmux-next code with the release App
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_nightly_next_train_drive_pin.py
 
       - name: Validate the signing keychain is deleted before bundle code runs
         if: ${{ !cancelled() && matrix.group == 'ci' }}

@@ -30,7 +30,7 @@ public final class SidebarSessionTreeFeed {
         var state: SidebarSessionTreeState
         var asks: Set<String>
         /// The session tree is on (`sidebar.sessionTree`): the pass writes `SidebarSessionTree.state`.
-        /// Off, the pass runs only for the Priority view's Red CI.
+        /// Off, the pass runs only for the pull request badges and the Priority view's Red CI.
         var showsTree = true
     }
 
@@ -45,17 +45,24 @@ public final class SidebarSessionTreeFeed {
         task = Task {
             for await pass in ObservationStream({ () -> Pass? in
                 let sections = DesignSettings.shared.sidebarSections
-                guard Self.readsPullRequests(sections) else { return nil }
+                guard Self.readsPullRequests(sections) || SidebarTunables.pullRequestBadges.value else { return nil }
                 var pass = Self.pass(Self.chats(workspaces()), lanes: lanes.lanes, remoteParents: remote.parents, localHost: localHost,
                                      pullRequests: pullRequests.answers)
                 pass.showsTree = sections.sessionTree
                 return pass
             }) {
-                let state = pass?.showsTree == true ? pass?.state : nil
-                if tree.state != state { tree.state = state }
+                Self.publish(pass, to: tree)
                 if let pass { pullRequests.refresh(pass.asks) } else { pullRequests.stop() }
             }
         }
+    }
+
+    /// `pass` into `tree`: the badges whenever the feed runs, the tree itself only while it shows.
+    static func publish(_ pass: Pass?, to tree: SidebarSessionTree) {
+        let state = pass?.showsTree == true ? pass?.state : nil
+        if tree.state != state { tree.state = state }
+        let badges = pass?.state.pullRequests ?? [:]
+        if tree.pullRequests != badges { tree.pullRequests = badges }
     }
 
     /// Each workspace's agent chat tabs, in model order.
