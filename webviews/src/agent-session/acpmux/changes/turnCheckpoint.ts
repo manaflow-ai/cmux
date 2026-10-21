@@ -133,6 +133,22 @@ export function changedByTools(
   return toolFiles.some((tool) => tool.path === file.path || tool.path.endsWith(`/${file.displayPath}`));
 }
 
+/// Whether a tool call's `path` is checkpoint `file` of the repository at `root`, more strictly than
+/// `changedByTools`: under the root, the same path from it (docs/notes.txt is not notes.txt); outside
+/// it, the same path from the root's own folder, so /tmp/repo/notes.txt is a repository at
+/// /private/tmp/repo's notes.txt and ~/code/x/a.ts is x's a.ts, but /elsewhere/notes.txt is not.
+export function namesCheckpointFile(
+  path: string,
+  file: Pick<TurnFile, "path" | "displayPath">,
+  root: string | undefined,
+) {
+  if (path === file.path) return true;
+  const top = root?.replace(/\/+$/, "");
+  if (top === undefined) return changedByTools(file, [{ path }]);
+  if (path.startsWith(`${top}/`)) return path.slice(top.length + 1) === file.displayPath;
+  return path.endsWith(`/${top.slice(top.lastIndexOf("/") + 1)}/${file.displayPath}`);
+}
+
 /// The tool calls' files at an absolute path outside the repository at `root`, which no checkpoint
 /// of it holds. A relative path is the agent's, under its folder, so it stays with the checkpoint, and
 /// so does a file a checkpoint file already matches (`changedByTools`), such as /tmp/x for a
