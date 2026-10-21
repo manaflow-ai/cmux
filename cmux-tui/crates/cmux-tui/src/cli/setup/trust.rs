@@ -6,8 +6,9 @@
 //! sub-session waiting on the folder's Trust card goes on at once
 //! (`acp.trust.set`); without a daemon it writes the same record itself.
 //! Claude Code's and Codex's own files keep their one writer: this never
-//! touches them. The record already holding the level is "ok" and writes
-//! nothing; `undo` names the level the record held before.
+//! touches them. The record already holding the level, or acpmux already
+//! answering it for the folder (a parent's record, an auto-trust rule), is
+//! "ok" and writes nothing; `undo` names the level the record held before.
 
 use std::path::{Path, PathBuf};
 
@@ -45,7 +46,23 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
         "undo": Value::Null,
         "user_action": Value::Null,
     });
-    if before == wanted {
+    // acpmux may answer for the folder without a record of its own: a parent's or the main
+    // repo's record (`via`), or an auto-trust rule. That answer already holds for every agent.
+    let answered = (current["decided"] == true)
+        .then(|| current["level"].as_str().and_then(Level::parse))
+        .flatten();
+    let via = current["via"].as_str().filter(|via| *via != folder);
+    if before.is_none()
+        && wanted.is_none()
+        && answered.is_some_and(|level| level != Level::Unknown)
+        && let Some(via) = via
+    {
+        return Err(Refusal::Usage(format!(
+            "cmux: setup trust: {folder} has no record of its own; {via}'s record answers for it, so forget that one: {}",
+            command(via, Level::Unknown)
+        )));
+    }
+    if before == wanted || (before.is_none() && wanted.is_some() && answered == wanted) {
         report["state"] = json!("ok");
         report["after"] = report["before"].clone();
         return Ok(Outcome { report, failed: false });
