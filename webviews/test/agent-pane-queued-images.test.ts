@@ -185,7 +185,7 @@ test("a prompt sent behind the running turn with two images queues a row with bo
   let snapshot: { queue: QueuedPrompt[]; isWorking?: boolean } = { queue: [] };
   const waiting = new Set<() => void>();
   /// Resolves once `condition` holds, checked as the client publishes each snapshot; fails naming `what`.
-  const until = (condition: () => boolean, what: string, timeout = 5_000) =>
+  const until = (condition: () => boolean, what: string, timeout = 3_000) =>
     new Promise<void>((resolve, reject) => {
       const check = () => {
         if (!condition()) return;
