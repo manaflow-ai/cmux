@@ -655,9 +655,11 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-question-actions{display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:10px 12px;box-shadow:inset 0 var(--cmux-hairline, 0.5px) 0 var(--acpmux-question-edge)}
 .acpmux-question-skip{padding:5px 10px;border:0;border-radius:8px;background:transparent;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);cursor:default}
 .acpmux-question-skip:hover:not(:disabled){background:var(--acpmux-question-hover);color:var(--agent-text)}
-.acpmux-question-submit{display:inline-flex;align-items:center;gap:6px;padding:5px 6px 5px 12px;border:0;border-radius:8px;background:var(--agent-text);color:var(--agent-page-bg,var(--acpmux-base));font:inherit;font-size:var(--text-detail);font-weight:var(--weight-emphasis);cursor:default}
+.acpmux-question-submit{display:inline-flex;align-items:center;gap:6px;padding:5px 6px 5px 12px;border:0;border-radius:8px;background:var(--agent-text);color:var(--acpmux-base,var(--agent-accent-text,Canvas));font:inherit;font-size:var(--text-detail);font-weight:var(--weight-emphasis);cursor:default}
 .acpmux-question-submit .acpmux-keycap{margin:0;min-width:14px;padding:0 4px;color:inherit;opacity:.7;letter-spacing:.04em}
 .acpmux-question-submit:disabled{opacity:.35}
+.acpmux-question-submit[data-action=next]{padding-right:12px}
+.acpmux-question-hint{margin-right:auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-muted);font-size:var(--text-detail)}
 .acpmux-question-actions button:disabled{cursor:default}
 .acpmux-question-answered{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 8px;padding:7px 10px;border-radius:10px;background:var(--acpmux-question-bg);color:var(--agent-text);font-size:12px;line-height:18px}
 .acpmux-question-answered-icon{flex:none;display:inline-flex;align-self:center;color:var(--agent-soft,var(--agent-text))}
