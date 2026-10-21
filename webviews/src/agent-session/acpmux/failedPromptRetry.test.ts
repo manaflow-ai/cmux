@@ -125,3 +125,37 @@ test("a Retry refused again says so, instead of drawing the same bubble back", a
     pane.client.close?.();
   }
 });
+
+// Leo 2026-10-21: failed sends read "Not sent: trust.pending: answer the trust question for the
+// folder first" and "Not sent: The pane sent a request the app does not accept." The bubble says
+// one plain sentence chosen by acpmux's reason or the host's code; their words and code stay for
+// Details.
+test("a failed send says one plain sentence by its cause, and keeps the raw error and code for Details", async () => {
+  const trustPending = Object.assign(new Error("trust.pending: answer the trust question for the folder first"), {
+    data: { reason: "trust.pending", cwd: "/home/dev/parity-demo" },
+  });
+  const paneBug = Object.assign(new Error("The pane sent a request the app does not accept."), {
+    code: "transport.intent_invalid",
+  });
+  const pane = await paneWith((attempt) => (attempt === 1 ? trustPending : paneBug));
+  try {
+    await pane.client.send("ship it").catch(() => undefined);
+    await pane.client.send("and the tests").catch(() => undefined);
+    const shown = (text: string) =>
+      pane.rows().find((row) => row.kind === "user" && row.text === text) as
+        | (Row & { delivery?: { reason?: string; code?: string; error?: string } })
+        | undefined;
+    const trust = shown("ship it");
+    expect(trust?.failed).toBe(true);
+    expect(trust?.error).toBe("Not sent until you trust this folder.");
+    expect(trust?.delivery?.reason).toBe("trust.pending");
+    expect(trust?.delivery?.error).toBe("trust.pending: answer the trust question for the folder first");
+    const bug = shown("and the tests");
+    expect(bug?.error).toBe("Not sent because of an error in the agent pane.");
+    expect(bug?.delivery?.code).toBe("transport.intent_invalid");
+    // No code in the words the bubble shows.
+    for (const row of [trust, bug]) expect(row?.error).not.toMatch(/trust\.pending|transport\.|:\s*The /);
+  } finally {
+    pane.client.close?.();
+  }
+});
