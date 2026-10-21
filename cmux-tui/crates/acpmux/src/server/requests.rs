@@ -818,8 +818,18 @@ async fn dispatch_request(
         method::MUX_PRESETS => presets::handle(hub, conn, &params).await,
         method::MUX_INFO => {
             let s = hub.resolve(session_key(&params)?)?;
-            hub.wait_logs().await;
+            // After a restart the chat logs are read after the ready line; until
+            // then the queue, the turn and the status are the session list's. Info
+            // waits for them (#22916), unless a caller that reads only what the
+            // session list holds (its id, env, policy, rules, modes) asks with
+            // `waitLogs: false`: it answers at once, with `logsLoading`.
+            if params.get("waitLogs").and_then(Value::as_bool) != Some(false) {
+                hub.wait_logs().await;
+            }
             let mut detail = hub.session_detail(&s);
+            if let Some(obj) = detail.as_object_mut() {
+                obj.insert("logsLoading".into(), json!(!hub.logs_loaded()));
+            }
             // The session env reaches the unix socket only: no summary or
             // event carries it, so a key added to the allowlist later never
             // reaches another origin by default (session_env.rs).

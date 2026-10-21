@@ -127,7 +127,7 @@ enum AgentHandlers {
                 view.step(step)
             })
         }
-        // Continue in… is a user-facing chooser. Headless callers use the
+        // Continue In… is a user-facing chooser. Headless callers use the
         // acpmux-owned CLI operation, so automation cannot open this UI unless
         // it explicitly requests focus.
         registry.bind("agentPane.continueIn", run: { invocation in
