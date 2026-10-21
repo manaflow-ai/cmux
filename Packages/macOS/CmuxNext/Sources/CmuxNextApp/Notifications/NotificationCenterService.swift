@@ -172,8 +172,9 @@ final class NotificationCenterService {
         interacted(.keystroke, tabID: tab)
     }
 
-    /// A mouse-down landed in `window` (after AppKit dispatched it).
-    func noteMouseDown(in window: NSWindow?) {
+    /// A mouse-down landed in `window` at `location` (window coordinates,
+    /// after AppKit dispatched it).
+    func noteMouseDown(in window: NSWindow?, at location: NSPoint) {
         guard let tab = focusedTab(in: window) else { return }
         interacted(.click, tabID: tab)
     }
