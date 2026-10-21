@@ -14,10 +14,10 @@ import Testing
 /// puts it back to off, and a card follows a write made anywhere else.
 @MainActor @Suite(.serialized) struct AppStoreFeaturesTests {
     /// Keys whose PR has not landed: the tab hides their cards until the schema lists them
-    /// (tabs.newTabWidgets.*, #22674 and #22775; the Priority view's key, lane priority-view).
+    /// (tabs.newTabWidgets.*, #22674 and #22775).
     static let pendingKeys: Set<String> = [
         "tabs.newTabWidgets.projects", "tabs.newTabWidgets.actions", "tabs.newTabWidgets.chats", "tabs.newTabWidgets.modeSwitch",
-        "tabs.newTabWidgets.weather", "tabs.newTabWidgets.machines", "sidebar.priorityView.enabled",
+        "tabs.newTabWidgets.weather", "tabs.newTabWidgets.machines",
     ]
 
     static func make(_ json: String = "{}", recommended: [String: JSONValue] = [:]) async throws -> (SettingsController, URL) {
