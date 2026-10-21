@@ -1,0 +1,23 @@
+{
+  "title": "Sidebar groups",
+  "settings": {"appearance": {"theme": "Soft Blue"}},
+  "steps": [
+    {"title": "Launch", "wait": 3, "shot": false},
+    {"title": "api server", "cmux": ["workspace", "new", "--name", "api server"], "shot": false},
+    {"title": "migrations", "cmux": ["workspace", "new", "--name", "migrations"], "shot": false},
+    {"title": "worker", "cmux": ["workspace", "new", "--name", "worker"], "shot": false},
+    {"title": "tokens", "cmux": ["workspace", "new", "--name", "tokens"], "shot": false},
+    {"title": "Backend group", "cmux": ["workspace", "group", "create", "--name", "Backend", "--color", "green"], "shot": false},
+    {"title": "Design group", "cmux": ["workspace", "group", "create", "--name", "Design", "--color", "pink"], "shot": false},
+    {"title": "api server joins Backend", "cmux": ["workspace", "group", "Backend", "add", "--workspace", "name:api server"], "shot": false},
+    {"title": "migrations joins Backend", "cmux": ["workspace", "group", "Backend", "add", "--workspace", "name:migrations"], "shot": false},
+    {"title": "worker joins Backend", "cmux": ["workspace", "group", "Backend", "add", "--workspace", "name:worker"], "shot": false},
+    {"title": "tokens joins Design", "cmux": ["workspace", "group", "Design", "add", "--workspace", "name:tokens"], "shot": false},
+    {"title": "Groups, dark", "wait": 2},
+    {"title": "Line joined to its header, dark", "cmux": ["settings", "set", "sidebar.groupLineJoinsHeader", "true"], "wait": 3,
+     "optional": "an app from before sidebar.groupLineJoinsHeader"},
+    {"title": "Groups, light", "cmux": ["settings", "set", "appearance.theme", "Soft Blue Light"], "wait": 3},
+    {"title": "Line cut below its header, light", "cmux": ["settings", "set", "sidebar.groupLineJoinsHeader", "false"], "wait": 3,
+     "optional": "an app from before sidebar.groupLineJoinsHeader"}
+  ]
+}
