@@ -3,7 +3,7 @@ import Foundation
 /// The dispatcher commands the app sends the page: Continue in, Create checkpoint, the chat's
 /// keyboard actions and the grouped-permission actions.
 extension AgentPaneView {
-    /// Opens the frontend's Continue in… chooser. The chooser owns target selection and
+    /// Opens the frontend's Continue In… chooser. The chooser owns target selection and
     /// preparation; native actions do not create a second handoff pipeline.
     public func showContinueIn() { send("continueIn") }
     /// Archive Chat (Ctrl-Cmd-A, cx-ncc.72): the page archives the chat the way its menu's Archive does.

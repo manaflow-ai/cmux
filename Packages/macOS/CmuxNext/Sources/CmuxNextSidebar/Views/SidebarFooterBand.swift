@@ -154,7 +154,7 @@ final class SidebarFooterBand {
     var profileControl: (id: LayoutItemID, view: SidebarItemRowView)? {
         for region in host?.bandRegions ?? [] {
             for row in region.layoutResult.rows {
-                // A tile draws the avatar alone; a chip, the avatar and the name.
+                // The profile control draws the avatar alone, as a tile or a chip.
                 let id: LayoutItemID
                 switch row.kind {
                 case .tile(let tile, _), .chip(let tile, _): id = tile
