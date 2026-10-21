@@ -240,7 +240,8 @@ struct CoderouterAppCLISessionTests {
             teamID: Self.teamA,
             teamName: nil,
             endpoints: Self.endpoints,
-            root: fixture.sessionRoot
+            root: fixture.sessionRoot,
+            staleAge: CoderouterAppCLISession.addSession.staleAge
         )
         let attributes = try FileManager.default.attributesOfItem(atPath: session.appendingPathComponent("coderouter/config.json").path)
         #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
@@ -267,26 +268,30 @@ struct CoderouterAppCLISessionTests {
         #expect(!FileManager.default.fileExists(atPath: session.path))
     }
 
-    @Test("Stale session directories are swept; fresh ones stay")
+    @Test("Stale session directories are swept at each kind's age; fresh ones stay")
     func sweepsStaleSessions() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let credentials = CoderouterAppCredentials(accountID: "u", accessToken: "a", refreshToken: "r")
-        let old = try CoderouterAppCLISession.makeSessionDirectory(
-            credentials: credentials, teamID: Self.teamA, teamName: nil,
-            endpoints: Self.endpoints, root: fixture.sessionRoot
-        )
-        try FileManager.default.setAttributes(
-            [.modificationDate: Date().addingTimeInterval(-CoderouterAppCLISession.staleSessionAge - 60)],
-            ofItemAtPath: old.path
-        )
-        let fresh = try CoderouterAppCLISession.makeSessionDirectory(
-            credentials: credentials, teamID: Self.teamA, teamName: nil,
-            endpoints: Self.endpoints, root: fixture.sessionRoot
-        )
+        func make(_ kind: CoderouterAppCLISession.SessionKind, age: TimeInterval) throws -> URL {
+            let directory = try CoderouterAppCLISession.makeSessionDirectory(
+                credentials: credentials, teamID: Self.teamA, teamName: nil,
+                endpoints: Self.endpoints, root: kind.root(in: fixture.directory), staleAge: kind.staleAge
+            )
+            try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(-age)], ofItemAtPath: directory.path)
+            return directory
+        }
+        let read = CoderouterAppCLISession.readSession
+        let add = CoderouterAppCLISession.addSession
+        let crashedRead = try make(read, age: read.staleAge + 60)
+        let runningAdd = try make(add, age: read.staleAge + 60)
+        let killedAdd = try make(add, age: add.staleAge + 60)
 
-        #expect(!FileManager.default.fileExists(atPath: old.path))
-        #expect(FileManager.default.fileExists(atPath: fresh.path))
+        CoderouterAppCLISession.sweepAllStaleSessions(base: fixture.directory)
+
+        #expect(!FileManager.default.fileExists(atPath: crashedRead.path))
+        #expect(FileManager.default.fileExists(atPath: runningAdd.path))
+        #expect(!FileManager.default.fileExists(atPath: killedAdd.path))
     }
 }
 
@@ -330,7 +335,7 @@ struct CoderouterAppCredentialSourceTests {
             _ = try await source.credentials(expectedAccountID: "user-1")
         }
         await auth.configure(current: false)
-        await #expect(throws: CoderouterCLIFailure.unavailable) {
+        await #expect(throws: CoderouterCLIFailure.sessionChanging) {
             _ = try await source.credentials(expectedAccountID: "user-1")
         }
         await auth.configure(failure: .unauthorized)
