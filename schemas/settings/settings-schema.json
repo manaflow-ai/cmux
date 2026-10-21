@@ -6105,7 +6105,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "afterCurrent",
+      "default" : "top",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
