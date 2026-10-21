@@ -3,9 +3,7 @@
 // Codex apps do (Leo 2026-10-19): its scrollbar's track reaches the pane's bottom corner instead of
 // stopping above the composer. Scrolled to the end, the last row still sits fully above the
 // composer's card, and a composer that grows (a prompt of several lines) keeps a followed view at
-// its end on every painted frame, with nothing under the card. Scrolled up, a composer that grows
-// leaves the view as it was: its offset, its height and so its scrollbar (Leo 2026-10-20: a newline
-// in the composer made the transcript's scrollbar jump).
+// its end on every painted frame, with nothing under the card.
 //
 // Before: the transcript ended at the top of the bottom stack, so its track ended about a
 // composer's height (111px here, 211px with a five-line prompt) above the pane's bottom.
@@ -233,73 +231,6 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
     // It rests where it did, just above the grown card.
     expect(Math.abs(after.rowAboveCard - before.rowAboveCard)).toBeLessThanOrEqual(2);
     expect(Math.abs(after.trackGap)).toBeLessThanOrEqual(2);
-    await page.close();
-  });
-
-  test("a composer that grows leaves a reader scrolled up where they were, scrollbar and all, on every frame", async () => {
-    const page = await open();
-    const before = await measure(page);
-    const view = (await page.locator(".acpmux-scroll").boundingBox())!;
-    await page.mouse.move(view.x + view.width / 2, view.y + 120);
-    await page.mouse.wheel(0, -900);
-    await page.waitForTimeout(500);
-    await page.locator(".acpmux-md").click();
-    const scroller = () =>
-      page.evaluate(() => {
-        const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-        return { top: node.scrollTop, height: node.scrollHeight, view: node.clientHeight };
-      });
-    const start = await scroller();
-    expect(start.top).toBeGreaterThan(0);
-    expect(start.height - start.top - start.view).toBeGreaterThan(400);
-    await page.evaluate(() => {
-      const frames: { top: number; height: number; view: number }[] = [];
-      (window as unknown as { __frames: typeof frames }).__frames = frames;
-      const sample = () => {
-        const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-        frames.push({ top: node.scrollTop, height: node.scrollHeight, view: node.clientHeight });
-      };
-      // Read after each frame paints (a task queued from its animation frame).
-      const tick = () => {
-        if ((window as unknown as { __frames?: unknown }).__frames !== frames) return;
-        setTimeout(sample, 0);
-        requestAnimationFrame(tick);
-      };
-      requestAnimationFrame(tick);
-    });
-    // Lines from Shift-Return, then a line that wraps.
-    for (let line = 1; line <= 4; line++) {
-      await page.keyboard.type(`Line ${line} of a longer prompt`);
-      await page.keyboard.press("Shift+Enter");
-      await page.waitForTimeout(60);
-    }
-    await page.keyboard.type("and a last line long enough to wrap in the composer's card ".repeat(3));
-    await page.waitForTimeout(300);
-    const frames = await page.evaluate(() => {
-      const holder = window as unknown as { __frames?: { top: number; height: number; view: number }[] };
-      const frames = holder.__frames ?? [];
-      holder.__frames = undefined;
-      return frames;
-    });
-    const grown = await measure(page);
-    expect(grown.cardHeight - before.cardHeight).toBeGreaterThan(80);
-    // No painted frame moved the offset, or changed the scroller's height or its content's, which
-    // move and resize the scrollbar's thumb.
-    expect(frames.length).toBeGreaterThan(5);
-    const moved = (a: number, b: number) => Math.abs(a - b) > 0.5;
-    expect(
-      frames.filter(
-        (frame) => moved(frame.top, start.top) || moved(frame.height, start.height) || moved(frame.view, start.view),
-      ),
-    ).toEqual([]);
-    // Back at the end, the latest row sits above the grown card.
-    await page.mouse.move(view.x + view.width / 2, view.y + 120);
-    for (let step = 0; step < 4; step++) await page.mouse.wheel(0, 2000);
-    await page.waitForTimeout(600);
-    const end = await measure(page);
-    expect({ fromEnd: end.fromEnd, lastIsLatest: end.lastIsLatest }).toEqual({ fromEnd: 0, lastIsLatest: true });
-    expect(end.rowAboveCard).toBeGreaterThanOrEqual(-1);
-    expect(Math.abs(end.rowAboveCard - before.rowAboveCard)).toBeLessThanOrEqual(2);
     await page.close();
   });
 });
