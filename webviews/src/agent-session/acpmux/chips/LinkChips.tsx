@@ -4,13 +4,14 @@
 // symlinks, then a user gesture; outside the folders, `agentPane.links.outsideRoots` decides and
 // the host's own sheet asks). A web chip is an ordinary link, which the host opens outside the
 // pane after a real click; its icon is the site's favicon when cmux already has one.
-import { useEffect, useRef, useState, type PointerEvent, type ReactNode } from "react";
+import { useRef, type PointerEvent, type ReactNode } from "react";
 import { callChipHost } from "./host";
 import { FileDoc, Folder, GitHubMark, Globe, Lock } from "../conversation/icons";
 import { usePathInfo, useSiteInfo } from "./linkStore";
 import { isDeniedPath, pathName, textLinks } from "./paths";
-import { HOVER_INTENT } from "../../../ui/hoverIntent";
 import { AnchoredCard } from "../../../ui/Tooltip";
+import { PullRequestCardBody, pullRequestRef } from "./PullRequestCard";
+import { useHoverCard } from "./useHoverCard";
 import { useT } from "../i18n";
 
 /// A path chip. `label` is the link's text, else the file name; `written` is the reply's own
@@ -59,33 +60,11 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
   ) : (
     (icon ?? <Globe size={15} strokeWidth={1.1} className="cv-chip__icon" />)
   );
-  const [cardOpen, setCardOpen] = useState(false);
-  const cardHoverRef = useRef(false);
+  // A pull request's card also shows its full title, state, author and checks (PullRequestCard.tsx).
+  const pullRequest = pullRequestRef(href);
+  const hover = useHoverCard();
+  const cardOpen = hover.open;
   const anchor = useRef<HTMLAnchorElement | null>(null);
-  const openTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const closeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const clearTimers = () => {
-    if (openTimer.current !== undefined) clearTimeout(openTimer.current);
-    if (closeTimer.current !== undefined) clearTimeout(closeTimer.current);
-    openTimer.current = undefined;
-    closeTimer.current = undefined;
-  };
-  const showCard = (immediate = false) => {
-    clearTimers();
-    if (immediate) setCardOpen(true);
-    else openTimer.current = setTimeout(() => setCardOpen(true), HOVER_INTENT.cardDwell);
-  };
-  const hideCard = () => {
-    clearTimers();
-    closeTimer.current = setTimeout(() => {
-      if (!cardHoverRef.current) setCardOpen(false);
-    }, HOVER_INTENT.cardGrace);
-  };
-  useEffect(() => () => clearTimers(), []);
-  const onPointerEnter = () => showCard();
-  const onPointerLeave = () => hideCard();
-  const onFocus = () => showCard(true);
-  const onBlur = () => hideCard();
   const onOpen = (event: PointerEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
@@ -105,10 +84,7 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
         className={`cv-link cv-chip is-web${ref ? " is-ref" : ""}`}
         href={href}
         rel="noreferrer"
-        onPointerEnter={onPointerEnter}
-        onPointerLeave={onPointerLeave}
-        onFocus={onFocus}
-        onBlur={onBlur}
+        {...hover.trigger}
       >
         {mark}
         <span className="cv-chip__label">{children}</span>
@@ -116,29 +92,11 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
       </a>
       <AnchoredCard
         anchor={cardOpen ? anchor.current : null}
-        className="cv-link-preview"
+        className={pullRequest ? "cv-link-preview acpmux-pr-card" : "cv-link-preview"}
         interactive
         ariaLabel={site?.title ?? host}
       >
-        <div
-          onPointerEnter={() => {
-            clearTimers();
-            cardHoverRef.current = true;
-          }}
-          onPointerLeave={() => {
-            cardHoverRef.current = false;
-            hideCard();
-          }}
-          onFocusCapture={() => {
-            clearTimers();
-            cardHoverRef.current = true;
-            setCardOpen(true);
-          }}
-          onBlurCapture={() => {
-            cardHoverRef.current = false;
-            hideCard();
-          }}
-        >
+        <div {...hover.card}>
           <div className="cv-link-preview__head">
             <span className="cv-link-preview__icon">{mark}</span>
             <span className="cv-link-preview__site">{site?.title ?? host}</span>
@@ -147,6 +105,9 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
               <span aria-hidden="true">↗</span>
             </button>
           </div>
+          {pullRequest && (
+            <PullRequestCardBody url={href} known={{ ...pullRequest, title: refTitle }} open={cardOpen} />
+          )}
           <div className="cv-link-preview__target">
             {host} · {href}
           </div>

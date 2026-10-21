@@ -80,7 +80,9 @@ test("URL chips expose a safe hover card with a browser Open action", async () =
   await act(async () => card.querySelector<HTMLButtonElement>("button")!.focus());
   expect(rootElement.querySelector(".cv-link-preview")).not.toBeNull();
   await act(async () => card.querySelector<HTMLButtonElement>("button")!.click());
+  // A pull request link's card also asked gh about it (chips/PullRequestCard.tsx).
   expect(calls).toEqual([
+    { method: "pr.inspect", params: { url: "https://github.com/manaflow-ai/cmux/pull/21180" } },
     { method: "browser.open", params: { url: "https://github.com/manaflow-ai/cmux/pull/21180" } },
   ]);
   await act(async () => {

@@ -105,7 +105,9 @@ test("a pull request bar opens the pull request card", async () => {
   const host = await rig();
   const element = dom.window.document.getElementById("root")!;
   const root = createRoot(element);
-  const rows = [{ kind: "activity", id: "a1", version: 1, items: [tool("t1", `gh pr create --title "${TITLE}"`, URL)] }];
+  const rows = [
+    { kind: "activity", id: "a1", version: 1, items: [tool("t1", `gh pr create --title "${TITLE}"`, URL)] },
+  ];
   await act(async () =>
     root.render(
       <UiProvider container={element}>

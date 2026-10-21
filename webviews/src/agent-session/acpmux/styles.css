@@ -439,6 +439,25 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .cv-link-preview__open:hover{background:color-mix(in srgb,var(--agent-text) 8%,transparent)}
 .cv-link-preview__open:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
 .cv-link-preview__target{padding:9px 12px 10px;color:var(--agent-muted);font-size:var(--text-detail);line-height:1.35;overflow-wrap:anywhere}
+/* A pull request's hover card (chips/PullRequestCard.tsx; Leo 2026-10-20): the link card's frame on the tooltip's frosted glass (desktop.css --tooltip-*), the full title, then owner/repo#N, the state in the header chip's colours and the author, then the checks with a dot in their state's colour. A pull request bar's card only describes the bar, so the pointer passes through it. */
+.cv-link-preview.acpmux-pr-card{border:var(--tooltip-rim-width,.5px) solid var(--cmux-separator,color-mix(in srgb,var(--agent-text) 12%,transparent));background:var(--tooltip-tint,var(--surface-popup));-webkit-backdrop-filter:var(--tooltip-blur,blur(20px) saturate(1.4));backdrop-filter:var(--tooltip-blur,blur(20px) saturate(1.4));box-shadow:var(--tooltip-shadow,var(--elevation-2))}
+.cv-link-preview.acpmux-pr-card[role=tooltip]{pointer-events:none}
+.cv-link-preview.acpmux-pr-card .cv-link-preview__head{background:transparent;border-bottom-color:var(--cmux-separator,var(--agent-border))}
+.acpmux-pr-card__body{display:grid;gap:5px;padding:9px 12px 10px;font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
+.acpmux-pr-card__title{color:var(--agent-text);font-size:var(--text-control);line-height:var(--text-control--line-height);font-weight:600;overflow-wrap:anywhere}
+.acpmux-pr-card__facts{display:flex;flex-wrap:wrap;align-items:center;gap:4px 7px;color:var(--agent-muted)}
+.acpmux-pr-card__facts>svg{flex:none}
+.acpmux-pr-card__ref{font-variant-numeric:tabular-nums}
+.acpmux-pr-card__state{font-weight:500}
+.acpmux-pr-card__state[data-state=open]{color:var(--agent-success,var(--acpmux-add,#3fb950))}
+.acpmux-pr-card__state[data-state=merged]{color:var(--agent-ansi-5,#a371f7)}
+.acpmux-pr-card__state[data-state=closed]{color:var(--agent-danger)}
+.acpmux-pr-card__author{min-width:0;overflow-wrap:anywhere}
+.acpmux-pr-card__checks{display:flex;align-items:center;gap:7px;color:var(--agent-muted)}
+.acpmux-pr-card__checks::before{content:"";flex:none;width:6px;height:6px;border-radius:50%;background:var(--agent-muted)}
+.acpmux-pr-card__checks[data-state=passing]::before{background:var(--agent-success,var(--acpmux-add,#3fb950))}
+.acpmux-pr-card__checks[data-state=pending]::before{background:var(--agent-warning,#d29922)}
+.acpmux-pr-card__checks[data-state=failing]::before{background:var(--agent-danger)}
 .acpmux-edited-path{flex:1;min-width:0;display:flex;white-space:nowrap;overflow:hidden;font-family:var(--cv-code-font,var(--cv-mono,ui-monospace,"SF Mono",Menlo,monospace))}
 .acpmux-edited-dir{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--agent-muted)}
 .acpmux-edited-base{flex:none}
