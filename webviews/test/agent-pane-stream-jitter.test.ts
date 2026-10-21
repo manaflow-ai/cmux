@@ -341,8 +341,7 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
     },
   );
 
-  /// How far the last row sits above the bottom stack's top.
-  /// The gap between the last row and the bottom stack once the transcript is at rest. A new row
+  /// How far the last row sits above the bottom stack's top, once the transcript is at rest. A new row
   /// rises in (cv-enter) and growth glides in (GLIDE_MS); a read mid-way put the row up to 41px low
   /// in Chromium on a loaded machine, though scrollTop never moved. Infinite ones (a spinner) aside.
   const gapAbove = (page: Page) =>
