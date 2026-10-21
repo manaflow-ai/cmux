@@ -94,6 +94,10 @@ pub struct Session {
     /// Set once the session is purged, so late events do not recreate its
     /// files while the directory is being removed.
     pub(super) purged: AtomicBool,
+    /// Set before a purge when the same chat, brought back under this id, replaces this copy
+    /// (`transfer_in.rs`): its uploads stay, since the returning chat's prompts name them, and the
+    /// purge record says `replaced` so the app keeps what it holds for the chat too.
+    pub(super) replaced: AtomicBool,
     /// Bumps on every status, permission and turn change; waits gate on it.
     pub(super) state_seq: AtomicU64,
     /// Clients attached right now (TUI, web, CLI streams).
