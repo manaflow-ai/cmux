@@ -135,7 +135,12 @@ export function optimistic(data: ScopeData, write: Write): ScopeData {
 
 function publishedDomains(snapshot: SnapshotResult): Domains {
   const domains = snapshot.domains ?? {};
-  return { themes: domains.themes ?? [], font_families: domains.font_families ?? [], sounds: domains.sounds ?? [] };
+  return {
+    themes: domains.themes ?? [],
+    font_families: domains.font_families ?? [],
+    sounds: domains.sounds ?? [],
+    recent_fonts: domains.recent_fonts ?? [],
+  };
 }
 
 /** Diagnostics keyed by schema row: the row whose key equals the path or is its prefix. */

@@ -634,26 +634,45 @@ mark {
 }
 
 .domain-list {
-  display: flex;
-  flex-direction: column;
-  max-height: 220px;
+  max-height: 260px;
+  margin: 0;
+  padding: 0;
   overflow-y: auto;
+  list-style: none;
 }
 
+/* A font row draws in its own face (FontPicker); the highlight is the theme list's. */
 .domain-option {
-  padding: 4px 8px;
-  border: 0;
+  padding: 3px 6px;
   border-radius: 5px;
-  background: transparent;
-  text-align: left;
 }
 
-.domain-option:hover {
-  background: var(--input-bg);
+.domain-option[data-highlighted] {
+  background: var(--row-focus);
+  box-shadow: inset var(--cmux-row-focus-bar, 0px) 0 0 var(--cmux-accent, currentColor);
 }
 
-.domain-option[aria-pressed="true"] {
-  background: var(--accent-soft);
+.font-option-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.font-option-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.font-option-tag {
+  color: var(--muted-text);
+  font-size: var(--text-caption);
+}
+
+.font-option-check {
+  color: var(--accent-text);
 }
 
 .host-list {
