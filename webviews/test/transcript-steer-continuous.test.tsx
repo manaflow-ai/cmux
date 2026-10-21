@@ -446,12 +446,13 @@ test("a turn that failed while a Send now waited still shows its failure", async
 /// The chain up to acpmux taking the Send now: `p-2` waits, sent now, while turn-1 runs.
 const sentNow: Step[] = steerChain.slice(0, 6);
 const cancelAt = (seconds: number): Step => ["mux", "turn_result", { status: "cancelled", turnId: "turn-1" }, seconds];
-/// The drawn turn of the first prompt reads "You stopped after", and its summary ends the turn.
+/// The drawn turn of the first prompt reads "You stopped after" (timed to its answer, 40s in), and
+/// its summary ends the turn.
 function readsStopped(rows: AcpmuxRow[], working = false) {
   const view = turnView(rows, new Set(), { working });
   const stopped = view.filter((row) => row.kind === WORKED && row.status === "cancelled");
   expect(stopped).toHaveLength(1);
-  expect(workedLabel(translate, stopped[0]!)).toBe(translate("turn.stopped", { time: "55s" }));
+  expect(workedLabel(translate, stopped[0]!)).toBe(translate("turn.stopped", { time: "40s" }));
   const summary = rows.find((row) => row.kind === "turnSummary")!;
   expect(summary.continued).toBeUndefined();
   expect(view.some((row) => row.kind === "turnSummary" && row.status === "cancelled")).toBe(true);
