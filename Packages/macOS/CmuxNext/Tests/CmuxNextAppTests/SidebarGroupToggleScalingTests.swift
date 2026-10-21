@@ -83,14 +83,15 @@ import Testing
         h.sidebar.renderNow()
     }
 
-    static func measure(_ h: Harness, runs: Int = 16) -> Cost {
+    /// - Parameter work: one toggle (`toggle` itself; a test stands in a toggle that waits).
+    static func measure(_ h: Harness, runs: Int = 16, work: @MainActor (Harness) -> Void = { toggle($0) }) -> Cost {
         // Warm up both directions (caches, row views of the toggled rows).
         for _ in 0..<4 { toggle(h) }
         _ = SidebarPerfCounters.report(reset: true)
         let clock = ContinuousClock()
         var samples: [Double] = []
         for _ in 0..<runs {
-            let elapsed = clock.measure { toggle(h) }
+            let elapsed = clock.measure { work(h) }
             samples.append(Double(elapsed.components.attoseconds) / 1e15 + Double(elapsed.components.seconds) * 1000)
         }
         let reloads = SidebarPerfCounters.report(reset: true)["list_reloads"] ?? 0
@@ -130,6 +131,20 @@ import Testing
         print("group-toggle-phases n=\(count) \(Self.phases(h))")
         print("group-toggle n=\(count) rows=\(h.list.displayed.rows.count) realized=\(h.list.rowViews.count) \(cost)")
         #expect(h.model.group(h.target) != nil)
+    }
+
+    /// The budget measures the toggle's own work, not the time its thread waits: other work on the host (another
+    /// app, the next job on a shared fleet runner) delays the main thread without adding to the toggle's cost. Timed
+    /// by the wall clock, a 1 ms toggle at 10,000 workspaces read 70-90 ms at p90 while threads at the highest QoS
+    /// took every core (aws-m4pro-1, 2026-10-21). A toggle that waits 20 ms stands in for those delays here.
+    @Test func aToggleThatWaitsCostsOnlyItsOwnWork() {
+        let h = Self.make(100)
+        defer { h.window.close() }
+        let cost = Self.measure(h, runs: 8) { h in
+            Thread.sleep(forTimeInterval: 0.02)
+            Self.toggle(h)
+        }
+        #expect(cost.p90 < 8, "a toggle that waited 20 ms cost \(cost.p90) ms (p90): the wait was counted as its work")
     }
 
     /// The guard: a toggle at 10,000 workspaces costs at most 1.5x one at 100, and fits in one 8 ms frame.
