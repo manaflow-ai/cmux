@@ -166,7 +166,9 @@ acpmux wait                                      # covers remote sessions too
 ```
 
 `host setup HOST` installs a daemon over ssh; `host update --all` pushes the
-current binary. Only do either when the task asks for it.
+current binary (`--if-idle` leaves a peer mid-turn alone; a daemon that does not
+come back on the new build is rolled back). Only do either when the task asks
+for it.
 
 ## 7. Output
 

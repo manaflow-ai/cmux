@@ -123,7 +123,8 @@ pub(super) const CLOSED_HELP: &str = "\
 USAGE
   cmux closed list [--window <install/window>] [--limit <n>]
   cmux closed reopen [--window <install/window>]
-  cmux closed <closed> reopen [--window <install/window>] [--members <i,j,...>]
+  cmux closed reopen --tab <tab> [--fallback-pane <pane>]
+  cmux closed <closed> reopen [--window <install/window>] [--members <i,j,...>] [--fallback-pane <pane>]
   cmux closed <closed> delete [--members <i,j,...>]
   cmux closed clear [--since-ms <unix-ms>] [--before-ms <unix-ms>] [--keep-newest <n>]
 
@@ -133,6 +134,9 @@ its pane at its old index, each screen in its workspace, each workspace as a
 new workspace. Without an id, reopen takes the newest group of the window, else
 the newest group of a closed window, never a group of another open window.
 --members reopens only those members; the rest stay in the group.
+--tab reopens the closed tab under its own id (a cmux://tab/ link to it keeps
+working), from the newest group that holds it. A tab whose pane and workspace
+are gone opens in --fallback-pane, else in the session's focused pane.
 delete and clear remove groups permanently (and their terminal archives; the
 journals keep what they recorded); clear --since-ms removes only the groups
 closed at or after that time, --before-ms only those closed before it, and

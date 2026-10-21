@@ -15,6 +15,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 
+#[path = "setup/cloud_machine.rs"]
+mod cloud_machine;
+
 struct World {
     home: PathBuf,
     acpmux: PathBuf,
@@ -137,6 +140,8 @@ exit 0
             .env_remove("CMUX_SOCKET_PATH")
             .env_remove("CMUX_BUNDLE_ID")
             .env_remove("CMUX_TAG")
+            // Setup's own state (the Cloud machine it made) stays in the world.
+            .env("CMUX_TUI_STATE_DIR", self.home.parent().unwrap().join("state").join("sessions"))
             .stdin(Stdio::null());
         if let Some(app) = &self.app {
             // Only the fake app: never the cmux app of the machine running the tests.
@@ -866,7 +871,8 @@ fn cmux_setup_harness_an_agent_hands_the_person_the_sign_in_and_checks_again() {
             &json!("machine"),
             &json!("harness"),
             &json!("mcp"),
-            &json!("computer_use")
+            &json!("computer_use"),
+            &json!("cloud_machine")
         ],
         "{status}"
     );
@@ -1124,6 +1130,28 @@ fn cmux_setup_mcp_an_agent_gives_claude_code_and_codex_the_cmux_server_and_undoe
     }
 }
 
+/// Neither Claude Code nor Codex installed: nothing to wire, so `status`
+/// and the run agree on `ok` and the switch is not asked for.
+#[test]
+fn cmux_setup_mcp_with_neither_harness_installed_is_ok() {
+    let world = World::new("mcpnone");
+    let status = world.json(&["setup", "status"]);
+    let check = &status["checks"][3];
+    assert_eq!((&check["task"], &check["state"]), (&json!("mcp"), &json!("ok")), "{check}");
+    assert_eq!(check["fix"], Value::Null, "{check}");
+    let result = world.json(&["setup", "mcp"]);
+    assert_eq!(result["state"], "ok", "{result}");
+    assert_eq!(result["enabled"], false, "{result}");
+    assert_eq!(result["user_action"], Value::Null, "{result}");
+    let clients = result["clients"].as_array().unwrap();
+    assert!(clients.iter().all(|c| c["state"] == "not_applicable"), "{result}");
+    // Named but not installed: the install comes before the switch.
+    let named = world.json(&["setup", "mcp", "claude"]);
+    assert_eq!(named["state"], "needs_user", "{named}");
+    assert_eq!(named["user_action"], named["clients"][0]["user_action"], "{named}");
+    assert_eq!(named["user_action"]["kind"], "install", "{named}");
+}
+
 /// A `cmux` server whose command is gone (an app that moved) is replaced,
 /// and its undo puts the old one back; a `cmux` server that runs something
 /// else is the person's, left as it is.
@@ -1173,16 +1201,51 @@ fn cmux_setup_mcp_replaces_a_moved_cmux_and_leaves_another_server_named_cmux() {
     assert_eq!(back["mcpServers"]["cmux"]["command"], gone, "{back}");
 }
 
+/// Answers the app control requests on `listener` with `answer(method,
+/// params)`, one connection after another, keeping every request in
+/// `requests` before it replies; `None` closes the connection unanswered.
+fn serve_app(
+    listener: UnixListener,
+    requests: Arc<Mutex<Vec<Value>>>,
+    answer: impl Fn(&str, &Value) -> Option<Result<Value, Value>> + Send + 'static,
+) {
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else { break };
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut writer = stream;
+            let mut line = String::new();
+            while reader.read_line(&mut line).unwrap_or(0) > 0 {
+                let request: Value = serde_json::from_str(&line).unwrap();
+                line.clear();
+                let answer =
+                    answer(request["method"].as_str().unwrap_or_default(), &request["params"]);
+                let response = match answer {
+                    Some(Ok(result)) => json!({"id": request["id"], "ok": true, "result": result}),
+                    Some(Err(error)) => json!({"id": request["id"], "ok": false, "error": error}),
+                    None => Value::Null,
+                };
+                requests.lock().unwrap().push(request);
+                if response.is_null() || writeln!(writer, "{response}").is_err() {
+                    break;
+                }
+            }
+        }
+    });
+}
+
 /// A fake cmux app on a socket of the world's that serves what `cmux setup
 /// computer-use` and `cmux settings set` ask: `computer_use.status` answers
 /// `status`; `settings.set computerUse.enabled` with `confirm` is the
 /// person's sheet, approved while `approve` is set (true turns Computer Use
-/// on with the grants of `on`, false turns it off) and declined otherwise;
-/// `settings.get computerUse.enabled` reads the last approved value.
+/// on with the grants of `on`, false turns it off) and declined otherwise,
+/// or left unanswered past the app's deadline (`timeout`) while `unanswered`
+/// is set; `settings.get computerUse.enabled` reads the last approved value.
 /// Every request is kept.
 struct FakeApp {
     status: Arc<Mutex<Value>>,
     approve: Arc<std::sync::atomic::AtomicBool>,
+    unanswered: Arc<std::sync::atomic::AtomicBool>,
     enabled: Arc<std::sync::atomic::AtomicBool>,
     requests: Arc<Mutex<Vec<Value>>>,
 }
@@ -1195,54 +1258,38 @@ impl FakeApp {
         let app = Self {
             status: Arc::new(Mutex::new(off.clone())),
             approve: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            unanswered: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             requests: Arc::new(Mutex::new(Vec::new())),
         };
-        let (status, approve, enabled, requests) =
-            (app.status.clone(), app.approve.clone(), app.enabled.clone(), app.requests.clone());
-        std::thread::spawn(move || {
-            for stream in listener.incoming() {
-                let Ok(stream) = stream else { break };
-                let mut reader = BufReader::new(stream.try_clone().unwrap());
-                let mut writer = stream;
-                let mut line = String::new();
-                while reader.read_line(&mut line).unwrap_or(0) > 0 {
-                    let request: Value = serde_json::from_str(&line).unwrap();
-                    line.clear();
-                    let params = &request["params"];
-                    let answer = match request["method"].as_str() {
-                        Some("computer_use.status") => Ok(status.lock().unwrap().clone()),
-                        Some("settings.get") if params["path"] == "computerUse.enabled" => {
-                            Ok(json!({"value": enabled.load(Ordering::SeqCst)}))
-                        }
-                        Some("settings.set")
-                            if params["path"] == "computerUse.enabled"
-                                && params["confirm"] == true =>
-                        {
-                            if approve.load(Ordering::SeqCst) {
-                                let next = if params["value"] == true { &on } else { &off };
-                                enabled.store(params["value"] == true, Ordering::SeqCst);
-                                *status.lock().unwrap() = next.clone();
-                                Ok(json!({"path": params["path"], "value": params["value"]}))
-                            } else {
-                                Err(json!({"code": "setting_user_only", "message": "declined",
-                                    "data": {"declined": true}}))
-                            }
-                        }
-                        Some("settings.set") => Err(json!({"code": "setting_user_only",
-                            "message": "computerUse.enabled is the person's; pass --confirm"})),
-                        _ => Err(json!({"code": "method_not_found", "message": "unknown"})),
-                    };
-                    let response = match answer {
-                        Ok(result) => json!({"id": request["id"], "ok": true, "result": result}),
-                        Err(error) => json!({"id": request["id"], "ok": false, "error": error}),
-                    };
-                    requests.lock().unwrap().push(request);
-                    if writeln!(writer, "{response}").is_err() {
-                        break;
+        let (status, approve, unanswered, enabled) =
+            (app.status.clone(), app.approve.clone(), app.unanswered.clone(), app.enabled.clone());
+        serve_app(listener, app.requests.clone(), move |method, params| {
+            Some(match method {
+                "computer_use.status" => Ok(status.lock().unwrap().clone()),
+                "settings.get" if params["path"] == "computerUse.enabled" => {
+                    Ok(json!({"value": enabled.load(Ordering::SeqCst)}))
+                }
+                "settings.set"
+                    if params["path"] == "computerUse.enabled" && params["confirm"] == true =>
+                {
+                    if unanswered.load(Ordering::SeqCst) {
+                        Err(json!({"code": "timeout",
+                        "message": "settings.set did not finish within 120000ms"}))
+                    } else if approve.load(Ordering::SeqCst) {
+                        let next = if params["value"] == true { &on } else { &off };
+                        enabled.store(params["value"] == true, Ordering::SeqCst);
+                        *status.lock().unwrap() = next.clone();
+                        Ok(json!({"path": params["path"], "value": params["value"]}))
+                    } else {
+                        Err(json!({"code": "setting_user_only", "message": "declined",
+                        "data": {"declined": true}}))
                     }
                 }
-            }
+                "settings.set" => Err(json!({"code": "setting_user_only",
+                "message": "computerUse.enabled is the person's; pass --confirm"})),
+                _ => Err(json!({"code": "method_not_found", "message": "unknown"})),
+            })
         });
         app
     }
@@ -1291,6 +1338,16 @@ fn cmux_setup_computer_use_turns_it_on_with_the_persons_ok_and_names_each_grant(
     assert_eq!(declined["user_action"]["kind"], "declined", "{declined}");
     assert_eq!(declined["undo"], Value::Null);
 
+    // The sheet is left unanswered until the app's deadline: also not allowed.
+    app.unanswered.store(true, Ordering::SeqCst);
+    let unanswered = world.follow(&fix);
+    assert_eq!(unanswered["state"], "needs_user", "{unanswered}");
+    assert_eq!(unanswered["user_action"]["kind"], "declined", "{unanswered}");
+    let text = unanswered["user_action"]["text"].as_str().unwrap();
+    assert!(text.contains("did not answer the sheet"), "{text}");
+    assert_eq!(unanswered["undo"], Value::Null);
+    app.unanswered.store(false, Ordering::SeqCst);
+
     // The person allows it: on, and the one grant still missing.
     app.approve.store(true, Ordering::SeqCst);
     let on = world.follow(&fix);
@@ -1304,10 +1361,10 @@ fn cmux_setup_computer_use_turns_it_on_with_the_persons_ok_and_names_each_grant(
     assert_eq!(action["url"], url);
     assert_eq!(action["command"], format!("open '{url}'"));
     let sets = app.settings_sets();
-    assert_eq!(sets.len(), 2, "{sets:?}");
-    assert_eq!(sets[1]["path"], "computerUse.enabled");
-    assert_eq!(sets[1]["value"], true);
-    assert_eq!(sets[1]["confirm"], true);
+    assert_eq!(sets.len(), 3, "{sets:?}");
+    assert_eq!(sets[2]["path"], "computerUse.enabled");
+    assert_eq!(sets[2]["value"], true);
+    assert_eq!(sets[2]["confirm"], true);
 
     // The person turns the switch on; nothing is left and nothing is asked.
     app.status.lock().unwrap()["accessibility"] = json!(true);
@@ -1315,7 +1372,7 @@ fn cmux_setup_computer_use_turns_it_on_with_the_persons_ok_and_names_each_grant(
     assert_eq!(ready["state"], "ok", "{ready}");
     assert_eq!(ready["undo"], Value::Null);
     assert_eq!(ready["user_action"], Value::Null);
-    assert_eq!(app.settings_sets().len(), 2, "an ok run asked the person");
+    assert_eq!(app.settings_sets().len(), 3, "an ok run asked the person");
     assert_eq!(world.json(&["setup", "status"])["checks"][4]["state"], "ok");
 
     // The undo, as the agent's shell runs it: the same sheet, turned off.
@@ -1324,7 +1381,7 @@ fn cmux_setup_computer_use_turns_it_on_with_the_persons_ok_and_names_each_grant(
     let output = world.run(&args);
     assert!(output.status.success(), "{UNDO}: {}", String::from_utf8_lossy(&output.stderr));
     let sets = app.settings_sets();
-    assert_eq!((&sets[2]["value"], &sets[2]["confirm"]), (&json!(false), &json!(true)), "{sets:?}");
+    assert_eq!((&sets[3]["value"], &sets[3]["confirm"]), (&json!(false), &json!(true)), "{sets:?}");
     assert_eq!(world.json(&["setup", "computer-use", "--dry-run"])["state"], "planned");
 
     let output = world.run(&["setup", "computer-use", "now"]);
@@ -1353,8 +1410,9 @@ fn cmux_setup_computer_use_names_what_it_cannot_change() {
 }
 
 /// Allowed, but the app still reads `off` (its phase follows the setting a
-/// moment later): setup says to wait, not to ask the person again, and no
-/// rerun asks for a second sheet, before or after the phase caught up.
+/// moment later): setup says to wait, not to ask the person again, `status`
+/// agrees, and no rerun asks for a second sheet, before or after the phase
+/// caught up.
 #[test]
 fn cmux_setup_computer_use_waits_when_the_phase_lags_the_ok() {
     let mut world = World::new("culag");
@@ -1367,6 +1425,11 @@ fn cmux_setup_computer_use_waits_when_the_phase_lags_the_ok() {
     let early = world.json(&["setup", "computer-use"]);
     assert_eq!(early["user_action"]["kind"], "wait", "{early}");
     assert_eq!(early["undo"], Value::Null, "{early}");
+    let status = world.json(&["setup", "status"]);
+    let check = &status["checks"][4];
+    assert_eq!(check["task"], "computer_use", "{check}");
+    assert_eq!(check["state"], "needs_user", "{check}");
+    assert_eq!(check["user_action"], early["user_action"], "{check}");
     *app.status.lock().unwrap() =
         json!({"phase": "ready", "accessibility": true, "screen_recording": true, "helper": "1"});
     let rerun = world.json(&["setup", "computer-use"]);
