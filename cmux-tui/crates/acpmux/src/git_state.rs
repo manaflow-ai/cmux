@@ -257,6 +257,22 @@ mod tests {
     }
 
     #[test]
+    fn a_linked_worktree_names_its_top_folder_and_common_git_dir() {
+        let dir = scratch("linked-origin");
+        let (main, linked) = (dir.join("main"), dir.join("wt"));
+        std::fs::create_dir_all(&main).unwrap();
+        repo(&main, "trunk");
+        git(&main, &["worktree", "add", "-q", "-b", "side", linked.to_str().unwrap()]);
+        std::fs::create_dir_all(linked.join("sub")).unwrap();
+        let common = std::fs::canonicalize(main.join(".git")).unwrap();
+        assert_eq!(linked_worktree(&linked), Some((linked.clone(), common.clone())));
+        assert_eq!(linked_worktree(&linked.join("sub")), Some((linked, common)));
+        // A main checkout's git directory goes with it: nothing to add back.
+        assert_eq!(linked_worktree(&main), None);
+        assert_eq!(linked_worktree(&dir.join("gone")), None);
+    }
+
+    #[test]
     fn git_state_of_a_missing_folder_is_empty() {
         let dir = scratch("missing");
         repo(&dir, "topic");

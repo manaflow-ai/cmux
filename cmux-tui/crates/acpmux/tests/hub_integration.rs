@@ -19,6 +19,8 @@ use tokio::sync::mpsc;
 
 #[path = "hub_integration/agent_pairs.rs"]
 mod agent_pairs;
+#[path = "hub_integration/agent_revive.rs"]
+mod agent_revive;
 #[path = "hub_integration/auto_resume.rs"]
 mod auto_resume;
 #[path = "hub_integration/cursor_requests.rs"]
