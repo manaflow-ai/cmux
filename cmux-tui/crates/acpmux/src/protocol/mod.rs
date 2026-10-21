@@ -13,6 +13,7 @@ pub mod events;
 pub mod inventory;
 pub mod mailbox;
 pub mod permission;
+pub mod process;
 pub mod session;
 #[cfg(test)]
 mod tests;
@@ -108,6 +109,7 @@ pub fn registry() -> Vec<MethodDecl> {
     use Kind::*;
     use mailbox::*;
     use permission::*;
+    use process::*;
     use session::*;
     vec![
         // Standard ACP.
@@ -159,12 +161,15 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_BOOKMARK_GET, Request),
         untyped(method::MUX_BOOKMARK_SET, Request),
         untyped(method::MUX_PROMPT_WITHDRAW, Request),
+        untyped(method::MUX_AGENT_PAIR_RESUME, Request),
         untyped(method::MUX_PROCESS_LIST, Request),
         untyped(method::MUX_PROCESS_TAIL, Request),
         untyped(method::MUX_PROCESS_KILL, Request),
+        request::<ProcessBackgroundParams, ProcessBackgroundResult>(method::MUX_PROCESS_BACKGROUND),
+        untyped(method::MUX_WORKTREE_REPORT, Request),
+        untyped(method::MUX_WORKTREE_CLEAN, Request),
+        untyped(method::MUX_WORKTREE_RESTORE, Request),
         untyped(method::MUX_PROCESS_UPDATE, Notification),
-        untyped(method::MUX_HARNESS_UPDATE, Request),
-        untyped(method::MUX_SESSIONS_RESTART_HARNESS, Request),
         untyped(method::MUX_KILL, Request),
         untyped(method::MUX_ARCHIVE, Request),
         untyped(method::MUX_SIDE, Request),

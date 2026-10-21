@@ -542,6 +542,15 @@ export class MockAcpmuxSocket {
       case "session/set_model":
         this.touch(target, { model: String(params.modelId) }, false);
         return {};
+      // The Access chip's mode, as an agent that offers it reports the switch.
+      case "session/set_mode": {
+        const session = this.sessions.find((entry) => entry.sessionId === target);
+        const modes = session?.modes as { availableModes: { id: string }[]; currentModeId?: string } | undefined;
+        const modeId = String(params.modeId);
+        if (!modes?.availableModes.some((mode) => mode.id === modeId)) throw new Error(`no mode ${modeId}`);
+        this.touch(target, { modes: { ...modes, currentModeId: modeId } }, false);
+        return {};
+      }
       case "session/set_config_option": {
         const session = this.sessions.find((entry) => entry.sessionId === target);
         const options = (session?.configOptions ?? []) as { id: string; currentValue?: string }[];

@@ -1,5 +1,6 @@
 // The composer gallery's running-turn control is a real host interaction: Stop calls the pane
-// bridge, and the host snapshot then restores Send. Exercise the fixture in a real Chromium page
+// bridge, and the host snapshot then restores the resting row. The draft is empty, so that row has
+// no Send, only the mic (Claude desktop's box: no Send until there is a draft, Leo 2026-10-20). Exercise the fixture in a real Chromium page
 // so the play cannot pass by only checking the static working screenshot.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
@@ -57,7 +58,7 @@ await requireBrowserLane("composer-send-stop.test.ts", async () => {
     await vite?.close();
   });
 
-  test("stops a running turn and restores Send after the host snapshot", async () => {
+  test("stops a running turn and restores the resting row after the host snapshot", async () => {
     const page: Page = await browser!.newPage({ viewport: { width: 760, height: 560 } });
     await page.goto(stageURL());
     // The first page waits on a cold Vite compiling the gallery, past 30 s on a busy runner.
@@ -72,12 +73,14 @@ await requireBrowserLane("composer-send-stop.test.ts", async () => {
 
     const state = await page.evaluate(() => ({
       send: document.querySelector('button[aria-label="Send"]') !== null,
+      mic: document.querySelector(".acpmux-composer-actions .acpmux-mic") !== null,
       stop: document.querySelector('button[aria-label="Stop"]') !== null,
       calls: (window as unknown as { cmuxGalleryLog: { method: string }[] }).cmuxGalleryLog.map(({ method }) => method),
       play: document.documentElement.dataset.galleryPlay,
     }));
     expect(state).toEqual({
-      send: true,
+      send: false,
+      mic: true,
       stop: false,
       calls: expect.arrayContaining(["chat.cancel"]),
       play: "pass",
