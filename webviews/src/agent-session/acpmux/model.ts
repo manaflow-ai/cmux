@@ -127,7 +127,9 @@ export type QueuedPrompt = {
   images?: QueuedPromptImage[];
 };
 /// An image a prompt sent: `_acpmux/attachment {sessionId, id}` reads its bytes back.
-export type PromptImage = { id: string; mimeType: string; name?: string };
+/// A prompt's image as acpmux names it; `width`/`height` are its natural size when the record
+/// carries them, so its thumbnail is reserved at its own shape before it is read.
+export type PromptImage = { id: string; mimeType: string; name?: string; width?: number; height?: number };
 /// A queued prompt's image: `src` is its data URL when the pane has its bytes (it sent them, or
 /// the `queued` record carries them), else the row reads it by `id`. acpmux names an image by the
 /// SHA-256 of its bytes; one the pane only sent so far has the composer's id (`local`) until
