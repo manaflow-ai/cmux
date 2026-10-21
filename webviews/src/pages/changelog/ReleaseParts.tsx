@@ -277,7 +277,7 @@ export function ReelPlayer({
       )}
       <div className="cl-reel-bar">
         {shown.length > 1 && (
-          <div className="cl-reel-picker" role="group" aria-label={label}>
+          <div className="cl-reel-picker">
             {shown.map((b) => (
               <button
                 key={b.build}
