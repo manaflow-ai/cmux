@@ -2673,6 +2673,15 @@ class Workflow(unittest.TestCase):
         self.assertEqual(step["env"]["RESCUE_SECONDS"], "${{ vars.CI_OWNED_POOL_RESCUE_SECONDS }}")
         self.assertEqual(step["env"]["POOL_OWNED"], "${{ vars.CI_PR_POOL_OWNED }}")
 
+    def test_the_needs_check_gets_pyyaml_without_ever_failing_the_job(self):
+        # downstream_of_refusals() parses the run's workflow file; a failed install only excuses nothing.
+        steps = self.doc["jobs"]["rescue"]["steps"]
+        prepare = next(step for step in steps if step.get("name") == "Prepare rescue Python")
+        self.assertLess(steps.index(prepare), len(steps) - 1)
+        self.assertIs(prepare.get("continue-on-error"), True)
+        self.assertIn("PyYAML==6.0.3", prepare["run"])
+        self.assertIn('>> "$GITHUB_PATH"', prepare["run"])
+
     def test_polls_from_an_ephemeral_runner(self):
         # Never from an owned pool it may rescue, and never only from
         # GitHub-hosted: a GitHub billing block must not stop the rescue.

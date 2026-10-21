@@ -156,8 +156,15 @@ stuck run that finished some other way (a newer push cancelled it) is not
 re-run. Its watch lasts SIDE_WATCH_LIMIT_SECONDS. Side lanes upload no marker
 (cmux-next.yml aside), so the sweeper finds one's run by path once it has
 failed (GitHub.failed_runs()), which a refused job makes it: its failed jobs
-are re-run then. A side-lane job only queued long is moved only for a run a
-dispatch names (WATCH_RUN_ID). A side-lane run that is not
+are re-run then. A failed job of such a run that is not a refusal keeps it
+red (a re-run of failed jobs would repeat it), except one that needs a refused
+job, directly or through others, with no other failure or cancel upstream of it:
+an `if: always()` aggregator such as cmux-tui.yml's hosted-verification fails
+whenever a leg it requires was refused, so it fails only because of the refusal
+(downstream_of_refusals(), which reads the `needs` graph from the workflow file
+at the run's head). GitHub's re-run of failed jobs re-runs it too. A
+side-lane job only queued long is moved only for a run a dispatch names
+(WATCH_RUN_ID). A side-lane run that is not
 a pull request has no head to move, like a dispatch. cmux-next.yml exists only
 on the feat-cmux-next branch; its pull request and dispatch runs upload the
 owned-pool-watch marker themselves, so the sweeper adopts them like a picker's
@@ -259,6 +266,7 @@ runners PR runs queue on, so they are moved to Blacksmith more often).
 from __future__ import annotations
 
 import argparse
+import base64
 import dataclasses
 import datetime as dt
 import http.client
@@ -269,6 +277,7 @@ import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
@@ -277,6 +286,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pr_runner_pool import (  # noqa: E402
     MAX_QUEUE_ROUNDS, QUEUE_ROUND_MINUTES, RUNNER_LABEL_PREFIX, parse_queue_rounds, persistent)
+import owned_pool_sources  # noqa: E402
 import ui_tests_dispatch  # noqa: E402
 
 CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
@@ -680,6 +690,104 @@ def decided_failures(jobs: Sequence[Mapping[str, Any]], attempt_started: dt.date
                   and job.get("steps") and not refused(job) and not carried(job, attempt_started))
 
 
+# A `${{ ... }}` expression in a job's `name:`.
+NAME_EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.S)
+EXPRESSION_LITERAL = re.compile(r"'((?:[^']|'')*)'")
+# `operand == operand` or `!=`: a condition whose literal is never the expression's value.
+EXPRESSION_COMPARISON = re.compile(r"(?:'(?:[^']|'')*'|[A-Za-z_][\w.\-\[\]*]*)\s*[!=]=\s*"
+                                   r"(?:'(?:[^']|'')*'|[A-Za-z_][\w.\-\[\]*]*)")
+EXPRESSION_CONTEXT = re.compile(r"\b(?:matrix|inputs|needs|github|vars|env|steps|secrets|strategy|runner|job)\.")
+
+
+def _name_expression(expression: str) -> str:
+    """A regex for the values one `${{ ... }}` of a job name can render to: its string literals (bar
+    those a comparison tests against), and anything when a context value can be the result."""
+    rest = EXPRESSION_COMPARISON.sub(" ", expression)
+    literals = [literal.replace("''", "'") for literal in EXPRESSION_LITERAL.findall(rest)]
+    choices = [re.escape(literal) for literal in literals]
+    if not literals or EXPRESSION_CONTEXT.search(EXPRESSION_LITERAL.sub(" ", rest)):
+        choices.append(".+?")
+    return "(?:" + "|".join(choices) + ")"
+
+
+def _job_name_pattern(key: str, job: Mapping[str, Any]) -> re.Pattern[str]:
+    """The jobs API names a workflow job `key` can take: its `name:` (or key) rendered, with a matrix's
+    ` (values)` suffix and, for a reusable workflow call, ` / <called job>`."""
+    template = str(job.get("name") or key)
+    pattern, at = "", 0
+    for match in NAME_EXPRESSION.finditer(template):
+        pattern += re.escape(template[at:match.start()]) + _name_expression(match.group(1))
+        at = match.end()
+    pattern += re.escape(template[at:])
+    if isinstance(job.get("strategy"), Mapping) and (job.get("strategy") or {}).get("matrix") is not None:
+        pattern += r"(?: \(.+\))?"
+    if job.get("uses"):
+        pattern += r"(?: / .+)?"
+    return re.compile(pattern, re.S)
+
+
+def downstream_of_refusals(workflow_text: str, jobs: Sequence[Mapping[str, Any]],
+                           attempt_started: dt.datetime | None = None) -> set[str]:
+    """Names of this attempt's failed jobs that failed only because a job they need was refused.
+
+    A job counts when the workflow file's `needs` graph puts a refused job (refused(), or one no runner
+    acquired, unacquired()) upstream of it, directly or through other jobs, and every job upstream of it
+    that failed, timed out or was cancelled is a refusal or counts itself. That is an `if: always()`
+    aggregator failing on a refused leg, such as cmux-tui.yml's hosted-verification (`require_success
+    "Rust tests"` after the macOS test leg was refused). A job's own failure cannot be told apart from
+    its refused upstream's, so such a job is re-run with it: GitHub's re-run of failed jobs re-runs
+    every failed job and everything that needs one. Names map to workflow jobs by their rendered
+    `name:`; a name that could be several jobs counts only when every one of them qualifies, and a
+    name that matches none never counts.
+    """
+    document = owned_pool_sources._load(workflow_text)
+    spec = {str(key): job for key, job in (document.get("jobs") or {}).items() if isinstance(job, Mapping)}
+    needs: dict[str, set[str]] = {}
+    for key, job in spec.items():
+        wanted = job.get("needs") or []
+        needs[key] = {str(item) for item in ([wanted] if isinstance(wanted, str) else wanted)} & set(spec)
+    upstream: dict[str, set[str]] = {}
+
+    def ancestors(key: str) -> set[str]:
+        if key not in upstream:
+            upstream[key] = set()  # a cycle is invalid YAML for GitHub; never loop on one
+            found: set[str] = set()
+            for parent in needs.get(key, ()):
+                found |= {parent} | ancestors(parent)
+            upstream[key] = found
+        return upstream[key]
+
+    patterns = {key: _job_name_pattern(key, job) for key, job in spec.items()}
+    keys_of: dict[int, set[str]] = {}
+    for job in jobs:
+        name = str(job.get("name") or "")
+        keys_of[id(job)] = {key for key, pattern in patterns.items() if pattern.fullmatch(name)}
+    current = [job for job in jobs if job.get("status") == "completed" and not carried(job, attempt_started)]
+    causes = [job for job in current if refused(job) or unacquired(job)]
+    broken = [job for job in current if job.get("conclusion") in ("failure", "timed_out", "cancelled")
+              and not any(job is cause for cause in causes)]
+    excused: list[Mapping[str, Any]] = []
+    changed = True
+    while changed:
+        changed = False
+        for job in broken:
+            keys = keys_of[id(job)]
+            if job.get("conclusion") == "cancelled" or not keys or any(job is other for other in excused):
+                continue
+            above = set().union(*(ancestors(key) for key in keys))
+            # Every job this name could be needs a refused job, whichever job each refused name is.
+            if not all(any(keys_of[id(cause)] and keys_of[id(cause)] <= ancestors(key) for cause in causes)
+                       for key in keys):
+                continue
+            # No other failure or cancel upstream of it that is not itself excused.
+            if any(other is not job and keys_of[id(other)] & above and not any(other is ok for ok in excused)
+                   for other in broken):
+                continue
+            excused.append(job)
+            changed = True
+    return {str(job.get("name") or job.get("id")) for job in excused}
+
+
 def setup_budget(job: Mapping[str, Any], now: dt.datetime, budget_seconds: int,
                  deadline: dt.datetime | None) -> float:
     """SETUP_WAIT_SECONDS, cut so a job that entered setup late is still judged before the watch ends (as
@@ -899,6 +1007,18 @@ class GitHub:
             if len(batch) < 100:
                 break
         return found
+
+    def workflow_file(self, path: str, ref: str) -> str | None:
+        """The text of `path` at commit `ref`, or None when it is not there."""
+        try:
+            data = self.request("GET", f"/contents/{urllib.parse.quote(path)}?ref={urllib.parse.quote(ref)}")
+        except urllib.error.HTTPError as error:
+            if error.code == 404:
+                return None
+            raise
+        if not isinstance(data, Mapping) or data.get("encoding") != "base64":
+            return None
+        return base64.b64decode(str(data.get("content") or "")).decode("utf-8")
 
     def has_artifact(self, run_id: int, prefix: str, pages: int = 5) -> bool:
         """Whether the run uploaded an artifact whose name starts with `prefix`."""
@@ -1534,6 +1654,25 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
         jobs = read(lambda: client.jobs(target.run_id, target.attempt), sleep, log)
         other = [str(job.get("name")) for job in jobs if job.get("conclusion") in ("failure", "timed_out")
                  and not carried(job, target.attempt_started_at) and not refused(job)]
+        if other:
+            # An `if: always()` aggregator that failed only because a job it needs was refused is
+            # re-run with that job (downstream_of_refusals()); its `needs` come from the run's own file.
+            excused: set[str] = set()
+            try:
+                text = read(lambda: client.workflow_file(target.path, target.head_sha), sleep, log)
+                if text:
+                    excused = downstream_of_refusals(text, jobs, target.attempt_started_at)
+                else:
+                    log(f"{target.path} is not at {target.head_sha[:12]}; no failure is put down to a refusal")
+            except Aborted:
+                raise  # the sweeper is handing over (Stopping)
+            except Exception as error:  # noqa: BLE001 - an unreadable or invalid file only excuses nothing
+                log(f"could not read {target.path}'s needs at {target.head_sha[:12]} "
+                    f"({type(error).__name__}: {error}); no failure is put down to a refusal")
+            if excused:
+                log(f"{', '.join(sorted(excused))} failed only because a job it needs was refused; "
+                    "the re-run of failed jobs re-runs it too")
+            other = [name for name in other if name not in excused]
         if other:
             # A re-run of failed jobs would re-run these too: a real failure is never retried here.
             return (f"not rescued: attempt {target.attempt} also failed for a reason that is not a refusal "
