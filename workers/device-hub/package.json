@@ -1,0 +1,20 @@
+{
+  "name": "cmux-device-hub",
+  "license": "BUSL-1.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "types": "wrangler types --env-interface WranglerEnv worker-configuration.d.ts",
+    "dev-secrets": "node scripts/gen-dev-secrets.mjs"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.4.0",
+    "typescript": "^5.9.3",
+    "vitest": "~4.1",
+    "wrangler": "^4.149.0"
+  }
+}

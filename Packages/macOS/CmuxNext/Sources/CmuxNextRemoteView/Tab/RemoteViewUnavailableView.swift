@@ -100,6 +100,7 @@ public final class RemoteViewUnavailableView: NSView {
             case .notInThisBuild: RemoteViewStrings.unavailableNotInBuild
             case let .noTransport(host): RemoteViewStrings.unavailableNoTransport(host)
             case let .notLoopback(host): RemoteViewStrings.unavailableNotLoopback(host)
+            case let .notPrivateNetwork(host): RemoteViewStrings.unavailableNotPrivateNetwork(host)
             case .remoteRecord: RemoteViewStrings.unavailableRemoteRecord
             case .invalidAddress: RemoteViewStrings.unavailableInvalidAddress
             }
