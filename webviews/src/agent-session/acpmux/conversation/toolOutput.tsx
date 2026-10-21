@@ -46,11 +46,29 @@ export function useOutput(output: string | undefined, reveal = 0) {
   }, [output]);
   return {
     text,
+    tail,
     shown: all || tail === undefined ? text : tail,
     cut: !all && tail !== undefined,
     long: tail !== undefined,
     all,
     toggle: () => setAll((value) => !value),
+  };
+}
+
+/// What a block with a preview (BlockParts.tsx) draws of `output`: while it has more lines than
+/// the preview shows, the preview alone decides, all of them once opened and the end of a long one
+/// while cut, so an output opened while short stays whole as it streams past the end it would draw.
+export function previewedOutput(
+  output: ReturnType<typeof useOutput>,
+  preview: { long: boolean; all: boolean },
+): ReturnType<typeof useOutput> {
+  if (!preview.long) return output;
+  const all = preview.all;
+  return {
+    ...output,
+    all,
+    shown: all || output.tail === undefined ? output.text : output.tail,
+    cut: !all && output.tail !== undefined,
   };
 }
 

@@ -7,7 +7,6 @@ import { useT } from "../i18n";
 import { useBlockWrap, type BlockKind } from "./blockWrap";
 import { WrapLines } from "./icons";
 import { watchSideways } from "./sideways";
-import type { useOutput } from "./toolOutput";
 
 /// Lines a closed block shows; past them it fades out and offers Show all.
 export const PREVIEW_LINES = 8;
@@ -51,24 +50,19 @@ export function usePreview(lines: number, reveal = 0) {
 }
 
 /// "Show all N lines" under a cut block, "Show less" once it is open. A block that draws only the
-/// end of a long output (toolOutput.ts) counts all of its lines and opens all of it, so N is never
-/// the tail's count; Show less closes it up to its end again. Find skips the button's words.
-export function PreviewMore({
-  preview,
-  output,
-}: {
-  preview: ReturnType<typeof usePreview>;
-  output?: Pick<ReturnType<typeof useOutput>, "all" | "long" | "toggle">;
-}) {
+/// end of a long output counts all of its lines, and opened it draws them all (toolOutput.tsx
+/// `previewedOutput`), so N is never the tail's count. Find skips the button's words.
+export function PreviewMore({ preview }: { preview: ReturnType<typeof usePreview> }) {
   const t = useT();
   if (!preview.long) return null;
-  const toggle = () => {
-    // The output follows the preview: opened whole with it, back to its end when it closes.
-    if (output?.long && output.all === preview.all) output.toggle();
-    preview.toggle();
-  };
   return (
-    <button type="button" className="cv-output-more" aria-expanded={preview.all} data-find-skip="" onClick={toggle}>
+    <button
+      type="button"
+      className="cv-output-more"
+      aria-expanded={preview.all}
+      data-find-skip=""
+      onClick={preview.toggle}
+    >
       {preview.all ? t("shell.showLess") : t("transcript.showAllLines", { n: preview.lines })}
     </button>
   );

@@ -9,7 +9,7 @@ import { Lines, lineCount, PreviewMore, usePreview, useSidewaysRef, WrapButton }
 import { commandFolder } from "./commandFolder";
 import { CopyButton } from "./CopyButton";
 import { menuPartRef } from "./menuParts";
-import { OutputMore, useOutput } from "./toolOutput";
+import { OutputMore, previewedOutput, useOutput } from "./toolOutput";
 
 export function ShellBlock({
   id,
@@ -29,12 +29,13 @@ export function ShellBlock({
   whole?: boolean;
 }) {
   const t = useT();
-  const shown = useOutput(output, reveal);
+  const raw = useOutput(output, reveal);
   const { folder, rest } = command ? commandFolder(command) : { folder: undefined, rest: undefined };
   const [wrap] = useBlockWrap("output");
   // The command's lines and all the output's, though a long output draws only its end until opened
   // (none to cut when whole).
-  const preview = usePreview(whole ? 0 : (rest ? lineCount(rest) : 0) + lineCount(shown.text), reveal);
+  const preview = usePreview(whole ? 0 : (rest ? lineCount(rest) : 0) + lineCount(raw.text), reveal);
+  const shown = previewedOutput(raw, preview);
   const body = useSidewaysRef<HTMLPreElement>();
   return (
     <div className="cv-shell" id={id} ref={menuPartRef({ command, output: shown.text })}>
@@ -74,7 +75,7 @@ export function ShellBlock({
           </span>
         )}
       </pre>
-      <PreviewMore preview={preview} output={shown} />
+      <PreviewMore preview={preview} />
       {!preview.long && <OutputMore output={shown} />}
       {exitCode !== undefined && exitCode !== 0 && (
         <div className="cv-shell__exit">{t("shell.exit", { code: exitCode })}</div>

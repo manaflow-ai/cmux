@@ -21,7 +21,7 @@ import { BackgroundHint } from "./BackgroundHint";
 import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
 import { toolDuration } from "./toolGroups";
-import { OutputMore, useOutput } from "./toolOutput";
+import { OutputMore, previewedOutput, useOutput } from "./toolOutput";
 import { useBlockWrap } from "./blockWrap";
 import { Lines, lineCount, PreviewMore, usePreview, useSidewaysRef, WrapButton } from "./BlockParts";
 import { cleanText } from "./mcpCalls";
@@ -165,10 +165,11 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
 /// a fade, with Show all N lines (BlockParts.tsx).
 function ToolOutput({ id, output, reveal }: { id: string; output: string; reveal: number }) {
   const t = useT();
-  const shown = useOutput(output, reveal);
+  const raw = useOutput(output, reveal);
   const [wrap] = useBlockWrap("output");
   // All the output's lines, though a long one draws only its end until opened.
-  const preview = usePreview(lineCount(shown.text), reveal);
+  const preview = usePreview(lineCount(raw.text), reveal);
+  const shown = previewedOutput(raw, preview);
   const body = useSidewaysRef<HTMLPreElement>();
   return (
     <div id={id} className="cv-tool-output-card" ref={menuPartRef({ output: shown.text })}>
@@ -188,7 +189,7 @@ function ToolOutput({ id, output, reveal }: { id: string; output: string; reveal
           {shown.shown && <Lines text={shown.shown} />}
         </pre>
       </div>
-      <PreviewMore preview={preview} output={shown} />
+      <PreviewMore preview={preview} />
       {!preview.long && <OutputMore output={shown} />}
     </div>
   );
