@@ -32,7 +32,8 @@ enum SidebarLaneStatus {
                 var row = make()
                 let mergesState = SidebarTunables.laneStatus.value, namesState = SidebarTunables.rowStatus.value
                 guard mergesState || namesState else { return row }
-                let local = SidebarLocalLanes.lanes(workspace, lanes: lanes, turns: turns)
+                let local = SidebarTunables.laneFixture.value ? SidebarLaneFixture.lanes(workspace)
+                    : SidebarLocalLanes.lanes(workspace, lanes: lanes, turns: turns)
                 if mergesState { merge(local, into: &row) }
                 if namesState { row.agentChip = chip(local, marks: marks.state) }
                 return row

@@ -97,6 +97,12 @@ public nonisolated enum SidebarTunables {
         help: "A workspace row says needs you, done, failed or lost at the right of its name, in the Priority view's words, for the most urgent agent chat in it on this Mac.",
         default: true, code: "SidebarTunables.rowStatus")
 
+    /// Sample agent lanes on every row (`SidebarLaneFixture`), for captures on a slot with no agents.
+    public static let laneFixture = Tunable<Bool>.toggle(
+        "sidebar.laneFixture", .sidebar, "Sample agent states on rows",
+        help: "Gives every workspace row a sample agent chat (needs you, working, done, failed or idle), to see the row states without real sessions.",
+        default: false, code: "SidebarTunables.laneFixture")
+
     /// The pull requests' hover card on a row's pull request badge (`SidebarPullRequestCard`,
     /// `sidebar.sessionTree`); on by default.
     public static let pullRequestCard = Tunable<Bool>.toggle(
@@ -144,6 +150,7 @@ public nonisolated enum SidebarTunables {
             groupExitFraction.descriptor,
             laneStatus.descriptor,
             rowStatus.descriptor,
+            laneFixture.descriptor,
             NotificationBadgeLook.tunable.descriptor,
             NotificationIconLook.tunable.descriptor,
             presenceDots.descriptor,
