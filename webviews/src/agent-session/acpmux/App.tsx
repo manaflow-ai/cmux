@@ -3238,7 +3238,8 @@ function AcpmuxPane() {
   /// once its chat is; such a pane shows the chat's other subagents in place, never in more panes.
   const [requestedSubagent, setRequestedSubagent] = useState<string>();
   const subagentPane = useRef(false);
-  /// This pane is a subagent's own: it shows the subagent read only, never the chat's composer.
+  /// This pane was opened on a subagent (a `subagent:` reveal): while it shows a subagent, it shows
+  /// it read only (`readOnlySubagent`).
   const [ownSubagentPane, setOwnSubagentPane] = useState(false);
   const reveal = (value: string) => {
     const agent = revealedSubagent(value);
@@ -3677,6 +3678,10 @@ function AcpmuxPane() {
     setSubagentView(requestedSubagent);
     setRequestedSubagent(undefined);
   }, [requestedSubagent, shownSessionId]);
+  // A subagent's pane shows the subagent read only, never the chat's composer, queue or pull
+  // request: they are the chat's. Once it shows a chat ("Subagent of", a branch pill, another
+  // harness), that chat's composer is back: a prompt there goes to the chat it shows.
+  const readOnlySubagent = ownSubagentPane && (subagentView !== undefined || requestedSubagent !== undefined);
   // Find in Chat over the transcript (ChatFindScope, below the pane); the page actions read it
   // through `findRef`.
   const findRef = useRef<ChatFind | undefined>(undefined);
@@ -6224,7 +6229,7 @@ function AcpmuxPane() {
   );
   // A subagent's own pane is a tab on the chat's session: the chat's composer, queue and pull
   // request bars there were the chat's, and a prompt typed in it went to the chat.
-  const composer = ownSubagentPane ? (
+  const composer = readOnlySubagent ? (
     <SubagentPaneFooter chat={chatName} />
   ) : (
     !reviewing && (
@@ -6673,7 +6678,10 @@ function AcpmuxPane() {
             subagents={cardSubagents}
             // The picks are this computer's files: only a chat whose folder is here (not a peer's or
             // another host's) and not Quick Chat.
-            onAttach={localCwd && !quick ? () => void attachLinks().catch(() => undefined) : undefined}
+            // A subagent's pane has no composer to attach to.
+            onAttach={
+              localCwd && !quick && !readOnlySubagent ? () => void attachLinks().catch(() => undefined) : undefined
+            }
           />
         </SubagentHarnessContext.Provider>
       </SubagentClockContext.Provider>
@@ -6857,6 +6865,7 @@ function AcpmuxPane() {
                     )}
                     <ChatHeaderTools
                       tabTools={!quick}
+                      pullRequestChip={!readOnlySubagent}
                       // A new chat's picked folder too: New Worktree names its branch before the first prompt.
                       folder={localCwd ?? (remoteChat ? undefined : startFolder)}
                       readStatus={readFolderStatus}
