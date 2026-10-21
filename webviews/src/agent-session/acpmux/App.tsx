@@ -155,7 +155,13 @@ import { readTurnFromRows, type CheckpointDiff } from "./changes/turnCheckpointS
 import { registerComposerHost } from "./composerSettings";
 import { WHOLE_FILE_CONTEXT } from "./changes/wholeFile";
 import { restoredDecisions, type HunkDecision, type HunkReview } from "./changes/hunkReview";
-import { configureDictation, deliverDictation, useDictation, type DictationField } from "./dictation";
+import {
+  configureDictation,
+  deliverDictation,
+  isWaitingForWords,
+  useDictation,
+  type DictationField,
+} from "./dictation";
 import type { DictationUpdate } from "./dictationText";
 import { DictationMic } from "./DictationMic";
 import { DictationNotice } from "./DictationNotice";
@@ -6880,6 +6886,7 @@ function AcpmuxPane() {
             // No prompt goes while a picked folder waits for the user's answer.
             blocked={pendingFolder ? {} : trustAsk.blocked}
             accessory={<DictationMic dictation={dictation} />}
+            dictating={isWaitingForWords(dictation.state)}
             onImportFile={importFile}
             onEdit={(command) => ignoreFailure(callNative("pane.edit", { command }))}
           />
@@ -7067,6 +7074,7 @@ function AcpmuxPane() {
                 }).then(() => folder);
               }}
               accessory={<DictationMic dictation={dictation} />}
+              dictating={isWaitingForWords(dictation.state)}
               dictationField={newTabDictationField}
               notice={<DictationNotice dictation={dictation} />}
               // The host answers only for a page on this Mac; another machine's keeps the refusal.
