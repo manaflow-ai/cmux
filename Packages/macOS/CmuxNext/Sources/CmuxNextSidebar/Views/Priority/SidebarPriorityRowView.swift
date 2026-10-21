@@ -96,6 +96,15 @@ final class SidebarPriorityRowView: NSView {
         return formatter.string(from: seconds)
     }
 
+    /// Attention for needs you, danger for failed or lost, dim otherwise; workspace rows use it too.
+    static func chipColor(_ state: SidebarPriorityEntry.State) -> NSColor {
+        switch state {
+        case .needsYou: Palette.attention
+        case .failed, .lost: Palette.danger
+        case .done, .working, .idle: Palette.textTertiary
+        }
+    }
+
     static func indicatorState(_ state: SidebarPriorityEntry.State) -> StatusIndicatorState {
         switch state {
         case .needsYou: .waiting
@@ -161,11 +170,7 @@ final class SidebarPriorityRowView: NSView {
             title.textColor = Palette.textPrimary
             placeLabel.textColor = entry.machine.map(Self.machineColor) ?? Palette.textTertiary
             preview.textColor = Palette.textSecondary
-            chip.textColor = switch entry.state {
-            case .needsYou: Palette.attention
-            case .failed, .lost: Palette.danger
-            case .done, .working, .idle: Palette.textTertiary
-            }
+            chip.textColor = Self.chipColor(entry.state)
             unreadDot.backgroundColor = Palette.notificationBlue.cgColor
             if let layer {
                 layer.cornerRadius = SidebarStyle.rowCornerRadius

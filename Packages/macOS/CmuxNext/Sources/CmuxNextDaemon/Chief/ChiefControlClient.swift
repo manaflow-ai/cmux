@@ -232,6 +232,35 @@ public struct ChiefControlClient: Sendable {
         }
     }
 
+    /// `chief.stop {all: true}` (Stop all agents): the running turn and every
+    /// subagent at work or queued stop; the answer names the subagents (the
+    /// undo toast's list and its Restart). `chief` as in `chiefEngine(chief:)`.
+    public func stopAllAgents(chief: String? = nil) async throws(ChiefControlError) -> ChiefStopAll {
+        let key = "cmux-next-chief-stop-all-" + UUID().uuidString.lowercased()
+        let params = Self.naming(chief, ["all": .bool(true)])
+        do {
+            return try await connection.resourceRequest({ id in
+                ResourceRequestEnvelope(id: id, operation: "chief.stop", params: params, idempotencyKey: key)
+            }, as: ResourceMutationResult<ChiefStopAll>.self).value
+        } catch {
+            throw ChiefControlError(error)
+        }
+    }
+
+    /// `chief.stop {restart: [ids]}` (Restart on the stop-all toast): those
+    /// subagents go on; nothing stops. `chief` as in `chiefEngine(chief:)`.
+    public func restartAgents(_ names: [String], chief: String? = nil) async throws(ChiefControlError) -> ChiefRestart {
+        let key = "cmux-next-chief-restart-" + UUID().uuidString.lowercased()
+        let params = Self.naming(chief, ["restart": .array(names.map(JSONValue.string))])
+        do {
+            return try await connection.resourceRequest({ id in
+                ResourceRequestEnvelope(id: id, operation: "chief.stop", params: params, idempotencyKey: key)
+            }, as: ResourceMutationResult<ChiefRestart>.self).value
+        } catch {
+            throw ChiefControlError(error)
+        }
+    }
+
     /// `params` with the `chief` field when `chief` names a Chief.
     static func naming(_ chief: String?, _ params: [String: JSONValue]) -> [String: JSONValue] {
         guard let chief, !chief.isEmpty else { return params }

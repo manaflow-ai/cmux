@@ -227,6 +227,9 @@ extension AgentPaneRequest {
         case "chats.openInTerminal":
             if let key = params?["key"] as? String, key.contains(":"), key.count <= 512 { self = .openChatInTerminal(key) }
             else { self = .unsupported(method) }
+        case "chats.watch":
+            if let key = params?["key"] as? String, key.contains(":"), key.count <= 512 { self = .watchChat(key) }
+            else { self = .unsupported(method) }
         case "chats.page": self = .chatsPage(AgentPaneChatsQuery(params: params))
         case "app.action":
             if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128 { self = .appAction(id) }
@@ -261,7 +264,7 @@ extension AgentPaneRequest {
         case "chat.newHere":
             if let cwd = (params?["cwd"] as? String).flatMap(Self.headerFolder) { self = .newChatHere(cwd) } else { self = .unsupported(method) }
         case "chat.openTab":
-            if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .chatTab(id) } else { self = .unsupported(method) }
+            if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .chatTab(id, AgentForkDestination(placement: params?["placement"] as? String)) } else { self = .unsupported(method) }
         case "chat.upload":
             if let files = AgentPaneUpload.files(params) { self = .upload(files) } else { self = .unsupported(method) }
         case "chat.toolCard.respond":

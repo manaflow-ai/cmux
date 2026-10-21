@@ -22,6 +22,67 @@ struct PaletteMenuVocabularyTests {
         }
     }
 
+    /// Palette titles are menu titles, so they follow the macOS title style: the ellipsis is one
+    /// character ("…", never "..."), and every word is capitalized except a short article,
+    /// conjunction or preposition inside the title ("Move Tab to Workspace…"). The first and last
+    /// words are always capitalized ("Move Chief To…", "Swap with Session…"); cmux keeps its case.
+    @Test func paletteTitlesUseTitleCase() {
+        let minor: Set<String> = ["a", "an", "the", "and", "or", "nor", "but", "to", "in", "on", "of",
+                                  "for", "by", "at", "as", "from", "with", "into", "onto", "via", "vs", "per"]
+        let brands = ["cmux", "iPhone", "iPad", "iOS", "macOS"]
+        let trim = CharacterSet(charactersIn: "()\"“”,:.")
+        for descriptor in ActionCatalog.all where descriptor.isPaletteVisible {
+            let title = descriptor.title
+            #expect(!title.contains("..."), "\(descriptor.id) \(title): the ellipsis is one character, …")
+            let words = title.replacingOccurrences(of: "…", with: "").split(separator: " ")
+            for (index, word) in words.enumerated() {
+                for part in word.split(separator: "/") {
+                    let core = part.trimmingCharacters(in: trim)
+                    guard let first = core.unicodeScalars.first, CharacterSet.lowercaseLetters.contains(first),
+                          !brands.contains(where: { core.hasPrefix($0) }) else { continue }
+                    let inside = index > 0 && index < words.count - 1
+                    #expect(inside && minor.contains(core), "\(descriptor.id) \(title): \(core) is capitalized")
+                }
+            }
+        }
+    }
+
+    /// A title ends in "…" exactly when choosing it asks for more first. A phone action with a
+    /// required argument (a URL, text, a point, a button or a locale) makes the palette ask for it
+    /// (`ActionRegistry.argumentCollector`); one without (Boot, Rotate, Take Screenshot) runs at once.
+    @Test func phoneTitlesEndInAnEllipsisExactlyWhenTheyAsk() {
+        let phones = ActionCatalog.all.filter { $0.id.rawValue.hasPrefix("phone.") }
+        #expect(!phones.isEmpty)
+        for descriptor in phones {
+            let asks = descriptor.arguments.contains(where: \.isRequired)
+            #expect(descriptor.title.hasSuffix("…") == asks,
+                    "\(descriptor.id) \(descriptor.title): \(asks ? "asks for input, so it ends in …" : "acts at once, so no …")")
+        }
+    }
+
+    /// The same rule outside the Phone family, for the rows the palette audit found wrong. Each of
+    /// the first list has a required argument the palette collects before it runs (a time range and
+    /// profile, a history entry, an app, a team, a host address). Cloud Diagnostics shows its result
+    /// in a toast and Edit Group Config opens cmux-next.json, as Open cmux-next.json does: neither
+    /// asks, so neither ends in "…".
+    @Test func auditedTitlesEndInAnEllipsisExactlyWhenTheyAsk() throws {
+        let byID = Dictionary(ActionCatalog.all.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let asking: [ActionID] = ["palette.browserClearHistory", "history.open", "app.hide", "app.unhide",
+                                  "openTeamPicker", "remote.openBrowserTab"]
+        for id in asking {
+            let descriptor = try #require(byID[id], "\(id)")
+            let asks = descriptor.arguments.contains(where: \.isRequired)
+            #expect(asks, "\(id) no longer asks for input")
+            #expect(descriptor.title.hasSuffix("…"), "\(id) \(descriptor.title): asks for input, so it ends in …")
+        }
+        for id: ActionID in ["cloudDiagnostics", "workspaceGroup.editConfig"] {
+            let descriptor = try #require(byID[id], "\(id)")
+            let asks = descriptor.arguments.contains(where: \.isRequired)
+            #expect(!asks, "\(id) now asks for input")
+            #expect(!descriptor.title.hasSuffix("…"), "\(id) \(descriptor.title): acts at once, so no …")
+        }
+    }
+
     /// A renamed row still answers the word it used to start with.
     @Test func renamedRowsKeepTheirOldWord() throws {
         let byID = Dictionary(ActionCatalog.all.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -30,6 +91,20 @@ struct PaletteMenuVocabularyTests {
             #expect(try #require(byID[id]).keywords.contains("clear"), "\(id)")
         }
         #expect(try #require(byID["toggleFocusedWorkspaceGroupCollapsed"]).keywords.contains("toggle"))
+    }
+
+    /// The palette shows a group close out of context, so its title names the group's noun. The
+    /// context menus may keep "Close Group": there the right-clicked row names it.
+    @Test func groupCloseTitlesNameTheirNoun() throws {
+        let byID = Dictionary(ActionCatalog.all.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let titles: [ActionID: String] = [
+            "tabGroup.close": "Close Tab Group",
+            "screenGroup.close": "Close Screen Group",
+            "workspaceGroup.closeWorkspaces": "Close Workspaces in Group",
+        ]
+        for (id, title) in titles {
+            #expect(try #require(byID[id], "\(id)").title == title, "\(id)")
+        }
     }
 
     /// One name per command: no two palette or menu bar actions share a name unless one is a

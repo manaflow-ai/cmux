@@ -1,10 +1,11 @@
-import React, { useCallback, useImperativeHandle, useLayoutEffect, useRef } from "react";
+import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef } from "react";
 import { pasteIsOnlyFileNames } from "./attachments";
 import { COMPOSER_READY_EVENT } from "./composerFocus";
 import { liftInlineImages } from "./inlineImages";
 import { isImeKeyEvent } from "../../pages/shared/imeKeys";
 import { activeFormats, applyFormat, type MarkdownFormat } from "./markdownFormat";
 import "./markdownField.css";
+import { followScrollEdges } from "./summary/scrollEdges";
 import {
   Editor,
   defaultValueCtx,
@@ -377,6 +378,14 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
           appendTransaction: (transactions, _previous, state) => {
             if (!pasting || !transactions.some((tr) => tr.docChanged)) return null;
             pasting = false;
+            // A paste that ends the draft shows the field's whole end, its bottom inset too: the
+            // caret reveal stops a margin short in WebKit, which would leave the last line under
+            // the bottom fade (markdownField.css).
+            if (Selection.atEnd(state.doc).to === state.selection.to)
+              requestAnimationFrame(() => {
+                const field = root.parentElement;
+                if (!disposed && field) field.scrollTop = field.scrollHeight;
+              });
             return transactions.some((tr) => tr.scrolledIntoView) ? null : state.tr.scrollIntoView();
           },
           // Report every document and caret change; the composer's menu follows the caret.
@@ -433,12 +442,15 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
           const windowFocus = () => {
             if (focused(editorView)) enter(editorView);
           };
-          window.addEventListener("blur", windowBlur);
-          window.addEventListener("focus", windowFocus);
+          // The editor's own window, kept: the editor can be torn down after the page's global
+          // `window` is gone (a test's DOM unregistered before Milkdown's async destroy runs).
+          const win = editorView.dom.ownerDocument.defaultView;
+          win?.addEventListener("blur", windowBlur);
+          win?.addEventListener("focus", windowFocus);
           return {
             destroy: () => {
-              window.removeEventListener("blur", windowBlur);
-              window.removeEventListener("focus", windowFocus);
+              win?.removeEventListener("blur", windowBlur);
+              win?.removeEventListener("focus", windowFocus);
             },
           };
         },
@@ -566,6 +578,16 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
   useLayoutEffect(applyAttributes);
 
   const wrapper = useRef<HTMLDivElement | null>(null);
+  // A long draft scrolls inside this box past its cap (markdownField.css): the edge with more draft
+  // past it is marked, and the CSS fades it (Leo 2026-10-21). A DOM with no layout (the jsdom and
+  // happy-dom unit tests) has no observers and nothing scrolls there.
+  useEffect(
+    () =>
+      wrapper.current && typeof ResizeObserver === "function" && typeof MutationObserver === "function"
+        ? followScrollEdges(wrapper.current)
+        : undefined,
+    [],
+  );
   const handle = useRef<MarkdownFieldHandle>(undefined);
   useImperativeHandle(
     ref,

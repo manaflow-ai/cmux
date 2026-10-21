@@ -116,9 +116,9 @@ final class HomeHostView: NSView {
             return (try? await CmuxNextDaemon.ConversationClient(connection).op(
                 CmuxNextDaemon.ConversationOpRequest(conversation: conversation, idempotencyKey: key, transaction: nil, op: .setTitle(name)))) != nil
         }
-        // The shared stop action (palette, the stop button, Esc and Cmd-.): the key window's Home stops its Chief.
+        // The stop button (HomeHostView+StopAll): a click, Esc and Cmd-. stop the Chief; Option-click stops all agents.
         let registry = services.registry
-        transcript.onStop = { _ = registry.perform(HomeChiefControl.stopAction, invocation: ActionInvocation(origin: .user)) }
+        wireStopButton(registry)
         // A cmux app link (a workspace, pane, tab, chat or Chief subagent): opened here, through link.open.
         // An attachment or a path link opens in cmux on the right of Home, never in Finder (a
         // folder in a Files tab); right-click has Open With (HomeFileActions).
@@ -137,7 +137,7 @@ final class HomeHostView: NSView {
         }
         // A link pressed and moved: dragged into the layout's drop zones, a split or a pane opens it (LinkDragSession).
         transcript.onDragLink = { [weak services] url, point in services?.linkDrags.begin(url, screenPoint: point) ?? false }
-        // Forward… on a bubble: Send to… with its text (the palette asks where).
+        // Forward… on a bubble: Send To… with its text (the palette asks where).
         transcript.onForward = { text in
             _ = registry.perform("home.sendSelectionTo", invocation: ActionInvocation(arguments: ["text": .string(text)], origin: .user))
         }

@@ -33,7 +33,7 @@ import PackageDescription
 //   CmuxNextBrowserImport -> system frameworks only (browser detection, parsers, importer; no UI)
 //   CmuxNextBrowserHistory -> Browser, Daemon, Compat (a browser tab's saved history across relaunches; no UI)
 //   CmuxNextOnboarding -> Design, Icons, BrowserImport (first-run window; the App supplies OnboardingServices)
-//   CmuxNextHome -> Design, Wakeups, MessagesLabHome (the Home transcript: MessagesLabAppKitNative's
+//   CmuxNextHome -> Compat, Design, Dictation, Wakeups, MessagesLabHome (the Home transcript: MessagesLabAppKitNative's
 //     vendored code over the shared HomeStore; no daemon; plans/cmux-next/home-mac.md),
 //     MessagesLabSidebar (MessagesLab's conversation list, the v1 sidebar seam)
 //   CmuxNextHomeEngine -> AgentPane, Actions, Cloud, Compat, Daemon, Design, Home, Icons, Wakeups,
@@ -484,7 +484,7 @@ let package = Package(
         .target(
             name: "CmuxNextHome",
             dependencies: [
-                "CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups",
+                "CmuxNextCompat", "CmuxNextDesign", "CmuxNextDictation", "CmuxNextIcons", "CmuxNextWakeups",
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                 .product(name: "MessagesLabHome", package: "CmuxMessagesLab"),
@@ -1025,6 +1025,7 @@ let package = Package(
         // app's warnings, errors, faults and crashes, written off the main actor.
         .target(
             name: "CmuxNextErrorJournal",
+            dependencies: ["CmuxNextWakeups"],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
@@ -1334,6 +1335,7 @@ let package = Package(
                 "CmuxNextDaemon",
                 "CmuxNextDaemonRecovery",
                 "CmuxNextDaemonService",
+                "CmuxNextDesign",
                 "CmuxNextDiff",
                 "CmuxNextFeed",
                 "CmuxNextFileGrid",

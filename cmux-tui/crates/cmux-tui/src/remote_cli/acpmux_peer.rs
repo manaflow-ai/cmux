@@ -606,6 +606,8 @@ mod tests {
         let server = tokio::spawn(async move {
             let (stream, _) = listener.accept().await.unwrap();
             let mut seen = (None, None);
+            #[allow(clippy::result_large_err)]
+            // Required by tungstenite's handshake callback signature.
             let callback = |request: &Request, response: Response| {
                 let header = |name: &str| {
                     request.headers().get(name).and_then(|v| v.to_str().ok()).map(str::to_owned)

@@ -6,7 +6,7 @@ import Testing
 /// The Space pickers from a right-click (unimpl-audit-actions rows 2-6): the menu's own Space is
 /// the answer of New Workspace in Space… and New Window in Space… (they used to open the palette on
 /// "which Space?"), and the workspace and group menus list the spaces as a submenu (Move Workspace
-/// to Space ▸ Work), never a row that opens the palette. Swap With Session… still asks for the
+/// to Space ▸ Work), never a row that opens the palette. Swap with Session… still asks for the
 /// other pane: a right-clicked pane is the one that moves, not its partner.
 @MainActor @Suite struct SpacePickerMenuTests {
     /// A registry whose every catalog action records its run and whose collector records each

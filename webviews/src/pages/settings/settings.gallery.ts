@@ -263,8 +263,9 @@ Object.assign(variants, {
   "backdrops-empty": variant("appearance", {
     options: { values: { "appearance.background": "none" } },
     host: { ...host, backdrops: [] },
-    steps: [wait('[data-card="backdrop"]')],
-    note: "Background picker with no artwork returned yet: the real empty state keeps the setting usable while the host list loads or is unavailable.",
+    // With no artwork the picker hides (useBackdropsShown) and the setting draws as its plain row.
+    steps: [wait(row("appearance.background"))],
+    note: "No artwork returned yet: the picker stays hidden and Background is its plain row, so the setting stays usable while the host list loads or is unavailable.",
   }),
   // Add from a Link (backgrounds plan phase 3): the link form open under the picker, a link typed.
   "backdrops-link": variant("appearance", {
@@ -471,13 +472,6 @@ Object.assign(variants, {
     ],
     note: "Browse More Art: a search answered by three open collections, each work with its source.",
   }),
-  "theme-level-selected": variant("appearance", { steps: [click('input[name="theme-level"][value="workspace"]')] }),
-  "theme-custom-spec": variant("appearance", {
-    steps: [
-      input('[data-card="theme"] input.field', "light:GitHub Light,dark:Dracula"),
-      wait("[data-theme-list] .theme-choice:nth-child(2)"),
-    ],
-  }),
   "terminal-shell-unknown": variant("terminal", {
     host: { ...host, terminal: { ghostty_config: "~/.config/ghostty/config", shell_integration: null } },
   }),
@@ -647,10 +641,11 @@ Object.assign(variants, {
   }),
   "invalid-host": variant("browser", {
     focus: "browser.hibernationExclusions",
+    // Scoped to the row: the Browser page has other token fields above it (browser.siteEngines).
     steps: [
-      input(".token-input", "bad host / path"),
-      { selector: ".token-input", action: "enter" },
-      wait(".host-list [role=alert]"),
+      input(`${row("browser.hibernationExclusions")} .token-input`, "bad host / path"),
+      { selector: `${row("browser.hibernationExclusions")} .token-input`, action: "enter" },
+      wait(`${row("browser.hibernationExclusions")} .host-list [role=alert]`),
     ],
   }),
   "write-error": variant("privacy", {
@@ -849,10 +844,11 @@ variants["play-select-scroll"] = variant("appearance", {
     const content = ctx.find({ selector: ".content" });
     const control = `${row("sidebar.sectionLook")} .ui-select-button`;
     const bottom = ctx.find({ selector: control }).getBoundingClientRect().bottom;
-    await ctx.scroll(
-      { selector: ".content" },
-      content.scrollTop + bottom - (content.getBoundingClientRect().bottom - 40),
-    );
+    // Near the bottom of what shows: above the Appearance bar that sits over the content's foot.
+    const floor =
+      ctx.document.querySelector(".appearance-bar")?.getBoundingClientRect().top ??
+      content.getBoundingClientRect().bottom;
+    await ctx.scroll({ selector: ".content" }, content.scrollTop + bottom - (floor - 40));
     await ctx.click({ selector: control });
     await ctx.waitFor(() => ctx.document.querySelector(".ui-select-popup"));
     await ctx.scroll({ selector: ".content" }, content.scrollTop - 160);

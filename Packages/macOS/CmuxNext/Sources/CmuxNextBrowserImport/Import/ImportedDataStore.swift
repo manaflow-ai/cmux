@@ -158,7 +158,7 @@ public actor ImportedDataStore {
     /// out its visits up to now.
     public func forgetPage(_ url: URL, profile: String) throws {
         let now = Date()
-        try fence(profile: profile) { $0.removedPages = ($0.removedPages ?? [:]).merging([url.absoluteString: now], uniquingKeysWith: max) }
+        try fence(profile: profile) { $0.removedPages = ($0.removedPages ?? [:]).merging([ImportSourceRecord.pageKey(url): now], uniquingKeysWith: max) }
     }
 
     /// Remove Site: every profile's saved imported pages of `host` go, fenced the same way.
@@ -173,6 +173,7 @@ public actor ImportedDataStore {
         var records = sources()
         for index in records.indices where profile == nil || records[index].targetProfileID == profile {
             add(&records[index])
+            records[index] = records[index].compacted()
             guard let data = try? Data(contentsOf: batchFile(records[index])),
                   var batch = try? decoder.decode(ImportBatch.self, from: data) else { continue }
             let kept = batch.history.filter(records[index].keeps)

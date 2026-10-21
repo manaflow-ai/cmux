@@ -99,6 +99,29 @@ pub struct Subject {
     pub probe_error: Option<String>,
 }
 
+impl Subject {
+    /// The harness `id` as `profile` and its profile file's `[auth]` describe
+    /// it, without a probe error. None for an empty command line.
+    pub fn of(
+        id: &str,
+        profile: &crate::config::HarnessProfile,
+        auth: Option<&crate::config::profiles::AuthNotes>,
+    ) -> Option<Self> {
+        let (resolved, unresolved): (Vec<_>, Vec<_>) =
+            profile.env.iter().partition(|(_, v)| !v.contains("${"));
+        Some(Self {
+            id: id.to_owned(),
+            program: profile.argv.first()?.clone(),
+            family: crate::config::derive_family(id, profile),
+            check: auth.map(|a| a.check.clone()).unwrap_or_default(),
+            env: resolved.into_iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            login: auth.and_then(|a| a.login.clone()),
+            unresolved: unresolved.into_iter().map(|(k, _)| k.clone()).collect(),
+            probe_error: None,
+        })
+    }
+}
+
 /// Where the service asks and keeps its copy.
 #[derive(Clone, Debug, Default)]
 pub struct Settings {
@@ -278,6 +301,13 @@ impl HealthService {
                 {
                     row.update = None;
                 }
+                if row.channel == channel::Channel::Bun
+                    && row.update.as_ref().is_some_and(|plan| {
+                        !channel::bun::matches(plan, row.package.as_deref(), row.path.as_deref())
+                    })
+                {
+                    row.update = None;
+                }
             }
             self.replace_rows(rows);
         }
@@ -376,7 +406,7 @@ fn save(path: &Path, rows: &[HarnessHealth]) {
 /// The part of a check that runs here: where the program is, how it was
 /// installed, its version, its sign-in, and its update and login commands.
 fn local(s: Subject, home: &Path) -> HarnessHealth {
-    let found = if Path::new(&s.program).is_absolute() {
+    let mut found = if Path::new(&s.program).is_absolute() {
         Path::new(&s.program).is_file().then(|| s.program.clone())
     } else {
         crate::config::which(&s.program)
@@ -394,6 +424,12 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
     };
     let update =
         channel::update_plan(&install, found.as_deref().map(Path::new), real.as_deref(), home);
+    if install.channel == Channel::Bun
+        && let (Some(plan), Some(path)) = (&update, &found)
+    {
+        found = channel::bun::recorded_path(plan, Path::new(path))
+            .and_then(|path| path.to_str().map(str::to_owned));
+    }
     // Without a profile check, the agent's own answer; a sign-in it proves,
     // or a provider that `codex login` cannot fix, outranks an older probe's
     // sign-in error.

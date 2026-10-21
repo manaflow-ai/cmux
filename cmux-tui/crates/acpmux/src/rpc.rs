@@ -212,6 +212,7 @@ pub mod method {
     pub const MUX_WATCH: &str = "_acpmux/watch";
     pub const MUX_RENAME: &str = "_acpmux/rename";
     pub const MUX_KILL: &str = "_acpmux/kill";
+    pub const MUX_WATCH_TAKE_OVER: &str = "_acpmux/watch_take_over";
     /// Stop one of a session's background subagents (a Claude background
     /// agent or workflow): `{sessionId, subagentSessionId}`.
     pub const MUX_SUBAGENT_STOP: &str = "_acpmux/subagent_stop";
@@ -280,6 +281,8 @@ pub mod method {
     /// Read or replace the unsent composer text for one session.
     pub const MUX_DRAFT_GET: &str = "_acpmux/draft_get";
     pub const MUX_DRAFT_SET: &str = "_acpmux/draft_set";
+    pub const MUX_COMPOSER_SET: &str = "_acpmux/composer_set";
+    pub const MUX_COMPOSERS: &str = "_acpmux/composers";
     pub const MUX_BOOKMARK_GET: &str = "_acpmux/bookmark_get";
     pub const MUX_BOOKMARK_SET: &str = "_acpmux/bookmark_set";
     pub const MUX_ASK: &str = "_acpmux/ask";
@@ -373,8 +376,15 @@ pub mod method {
     pub const MUX_SUBSESSION_GET: &str = "_acpmux/subsession/get";
     pub const MUX_SUBSESSION_SEND: &str = "_acpmux/subsession/send";
     pub const MUX_SUBSESSION_STOP: &str = "_acpmux/subsession/stop";
+    /// Answers a descendant's pending question (never a permission prompt).
+    pub const MUX_SUBSESSION_ANSWER: &str = "_acpmux/subsession/answer";
     /// Sets a session's limits: the person, or an ancestor session.
     pub const MUX_SUBSESSION_LIMITS: &str = "_acpmux/subsession/limits";
+    /// Forum announcements (`forum.rs`, `hub/forum.rs`, `server/forum.rs`):
+    /// post a rule by key, read the current rules, ack one.
+    pub const MUX_FORUM_ANNOUNCE: &str = "_acpmux/forum/announce";
+    pub const MUX_FORUM_RULES: &str = "_acpmux/forum/rules";
+    pub const MUX_FORUM_ACK: &str = "_acpmux/forum/ack";
     /// The background-process registry (`hub/processes.rs`): list a chat's
     /// (or every chat's) background processes, read one's output, and stop
     /// one.
