@@ -30295,6 +30295,34 @@
       "title_table" : "SidebarSectionActions"
     },
     {
+      "cli" : "focusMove",
+      "cli_name" : "action chief-open-subagent",
+      "context_menu" : "focusMove",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "chief.openSubagent",
+      "main_menu" : null,
+      "mcp" : "focusMove",
+      "palette" : "focusMove",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Open Chief Subagent",
+      "title_key" : "action.chief.openSubagent",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "sidebar add-item",
       "context_menu" : "offered",
@@ -35001,36 +35029,77 @@
           }
         },
         {
-          "enabled_when" : "can_perform",
-          "id" : "browserProfile.setColor",
-          "kind" : "action",
+          "children" : [
+            {
+              "enabled_when" : "can_perform",
+              "id" : "browserProfile.setColor",
+              "kind" : "action",
+              "order" : 0,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "browserProfile.clearColor",
+              "kind" : "action",
+              "order" : 1,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "browserProfile.setIcon",
+              "kind" : "action",
+              "label" : "Set Icon…",
+              "order" : 2,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "browserProfile.clearIcon",
+              "kind" : "action",
+              "label" : "Remove Icon",
+              "order" : 3,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            }
+          ],
+          "folder" : "appearance",
+          "kind" : "folder",
           "order" : 7,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
+          "title" : "Appearance",
+          "title_key" : "menu.folder.appearance",
+          "title_table" : "Localizable"
+        },
+        {
+          "kind" : "separator",
+          "order" : 8
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "browserProfile.clearColor",
+          "id" : "browserProfile.manageExtensions",
           "kind" : "action",
-          "order" : 8,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
-        },
-        {
-          "enabled_when" : "can_perform",
-          "id" : "browserProfile.setIcon",
-          "kind" : "action",
-          "label" : "Set Icon…",
           "order" : 9,
           "visible_when" : {
             "debug_only" : false,
@@ -35041,11 +35110,14 @@
           }
         },
         {
+          "kind" : "separator",
+          "order" : 10
+        },
+        {
           "enabled_when" : "can_perform",
-          "id" : "browserProfile.clearIcon",
+          "id" : "browserProfile.removeImportedData",
           "kind" : "action",
-          "label" : "Remove Icon",
-          "order" : 10,
+          "order" : 11,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -35055,12 +35127,8 @@
           }
         },
         {
-          "kind" : "separator",
-          "order" : 11
-        },
-        {
           "enabled_when" : "can_perform",
-          "id" : "browserProfile.manageExtensions",
+          "id" : "browserProfile.clearBrowsingData",
           "kind" : "action",
           "order" : 12,
           "visible_when" : {
@@ -35077,39 +35145,9 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "browserProfile.removeImportedData",
-          "kind" : "action",
-          "order" : 14,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
-        },
-        {
-          "enabled_when" : "can_perform",
-          "id" : "browserProfile.clearBrowsingData",
-          "kind" : "action",
-          "order" : 15,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
-        },
-        {
-          "kind" : "separator",
-          "order" : 16
-        },
-        {
-          "enabled_when" : "can_perform",
           "id" : "browserProfile.delete",
           "kind" : "action",
-          "order" : 17,
+          "order" : 14,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -41641,9 +41679,13 @@
               }
             },
             {
+              "choices" : {
+                "argument" : "space",
+                "target_kind" : "room"
+              },
               "enabled_when" : "can_perform",
               "id" : "workspaceGroup.moveToSpace",
-              "kind" : "action",
+              "kind" : "choices",
               "label" : "Move to Space…",
               "order" : 5,
               "visible_when" : {
@@ -42014,9 +42056,13 @@
               }
             },
             {
+              "choices" : {
+                "argument" : "space",
+                "target_kind" : "room"
+              },
               "enabled_when" : "can_perform",
               "id" : "workspace.moveToSpace",
-              "kind" : "action",
+              "kind" : "choices",
               "order" : 7,
               "visible_when" : {
                 "debug_only" : false,
@@ -42027,9 +42073,13 @@
               }
             },
             {
+              "choices" : {
+                "argument" : "space",
+                "target_kind" : "room"
+              },
               "enabled_when" : "can_perform",
               "id" : "workspace.duplicateToSpace",
-              "kind" : "action",
+              "kind" : "choices",
               "order" : 8,
               "visible_when" : {
                 "debug_only" : false,
@@ -43026,7 +43076,7 @@
     },
     {
       "name" : "titlebarHistory",
-      "source" : "CmuxNextApp\/Windows\/TitlebarHistoryMenu.swift"
+      "source" : "CmuxNextHistory\/TitlebarHistoryMenu.swift"
     },
     {
       "name" : "notificationRow",

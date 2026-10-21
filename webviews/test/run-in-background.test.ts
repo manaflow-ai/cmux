@@ -24,17 +24,24 @@ const row = (
   }) as unknown as AcpmuxRow;
 
 describe("backgroundsWork", () => {
-  test("a local Claude Code chat moves its work, a profile's too", () => {
-    expect(backgroundsWork({ harness: "claude" })).toBe(true);
-    expect(backgroundsWork({ harness: "claude", hostKind: "local" })).toBe(true);
-    expect(backgroundsWork({ harness: "claude-sr" })).toBe(true);
+  test("a local chat whose acpmux summary says it moves its work does, whatever its harness's name", () => {
+    expect(backgroundsWork({ harness: "claude", backgroundsWork: true })).toBe(true);
+    expect(backgroundsWork({ harness: "claude", backgroundsWork: true, hostKind: "local" })).toBe(true);
+    expect(backgroundsWork({ harness: "claude-sr", backgroundsWork: true })).toBe(true);
+    // The model router's profile is Claude Code under acpmux, named `cmux`.
+    expect(backgroundsWork({ harness: "cmux", backgroundsWork: true })).toBe(true);
   });
 
-  test("other harnesses, a peer's or Cloud chat and a chat not yet known do not", () => {
-    expect(backgroundsWork({ harness: "codex" })).toBe(false);
-    expect(backgroundsWork({ harness: "claudette" })).toBe(false);
-    expect(backgroundsWork({ harness: "claude", peer: "huge-blue" })).toBe(false);
-    expect(backgroundsWork({ harness: "claude", hostKind: "cloud" })).toBe(false);
+  test("a chat acpmux does not move work for does not, a Claude-named ACP harness included", () => {
+    expect(backgroundsWork({ harness: "codex", backgroundsWork: false })).toBe(false);
+    expect(backgroundsWork({ harness: "claude-acp", backgroundsWork: false })).toBe(false);
+    // An acpmux that does not say (older, or a summary not read yet) gets no Ctrl-B.
+    expect(backgroundsWork({ harness: "claude" })).toBe(false);
+  });
+
+  test("a peer's or Cloud chat and a chat not yet known do not", () => {
+    expect(backgroundsWork({ harness: "claude", backgroundsWork: true, peer: "huge-blue" })).toBe(false);
+    expect(backgroundsWork({ harness: "claude", backgroundsWork: true, hostKind: "cloud" })).toBe(false);
     expect(backgroundsWork(undefined)).toBe(false);
   });
 });
