@@ -196,8 +196,8 @@ import Testing
 
     /// Every sidebar item the tab lists is one the sidebar's side offers (the list comes from the
     /// catalog), off in the default layout and on once the layout holds it; the Chief stays with
-    /// its own sidebar. Channels and Suggested Follow-Up Tasks write their existing keys.
-    @Test func theSidebarOffersEveryListedItemAndTheNewTogglesWriteTheirKeys() async throws {
+    /// its own sidebar. Channels writes its existing key.
+    @Test func theSidebarOffersEveryListedItemAndChannelsWritesItsKey() async throws {
         let items = SidebarSectionHandlers.storeItems(chief: nil, document: { .defaults }, registry: ActionRegistry(catalog: []))
         let listed = Set(AppFeature.catalog.compactMap(\.sidebarItem))
         #expect(items.names == listed.subtracting(["chief"]))
@@ -213,7 +213,7 @@ import Testing
         let (settings, home) = try await Self.make()
         defer { try? FileManager.default.removeItem(at: home) }
         let bridge = SettingsAppFeatures(settings: { settings })
-        for id in ["chief.channels", "agents.suggestedTasks"] {
+        for id in ["chief.channels"] {
             let feature = try Self.feature(id)
             #expect(bridge.isAvailable(feature) && !bridge.isOn(feature))
             try await bridge.set(feature, on: true)

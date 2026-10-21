@@ -24,7 +24,6 @@ public nonisolated struct AppFeature: Sendable, Hashable, Identifiable {
     public enum Category: String, Sendable, Hashable, CaseIterable {
         case backgrounds
         case chief
-        case agents
         case newTab
         case sidebar
         case media
