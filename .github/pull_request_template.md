@@ -30,7 +30,8 @@ Left empty or deleted, /release falls back to the PR title and flags the PR for 
 
 ## Proof
 
-<!-- Before/after screenshots or a short clip for anything user-visible; otherwise one line on why not (e.g. CI only). -->
+<!-- Before/after screenshots or a short clip for anything user-visible; otherwise one line on why not (e.g. CI only).
+Native app UI: paste what `cmux-ci capture <head sha> --state <scene:NAME|tour:NAME> --pr <N>` prints (real light and dark stills of a fleet build), add the media-tour label, or write `No capture: <why>`. The pr-capture-check job fails a native UI change without one. -->
 
 ## Checklist
 
