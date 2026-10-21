@@ -167,6 +167,8 @@ async fn mirroring_a_peers_busy_chat_keeps_no_copy_of_its_summary_per_event() {
         (0..64).map(|i| (format!("note-{i}"), Value::String("x".repeat(240)))).collect();
     let summary = cb.call(method::MUX_TAG, json!({"sessionId": id, "set": tags})).await;
     assert!(summary.to_string().len() > 16_000, "summary is {} bytes", summary.to_string().len());
+    // B's own client is attached to the chat; nothing reads it from here on.
+    drop(cb);
 
     // A mirrors B, and a watcher on A follows the chat.
     let a = Hub::new(config(), acpmux::store::open(&config().store, &dir.join("a")).unwrap());

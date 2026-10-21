@@ -245,46 +245,64 @@ async fn peer_sessions_are_listed_prompted_and_permission_routed() {
 /// Asked for a peer too, the request went round the mesh without end (A asked
 /// B, which asked A, ...), each hop waiting up to 600 s with a whole model
 /// catalog held: huge-blue's and cosmic-gray's daemons grew about 1 GB an hour
-/// until huge-blue stalled at its 8 GiB memory.high (2026-10-21).
+/// until huge-blue stalled at its 8 GiB memory.high (2026-10-21). A link with
+/// the peer token is served as a peer; one without it (plain `ws://` to a
+/// tailnet address, an `ssh://` remote whose token could not be read) as a Web
+/// client, so the request itself says it comes from a peer.
 #[tokio::test]
 async fn bidirectional_peers_answer_models_once_without_asking_back() {
-    let a = hub(config(PermissionPolicy::Ask)).await;
-    let b = hub(config(PermissionPolicy::Ask)).await;
-    let (a_port, a_peer_token) = listen_with_peer_token(a.clone(), "models-a").await;
-    let (b_port, b_peer_token) = listen_with_peer_token(b.clone(), "models-b").await;
-    a.add_peer(
-        "b",
-        &format!("ws://127.0.0.1:{b_port}"),
-        Some("tok".into()),
-        Some(b_peer_token),
-        true,
-    )
-    .await
-    .unwrap();
-    b.add_peer(
-        "a",
-        &format!("ws://127.0.0.1:{a_port}"),
-        Some("tok".into()),
-        Some(a_peer_token),
-        true,
-    )
-    .await
-    .unwrap();
-    let mut ca = client(a.clone()).await;
-
-    let models = tokio::time::timeout(Duration::from_secs(5), ca.call("_acpmux/models", json!({})))
+    for peer_tokens in [true, false] {
+        let a = hub(config(PermissionPolicy::Ask)).await;
+        let b = hub(config(PermissionPolicy::Ask)).await;
+        let tag = if peer_tokens { "peer" } else { "web" };
+        let (a_port, a_peer_token) =
+            listen_with_peer_token(a.clone(), &format!("models-a-{tag}")).await;
+        let (b_port, b_peer_token) =
+            listen_with_peer_token(b.clone(), &format!("models-b-{tag}")).await;
+        let token = |t: String| peer_tokens.then_some(t);
+        a.add_peer(
+            "b",
+            &format!("ws://127.0.0.1:{b_port}"),
+            Some("tok".into()),
+            token(b_peer_token),
+            true,
+        )
         .await
-        .expect("_acpmux/models went round the peers and never answered")
         .unwrap();
-    let mut harnesses: Vec<&str> = models["harnesses"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter_map(|h| h["harness"].as_str())
-        .collect();
-    harnesses.sort_unstable();
-    // A's own, then B's own under its name, and nothing of A's back from B.
-    assert_eq!(harnesses, vec!["b/fake", "fake"], "{models}");
+        b.add_peer(
+            "a",
+            &format!("ws://127.0.0.1:{a_port}"),
+            Some("tok".into()),
+            token(a_peer_token),
+            true,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            a.peers()[0]["servedAs"],
+            if peer_tokens { "peer" } else { "remote" },
+            "{:?}",
+            a.peers()
+        );
+        let mut ca = client(a.clone()).await;
+
+        let models =
+            tokio::time::timeout(Duration::from_secs(5), ca.call("_acpmux/models", json!({})))
+                .await
+                .unwrap_or_else(|_| {
+                    panic!("{tag} links: _acpmux/models went round the peers and never answered")
+                })
+                .unwrap();
+        let mut harnesses: Vec<&str> = models["harnesses"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|h| h["harness"].as_str())
+            .collect();
+        harnesses.sort_unstable();
+        // A's own, then B's own under its name, and nothing of A's back from B.
+        assert_eq!(harnesses, vec!["b/fake", "fake"], "{tag} links: {models}");
+    }
 }
 
 /// Two daemons peered both ways (a real pair on 10-14 grew names
