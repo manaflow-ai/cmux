@@ -29,17 +29,7 @@ struct SidebarNothingToDoRefusalTests {
 
     @Test(.enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
     func groupMovesAtTheEdgeSayWhy() async throws {
-        try await PinnedPageTests.withApp { services, _ in
-            let window = try #require(services.windows.active)
-            let workspace = try #require(services.windows.registry.members(of: window.state.id).compactMap(services.workspace(id:))
-                .first { !HomeRules.isHome($0) })
-            let context = AppActionContext(services: services)
-            try await PinnedPageTests.until({ services.machines.local.store.personal.isLoaded }, report: { "personal state never loaded" })
-            // A person's Group Workspace (a group made by `.cli` is not drawn in the sidebar yet: a separate gap).
-            _ = services.registry.perform("newWorkspaceGroup", invocation: ActionInvocation(
-                target: ActionTargetRef(kind: .workspace, id: workspace.id), arguments: ["name": .string("Only")]))
-            try await PinnedPageTests.until({ (try? WorkspaceVerbHandlers.group(of: workspace, context)) != nil }, report: { "the sidebar shows no group" })
-            let group = try #require(context.personalGroupID(of: workspace))
+        try await WorkspaceNothingToDoRefusalTests.withGroupedApp { services, _, group in
             // The window's only row: it is at the top and at the bottom.
             let target = ActionTargetRef(kind: .workspaceGroup, id: group.rawValue)
             for id: ActionID in ["workspaceGroup.moveUp", "workspaceGroup.moveDown", "workspaceGroup.moveToTop", "workspaceGroup.moveToBottom"] {

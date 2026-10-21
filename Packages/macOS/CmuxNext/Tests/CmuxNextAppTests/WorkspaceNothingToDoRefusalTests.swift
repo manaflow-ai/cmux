@@ -52,20 +52,19 @@ struct WorkspaceNothingToDoRefusalTests {
         return "workspace \(workspace.id) personal \(String(describing: personal)) shown \(String(describing: shown)) sections \(nodes)"
     }
 
-    /// Groups `workspace` alone and returns its personal group, once the store lists it.
-    private static func groupAlone(_ workspace: WorkspaceModel, _ services: AppServices) async throws -> WorkspaceGroupID {
-        let context = AppActionContext(services: services)
-        try await PinnedPageTests.until({ services.machines.local.store.personal.isLoaded }, report: { "personal state never loaded" })
-        // A person's Group Workspace (a group made by `.cli` is not drawn in the sidebar yet: a separate gap).
-        let refusal = services.registry.capturingRefusal {
-            _ = services.registry.perform("newWorkspaceGroup", invocation: ActionInvocation(target: workspaceTarget(workspace.id),
-                                                                                             arguments: ["name": .string("Solo")]))
-        }
-        #expect(refusal == nil, "New Group refused: \(refusal ?? "")")
-        try await PinnedPageTests.until({ context.personalGroupID(of: workspace) != nil }, report: { "groups \(services.machines.local.store.personal.groups.map(\.id))" })
-        // The sidebar shows the group (what the group verbs read).
-        try await PinnedPageTests.until({ (try? WorkspaceVerbHandlers.group(of: workspace, context)) != nil }, report: { sidebarReport(workspace, services) })
-        return try #require(context.personalGroupID(of: workspace))
+    /// Runs `body` on an app whose launch workspace is alone in a group the sidebar shows.
+    static func withGroupedApp(_ body: (AppServices, WorkspaceModel, WorkspaceGroupID) async throws -> Void) async throws {
+        let launch = try await GroupedAppLaunch.start()
+        let result: Result<Void, any Error>
+        do {
+            let context = AppActionContext(services: launch.services)
+            // What the group verbs read: the group of the row in its window's sidebar.
+            try await PinnedPageTests.until({ (try? WorkspaceVerbHandlers.group(of: launch.workspace, context)) != nil },
+                                            report: { sidebarReport(launch.workspace, launch.services) })
+            result = .success(try await body(launch.services, launch.workspace, launch.group))
+        } catch { result = .failure(error) }
+        await launch.stop()
+        try result.get()
     }
 
     @Test func closeWorkspacesAboveBelowAndOthersOnALoneRowSayThereAreNone() async throws {
@@ -81,9 +80,7 @@ struct WorkspaceNothingToDoRefusalTests {
     }
 
     @Test func aWorkspaceAloneInItsGroupHasNoOtherToCloseOrStepTo() async throws {
-        try await PinnedPageTests.withApp { services, _ in
-            let workspace = try Self.onlyWorkspace(services)
-            _ = try await Self.groupAlone(workspace, services)
+        try await Self.withGroupedApp { services, workspace, _ in
             let (menu, cli) = Self.outcome("workspace.closeOthersInGroup", Self.workspaceTarget(workspace.id), services)
             #expect(menu != nil, "Close Other Workspaces in Group on a one-member group is enabled and closes nothing")
             #expect(cli != nil && cli == menu, "a CLI run reports \(cli ?? "success") instead of the row's reason")
@@ -99,9 +96,7 @@ struct WorkspaceNothingToDoRefusalTests {
     /// The CLI's run answers after the create (`action.run` awaits tracked work), so a failed
     /// create is reported instead of a success.
     @Test func newWorkspaceInGroupIsAwaitedByTheCLI() async throws {
-        try await PinnedPageTests.withApp { services, _ in
-            let workspace = try Self.onlyWorkspace(services)
-            let group = try await Self.groupAlone(workspace, services)
+        try await Self.withGroupedApp { services, _, group in
             let context = AppActionContext(services: services)
             var work: [ActionWork] = []
             let refusal = services.registry.capturingRefusal {
