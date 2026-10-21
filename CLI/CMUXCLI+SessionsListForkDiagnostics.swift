@@ -280,14 +280,29 @@ extension CMUXCLI {
             }
             return record.launchCommand?.launcherPrefix ?? capturedArguments
         }()
-        let expectedRoute = sessionsListProviderRoute(
+        let expectedRoute = Self.sessionsListTrustedLauncherRoute(
+            agent: agent,
+            launcherPrefix: record.launchCommand?.launcherPrefix
+        ) ?? sessionsListProviderRoute(
             agent: agent,
             arguments: expectedLaunchArguments
         )
-        let routeMatches = Self.sessionsListProviderRoutesMatch(
+        let explicitRouteMatches = Self.sessionsListProviderRoutesMatch(
             expected: expectedRoute,
             live: liveRoute
         )
+        // `sr codex` is a trusted outer launcher. The child Codex process
+        // commonly has no provider flag in its argv, so its live route is
+        // necessarily unknown. The PID start/session-id checks still bind the
+        // process to this exact record; retain the trusted wrapper evidence
+        // instead of misclassifying the owner as a route mismatch.
+        let trustedWrapperRouteMatches = expectedRoute == "subrouter"
+            && liveRoute == "unknown"
+            && Self.sessionsListTrustedLauncherRoute(
+                agent: agent,
+                launcherPrefix: record.launchCommand?.launcherPrefix
+            ) == "subrouter"
+        let routeMatches = explicitRouteMatches || trustedWrapperRouteMatches
 
         binding["pid"] = pid
         binding["pid_start_matches"] = startMatches
@@ -299,6 +314,22 @@ extension CMUXCLI {
         binding["status"] = startMatches && sessionMatches && routeMatches ? "matched" : "mismatch"
         binding["identity_match"] = startMatches && sessionMatches && routeMatches
         return binding
+    }
+
+    static func sessionsListTrustedLauncherRoute(
+        agent: String,
+        launcherPrefix: [String]?
+    ) -> String? {
+        guard agent.lowercased() == "codex",
+              let launcherPrefix,
+              launcherPrefix.count >= 2 else { return nil }
+        let prefix = launcherPrefix.prefix(2).map {
+            URL(fileURLWithPath: $0).lastPathComponent.lowercased()
+        }
+        guard prefix == ["sr", "codex"] || prefix == ["subrouter", "codex"] else {
+            return nil
+        }
+        return "subrouter"
     }
 
     private func sessionsListTranscriptBacked(

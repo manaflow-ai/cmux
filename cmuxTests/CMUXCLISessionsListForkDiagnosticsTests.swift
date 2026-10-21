@@ -4,7 +4,13 @@ import Testing
 
 extension CMUXCLIErrorOutputRegressionTests {
     @Test func testSessionsListProviderRouteRequiresExplicitEvidence() throws {
-        func routeFixture(argv0: String, agent: String, arguments: [String]) throws -> [String: Any] {
+        func routeFixture(
+            argv0: String,
+            agent: String,
+            arguments: [String],
+            launcherPrefix: [String]? = nil,
+            updatedAt: TimeInterval? = nil
+        ) throws -> [String: Any] {
             let root = FileManager.default.temporaryDirectory
                 .appendingPathComponent("cmux-route-fixture-\(UUID().uuidString)", isDirectory: true)
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -30,7 +36,9 @@ extension CMUXCLIErrorOutputRegressionTests {
                 launcher: argv0,
                 executablePath: argv0,
                 arguments: [argv0] + arguments,
-                pid: Int(pid)
+                pid: Int(pid),
+                launcherPrefix: launcherPrefix,
+                updatedAt: updatedAt
             )
             let binding = try #require(session["identity_binding"] as? [String: Any])
             return binding
@@ -46,6 +54,17 @@ extension CMUXCLIErrorOutputRegressionTests {
         )
         #expect(unknownCodex["live_provider_route"] as? String == "unknown")
         #expect(unknownCodex["provider_route_matches"] as? Bool == false)
+
+        let routedCodex = try routeFixture(
+            argv0: "codex",
+            agent: "codex",
+            arguments: ["019ef275-74e3-7777-9773-9dcb118ed5aa"],
+            launcherPrefix: ["sr", "codex"],
+            updatedAt: Date().timeIntervalSince1970
+        )
+        #expect(routedCodex["expected_provider_route"] as? String == "subrouter")
+        #expect(routedCodex["live_provider_route"] as? String == "unknown")
+        #expect(routedCodex["provider_route_matches"] as? Bool == true)
     }
 
     @Test func testSessionsListReportsForkDiagnosticsAndAcceptsWorkspaceRefs() throws {
@@ -321,7 +340,8 @@ extension CMUXCLIErrorOutputRegressionTests {
     func sessionsListDiagnosticSession(
         agent: String = "codex", launcher: String, executablePath: String, arguments: [String],
         environment: [String: String] = [:], workingDirectory: String = "/tmp/cmux/debug", pid: Int? = nil,
-        transcriptPath: String? = nil, source: String = "environment", rejectionReason: String? = nil
+        transcriptPath: String? = nil, source: String = "environment", rejectionReason: String? = nil,
+        launcherPrefix: [String]? = nil, updatedAt: TimeInterval? = nil
     ) throws -> [String: Any] {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -338,6 +358,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             "environment": environment,
             "source": source,
         ]
+        if let launcherPrefix { launchCommand["launcherPrefix"] = launcherPrefix }
         if let rejectionReason {
             launchCommand["rejectionReason"] = rejectionReason
         }
@@ -347,7 +368,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             "surfaceId": "A2AECAA9-EE1C-4999-B7A9-EE4BB4CDA5D8",
             "cwd": workingDirectory,
             "startedAt": 1_781_996_800.0,
-            "updatedAt": 1_781_996_867.0,
+            "updatedAt": updatedAt ?? 1_781_996_867.0,
             "launchCommand": launchCommand,
         ]
         if let pid { record["pid"] = pid }
