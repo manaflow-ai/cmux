@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 
 /// One attachment in the field's text: an image's thumbnail or a file's pill,
 /// drawn by `ComposeInlineAttachmentView`. When the field does not place that view, the
-/// attachment draws the same picture itself (`image(forBounds:)`): AppKit otherwise draws an
+/// attachment draws the same picture itself (`image(for:...)`): AppKit otherwise draws an
 /// attachment with no contents as a blank document page (a screenshot pasted in the Chief's box
 /// showed only that page, 2026-10-20).
 final class ComposeInlineAttachment: NSTextAttachment {
@@ -72,13 +72,13 @@ final class ComposeInlineAttachment: NSTextAttachment {
     /// The field draws the attachment again (the thumbnail arrived after it drew the placeholder).
     private func redrawField() {
         guard let tv = drawnIn?.textView else { return }
-        if let tlm = tv.textLayoutManager { tlm.invalidateRendering(for: tlm.documentRange) }
+        if let tlm = tv.textLayoutManager { tlm.invalidateLayout(for: tlm.documentRange) }
         tv.needsDisplay = true
     }
 
     // MARK: Drawn by the attachment (the field placed no view)
 
-    override func image(forBounds imageBounds: CGRect, attributes: [NSAttributedString.Key: Any], location: any NSTextLocation,
+    override func image(for imageBounds: CGRect, attributes: [NSAttributedString.Key: Any], location: any NSTextLocation,
                         textContainer: NSTextContainer?) -> NSImage? {
         drawnIn = textContainer
         return drawnImage(imageBounds.size)
@@ -136,6 +136,11 @@ final class ComposeInlineAttachment: NSTextAttachment {
             name.draw(at: CGPoint(x: r.minX + 50, y: r.midY))
             kind.draw(at: CGPoint(x: r.minX + 50, y: r.midY - 15))
         }
+    }
+
+    /// The thumbnail's long side in pixels at SCALE (no trap on NaN).
+    private func thumbnailPixels(_ scale: CGFloat) -> Int {
+        CrashGuard.int((max(bounds.width, bounds.height) * max(1, scale)).rounded(.up))
     }
 
     /// Decodes the thumbnail now (tests).
