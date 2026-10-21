@@ -141,7 +141,12 @@ pub fn auth_check(
 /// failure (a custom provider, a bad config, an older CLI, no `codex` here),
 /// which says nothing about a sign-in.
 pub fn codex_login_status(env: &BTreeMap<String, String>) -> Option<bool> {
-    let argv = ["codex", "login", "status"].map(String::from);
+    codex_login_status_of("codex", env)
+}
+
+/// `codex_login_status` for the codex binary at `program`.
+pub fn codex_login_status_of(program: &str, env: &BTreeMap<String, String>) -> Option<bool> {
+    let argv = [program, "login", "status"].map(String::from);
     match run_for(&argv, env, TIMEOUT, Some("codex")) {
         Ok((true, _)) => Some(true),
         Ok((false, text)) if text.to_ascii_lowercase().contains("not logged in") => Some(false),
