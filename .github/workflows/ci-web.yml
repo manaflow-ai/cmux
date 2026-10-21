@@ -407,15 +407,15 @@ jobs:
           done
           exit "$failed"
 
-  # React Doctor is independent of the per-file browser tests. Keep it on its
-  # own required lane so the long-running shard 1 does not serialize this
-  # diagnostic after the test suite.
   # The runner capability map (.github/runners.json), for jobs that pick a
   # size from it. Resolves in parallel with web-subarea-scope.
   runners:
     if: ${{ inputs.web == 'true' }}
     uses: ./.github/workflows/resolve-runners.yml
 
+  # React Doctor is independent of the per-file browser tests. Keep it on its
+  # own required lane so the long-running shard 1 does not serialize this
+  # diagnostic after the test suite.
   react-doctor:
     needs: [web-subarea-scope, runners]
     if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}

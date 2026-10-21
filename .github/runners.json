@@ -217,6 +217,7 @@
     },
     "main-compile-probe.yml#compile": "apple-app-build",
     "nightly-next-canary.yml#canary": "macos-runtime-tests",
+    "nightly-next-train.yml#build": "apple-app-build",
     "nightly.yml#build-nightly-app": "apple-app-build",
     "nightly.yml#build-nightly-ghostty-cli-helper": "apple-app-build",
     "nightly.yml#build-sign-notarize-nightly": "apple-signing-release",
