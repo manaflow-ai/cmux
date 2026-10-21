@@ -6359,6 +6359,26 @@ extension SessionPersistenceTests {
         XCTAssertNil(batch.effectiveDecision)
     }
 
+    @MainActor
+    func testSurfaceResumeRunPromptBatchBoundsAutomaticAgentRestoresAndDefersOverflow() {
+        let batch = SurfaceResumeRunPromptBatch.shared
+        batch.reset()
+        defer { batch.reset() }
+
+        batch.beginRestorePass()
+        for index in 0..<SurfaceResumeRunPromptBatch.maximumAutomaticAgentRestores {
+            XCTAssertTrue(batch.claimAgentRestore(kind: "codex", sessionID: "session-\(index)"))
+        }
+
+        XCTAssertFalse(batch.claimAgentRestore(kind: "codex", sessionID: "session-overflow"))
+        XCTAssertTrue(batch.wasDeferredForCapacity(kind: "codex", sessionID: "session-overflow"))
+        XCTAssertFalse(batch.wasDeferredForCapacity(kind: "codex", sessionID: "session-0"))
+        XCTAssertFalse(batch.claimAgentRestore(kind: "codex", sessionID: "session-0"))
+        batch.endRestorePass()
+
+        XCTAssertFalse(batch.wasDeferredForCapacity(kind: "codex", sessionID: "session-overflow"))
+    }
+
     func testSurfaceResumeApprovalAutoPolicyAppliesSignedPrefix() throws {
         let storeURL = try makeSurfaceResumeApprovalStoreURL()
         let secret = Data("approval-secret".utf8)
