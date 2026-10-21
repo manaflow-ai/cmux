@@ -14,6 +14,7 @@ import { SUBAGENT_OF, SUBAGENT_ROW } from "./subagents/subagentRows";
 import type { ComposerAttachment } from "./attachments";
 import { STARTED_SESSIONS, type StartedSession, hasStatusLine } from "./started/startedSessions";
 import { BACKGROUND_WORK } from "./conversation/backgroundWork";
+import { PASTE_CHIP_HEIGHT, type PasteRange, collapsedPromptHeight, promptParts } from "./conversation/promptCollapse";
 
 /** One item of an agent's todo list (an ACP `plan` entry). */
 export type AcpmuxPlanEntry = { content: string; status: "pending" | "in_progress" | "completed" };
@@ -164,6 +165,9 @@ export type AcpmuxRow = {
   checkpoint?: SummaryCheckpoint;
   /// A sent prompt's images, as acpmux names them in its user_message (hub/prompt_images.rs).
   images?: PromptImage[];
+  /// A sent prompt's pasted blocks (`user_message.pasted`, UTF-16 ranges into `text`), each drawn
+  /// as a chip that opens in place (conversation/promptCollapse.ts).
+  pasted?: PasteRange[];
   /// Who sent a prompt that the reader did not type here: `chief` for the Chief's task, tell,
   /// steer or restart message to a subagent (its `user_message` promptId `optchat-<kind>:…`).
   from?: "chief";
@@ -871,15 +875,33 @@ function measuredRowHeight(
     entry = { text: "", blocks: [], closedBlocks: [], closedEnd: 0, lexedLength: 0, prepared: new Map() };
     cache.set(row.id, entry);
   }
-  if (entry.text !== row.text || entry.lexedLength === 0) {
+  const pasted = row.kind === "user" && Boolean(row.pasted?.length);
+  if (!pasted && (entry.text !== row.text || entry.lexedLength === 0)) {
     lexIncrementally(entry, row.text);
     // A streaming row prepares a new last block on every version; keep the cache bounded.
     if (entry.prepared.size > 64) entry.prepared.clear();
   }
-  if (entry.blocks.length === 0) return fallbackRowHeight(row, width, beforeFooter, lastFooter);
   const contentWidth = Math.max(80, row.kind === "user" ? USER_BUBBLE_SHARE * width - USER_BUBBLE_SIDES : width);
-  let contentHeight = (entry.blocks.length - 1) * BLOCK_GAP;
-  for (const block of entry.blocks) contentHeight += blockHeight(block, contentWidth, entry.prepared);
+  let contentHeight: number;
+  if (pasted) {
+    // A prompt with pasted blocks: its typed parts, each a line or more, and a chip per paste
+    // however long it is (conversation/UserBubble.tsx).
+    const { lineHeight } = metrics();
+    contentHeight = 0;
+    for (const part of promptParts(row.text, row.pasted!))
+      contentHeight +=
+        part.kind === "paste"
+          ? PASTE_CHIP_HEIGHT
+          : Math.max(lineHeight, textHeight(part.text, contentWidth, entry.prepared));
+  } else {
+    if (entry.blocks.length === 0) return fallbackRowHeight(row, width, beforeFooter, lastFooter);
+    contentHeight = (entry.blocks.length - 1) * BLOCK_GAP;
+    for (const block of entry.blocks) contentHeight += blockHeight(block, contentWidth, entry.prepared);
+  }
+  // A long prompt opens collapsed to its first lines over Show more (conversation/UserBubble.tsx); a
+  // Chief's draws its own bubble (ChiefPromptBubble.tsx).
+  if (row.kind === "user" && row.from !== "chief" && !chiefEnvelope(row.text))
+    contentHeight = collapsedPromptHeight(contentHeight, metrics().lineHeight);
   const height = messageBelow(beforeFooter) + chromeHeight(row) + contentHeight;
   return beforeFooter ? height : Math.max(34, height);
 }

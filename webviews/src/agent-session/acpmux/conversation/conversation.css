@@ -277,6 +277,75 @@
   color: var(--agent-text);
 }
 
+/* A long prompt (PromptText.tsx, promptCollapse.ts): its first ten lines, the last two fading out
+   under a mask (the bubble's glass shows through, never a cover), with Show more under them: a plain
+   text button whose hover is a pill. model.ts estimates the same heights: change them together. */
+.cv-user__text.is-clamped {
+  max-height: calc(var(--cv-line-height) * 10);
+  overflow: hidden;
+}
+.cv-user__text.is-faded {
+  -webkit-mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-line-height) * 2), transparent);
+  mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-line-height) * 2), transparent);
+}
+.cv-user__more {
+  display: block;
+  height: 20px;
+  margin: 4px 0 0 -6px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font-family: var(--cv-font);
+  font-size: var(--text-detail);
+  line-height: 20px;
+  color: var(--cv-text-muted);
+  white-space: nowrap;
+  user-select: none;
+  cursor: default;
+}
+.cv-user__more:hover {
+  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  color: var(--cv-text);
+}
+.cv-user__more:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  outline-offset: 1px;
+}
+/* A pasted block: the composer's attachment chip (composerAttachments.css, #23100) without its ×,
+   on its own line in 4px above and below (PASTE_CHIP_HEIGHT), the paste under it once opened. */
+.cv-user__paste-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 4px 0;
+}
+.cv-user__paste {
+  --acpmux-attach-radius: 8px;
+  flex: none;
+  max-width: 100%;
+  padding-right: 10px;
+  font: inherit;
+  font-size: var(--text-detail);
+  text-align: start;
+  cursor: default;
+}
+.cv-user__paste:hover {
+  background: color-mix(in srgb, var(--agent-text) 8%, var(--agent-control));
+}
+.cv-user__paste:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  outline-offset: 1px;
+}
+.cv-user__paste-name {
+  min-width: 0;
+}
+.cv-user__paste-text {
+  align-self: stretch;
+  margin-top: 4px;
+  white-space: pre-wrap;
+}
+
 /* A prompt queued behind a harness switch: one quiet line under its bubble ("Starting Codex…"). */
 .cv-user__status {
   display: flex;

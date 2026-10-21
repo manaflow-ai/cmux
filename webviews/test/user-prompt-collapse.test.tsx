@@ -55,9 +55,7 @@ const { createRoot } = await import("react-dom/client");
 const { UserBubble } = await import("../src/agent-session/acpmux/conversation/UserBubble");
 const { FindReveal } = await import("../src/agent-session/acpmux/conversation/chatFind");
 const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
-const { pasteRanges, COLLAPSED_PROMPT_LINES } = await import(
-  "../src/agent-session/acpmux/conversation/promptCollapse"
-);
+const { pasteRanges, COLLAPSED_PROMPT_LINES } = await import("../src/agent-session/acpmux/conversation/promptCollapse");
 
 const host = dom.window.document.getElementById("root")!;
 let root = createRoot(host);
