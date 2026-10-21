@@ -44,6 +44,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public internal(set) var engineDecision: PageEngineDecision
     /// The Chromium page while one shows the document (PageWebView+Chromium.swift).
     var chromiumSession: PageChromiumSession?
+    /// The file of the last drag from outside that entered the Chromium page and that ``fileDrop``
+    /// takes, with when it entered; the page's drop opens it once.
+    var chromiumDragFile: (url: URL, at: Date)?
     /// Making the Chromium page (cancelled when the view closes or falls back).
     var chromiumStart: Task<Void, Never>?
     /// How long a Chromium page may take to reach the host before the view falls back to WebKit.

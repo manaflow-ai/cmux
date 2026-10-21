@@ -13,8 +13,11 @@ extension PageWebView {
     /// The handlers the page scripts post to without a reply, in Chromium mode.
     static let chromiumFireAndForget = [
         PagePaintProbe.handlerName, PageInputReadiness.handlerName, ConsoleErrorCapture.handlerName,
-        PageChromiumDocumentScripts.navigateHandler,
+        PageChromiumDocumentScripts.navigateHandler, PageChromiumDocumentScripts.hostDropHandler,
     ]
+
+    /// How long after a drag of files entered the page its drop may still open one in the host.
+    static let chromiumDropWindow: TimeInterval = 120
 
     /// The engine `descriptor` made with `options` shows in now: the one decision every page view
     /// takes (``PageEnginePolicy``, with the app's ``chromiumHosting``).
@@ -183,8 +186,8 @@ extension PageWebView {
             fallBackToWebKit(.chromiumFailed, detail: "the Chromium browser ended")
         case .openRequested(let url):
             openOutside(url, modifiers: [])
-        case .filesDragged:
-            break
+        case .filesDragged(let urls):
+            filesDragged(urls)
         }
     }
 
@@ -196,6 +199,8 @@ extension PageWebView {
             inputReadiness.receive(body)
         case ConsoleErrorCapture.handlerName:
             ConsoleErrorCapture(page: descriptor.id).record(body)
+        case PageChromiumDocumentScripts.hostDropHandler:
+            hostDropped()
         case PageChromiumDocumentScripts.navigateHandler:
             guard let object = body as? [String: Any], let text = object["url"] as? String, let url = URL(string: text) else { return }
             var modifiers: NSEvent.ModifierFlags = []
@@ -212,6 +217,24 @@ extension PageWebView {
         default:
             break
         }
+    }
+
+    /// A drag of files from outside entered the Chromium page: the first one goes to the host when
+    /// ``fileDrop`` takes it (as on the WebKit page), and the page script hands the drop over.
+    private func filesDragged(_ urls: [URL]) {
+        let url = urls.first.flatMap { url in fileDrop.flatMap { $0.accepts(url) ? url : nil } }
+        chromiumDragFile = url.map { ($0, now()) }
+        chromiumSession?.bridge.evaluate("window.__cmuxHostDrop && window.__cmuxHostDrop(\(url != nil))")
+    }
+
+    /// The page script handed a drop over. Only the file of a real drag the host took opens, once,
+    /// and only soon after it entered: page script can post this message but cannot name a file.
+    private func hostDropped() {
+        guard let pending = chromiumDragFile else { return }
+        chromiumDragFile = nil
+        guard now().timeIntervalSince(pending.at) < Self.chromiumDropWindow, let fileDrop else { return }
+        noteTouch()
+        fileDrop.open(pending.url)
     }
 
     /// Opens a link that leaves the page as WebKit's policy does (``onOpenExternal`` or the shared rule).
