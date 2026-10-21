@@ -1,5 +1,4 @@
 import { readFileSync } from "node:fs";
-import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { describe, expect, setSystemTime, test } from "bun:test";
 import { FreestyleApiError, type Freestyle } from "freestyle";
@@ -23,6 +22,7 @@ import type { VMProvider } from "../services/vms/drivers/types";
 import { ProviderError, ProviderTunnelNetworkOverlapError, type VmEdgeRule } from "../services/vms/drivers/types";
 import { isProviderTunnelNetworkOverlap } from "../services/vms/providerErrors";
 import { DEVBOX_DESKTOP_NOVNC_PORT } from "../services/vms/images/desktop";
+import { runChild } from "./helpers/run-child";
 
 const VM_ID = "vm-d05087e5773e4a978036fc806b0cd759";
 const CLOUD_VM_ID = "11111111-2222-4333-8444-555555555555";
@@ -115,7 +115,7 @@ test("Freestyle enrollment approval sends one valid complete shell command", asy
   const vm = {
     exec: async ({ command }: { command: string }) => {
       commands.push(command);
-      const syntax = spawnSync("/bin/sh", ["-n", "-c", command]);
+      const syntax = await runChild("/bin/sh", ["-n", "-c", command]);
       expect(syntax.status).toBe(0);
       return { statusCode: 0, stdout: '{"fingerprint":"device-fingerprint"}', stderr: "" };
     },

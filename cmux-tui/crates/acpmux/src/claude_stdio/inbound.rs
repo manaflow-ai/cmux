@@ -483,6 +483,10 @@ impl Translator {
                     let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
                     self.pending.lock().await.remove(&id.to_string());
                     out.push(super::workflows::stop_reply(acp, ok, &resp));
+                } else if let Some(acp) = rid.strip_prefix("now-") {
+                    // A step stopped for a steer sent now (`MUX_STEP_NOW`).
+                    let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
+                    out.push(Message::ok(id, json!({"interrupted": ok})));
                 }
                 // "int-*" acks need no reply; the result message ends the turn.
             }
