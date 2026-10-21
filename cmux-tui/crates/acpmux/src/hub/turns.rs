@@ -59,20 +59,13 @@ pub(super) fn acp_prompt_blocks(
     Ok(out)
 }
 
-/// A `file://` URI for an absolute path, every byte outside RFC 3986's
-/// unreserved set (and `/`) percent-encoded, so a project folder with spaces
-/// or non-ASCII letters still names a valid link.
+/// A `file://` URI for the saved file, percent-encoded so a project folder with
+/// spaces or non-ASCII letters still names a valid link (and a Windows path
+/// gets its drive form).
 fn file_uri(path: &std::path::Path) -> String {
-    use std::os::unix::ffi::OsStrExt;
-    let mut uri = String::from("file://");
-    for &b in path.as_os_str().as_bytes() {
-        if b.is_ascii_alphanumeric() || matches!(b, b'/' | b'-' | b'.' | b'_' | b'~') {
-            uri.push(b as char);
-        } else {
-            uri.push_str(&format!("%{b:02X}"));
-        }
-    }
-    uri
+    reqwest::Url::from_file_path(path)
+        .map(String::from)
+        .unwrap_or_else(|()| format!("file://{}", path.display()))
 }
 
 impl Hub {
