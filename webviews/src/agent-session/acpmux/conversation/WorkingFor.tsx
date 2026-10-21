@@ -1,9 +1,10 @@
 // The line over a running turn's work: "Working for 42s", ticking each second from the prompt,
 // or held at `durationMs` while text streams. While a call runs (`row.doing`, turns.ts) it names
 // that call beside the time instead, as Claude desktop's line does, after the same small animated
-// mark as "Thinking", or after the terminal glyph when the call is a command. After that it counts the work still going in the background, as Claude's
-// phone app does ("Working… · 5 running tasks"): "· 2 agents · 1 command", only subagents still
-// running and background shells that have not ended. Each count opens what it counts. The counts
+// mark as "Thinking", or after the terminal glyph when the call is a command. After that it counts
+// the work still going in the background, as Claude's phone app does ("Working… · 5 running
+// tasks"): "· 2 agents · 1 command", only subagents still running and background shells that have
+// not ended. Each count opens what it counts. The counts
 // follow on the same fixed-height line, so one that comes or goes moves neither the label nor the
 // rows below. When the turn ends, the "Worked for" disclosure takes its place.
 import { createContext, useContext, useEffect, useState } from "react";
