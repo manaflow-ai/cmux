@@ -300,10 +300,7 @@ final class PaneContentView: NSView, PaneContentChrome {
     }
 
     /// `content` is installed in this pane (another pane may have taken it).
-    var hostsContent: Bool {
-        guard let content else { return false }
-        return content.superview === contentHost
-    }
+    var hostsContent: Bool { content?.superview === contentHost }
 
     func setChromeEmphasis(_ emphasis: ChromeEmphasis, animated: Bool) {
         stripScope.setEmphasis(emphasis, animated: animated)
