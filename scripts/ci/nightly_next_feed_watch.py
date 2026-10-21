@@ -13,9 +13,12 @@ never alarms however old the feed is, and a push that landed while the
 published build ran still counts. Past --max-lag-hours it keeps ONE open
 `nightly-next-feed-stale` issue, updated in place, naming the last published
 commit and the stage that is stuck; it comments only when that reason changes,
-and closes the issue once nothing has waited that long.
+and closes the issue once nothing has waited that long. While stale it also
+exits 1, so the scheduled run is red rather than green (a stall from 01:44Z on
+2026-10-21 sat behind green runs for four hours). A promotion stall quotes the
+latest nightly-next tick's refusal tally (nightly-next-tick.yml).
 
-usage: nightly_next_feed_watch.py --repo OWNER/NAME [--max-lag-hours 4] [--dry-run]
+usage: nightly_next_feed_watch.py --repo OWNER/NAME [--max-lag-hours 3] [--dry-run]
 Needs GH_TOKEN with actions: read and issues: write.
 """
 from __future__ import annotations
@@ -35,6 +38,8 @@ FEED_URL = "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml"  # 
 LABEL = "nightly-next-feed-stale"
 PUSH_WORKFLOW = "cmux-next-guards.yml"  # every feat-cmux-next push, no path filter
 RELEASE_COMPILE_JOB = "cmux-next Release compile (Xcode 26)"
+TICK_WORKFLOW = "nightly-next-tick.yml"
+TICK_ANNOTATION = "nightly-next tick"  # the tick's refusal tally
 PUBLISHED_MARKER = re.compile(r"<!--\s*cmux-published-sha:\s*([0-9a-f]{40})\s*-->", re.IGNORECASE)
 
 
@@ -67,10 +72,11 @@ def failed_steps(jobs: list[dict]) -> str:
 
 
 def assess(now: dt.datetime, newest: dt.datetime, pushes: list[dict], nightly: list[dict],
-           jobs_of, artifacts: list[dict], compiles: list[dict], max_lag_hours: float) -> Stage:
+           jobs_of, artifacts: list[dict], compiles: list[dict], max_lag_hours: float, tick_refusal=lambda: "") -> Stage:
     """pushes: the waiting feat-cmux-next push runs (only the oldest matters); nightly: nightly-next push runs since
     `newest` (newest first); artifacts / compiles: the latest feat-cmux-next cmux-tui artifacts
-    and cmux-next push runs (newest first); jobs_of(run) lists a run's jobs."""
+    and cmux-next push runs (newest first); jobs_of(run) lists a run's jobs; tick_refusal() is the
+    latest nightly-next tick's refusal tally, read only for a promotion stall."""
     if not pushes:
         return Stage(False, 0.0, None, "No feat-cmux-next push since the feed's newest item.")
     since = min(parse_time(run["created_at"]) for run in pushes)
@@ -85,6 +91,9 @@ def assess(now: dt.datetime, newest: dt.datetime, pushes: list[dict], nightly: l
         reason = f"nightly-next run {latest['html_url']} on {latest['head_sha'][:12]} failed: {failed_steps(jobs_of(latest))}."
     else:
         reason = "Nothing was promoted to nightly-next since the feed's newest item."
+        refusal = tick_refusal()
+        if refusal:
+            reason += f" The latest nightly-next tick refused every newer commit: {refusal}"
         artifact = artifacts[0] if artifacts else None
         if artifact and artifact.get("conclusion") == "failure":
             reason += f" The latest feat-cmux-next cmux-tui artifacts run {artifact['html_url']} failed, so its tree is unpublished: {failed_steps(jobs_of(artifact))}."
@@ -145,6 +154,18 @@ class GitHub:
     def jobs(self, run: dict) -> list[dict]:
         return self.call("GET", f"/actions/runs/{run['id']}/jobs?filter=latest&per_page=100")["jobs"]
 
+    def tick_refusal(self) -> str:
+        """The refusal tally the latest finished nightly-next tick annotated, with its run URL; empty when none."""
+        try:
+            runs = self.call("GET", f"/actions/workflows/{TICK_WORKFLOW}/runs?status=completed&per_page=1")["workflow_runs"]
+            for job in self.jobs(runs[0]) if runs else []:
+                for note in self.call("GET", f"/check-runs/{job['id']}/annotations?per_page=50"):
+                    if note.get("title") == TICK_ANNOTATION:
+                        return f"{note.get('message', '').strip()} ({runs[0]['html_url']})"
+        except (OSError, KeyError, IndexError, TypeError):  # the alarm only loses its detail
+            pass
+        return ""
+
 
 def published_commit(gh: GitHub) -> str:
     try:
@@ -203,7 +224,7 @@ def sync_issue(gh: GitHub, stage: Stage, body: str, max_lag_hours: float, run_ur
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--repo", required=True)
-    parser.add_argument("--max-lag-hours", type=float, default=4.0)
+    parser.add_argument("--max-lag-hours", type=float, default=3.0)
     parser.add_argument("--feed-url", default=FEED_URL)
     parser.add_argument("--run-url", default="this check")
     parser.add_argument("--dry-run", action="store_true", help="read and decide, never write issues")
@@ -233,13 +254,17 @@ def main(argv: list[str]) -> int:
             artifacts=gh.runs("cmux-tui-artifacts.yml", "feat-cmux-next", per_page=1),
             compiles=gh.runs("cmux-next.yml", "feat-cmux-next", per_page=5),
             max_lag_hours=args.max_lag_hours,
+            tick_refusal=gh.tick_refusal,
         )
         print(f"feed newest {newest.isoformat()}, waited {stage.waited_hours:.1f}h: {stage.reason}")
-        if stage.stale:
-            print(f"::warning title=nightly-next feed stale::{stage.reason}")
         print(sync_issue(gh, stage, issue_body(stage, newest, now, published_sha, args.max_lag_hours, args.run_url), args.max_lag_hours, args.run_url))
     except OSError as error:  # urllib.error.URLError and HTTPError; the next check runs in 30 minutes
         print(f"::warning::GitHub API error, skipped this check: {error}")
+        return 0
+    if stage.stale:
+        print(f"::error title=nightly-next feed stale::feat-cmux-next pushes have waited {stage.waited_hours:.1f}h "
+              f"(limit {args.max_lag_hours:g}h). {stage.reason}")
+        return 1
     return 0
 
 
