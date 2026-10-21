@@ -328,6 +328,24 @@ class Refusal(unittest.TestCase):
         self.assertEqual(api.calls.count("rerun-failed"), 1)
         self.assertIn(f"cancelled by GitHub: no {MINI} runner acquired it", summary)
 
+    def test_a_rerun_no_runner_acquires_either_is_not_rerun_without_end(self):
+        # A cmux-next lane's test-ios re-run asks for the same owned label (test-ios.yml's NEXT_LANE
+        # retry_runs_on), so it can go unacquired again. This watch re-runs once and ends.
+        clock = Clock()
+        api = FakeAPI(clock, lambda seconds: [changes()(seconds), unacquired_job()], marker=True,
+                      finished=lambda seconds: True, conclusion="failure",
+                      rerun_jobs=lambda seconds: [unacquired_job()])
+        run_main(api, clock)
+        self.assertEqual(api.calls.count("rerun-failed"), 1)
+        self.assertEqual(api.calls[-1], "rerun-failed")
+        # A later sweeper resumes test-ios through attempt 2 at most (no owned_rerun() past it), and
+        # cmux-next's bot re-runs through attempt 3, whose re-run takes Blacksmith: two re-runs at most.
+        stranded = {"status": "completed", "conclusion": "failure", "triggering_actor": {"login": rescue.RESCUE_ACTOR}}
+        for path, last in ((".github/workflows/test-ios.yml", rescue.LAST_OWNED_ATTEMPT),
+                           (rescue.CMUX_NEXT_WORKFLOW_PATH, rescue.REFUSAL_RESCUE_ATTEMPT)):
+            self.assertEqual(rescue.sweep_target(listed(RUN_ID, path=path, run_attempt=last + 1, **stranded),
+                                                 "manaflow-ai/cmux", late=False), f"attempt {last + 1}")
+
     def test_a_run_cancelled_as_a_whole_is_not_rerun(self):
         # A newer push or a person cancelled it: its queued jobs look unacquired, and stay cancelled.
         clock = Clock()
