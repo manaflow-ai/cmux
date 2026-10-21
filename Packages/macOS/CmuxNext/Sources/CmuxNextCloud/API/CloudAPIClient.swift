@@ -29,8 +29,14 @@ public struct CloudAPIClient: Sendable {
     // MARK: Machines
 
     public func listMachines() async throws -> [CloudMachine] {
-        struct List: Decodable { var vms: [CloudMachine] }
-        return try await send("GET", "/api/vm", as: List.self).vms
+        try await listMachinesAndLimits().machines
+    }
+
+    /// `GET /api/vm`: the machines and the account's machine cap (`limits`;
+    /// nil when the server sent none or sent one this client cannot read).
+    public func listMachinesAndLimits() async throws -> (machines: [CloudMachine], limits: CloudMachineLimits?) {
+        let list = try await send("GET", "/api/vm", as: CloudMachineList.self)
+        return (list.vms, list.limits)
     }
 
     public func machine(_ id: String) async throws -> CloudMachine {

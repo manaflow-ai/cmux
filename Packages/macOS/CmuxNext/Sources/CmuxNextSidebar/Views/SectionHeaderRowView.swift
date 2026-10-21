@@ -21,6 +21,10 @@ final class SectionHeaderRowView: SidebarRowView {
     private var collapsed = false
     /// No workspaces: nothing to fold, so hover shows no chevron (cx-odqn).
     private var isEmpty = false
+    /// The status part of the tooltip, and a Cloud machine's cost, kept so a
+    /// hover rewrites the running time and estimate as of that moment.
+    private var statusTip: String?
+    private var cost: SidebarMachine.Cost?
     var onAdd: (() -> Void)?
 
     required init(key: SidebarRowKey) {
@@ -89,12 +93,21 @@ final class SectionHeaderRowView: SidebarRowView {
         }
     }
 
+    /// The header's tooltip: the status words or detail, then a Cloud
+    /// machine's cost and the account's cap (`MachineCostText`) as of `now`.
+    static func machineToolTip(status: String?, cost: SidebarMachine.Cost?, now: Date) -> String? {
+        let lines = [status].compactMap { $0?.isEmpty == false ? $0 : nil } + (cost.map { MachineCostText.lines($0, now: now) } ?? [])
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
+    }
+
     func configure(_ section: SidebarSection, row: SidebarRow) {
         let content = Content(
             kind: section.kind, isHostGroup: section.isHostGroup, titlesProjects: row.titlesProjects, collapsed: row.isCollapsed, isEmpty: section.nodes.isEmpty,
             fontSize: SidebarStyle.headerFont.pointSize, iconSize: Metrics.smallIconSize
         )
         guard needsConfigure(content) else { return }
+        statusTip = nil
+        cost = nil
         collapsed = row.isCollapsed
         isEmpty = content.isEmpty
         let symbol: IconName
@@ -131,9 +144,11 @@ final class SectionHeaderRowView: SidebarRowView {
             }
             let words = Self.statusWords(machine.status)
             badgeText = Self.statusText(machine.status, hostGroup: section.isHostGroup)
-            themedToolTip = Self.statusToolTip(words: words, detail: machine.detail, bareDot: statusTone != nil && badgeText == nil)
+            statusTip = Self.statusToolTip(words: words, detail: machine.detail, bareDot: statusTone != nil && badgeText == nil)
+            cost = machine.kind == .cloud ? machine.cost : nil
+            themedToolTip = Self.machineToolTip(status: statusTip, cost: cost, now: Date())
             setAccessibilityLabel(machine.name + ", " + words)
-            setAccessibilityHelp(machine.detail)
+            setAccessibilityHelp(cost == nil ? machine.detail : themedToolTip)
         }
         // The only machine needs no name or status: the header heads the
         // workspace list, apart from the destinations above it.
@@ -142,6 +157,8 @@ final class SectionHeaderRowView: SidebarRowView {
             ownIcon = nil
             statusTone = nil
             badgeText = nil
+            statusTip = nil
+            cost = nil
             themedToolTip = nil
             setAccessibilityHelp(nil)
         }
@@ -247,6 +264,8 @@ final class SectionHeaderRowView: SidebarRowView {
 
     override func hoverChanged() {
         super.hoverChanged()
+        // The running time and estimate move with the clock: a hover reads them now.
+        if isHovered, cost != nil { themedToolTip = Self.machineToolTip(status: statusTip, cost: cost, now: Date()) }
         needsLayout = true
     }
 

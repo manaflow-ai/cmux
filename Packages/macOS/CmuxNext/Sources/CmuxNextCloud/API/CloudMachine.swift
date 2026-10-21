@@ -136,6 +136,14 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
     /// when the record carried none (an older server, or the cmux-next
     /// backend record, whose capability names are not provider operations).
     public var declaredCapabilities: Capabilities?
+    /// What one hour of this machine's size costs, in US dollars
+    /// (`hourlyRateUsd`, from the server's rate table; the app keeps none).
+    /// Nil when the server has no rate for it (a size not measured yet, an
+    /// older server).
+    public var hourlyRateUsd: Double?
+    /// When the machine last started running (`runningSince`, epoch ms).
+    /// Nil while it is paused, so a paused machine shows no running cost.
+    public var runningSince: Date?
 
     /// The declared capabilities, or the conservative empty set when the
     /// record declared none. Gate actions with ``allows(_:)``, not this.
@@ -154,6 +162,7 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
 
     enum CodingKeys: String, CodingKey {
         case id, provider, status, displayName, slug, kind, image, imageVersion, createdAt, address, size, capabilities
+        case hourlyRateUsd, runningSince
     }
 
     public init(id: String, provider: String = "freestyle", status: Status = .running, displayName: String? = nil,
@@ -182,6 +191,9 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
         address = try c.decodeIfPresent(Address.self, forKey: .address)
         size = try c.decodeIfPresent(Size.self, forKey: .size)
         declaredCapabilities = try c.decodeIfPresent(Capabilities.self, forKey: .capabilities)
+        // Display facts: a malformed value drops the cost line, never the machine.
+        hourlyRateUsd = (try? c.decodeIfPresent(Double.self, forKey: .hourlyRateUsd)) ?? nil
+        runningSince = ((try? c.decodeIfPresent(Double.self, forKey: .runningSince)) ?? nil).map { Date(timeIntervalSince1970: $0 / 1000) }
     }
 }
 

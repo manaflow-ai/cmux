@@ -286,7 +286,15 @@ final class CloudService {
         guard auth.isSignedIn, unavailableReason == nil else { return }
         lastRefresh = .now
         do {
-            let list = configuration.linkSource == .appServer ? try await appServerMachines() : try await api.listMachines()
+            let list: [CloudMachine]
+            if configuration.linkSource == .appServer {
+                list = try await appServerMachines()
+                machines.cloudLimits = nil
+            } else {
+                let listed = try await api.listMachinesAndLimits()
+                list = listed.machines
+                machines.cloudLimits = listed.limits
+            }
             lastError = nil
             reconcile(list)
             hasLoadedMachines = true
@@ -346,6 +354,7 @@ final class CloudService {
     private func dropAllMachines() {
         for creation in creations.all { creations.remove(creation) }
         for session in machines.cloud { machines.remove(session.machineID)?.disconnect() }
+        machines.cloudLimits = nil
         hasLoadedMachines = false
     }
 
