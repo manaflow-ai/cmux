@@ -491,52 +491,62 @@ def last_labeler(events: list[dict], name: str) -> str | None:
     return actor
 
 
-def approver(reviews: list[dict], head_sha: str, author: str) -> str | None:
-    """A person, not the author or a bot, whose latest review approves the head commit."""
-    latest: dict[str, dict] = {}
-    for review in reviews:
-        user = review.get("user") or {}
-        login = user.get("login") or ""
-        if review.get("state") in ("APPROVED", "CHANGES_REQUESTED", "DISMISSED"):
-            latest[login] = review
-    for login, review in latest.items():
-        user = review.get("user") or {}
-        if (review.get("state") == "APPROVED" and review.get("commit_id") == head_sha and login != author
-                and user.get("type") == "User" and not login.endswith("[bot]")
-                and review.get("author_association") in ("OWNER", "MEMBER", "COLLABORATOR")):
-            return login
-    return None
-
-
-def ship_receipt(comments: list[dict], head_sha: str) -> str | None:
-    """The reviewer of the newest trusted receipt line naming the full head sha, if it says SHIP."""
+def head_verdicts(comments: list[dict], reviews: list[dict], head_sha: str,
+                  author: str) -> list[tuple[str, str, str]]:
+    """(at, "ship" or "block", who) for every trusted verdict on the head, one timeline as
+    next_autoland reads it: an approval (not the author's) or change request of the head commit, and
+    a receipt line naming the full head sha that leads a comment or a review body."""
     found = []
-    for comment in comments:
-        user = comment.get("user") or {}
-        if user.get("type") != "User" or comment.get("author_association") not in TRUSTED:
-            continue
-        first = next((line for line in (comment.get("body") or "").splitlines() if line.strip()), "")
+
+    def receipt(item: dict, at: str) -> None:
+        first = next((line for line in (item.get("body") or "").splitlines() if line.strip()), "")
         line = RECEIPT.match(first)
         if line and "self" not in line.group(1).lower() and head_sha in first:
-            found.append((comment.get("created_at") or "", line.group(2).lower(), line.group(1).strip()))
+            found.append((at, "ship" if line.group(2).lower() == "ship" else "block",
+                          f"review ({line.group(1).strip()})"))
+
+    def trusted(item: dict) -> bool:
+        user = item.get("user") or {}
+        return user.get("type") == "User" and item.get("author_association") in TRUSTED
+
+    for review in reviews:
+        if not trusted(review):
+            continue
+        at, login = review.get("submitted_at") or "", (review.get("user") or {}).get("login") or ""
+        if review.get("commit_id") == head_sha:
+            if review.get("state") == "APPROVED" and login != author:
+                found.append((at, "ship", f"@{login}"))
+            elif review.get("state") == "CHANGES_REQUESTED":
+                found.append((at, "block", f"@{login}"))
+        receipt(review, at)
+    for comment in comments:
+        if trusted(comment):
+            receipt(comment, comment.get("created_at") or "")
+    return found
+
+
+def signed_off(comments: list[dict], reviews: list[dict], head_sha: str, author: str = "") -> str | None:
+    """Who passed the head, or None: the newest verdict on it must be a SHIP, so a later BLOCK or
+    change request beats an earlier SHIP or approval, and a BLOCK wins a tie."""
+    found = head_verdicts(comments, reviews, head_sha, author)
     if not found:
         return None
-    _, verdict, reviewer = max(found)
-    return reviewer if verdict == "ship" else None
+    _, verdict, who = max(found, key=lambda f: (f[0], f[1] == "block"))
+    return who if verdict == "ship" else None
 
 
 def human_ok_by(repo: str, number: str, pr: dict) -> str | None:
-    """Who signed off on a high pull request, else None: an independent review's SHIP receipt on the
-    head, an approving review on the head, or the sign-off label added by a maintainer (admin or
-    maintain role). The green compile is required on every tier by the merge path, not here."""
+    """Who signed off on a high pull request, else None: the newest verdict on the head (an
+    independent review's receipt, an approval or a change request) is a SHIP, or, with no verdict
+    on the head, the sign-off label added by a maintainer (admin or maintain role). The green
+    compile is required on every tier by the merge path, not here."""
     head_sha = pr["head"]["sha"]
-    reviewer = ship_receipt(gh_items(f"repos/{repo}/issues/{number}/comments?per_page=100"), head_sha)
-    if reviewer:
-        return f"review ({reviewer}) shipped {head_sha[:12]}"
+    comments = gh_items(f"repos/{repo}/issues/{number}/comments?per_page=100")
     reviews = gh_items(f"repos/{repo}/pulls/{number}/reviews?per_page=100")
-    login = approver(reviews, head_sha, (pr.get("user") or {}).get("login") or "")
-    if login:
-        return f"@{login} approved the head commit"
+    author = (pr.get("user") or {}).get("login") or ""
+    if head_verdicts(comments, reviews, head_sha, author):
+        who = signed_off(comments, reviews, head_sha, author)
+        return f"{who} shipped {head_sha[:12]}" if who else None
     labels = {label["name"] for label in pr.get("labels", [])}
     for name in (HUMAN_OK_LABEL, WAIVED_LABEL):
         if name not in labels:

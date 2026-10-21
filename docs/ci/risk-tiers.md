@@ -136,8 +136,9 @@ advisory window doesn't count after the cutover: `gh-merge-green` reads `ENFORCE
 base and refuses a `risk evidence` check whose job started before it, or one that never ran. Edit
 the description or push to re-grade.
 
-After approving a high pull request, re-run its `risk evidence` check, or edit the description, so
-it re-grades. Adding `risk:human-ok` re-grades on its own.
+After posting a receipt on, or approving, a high pull request, re-run its `risk evidence` check, or
+edit the description, so it re-grades: a comment or review doesn't trigger the check. Adding
+`risk:human-ok` re-grades on its own.
 
 ## Ship risky behavior dark
 
@@ -153,6 +154,8 @@ gh-merge-green --revert manaflow-ai/cmux#<number>
 
 `risk:human-ok` (and the older `risk:waived`) count only when a maintainer (admin or maintain
 role) added them; the check reads who did. Agents never add either, and never need to: a SHIP
-receipt on the head is enough. The receipt is the first line of a comment from a collaborator,
-names the full head sha, and isn't a self-review; the newest verdict naming the head decides, so a
-later BLOCK beats an earlier SHIP and any push needs a new receipt.
+receipt on the head is enough. The receipt is the first line of a comment or review body from a
+collaborator, names the full head sha, and isn't a self-review. The newest verdict on the head
+decides, read as one timeline with approvals and change requests of the head commit: a later BLOCK
+or change request beats an earlier SHIP or approval, a BLOCK wins a tie, and any push needs a new
+receipt. The label counts only while no verdict names the head.
