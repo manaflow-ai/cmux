@@ -201,18 +201,10 @@ impl Hub {
         harnesses: Option<&std::collections::BTreeSet<String>>,
         sessions: Option<&std::collections::BTreeSet<String>>,
     ) -> HarnessRestarts {
-        let live = self.sessions().into_iter().filter(|session| {
-            let meta = session.meta();
-            matches!(
-                meta.status,
-                SessionStatus::Ready | SessionStatus::Running | SessionStatus::Waiting
-            ) && (sessions.is_some() || !is_chief(&meta))
-                && harnesses.is_none_or(|ids| ids.contains(&meta.harness))
-                && sessions.is_none_or(|ids| ids.contains(session.id.as_str()))
-        });
+        let live = self.restartable(harnesses, sessions);
         // Each restart waits for its new process (spawn, initialize, load):
         // all at once, so many chats take as long as the slowest one.
-        let outcomes = futures::future::join_all(live.map(|session| async move {
+        let outcomes = futures::future::join_all(live.into_iter().map(|session| async move {
             // The turn lock is held through a turn and its route-switch
             // restart (`turns.rs`, `hosts.rs`); holding it, no turn starts
             // meanwhile.
@@ -225,36 +217,67 @@ impl Hub {
                 // The turn may have ended before the flag was seen: then now.
                 turn = idle().filter(|_| session.route_switch.load(Ordering::SeqCst));
             }
-            let Some(_turn) = turn else { return Ok(false) };
+            let Some(_turn) = turn else { return (session.id.clone(), Ok(false)) };
             match self.restart_on_route(&session).await {
-                Ok(()) => Ok(true),
+                Ok(()) => (session.id.clone(), Ok(true)),
                 Err(e) => {
                     tracing::warn!(session = %session.id, error = %e.message, "harness restart");
-                    Err((session.id.clone(), e.message))
+                    (session.id.clone(), Err(e.message))
                 }
             }
         }))
         .await;
         let mut out = HarnessRestarts::default();
-        for outcome in outcomes {
+        for (id, outcome) in outcomes {
             match outcome {
-                Ok(true) => out.now += 1,
-                Ok(false) => out.after_turn += 1,
-                Err(failed) => out.failed.push(failed),
+                Ok(true) => {
+                    out.now += 1;
+                    out.restarted.push(id);
+                }
+                Ok(false) => {
+                    out.after_turn += 1;
+                    out.waiting.push(id);
+                }
+                Err(failed) => out.failed.push((id, failed)),
             }
         }
         out
     }
+
+    /// The sessions `restart_harnesses` would restart: live ones of this
+    /// daemon, none of the Home Chief's unless named in `sessions`, filtered
+    /// by harness and session id.
+    pub(super) fn restartable(
+        &self,
+        harnesses: Option<&std::collections::BTreeSet<String>>,
+        sessions: Option<&std::collections::BTreeSet<String>>,
+    ) -> Vec<Arc<Session>> {
+        self.sessions()
+            .into_iter()
+            .filter(|session| {
+                let meta = session.meta();
+                matches!(
+                    meta.status,
+                    SessionStatus::Ready | SessionStatus::Running | SessionStatus::Waiting
+                ) && (sessions.is_some() || !is_chief(&meta))
+                    && harnesses.is_none_or(|ids| ids.contains(&meta.harness))
+                    && sessions.is_none_or(|ids| ids.contains(session.id.as_str()))
+            })
+            .collect()
+    }
 }
 
 /// What `restart_harnesses` did: how many sessions restarted now, how many
-/// restart when their turn ends, and `(session, error)` for each whose
-/// harness could not start again.
+/// restart when their turn ends (and which), and `(session, error)` for each
+/// whose harness could not start again.
 #[derive(Debug, Default)]
 pub struct HarnessRestarts {
     pub now: usize,
     pub after_turn: usize,
     pub failed: Vec<(String, String)>,
+    /// The sessions that restarted now, and those that restart after their turn.
+    pub restarted: Vec<String>,
+    pub waiting: Vec<String>,
 }
 
 /// A Home Chief session (its turn, compactor or subagent): tagged

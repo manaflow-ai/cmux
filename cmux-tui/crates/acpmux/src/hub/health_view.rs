@@ -5,6 +5,8 @@ use super::*;
 
 use crate::harness_health::{REFRESH_EVERY, Subject};
 
+mod harness_updated;
+
 impl Hub {
     /// Every configured harness as the health check sees it.
     pub async fn health_subjects(&self) -> Vec<Subject> {
@@ -86,10 +88,13 @@ impl Hub {
     /// that needs no sudo (`harness_health::auto::run_updates`), waits for
     /// them and checks again. Answers `{results: [{id, ok, version?,
     /// error?}]}`; a harness already current is `ok` without a run. The
-    /// caller names only harness ids, never a command. Sessions keep their
-    /// process (`restart_harnesses` moves them); pooled ones end, so new
-    /// chats start the new version.
-    pub async fn update_harnesses(&self, params: &Value) -> Result<Value, RpcError> {
+    /// caller names only harness ids, never a command. A harness that got a
+    /// newer version moves its chats (`harness_updated.rs`: restarted now or
+    /// after their turn unless `agents.restartChatsAfterUpdate` is off, and
+    /// told with `_acpmux/harness_updated`); its result carries `restart:
+    /// {auto, now, afterTurn, failed}`. Pooled sessions end, so new chats
+    /// start the new version.
+    pub async fn update_harnesses(self: &Arc<Self>, params: &Value) -> Result<Value, RpcError> {
         let ids = match params.get("ids") {
             None | Some(Value::Null) => None,
             Some(Value::Array(list)) => Some(
@@ -104,13 +109,15 @@ impl Hub {
         let (rows, ran) = self.health.run_updates(check, ids.as_ref()).await;
         use crate::harness_health::auto::Requested;
         let any_ran = ran.iter().any(|(_, r)| matches!(r, Requested::Ran { .. }));
-        let rows = if any_ran {
+        let (rows, restarts) = if any_ran {
             if ran.iter().any(|(_, r)| matches!(r, Requested::Ran { ok: true, .. })) {
                 self.drain_pool();
             }
-            self.health.check(self.health_subjects().await, false).await
+            let after = self.health.check(self.health_subjects().await, false).await;
+            let restarts = self.announce_updates(&rows, &after).await;
+            (after, restarts)
         } else {
-            rows
+            (rows, Default::default())
         };
         let row = |id: &str| rows.iter().find(|r| r.id == id);
         let version = |id: &str| row(id).and_then(|r| r.version.clone());
@@ -142,17 +149,24 @@ impl Hub {
                 if let Some(e) = error {
                     out["error"] = json!(e);
                 }
+                if let Some(restart) = restarts.get(&id) {
+                    out["restart"] = restart.clone();
+                }
                 out
             })
             .collect();
         Ok(json!({"results": results}))
     }
 
-    /// Runs auto-update for the harnesses that want it, and checks again after any ran.
-    pub async fn auto_update_harnesses(&self) -> Vec<String> {
+    /// Runs auto-update for the harnesses that want it, and checks again after any ran; a
+    /// harness it moved to a newer version moves its chats as a requested update does.
+    pub async fn auto_update_harnesses(self: &Arc<Self>) -> Vec<String> {
+        let before = self.health.rows();
         let ran = self.health.run_auto_updates().await;
         if !ran.is_empty() {
-            self.health.check(self.health_subjects().await, false).await;
+            let after = self.health.check(self.health_subjects().await, false).await;
+            let before: Vec<_> = before.into_iter().filter(|r| ran.contains(&r.id)).collect();
+            self.announce_updates(&before, &after).await;
         }
         ran
     }
@@ -197,6 +211,12 @@ impl Hub {
             cache: Some(crate::config::home().join("harness-health.json")),
             auto_update: Some(crate::config::home().join("harness-auto-update.json")),
             home: dirs::home_dir().unwrap_or_default(),
+        });
+        // Changelogs are fetched only on request (`_acpmux/harness/changelog`), under the same
+        // switches as newest-version lookups.
+        self.health.changelogs.attach(crate::harness_health::changelog_fetch::Settings {
+            sources: fetch_latest.then(crate::harness_health::changelog::Sources::public),
+            cache: Some(crate::config::home().join("harness-changelog.json")),
         });
         tokio::spawn(self.clone().run_health());
     }

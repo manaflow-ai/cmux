@@ -69,6 +69,7 @@ pub(super) const METHODS: &[&str] = &[
     method::MUX_HARNESS_SECRET_SET,
     method::MUX_REGISTRY,
     method::MUX_HARNESS_HEALTH,
+    method::MUX_HARNESS_CHANGELOG,
     method::MUX_HARNESS_INVENTORY_REFRESH,
     method::MUX_HARNESS_UPDATE_PLAN,
     method::MUX_HARNESS_UPDATE_PREPARE,
@@ -101,6 +102,17 @@ pub(super) async fn handle(
         } else {
             hub.health.cached_update_plan(&params.cli)
         };
+    }
+    // A changelog is public text about versions: the unix socket and the local app may have
+    // it fetched (fixed URLs, no identifier), a Web page reads the saved copy, and a peer
+    // reads nothing of this host's harnesses, as with health.
+    if m == method::MUX_HARNESS_CHANGELOG {
+        if origin == Origin::Peer {
+            return Err(RpcError::invalid_params(
+                "a peer cannot read this host's harness changelog",
+            ));
+        }
+        return hub.harness_changelog(params, !origin.web_class()).await;
     }
     if m == method::MUX_HARNESS_INVENTORY_REFRESH {
         if origin != Origin::Local {
@@ -286,11 +298,15 @@ pub(super) async fn handle(
 }
 
 /// One payload of the watchers' harness feed to watching connection `conn`:
-/// `_acpmux/harnesses_changed`, or `_acpmux/start_mode_changed {}` when
-/// marked a start-mode notice (`hub/start_mode.rs`), which only local
-/// connections get (a remote-origin connection's chats get no start mode).
+/// `_acpmux/harnesses_changed`, `_acpmux/harness_updated` when marked a
+/// harness update (`hub/health_view/harness_updated.rs`), or
+/// `_acpmux/start_mode_changed {}` when marked a start-mode notice
+/// (`hub/start_mode.rs`), which only local connections get (a remote-origin
+/// connection's chats get no start mode).
 pub(super) fn watch_note(conn: &super::Conn, note: Value) {
-    if note.get(crate::hub::start_mode::START_MODE_NOTE).is_none() {
+    if let Some(updated) = note.get(crate::harness_health::HARNESS_UPDATED_NOTE) {
+        conn.send(&crate::rpc::Message::notification(method::MUX_HARNESS_UPDATED, updated.clone()));
+    } else if note.get(crate::hub::start_mode::START_MODE_NOTE).is_none() {
         conn.send(&crate::rpc::Message::notification(method::MUX_HARNESSES_CHANGED, note));
     } else if !conn.origin.web_class() {
         conn.send(&crate::rpc::Message::notification(method::MUX_START_MODE_CHANGED, json!({})));

@@ -10,6 +10,8 @@
 //! credential files.
 
 pub mod auto;
+pub mod changelog;
+pub mod changelog_fetch;
 pub mod channel;
 mod codex_provider;
 pub(crate) mod inventory;
@@ -29,6 +31,13 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
+
+/// The cmux setting that moves chats to a new harness version on their own
+/// (`hub/health_view/harness_updated.rs`; on unless it is `false`).
+pub const RESTART_SETTING: &str = "agents.restartChatsAfterUpdate";
+
+/// Marks a watchers' payload as a harness update (`server/harness_admin.rs` `watch_note`).
+pub(crate) const HARNESS_UPDATED_NOTE: &str = "harnessUpdated";
 
 /// How often the daemon checks again.
 pub const REFRESH_EVERY: Duration = Duration::from_secs(6 * 3600);
@@ -124,6 +133,8 @@ pub struct HealthService {
     ran: Mutex<HashMap<String, auto::AutoUpdateResult>>,
     /// One auto-update run at a time.
     updating: tokio::sync::Mutex<()>,
+    /// The pending versions' changelogs (`_acpmux/harness/changelog`).
+    pub changelogs: changelog_fetch::Changelogs,
 }
 
 fn now_ms() -> u64 {

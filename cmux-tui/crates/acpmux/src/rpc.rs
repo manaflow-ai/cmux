@@ -310,6 +310,10 @@ pub mod method {
     /// Agent CLI health (hq #1875; `hub/health_view.rs`): the unix socket
     /// and the local app.
     pub const MUX_HARNESS_HEALTH: &str = "_acpmux/harness/health";
+    /// What a harness's pending versions bring (`hub/health_view/harness_updated.rs`):
+    /// the unix socket and the local app (which may fetch it); a Web page reads the
+    /// saved copy; never a peer.
+    pub const MUX_HARNESS_CHANGELOG: &str = "_acpmux/harness/changelog";
     /// Local socket only: bounded, cached inventory snapshots; no health control.
     pub const MUX_HARNESS_INVENTORY_WATCH: &str = "_acpmux/harness/inventory/watch";
     /// Local socket only: refresh registries for cached installs, never run CLIs or updates.
@@ -380,6 +384,10 @@ pub mod method {
     /// To watchers when a harness profile source changed and the catalog
     /// reloaded: `{harnesses: string[], diagnostics}`.
     pub const MUX_HARNESSES_CHANGED: &str = "_acpmux/harnesses_changed";
+    /// To watchers after an update installed a newer version of a harness
+    /// (`hub/health_view/harness_updated.rs`): `{harness, name, from, to, at,
+    /// restart: {auto, now, afterTurn, failed}}`.
+    pub const MUX_HARNESS_UPDATED: &str = "_acpmux/harness_updated";
     /// To local watchers when a new chat's start mode may have changed (a
     /// mode pick, a config reload): ask `_acpmux/start_mode` again. `{}`.
     pub const MUX_START_MODE_CHANGED: &str = "_acpmux/start_mode_changed";

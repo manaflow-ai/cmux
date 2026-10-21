@@ -1,7 +1,8 @@
 import Foundation
 
 /// The agent CLI card's requests (cx-1mbnu): `harness.update` runs the CLI's own update on this
-/// Mac's acpmux (`_acpmux/harness/update`) and waits for it; `harness.restart` restarts this
+/// Mac's acpmux (`_acpmux/harness/update`) and waits for it (its `restart` says whether acpmux
+/// moved every chat of that harness itself); `harness.restart` restarts this
 /// chat's agent on the installed version (`_acpmux/sessions/restart_harness`, after its turn).
 /// The page names only a harness id; acpmux builds the command and refuses one needing sudo.
 @MainActor
@@ -22,6 +23,8 @@ enum AgentPaneHarnessCard {
                 var value: [String: Any] = ["ok": row?["ok"] as? Bool ?? false]
                 if let version = row?["version"] as? String { value["version"] = version }
                 if let error = row?["error"] as? String { value["error"] = error }
+                // acpmux moved every chat of this harness itself (`agents.restartChatsAfterUpdate`).
+                if let restart = row?["restart"] as? [String: Any] { value["restart"] = restart }
                 return AgentPaneReply.success(value)
             case .harnessRestart:
                 // Only a chat this pane started or shows: the page can adopt any id (`chat.persistSession`).
