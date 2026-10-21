@@ -143,6 +143,10 @@ const OBJECTS = new Set([
   "all",
 ]);
 
+/// Pointing words after a request word: "make this faster", "move it up". Only after a lead the
+/// lists know, so a title with any other verb stays a search ("shake it off", "let it be").
+const POINTERS = new Set(["this", "that", "it", "these", "those"]);
+
 /// A sentence this long is a request, not search keywords.
 const LONG_SENTENCE_WORDS = 10;
 /// Fewer words than this with a comma or a semicolon are still keywords ("rust, go").
@@ -176,6 +180,8 @@ export function readsAsRequest(text: string): boolean {
   if (lead && WEAK_LEADS.has(lead) && words.length >= 4) return true;
   // An imperative: a verb, then its object ("open the voice settings").
   if (second && OBJECTS.has(second) && words.length >= 4) return true;
+  if (lead && second && POINTERS.has(second) && WEAK_LEADS.has(lead) && !OBJECTS.has(lead) && words.length >= 3)
+    return true;
   // "It broke. Fix it": a word's sentence end, then a new sentence ("St. Louis" stays a name).
   if (/\p{L}{3,}[.!]\s+\p{Lu}/u.test(text)) return true;
   if (words.length >= CLAUSE_WORDS && /[,;:]\s/.test(text)) return true;
