@@ -2,7 +2,11 @@
 // Swift ChangelogPageProvider serves verified, signed release notes (`ReleaseNotes`, encoded as
 // is); actions are already filtered to the app's compiled-in allow-list.
 
-export const ChangelogOps = { list: "cmux.changelog.list", get: "cmux.changelog.get" } as const;
+export const ChangelogOps = {
+  list: "cmux.changelog.list",
+  get: "cmux.changelog.get",
+  reel: "cmux.changelog.reel",
+} as const;
 /** Runs a highlight's "Try it" (the host admits only allow-listed actions). */
 export const ACTION_RUN = "cmux.app.action.run";
 
@@ -83,9 +87,12 @@ export interface ReleaseNotes {
   items?: ChangeItem[];
   whatsNew?: WhatsNewDocument;
   summary?: SummaryLine[];
-  /** The build's nightly reel, a video the page links (never in the signed notes: the host sets
-      it when the build's reel.json says one was built, ReleaseMediaStore.swift). */
-  reel?: string;
+}
+
+/** `cmux.changelog.reel {build}`: the build's nightly reel, a video the page links (never in the
+    signed notes; the host reads the build's reel.json, ReleaseMediaStore.swift), else null. */
+export interface ReelResult {
+  url: string | null;
 }
 
 /** The page design (Debug Settings `whatsNew.design`, route `design=`): the Ledger is the default

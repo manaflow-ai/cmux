@@ -11,8 +11,8 @@ import CryptoKit
 ///   first-party site (`https://cmux.com/whats-new/`, https only, no other host).
 /// Every file must sniff as PNG, JPEG, GIF or WebP and fit the size cap. Fetched files are
 /// cached (highlights by hash, documents by path), so the page shows them offline.
-/// The build's nightly reel is a video the page links, never inlines: its URL is set only when
-/// the build's `reel.json` (scripts/cmux-next/media/reel.py) says `reel.mp4` was built.
+/// The build's nightly reel is a video the page links, never inlines (``reel(build:)``): its URL
+/// only when the build's `reel.json` (scripts/cmux-next/media/reel.py) says `reel.mp4` was built.
 nonisolated public struct ReleaseMediaStore: Sendable {
     public let cache: URL
     public let bundledDirectories: [URL]
@@ -43,7 +43,6 @@ nonisolated public struct ReleaseMediaStore: Sendable {
     @concurrent
     public func inlined(_ notes: ReleaseNotes) async -> ReleaseNotes {
         enum Source: Hashable, Sendable { case highlight(sha256: String, url: URL), document(String) }
-        async let reel = reelURL(build: notes.build)
         var sources = Set<Source>()
         for highlight in notes.highlights { highlight.media.forEach { sources.insert(.highlight(sha256: $0.sha256.lowercased(), url: $0.url)) } }
         for entry in notes.whatsNew?.entries ?? [] {
@@ -92,7 +91,6 @@ nonisolated public struct ReleaseMediaStore: Sendable {
             }
             notes.whatsNew = document
         }
-        notes.reel = await reel
         return notes
     }
 
@@ -129,9 +127,10 @@ nonisolated public struct ReleaseMediaStore: Sendable {
     }
 
     /// The build's `reel.mp4` when its `reel.json` names it (`"reel": null` when no pull request
-    /// had a clip). Build ids are digits only, so the URL stays in the reel folder.
+    /// had a clip). Build ids are digits only, so the URL stays in the reel folder. Its own call:
+    /// the notes never wait on the network for it.
     @concurrent
-    private func reelURL(build: String) async -> URL? {
+    public func reel(build: String) async -> URL? {
         guard let reelBase, reelBase.scheme == "https", !build.isEmpty, build.allSatisfy({ $0.isASCII && $0.isNumber }) else { return nil }
         let key = "r:" + build
         if let known = await memo.value(key) { return known }

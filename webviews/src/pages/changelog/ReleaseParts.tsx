@@ -6,7 +6,7 @@ import type { Strings } from "../shared/i18n";
 import { getColorScheme, subscribeColorScheme } from "./colorScheme";
 import { byArea } from "./areas";
 import { formatReleaseDate, type AreaChange, type MediaRef, type ReleaseItem, type ReleaseView } from "./model";
-import type { ChangeItem, ReleaseNotes, WhatsNewCategory } from "./types";
+import type { ChangeItem, IndexEntry, WhatsNewCategory } from "./types";
 import { cardVersion } from "./UpdateSurfaces";
 
 export interface PartsContext {
@@ -214,16 +214,24 @@ function ChangeList({ changes }: { changes: ChangeItem[] }) {
 
 const CHANGES_PAGE = 20;
 
-/** The nightly reels of `notes` (newest first), one card each: a link to the video, which opens
-    as links do (the host's link setting). Only an https reel the host named is shown. */
-export function ReelCards({ notes, strings }: { notes: ReleaseNotes[]; strings: Strings }) {
-  const reels = notes.filter((n) => n.reel?.startsWith("https://"));
-  if (reels.length === 0) return null;
+/** The nightly reels of `builds` (in their order, newest first), one card each: a link to the
+    video, which opens as links do (the host's link setting). Only an https reel is shown. */
+export function ReelCards({
+  builds,
+  reels,
+  strings,
+}: {
+  builds: IndexEntry[];
+  reels: Record<string, string>;
+  strings: Strings;
+}) {
+  const shown = builds.filter((b) => reels[b.build]?.startsWith("https://"));
+  if (shown.length === 0) return null;
   return (
     <div className="cl-reels">
-      {reels.map((n) => (
-        <a key={n.build} className="cl-reel" href={n.reel} rel="noreferrer">
-          {strings.format("changelog.page.watchReel", cardVersion(n.shortVersion))}
+      {shown.map((b) => (
+        <a key={b.build} className="cl-reel" href={reels[b.build]} rel="noreferrer">
+          {strings.format("changelog.page.watchReel", cardVersion(b.shortVersion))}
         </a>
       ))}
     </div>

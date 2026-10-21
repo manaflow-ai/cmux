@@ -81,7 +81,7 @@ function SpanSection({ s, fresh, ctx }: { s: ChangelogSnapshot; fresh: IndexEntr
           {span.to}
         </span>
       </div>
-      <ReelCards notes={loaded} strings={ctx.strings} />
+      <ReelCards builds={fresh} reels={s.reels} strings={ctx.strings} />
       <SectionBody view={view} pending={pending} ctx={ctx} unpublished={fresh.length === 0} open />
     </section>
   );
