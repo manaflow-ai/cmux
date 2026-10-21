@@ -40,14 +40,15 @@ nonisolated public struct UpdateProber: Sendable {
         self.architecture = architecture
     }
 
-    /// Off the main actor: network and XML parsing.
+    /// Off the main actor: network and XML parsing. Items whose `sparkle:channel` is not in
+    /// `allowedChannels` are skipped, as Sparkle's `allowedChannels(for:)` skips them; nil
+    /// allows what the feed's own channel allows on the default ring.
     @concurrent
-    /// Items tagged for another release ring are skipped, as Sparkle's `allowedChannels` skips them.
-    public func probe(_ identity: UpdateBuildIdentity, ring: UpdateRing = .nightly, system: SystemVersion = .current,
+    public func probe(_ identity: UpdateBuildIdentity, allowedChannels: Set<String>? = nil, system: SystemVersion = .current,
                       now: Date = Date()) async throws -> UpdateProbeResult {
         let feed = identity.feed(architecture: architecture)
         guard let url = URL(string: feed.url) else { throw AppcastParseError(message: "invalid feed URL \(feed.url)") }
-        let allowed = feed.channel.allowedSparkleChannels(ring: ring)
+        let allowed = allowedChannels ?? feed.channel.allowedSparkleChannels
         let items = try AppcastParser.parse(try await fetcher.fetch(url)).filter { $0.isOffered(allowing: allowed) }
         return UpdateProbeResult(
             track: identity.track,

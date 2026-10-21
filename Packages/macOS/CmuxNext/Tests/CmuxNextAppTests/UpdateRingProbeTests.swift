@@ -34,7 +34,7 @@ import Testing
     @Test(arguments: [(UpdateRing.stable, "200"), (.nightly, "300"), (.canary, "400"), (.dev, "500")])
     func probeOffersTheNewestItemOfTheRingOrASlowerOne(ring: UpdateRing, offered: String) async throws {
         let result = try await UpdateProber(fetcher: StaticFeed(xml: Self.feed), architecture: .arm64)
-            .probe(Self.identity, ring: ring, system: SystemVersion(major: 26, minor: 0, patch: 0))
+            .probe(Self.identity, allowedChannels: Self.identity.feed().channel.allowedSparkleChannels(ring: ring), system: SystemVersion(major: 26, minor: 0, patch: 0))
         guard case .updateAvailable(let item) = result.outcome else {
             Issue.record("\(ring): \(result.outcome)")
             return

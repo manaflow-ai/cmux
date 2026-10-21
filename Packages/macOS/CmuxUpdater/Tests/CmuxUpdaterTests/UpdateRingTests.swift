@@ -11,8 +11,9 @@ import Testing
         #expect(UpdateRing.dev.acceptedSparkleChannels == ["cmux-next-stable", "cmux-next", "cmux-next-canary", "cmux-next-dev"])
     }
 
-    /// Nightly is what every cmux-next build accepted before rings, so the default is unchanged.
-    @Test func nightlyRingKeepsTheTagEveryPublishedItemCarries() {
+    /// Nightly accepts `cmux-next`, the tag every published item carries today, so the default
+    /// is offered the same items as before rings (plus soaked stable items once CI tags them).
+    @Test func nightlyRingIsOfferedTheItemsPublishedToday() {
         #expect(UpdateRing.nightly.sparkleChannel == UpdateFeedResolver.Channel.nightlyNextSparkleChannel)
         let feed = UpdateFeedResolver().resolve(infoFeedURL: "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml")
         #expect(feed.channel.allowedSparkleChannels == feed.channel.allowedSparkleChannels(ring: .nightly))

@@ -136,11 +136,11 @@ extension UpdaterService {
 
 extension UpdaterService {
     /// Applies `updates.checkAutomatically`, `checkIntervalSeconds`,
-    /// `downloadAutomatically`, `meteredNetwork` and `channel` (``follow(ring:)``)
-    /// to Sparkle. The ring is kept without a driver too (the probe reads it).
+    /// `downloadAutomatically`, `meteredNetwork` and, when given, `channel`
+    /// (``follow(ring:)``) to Sparkle. The ring is kept without a driver too (the probe reads it).
     public func configure(checkAutomatically: Bool, checkInterval: TimeInterval, downloadAutomatically: Bool,
-                          metered: UpdateMeteredMode = .deferLowData, ring: String = UpdateRing.nightly.rawValue) {
-        follow(ring: ring)
+                          metered: UpdateMeteredMode = .deferLowData, ring: String? = nil) {
+        if let ring { follow(ring: ring) }
         downloadSetting = (downloadAutomatically, metered)
         if automaticUpdates != downloadAutomatically { automaticUpdates = downloadAutomatically }
         guard let controller else { return }

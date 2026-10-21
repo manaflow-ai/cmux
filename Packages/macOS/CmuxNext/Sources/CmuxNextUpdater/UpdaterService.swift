@@ -303,13 +303,15 @@ public final class UpdaterService {
     public func probe() -> Task<String?, Never> {
         if let probeTask { return probeTask }
         isProbing = true
-        let prober = prober, ring = ring
+        let prober = prober
+        // Sparkle's allowedChannels reads the baked feed, not a test feed: the probe does the same.
+        let allowed = identity.feed().channel.allowedSparkleChannels(ring: ring)
         var identity = identity
         if let testFeedURL { identity.infoFeedURL = testFeedURL }
         let task = Task { [weak self] () -> String? in
             let failure: String?
             do {
-                let result = try await prober.probe(identity, ring: ring)
+                let result = try await prober.probe(identity, allowedChannels: allowed)
                 self?.lastProbe = result
                 self?.lastProbeError = nil
                 self?.log.append("probe \(result.outcome.kind) feed=\(result.feedURL) items=\(result.itemCount)")
