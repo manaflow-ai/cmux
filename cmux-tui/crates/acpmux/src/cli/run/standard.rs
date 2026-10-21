@@ -326,6 +326,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 None => n.clone(),
             });
             let mut reused = None;
+            // Found after a lost create: the winner sends the first prompt.
+            let mut lost_race = false;
             if launch.reuse
                 && let Some(key) = &key
             {
@@ -345,6 +347,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                             _ => None,
                         };
                         reused = Some(found.ok_or(e)?);
+                        lost_race = true;
                         reused.clone().unwrap_or_default()
                     }
                 },
@@ -373,7 +376,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 )?;
                 // Its first prompt went with the first run and is not sent
                 // twice, unless that run stopped before sending it.
-                let first = launch.first_prompt(&args, &v).filter(|_| launch::never_prompted(info));
+                let first = launch
+                    .first_prompt(&args, &v)
+                    .filter(|_| !lost_race && launch::never_prompted(info));
                 if let Some(text) = &first {
                     let prompt = PromptId::new(args.prompt_id.clone());
                     queue_prompt(client, &id, text, false, None, &prompt).await?;
