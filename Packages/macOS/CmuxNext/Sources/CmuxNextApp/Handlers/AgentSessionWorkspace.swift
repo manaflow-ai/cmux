@@ -56,10 +56,14 @@ enum AgentSessionWorkspace {
         }
         let machine = services.machines.machineName(daemon.machineID) ?? daemon.machineID
         let repair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
-        NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: nil, then: group.map { name in { id, sidebar in
-            let ids = [SidebarWorkspaceID(id)]
-            if let target = SidebarEdits.group(named: name, accepting: ids, in: sidebar.model.sections) { sidebar.handle(.move(ids, toGroup: target)) } else { sidebar.groupFlow.newGroup(of: ids, name: name, byUser: false) }
-        } }, windows: services.windows)
+        // `group`: that machine's group of the name (made when missing), once the row is listed.
+        let join: (@MainActor @Sendable (String, SidebarBridge) -> Void)? = group.map { name in
+            { id, sidebar in
+                let ids = [SidebarWorkspaceID(id)]
+                if let target = SidebarEdits.group(named: name, accepting: ids, in: sidebar.model.sections) { sidebar.handle(.move(ids, toGroup: target)) } else { sidebar.groupFlow.newGroup(of: ids, name: name, byUser: false) }
+            }
+        }
+        NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: nil, then: join, windows: services.windows)
         return Task { @MainActor in
             do {
                 let (tab, adopted) = try await WorkspaceCreation.createWithFirstTab(key, name: name, on: connection, repair: repair) { result in
