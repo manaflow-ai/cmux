@@ -68,9 +68,9 @@ function Row({
               </code>
             </div>
           )}
-          {row.error && (
-            <div className="row-error selectable" data-integration-error="">
-              {row.error}
+          {(row.error || row.errorKind) && (
+            <div className="row-error selectable" data-integration-error={row.errorKind ?? ""}>
+              {row.error ?? t(`settingsWindow.agentIntegrations.error.${row.errorKind}`)}
             </div>
           )}
         </div>

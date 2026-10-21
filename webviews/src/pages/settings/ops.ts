@@ -393,8 +393,11 @@ export type IntegrationRow = {
   reason: "symlink" | "not_a_file" | "not_a_directory" | "not_owned" | "unreadable" | null;
   /** The CLI's own (English) text for a conflict. */
   detail: string | null;
-  /** The CLI's refusal of this row's last gesture. */
+  /** The CLI's refusal of this row's last gesture, in the CLI's own words. */
   error: string | null;
+  /** When the CLI gave no words of its own: `noAnswer` (it did not answer) or `notFinished`
+   * (it failed without saying why); the page shows its localized text. Absent from older hosts. */
+  errorKind?: "noAnswer" | "notFinished" | null;
 };
 
 /** The Agent integrations part (`SettingsAgentIntegrations.state`). */

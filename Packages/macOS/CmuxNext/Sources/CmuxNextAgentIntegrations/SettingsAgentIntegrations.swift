@@ -24,8 +24,17 @@ public final class SettingsAgentIntegrations: PageProvider {
         var reason: String?
         /// The CLI's own (English) text for a conflict.
         var detail: String?
-        /// The CLI's refusal of this row's last gesture.
+        /// The CLI's refusal of this row's last gesture, in the CLI's own words.
         var error: String?
+        /// When the CLI gave no words of its own: `noAnswer` (it did not run or answer) or
+        /// `notFinished` (it failed without saying why). The page shows its localized text.
+        var errorKind: String?
+    }
+
+    /// A refused gesture: the CLI's own text, or a kind the page localizes.
+    enum Refusal: Equatable {
+        case text(String)
+        case kind(String)
     }
 
     /// The command a person can run in a terminal instead (each row appends its id).
@@ -49,7 +58,7 @@ public final class SettingsAgentIntegrations: PageProvider {
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         switch op {
         case "cmux.settings.integrations.state": return state
-        case "cmux.settings.integrations.run": return try await run(params)
+        case "cmux.settings.integrations.run": return try await run(params, context: context)
         default: throw PageError.unknownOp(op)
         }
     }
@@ -66,19 +75,26 @@ public final class SettingsAgentIntegrations: PageProvider {
                     "reason": row.reason.map(JSONValue.string) ?? .null,
                     "detail": row.detail.map(JSONValue.string) ?? .null,
                     "error": row.error.map(JSONValue.string) ?? .null,
+                    "errorKind": row.errorKind.map(JSONValue.string) ?? .null,
                 ]
             }),
         ]
     }
 
     /// One page gesture (`cmux.settings.integrations.run`): `refresh`, or `install` / `repair` /
-    /// `remove` with a listed provider `id`.
-    func run(_ params: JSONValue) async throws -> JSONValue {
+    /// `remove` with a listed provider `id`. Refresh only reads, so a page may ask for it; the
+    /// others change the person's agent configs and run only on the person's own click or key
+    /// in the page (`context.userGesture`, the host's record) or a call they approved, as the
+    /// Harnesses card's updates do: a page script alone gets `cmux.app.user_only`.
+    func run(_ params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         let action = params["action"]?.stringValue ?? ""
         switch action {
         case "refresh":
             await refresh()
         case "install", "repair", "remove":
+            guard context.userGesture || context.isConfirmedUser else {
+                throw PageError(code: PageNativeOp.userOnlyCode, message: "\(action) needs a click in the page")
+            }
             guard let id = params["id"]?.stringValue, let row = rows.first(where: { $0.id == id }) else {
                 throw PageError.invalidParams("id must be a listed provider")
             }
@@ -89,9 +105,14 @@ public final class SettingsAgentIntegrations: PageProvider {
             guard let cli = cli() else { throw PageError(code: "cmux.page.unavailable", message: "no cmux CLI") }
             let verb = action == "remove" ? "uninstall" : "install"
             let reply = try? await runCLI(cli, ["--json", "agent", "hook", verb, id])
-            let refusal = reply.flatMap { Self.refusal(of: id, $0) } ?? (reply == nil ? "cmux did not answer" : nil)
+            let refusal = reply.map { Self.refusal(of: id, $0) } ?? .kind("noAnswer")
             await refresh()
-            if let refusal, let index = rows.firstIndex(where: { $0.id == id }) { rows[index].error = refusal }
+            if let refusal, let index = rows.firstIndex(where: { $0.id == id }) {
+                switch refusal {
+                case .text(let text): rows[index].error = text
+                case .kind(let kind): rows[index].errorKind = kind
+                }
+            }
         default:
             throw PageError.invalidParams("unknown integrations action \(action)")
         }
@@ -143,12 +164,12 @@ public final class SettingsAgentIntegrations: PageProvider {
     }
 
     /// The CLI's refusal of a gesture on `id`, from a failed run's stderr; nil when it succeeded.
-    static func refusal(of id: String, _ reply: (Int32, Data, Data)) -> String? {
+    static func refusal(of id: String, _ reply: (Int32, Data, Data)) -> Refusal? {
         guard reply.0 != 0 else { return nil }
         let errors = (try? JSONValue.parse(reply.2))?["details"]?["errors"]?.arrayValue?.compactMap(\.stringValue) ?? []
-        if let own = errors.first(where: { $0.hasPrefix("\(id): ") }) { return String(own.dropFirst(id.count + 2)) }
-        if let first = errors.first { return first }
+        if let own = errors.first(where: { $0.hasPrefix("\(id): ") }) { return .text(String(own.dropFirst(id.count + 2))) }
+        if let first = errors.first { return .text(first) }
         let text = String(data: reply.2, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return text.isEmpty ? "cmux could not finish" : text
+        return text.isEmpty ? .kind("notFinished") : .text(text)
     }
 }
