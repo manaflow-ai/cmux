@@ -148,23 +148,23 @@ pub(super) fn waiting_on(s: &Session) -> Option<(&'static str, Option<String>)> 
 }
 
 /// A sub-session's "currently doing" line for its parent: while it waits on
-/// the person, what for (`waiting`, from [`waiting_on`]); while a turn runs,
-/// its plan step and latest tool (`activity.rs`), else what the turn was
-/// asked; else null (its `state` and `lastReply` say the rest).
-pub(super) fn doing(summary: &Value, waiting: Option<&(&str, Option<String>)>) -> Value {
+/// the person, what for (the summary's `waitingOn`, from [`waiting_on`]);
+/// while a turn runs, its plan step and latest tool (`activity.rs`), else
+/// what the turn was asked; else null (its `state` and `lastReply` say the rest).
+pub(super) fn doing(summary: &Value) -> Value {
     let turn = &summary["turn"];
-    match waiting {
-        Some(("question", Some(prompt))) => {
+    match (summary["waitingOn"].as_str(), summary["waitingPrompt"].as_str()) {
+        (Some("question"), Some(prompt)) => {
             return json!(format!("Waiting for the user to answer, in the app: {prompt}"));
         }
-        Some(("question", None)) => {
+        (Some("question"), None) => {
             return json!("Waiting for the user to answer a question, in the app");
         }
-        Some(_) => return json!("Waiting for the user to allow a tool, in the app"),
-        None if summary["lane"]["state"] == "input" => {
+        (Some(_), _) => return json!("Waiting for the user to allow a tool, in the app"),
+        (None, _) if summary["lane"]["state"] == "input" => {
             return json!("Waiting for the user to answer it");
         }
-        None => {}
+        (None, _) => {}
     }
     if turn.is_null() {
         return Value::Null;
@@ -180,17 +180,22 @@ mod tests {
 
     #[test]
     fn a_child_waiting_on_the_user_says_what_for() {
-        let summary = json!({"lane": {"state": "input"}, "turn": {"prompt": "fix it"}});
-        let q = ("question", Some("Which branch?".to_owned()));
+        let waiting = |on: &str, prompt: Value| {
+            json!({"lane": {"state": "input"}, "turn": {"prompt": "fix it"},
+                   "waitingOn": on, "waitingPrompt": prompt})
+        };
         assert_eq!(
-            doing(&summary, Some(&q)),
+            doing(&waiting("question", json!("Which branch?"))),
             "Waiting for the user to answer, in the app: Which branch?"
         );
-        let p = ("permission", None);
-        assert_eq!(doing(&summary, Some(&p)), "Waiting for the user to allow a tool, in the app");
-        assert_eq!(doing(&summary, None), "Waiting for the user to answer it");
+        assert_eq!(
+            doing(&waiting("permission", Value::Null)),
+            "Waiting for the user to allow a tool, in the app"
+        );
+        let input = json!({"lane": {"state": "input"}, "turn": {"prompt": "fix it"}});
+        assert_eq!(doing(&input), "Waiting for the user to answer it");
         let working = json!({"lane": {"state": "working"}, "turn": {"activity": "Run cargo test"}});
-        assert_eq!(doing(&working, None), "Run cargo test");
-        assert_eq!(doing(&json!({"lane": {"state": "idle"}, "turn": null}), None), Value::Null);
+        assert_eq!(doing(&working), "Run cargo test");
+        assert_eq!(doing(&json!({"lane": {"state": "idle"}, "turn": null})), Value::Null);
     }
 }
