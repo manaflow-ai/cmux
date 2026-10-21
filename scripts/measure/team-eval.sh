@@ -145,9 +145,12 @@ ln -s "$BUN" "$home/.local/bin/bun"
 ln -s "$NODE" "$home/.local/bin/node"
 echo "TEAM-EVAL-MACHINE host=$(scutil --get ComputerName 2>/dev/null || hostname) cores=$(sysctl -n hw.ncpu) rev=$(git rev-parse HEAD) task=$task arm=$arm model=$model effort=$effort"
 curl -fsS -m 10 -o /dev/null "$base_url/_subrouter/ready" || { echo "TEAM-EVAL the route $base_url is not reachable from this worker" >&2; exit 1; }
-# The task's base and reference must be in this checkout (a shallow one fetches them).
+# The task's base and reference must be in this checkout. --depth only in an
+# already-shallow checkout; it would make a full clone shallow.
+depth=()
+[[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth 1)
 for sha in "$base" "$reference"; do
-  git cat-file -e "$sha^{commit}" 2>/dev/null || git fetch -q --depth 1 origin "$sha"
+  git cat-file -e "$sha^{commit}" 2>/dev/null || git fetch -q ${depth[@]+"${depth[@]}"} origin "$sha"
 done
 
 export CI=1
