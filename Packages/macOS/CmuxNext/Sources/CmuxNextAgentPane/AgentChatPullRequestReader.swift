@@ -250,8 +250,9 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
 /// minute and two readers of one link share one read.
 ///
 /// A card reads the cache (``answer(_:)``) and never waits for gh, so hovering a link is never a
-/// call to GitHub; the links a reply shows are registered when the page inspects them
-/// (``register(_:)``), which is once per reply, not once per hover. A read that fails — no gh, no
+/// call to GitHub; the links a page shows are registered when it inspects them
+/// (``register(_:)``), which is once per host request — the page gathers every reply's links
+/// into one — not once per reply and never once per hover. A read that fails — no gh, no
 /// network, a rate limit — leaves the last good answer and its age in place, and is not tried
 /// again for `retry`, so a rate-limited GitHub never replaces the pull request with an error.
 @MainActor
@@ -272,13 +273,16 @@ public final class AgentReplyPullRequests {
     /// The most links kept; the stalest goes first.
     static let maximumKept = 200
     /// The most links one ``register(_:)`` prefetches, so a transcript full of pull requests cannot
-    /// start a hundred reads at once. The page batches its `link.inspect` calls (up to
-    /// `AgentPaneReplyRequest.maximumInspect` links, gathered across every reply on the page), so
-    /// this is a bound per host request, not per reply: in a chat with more pull request links than
-    /// this, the ones past the bound are read when a card opens them, one `gh pr view` each.
-    /// Raising it to cover a whole request would cost one more batched read instead
-    /// (``AgentChatPullRequestReader/batchSize``).
-    static let maximumRegistered = 16
+    /// start a hundred reads at once.
+    ///
+    /// It is a whole host request, because that is what the page sends: it gathers its chips' links
+    /// across every reply and asks for them in one `link.inspect`
+    /// (``AgentPaneReplyRequest/maximumInspect``). A smaller number was a bound on the page rather
+    /// than on the reply — the links past it were read when a card opened them, one read each,
+    /// which is the per-card call this cache exists to avoid. Covering the request instead costs
+    /// one more batched read (64 links at ``AgentChatPullRequestReader/batchSize`` 50 is two): two
+    /// calls to GitHub for a page full of pull requests, against up to forty-eight.
+    static let maximumRegistered = AgentPaneReplyRequest.maximumInspect
 
     private let reader: AgentChatPullRequestReader
     private let freshness: Duration
@@ -303,10 +307,10 @@ public final class AgentReplyPullRequests {
     }
 
     /// Keeps the pull requests a reply links fresh, so a card has them before the pointer arrives:
-    /// one batched read for the whole reply (``AgentChatPullRequestReader/read(urls:)``, one
-    /// `gh api graphql`), never one `gh pr view` per link. A reply that mentions sixteen pull
-    /// requests is one call to GitHub, which is the point: the card Leo saw said "GitHub rate
-    /// limit" because every link cost its own.
+    /// batched reads for the whole request (``AgentChatPullRequestReader/read(urls:)``, one
+    /// `gh api graphql` per ``AgentChatPullRequestReader/batchSize``), never one read per link. A
+    /// page that mentions fifty pull requests is one call to GitHub, which is the point: the card
+    /// Leo saw said "GitHub rate limit" because every link cost its own.
     public func register(_ urls: [URL]) {
         var wanted: [URL] = []
         for url in urls.prefix(Self.maximumRegistered) where inflight[url] == nil && stale(url) && !wanted.contains(url) {
@@ -386,7 +390,7 @@ public final class AgentReplyPullRequests {
 
     /// Drops the stalest links until at most ``maximumKept`` are kept; one being read stays. Every
     /// one over the bound, not one per call: a batched read records up to ``maximumRegistered`` at
-    /// once, so dropping a single link left the cache fifteen longer with every such reply.
+    /// once, so dropping a single link left the cache longer with every such request.
     private func trim() {
         while entries.count > Self.maximumKept,
               let stalest = entries.filter({ inflight[$0.key] == nil }).min(by: { $0.value.touched < $1.value.touched })?.key {
