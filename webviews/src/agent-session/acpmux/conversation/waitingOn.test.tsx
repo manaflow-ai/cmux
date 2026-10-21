@@ -97,3 +97,12 @@ test("a running turn whose model said nothing says so, after every ask", () => {
   expect(html).toContain(translate("turn.waiting.model"));
   expect(html).not.toContain(`>${translate("thinking")}<`);
 });
+
+// Leo 2026-10-21: a question is not a permission. An agent's question (AskUserQuestion, an
+// interactive ask) arrives as a permission request that carries the question: the line asks for an
+// answer, never "allow this?".
+test("a pending question reads as a question, never as a permission to allow", () => {
+  const asked = { ...chat, individualPermission: true, individualQuestion: true };
+  expect(chatWaitsOn(asked)).toBe("question");
+  expect(chatWaitsOn({ ...chat, individualPermission: true })).toBe("permission");
+});

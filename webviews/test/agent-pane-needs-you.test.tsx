@@ -115,7 +115,7 @@ test("a question with several items or many choices gets no one-click answers", 
 test("a chat waiting with no readable ask still shows, once; an archived chat never does", () => {
   const items = needsYouItems({
     sessions: [
-      session("remote", { indicator: "input", updatedAt: 5, preview: "Pick a branch" }),
+      session("remote", { indicator: "input", peer: "build-box", updatedAt: 5, preview: "Pick a branch" }),
       session("counted", { pendingPermissions: 2 }),
       session("asked", { pendingPermissions: 1 }),
       session("gone", { indicator: "input", archived: true }),
@@ -125,7 +125,67 @@ test("a chat waiting with no readable ask still shows, once; an archived chat ne
   });
   expect(items.map((item) => item.id)).toEqual(["acpmux:p1", "chat:remote", "chat:counted"]);
   expect(items[1]!.kind).toBe("input");
-  expect(items[1]!.ask).toBe("Pick a branch");
+});
+
+// Leo 2026-10-21: the list said "Waiting 5m" for a chat and showed the agent's last message, not the
+// question it waited on. A chat whose ask is not read here shows what acpmux says it waits on: a
+// question by its prompt, a permission as a permission, and never the chat's last message.
+test("a waiting chat shows the question or permission it waits on, never its last message", () => {
+  const items = needsYouItems({
+    sessions: [
+      session("question", {
+        indicator: "input",
+        pendingPermissions: 1,
+        updatedAt: 9,
+        preview: "I compared both branches.",
+        waitingOn: { on: "question", prompt: "Which branch should the release start from?" },
+      }),
+      session("unworded", {
+        indicator: "input",
+        pendingPermissions: 1,
+        updatedAt: 8,
+        preview: "Here is the plan.",
+        waitingOn: { on: "question" },
+      }),
+      session("permission", {
+        indicator: "input",
+        pendingPermissions: 1,
+        updatedAt: 7,
+        preview: "Running the suite now.",
+        waitingOn: { on: "permission" },
+      }),
+      session("remote", { indicator: "input", peer: "build-box", updatedAt: 6, preview: "Drafted the notes." }),
+    ],
+    asks: [],
+  });
+  expect(items.map((item) => [item.id, item.kind, item.ask])).toEqual([
+    ["chat:question", "decision", "Which branch should the release start from?"],
+    ["chat:unworded", "decision", ""],
+    ["chat:permission", "approval", ""],
+    ["chat:remote", "input", ""],
+  ]);
+  const html = renderToStaticMarkup(
+    <NeedsYouPanel
+      items={items}
+      actions={{ answer: async () => undefined, goTo: () => undefined, ask: async () => "" }}
+    />,
+  );
+  expect(html).toContain("Which branch should the release start from?");
+  // A question reads as a question, a permission as a permission.
+  expect(html.split(translate("needsYou.waiting")).length - 1).toBe(2);
+  expect(html.split(translate("needsYou.waitingPermission")).length - 1).toBe(1);
+  expect(html).toContain(translate("needsYou.kind.decision"));
+  expect(html).toContain(translate("needsYou.kind.approval"));
+  for (const said of ["I compared both branches.", "Here is the plan.", "Running the suite now.", "Drafted the notes."])
+    expect(html).not.toContain(said);
+});
+
+test("a chat with nothing pending is not listed as waiting", () => {
+  const items = needsYouItems({
+    sessions: [session("done", { indicator: "input", updatedAt: 5, preview: "All set." })],
+    asks: [],
+  });
+  expect(items).toEqual([]);
 });
 
 test("the open chat's held agent pair messages are one item with Resume; a resumed pair is not", () => {
@@ -215,7 +275,10 @@ test("an answer goes to the ask's own chat: a permission by option, a question i
     },
   });
   // A waiting chat with no ask read is answered at its source.
-  const waiting = needsYouItems({ sessions: [session("r", { indicator: "input" })], asks: [] })[0]!;
+  const waiting = needsYouItems({
+    sessions: [session("r", { indicator: "input", pendingPermissions: 1 })],
+    asks: [],
+  })[0]!;
   expect(answerParams(waiting, { id: "x", label: "x", tone: "choice" })).toBeUndefined();
 });
 
