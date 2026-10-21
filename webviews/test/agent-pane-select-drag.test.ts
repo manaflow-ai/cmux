@@ -25,7 +25,9 @@ await requireBrowserLane("agent-pane-select-drag.test.ts", async () => {
       await (await engine[1].launch({ headless: true })).close();
       engines.push(engine);
     } catch {
-      console.warn(`agent-pane-select-drag: skipping ${engine[0]} (run \`bunx playwright install ${engine[0]}\`)`);
+      console.warn(
+        `agent-pane-select-drag: skipping ${engine[0]} (run \`bunx playwright install ${engine[0]}\`)`,
+      );
     }
   }
   if (engines.length === 0) {
@@ -60,7 +62,10 @@ await requireBrowserLane("agent-pane-select-drag.test.ts", async () => {
       dir: "in",
       msg: {
         method: "session/update",
-        params: { sessionId: "agent-1", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: REPLY } } },
+        params: {
+          sessionId: "agent-1",
+          update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: REPLY } },
+        },
       },
     },
     { kind: "turn_result", dir: "mux", msg: { status: "completed" } },
@@ -69,7 +74,10 @@ await requireBrowserLane("agent-pane-select-drag.test.ts", async () => {
   function answer(method: string): unknown {
     switch (method) {
       case "initialize":
-        return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
+        return {
+          protocolVersion: 1,
+          _meta: { acpmux: { origin: "local", extensions: [], operations: [] } },
+        };
       case "_acpmux/watch":
         return { sessions: [summary] };
       case "_acpmux/attach":
@@ -89,13 +97,17 @@ await requireBrowserLane("agent-pane-select-drag.test.ts", async () => {
       port: 0,
       hostname: "127.0.0.1",
       fetch(request, server) {
-        return server.upgrade(request, { data: undefined }) ? undefined : new Response("acpmux", { status: 426 });
+        return server.upgrade(request, { data: undefined })
+          ? undefined
+          : new Response("acpmux", { status: 426 });
       },
       websocket: {
         message(ws, raw) {
           const message = JSON.parse(String(raw)) as { id?: number; method: string };
           if (message.id !== undefined)
-            ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }));
+            ws.send(
+              JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }),
+            );
         },
       },
     });
@@ -106,7 +118,8 @@ await requireBrowserLane("agent-pane-select-drag.test.ts", async () => {
     });
     await vite.listen();
     await warmViteServer(vite, "/");
-    for (const [name, engine] of engines) browsers.set(name, await engine.launch({ headless: true }));
+    for (const [name, engine] of engines)
+      browsers.set(name, await engine.launch({ headless: true }));
   });
   afterAll(async () => {
     for (const browser of browsers.values()) await browser.close();
@@ -116,37 +129,40 @@ await requireBrowserLane("agent-pane-select-drag.test.ts", async () => {
 
   /// The reply paragraph's visual lines: each line's box and the words whose middle lies on it.
   const replyLines = (page: Page) =>
-    page.evaluate((start) => {
-      const paragraph = [...document.querySelectorAll(".acpmux-scroll p")].find((p) =>
-        p.textContent?.startsWith(start),
-      )!;
-      const walker = document.createTreeWalker(paragraph, NodeFilter.SHOW_TEXT);
-      const words: { word: string; x: number; y: number; top: number; bottom: number }[] = [];
-      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-        const text = node.textContent ?? "";
-        for (const match of text.matchAll(/\S+/g)) {
-          const range = document.createRange();
-          range.setStart(node, match.index);
-          range.setEnd(node, match.index + match[0].length);
-          const rect = range.getClientRects()[0];
-          if (!rect) continue;
-          words.push({
-            word: match[0],
-            x: rect.left + rect.width / 2,
-            y: rect.top + rect.height / 2,
-            top: rect.top,
-            bottom: rect.bottom,
-          });
+    page.evaluate(
+      (start) => {
+        const paragraph = [...document.querySelectorAll(".acpmux-scroll p")].find((p) =>
+          p.textContent?.startsWith(start),
+        )!;
+        const walker = document.createTreeWalker(paragraph, NodeFilter.SHOW_TEXT);
+        const words: { word: string; x: number; y: number; top: number; bottom: number }[] = [];
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          const text = node.textContent ?? "";
+          for (const match of text.matchAll(/\S+/g)) {
+            const range = document.createRange();
+            range.setStart(node, match.index);
+            range.setEnd(node, match.index + match[0].length);
+            const rect = range.getClientRects()[0];
+            if (!rect) continue;
+            words.push({
+              word: match[0],
+              x: rect.left + rect.width / 2,
+              y: rect.top + rect.height / 2,
+              top: rect.top,
+              bottom: rect.bottom,
+            });
+          }
         }
-      }
-      const lines: (typeof words)[] = [];
-      for (const word of words) {
-        const line = lines.at(-1);
-        if (line && Math.abs(line[0]!.y - word.y) < 2) line.push(word);
-        else lines.push([word]);
-      }
-      return lines;
-    }, REPLY.slice(0, 20));
+        const lines: (typeof words)[] = [];
+        for (const word of words) {
+          const line = lines.at(-1);
+          if (line && Math.abs(line[0]!.y - word.y) < 2) line.push(word);
+          else lines.push([word]);
+        }
+        return lines;
+      },
+      REPLY.slice(0, 20),
+    );
 
   // The app shows the pane at a page zoom (`app.uiScale` times the chat's own zoom); the root's
   // CSS zoom is how a page here gets the same effective zoom.
@@ -158,7 +174,9 @@ await requireBrowserLane("agent-pane-select-drag.test.ts", async () => {
       await installPaintedFrames(page);
       const { port } = vite!.httpServer!.address() as { port: number };
       const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
-      await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
+      await page.goto(
+        `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`,
+      );
       await page.getByText(REPLY.slice(0, 20), { exact: false }).waitFor();
       await page.evaluate((zoom) => {
         document.documentElement.style.zoom = String(zoom);
@@ -177,13 +195,22 @@ await requireBrowserLane("agent-pane-select-drag.test.ts", async () => {
         await page.mouse.move((from.x + to.x) / 2, to.y, { steps: 4 });
         await page.mouse.move(to.x, to.y, { steps: 4 });
         await page.mouse.up();
-        const selected = (await page.evaluate(() => window.getSelection()?.toString() ?? "")).trim();
+        const selected = (
+          await page.evaluate(() => window.getSelection()?.toString() ?? "")
+        ).trim();
         const words = line.map((word) => word.word);
         // The selection runs from inside the first word to inside the fourth: it holds the words
         // between them in full, and nothing from another line.
         const expected = words.slice(1, Math.min(3, words.length - 1)).join(" ");
         const onLine = words.join(" ");
-        results.push({ line: index, selected, expected: onLine.includes(selected) && selected.includes(expected) ? selected : `${expected} (within: ${onLine})` });
+        results.push({
+          line: index,
+          selected,
+          expected:
+            onLine.includes(selected) && selected.includes(expected)
+              ? selected
+              : `${expected} (within: ${onLine})`,
+        });
       }
       expect(results.map(({ line, selected }) => ({ line, selected }))).toEqual(
         results.map(({ line, expected }) => ({ line, selected: expected })),
