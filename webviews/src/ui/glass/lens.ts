@@ -170,23 +170,37 @@ void main() {
   OUT_COLOR = vec4(color * alpha, alpha);
 }`;
 
-function shaderSource(source: string, kind: "vertex" | "fragment", webgl2: boolean): string {
-  const header = webgl2 ? "#version 300 es\nprecision highp float;\n" : "precision highp float;\n";
-  const replaced = webgl2
-    ? source
+/** How the fragment shader reads a mip level: WebGL2's textureLod, WebGL1's EXT_shader_texture_lod,
+ * or plain WebGL1, which has no explicit level in a fragment shader (a bias over the automatic one). */
+export type GlassShaderDialect = "webgl2" | "webgl1-lod" | "webgl1";
+
+function shaderSource(source: string, kind: "vertex" | "fragment", dialect: GlassShaderDialect): string {
+  if (dialect === "webgl2")
+    return (
+      "#version 300 es\nprecision highp float;\n" +
+      source
         .replaceAll("ATTR ", "in ")
         .replaceAll("VARY ", kind === "vertex" ? "out " : "in ")
         .replace("OUT_DECL", "out vec4 cmuxColor;")
         .replace("OUT_COLOR", "cmuxColor")
         .replaceAll("SAMPLE(", "textureLod(")
-    : source
-        .replaceAll("ATTR ", "attribute ")
-        .replaceAll("VARY ", "varying ")
-        .replace("OUT_DECL", "")
-        .replace("OUT_COLOR", "gl_FragColor")
-        // WebGL1 has no explicit level in a fragment shader: a bias over the automatic one.
-        .replaceAll("SAMPLE(", "texture2D(");
-  return header + replaced;
+    );
+  const lod = dialect === "webgl1-lod" && kind === "fragment";
+  return (
+    (lod ? "#extension GL_EXT_shader_texture_lod : enable\n" : "") +
+    "precision highp float;\n" +
+    source
+      .replaceAll("ATTR ", "attribute ")
+      .replaceAll("VARY ", "varying ")
+      .replace("OUT_DECL", "")
+      .replace("OUT_COLOR", "gl_FragColor")
+      .replaceAll("SAMPLE(", lod ? "texture2DLodEXT(" : "texture2D(")
+  );
+}
+
+/** Both shaders in a dialect, for tests that compile every dialect a browser can take. */
+export function glassShaderSources(dialect: GlassShaderDialect): { vertex: string; fragment: string } {
+  return { vertex: shaderSource(VERTEX, "vertex", dialect), fragment: shaderSource(FRAGMENT, "fragment", dialect) };
 }
 
 function compile(gl: WebGLRenderingContext, type: number, source: string): WebGLShader | null {
@@ -214,9 +228,13 @@ function createProgram(canvas: HTMLCanvasElement): Program | null {
   const gl2 = canvas.getContext("webgl2", options);
   const gl = gl2 ?? canvas.getContext("webgl", options);
   if (!gl) return null;
-  const webgl2 = gl2 !== null;
-  const vertex = compile(gl, gl.VERTEX_SHADER, shaderSource(VERTEX, "vertex", webgl2));
-  const fragment = compile(gl, gl.FRAGMENT_SHADER, shaderSource(FRAGMENT, "fragment", webgl2));
+  const dialect: GlassShaderDialect = gl2
+    ? "webgl2"
+    : gl.getExtension("EXT_shader_texture_lod")
+      ? "webgl1-lod"
+      : "webgl1";
+  const vertex = compile(gl, gl.VERTEX_SHADER, shaderSource(VERTEX, "vertex", dialect));
+  const fragment = compile(gl, gl.FRAGMENT_SHADER, shaderSource(FRAGMENT, "fragment", dialect));
   const program = gl.createProgram();
   if (!vertex || !fragment || !program) return null;
   gl.attachShader(program, vertex);

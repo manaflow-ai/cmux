@@ -22,8 +22,8 @@ await requireBrowserLane("glass-lens.test.ts", async () => {
   const entry = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "glass-lens-")), "entry.ts");
   fs.writeFileSync(
     entry,
-    `import { installGlassLens, glassLensState } from ${JSON.stringify(path.join(source, "ui/glass/lens.ts"))};
-     Object.assign(window, { installGlassLens, glassLensState });`,
+    `import { installGlassLens, glassLensState, glassShaderSources } from ${JSON.stringify(path.join(source, "ui/glass/lens.ts"))};
+     Object.assign(window, { installGlassLens, glassLensState, glassShaderSources });`,
   );
   const built = await Bun.build({ entrypoints: [entry], target: "browser" });
   if (!built.success) throw new Error(built.logs.join("\n"));
@@ -116,6 +116,50 @@ await requireBrowserLane("glass-lens.test.ts", async () => {
         if (!webgl) console.warn(`glass-lens: ${name} has no WebGL here; only the inert paths are checked`);
       });
       afterAll(async () => browser?.close());
+
+      // Every dialect the lens can pick compiles and links where its context exists: WebGL2's
+      // textureLod, WebGL1 with EXT_shader_texture_lod, and plain WebGL1's biased texture2D.
+      test("every shader dialect compiles and links", async () => {
+        if (!webgl) return;
+        const page = await browser.newPage();
+        await page.setContent(`<!doctype html><script>${script}</script>`);
+        const results = await page.evaluate(() => {
+          type Sources = { vertex: string; fragment: string };
+          const sources = (window as unknown as { glassShaderSources: (dialect: string) => Sources })
+            .glassShaderSources;
+          const build = (gl: WebGLRenderingContext, dialect: string) => {
+            const { vertex, fragment } = sources(dialect);
+            const program = gl.createProgram()!;
+            for (const [type, text] of [
+              [gl.VERTEX_SHADER, vertex],
+              [gl.FRAGMENT_SHADER, fragment],
+            ] as const) {
+              const shader = gl.createShader(type)!;
+              gl.shaderSource(shader, text);
+              gl.compileShader(shader);
+              if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS))
+                return `${dialect}: ${gl.getShaderInfoLog(shader)}`;
+              gl.attachShader(program, shader);
+            }
+            gl.linkProgram(program);
+            return gl.getProgramParameter(program, gl.LINK_STATUS)
+              ? "ok"
+              : `${dialect}: ${gl.getProgramInfoLog(program)}`;
+          };
+          const out: Record<string, string> = {};
+          const gl2 = document.createElement("canvas").getContext("webgl2");
+          if (gl2) out.webgl2 = build(gl2, "webgl2");
+          const gl1 = document.createElement("canvas").getContext("webgl");
+          if (gl1) {
+            out.webgl1 = build(gl1, "webgl1");
+            if (gl1.getExtension("EXT_shader_texture_lod")) out["webgl1-lod"] = build(gl1, "webgl1-lod");
+          }
+          return out;
+        });
+        await page.close();
+        expect(Object.keys(results).length).toBeGreaterThan(0);
+        for (const [dialect, result] of Object.entries(results)) expect(`${dialect} ${result}`).toBe(`${dialect} ok`);
+      });
 
       test("plain glass draws no canvas and leaves the wallpaper as it is", async () => {
         const page = await open(browser, "plain");
