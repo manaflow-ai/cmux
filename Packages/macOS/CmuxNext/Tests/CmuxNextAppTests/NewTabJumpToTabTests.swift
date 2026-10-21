@@ -58,7 +58,7 @@ struct NewTabJumpToTabTests {
             try await PinnedPageTests.until({ shownB()?.stripModel.selectedID?.rawValue == target }, within: .seconds(10),
                                             report: { "the tab was not selected\n" + Self.describe(controller) })
             try await PinnedPageTests.until({ controller.focus.state.pane == pane }, within: .seconds(10),
-                                            report: { "the tab's pane did not take the focus\n" + Self.describe(controller) })
+                                            report: { "the tab's pane did not take the focus\n" + Self.describe(controller) + Self.describeFocus(controller) })
             #expect(controller.workspaceContent?.focusedPane?.paneKey == pane)
         }
     }
@@ -90,6 +90,14 @@ struct NewTabJumpToTabTests {
         }
         guard let content = controller.workspaceContent, content.workspace.id == workspace else { return [] }
         return Array(content.panes.values)
+    }
+
+    /// The focus machine's side: what it shows, remembers and last reduced.
+    private static func describeFocus(_ controller: WindowController) -> String {
+        let focus = controller.focus
+        return "\nfocus topology=\(focus.state.topology.workspace ?? "-") panes=\(focus.state.topology.panes.map(\.id)) generation=\(focus.state.generation)"
+            + " expectation=\(focus.state.expectation.map { String(describing: $0) } ?? "-")"
+            + "\nremembered=\(focus.rememberedPanes())\nrecent:\n" + focus.recent.joined(separator: "\n")
     }
 
     private static func describe(_ controller: WindowController) -> String {
