@@ -174,7 +174,12 @@ async function vmErrorsCopy(key: "providerCapacity" | "stateConflict", locale: L
 
 /** Localized copy for admission and snapshot guards added before provider work. */
 export async function vmMutationGuardCopy(
-  key: "allocationUnavailable" | "snapshotIdempotencyRequired" | "snapshotQuota",
+  key:
+    | "allocationUnavailable"
+    | "snapshotIdempotencyRequired"
+    | "snapshotInProgress"
+    | "snapshotIdempotencyConflict"
+    | "snapshotQuota",
   locale: Locale,
 ): Promise<VmRequiresProCopy> {
   const translator = createTranslator({

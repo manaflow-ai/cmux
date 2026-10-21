@@ -455,13 +455,13 @@ impl Brain {
         };
         let (_, options) = prompt_parts(&p.request);
         let deny = option.eq_ignore_ascii_case("deny");
-        // Spawned under the ask floor (a remote-origin turn): a person
-        // answers its prompts, never the Chief.
+        // Spawned under the spawn floor (a turn another person started):
+        // its local effects are refused, never allowed by the Chief.
         if !deny && sub.policy.as_deref() == Some(crate::approval::ASK) {
             return outcome(
                 "refused",
                 format!(
-                    "{id} runs under the ask floor: a person answers its prompts in the Chief chat; you may deny or steer it"
+                    "{id} runs under the spawn floor of another person's turn: its local effects are refused; you may deny or steer it"
                 ),
             );
         }
