@@ -143,6 +143,17 @@ jobs:
           permission-actions: read
           permission-pull-requests: read
 
+      # The rescue reads a failed side-lane run's `needs` graph from its workflow file
+      # (owned_pool_rescue.downstream_of_refusals()), which needs PyYAML. Best effort:
+      # without it that check excuses nothing and the rescue runs as before.
+      - name: Prepare rescue Python
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/rescue-venv"
+          "$RUNNER_TEMP/rescue-venv/bin/python" -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3
+          echo "$RUNNER_TEMP/rescue-venv/bin" >> "$GITHUB_PATH"
+
       - name: Watch runs on persistent pools
         env:
           READ_TOKEN: ${{ steps.cmux-bot-token.outputs.token || steps.read-token.outputs.token }}
