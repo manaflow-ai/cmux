@@ -28,7 +28,7 @@
   font-size: var(--text-control);
   color: var(--agent-text);
 }
-.ui-menu-item.acpmux-effort-item[data-highlighted] { background: var(--acpmux-menu-hover); }
+.ui-menu-item.acpmux-effort-item[data-highlighted] { background: var(--acpmux-menu-highlight); }
 .acpmux-effort-item .ui-menu-check {
   grid-row: 1;
   grid-column: 2;
