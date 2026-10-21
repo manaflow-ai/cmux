@@ -175,6 +175,43 @@ private final class CallCounter: @unchecked Sendable {
         #expect(driver.relaunchGate.isWaiting)
     }
 
+    /// The idle policy never waits past its cap: busy agents, a running command and recent
+    /// input all give way, and the relaunch keeps every session (Leo: updates just install).
+    @Test func anAutomaticInstallRelaunchesAtTheWaitCapWhateverIsRunning() async {
+        let driver = makeDriver()
+        driver.relaunchGate.automaticWaitCap = .seconds(4)
+        let installs = CallCounter()
+        stageWithIdlePolicy(driver)
+        host.blockers = UpdateRelaunchBlockers(busyAgentCount: 1, runningCommandCount: 1, userInputActive: true)
+
+        #expect(driver.handleShouldPostponeRelaunch(installHandler: { installs.count += 1 }))
+        await recheck { driver.relaunchGate.isWaiting }
+        #expect(installs.count == 0)
+
+        await recheck { installs.count == 1 }
+        #expect(!driver.relaunchGate.isWaiting)
+    }
+
+    @Test func theWaitCapBoundsOnlyAutomaticInstalls() {
+        let busy = UpdateRelaunchBlockers(busyAgentCount: 1, runningCommandCount: 1, userInputActive: true)
+        func relaunches(automatic: Bool, waited: Duration) -> Bool {
+            UpdateRelaunchGate.shouldRelaunch(
+                automatic ? busy : busy.forUserInstall, automatic: automatic, waited: waited,
+                daemonUnavailableFor: .zero, agentTimeout: .seconds(30 * 60),
+                daemonUnavailableTimeout: .seconds(10 * 60), automaticWaitCap: .seconds(15 * 60))
+        }
+
+        #expect(!relaunches(automatic: true, waited: .seconds(15 * 60 - 2)))
+        #expect(relaunches(automatic: true, waited: .seconds(15 * 60)))
+        // A host that holds user installs keeps holding them for a running command.
+        #expect(!relaunches(automatic: false, waited: .seconds(60 * 60)))
+    }
+
+    @Test func theDefaultWaitCapIsFifteenMinutes() {
+        #expect(UpdateRelaunchGate.automaticWaitCap == .seconds(15 * 60))
+        #expect(makeDriver().relaunchGate.automaticWaitCap == .seconds(15 * 60))
+    }
+
     @Test func anAutomaticInstallStopsWaitingForAnUnconfirmedDaemonAtTheBound() async {
         let driver = makeDriver(daemonUnavailableTimeout: .seconds(4))
         let installs = CallCounter()
