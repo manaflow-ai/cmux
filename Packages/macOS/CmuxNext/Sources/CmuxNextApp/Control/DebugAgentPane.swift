@@ -146,10 +146,10 @@ enum DebugAgentPane {
             return .object(["pane": .string(pane), "full_rate": .bool(view.rendersAtFullRate)])
         }
         if action == "snapshot" {
-            // The page as WebKit draws it (`WKWebView.takeSnapshot`), PNG at `path`: a window
+            // The page as its engine draws it (`AgentPaneView.pageSnapshot`), PNG at `path`: a window
             // snapshot draws no web content, and a build host may have no screen recording.
             let path = params["path"]?.stringValue ?? NSTemporaryDirectory() + "agent-pane-\(pane).png"
-            guard let image = try? await view.webView.takeSnapshot(configuration: nil),
+            guard let image = await view.pageSnapshot(),
                   let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
                   let png = rep.representation(using: .png, properties: [:]),
                   (try? png.write(to: URL(fileURLWithPath: path))) != nil else {
