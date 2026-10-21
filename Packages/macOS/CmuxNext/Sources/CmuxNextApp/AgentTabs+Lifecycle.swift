@@ -36,11 +36,10 @@ extension AgentTabStore {
                 : localHost == nil ? RefusalStrings.agentTabCreateFailed : RefusalStrings.agentTabsUnsupported
             throw AgentTabRefusal(message: reason)
         }
-        // A Chief subagent's tab names this app's Chief home (`chief:<home id>`); no other host.
         let record: AgentSessionRef
-        if let host, host != chiefHost {
+        if let refusal = Self.hostRefusal(host, localHost: localHost, chiefHost: chiefHost) {
             if let spare, recycle?(spare) != true { retirer.retire(spare) }
-            throw AgentTabRefusal(message: RefusalStrings.agentTabCreateFailed)
+            throw AgentTabRefusal(message: refusal)
         }
         // A session never leaves its machine (cx-k21v): a pane of another machine never gets a
         // chat of this Mac (its session, an outside chat it resumes, a past chat of this Mac's list;
@@ -115,6 +114,13 @@ extension AgentTabStore {
             }
         }
         return pending
+    }
+
+    /// Why a tab cannot open on the session host `host`, nil when it can. A Chief subagent's tab
+    /// names this app's Chief home (`chief:<home id>`); no other host.
+    static func hostRefusal(_ host: String?, localHost: String?, chiefHost: String?) -> String? {
+        guard let host, host != chiefHost else { return nil }
+        return RefusalStrings.agentTabCreateFailed
     }
 
     /// ``open(in:of:session:seed:newTab:spare:linked:adopt:idempotencyKey:)`` in `pane`: the tab
