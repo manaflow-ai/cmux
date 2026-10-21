@@ -126,15 +126,15 @@ import { SummaryButton } from "./summary/SummaryButton";
 import { SummaryCard } from "./summary/SummaryCard";
 import { runningBackgroundTasks } from "./summary/sessionSummary";
 import { useChatInspector } from "./inspector/ChatInspector";
+import { BACKGROUND_WORK, type BackgroundCounts, backgroundRowShown } from "./conversation/backgroundWork";
+import { BackgroundWorkLine } from "./conversation/BackgroundWorkRow";
 import {
-  BACKGROUND_WORK,
-  type BackgroundCounts,
   type BackgroundCommand,
   backgroundCommands,
-  backgroundRowShown,
-} from "./summary/backgroundWork";
-import { BackgroundWorkLine } from "./conversation/BackgroundWorkRow";
-import { type ProcessSource, useProcessRegistry } from "./inspector/processes";
+  type ProcessSource,
+  useProcessRegistry,
+} from "./inspector/processes";
+import { useInspectorOpen } from "./inspector/inspectorState";
 import { pendingToolCalls, waitingSubagents } from "./summary/SubagentStatusList";
 import { AgentsPill } from "./subagents/AgentsPill";
 import { AgentTonesContext, agentTones } from "./subagents/agentTones";
@@ -3669,8 +3669,10 @@ function AcpmuxPane() {
   const spawnedKept = useRef<readonly AcpmuxSessionEntry[]>(NO_SPAWNED);
   if (!sameItems(spawnedKept.current, spawnedFresh)) spawnedKept.current = spawnedFresh;
   const spawned = spawnedKept.current;
-  // Every chat it started, offers' included, with its live state: the summary card's rows under
-  // Subagents and the background counts (summary/backgroundWork.ts). A new list only when an entry changes.
+  // Every chat it started, offers' included, with its live state: the rows under the Inspector's
+  // Subagents (the summary card's with it off) and the background counts (conversation/backgroundWork.ts).
+  // A chat on a Cloud VM or another machine lists the children its daemon reports with its own
+  // session (RemoteAcpmuxWire `_acpmux/watch`). A new list only when an entry changes.
   const childSessions = useMemo(
     () => (spawned.length ? startedSessions(spawned, snapshot.sessionId) : NO_STARTED),
     [spawned, snapshot.sessionId],
@@ -3915,14 +3917,17 @@ function AcpmuxPane() {
     (id: string) => directClient.current?.killProcess(id) ?? Promise.reject(new Error()),
     [],
   );
-  // The chat's background commands (summary/backgroundWork.ts): the transcript's still running, and
-  // the registry's, read while the summary card shows, a turn runs or a command is known to run
-  // (the hook stays on while one it knows runs, so its end arrives).
+  // The chat's background commands (inspector/processes.ts `backgroundCommands`): the transcript's
+  // still running, and the registry's, read while the Inspector or the summary card shows, a turn
+  // runs or a command is known to run (the hook stays on while one it knows runs, so its end
+  // arrives). The one registry for the pane: the Inspector, the card and the counts all read it.
   const transcriptRunning = useMemo(() => runningBackgroundTasks(snapshot.rows), [snapshot.rows]);
+  const inspectorOn = useHeaderState().inspector;
+  const inspectorOpened = useInspectorOpen();
   const processRegistry = useProcessRegistry(
     processSource,
     shownSessionId,
-    summaryCard.shown || snapshot.isWorking || transcriptRunning.length > 0,
+    (inspectorOn && inspectorOpened) || summaryCard.shown || snapshot.isWorking || transcriptRunning.length > 0,
   );
   const runningCommandList = useMemo(
     () =>
@@ -4412,14 +4417,15 @@ function AcpmuxPane() {
       ? undefined
       : (url) => ignoreFailure(callNative("pane.action", { id: HEADER_ACTIONS.preview, url, mode: "open" })),
     onOpenImage: quick ? undefined : openImage,
-    processSource,
-    sessionId: shownSessionId,
+    processes: processRegistry,
     onStopProcess: stopProcess,
     subagents: cardSubagents,
+    sessions: cardSessions,
   });
   // The running line's counts (conversation/WorkingFor.tsx): the subagents still running, the
   // background commands that have not ended and the started chats that run. A count of one opens its
-  // subagent, the command's row or the chat; of several, the summary card, which lists them all.
+  // subagent, the command's row or the chat; of several, the Inspector's section that lists them all
+  // (the summary card with the Inspector off).
   // Between turns the same work is the transcript's last row (BackgroundWorkRow.tsx).
   const [revealRow, setRevealRow] = useState<{ rowId: string; key: number; toolId: string }>();
   // chatAgents already lists every subagent and changes when one's state does.
@@ -4478,7 +4484,8 @@ function AcpmuxPane() {
       background: backgroundCounts,
       openBackground: () => {
         const { summaryCard: card, inspector: panel } = counted.current;
-        if (panel.reveal) panel.reveal("tasks");
+        // The row counts subagents and started chats too: with no command, Subagents lists them.
+        if (panel.reveal) panel.reveal(backgroundCounts.commands > 0 ? "tasks" : "subagents");
         else card.show();
       },
       openAgents: () => {
