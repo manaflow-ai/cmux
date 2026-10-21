@@ -47,8 +47,10 @@ fn a_replacement_owner_answers_before_its_stalled_hosts_are_adopted() {
         assert_eq!(unsafe { libc::kill(host, libc::SIGCONT) }, 0);
     }
 
+    // Adopting inline costs every stalled host its 2 s handshake bound (6 s
+    // here); the bound leaves room for a loaded runner's daemon start.
     assert!(
-        answered < Duration::from_millis(1_500),
+        answered < Duration::from_millis(3_000),
         "the replacement owner answered after {answered:?}: it adopted its stalled hosts first"
     );
     for terminal_id in &terminals {

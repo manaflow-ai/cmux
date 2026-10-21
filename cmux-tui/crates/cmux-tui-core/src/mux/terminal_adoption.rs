@@ -99,6 +99,10 @@ impl Mux {
         // Hosts this pass marks adopting together, with their rows.
         let mut adopting = Vec::new();
         let mut candidates = Vec::new();
+        // Records whose cleanup failed retry on a thread scheduled after the
+        // live hosts': a second record of a live terminal must not claim its
+        // adoption thread first.
+        let mut cleanup_retries = Vec::new();
         let mut recovery_workspace = None;
         // Sidecars are host-owned write-ahead completion records. Reconcile
         // them before live discovery records so a daemon crash after host
@@ -155,7 +159,7 @@ impl Mux {
             let terminal_id = record.terminal_id.clone();
             if handled_terminals.contains(&terminal_id) {
                 if !cleanup_terminal_host_record(&record, &record_path) {
-                    self.schedule_terminal_adoption(options.clone(), record, record_path);
+                    cleanup_retries.push((record, record_path));
                 }
                 continue;
             }
@@ -217,7 +221,7 @@ impl Mux {
                     }
                 } else {
                     if !cleanup_terminal_host_record(&record, &record_path) {
-                        self.schedule_terminal_adoption(options.clone(), record, record_path);
+                        cleanup_retries.push((record, record_path));
                     }
                     continue;
                 }
@@ -225,7 +229,7 @@ impl Mux {
             let terminal = terminal.expect("terminal imported or loaded");
             if terminal.lifecycle == TerminalLifecycle::Tombstoned {
                 if !cleanup_terminal_host_record(&record, &record_path) {
-                    self.schedule_terminal_adoption(options.clone(), record, record_path);
+                    cleanup_retries.push((record, record_path));
                 }
                 continue;
             }
@@ -233,7 +237,7 @@ impl Mux {
                 self.detach_exited_terminal_topology(&terminal.terminal_id)?;
                 handled_terminals.insert(terminal_id.clone());
                 if !cleanup_terminal_host_record(&record, &record_path) {
-                    self.schedule_terminal_adoption(options.clone(), record, record_path);
+                    cleanup_retries.push((record, record_path));
                 }
                 continue;
             }
@@ -246,7 +250,7 @@ impl Mux {
                 )?;
                 handled_terminals.insert(terminal_id.clone());
                 if !cleanup_terminal_host_record(&record, &record_path) {
-                    self.schedule_terminal_adoption(options.clone(), record, record_path);
+                    cleanup_retries.push((record, record_path));
                 }
                 continue;
             }
@@ -288,7 +292,7 @@ impl Mux {
                     }
                     handled_terminals.insert(terminal_id.clone());
                     if !cleanup_terminal_host_record(&record, &record_path) {
-                        self.schedule_terminal_adoption(options.clone(), record, record_path);
+                        cleanup_retries.push((record, record_path));
                     }
                     continue;
                 }
@@ -347,6 +351,9 @@ impl Mux {
                 record_path,
                 Duration::ZERO,
             );
+        }
+        for (record, record_path) in cleanup_retries {
+            self.schedule_terminal_adoption(options.clone(), record, record_path);
         }
 
         // No launcher survives a daemon restart. A durable lifecycle row
@@ -699,6 +706,17 @@ impl Mux {
                 return Err(error);
             }
         };
+        if let Some(public_id) = restored_public_id {
+            let mut names =
+                self.restored_tab_names.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            for placement in state.placements_of_content(&ContentPublicId::Terminal(public_id)) {
+                if let (Some(name), Some(surface)) =
+                    (names.remove(placement), state.surfaces.get(placement))
+                {
+                    surface.set_name(Some(name));
+                }
+            }
+        }
         drop(state);
         self.emit_terminal_registry_changed(&registry, revision);
         drop(registry);
@@ -820,6 +838,7 @@ impl Mux {
                     // test mux) adopts after STARTUP_READY_WAIT.
                     let deadline = Instant::now() + STARTUP_READY_WAIT;
                     while !mux.server_lifecycle_ready()
+                        && !mux.startup_adoptions_released.load(Ordering::Acquire)
                         && !mux.shutting_down.load(Ordering::Acquire)
                         && Instant::now() < deadline
                     {
@@ -896,13 +915,14 @@ impl Mux {
                         delay = (delay * 2).min(Duration::from_secs(5));
                         continue;
                     }
-                    if terminal.lifecycle != TerminalLifecycle::Adopting {
-                        let already_live = terminal.lifecycle == TerminalLifecycle::Running
-                            && mux
-                                .resolve_terminal(&terminal_id)
-                                .ok()
-                                .flatten()
-                                .is_some_and(|resolution| resolution.surface.is_some());
+                    // Only a running row goes back to adopting: a launching one
+                    // belongs to a respawn, and its new host must not be dropped.
+                    if terminal.lifecycle == TerminalLifecycle::Running {
+                        let already_live = mux
+                            .resolve_terminal(&terminal_id)
+                            .ok()
+                            .flatten()
+                            .is_some_and(|resolution| resolution.surface.is_some());
                         if already_live {
                             break;
                         }
@@ -916,10 +936,7 @@ impl Mux {
                             )
                             .is_err()
                         {
-                            // The next pass reads the row again: an ended
-                            // terminal stops there, a failed write retries.
-                            delay = (delay * 2).min(Duration::from_secs(5));
-                            continue;
+                            break;
                         }
                     }
                     if terminal_host_record_liveness(&record_path, &record)
