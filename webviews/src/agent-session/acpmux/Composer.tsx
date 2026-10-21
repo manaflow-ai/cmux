@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, us
 import { createPortal } from "react-dom";
 // Send's iMessage colors (--cmux-messages-blue); build-agent-pane-web.sh inlines the sheet.
 import "../../theme/messages.css";
+import type { ConnectKind } from "./environments";
 import { useEscapingList } from "../../ui/popupHost";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import { MAX_ATTACHMENTS, type AttachmentError, type ComposerAttachment } from "./attachments";
@@ -210,7 +211,7 @@ type Props = {
   /// A started chat's Choose folder…: the host's folder panel (see ComposerContext).
   onBrowseFolder?(): Promise<string | undefined>;
   /// The location row's SSH… and New Cloud Machine rows open the host's connect flows.
-  onConnect?(kind: "ssh" | "cloud"): void;
+  onConnect?(kind: ConnectKind): void;
   /// The environment picker opened: read the machines and their status again.
   onRefreshMachines?(): void;
   /// This Mac's name for the location row.
