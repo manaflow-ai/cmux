@@ -789,6 +789,26 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
     },
+    "working-tokens": {
+      note: "A live Claude turn says its tokens so far after its time, as Claude desktop does: the working dots, then Working for 5m 54s · 2.1M tokens. A harness that does not report each call shows the time alone.",
+      snapshot: chat(
+        [
+          user(prompt, 5.9),
+          activity(
+            [
+              thought("The helper lives in src/net/client.ts; check how errors are parsed first."),
+              tool("Read client.ts", "read", "completed", {
+                locations: [{ path: "/Users/you/src/atlas-web/src/net/client.ts" }],
+              }),
+              tool("Search for parseError", "search", "completed"),
+            ],
+            5.85,
+          ),
+          assistant("The parser drops the status code; I'll keep it and retry only on 5xx.", 5.5),
+        ],
+        { isWorking: true, turnTokens: 2_140_000 },
+      ),
+    },
     "working-counts": {
       note: "A live turn with background work: the line counts the two agents still running and the dev server still up, not the agent that finished. A count opens what it counts.",
       snapshot: chat(
@@ -1094,6 +1114,18 @@ export default agentPaneEntry({
           failed: true,
           error: "This chat is read only on this connection.",
         }),
+      ]),
+    },
+    rhythm: {
+      note: "The transcript's vertical rhythm: two prompts in one turn, each meta row right under its bubble, a reply's footer right under the reply, turns a fixed gap apart, and a Worked for turn.",
+      snapshot: chat([
+        user("Is the hosted test run done?", 20),
+        assistant("Checking the hosted run now.", 19.8),
+        user("Also check the PR checks.", 19.7),
+        assistant("Not yet: the hosted test run is still queued, and the PR checks wait on it.", 19.5),
+        summary(19.5, { status: "completed", durationMs: 17_000 }),
+        ...workedTurnRows(minutesAgo(15)),
+        summary(14, { status: "completed", toolCount: 3 }),
       ]),
     },
     "prompt-delivery": {

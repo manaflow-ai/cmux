@@ -60,6 +60,7 @@ extension SettingsSchema {
         "tabs.newTabPosition",
         "newTerminal.opensWorkspace",
         "tabs.cmdWClosesPinnedTabs",
+        "app.hideDockIconWithoutWindows", // Dock icon and Cmd-Tab entry with no window open; ends no work
         "tabs.overflow",
         "tabs.swapCmdTAndCmdN",
         "palette.scopes.tabs.prefix",
@@ -123,6 +124,7 @@ extension SettingsSchema {
         "ui.animations.feedback",
         "ui.animations.web",
         "ui.paneAnimations",
+        "ui.calm",
         "appearance.colorTransition.enabled",
         "appearance.colorTransition.duration",
         "appearance.colorTransition.curve",
@@ -285,6 +287,8 @@ extension SettingsSchema {
         "updates.checkIntervalSeconds": .network,
         "updates.downloadAutomatically": .network,
         "updates.meteredNetwork": .network,
+        // Which builds this Mac installs (a faster ring runs less-tested code): the person's call.
+        "updates.channel": .userOnly,
         "announcements.fetch": .network,
         // On, cmux starts a helper that sees and controls other apps; only the person turns it on.
         // What a new chat may do without asking: an agent must not widen its own approvals.
