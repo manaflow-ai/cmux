@@ -65,6 +65,7 @@ mod shutdown;
 mod spawn;
 mod start_defaults;
 pub(crate) mod start_mode;
+mod start_mode_state;
 mod startup;
 mod steer_end;
 mod stream;
@@ -317,6 +318,8 @@ pub struct Hub {
     pub(crate) chats: std::sync::OnceLock<Arc<crate::chats::ChatService>>,
     /// Work that waits for the chat index to start (`Hub::when_chats_ready`).
     pub(crate) chats_waiters: StdMutex<Vec<crate::chats::ChatsWaiter>>,
+    /// The forced start mode and the setting's change count (`start_mode_state.rs`).
+    pub(super) start_mode_state: start_mode_state::StartModeCell,
     pub(super) harness_watch: harness_watch::HarnessWatchState,
     /// The settings file watched for start-mode changes (`settings_watch.rs`).
     pub(super) settings_watch: settings_watch::SettingsWatchState,
@@ -405,6 +408,7 @@ impl Hub {
             remote_sandbox_exec: StdMutex::new(PathBuf::from(remote_sandbox::SANDBOX_EXEC)),
             chats: std::sync::OnceLock::new(),
             chats_waiters: StdMutex::new(Vec::new()),
+            start_mode_state: Default::default(),
             harness_watch: Default::default(),
             settings_watch: Default::default(),
             catalog: Arc::new(crate::catalog::CatalogService::new()),
@@ -594,8 +598,10 @@ impl Hub {
         });
     }
 
-    pub(super) fn make_session(&self, meta: SessionMeta) -> Arc<Session> {
+    pub(super) fn make_session(&self, mut meta: SessionMeta) -> Arc<Session> {
         let (inbound_tx, inbound_rx) = mpsc::channel(1024);
+        // A Claude chat saved without `steering` (an older build) still steers once adopted.
+        meta.steering |= crate::claude_stdio::steers_by_info(meta.agent_info.as_ref());
         let steering = meta.steering;
         Arc::new(Session {
             id: meta.id.clone(),
@@ -624,6 +630,7 @@ impl Hub {
             inbound_tx,
             inbound_rx: Mutex::new(Some(inbound_rx)),
             steering: AtomicBool::new(steering),
+            steer_now: Default::default(),
             steer_end: tokio::sync::watch::channel(None).0,
             fork_from: StdMutex::new(None),
             applied: StdMutex::new(session::Applied::default()),

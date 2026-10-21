@@ -12,7 +12,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
     /// studio, file actions). Raw values are the export's card ids.
     public nonisolated enum Card: String, Sendable, Hashable, CaseIterable {
         case themeStudio, terminalInfo, ghosttyDiagnostics, computerUse, harnesses, spaces, browserProfiles
-        case machines, accounts, agentHarnesses, chiefs, advancedInfo, advancedActions, backdrops, mobile
+        case machines, accounts, agentHarnesses, chiefs, advancedInfo, advancedActions, backdrops, mobile, chiefPet
         /// The density tiles, preview and custom density editor (plans/cmux-next/density-DESIGN.md).
         case density
     }
@@ -154,7 +154,9 @@ public nonisolated struct SettingsPageLayout: Sendable {
             trail: [.harnesses, .agentHarnesses, .computerUse]),
         // Every Chief setting on one page (Leo 2026-10-20: the name pill's popover is the quick
         // version; its All Chief Settings link opens this): Chiefs lists every Chief, each opening
-        // its editor (name, picture, backend; u2586), then the chat's look and the pet.
+        // its editor (name, picture, backend; u2586); the Chief Pet card (ChatGPT's Mini & Pets)
+        // draws the preview, Show/Hide and the characters from its group's two rows; then the
+        // chat's look.
         CategorySpec(
             id: "chief", title: SettingsText.keyed("settings.category.chief", "Chief"), symbol: "crown",
             groups: [
@@ -163,7 +165,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 // The Chief pet floating over every app, and its character.
                 group("settings.group.chiefPet"),
             ],
-            lead: [.chiefs]),
+            lead: [.chiefs, .chiefPet]),
         // A core cmux feature: banners, sounds, the attention ring and the
         // feed for agents, terminal programs and `cmux notify`.
         CategorySpec(

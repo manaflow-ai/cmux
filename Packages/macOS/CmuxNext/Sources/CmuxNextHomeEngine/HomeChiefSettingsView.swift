@@ -180,6 +180,7 @@ public final class HomeChiefSettingsView: NSView {
         addFullWidth(diagnosticsRow())
         buildDiagnostics()
         addFullWidth(diagnostics)
+        showHarnessRow()
         refresh()
     }
 
@@ -199,12 +200,15 @@ public final class HomeChiefSettingsView: NSView {
         changeFailed = false
         checkingHarness = nil
         // A named Chief's panel keeps its own files (cx-327wl), never the default's.
-        if let files = (source as? HomeChiefLocalEngine)?.files ?? (source as? HomeChiefRemoteEngine)?.files, files.muxHome != muxHome {
+        let files = (source as? HomeChiefLocalEngine)?.files ?? (source as? HomeChiefRemoteEngine)?.files ?? (source as? HomeChiefHostedEngine)?.files
+        if let files, files.muxHome != muxHome {
             muxHome = files.muxHome
             brain.stringValue = String(format: HomeEngineStrings.brainFormat, muxHome.path)
         }
         for view in localViews { view.isHidden = !source.isLocal }
-        place.stringValue = hostPlace ?? source.place.map { String(format: HomeEngineStrings.runsOnServerFormat, $0) } ?? HomeEngineStrings.runsHere
+        showHarnessRow()
+        let own = source is HomeChiefHostedEngine ? HomeEngineStrings.runsInCloud : HomeEngineStrings.runsHere
+        place.stringValue = hostPlace ?? source.place.map { String(format: HomeEngineStrings.runsOnServerFormat, $0) } ?? own
         return refresh()
     }
 
@@ -221,6 +225,15 @@ public final class HomeChiefSettingsView: NSView {
         let hidden = switchTo == nil
         guard hostSwitch.isHidden != hidden else { return }
         hostSwitch.isHidden = hidden
+        onResize()
+    }
+
+    /// The Harness row only for a brain whose harness the owner picks (not a hosted cloud Chief's).
+    func showHarnessRow() {
+        let hidden = !source.choosesHarness
+        guard let row = harness.superview, row.isHidden != hidden else { return }
+        row.isHidden = hidden
+        if hidden { harnessHint.isHidden = true }
         onResize()
     }
 
