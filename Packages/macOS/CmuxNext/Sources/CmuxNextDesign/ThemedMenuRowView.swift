@@ -23,8 +23,10 @@ public final class ThemedMenuRowView: NSView {
     private var shownAt: TimeInterval = 0
     /// Where the pointer was when the menu opened: once it moved, a release is a choice.
     private var openedAt: NSPoint = .zero
-    /// The item `activate` runs once the menu's tracking loop has ended.
+    /// The item `activate` runs once the menu's tracking loop has ended, and its menu: an item
+    /// does not keep its menu, and only AppKit held a right-click menu while it tracked.
     private var pendingItem: NSMenuItem?
+    private var pendingMenu: NSMenu?
 
     init(item: NSMenuItem, scope: ThemeScope, session: ThemedMenuSession) {
         self.scope = scope
@@ -126,19 +128,24 @@ public final class ThemedMenuRowView: NSView {
     /// Runs the item, as releasing on a native row would: closes the menu, then sends the action
     /// once the tracking loop has ended (the run loop is back in its default mode), so an action
     /// that opens a field, popover or another menu never does it inside the closing one. Rows with
-    /// a submenu open it instead (AppKit does that).
+    /// a submenu open it instead (AppKit does that). A row the menu's `runsInPlace` picks runs as
+    /// the menu closes instead.
     func activate() {
         guard let item = enclosingMenuItem, Self.runs(item), let menu = item.menu else { return }
         var root = menu
         while let parent = root.supermenu { root = parent }
         root.cancelTracking()
         if menu !== root { menu.cancelTracking() }
+        // An engine's own item runs now, while its engine still holds the menu (`runsInPlace`).
+        if session.runsInPlace(item) { return menu.performActionForItem(at: menu.index(of: item)) }
         pendingItem = item
-        RunLoop.main.perform(#selector(runPendingItem), target: self, argument: nil, order: 0, modes: [.default])
+        pendingMenu = menu
+        RunLoop.main.perform(#selector(runPendingItem), target: self, argument: nil, order: Self.pendingRunOrder, modes: [.default])
     }
 
     @objc private func runPendingItem() {
-        guard let item = pendingItem, let menu = item.menu else { return }
+        defer { pendingMenu = nil }
+        guard let item = pendingItem, let menu = item.menu ?? pendingMenu else { return }
         pendingItem = nil
         menu.performActionForItem(at: menu.index(of: item))
     }
@@ -221,6 +228,8 @@ extension ThemedMenuRowView {
     static let inset: CGFloat = 5, radius: CGFloat = 4
     static let markX: CGFloat = 10, titleX: CGFloat = 22, imageSide: CGFloat = 16, gap: CGFloat = 6
     static let trailing: CGFloat = 12, shortcutGap: CGFloat = 28
+    /// The run-loop order of a chosen row's run; `NSMenu.afterThemedRowRuns` comes after it.
+    static let pendingRunOrder = 0
     /// How long a release with no press on the row is ignored after the menu opens.
     static let openingGrace: TimeInterval = 0.3
     static var subtitleFont: NSFont { .menuFont(ofSize: NSFont.smallSystemFontSize) }

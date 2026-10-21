@@ -363,6 +363,7 @@ final class TopHomePageView: NSView {
         }
         page.isHidden = false
         host?.isHidden = true
+        split.composing = true
         list.setDraftRow(HomeNewMessageDraft.rowTitle)
         list.select(HomeSidebarView.draftRowID)
         page.needsLayout = true
@@ -403,6 +404,7 @@ final class TopHomePageView: NSView {
         } else {
             page.isHidden = true
             host?.isHidden = false
+            split.composing = false
         }
         return true
     }
@@ -414,6 +416,7 @@ final class TopHomePageView: NSView {
         page.stop()
         page.removeFromSuperview()
         host?.isHidden = false
+        split.composing = false
         list.setDraftRow(nil)
     }
 

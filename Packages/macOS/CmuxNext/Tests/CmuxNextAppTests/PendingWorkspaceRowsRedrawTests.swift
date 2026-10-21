@@ -33,9 +33,9 @@ struct PendingWorkspaceRowsRedrawTests {
         var redraws = 0
         rows.add(row("ws-1", window: "w1"), name: "workspace-1")
         rows.redraws.add(owner) { redraws += 1 }
-        rows.forget(in: "w1", listed: [], elsewhere: { _ in false })
+        rows.forget(in: "w1", listed: [], held: { _ in true }, elsewhere: { _ in false })
         #expect(redraws == 0)
-        rows.forget(in: "w1", listed: ["ws-1"], elsewhere: { _ in false })
+        rows.forget(in: "w1", listed: ["ws-1"], held: { _ in true }, elsewhere: { _ in false })
         #expect(redraws == 1)
         #expect(rows.rows(in: "w1").isEmpty)
         withExtendedLifetime(owner) {}
