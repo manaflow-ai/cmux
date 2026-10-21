@@ -627,6 +627,7 @@ impl Hub {
 
     pub(super) fn make_session(&self, meta: SessionMeta) -> Arc<Session> {
         let (inbound_tx, inbound_rx) = mpsc::channel(1024);
+        let steering = meta.steering;
         Arc::new(Session {
             id: meta.id.clone(),
             seq: AtomicU64::new(meta.last_seq),
@@ -653,7 +654,7 @@ impl Hub {
             route_switch: AtomicBool::new(false),
             inbound_tx,
             inbound_rx: Mutex::new(Some(inbound_rx)),
-            steering: AtomicBool::new(false),
+            steering: AtomicBool::new(steering),
             steer_end: tokio::sync::watch::channel(None).0,
             fork_from: StdMutex::new(None),
             applied: StdMutex::new(session::Applied::default()),
@@ -985,10 +986,25 @@ impl Hub {
         }
     }
 
+    /// Saves the session's record; never a purged session's. A late save
+    /// (a generated title after the turn, a tag) would write its record
+    /// back after the purge deleted it, and the next daemon start loaded it
+    /// as a closed session: the Chief's compactor, which purges each node's
+    /// session when the node is built, left about 450 of them in two hours
+    /// (2026-10-20).
     pub(super) fn save_meta(&self, session: &Session) {
+        if session.purged.load(Ordering::SeqCst) {
+            return;
+        }
         let meta = session.meta();
         if let Err(e) = self.store.save(&meta) {
             tracing::warn!(session = %session.id, "save meta failed: {e}");
+        }
+        // The purge ran between the check and the save: delete it again.
+        if session.purged.load(Ordering::SeqCst)
+            && let Err(e) = self.store.delete(&session.id)
+        {
+            tracing::warn!(session = %session.id, "delete of a purged session failed: {e}");
         }
     }
 

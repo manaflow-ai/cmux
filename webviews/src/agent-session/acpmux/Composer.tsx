@@ -644,8 +644,12 @@ export function Composer({
     if (!remote.canSend) return false;
     // The folder's trust question is open: the prompt stays where it is.
     if (blocked && !force) return false;
-    // The host has not taken the last prompt yet: it is still here, so Enter sends no copy.
-    if (sending.current) return false;
+    // The host has not taken the last prompt yet: it is still here, so Enter sends no copy, and
+    // the composer says so instead of doing nothing.
+    if (sending.current) {
+      setAttachError(t("composer.stillSending"));
+      return false;
+    }
     // The field holds markdown with its typed text escaped; the agent gets the text as typed.
     const draftText = unwrapped();
     const prompt = (field.current?.agentText(draftText) ?? draftText).trim();
@@ -715,6 +719,8 @@ export function Composer({
       },
       () => {
         sending.current = false;
+        const note = t("composer.stillSending");
+        setAttachError((current) => (current === note ? undefined : current));
       },
     );
     return true;
