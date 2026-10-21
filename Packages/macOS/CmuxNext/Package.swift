@@ -820,8 +820,8 @@ let package = Package(
         // The acpmux watch feed (turn states and lanes), the sidebar's top items (Lanes, cx-v9k2f) and its Chief item.
         .target(
             name: "CmuxNextAgentLanes",
-            dependencies: ["CmuxNextActions", "CmuxNextAgentActivity", "CmuxNextBridge", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextHomeEngine",
-                           "CmuxNextSidebar", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextActions", "CmuxNextAgentActivity", "CmuxNextAgentPane", "CmuxNextBridge", "CmuxNextCompat",
+                           "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextHomeEngine", "CmuxNextSidebar", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // App platform (plans/cmux-next/app-platform.md): the cmux-app.json
