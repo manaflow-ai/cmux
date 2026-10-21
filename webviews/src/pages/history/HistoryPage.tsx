@@ -130,7 +130,12 @@ export function HistoryPage({
             >
               {t("page.groupBy")}
             </button>
-            <button type="button" className="history-menu-button" onClick={(event) => headerMenu(event, clearItems())}>
+            <button
+              type="button"
+              className="history-menu-button"
+              disabled={snap.connection === "disconnected"}
+              onClick={(event) => headerMenu(event, clearItems())}
+            >
               {t("page.clear")}
             </button>
           </div>
@@ -169,7 +174,9 @@ export function HistoryPage({
         </p>
       ) : null}
       {snap.connection === "disconnected" ? (
-        <div className="history-empty">{t("page.disconnected")}</div>
+        <div className="history-empty" role="status">
+          {t("page.disconnected")}
+        </div>
       ) : snap.groups.length === 0 ? (
         <div className="history-empty">{snap.loading ? "" : t(snap.text ? "page.emptySearch" : "page.empty")}</div>
       ) : (
