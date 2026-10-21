@@ -73,22 +73,24 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
       };
     }, FIELD);
 
-  /// Pastes `lines` lines into the prompt, as the clipboard would.
-  async function paste(page: Page, lines: number) {
+  /// Pastes `lines` lines into the prompt, as the clipboard would. `markup` lines carry a tag-like
+  /// `<Retry>`, which the field inserts as plain text on its own paste path (looksLikeMarkupText).
+  async function paste(page: Page, lines: number, markup = false) {
     await page.locator(EDITABLE).click();
     await page.evaluate(
-      ({ selector, count }) => {
+      ({ selector, count, markup }) => {
         const field = document.querySelector<HTMLElement>(selector)!;
         const data = new DataTransfer();
         // Long lines: the draft overflows the field's eight lines however the pasted lines wrap or join.
         const lines = Array.from(
           { length: count },
-          (_, i) => `draft line ${i + 1}: keep the retry rules and the tests in sync with the docs.`,
+          (_, i) =>
+            `draft line ${i + 1}: keep the ${markup ? "<Retry> " : ""}retry rules and the tests in sync with the docs.`,
         );
         data.setData("text/plain", lines.join("\n"));
         field.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
       },
-      { selector: EDITABLE, count: lines },
+      { selector: EDITABLE, count: lines, markup },
     );
     await page.waitForFunction(({ selector, last }) => document.querySelector(selector)?.textContent?.includes(last), {
       selector: EDITABLE,
@@ -181,6 +183,54 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
         await page.close();
       });
 
+      test("a markup-looking paste at the end of the draft shows the draft's end too", async () => {
+        current = browsers.get(name);
+        const page = await pane!.open();
+        await paste(page, 40, true);
+        const seen = await edges(page);
+        expect(seen.end).toBeGreaterThan(100);
+        // Its last line is clear of the bottom fade: the field is at its end, the bottom edge plain.
+        expect(seen.end - seen.top).toBeLessThan(2);
+        expect(seen.fadeBottom).toBe(false);
+        await page.close();
+      });
+
+      test("the caret's line, revealed at a faded edge, sits clear of the fade", async () => {
+        current = browsers.get(name);
+        const page = await pane!.open();
+        await paste(page, 40);
+        // Away from the caret at the draft's end, then type: the field reveals the caret at its
+        // bottom edge, which still has draft past it (the field's bottom inset) and so fades.
+        await scrollTo(page, "top");
+        await page.keyboard.type("x");
+        await settle(page);
+        const gap = await page.evaluate((selector) => {
+          const field = document.querySelector<HTMLElement>(selector)!;
+          const editable = field.querySelector("[contenteditable='true']")!;
+          const walker = document.createTreeWalker(editable, NodeFilter.SHOW_TEXT);
+          let last: Text | null = null;
+          for (let node = walker.nextNode(); node; node = walker.nextNode())
+            if ((node.textContent ?? "").length) last = node as Text;
+          const range = document.createRange();
+          range.setStart(last!, last!.length - 1);
+          range.setEnd(last!, last!.length);
+          const caret = range.getBoundingClientRect();
+          const box = field.getBoundingClientRect();
+          return {
+            band: field.hasAttribute("data-fade-bottom")
+              ? parseFloat(getComputedStyle(field).getPropertyValue("--acpmux-md-fade-bottom"))
+              : 0,
+            below: box.top + field.clientHeight - caret.bottom,
+            text: last!.textContent?.slice(-1),
+          };
+        }, FIELD);
+        expect(gap.text).toBe("x");
+        expect(gap.band).toBeGreaterThan(0);
+        // The caret's glyph ends above the band (one pixel for subpixel layout and scroll rounding).
+        expect(gap.below).toBeGreaterThanOrEqual(gap.band - 1);
+        await page.close();
+      });
+
       // coord-deputy 2026-10-21: the composer sits on glass, so the fade must be an alpha mask on the
       // scroller, never a painted gradient, pseudo-element or overlay that would turn opaque there.
       test("the faded edge is see-through: what is behind the prompt shows, nothing covers it", async () => {
@@ -210,10 +260,12 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
         );
         expect(hits).toEqual([true, true]);
 
-        // The draft's text block drawn solid red: at the faded top row it is (nearly) gone and the
-        // pixel is what the page draws there with no draft at all; mid-field it is solid red.
+        // The draft's text block drawn solid red over a solid green composer: at the faded top row
+        // the red is (nearly) gone and the green behind the prompt shows; mid-field it is solid red.
+        // A painted overlay (in the composer's own colour or any other) would hide the green.
         await page.addStyleTag({
-          content: `${EDITABLE} { background: rgb(255, 0, 0) !important; color: rgb(255, 0, 0) !important; caret-color: transparent !important; }`,
+          content: `${EDITABLE} { background: rgb(255, 0, 0) !important; color: rgb(255, 0, 0) !important; caret-color: transparent !important; }
+            .acpmux-composer-box { background: rgb(0, 255, 0) !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }`,
         });
         await settle(page);
         const middle = await pixel(page, x, box.y + box.height / 2);
@@ -221,11 +273,9 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
         expect(middle[1]).toBeLessThan(60);
         expect(middle[2]).toBeLessThan(60);
         const faded = await pixel(page, x, box.y + 1);
-        await page.addStyleTag({ content: `${EDITABLE} { visibility: hidden !important; }` });
-        await settle(page);
-        const backdrop = await pixel(page, x, box.y + 1);
-        for (let channel = 0; channel < 3; channel++)
-          expect(Math.abs(faded[channel]! - backdrop[channel]!)).toBeLessThan(40);
+        expect(faded[0]).toBeLessThan(60);
+        expect(faded[1]).toBeGreaterThan(200);
+        expect(faded[2]).toBeLessThan(60);
         await page.close();
       });
 
