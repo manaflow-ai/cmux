@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 96e61acfae440a8a09afd96f3fcebb5b2aa189cff1cdcb74d026be328dd4ea67.
+// cmux-tui mux protocol 12, IR 22526ef27362464ad1798ceadf7ab3b0225cd784acc1dcc13419362378a066bc.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -852,6 +852,14 @@ pub type CloudRequestsListResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct CloudSelfhostInfoRequest {
+}
+
+#[rustfmt::skip]
+pub type CloudSelfhostInfoResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct CloudSessionClearRequest {
 }
 
@@ -861,11 +869,15 @@ pub type CloudSessionClearResult = T::JsonValue;
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CloudSessionSetRequest {
-    pub access_token: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub access_token: Option<String>,
     pub api_base_url: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub auth: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub client_version: Optional<String>,
-    pub expires_at: u64,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<u64>,
 }
 
 #[rustfmt::skip]
@@ -4373,6 +4385,10 @@ impl CmuxClient {
 
     pub fn cloud_requests_list(&mut self, request: CloudRequestsListRequest) -> Result<CloudRequestsListResult> {
         self.execute(&CLOUD_REQUESTS_LIST_METADATA, &request)
+    }
+
+    pub fn cloud_selfhost_info(&mut self, request: CloudSelfhostInfoRequest) -> Result<CloudSelfhostInfoResult> {
+        self.execute(&CLOUD_SELFHOST_INFO_METADATA, &request)
     }
 
     pub fn cloud_session_clear(&mut self, request: CloudSessionClearRequest) -> Result<CloudSessionClearResult> {

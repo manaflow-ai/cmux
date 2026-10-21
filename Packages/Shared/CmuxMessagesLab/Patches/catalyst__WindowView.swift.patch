@@ -1,6 +1,6 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/WindowView.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/WindowView.swift
-@@ -529,6 +529,8 @@
+@@ -540,6 +540,8 @@
      private var ownWidthPasses = 0
      /// Width passes run, and width changes that only recorded their width (bench evidence).
      static var widthPasses = 0, widthPassesDeferred = 0
@@ -9,7 +9,7 @@
  
      override func layoutSubviews() {
          super.layoutSubviews()
-@@ -553,8 +555,15 @@
+@@ -564,8 +566,15 @@
              // seen). The first width change of a frame runs the pass now; a later one in the
              // same frame only records its width, and the next frame's tick runs one pass at the
              // last width (`widthTick`).
@@ -27,7 +27,7 @@
                  MessagesWindowView.widthPassesDeferred += 1
                  widthPassPending = true
              } else {
-@@ -661,6 +670,17 @@
+@@ -672,6 +681,17 @@
      /// The rows at the new width: re-measured from the last width change's rows when the state,
      /// the day and the strings are the same (RowBuilder.rewidth: the derivation over every loaded
      /// message was about a third of each divider-drag step), else derived.
@@ -45,7 +45,7 @@
      private func widthRows(_ st: AppState, now: Date, near: Range<Int>?) -> [RowSpec] {
          let msgs = st.conversation.messages
          let day = Format.dayInterval(now), strings = ObjectIdentifier(MessagesLabLocalization.bundle)
-@@ -671,7 +691,30 @@
+@@ -682,7 +702,30 @@
             let rows = RowBuilder.rewidth(d.rows, messages: st.ui.streams.isEmpty ? msgs : msgs + st.ui.streams.map(\.message),
                                           width: bounds.width, exact: near, scale: renderScale) {
              return rows
@@ -76,7 +76,7 @@
          let rows = RowBuilder.rows(st, messages: msgs, now: now, width: bounds.width, exact: near, scale: renderScale)
          widthDerived = (msgs, st.me, st.atNewest, st.ui.typing, st.ui.notice, st.ui.streams, day, strings, rows)
          return rows
-@@ -889,6 +932,18 @@
+@@ -900,6 +943,18 @@
          // (RowCell.crispEdge). `.sending` and `.sent` (the send itself) keep the crisp edge.
          if case let .status(id, st) = action, st != .sending, st != .sent, crispSends.values.contains(id) {
              releaseCrisp { $0 == id }
@@ -95,7 +95,7 @@
          }
          // this view's width (several Home tabs), not the process-wide `Metrics.current`.
          if case let .setDraft(text) = action { MorphBubble.prepare(draft: text, width: bounds.width, scale: renderScale) }
-@@ -1147,6 +1202,8 @@
+@@ -1158,6 +1213,8 @@
          // A stream's rows follow the newest loaded message (which may lose its tail to it); a final message is new.
          case .streamBegin, .streamSet, .streamAppend, .streamEnd: idx.append(max(0, old.conversation.messages.count - 1))
          case let .status(id, _): if let i = index(id) { idx.append(i) }
@@ -104,7 +104,7 @@
          case let .react(ref, _, _):
              guard let i = index(ref.messageId) else { return nil }
              idx.append(i)
-@@ -1500,8 +1557,15 @@
+@@ -1511,8 +1568,15 @@
          for case let cell as RowCell in collection.visibleCells {
              if let b = map[cell.key] { cell.renameRow(to: b) }
          }
@@ -120,7 +120,7 @@
      /// Live container motions: (displacement, spring, begin, end, rows it covered). A row that
      /// shows up while one runs (inserted later, or outside its band) gets the opposite motion,
      /// so it moves as it did with per-row springs.
-@@ -1873,7 +1937,7 @@
+@@ -1885,7 +1949,7 @@
              cell.setConnector(top: nil, bottom: 0, mirrored: false)
          }
          step(1)
@@ -129,7 +129,7 @@
          for e in ledger.live(r.spec.key) where !cell.applied.contains(e.id) {
              cell.applied.insert(e.id)
              // The previous receipt text is drawn once, when its fade starts on this cell.
-@@ -1974,14 +2038,6 @@
+@@ -1986,14 +2050,6 @@
          let r = model.range(top, top + 1)
          return min(model.count - 1, r.first { model.contentTop($0) + (model.rows[checked: $0]?.spec.height ?? 0) > top } ?? r.lowerBound) // checked
      }
