@@ -28,6 +28,8 @@ pub(super) struct Launch {
     pub reuse: bool,
     /// `--prompt-file`'s text, read now.
     pub file_prompt: Option<String>,
+    /// `--report-to` was given: another session started this one.
+    pub reports: bool,
 }
 
 impl Launch {
@@ -92,12 +94,28 @@ impl Launch {
         {
             bail!("--report-to goes with the session's first prompt: give one or --prompt-file");
         }
-        Ok(Self { reuse: args.reuse || worktree.is_some(), name, title, worktree, file_prompt })
+        Ok(Self {
+            reuse: args.reuse || worktree.is_some(),
+            name,
+            title,
+            worktree,
+            file_prompt,
+            reports: args.report_to.is_some(),
+        })
     }
 
     /// Whether a launcher flag (not only `--reuse`) was given.
     pub(super) fn launches(&self) -> bool {
         self.worktree.is_some() || self.file_prompt.is_some()
+    }
+
+    /// `_meta.acpmux.disallowedTools` for `session/new`: a session the
+    /// launcher starts is a lane nobody sits at, so Claude Code's
+    /// AskUserQuestion (a multiple-choice question that waits for a pick)
+    /// would lock its chat; it decides, says why and goes on. Kept in the
+    /// session's meta, so a respawn, a resume and a restart keep it too.
+    pub(super) fn disallowed_tools(&self) -> Option<Value> {
+        (self.launches() || self.reports).then(|| json!(["AskUserQuestion"]))
     }
 
     /// The first prompt: who started the session and how to answer, where
