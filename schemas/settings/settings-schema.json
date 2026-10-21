@@ -180,25 +180,6 @@
             }
           },
           {
-            "key" : "settings.group.updates",
-            "rows" : [
-              "updates.channel",
-              "updates.checkAutomatically",
-              "updates.checkIntervalSeconds",
-              "updates.downloadAutomatically",
-              "updates.meteredNetwork",
-              "updates.web",
-              "updates.installOnQuit",
-              "updates.notify",
-              "updates.keepPreviousVersions",
-              "updates.showWhatsNew"
-            ],
-            "title" : {
-              "key" : "settings.group.updates",
-              "text" : "Updates"
-            }
-          },
-          {
             "key" : "settings.group.announcements",
             "rows" : [
               "announcements.enabled"
@@ -232,6 +213,46 @@
         },
         "trail" : [
           "spaces"
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.updates",
+            "rows" : [
+              "updates.channel",
+              "updates.checkAutomatically",
+              "updates.checkIntervalSeconds",
+              "updates.downloadAutomatically",
+              "updates.meteredNetwork",
+              "updates.installOnQuit",
+              "updates.notify",
+              "updates.keepPreviousVersions",
+              "updates.showWhatsNew"
+            ],
+            "title" : {
+              "key" : "settings.group.updates",
+              "text" : "Updates"
+            }
+          }
+        ],
+        "id" : "updates",
+        "lead" : [
+
+        ],
+        "symbol" : "icloud.and.arrow.down",
+        "title" : {
+          "key" : "settings.category.updates",
+          "text" : "Updates"
+        },
+        "trail" : [
+
         ]
       },
       {
@@ -3933,80 +3954,6 @@
       "title" : {
         "key" : "settings.updates.meteredNetwork",
         "text" : "On Metered Networks"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        "every-merge",
-        "nightly",
-        "off"
-      ],
-      "agent_refusal" : "network",
-      "agent_settable" : false,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.updatesWebEveryMerge",
-            "text" : "Every Merge"
-          },
-          "value" : "every-merge"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.updatesWebNightly",
-            "text" : "With Nightly"
-          },
-          "value" : "nightly"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.updatesWebOff",
-            "text" : "Off"
-          },
-          "value" : "off"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "every-merge",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.updates",
-        "text" : "Updates"
-      },
-      "help" : {
-        "key" : "settings.updates.web.help",
-        "text" : "Every Merge: changes to the web UI arrive minutes after they land, without waiting for the next app update. Off: the web UI this app shipped with."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "updates.web",
-      "keywords" : [
-        "update",
-        "web",
-        "ota",
-        "hot reload",
-        "bundle",
-        "nightly",
-        "merge"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "updates",
-        "web"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "general",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.updates.web",
-        "text" : "Web UI Updates"
       },
       "validation" : "portable"
     },

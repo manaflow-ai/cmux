@@ -15,6 +15,11 @@ import CoreGraphics
 @MainActor
 enum HomeAttachmentPanel {
     private static var made: NSOpenPanel?
+    /// Whether the panel was made ahead of a click.
+    static var isMade: Bool { made != nil }
+    /// The warm-up checks run so far, and whether another is pending.
+    private(set) static var warmChecks = 0
+    static var isWarming: Bool { timer.isScheduled }
 
     /// A configured panel: the one made ahead when it is free, else a new one
     /// (it shows on another window).
@@ -52,7 +57,11 @@ enum HomeAttachmentPanel {
 
     private static func check(after delay: Duration, triesLeft: Int) {
         timer.schedule(after: delay) { @MainActor in
-            guard made == nil else { return }
+            warmChecks += 1
+            // Only in a running app: a process that never ran its event loop (a test host, a ci-step
+            // mini with no open-panel service) would wait 10 s per ViewBridge endpoint, then die.
+            // Checked here, not at schedule time: launch windows come before the loop runs.
+            guard made == nil, NSApp.isRunning else { return }
             // In the background the person types elsewhere: nothing here waits on the main thread.
             // In front, the time since the last input event (kCGAnyInputEventType, ~0).
             let anyInput = CGEventType(rawValue: ~0) ?? .null
