@@ -23,6 +23,23 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: history.path))
     }
 
+    @Test func anEncodedDotDotCannotLeaveTheSupportDirectory() throws {
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let support = root.appending(path: "support", directoryHint: .isDirectory)
+        let outside = root.appending(path: "escape", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        let history = outside.appending(path: "History.sqlite")
+        try Data("outside".utf8).write(to: history)
+
+        for dots in ["%2E%2E", ".%2e"] {
+            let crafted = try #require(URL(string: support.absoluteString + "\(dots)/escape/History.sqlite"))
+            #expect(LegacyHistoryFile(url: crafted, supportDirectory: support) == nil, "\(dots)")
+        }
+        #expect(FileManager.default.fileExists(atPath: history.path))
+    }
+
     @Test func aFileReplacedDuringImportIsNotDeleted() throws {
         let root = try temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
