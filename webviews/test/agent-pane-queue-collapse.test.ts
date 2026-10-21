@@ -225,8 +225,8 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
           if (strip) root.setAttribute("data-top-strip", strip);
           else root.removeAttribute("data-top-strip");
           const fill = getComputedStyle(document.querySelector(".acpmux-composer-queue")!).backgroundColor;
-          // rgba(r, g, b, a), color(srgb r g b / a), or no alpha at all: opaque.
-          const alpha = fill.match(/[,/]\s*([\d.]+%?)\s*\)$/)?.[1];
+          // rgba(r, g, b, a) or color(srgb r g b / a); rgb(r, g, b) or color(srgb r g b) is opaque.
+          const alpha = (fill.match(/^rgba\(.*,\s*([\d.]+%?)\)$/) ?? fill.match(/\/\s*([\d.]+%?)\s*\)$/))?.[1];
           if (alpha === undefined) return 1;
           return alpha.endsWith("%") ? parseFloat(alpha) / 100 : parseFloat(alpha);
         }, strip);
