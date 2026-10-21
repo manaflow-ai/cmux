@@ -148,8 +148,8 @@ struct AddMachineCandidateList: View {
                     VStack(alignment: .leading, spacing: 0) {
                         ForEach(list) { candidate in row(candidate) }
                     }
+                    .thinScrollers()
                 }
-                .thinScrollers()
                 .frame(maxHeight: AddMachineMetrics.candidateListHeight)
                 .card(radius: ServerMetrics.fieldRadius)
             }

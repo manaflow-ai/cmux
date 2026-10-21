@@ -208,16 +208,17 @@ const TUI_BIN: &str = "/home/leo/.local/bin/cmux-tui";
 /// What [`probe_script`] prints for these binaries (path, build), with a daemon of
 /// `daemon` (build, person key) answering through the first of them.
 fn probe_out(bins: &[(&str, &str)], daemon: Option<(&str, bool)>) -> String {
-    probe_out_with(bins, daemon, "", "")
+    probe_out_with(bins, daemon, "", Some(false))
 }
 
-/// [`probe_out`], with the daemon's status naming its executable `exe` and
-/// its command line `args` (one word per space; neither when empty).
+/// [`probe_out`], with the daemon's status naming its executable `exe` (none
+/// when empty) and whether it runs as `cmux-tui acp` (`acp`; None: a daemon
+/// too old to say).
 fn probe_out_with(
     bins: &[(&str, &str)],
     daemon: Option<(&str, bool)>,
     exe: &str,
-    args: &str,
+    acp: Option<bool>,
 ) -> String {
     let mut out = String::new();
     for (i, (path, build)) in bins.iter().enumerate() {
@@ -228,8 +229,8 @@ fn probe_out_with(
                 if !exe.is_empty() {
                     v["exe"] = json!(exe);
                 }
-                if !args.is_empty() {
-                    v["argv"] = json!(args.split(' ').collect::<Vec<_>>());
+                if let Some(acp) = acp {
+                    v["runsAsCmuxTuiAcp"] = json!(acp);
                 }
                 serde_json::to_string_pretty(&v).unwrap().replace('\n', "")
             }
@@ -248,12 +249,23 @@ fn host_with<'a>(
     exe: &'a str,
     profile: &'a str,
 ) -> Fake<impl Fn(&str, Option<&[u8]>) -> RemoteOut + 'a> {
+    host_reporting(bins, daemon, exe, Some(false), profile)
+}
+
+/// [`host_with`], its daemon saying `acp` ([`probe_out_with`]).
+fn host_reporting<'a>(
+    bins: &'a [(&'a str, &'a str)],
+    daemon: Option<(&'a str, bool)>,
+    exe: &'a str,
+    acp: Option<bool>,
+    profile: &'a str,
+) -> Fake<impl Fn(&str, Option<&[u8]>) -> RemoteOut + 'a> {
     Fake::new(move |script, stdin| {
         assert!(stdin.is_none(), "a write: {script}");
         if script == "true" {
             out("")
         } else if script == probe_script().as_str() {
-            out(probe_out_with(bins, daemon, exe, ""))
+            out(probe_out_with(bins, daemon, exe, acp))
         } else if script.starts_with("printf 'bin=") {
             let local = bins.iter().find(|(p, _)| *p == LOCAL_BIN);
             out(local.map(|(_, b)| version(b)).unwrap_or_else(|| "bin=\n".into()))
@@ -377,7 +389,7 @@ fn cmux_own_acpmux_is_never_replaced_or_started_beside() {
         assert_eq!(
             results[1].fix.as_deref(),
             Some(
-                "Enroll leo@box.tail from a cmux of build old, or run `cmux remote install` for leo@box.tail."
+                "Enroll leo@box.tail from a cmux of build old, or use cmux > Check for Updates in the cmux app on leo@box.tail."
             )
         );
         assert_eq!(results[3].state, StepState::Skip, "no harness asked for");
@@ -460,7 +472,7 @@ fn enroll_copies_a_stale_profile_rewritten_and_owner_only() {
         if script == "true" {
             out("")
         } else if script == probe_script().as_str() {
-            out(probe_out_with(bins, Some((build, false)), LOCAL_BIN, ""))
+            out(probe_out_with(bins, Some((build, false)), LOCAL_BIN, Some(false)))
         } else if script.starts_with("printf 'bin=") {
             out(version(build))
         } else if script.starts_with("printf %s") {
@@ -734,11 +746,13 @@ fn no_standalone_daemon_starts_beside_an_installed_app() {
 
 #[test]
 fn a_daemon_running_as_cmux_tui_acp_is_cmux_own() {
-    assert!(runs_as_cmux_tui_acp("/home/leo/.local/bin/cmux-tui acp daemon run"));
-    assert!(runs_as_cmux_tui_acp("cmux-tui acp daemon-run --home /x"));
-    assert!(!runs_as_cmux_tui_acp("/home/leo/.local/bin/acpmux daemon run"));
-    assert!(!runs_as_cmux_tui_acp("/home/leo/.local/bin/cmux-tui remote serve"));
-    assert!(!runs_as_cmux_tui_acp(""));
+    // The daemon decides from its own command line (`hub/views.rs`).
+    let acp = |line: &str| crate::hub::views::runs_as_cmux_tui_acp(line.split_whitespace());
+    assert!(acp("/home/leo/.local/bin/cmux-tui acp daemon run"));
+    assert!(acp("cmux-tui acp daemon-run --home /x"));
+    assert!(!acp("/home/leo/.local/bin/acpmux daemon run"));
+    assert!(!acp("/home/leo/.local/bin/cmux-tui remote serve"));
+    assert!(!acp(""));
     let build = crate::hub::BUILD;
     let bins: &[(&str, &str)] = &[(TUI_BIN, build)];
     let mut p = parse_probe(&probe_out(bins, Some((build, false))));
@@ -763,26 +777,25 @@ fn peer_back_is_skipped_unless_asked() {
 
 #[test]
 fn a_daemon_started_through_the_acpmux_link_stays_ours() {
-    const ARGS: &str = "/home/leo/.local/bin/cmux-tui acp daemon run";
     // A cmux session daemon's: another file than the link resolves to, or no link.
-    assert!(cmux_session_daemon(ARGS, Some(TUI_BIN), ""));
-    assert!(cmux_session_daemon(ARGS, Some(TUI_BIN), "/opt/acpmux/acpmux"));
-    assert!(cmux_session_daemon(ARGS, None, LOCAL_BIN));
+    assert!(cmux_session_daemon(true, Some(TUI_BIN), ""));
+    assert!(cmux_session_daemon(true, Some(TUI_BIN), "/opt/acpmux/acpmux"));
+    assert!(cmux_session_daemon(true, None, LOCAL_BIN));
     // Enroll's own, started as ~/.local/bin/acpmux -> cmux-tui: the exe is
     // the link's target (also after the file was replaced).
-    assert!(!cmux_session_daemon(ARGS, Some(TUI_BIN), TUI_BIN));
-    assert!(!cmux_session_daemon(ARGS, Some(&format!("{TUI_BIN} (deleted)")), TUI_BIN));
-    assert!(!cmux_session_daemon("/home/leo/.local/bin/acpmux daemon run", Some(LOCAL_BIN), ""));
+    assert!(!cmux_session_daemon(true, Some(TUI_BIN), TUI_BIN));
+    assert!(!cmux_session_daemon(true, Some(&format!("{TUI_BIN} (deleted)")), TUI_BIN));
+    assert!(!cmux_session_daemon(false, Some(LOCAL_BIN), ""));
 
-    // Through probe(): the daemon names its exe and command line in its
-    // status; only the link is resolved on the host. The link's daemon is
+    // Through probe(): the daemon names its exe and says it runs as
+    // `cmux-tui acp` in its status; only the link is resolved on the host. The link's daemon is
     // repairable, not cmux's.
     let build = crate::hub::BUILD;
     let bins: &[(&str, &str)] = &[(LOCAL_BIN, build), (TUI_BIN, build)];
     for (link_target, ours) in [(TUI_BIN, true), ("", false)] {
         let fake = Fake::new(|script, _| {
             if script == probe_script().as_str() {
-                out(probe_out_with(bins, Some((build, false)), TUI_BIN, ARGS))
+                out(probe_out_with(bins, Some((build, false)), TUI_BIN, Some(true)))
             } else if script == format!("readlink -f {DAEMON_BIN} 2>/dev/null") {
                 out(format!("{link_target}\n"))
             } else {
@@ -800,12 +813,12 @@ fn a_daemon_started_through_the_acpmux_link_stays_ours() {
 fn the_probe_never_scans_processes() {
     let build = crate::hub::BUILD;
     let bins: &[(&str, &str)] = &[(LOCAL_BIN, build)];
-    // A standalone daemon (`acpmux daemon run`) and one too old to name its
-    // exe and command line: the status alone answers, one script in all.
-    for (exe, args) in [(LOCAL_BIN, "/home/leo/.local/bin/acpmux daemon run"), ("", "")] {
+    // A standalone daemon (`acpmux daemon run`) and one too old to say who
+    // it is: the status alone answers, one script in all.
+    for (exe, acp) in [(LOCAL_BIN, Some(false)), ("", None)] {
         let fake = Fake::new(|script, _| {
             assert_eq!(script, probe_script().as_str(), "a second script");
-            out(probe_out_with(bins, Some((build, false)), exe, args))
+            out(probe_out_with(bins, Some((build, false)), exe, acp))
         });
         let p = probe(&fake).unwrap();
         assert_eq!(p.exe.as_deref(), (!exe.is_empty()).then_some(exe));
@@ -815,4 +828,47 @@ fn the_probe_never_scans_processes() {
     for scan in ["/proc/", "ps -", "pgrep", "lsof"] {
         assert!(!probe_script().contains(scan), "{scan}");
     }
+}
+
+#[test]
+fn a_daemon_too_old_to_say_who_it_is_counts_as_cmux_own_beside_a_cmux() {
+    let build = crate::hub::BUILD;
+    let local = Local { harness_dir: None, home: None };
+    // Linux: an older `cmux-tui acp` session daemon answers through the
+    // standalone acpmux; the cmux-tui is there. Never installed or
+    // restarted beside, even with --fix: it warns, naming `cmux remote install`.
+    let tui: &[(&str, &str)] = &[(LOCAL_BIN, "old"), (TUI_BIN, build)];
+    let fake = host_reporting(tui, Some(("old", false)), "", None, "");
+    let used = probe(&fake).unwrap().in_use().unwrap();
+    assert!(used.app && !used.bundle, "{used:?}");
+    let fake = host_reporting(tui, Some(("old", false)), "", None, "");
+    let results = machine_steps(&fake, &plan(&[]), &local, true, &mut |_| {});
+    assert_eq!(
+        states(&results)[1..3],
+        [(Step::Install, StepState::Warn), (Step::Daemon, StepState::Warn)]
+    );
+    assert_eq!(
+        results[1].fix.as_deref(),
+        Some(
+            "Enroll leo@box.tail from a cmux of build old, or run `cmux remote install` for leo@box.tail."
+        )
+    );
+    assert_read_only(&fake);
+
+    // macOS: a cmux app and an older daemon that answered through
+    // ~/.local/bin: the app's, so it warns and names the app's updater.
+    let app: &[(&str, &str)] = &[(LOCAL_BIN, "old"), (APP_BIN, build)];
+    let fake = host_reporting(app, Some(("old", false)), "", None, "");
+    let results = machine_steps(&fake, &plan(&[]), &local, true, &mut |_| {});
+    assert_eq!(
+        states(&results)[1..3],
+        [(Step::Install, StepState::Warn), (Step::Daemon, StepState::Warn)]
+    );
+    assert!(results[1].fix.as_deref().unwrap().contains("Check for Updates"), "{results:?}");
+    assert_read_only(&fake);
+
+    // The same daemon alone (no cmux-tui, no app) stays repairable.
+    let alone: &[(&str, &str)] = &[(LOCAL_BIN, "old")];
+    let p = parse_probe(&probe_out_with(alone, Some(("old", false)), "", None));
+    assert!(!p.in_use().unwrap().app);
 }

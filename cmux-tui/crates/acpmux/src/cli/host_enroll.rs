@@ -337,9 +337,9 @@ struct Running {
     build: Option<String>,
     /// It holds a person key: the cmux app started it (`hub/person.rs`).
     person_key: bool,
-    /// Its command line, as its `daemon status` reports it (`argv`); empty
-    /// from a daemon too old to report it.
-    args: String,
+    /// It runs as `cmux-tui acp …`, as its `daemon status` says
+    /// (`runsAsCmuxTuiAcp`); None from a daemon too old to say who it is.
+    cmux_tui_acp: Option<bool>,
 }
 
 /// The acpmux the host uses: the running daemon's, else the first binary.
@@ -347,8 +347,12 @@ struct Running {
 struct InUse {
     path: String,
     build: Option<String>,
-    /// Inside a cmux app bundle: the app owns it and its daemon.
+    /// cmux's own: the app owns it and its daemon (an app bundle, a cmux
+    /// session daemon, or a daemon too old to say who it is beside a cmux).
     app: bool,
+    /// An app bundle runs it (a person key or an `.app` executable): only
+    /// the app on the host changes its build.
+    bundle: bool,
     pid: Option<u64>,
 }
 
@@ -371,13 +375,7 @@ fn parse_probe(stdout: &str) -> Probe {
                         pid,
                         build: v.get("build").and_then(Value::as_str).map(str::to_owned),
                         person_key: v.get("personKey").and_then(Value::as_bool) == Some(true),
-                        args: v
-                            .get("argv")
-                            .and_then(Value::as_array)
-                            .map(|a| {
-                                a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" ")
-                            })
-                            .unwrap_or_default(),
+                        cmux_tui_acp: v.get("runsAsCmuxTuiAcp").and_then(Value::as_bool),
                     });
                     // The daemon names its own executable; an older one does not.
                     probe.exe = v
@@ -403,44 +401,48 @@ fn is_cmux_tui(path: &str) -> bool {
     path.rsplit('/').next() == Some("cmux-tui")
 }
 
-/// Whether a daemon's command line (its status `argv`, joined) runs
-/// `cmux-tui acp …`, not `acpmux …`.
-fn runs_as_cmux_tui_acp(args: &str) -> bool {
-    let mut words = args.split_whitespace();
-    words.next().is_some_and(is_cmux_tui) && words.next() == Some("acp")
-}
-
 /// Whether the running daemon is a cmux session daemon's `cmux-tui acp`:
-/// its command line says so, and its executable `exe` is not the file
-/// [`DAEMON_BIN`] resolves to (`daemon_bin`, `readlink -f`), which the
-/// standalone daemon runs. Linux names a replaced image `PATH (deleted)`.
-fn cmux_session_daemon(args: &str, exe: Option<&str>, daemon_bin: &str) -> bool {
+/// its status says it runs as one (`acp`), and its executable `exe` is not
+/// the file [`DAEMON_BIN`] resolves to (`daemon_bin`, `readlink -f`), which
+/// the standalone daemon runs. Linux names a replaced image `PATH (deleted)`.
+fn cmux_session_daemon(acp: bool, exe: Option<&str>, daemon_bin: &str) -> bool {
     let exe = exe.map(|e| e.strip_suffix(" (deleted)").unwrap_or(e));
-    runs_as_cmux_tui_acp(args) && (daemon_bin.is_empty() || exe != Some(daemon_bin))
+    acp && (daemon_bin.is_empty() || exe != Some(daemon_bin))
 }
 
 impl Probe {
     fn in_use(&self) -> Option<InUse> {
         if let Some(run) = &self.running {
+            let app_bin = self.bins.iter().any(|(path, _)| app_owned(path));
+            // The app's own bundle runs it: it holds a person key, or its
+            // executable (else, when it names none, a binary) is in an app.
+            let bundle = run.person_key
+                || match &self.exe {
+                    Some(exe) => app_owned(exe),
+                    None => app_bin && !is_cmux_tui(&run.via),
+                };
             // When the host does not name the daemon's executable, a daemon
             // on a host with a cmux app counts as the app's: never restart
             // what may be the app's daemon. One a cmux session daemon started
             // as `cmux-tui acp` is cmux's too: launchd must not start a
-            // second one beside it.
-            let app = run.person_key
+            // second one beside it. A daemon too old to say who it is counts
+            // as cmux's whenever a cmux-tui or a cmux app is there: it warns,
+            // and nothing is installed or restarted beside it.
+            let app = bundle
                 || self.run_by_cmux_tui
-                || match &self.exe {
-                    Some(exe) => app_owned(exe),
-                    None => self.bins.iter().any(|(path, _)| app_owned(path)),
-                };
+                || (run.cmux_tui_acp.is_none()
+                    && (app_bin
+                        || is_cmux_tui(&run.via)
+                        || self.bins.iter().any(|(path, _)| is_cmux_tui(path))));
             let path = self.exe.clone().unwrap_or_else(|| run.via.clone());
-            return Some(InUse { path, build: run.build.clone(), app, pid: Some(run.pid) });
+            return Some(InUse { path, build: run.build.clone(), app, bundle, pid: Some(run.pid) });
         }
         // No daemon runs: a host with a cmux app is the app's, whatever
         // else is installed, so no standalone daemon is started beside it.
         let app_bin = self.bins.iter().find(|(path, _)| app_owned(path));
         let (path, build) = app_bin.or(self.bins.first())?;
-        Some(InUse { path: path.clone(), build: build.clone(), app: app_bin.is_some(), pid: None })
+        let app = app_bin.is_some();
+        Some(InUse { path: path.clone(), build: build.clone(), app, bundle: app, pid: None })
     }
 
     /// A cmux-tui outside an app bundle (the app's SSH install, `cmux
@@ -458,18 +460,17 @@ impl Probe {
     }
 }
 
-/// Run [`probe_script`]: the running daemon names its own executable and
-/// command line in its `daemon status` (no process is scanned). When it
-/// runs as `cmux-tui acp …`, resolve [`DAEMON_BIN`] to tell enroll's own
-/// link from a cmux session daemon. Reads only.
+/// Run [`probe_script`]: the running daemon says in its `daemon status`
+/// what its executable is and whether it runs as `cmux-tui acp …` (no
+/// process is scanned, and its command line is never read). When it does,
+/// resolve [`DAEMON_BIN`] to tell enroll's own link from a cmux session
+/// daemon. Reads only.
 fn probe(r: &dyn Remote) -> Result<Probe> {
     let mut probe = parse_probe(&r.exec(&probe_script(), None)?.stdout);
-    if let Some(args) = probe.running.as_ref().map(|run| run.args.clone())
-        && runs_as_cmux_tui_acp(&args)
-    {
+    if probe.running.as_ref().and_then(|run| run.cmux_tui_acp) == Some(true) {
         let script = format!("readlink -f {DAEMON_BIN} 2>/dev/null");
         let stdout = r.exec(&script, None)?.stdout;
-        probe.run_by_cmux_tui = cmux_session_daemon(&args, probe.exe.as_deref(), stdout.trim());
+        probe.run_by_cmux_tui = cmux_session_daemon(true, probe.exe.as_deref(), stdout.trim());
     }
     Ok(probe)
 }
@@ -532,13 +533,19 @@ fn app_build(step: Step, host: &str, used: &InUse, ok: &str) -> StepResult {
             StepState::Warn,
             format!("{host} runs cmux's own acpmux (build {}, this is {want})", b.unwrap_or("?")),
         )
-        // A version skew: name the matching CLI or the one command that
-        // installs this build (plans/cmux-next/version-skew.md, step 4).
-        .with_fix(match b {
-            Some(b) => format!(
+        // A version skew: name the matching CLI, or the one way to put this
+        // build there for the daemon's owner (plans/cmux-next/version-skew.md,
+        // step 4): the app's own updater for a bundle, else `cmux remote
+        // install` (a session daemon or the app's SSH install).
+        .with_fix(match (b, used.bundle) {
+            (Some(b), true) => format!(
+                "Enroll {host} from a cmux of build {b}, or use cmux > Check for Updates in the cmux app on {host}."
+            ),
+            (None, true) => format!("Use cmux > Check for Updates in the cmux app on {host}."),
+            (Some(b), false) => format!(
                 "Enroll {host} from a cmux of build {b}, or run `cmux remote install` for {host}."
             ),
-            None => format!("Run `cmux remote install` for {host}."),
+            (None, false) => format!("Run `cmux remote install` for {host}."),
         }),
     }
 }

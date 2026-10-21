@@ -418,12 +418,11 @@ impl Hub {
             "version": VERSION,
             "build": BUILD,
             "pid": std::process::id(),
-            // Its own executable and command line, so a client (host enroll)
-            // tells which program runs it without scanning processes.
-            "exe": std::env::current_exe().ok(),
-            "argv": std::env::args_os()
-                .map(|a| a.to_string_lossy().into_owned())
-                .collect::<Vec<_>>(),
+            // Its own executable, and whether it runs as `cmux-tui acp …`, so a
+            // client (host enroll) tells which program runs it without scanning
+            // processes. Never its command line: `--token` is on it.
+            "exe": std::env::current_exe().ok().map(|e| e.to_string_lossy().into_owned()),
+            "runsAsCmuxTuiAcp": runs_as_cmux_tui_acp(std::env::args_os()),
             "startedAt": self.started_at,
             // Whether this run holds a person key, and its id (`hub/person.rs`):
             // the app checks that a daemon it started with a key still runs.
@@ -457,6 +456,17 @@ impl Hub {
             "chiefMuxHome": crate::config::chief_builtins::Context::current().chief_home,
         })
     }
+}
+
+/// Whether a command line runs `cmux-tui acp …` (a cmux session daemon, or
+/// enroll's `~/.local/bin/acpmux` link to a cmux-tui), not `acpmux …`.
+pub(crate) fn runs_as_cmux_tui_acp<A: AsRef<std::ffi::OsStr>>(
+    args: impl IntoIterator<Item = A>,
+) -> bool {
+    let mut args = args.into_iter();
+    let first = args.next();
+    first.is_some_and(|a| std::path::Path::new(a.as_ref()).file_name() == Some("cmux-tui".as_ref()))
+        && args.next().is_some_and(|a| a.as_ref() == "acp")
 }
 
 #[cfg(test)]
