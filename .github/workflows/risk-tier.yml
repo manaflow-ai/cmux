@@ -43,10 +43,13 @@ jobs:
       pull-requests: write
       issues: write
     steps:
-      - name: Checkout the classifier at the pull request's base commit
+      # The tip of feat-cmux-next (the branch filter makes base.ref that branch), not base.sha: base.sha
+      # is the base as of the pull request's last push, so a label or description event on an older pull
+      # request would grade it with an older classifier, or find none from before #21718.
+      - name: Checkout the classifier at the tip of the pull request's base branch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ github.event.pull_request.base.ref }}
           persist-credentials: false
           sparse-checkout: scripts/ci/risk_tier.py
           sparse-checkout-cone-mode: false
@@ -54,7 +57,7 @@ jobs:
       # pull request merged recently (a stale base). A fresh repository with full blobs, not the
       # sparse checkout above: actions/checkout makes that a blobless partial clone, and blame in
       # one fetches blobs one by one, past its timeout on busy files. This takes about 60 s and
-      # 270 MB, then blame takes seconds. Capped at 150 s so the job (5 min) always finishes: a
+      # 270 MB, then blame takes seconds. Capped at 120 s so the job (8 min) always finishes: a
       # slow fetch skips the check with a warning instead of turning the check red.
       - name: Fetch the base's recent history
         env:
