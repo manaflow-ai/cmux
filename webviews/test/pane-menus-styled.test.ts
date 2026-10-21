@@ -15,7 +15,7 @@ const sources = (dir: string): string[] =>
   fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const file = path.join(dir, entry.name);
     if (entry.isDirectory()) return sources(file);
-    return /\.tsx$/.test(entry.name) && !/\.(gallery|test)\.tsx$/.test(entry.name) ? [file] : [];
+    return entry.name.endsWith(".tsx") && !/\.(gallery|test)\.tsx$/.test(entry.name) ? [file] : [];
   });
 
 /** Each `<MenuPopup …>` with no `className`, as "file:line". */
