@@ -341,6 +341,41 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
     },
   );
 
+  // The same with a grown composer: the reader typed five lines (the rows are drawn up by the card's
+  // growth while the view follows) when the queued prompt is sent. The queue card leaving and its
+  // prompt arriving move the reply only up on every painted frame: the room held for the prompt
+  // keeps the rows where they were drawn, and never drops them by the card, then lifts them back.
+  test.each(engines.map(([name]) => name))(
+    "%s: a queued prompt sent while the composer is grown moves the view up only",
+    async (name) => {
+      const page = await open(name);
+      const turn = events.length;
+      const marker = `Grown marker ${turn}`;
+      await stream(`p-${turn}`, `Grown turn ${turn}`, marker, 40, (index) => {
+        if (index === 10) enqueue(`q-${turn}`, "then write the changelog line for it");
+      });
+      await page.waitForTimeout(400);
+      await page.locator(".acpmux-md-field").first().click();
+      for (let line = 1; line <= 5; line++) {
+        await page.keyboard.type(`Line ${line} of a draft`);
+        await page.keyboard.press("Shift+Enter");
+        await page.waitForTimeout(60);
+      }
+      await page.waitForTimeout(400);
+      await sample(page, marker);
+      endTurn();
+      // acpmux sends the queued prompt as the turn ends: its card leaves as its bubble arrives.
+      unqueue("dequeued", `q-${turn}`);
+      await stream(`q-${turn}`, "then write the changelog line for it", `Next grown marker ${turn}`, 30);
+      endTurn();
+      await page.waitForTimeout(800);
+      const frames = await stop(page);
+      expect(frames.filter((frame) => frame.marker !== undefined).length).toBeGreaterThan(5);
+      expect({ drops: drops(frames), atEnd: (await fromEnd(page)) <= 4 }).toEqual({ drops: [], atEnd: true });
+      await page.close();
+    },
+  );
+
   /// How far the last row sits above the bottom stack's top, once the transcript is at rest. A new row
   /// rises in (cv-enter) and growth glides in (GLIDE_MS); a read mid-way put the row up to 41px low
   /// in Chromium on a loaded machine, though scrollTop never moved. Infinite ones (a spinner) aside.
