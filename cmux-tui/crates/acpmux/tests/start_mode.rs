@@ -698,3 +698,27 @@ async fn deny_all_as_the_default_policy_holds_on_every_chat() {
     assert_eq!(app.mode(&live).await, "read-only");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A Claude Code profile that pins full access in its argv started in it under a narrower policy:
+/// its start returned before the policy's mode was held, so it ran every tool without asking.
+#[tokio::test]
+async fn a_pinned_claude_chat_with_a_narrower_policy_leaves_full_access() {
+    let dir = home("policy-pinned", json!({"defaultPermissionMode": "fullAccess"}));
+    let mut config: Value =
+        serde_json::from_slice(&std::fs::read(dir.join("config.json")).unwrap()).unwrap();
+    config["harnesses"]["yolo"] = json!({"argv": ["python3", FAKE_CLAUDE, "--permission-mode",
+        "bypassPermissions", "--dangerously-skip-permissions"], "kind": "claude-stdio"});
+    std::fs::write(dir.join("config.json"), serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    let (id, _) = app.chat_with_policy(&dir, "yolo", "approve-reads").await;
+    let r = app
+        .call(
+            "session/prompt",
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": "hi"}]}),
+        )
+        .await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(app.mode(&id).await, "default");
+    let _ = std::fs::remove_dir_all(&dir);
+}
