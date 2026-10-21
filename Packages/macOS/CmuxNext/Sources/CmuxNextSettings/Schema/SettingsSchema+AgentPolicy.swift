@@ -296,6 +296,8 @@ extension SettingsSchema {
         "updates.meteredNetwork": .network,
         // Which builds this Mac installs (a faster ring runs less-tested code): the person's call.
         "updates.channel": .userOnly,
+        // Web UI updates download and run new page code from files.cmux.com.
+        "updates.web": .network,
         // How long a nightly waits before it restarts into an update: the person's call.
         "updates.idleInstallMaxWaitSeconds": .userOnly,
         "updates.idleInstallQuietSeconds": .userOnly,

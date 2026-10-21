@@ -131,6 +131,48 @@ fn missed_turn(wanted: bool, turn: Option<&TurnCarrier>, options: &DialOptions) 
     wanted && turn.is_none() && super::turn::turn_servers(&options.ice_servers) != (None, None)
 }
 
+/// At most this many host addresses are offered (an announcement carries
+/// at most 16 endpoints, with the reflexive and relayed ones).
+const MAX_HOST_IPS: usize = 8;
+
+/// The IPv4 addresses of this machine's interfaces (the tunnel's socket is
+/// IPv4), as WebRTC gathers its host candidates.
+fn interface_ips() -> Vec<IpAddr> {
+    webrtc::util::ifaces::ifaces()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|interface| interface.addr.map(|addr| addr.ip()))
+        .collect()
+}
+
+/// The host addresses offered as endpoints: the primary one (the default
+/// route's) first, then every other usable IPv4 interface address. A Mac on
+/// Ethernet and Wi-Fi is reachable from a phone on the Wi-Fi only at its
+/// Wi-Fi address, and a peer on Tailscale only at its Tailscale one; WebRTC
+/// offers them all as host candidates, and so does this. Loopback (added on
+/// its own in tests), link-local and IPv6 addresses are left out, and CGNAT
+/// (Tailscale) ones when the options exclude them.
+fn host_ips(primary: Option<IpAddr>, interfaces: &[IpAddr], options: &DialOptions) -> Vec<IpAddr> {
+    let usable = |ip: &IpAddr| match ip {
+        IpAddr::V4(v4) => {
+            !(v4.is_loopback()
+                || v4.is_link_local()
+                || v4.is_unspecified()
+                || v4.is_multicast()
+                || v4.is_broadcast()
+                || (options.exclude_cgnat && super::is_cgnat(*ip)))
+        }
+        IpAddr::V6(_) => false,
+    };
+    let mut ips: Vec<IpAddr> = Vec::new();
+    for ip in primary.into_iter().chain(interfaces.iter().copied()) {
+        if usable(&ip) && !ips.contains(&ip) && ips.len() < MAX_HOST_IPS {
+            ips.push(ip);
+        }
+    }
+    ips
+}
+
 /// Host endpoints of a socket on `port` (no STUN).
 fn host_endpoints(port: u16, options: &DialOptions) -> Vec<SocketAddr> {
     if no_plain_udp(options) {
@@ -140,7 +182,7 @@ fn host_endpoints(port: u16, options: &DialOptions) -> Vec<SocketAddr> {
     if options.include_loopback {
         endpoints.push(SocketAddr::new(Ipv4Addr::LOCALHOST.into(), port));
     }
-    if let Some(ip) = primary_local_ip() {
+    for ip in host_ips(primary_local_ip(), &interface_ips(), options) {
         endpoints.push(SocketAddr::new(ip, port));
     }
     endpoints
@@ -405,6 +447,34 @@ const REPLAY_GAP: Duration = Duration::from_secs(1);
 /// While the confirmed route is TURN, plain UDP candidates are tried this
 /// often, so the session goes back to a direct path once one works again.
 const UPGRADE_SPRAY_GAP: Duration = Duration::from_secs(5);
+/// A handshake initiation of ours that nothing from the peer has answered
+/// yet is sent again after each of these waits (3.75 s in all), on the TURN
+/// routes only (through our allocation, and to the peer's relayed
+/// addresses): those are what the race below loses, and a copy on every
+/// route would count against the peer's handshake rate limit (10 a second
+/// per peer, cookie replies past it). The first one can be lost on a route that
+/// starts working a moment later: the answering Mac's first initiation
+/// reaches the phone's TURN server before the phone has a permission for
+/// the Mac, and behind a NAT whose mapping depends on the destination the
+/// phone's own initiation (sent to the Mac's announced reflexive address,
+/// mapped toward the STUN server) never arrives either. boringtun itself
+/// retries only after its REKEY_TIMEOUT (5 s). A duplicate the peer already
+/// answered is dropped there (its timestamp is not newer).
+const HANDSHAKE_REPEATS: [Duration; 4] = [
+    Duration::from_millis(250),
+    Duration::from_millis(500),
+    Duration::from_millis(1000),
+    Duration::from_millis(2000),
+];
+
+/// Our latest handshake initiation, until the peer answers ([`HANDSHAKE_REPEATS`]).
+struct HandshakeRepeat {
+    datagram: Bytes,
+    class: SendClass,
+    /// Repeats already sent.
+    sent: usize,
+    timer: std::pin::Pin<Box<tokio::time::Sleep>>,
+}
 
 /// The carriers: one UDP socket for direct paths and an optional TURN
 /// allocation (over UDP, or over TLS where UDP is blocked).
@@ -506,6 +576,8 @@ struct HybridUnderlay {
     /// otherwise poll it until a timer fires (the old socket's readiness is
     /// what the task waits on).
     recv_waker: Option<std::task::Waker>,
+    /// Our handshake initiation still waiting for an answer.
+    handshake_repeat: Option<HandshakeRepeat>,
 }
 
 const UDP_PATH: PathId = PathId(0);
@@ -571,6 +643,7 @@ impl HybridUnderlay {
             last_replay: None,
             replay_pending: false,
             recv_waker: None,
+            handshake_repeat: None,
         };
         underlay.set_peer_endpoints(spec.peer_endpoints.to_vec());
         underlay
@@ -866,6 +939,56 @@ impl HybridUnderlay {
         }
     }
 
+    /// Remember a handshake initiation we just sent, to repeat it until the
+    /// peer answers (a newer one replaces it).
+    fn note_initiation(&mut self, datagram: &[u8], class: SendClass) {
+        if cmux_transport::classify(datagram) != cmux_transport::DatagramClass::WireGuardInitiation {
+            return;
+        }
+        self.handshake_repeat = Some(HandshakeRepeat {
+            datagram: Bytes::copy_from_slice(datagram),
+            class,
+            sent: 0,
+            timer: Box::pin(tokio::time::sleep(HANDSHAKE_REPEATS[0])),
+        });
+        // The receive task polls the timer: have it register this one.
+        self.wake_receiver();
+    }
+
+    /// Send the pending handshake initiation again when its wait is over.
+    fn poll_handshake_repeat(&mut self, cx: &mut Context<'_>) {
+        loop {
+            let Some(repeat) = &mut self.handshake_repeat else { return };
+            if repeat.timer.as_mut().poll(cx).is_pending() {
+                return;
+            }
+            repeat.sent += 1;
+            let (datagram, class, sent) = (repeat.datagram.clone(), repeat.class, repeat.sent);
+            match HANDSHAKE_REPEATS.get(sent) {
+                Some(wait) => repeat.timer.as_mut().reset(Instant::now() + *wait),
+                None => self.handshake_repeat = None,
+            }
+            tracing::debug!(repeat = sent, "WireGuard repeats an unanswered handshake initiation");
+            self.send_on_relays(&datagram, class);
+        }
+    }
+
+    /// Through our TURN allocation, and plain UDP to the peer's relayed
+    /// addresses (its TURN allocation).
+    fn send_on_relays(&mut self, datagram: &[u8], class: SendClass) {
+        self.send_turn_targets(datagram, class);
+        if no_plain_udp(&self.options) {
+            return;
+        }
+        let mut relayed: Vec<SocketAddr> = self.labels.peer_relayed.iter().copied().collect();
+        relayed.sort();
+        for addr in relayed {
+            if !self.refused.contains(&addr) && !self.send_udp(datagram, addr) {
+                self.refused.insert(addr);
+            }
+        }
+    }
+
     fn wake_receiver(&self) {
         if let Some(waker) = &self.recv_waker {
             waker.wake_by_ref();
@@ -1069,6 +1192,7 @@ impl Underlay for HybridUnderlay {
         let class = send_class(datagram);
         self.record(datagram, class);
         self.transmit(datagram, class);
+        self.note_initiation(datagram, class);
     }
 
     fn send_classified(&mut self, datagram: &[u8], priority: cmux_wg::Priority) {
@@ -1076,6 +1200,7 @@ impl Underlay for HybridUnderlay {
         let class = send_class_of(datagram, priority);
         self.record(datagram, class);
         self.transmit(datagram, class);
+        self.note_initiation(datagram, class);
     }
 
     fn poll_recv(&mut self, cx: &mut Context<'_>, buffer: &mut [u8]) -> Poll<io::Result<Received>> {
@@ -1085,6 +1210,7 @@ impl Underlay for HybridUnderlay {
         while let Poll::Ready(Some(control)) = self.control.poll_recv(cx) {
             self.apply(control);
         }
+        self.poll_handshake_repeat(cx);
         loop {
             let mut read = ReadBuf::new(buffer);
             match self.socket.poll_recv_from(cx, &mut read) {
@@ -1133,6 +1259,8 @@ impl Underlay for HybridUnderlay {
             _ => return,
         };
         let Some(addr) = origin.addr else { return };
+        // The peer answered (or sent anything authenticated): the path works.
+        self.handshake_repeat = None;
         let route = Route { carrier, addr };
         if let Some(roam) = &self.roam {
             roam.mark("roam_first_packet");
@@ -1747,6 +1875,94 @@ mod tests {
         });
         underlay.authenticated(udp_from(new));
         assert_eq!(underlay.direct, Some(Route { carrier: Carrier::Udp, addr: new }));
+    }
+
+    /// A Mac on Ethernet and Wi-Fi with Tailscale (the user's laptop: en7
+    /// 172.20.21.166 primary, en0 10.88.184.154, utun 100.89.49.105) offered
+    /// only its primary address, so a phone on the Wi-Fi or on Tailscale had
+    /// no direct route, while WebRTC's host candidates cover every interface.
+    /// Every usable IPv4 address is offered, the primary one first.
+    #[test]
+    fn host_endpoints_cover_every_interface_primary_first() {
+        let ip = |text: &str| text.parse::<IpAddr>().unwrap();
+        let interfaces = [
+            ip("127.0.0.1"),
+            ip("10.88.184.154"),
+            ip("172.20.21.166"),
+            ip("169.254.12.3"),
+            ip("100.89.49.105"),
+            ip("fe80::1"),
+            ip("2001:db8::7"),
+            ip("10.88.184.154"),
+        ];
+        let options = DialOptions::default();
+        assert_eq!(
+            host_ips(Some(ip("172.20.21.166")), &interfaces, &options),
+            vec![ip("172.20.21.166"), ip("10.88.184.154"), ip("100.89.49.105")],
+        );
+        // Tailscale addresses stay out when CGNAT is excluded; no primary
+        // (no default route) still offers the others.
+        let no_cgnat = DialOptions { exclude_cgnat: true, ..DialOptions::default() };
+        assert_eq!(host_ips(None, &interfaces, &no_cgnat), vec![ip("10.88.184.154"), ip("172.20.21.166")]);
+    }
+
+    /// The answering Mac's first handshake initiation goes out when its tunnel
+    /// starts, before the phone has a TURN permission for the Mac (the phone
+    /// has not seen `wg-resp` yet), so the phone's TURN server drops it. Behind
+    /// a NAT whose mapping depends on the destination (the office NAT: one
+    /// port toward the STUN server, another toward the relay), the phone's
+    /// own initiation goes to the Mac's announced reflexive address and is
+    /// dropped too. Nothing then reaches either side until boringtun's next
+    /// initiation 5 s later: every TURN link came up in 5.1 to 6.1 s, right
+    /// after the Mac logged `HANDSHAKE(REKEY_TIMEOUT)`. An unanswered
+    /// initiation is sent again within the first seconds, until the peer
+    /// answers.
+    #[tokio::test(start_paused = true)]
+    async fn an_unanswered_handshake_initiation_is_repeated_until_the_peer_answers() {
+        // A plain socket: its reads see what loopback delivered at once
+        // (a tokio socket's `try_recv` waits for the reactor to see it).
+        let peer = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        peer.set_nonblocking(true).unwrap();
+        let relayed = peer.local_addr().unwrap();
+        let (reach_out, _reaches) = mpsc::unbounded_channel();
+        let (_control, control) = mpsc::unbounded_channel();
+        let mut underlay = HybridUnderlay::new(
+            UnderlaySpec {
+                socket: UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+                peer_endpoints: &[relayed.to_string()],
+                peer_relayed: &[relayed.to_string()],
+                peer_relayed_tls: &[],
+                peer_version: WG_VERSION,
+                turn: None,
+                reach_out,
+                path: watch::channel(LinkPath::NoPath).0,
+                control,
+            },
+            &DialOptions::default(),
+        );
+        let mut initiation = vec![0u8; cmux_transport::classify::WG_INITIATION_LEN];
+        initiation[0] = 1;
+        let copies = |peer: &std::net::UdpSocket| {
+            let mut buffer = [0u8; 256];
+            std::iter::from_fn(|| peer.recv(&mut buffer).ok()).count()
+        };
+        underlay.send(&initiation);
+        // Short of boringtun's own retry (REKEY_TIMEOUT, 5 s).
+        drive(&mut underlay, Duration::from_millis(4500)).await;
+        assert!(copies(&peer) >= 3, "the initiation went out once and was never repeated");
+        // Answered: no more copies.
+        underlay.send(&initiation);
+        underlay.authenticated(Origin { path: UDP_PATH, addr: Some(relayed) });
+        let _ = copies(&peer);
+        drive(&mut underlay, Duration::from_millis(4500)).await;
+        assert_eq!(copies(&peer), 0, "an answered initiation was repeated");
+    }
+
+    /// Poll the underlay's receive side (which runs its timers) for `wait`.
+    async fn drive(underlay: &mut HybridUnderlay, wait: Duration) {
+        let mut buffer = vec![0u8; 2048];
+        let receive = std::future::poll_fn(|cx| underlay.poll_recv(cx, &mut buffer));
+        let _ = tokio::time::timeout(wait, receive).await;
     }
 
     /// The phone roams to a new TURN allocation, and the Mac replays only
