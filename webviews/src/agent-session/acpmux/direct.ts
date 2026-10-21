@@ -1128,12 +1128,14 @@ export class AcpmuxDirectClient {
           page = await this.attach(sessionId, generation, keptThrough);
         } catch (error) {
           // The chat could not be read: a tail drawn from the host must not stay on screen as if
-          // this page had read the chat (the connect's own failure path draws what it shows).
+          // this page had read the chat, here as in `select` — and the pane has to be told, or it
+          // keeps drawing the snapshot that carried those rows.
           if (keptThrough > 0 && generation === this.selectionGeneration && this.selectedSessionId === sessionId) {
             forgetTail(sessionId);
             this.events = [];
             this.queue = [];
             this.rebuild();
+            this.emit(this.socket?.readyState === WebSocket.OPEN ? "failed" : "disconnected");
           }
           throw error;
         }

@@ -93,6 +93,9 @@ export function readHostTail(sessionId: string): Promise<KeptTail | undefined> {
 /// The host, through the seam the pane's other host calls go through (App.tsx `callNative`): the
 /// actions a test or automation harness installed, else the app host itself.
 function callHost<T>(method: string, params: Record<string, unknown>): Promise<T> {
+  // The client also runs with no page around it (its own tests, tools): no window is no host, and
+  // every caller here takes a refusal as "no tail kept".
+  if (typeof window === "undefined") return Promise.reject(new Error("the agent pane has no page"));
   const direct = window.cmuxAcpmuxActions?.[method];
   if (direct) return direct(params) as Promise<T>;
   return postNative<T>(method, params);
