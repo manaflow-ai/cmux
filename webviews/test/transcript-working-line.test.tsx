@@ -43,7 +43,25 @@ test("while a call runs, the status line names it beside the turn's time", () =>
   expect(status.doing).toBe("bun test");
   const html = drawn(status);
   expect(text(html)).toBe("bun test 26s");
+});
+
+// Lawrence (2026-10-20): the grey dots before a running command read as a cropped terminal
+// thumbnail. A command in flight leads with the terminal glyph, as Claude desktop's line does.
+test("a command in flight leads with the terminal glyph, not the dots", () => {
+  const status = statusLine([call("cd ~/Projects/cmux && git log", "in_progress")]);
+  expect(status.doingCommand).toBe(true);
+  const html = drawn(status);
+  expect(html).toContain("cv-worked__glyph");
+  expect(html).not.toContain("cv-working-mark");
+});
+
+test("any other call in flight keeps the working dots", () => {
+  const read = { kind: "tool", text: "", tool: { id: "r", title: "Read app.ts", kind: "read", status: "in_progress" } };
+  const status = statusLine([read]);
+  expect(status.doingCommand).toBeUndefined();
+  const html = drawn(status);
   expect(html).toContain("cv-working-mark");
+  expect(html).not.toContain("cv-worked__glyph");
 });
 
 test("between calls, the line reads Working for, with the same mark", () => {
@@ -80,7 +98,17 @@ test("the working dots are the only running motion: Thinking has no shimmer", as
     new URL("../src/agent-session/acpmux/conversation/conversation.css", import.meta.url),
   ).text();
   expect(css).not.toContain("cv-thinking-sweep");
-  expect(css).toMatch(/animation: cv-working-dot 2s /);
+  expect(css).toMatch(/animation: cv-working-dot 1.4s /);
+});
+
+// Leo (2026-10-20): the dots follow the theme's accent, not a copied Claude orange, and not the
+// text color the pane's own accent falls back to.
+test("the working dots take the theme accent", async () => {
+  const css = await Bun.file(
+    new URL("../src/agent-session/acpmux/conversation/conversation.css", import.meta.url),
+  ).text();
+  const dot = css.match(/\.cv-working-mark > span \{[^}]*\}/)?.[0] ?? "";
+  expect(dot).toContain("background: var(--cmux-accent, var(--agent-accent");
 });
 
 // Find counts and visits only transcript rows (findMatches skips the working row), so the status
