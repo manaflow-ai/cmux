@@ -5,7 +5,7 @@
 // the detail first. At the normal width the header is one line.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
-import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
