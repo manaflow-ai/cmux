@@ -158,7 +158,23 @@ class Matrix:
         rc, out, err = self.d.json(["send", "--timeout", str(self.turn_timeout), "--stall", "150", name, prompt], timeout=self.turn_timeout + 60)
         if rc != 0:
             return False, f"rc={rc} {err.strip()[-300:]}"
-        return True, str(out.get("reply") or "")
+        # The turn's reply as the session's log holds it: `acpmux send`'s own reply can miss a
+        # fast agent's first chunks (seen with codex-app-server), which is no fork's fault.
+        # The log's last chunk can land just after `send` returns: settle, then keep the
+        # longer of the two (the log misses nothing at the start, the CLI nothing at the end).
+        time.sleep(1)
+        logged, said = self.last_reply(name), str(out.get("reply") or "")
+        return True, logged if len(logged) >= len(said) else said
+
+    def last_reply(self, name: str) -> str:
+        events = self.events(name)
+        start = max((i for i, e in enumerate(events) if e.get("kind") == "user_message"), default=-1)
+        text = []
+        for e in events[start + 1 :]:
+            if e.get("kind") == "agent_message_chunk":
+                update = ((e.get("msg") or {}).get("params") or {}).get("update") or {}
+                text.append(str((update.get("content") or {}).get("text") or ""))
+        return "".join(text)
 
     def fork(self, parent: str, name: str) -> tuple[bool, str]:
         p = self.d.run(["session", "fork", "--json", parent, "-n", name], timeout=120)
@@ -201,11 +217,11 @@ class Matrix:
     # -- the chat every case forks ---------------------------------------
     def seed(self) -> tuple[bool, str]:
         self.parent = f"{self.tag}-chat"
-        ok, why = self.new(self.parent, f"Remember the secret token {self.t1}. Reply with just OK.")
+        ok, why = self.new(self.parent, f"Remember the code word {self.t1}. Reply with just OK.")
         if not ok and "connect" in why:  # the daemon's socket was not ready yet: once more
             time.sleep(3)
             self.parent = f"{self.tag}-chat2"
-            ok, why = self.new(self.parent, f"Remember the secret token {self.t1}. Reply with just OK.")
+            ok, why = self.new(self.parent, f"Remember the code word {self.t1}. Reply with just OK.")
         if not ok:
             return False, f"turn 1: {why}"
         # A harness that answers with an error text (a model the account lacks) is no chat to fork.
@@ -249,7 +265,7 @@ class Matrix:
         return ("fail", "; ".join(problems)) if problems else ("pass", f"prompts={len(prompts)} replies={replies} tools={tools}")
 
     def case_recall(self) -> tuple[str, str]:
-        ok, reply = self.send(self.fork1, f"FORKMARK. What secret token did I give you first? Also remember a second token {self.u}. Reply with only the first token.")
+        ok, reply = self.send(self.fork1, f"FORKMARK. What code word did I give you first? Also remember a second code word {self.u}. Reply with only the first code word.")
         if not ok:
             return "fail", reply
         return ("pass", reply[:80]) if self.recall_ok(reply, self.t1) else ("fail", f"reply {reply[:200]!r}")
@@ -260,13 +276,13 @@ class Matrix:
             return "fail", f"chat prompts changed: {prompts[len(self.parent_prompts):]}"
         if any("FORKMARK" in p for p in prompts):
             return "fail", "the fork's prompt reached the chat"
-        ok, reply = self.send(self.parent, "What secret token did I give you? Reply with only the token.")
+        ok, reply = self.send(self.parent, "What code word did I give you? Reply with only the code word.")
         if not ok:
             return "fail", reply
         return ("pass", reply[:80]) if self.recall_ok(reply, self.t1) else ("fail", f"reply {reply[:200]!r}")
 
     def case_isolation(self) -> tuple[str, str]:
-        ok, reply = self.send(self.parent, "Did I give you a token that starts with OTTER? If yes reply with it, else reply NONE.")
+        ok, reply = self.send(self.parent, "Did I give you a code word that starts with OTTER? If yes reply with it, else reply NONE.")
         if not ok:
             return "fail", reply
         return ("fail", f"chat knows the fork's token: {reply[:120]!r}") if self.u in reply else ("pass", reply[:80])
@@ -275,7 +291,7 @@ class Matrix:
         res: dict[str, tuple[bool, str]] = {}
 
         def go(name: str) -> None:
-            res[name] = self.send(name, "Reply with only the first secret token I gave you.")
+            res[name] = self.send(name, "Reply with only the first code word I gave you.")
 
         ts = [threading.Thread(target=go, args=(n,)) for n in (self.parent, self.fork1)]
         t0 = time.time()
@@ -291,7 +307,7 @@ class Matrix:
         ok, why = self.fork(self.fork1, ff)
         if not ok:
             return "fail", f"fork: {why}"
-        ok, reply = self.send(ff, "Reply with the first secret token and the second token, separated by a space, nothing else.")
+        ok, reply = self.send(ff, "Reply with the first code word and the second code word, separated by a space, nothing else.")
         if not ok:
             return "fail", reply
         return ("pass", reply[:80]) if self.recall_ok(reply, self.t1, self.u) else ("fail", f"reply {reply[:200]!r}")
@@ -314,7 +330,7 @@ class Matrix:
             return ("pass", f"status={status}; {outcome}") if clear_refusal(why) else ("fail", outcome)
         if not self.wait_idle(fb, 120):
             return "fail", "busy fork never became ready"
-        ok2, reply = self.send(fb, "Reply with only the first secret token I gave you.")
+        ok2, reply = self.send(fb, "Reply with only the first code word I gave you.")
         if not ok2:
             return "fail", f"status={status}; fork's turn: {reply}"
         if not self.recall_ok(reply, self.t1):
@@ -328,12 +344,12 @@ class Matrix:
         ok, why = self.fork(self.parent, fr)
         if not ok:
             return "fail", f"fork after restart: {why}"
-        ok, reply = self.send(fr, "Reply with only the first secret token I gave you.")
+        ok, reply = self.send(fr, "Reply with only the first code word I gave you.")
         if not ok:
             return "fail", reply
         if not self.recall_ok(reply, self.t1):
             return "fail", f"reply {reply[:200]!r}"
-        ok, reply = self.send(self.parent, "Reply with only the first secret token I gave you.")
+        ok, reply = self.send(self.parent, "Reply with only the first code word I gave you.")
         return ("pass", "fork and chat recall after restart") if ok and self.t1 in reply else ("fail", f"chat after restart: {reply[:200]!r}")
 
     def case_empty(self) -> tuple[str, str]:
