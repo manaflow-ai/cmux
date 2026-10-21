@@ -6,6 +6,8 @@
 // FindReveal, the tool group or call that holds it (cx-ncc.70).
 import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
+import { commandFolder } from "./commandFolder";
+import { cleanText, mcpCall, prettyOutput, prettyValue } from "./mcpCalls";
 
 /** One match: the `occurrence`th match of the query in row `rowIndex`. */
 export type FindMatch = { rowIndex: number; rowId: string; occurrence: number };
@@ -18,9 +20,17 @@ const SEARCHED_KINDS = new Set(["user", "assistant"]);
 
 /** What a tool call or thought draws: a thought's text, or a call's command (else its title) and
  * output. Group and run summaries are not counted, so they are not highlighted (`data-find-skip`). */
+/// An MCP call draws its pretty request and response (McpCallRows.tsx); other output draws
+/// without the context a host injects into it, as ToolRow does.
 function drawnText(item: AcpmuxActivity): string {
   const tool = item.tool;
-  return (tool ? [tool.command || tool.title, tool.output] : [item.text]).filter(Boolean).join("\n");
+  if (!tool) return item.text;
+  const call = mcpCall(tool);
+  if (call) return [prettyValue(call.args), prettyOutput(tool.output)].filter(Boolean).join("\n");
+  const shell = tool.kind === "execute" && Boolean(tool.command);
+  const output = shell || !tool.output ? tool.output : cleanText(tool.output);
+  // The command as its rows draw it, without a leading `cd <folder> &&` (commandFolder).
+  return [(tool.command && commandFolder(tool.command).rest) || tool.title, output].filter(Boolean).join("\n");
 }
 
 /** A call's edits' new text, which draws in @pierre/diffs' shadow root, past the page's highlights. */
@@ -156,16 +166,17 @@ export type FindRevealTarget = {
 };
 export const FindReveal = createContext<FindRevealTarget | undefined>(undefined);
 
-/** Whether `row` draws match row `rowId` itself: the row or its copy in an open fold. */
+/** Whether `row` draws match row `rowId` itself: the row, its copy in an open fold, or the run
+ * that absorbed it (turns.ts `mergeShortNotes`). */
 export const isFindRow = (row: AcpmuxRow, rowId: string) =>
-  (row.id === rowId && !row.ended) || row.id === `${rowId}:fold`;
+  (!row.ended && (row.id === rowId || Boolean(row.joined?.includes(rowId)))) || row.id === `${rowId}:fold`;
 
 /** Whether `row` is the edited-files card (turns.ts) that merges edit `rowId`. */
 const isCardOf = (row: AcpmuxRow, rowId: string) => Boolean(row.ended) && (row.merged ?? [row.id]).includes(rowId);
 
 /** Whether `row` is the one `reveal` names. */
 export const isRevealRow = (row: AcpmuxRow, reveal: Pick<FindRevealTarget, "rowId" | "card">) =>
-  row.id === reveal.rowId && Boolean(row.ended) === reveal.card;
+  (row.id === reveal.rowId || Boolean(row.joined?.includes(reveal.rowId))) && Boolean(row.ended) === reveal.card;
 
 /** Where the transcript draws match row `rowId`: the row or its fold copy (isFindRow), else the
  * edited-files card that holds it (an edit after the answer is only there); -1 while hidden. */

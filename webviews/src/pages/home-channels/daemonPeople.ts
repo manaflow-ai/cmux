@@ -45,6 +45,7 @@ export function chief(raw: Json): HomeChief {
     for (const key of ["harness", "model", "effort"] as const) if (str(engine[key])) picked[key] = str(engine[key]);
     if (Object.keys(picked).length > 0) result.engine = picked;
   }
+  if (raw.locked === true) result.locked = true;
   return result;
 }
 

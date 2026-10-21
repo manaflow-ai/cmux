@@ -10,8 +10,9 @@ name: cmux-next fast-tier seed
 # cmux-ci-cache bucket (tests/test_ci_pull_request_caches_are_read_only.py).
 # Pull requests read the bucket's public URL and hold no credential.
 #
-# A seed is one cold build of exactly what the fast tier builds, on the pool the
-# fast tier overflows to, plus the input-time manifest the fast tier replays
+# A seed is one cold build of exactly what the Mac fast tier builds (its Swift
+# entries; the cargo entries run on Linux with their own cargo cache), on the
+# pool the fast tier overflows to, plus the input-time manifest the fast tier replays
 # (scripts/ci/e2e_warm_derived_data.py) so a pull request rebuilds only the
 # files that differ from the seed. It runs when the newest seed is older than
 # SEED_INTERVAL_MINUTES (scripts/cmux-next/fast-tier-seed-due.py), and prunes
@@ -22,11 +23,11 @@ on:
 
 permissions: {}
 
-# One seed at a time. A running seed finishes; a newer push replaces only the
-# pending one.
-concurrency:
-  group: cmux-next-fast-tier-seed-${{ github.ref }}
-  cancel-in-progress: false
+# No workflow-wide concurrency group: each pool's seed has its own lane (the seed
+# job's concurrency). One group for the workflow let seed run 39396578253, queued on
+# a stalled blacksmith-12vcpu-macos-26 from 08:53 on 2026-10-20, hold every later
+# push's seed pending until the next push cancelled it: 299 cancelled seeds, none
+# landed, and every pull request's fast tier built CmuxNext cold (20 to 28 minutes).
 
 env:
   SEED_INTERVAL_MINUTES: "30"
@@ -42,8 +43,19 @@ jobs:
     environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
     permissions:
       contents: read
+    env:
+      # The pools the cmux-next fast tier lands on (scripts/ci/next_macos_cascade.py):
+      # Blacksmith, then hosted macos-26 when Blacksmith is full or stalled. Each needs
+      # its own seed: the cache key holds the workspace path (fast-tier-cache-key.sh),
+      # and the two pools check out to different paths. 6 vCPU, not 12, for Blacksmith:
+      # same image, Xcode pin and workspace path, and the cascade fills 12 vCPU first
+      # (a seed queued there held the old workflow group 85+ minutes, run 39351410275).
+      # A cold hosted build of CmuxNext took 20 to 28 minutes on 2026-10-20.
+      SEED_POOLS: >-
+        [{"pool": "hosted", "runner": "macos-26", "workspace": "/Users/runner/work/cmux/cmux", "timeout": 50},
+        {"pool": "blacksmith", "runner": "blacksmith-6vcpu-macos-26", "workspace": "/Users/runner/_work/cmux/cmux", "timeout": 30}]
     outputs:
-      due: ${{ steps.due.outputs.due }}
+      pools: ${{ steps.due.outputs.pools }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -53,7 +65,7 @@ jobs:
             scripts/ci/r2_cache_census.py
           sparse-checkout-cone-mode: false
 
-      - name: Check the newest seed's age
+      - name: Check each pool's newest seed's age
         id: due
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
@@ -62,21 +74,27 @@ jobs:
         run: |
           set -euo pipefail
           python3 -I scripts/cmux-next/fast-tier-seed-due.py --minutes "$SEED_INTERVAL_MINUTES" \
-            --endpoint-url "$CI_CACHE_R2_ENDPOINT" --bucket "$CI_CACHE_R2_BUCKET" | tee -a "$GITHUB_OUTPUT"
+            --endpoint-url "$CI_CACHE_R2_ENDPOINT" --bucket "$CI_CACHE_R2_BUCKET" \
+            --pools "$SEED_POOLS" | tee -a "$GITHUB_OUTPUT"
 
   seed:
     needs: due
-    if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && needs.due.outputs.due == 'true' }}
-    name: Seed the fast-tier build cache
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-12vcpu-macos-26' }}
-    timeout-minutes: 30
+    if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && needs.due.outputs.pools != '' && needs.due.outputs.pools != '[]' }}
+    name: Seed the fast-tier build cache (${{ matrix.pool }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.due.outputs.pools) }}
+    # One seed at a time per pool. A running seed finishes; a newer push replaces
+    # only the pending one. A stalled pool holds only its own lane.
+    concurrency:
+      group: cmux-next-fast-tier-seed-${{ github.ref }}-${{ matrix.pool }}
+      cancel-in-progress: false
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || matrix.runner }}
+    timeout-minutes: ${{ matrix.timeout }}
     environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
     permissions:
       contents: read
-    # As in the fast tier (cmux-next.yml): cmux-tui-core builds libghostty-vt from ghostty-next.
-    env:
-      GHOSTTY_ZIG_SOURCE: ghostty-next
-      CMUX_GHOSTTY_SRC: ""
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -87,14 +105,17 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
-      - name: Set up pinned cmux-tui Rust
-        uses: ./.github/actions/setup-cmux-tui-rust
-
-      - name: Init the ghostty-next submodule (libghostty-vt for cmux-tui-core)
-        run: bash scripts/ci/init-submodule.sh ghostty-next
-
-      - name: Install zig
-        run: ./scripts/install-zig-ci.sh
+      # The due job judged this pool by its workspace path's seeds; a runner that
+      # checks out elsewhere would write a key no fast tier on the pool restores.
+      - name: Check the workspace is the pool's
+        env:
+          POOL_WORKSPACE: ${{ matrix.workspace }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_WORKSPACE" != "$POOL_WORKSPACE" ]]; then
+            echo "::error title=fast-tier seed::workspace $GITHUB_WORKSPACE is not the pool's $POOL_WORKSPACE (SEED_POOLS)"
+            exit 1
+          fi
 
       - name: Compute fast-tier cache keys
         id: fast-cache-key
@@ -114,7 +135,7 @@ jobs:
       - name: Run the fast tier
         id: tier
         continue-on-error: true
-        run: python3 -I scripts/cmux-next/fast-tier.py --receipt "$RUNNER_TEMP/cmux-next-fast-tier.json"
+        run: python3 -I scripts/cmux-next/fast-tier.py --kind swift --kind script --receipt "$RUNNER_TEMP/cmux-next-fast-tier.json"
 
       - name: Check that every build passed
         id: built
@@ -127,10 +148,10 @@ jobs:
               print(f"{build['status']:5} {build['seconds']:8.1f}s {build['command']}")
           sys.exit(0 if builds and all(b["status"] == "pass" for b in builds) else 1)
           EOF
-          du -sh Packages/macOS/CmuxNext/.build Packages/Shared/CmuxHomeRender/.build cmux-tui/target | tee -a "$GITHUB_STEP_SUMMARY"
+          du -sh Packages/macOS/CmuxNext/.build Packages/Shared/CmuxHomeRender/.build | tee -a "$GITHUB_STEP_SUMMARY"
 
       # The swift archive goes last: its pointer is what a fast tier restores
-      # by prefix, and by then the other two archives of this commit exist.
+      # by prefix, and by then the home archive of this commit exists.
       - name: Save the CmuxHomeRender build
         if: ${{ steps.built.outcome == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
         uses: ./.github/actions/cache-save
@@ -142,18 +163,6 @@ jobs:
           backend: r2
           path: Packages/Shared/CmuxHomeRender/.build
           key: ${{ steps.fast-cache-key.outputs.home-key }}
-
-      - name: Save the cmux-tui cargo target
-        if: ${{ steps.built.outcome == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
-        uses: ./.github/actions/cache-save
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
-          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
-        with:
-          backend: r2
-          path: cmux-tui/target
-          key: ${{ steps.fast-cache-key.outputs.cargo-key }}
 
       - name: Save the CmuxNext build
         if: ${{ steps.built.outcome == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
@@ -180,6 +189,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cmux-next-fast-tier-seed-receipt-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          name: cmux-next-fast-tier-seed-receipt-${{ matrix.pool }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/cmux-next-fast-tier.json
           if-no-files-found: ignore

@@ -1,3 +1,4 @@
+import { recoverTeamVmCreation } from "./team-vm-api-creation.ts";
 import type { Vm } from "@cmux/vm"
 import type { VmApiSettings } from "./cloud-vm-api-config.ts"
 import { sha256Hex } from "./cloud-link.ts"
@@ -60,6 +61,15 @@ export class VmApiTeamDriver implements TeamVmDriver {
     if (this.row.provider_id) { const vm = await this.vm(this.row.provider_id); return { id: vm.id, state: vm.state as ProviderState } }
     const spec = parseTeamVmCreateSpec(this.ledger.apiCreate(name)?.api_spec ?? null)
     if (!spec) throw teamApiFailure("missing pinned image intent", true)
+    const sent = this.ledger.apiCreate(name)
+    if (sent?.api_sent_key && sent.api_sent_at !== null) {
+      const recovered = await recoverTeamVmCreation(this.api, name, this.labels(), spec, true)
+      if (recovered !== null) {
+        const vm = await this.vm(recovered)
+        this.ledger.confirm(name, vm.id)
+        return { id: vm.id, state: vm.state as ProviderState }
+      }
+    }
     const candidate = await this.discover()
     if (candidate && !this.ledger.apiCreate(name)?.api_sent_key) throw teamApiFailure("an allocation exists without this owner's create receipt", true)
     const context = await sha256Hex(JSON.stringify([this.settings.origin, this.tenant, this.settings.key]))

@@ -80,4 +80,29 @@ struct FileHelpersTests {
         }
         Issue.record("the stream ended without a change")
     }
+
+    /// A folder under /private (the temp directory, the macOS screenshot preview folder) reports
+    /// its children by name: FSEvents gives /private/var/... paths, so the watch must compare
+    /// against the real path, not `resolvingSymlinksInPath()`'s /var/... form.
+    @Test(.timeLimit(.minutes(1)))
+    func aFolderUnderPrivateReportsItsChildrenByName() async throws {
+        let temp = try TempFolder()
+        let real = URL(fileURLWithPath: "/private" + temp.url.path, isDirectory: true)
+        try #require(temp.url.path.hasPrefix("/var/"), "the temp folder sits under /var -> /private/var")
+        let stream = FolderWatcher(latency: 0.01).changes(in: real)
+        let writer = Task {
+            var n = 0
+            while !Task.isCancelled {
+                _ = try? temp.file("private-\(n)")
+                n += 1
+                // A bounded, cancelled pause between writes (the real signal is the stream below).
+                try? await Task.sleep(for: .milliseconds(200))
+            }
+        }
+        defer { writer.cancel() }
+        for await change in stream {
+            if case .items(let names) = change, names.contains(where: { $0.hasPrefix("private-") }) { return }
+        }
+        Issue.record("the stream ended without a named change")
+    }
 }

@@ -2659,7 +2659,10 @@ pub(crate) fn prune_unchanged_resource_changes(
             }
             ResourceChange::UpsertTab(tab) => {
                 tab_parents.insert(tab.pane_id.to_string());
-                tab_parents.extend(resource_field_any(
+                // The pane a live tab moves out of; a retired tab that
+                // Reopen Closed makes again under its id left its old pane
+                // when it closed (the validator reads the live row too).
+                tab_parents.extend(live_resource_field(
                     transaction,
                     "resource_tabs",
                     "pane_id",
@@ -3439,6 +3442,15 @@ fn upsert_resource_tab(
     tab: &RegistryTab,
     revision: i64,
 ) -> anyhow::Result<()> {
+    // A retired tab made again (Reopen Closed of that same tab, see below)
+    // takes its identity back before the identity check refuses a tombstone.
+    if tab_is_retired(transaction, tab.public_id.as_str())? {
+        transaction.execute(
+            "UPDATE resource_identities SET deleted_revision = NULL, updated_revision = ?2
+             WHERE public_id = ?1 AND kind = 'tab'",
+            params![tab.public_id.as_str(), revision],
+        )?;
+    }
     upsert_resource_identity(transaction, tab.public_id.as_str(), "tab", revision)?;
     let (content_kind, content_id) = match &tab.content_id {
         ContentPublicId::Terminal(id) => ("terminal", id.as_str()),
@@ -3475,16 +3487,42 @@ fn upsert_resource_tab(
             );
         }
     }
-    if let Some((stored_kind, stored_id)) = transaction
+    let stored = transaction
         .query_row(
-            "SELECT content_kind, content_id FROM resource_tabs WHERE public_id = ?1",
+            "SELECT content_kind, content_id, deleted_revision IS NOT NULL FROM resource_tabs
+             WHERE public_id = ?1",
             [tab.public_id.as_str()],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, bool>(2)?)),
         )
-        .optional()?
-        && (stored_kind != content_kind || stored_id != content_id)
-    {
-        anyhow::bail!("tab {} cannot change its content identity", tab.public_id);
+        .optional()?;
+    match stored {
+        // A retired tab made again: only Reopen Closed of that same tab gets
+        // here (`requested_reopen_tab_id` admits a retired tab id, client ids
+        // must be unknown, random ids never collide), so its link keeps
+        // working (plans/cmux-next/durable-links-DESIGN.md). It takes its new
+        // content (a reopened terminal starts a new one) and lives again.
+        Some((_, _, true)) => {
+            transaction.execute(
+                "UPDATE resource_tabs
+                 SET deleted_revision = NULL, position = ?2, pane_id = ?3, content_kind = ?4,
+                     content_id = ?5, updated_revision = ?6
+                 WHERE public_id = ?1",
+                params![
+                    tab.public_id.as_str(),
+                    i64::try_from(tab.position).context("tab position exceeds SQLite range")?,
+                    tab.pane_id.as_str(),
+                    content_kind,
+                    content_id,
+                    revision,
+                ],
+            )?;
+        }
+        Some((stored_kind, stored_id, false))
+            if stored_kind != content_kind || stored_id != content_id =>
+        {
+            anyhow::bail!("tab {} cannot change its content identity", tab.public_id);
+        }
+        _ => {}
     }
     transaction.execute(
         "INSERT INTO resource_tabs(
@@ -3513,6 +3551,18 @@ fn upsert_resource_tab(
     Ok(())
 }
 
+/// Whether `tab_id` names a retired (closed) tab row.
+fn tab_is_retired(transaction: &Transaction<'_>, tab_id: &str) -> anyhow::Result<bool> {
+    Ok(transaction
+        .query_row(
+            "SELECT deleted_revision IS NOT NULL FROM resource_tabs WHERE public_id = ?1",
+            [tab_id],
+            |row| row.get::<_, bool>(0),
+        )
+        .optional()?
+        .unwrap_or(false))
+}
+
 fn upsert_resource_terminal(
     transaction: &Transaction<'_>,
     public_id: &TerminalPublicId,
@@ -3526,7 +3576,7 @@ fn upsert_resource_terminal(
     {
         require_live_workspace(transaction, &terminal.workspace_key)?;
     }
-    let launch_spec = canonical_json(&terminal.launch_spec)?;
+    let launch_spec = canonical_json(&durable_launch_spec(terminal))?;
     if launch_spec.len() > MAX_LAUNCH_SPEC_BYTES {
         anyhow::bail!("terminal launch spec exceeds {MAX_LAUNCH_SPEC_BYTES} bytes");
     }
@@ -3580,7 +3630,7 @@ fn upsert_resource_terminal(
             terminal.lifecycle.as_str(),
             launch_spec,
             exit,
-            terminal.on_exit.as_str(),
+            terminal.on_exit.column(),
             revision,
             (terminal.lifecycle == TerminalLifecycle::Tombstoned).then_some(revision),
         ],

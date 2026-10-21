@@ -11,6 +11,10 @@ nonisolated struct BrowserEngineChoice: Equatable, Sendable {
     /// The engine came from an existing record or page (reopen, duplicate,
     /// popup), not from the default.
     var inherited = false
+    /// Someone asked for this engine (`--engine`, the other-browser modifier, a
+    /// `browser.siteEngines` rule): a refused protected-media request does not
+    /// move the tab to the other engine (`BrowserProtectedMedia`).
+    var pinned = false
 
     /// What the tab loads when the user gave no URL: Chromium's New Tab
     /// page (new-tab extensions replace it), WebKit's blank page.
@@ -27,6 +31,9 @@ nonisolated struct BrowserEngineChoice: Equatable, Sendable {
 ///   becomes WebKit: it is refused with the reason.
 /// - Else an inherited engine (a reopened or duplicated tab's record, a
 ///   popup's opener). Chromium falls back to WebKit with the reason.
+/// - Else the `browser.siteEngines` rule for the tab's URL (Spotify, Netflix
+///   and other protected-media sites open in WebKit by default), with the same
+///   fallback.
 /// - Else `browser.defaultEngine` (Chromium unless set to WebKit), with the
 ///   same fallback.
 nonisolated enum BrowserEngineResolver {
@@ -37,26 +44,31 @@ nonisolated enum BrowserEngineResolver {
 
     /// `requested` and `inherited` accept the daemon tags (`cef`, `webkit`)
     /// and `chromium`; nil, empty, or anything else means "none".
-    static func resolve(requested: String?, inherited: String? = nil, defaultEngine: BrowserDefaultEngine,
-                        cefUnavailable: CEFUnavailableReason?) -> Outcome {
+    /// `siteEngine` is the `browser.siteEngines` rule for the tab's URL, nil
+    /// when none matches (or the tab has no URL yet).
+    static func resolve(requested: String?, inherited: String? = nil, siteEngine: BrowserDefaultEngine? = nil,
+                        defaultEngine: BrowserDefaultEngine, cefUnavailable: CEFUnavailableReason?) -> Outcome {
         switch explicitEngine(requested) {
         case .webkit?:
-            return .open(BrowserEngineChoice(engine: .webkit))
+            return .open(BrowserEngineChoice(engine: .webkit, pinned: true))
         case .cef?:
             if let cefUnavailable { return .refuse(cefUnavailable) }
-            return .open(BrowserEngineChoice(engine: .cef))
+            return .open(BrowserEngineChoice(engine: .cef, pinned: true))
         case nil:
             break
         }
         let wanted: BrowserEngineTag
         let isInherited: Bool
+        let pinned: Bool
         if let engine = explicitEngine(inherited) {
-            (wanted, isInherited) = (engine, true)
+            (wanted, isInherited, pinned) = (engine, true, false)
+        } else if let siteEngine {
+            (wanted, isInherited, pinned) = (siteEngine == .chromium ? .cef : .webkit, false, true)
         } else {
-            (wanted, isInherited) = (defaultEngine == .chromium ? .cef : .webkit, false)
+            (wanted, isInherited, pinned) = (defaultEngine == .chromium ? .cef : .webkit, false, false)
         }
         guard wanted == .cef, let cefUnavailable else {
-            return .open(BrowserEngineChoice(engine: wanted, inherited: isInherited))
+            return .open(BrowserEngineChoice(engine: wanted, inherited: isInherited, pinned: pinned))
         }
         return .open(BrowserEngineChoice(engine: .webkit, fallback: cefUnavailable, inherited: isInherited))
     }

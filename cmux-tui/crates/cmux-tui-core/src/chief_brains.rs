@@ -134,6 +134,12 @@ fn config() -> Option<BrainsConfig> {
     }
 }
 
+/// The Chief home of this daemon's brains config (`home`), when it runs
+/// brains: the default Chief's own brain home, and the root of the others'.
+pub(crate) fn configured_home() -> Option<PathBuf> {
+    config().map(|config| config.home)
+}
+
 /// The brain directory of Chief `chief` under the Chief home `home`: the
 /// last 8 characters of its id (40 random bits of the ULID), lowercased.
 pub fn brain_home(home: &Path, chief: &str) -> PathBuf {

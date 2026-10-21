@@ -112,8 +112,6 @@ use hosted_callbacks::hosted_terminal_callbacks;
 use hosted_reader::HostedReader;
 #[cfg(any(unix, windows))]
 mod host_kitty_limits;
-#[cfg(all(test, unix))]
-mod journal_failure_tests;
 #[cfg(any(unix, windows))]
 mod journal_reconnect;
 #[cfg(any(unix, windows))]
@@ -706,7 +704,7 @@ impl Surface {
         }
         let initial_color_revision = term.color_revision();
         let initial_cursor_activity = term.cursor_activity().ok();
-        let title = term.title().unwrap_or_default();
+        let title = crate::terminal_title::read(&term);
         let pwd = term.pwd();
         let mut mouse_encoders = MouseEncoders::new()?;
         mouse_encoders.sync_from_terminal(&term);
@@ -749,7 +747,6 @@ impl Surface {
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
                 journal_capture_open: AtomicBool::new(true),
-                journal_capture_disabled: AtomicBool::new(false),
                 journal_capture_reserved: AtomicBool::new(false),
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),

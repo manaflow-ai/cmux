@@ -35,20 +35,12 @@ extension AppControl {
                 let check = call.params["check"]?.boolValue == true
                 let stateDirectories = appServices.environment.daemonStateDirectories
                 return .followUp {
-                    let inputs = await updater.rollbackInputs(stateDirectories: stateDirectories)
-                    return try await MainActor.run { () throws -> JSONValue in
-                        if check {
-                            switch updater.rollbackDecision(to: build, inputs: inputs) {
-                            case .success(let kept): return .object(["allowed": true, "build": .string(kept.build)])
-                            case .failure(let refusal): return .object(["allowed": false, "reason": .string(refusal.message)])
-                            }
-                        }
-                        do {
-                            let kept = try updater.rollback(to: build, inputs: inputs, relaunch: UpdaterService.relaunchAfterExit)
-                            return .object(["rolled_back_to": .string(kept.build)])
-                        } catch let refusal as RollbackRefusal {
-                            throw ControlError(code: "rollback_refused", message: refusal.message)
-                        }
+                    do {
+                        let kept = try await UpdateDropBack(updater).run(to: build, checkOnly: check, stateDirectories: stateDirectories)
+                        return check ? .object(["allowed": true, "build": .string(kept.build)]) : .object(["rolled_back_to": .string(kept.build)])
+                    } catch let refusal as RollbackRefusal {
+                        if check { return .object(["allowed": false, "reason": .string(refusal.message)]) }
+                        throw ControlError(code: "rollback_refused", message: refusal.message)
                     }
                 }
             },
@@ -176,7 +168,7 @@ extension AppControl {
             "last_probe": status.lastProbe.map(json) ?? .null,
             "last_probe_error": status.lastProbeError.map(JSONValue.string) ?? .null,
             "channel_switch_target": status.channelSwitchTarget.map { .string($0.rawValue) } ?? .null,
-            "test_feed": status.testFeedURL.map(JSONValue.string) ?? .null,
+            "test_feed": status.testFeedURL.map(JSONValue.string) ?? .null, "ring": .string(status.ring.rawValue),
             "card": status.card.map { card in
                 let shown = status.cardPresentation ?? card.presentation(version: status.version, build: status.build)
                 return .object(["kind": .string(card.kind), "title": .string(shown.title),

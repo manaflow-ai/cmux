@@ -15,6 +15,8 @@ import {
   parseNativeStackTokens,
   unauthorized,
   verifyRequest,
+  verifyRequestFromSnapshot,
+  vmMembershipSnapshotMaxAgeMs,
   type AuthedUser,
 } from "./auth";
 import {
@@ -78,6 +80,7 @@ import {
   vmRequestLocale,
   vmRequiresProCopy,
   vmMemoryErrorCopy,
+  vmMutationGuardCopy,
   vmGoLimitCopy,
   vmPlanBudgetCopy,
   vmActiveLimitCountedCopy,
@@ -190,7 +193,14 @@ export async function withAuthedVmApiRoute(
         const authStart = performance.now();
         let user: AuthedUser | null;
         try {
-          user = await verifyRequest(request, { requestedTeamId: requestedVmTeamIdFromRequest(request) });
+          user = await verifyRequestFromSnapshot(request, {
+            requestedTeamId: requestedVmTeamIdFromRequest(request),
+            allowCookie: true,
+            // Keep the prior missed-webhook bound, but make a delivered
+            // revocation immediate across every instance through the shared
+            // snapshot row the webhook deletes.
+            maxSnapshotAgeMs: vmMembershipSnapshotMaxAgeMs(),
+          });
         } catch (error) {
           return finalize(authProviderErrorResponse(error, `${route}.auth`));
         }
@@ -497,7 +507,16 @@ export async function reverifyVmRequestForTeam(input: {
   if (!requestedBillingTeamId || input.user.teamIds.includes(requestedBillingTeamId)) {
     return { ok: true, user: input.user };
   }
-  const run = () => verifyRequest(input.request, { requestedTeamId: requestedBillingTeamId });
+  // VM route authentication supplies a complete shared membership snapshot.
+  // A body team absent from it is not a member; preserve that complete list so
+  // the account-scope resolver returns its typed 403 without a second Stack
+  // call an attacker could amplify. Older/partial callers still refresh.
+  if (input.user.completeTeamList === true) return { ok: true, user: input.user };
+  const run = () => verifyRequest(input.request, {
+    requestedTeamId: requestedBillingTeamId,
+    requireFreshTeamMembership: true,
+    forceCompleteTeamList: true,
+  });
   let refreshedUser: AuthedUser | null;
   try {
     refreshedUser = input.measure ? await input.measure(run) : await run();
@@ -1063,25 +1082,44 @@ export const vmWorkflowErrorResponders = {
     retryable: false,
     details: { resource: error.resource, requested: error.requested, max: error.max, planId: error.planId, upgradePlanId: error.upgradePlanId ?? null },
   }),
-  VmSnapshotInProgressError: () =>
-    vmErrorResponse({
+  VmSnapshotInProgressError: async (_error, context) => {
+    const copy = await vmMutationGuardCopy("snapshotInProgress", context.locale);
+    return vmErrorResponse({
       error: "vm_snapshot_in_progress",
       status: 409,
-      message: "A snapshot with this idempotency key is still running for this Cloud VM.",
-      action: "Wait for the first snapshot to finish, then retry with the same idempotency key.",
+      message: copy.message,
+      action: copy.action,
+      displayTitle: copy.title,
       phase: "snapshot",
       retryable: true,
       retryAfterSeconds: 5,
-    }),
-  VmSnapshotIdempotencyConflictError: () =>
-    vmErrorResponse({
+    });
+  },
+  VmSnapshotIdempotencyConflictError: async (_error, context) => {
+    const copy = await vmMutationGuardCopy("snapshotIdempotencyConflict", context.locale);
+    return vmErrorResponse({
       error: "vm_snapshot_idempotency_conflict",
       status: 409,
-      message: "This idempotency key was already used for another snapshot request on this Cloud VM.",
-      action: "Use a new idempotency key for a snapshot with another name.",
+      message: copy.message,
+      action: copy.action,
+      displayTitle: copy.title,
       phase: "snapshot",
       retryable: false,
-    }),
+    });
+  },
+  VmSnapshotQuotaExceededError: async (error, context) => {
+    const copy = await vmMutationGuardCopy("snapshotQuota", context.locale);
+    return vmErrorResponse({
+      error: "vm_snapshot_quota_exceeded",
+      status: 409,
+      message: copy.message,
+      action: copy.action,
+      displayTitle: copy.title,
+      phase: "snapshot",
+      retryable: false,
+      details: { limit: error.limit },
+    });
+  },
   VmResizeInProgressError: () =>
     vmErrorResponse({
       error: "vm_resize_in_progress",

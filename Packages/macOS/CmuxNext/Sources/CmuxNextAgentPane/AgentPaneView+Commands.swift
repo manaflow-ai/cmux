@@ -3,7 +3,7 @@ import Foundation
 /// The dispatcher commands the app sends the page: Continue in, Create checkpoint, the chat's
 /// keyboard actions and the grouped-permission actions.
 extension AgentPaneView {
-    /// Opens the frontend's Continue in… chooser. The chooser owns target selection and
+    /// Opens the frontend's Continue In… chooser. The chooser owns target selection and
     /// preparation; native actions do not create a second handoff pipeline.
     public func showContinueIn() { send("continueIn") }
     /// Archive Chat (Ctrl-Cmd-A, cx-ncc.72): the page archives the chat the way its menu's Archive does.
@@ -15,15 +15,18 @@ extension AgentPaneView {
     /// then opens its model picker, or the composer's file search (a pick mentions the file).
     public func showModelPicker() { showWithKeyboard("openModelPicker") }
     public func showFileSearch() { showWithKeyboard("searchFiles") }
+    /// A chat that just opened from a fork (``AgentForkDestination``): the keyboard goes to its
+    /// composer, so the next words go to the fork.
+    public func focusComposer() { showWithKeyboard("focusComposer") }
     private func showWithKeyboard(_ command: String) {
-        if webView.window?.firstResponder !== webView { webView.window?.makeFirstResponder(webView) }
+        focusChat()
         send(command)
     }
     /// Palette and page buttons enter the same inline checkpoint review.
     public func showCreateCheckpoint() { if model.checkpointAvailable { send("createCheckpoint") } }
-    /// Previous Turn and Next Turn (Ctrl-Opt-Up, Ctrl-Opt-Down): the page steps its transcript to the
-    /// prompt before or after the one being read, as the thread minimap's ticks do (cx-f7c).
-    public func stepTurn(forward: Bool) { send(forward ? "nextTurn" : "previousTurn") }
+    /// Previous and Next Turn (Ctrl-Opt-Up, Ctrl-Opt-Down) and Previous and Next Bookmarked Prompt
+    /// (palette only): the page steps its transcript to that prompt, as the thread minimap does.
+    public func step(_ step: AgentTranscriptStep) { send(step.pageCommand) }
     /// Runs a grouped-permission action from the app shortcut registry. The
     /// page keeps the decision scoped to its selected session and refuses
     /// stale, collecting, or unavailable groups before sending anything.

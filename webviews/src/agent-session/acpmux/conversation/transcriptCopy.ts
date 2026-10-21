@@ -16,6 +16,22 @@ export function transcriptCopyText(row: AcpmuxRow): string {
   return parts.join("\n").trim();
 }
 
+/// Whether `transcriptCopyText(row)` would be non-empty, without trimming or joining the row's
+/// text. Each visible row asks this on every scroll frame, and a tool row's output can be large.
+export function hasTranscriptCopyText(row: AcpmuxRow): boolean {
+  if (hasText(row.text)) return true;
+  if (row.shell) {
+    if (hasText(row.shell.command) || hasText(row.shell.output) || hasText(row.shell.error)) return true;
+  }
+  for (const item of row.items ?? []) {
+    if (hasText(item.text) || hasText(item.tool?.output)) return true;
+  }
+  return false;
+}
+
+const NON_BLANK = /\S/;
+const hasText = (text: string | undefined | null) => !!text && NON_BLANK.test(text);
+
 /// turnView gives the footer its answer's text for its Copy button. A selected range that
 /// includes that answer has already copied it; a footer selected on its own still copies it.
 /// Track the answer within its turn instead of deduplicating text across unrelated messages.

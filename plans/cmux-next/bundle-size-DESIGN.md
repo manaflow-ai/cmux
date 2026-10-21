@@ -164,3 +164,182 @@ What I kept, and why:
 3. Measure #8 and #10 on the fleet, and run the perf bench before choosing
    any opt-level.
 4. Make the nightly budget step blocking once two nightlies pass it.
+
+## 6. Stage B design: Chromium on demand (cut #5)
+
+Written 2026-10-20 by the Chief subagent that builds stage B (user msg 3422,
+Chief task "Chromium download on first use"). Goal: the DMG ships without the
+Chromium engine (−103 MB of DMG, −363 MB on disk), and the app installs the
+engine the first time it is needed, or in the background soon after the first
+launch.
+
+### 6.1 What moves out of the app
+
+The **runtime pack** holds everything `embed-cef.sh` puts in
+`Contents/Frameworks` for Chromium, already signed by `sign-cef.sh`, in one
+flat folder:
+
+    <Product> Chromium/                           the runtime folder (not a bundle)
+      Chromium Embedded Framework.framework
+      libcmux_cef_shim.dylib
+      <Product> Helper{, (GPU), (Renderer), (Plugin), (Alerts)}.app
+    cef-runtime.json                              the pack's own metadata
+
+uBlock Origin (`Resources/Extensions`, 3.3 MB DMG) stays in the app for now:
+it is not part of the engine and it has its own cap.
+
+Why this shape:
+- The helpers load the framework through `CefScopedLibraryLoader::LoadInHelper`,
+  which takes the path `../../../Chromium Embedded Framework.framework`
+  relative to the helper. The helpers must sit beside the framework.
+- Chromium finds the (GPU)/(Renderer)/(Plugin)/(Alerts) helper variants beside
+  the base helper (`browser_subprocess_path`).
+- The helper sandbox (`no_sandbox = false`) starts before the helper loads the
+  framework. It lets a helper read the `bundle-path` parameter, which is
+  `base::apple::MainBundlePath()`: the real app, not CEF's `main_bundle_path`.
+  **Finding (DEV experiment, 2026-10-19):** with the runtime outside the app,
+  every helper failed with "file system sandbox blocked open()" and the browser
+  hit FATAL "GPU process isn't usable". Fix: the CEF fork patch
+  `cmux_runtime_outside_bundle` (manaflow-ai/cef, branch
+  `cmux/8037-cmux28-ondemand`) sets the `component-path` parameter, which
+  `common.sb` already allows to read, to the framework's parent folder when
+  that folder is outside the main bundle. Inside the bundle nothing changes.
+- **Second finding (same day, patched CEF):** a wrapper `.app` around the
+  runtime (`<Product> Chromium.app/Contents/Frameworks`) as CEF's main bundle
+  fails: the helper reads the wrapper's `Contents/Info.plist`, which is outside
+  the readable folder ("Failed to load the bundle"). The flat folder with the
+  app as the main bundle works: Chromium reached `ready`, renderers ran from
+  the folder and a page loaded, with no sandbox errors. So the app stays
+  Chromium's main bundle (bundle id, Mach rendezvous names and notification
+  identity do not change) and the pack has no wrapper.
+- `CEFRuntimeLayout.at(_:fallbackMainBundle:)` builds the layout: for a folder
+  that is not inside an `.app`, the main bundle is the app itself.
+- Profile data is under `CEFProfileStorage` (an explicit root, keyed by the
+  app's bundle id), so cookies, logins and extensions stay where they are.
+- Library validation: every cmux entitlements file has
+  `com.apple.security.cs.disable-library-validation`, and the pack is signed by
+  the same team anyway.
+- The app can use on-demand Chromium only with a CEF artifact that has the
+  patch (the fleet build `cef-154-0-28-cmux-28-ondemand` has it).
+
+### 6.2 Identity, pin and reuse
+
+- **Pack key** = first 16 hex of sha256 over: the CEF artifact sha256
+  (`cef-manifest.json`), the embed `LAYOUT`, the shim build key, the product
+  name, the bundle id and the signing team. It changes only when one of
+  those changes (a CEF bump, a shim change, a new channel), not on every
+  nightly. A nightly whose key is already published reuses that pack: it
+  downloads the published pin, checks it, and does not upload anything.
+  Users therefore download Chromium again only when the engine changed.
+- **Pin**: `Contents/Resources/cef-runtime.json` in the signed app:
+  `{schema, key, cef, chromium, shim_abi, sha256, size, url, team_id, folder}`.
+  The pin is inside the app's code signature, so the sha256 it names is as
+  trusted as the app. This is the "signature" of the pack.
+- **Hosting**: the existing cmux-next nightly R2 bucket and domain
+  (`cmux-nightly-next`, `https://files-next.cmux.com`), key
+  `cef-runtime/<key>/<asset>`, uploaded write-once (`If-None-Match: *`) by
+  the publish job **before** the appcast that points at the app goes up.
+  No new service or account; R2 has no egress fee; storage is about 0.1 GB
+  per engine change. Stable releases use the same scheme under their own
+  prefix when stable ships cmux-next.
+
+### 6.3 Install on the Mac
+
+`CmuxNextChromiumRuntime` (new leaf module: Foundation, Security, Network; no
+UI) owns it. `ChromiumRuntimeInstaller` is an `actor`:
+
+1. **Where**: `~/Library/Application Support/<bundle id>/ChromiumRuntime/<key>/`
+   holds the runtime folder and `installed.json` (the pin it was checked against).
+   An install is complete only when `installed.json` exists; it is written
+   last, after an atomic `rename` of the staging folder.
+2. **Download**: `<root>/.downloads/<key>.tar.xz.partial`. A retry sends
+   `Range: bytes=<size>-`; a 206 appends, a 200 starts again. The file is
+   kept across launches, so a partial download resumes after a quit, a crash
+   or a network change.
+3. **Verify**: size and sha256 of the whole file must match the pin, else the
+   partial file is deleted and the attempt counts as failed.
+4. **Unpack**: `/usr/bin/tar -xJf` into `<root>/.staging-<uuid>`; any entry
+   with an absolute path or `..`, any entry outside the runtime folder, any
+   symlink that points outside the pack, or a missing framework, shim or base
+   helper fails the install. Then the code signature of the
+   framework, the shim and every helper is checked
+   (`SecStaticCodeCheckValidity`, strict, nested code) against
+   `anchor apple generic and certificate leaf[subject.OU] = "<team_id>"` when
+   the pin names a team (release builds). Dev builds (ad hoc) skip only this
+   check; the sha256 pin still applies. Quarantine attributes are removed.
+5. **Activate**: rename staging to `<key>/`, write `installed.json`.
+6. **Clean up**: other `<key>/` folders are removed once a newer one is
+   installed, unless this process uses them (CEF cannot unload).
+
+Retries: backoff 5 s, 15 s, 60 s, 5 min, then every 30 min while the app runs.
+Offline: the installer waits for `NWPathMonitor` to report a usable path, it
+never polls. Low Data Mode and expensive (hotspot) paths: the background
+prefetch waits; a download the person asked for (a Chromium tab, Retry) runs.
+
+### 6.4 Which runtime the app uses
+
+At launch `ChromiumRuntimeStore.select(pin:)` decides:
+- Chromium embedded in the app (dev builds, CI, old nightlies): use it. The
+  pin is ignored. Nothing changes for these builds.
+- `<key>/` installed for the pinned key: use it.
+- Else an installed pack with the same `shim_abi` and team: use it now, and
+  download the pinned one in the background (it takes over at the next
+  launch). After a Sparkle update that bumped CEF, Chromium keeps working
+  with the previous engine until the new one is in.
+- Else no Chromium yet: `CEFUnavailableReason.downloading(fraction)` or
+  `.downloadFailed(message)`.
+
+`CEFEngine` reads its layout from a `CEFRuntimeSource` the app updates, not a
+`let` fixed at init: once the install finishes, the next Chromium tab starts
+Chromium in this process. No relaunch.
+
+### 6.5 What the person sees
+
+- New tabs with the default engine (Chromium) open in WebKit while the engine
+  is missing. The first such tab shows the existing one-time notice, now
+  "Chromium is downloading, so this tab uses WebKit. New tabs use Chromium
+  when it’s ready."
+- When the install finishes, new tabs use Chromium. (A "Chromium is ready"
+  notice is not built yet.)
+- A tab that explicitly asks for Chromium ("Open in Chromium", `--engine
+  chromium`) is refused, as today, with "Chromium is downloading (42%). Try
+  again when it’s ready." Every check that finds the download pending (a
+  new tab, the palette, the CLI) starts the download at user priority.
+- Failure: "Chromium couldn’t download yet, so this tab uses WebKit. cmux will
+  try again." The reason (offline, checksum, signature, disk full) is in
+  `debug.cef`.
+- `debug.cef` reports `runtime`: `{origin: bundled|installed|compatible|downloading|none,
+  pinned_key, install, fraction, frameworks, error}`.
+
+### 6.6 Release flow
+
+- `embed-cef.sh` does not change: every build still embeds Chromium, so dev,
+  CI and tests keep the engine.
+- `scripts/cmux-next/cef-runtime-pack.sh split <app> <out dir> --base-url URL`
+  runs inside `sign-cmux-bundle.sh` after `sign-cef.sh` and before the outer
+  app is signed, when `CMUX_NEXT_CEF_ON_DEMAND=1`. It moves the signed engine
+  into the runtime folder, writes the pin into the app, and writes the pack (or, when
+  the key is already published, deletes the engine and reuses the published
+  pin).
+- `scripts/cmux-next/publish-cef-runtime.sh <out dir>` uploads the pack and its
+  pin write-once, then downloads it again and checks the sha256. It runs in the
+  publish job before the appcast upload.
+- The nightly turns this on with the repository variable
+  `CMUX_NEXT_CEF_ON_DEMAND=1`. It is off until one signed nightly is checked by
+  hand (download, verify, Chromium tab, Widevine, PDF, DevTools, an
+  extension); that check is not automated yet.
+- `bundle-size-budget.json` gets the on-demand variant: no CEF in the app,
+  app cap −363 MB, DMG cap −103 MB, plus a cap on the pack itself.
+
+### 6.7 Risks and what stays open
+
+- Sandbox: a Chromium start from a folder outside the app needs the
+  `cmux_runtime_outside_bundle` CEF patch (6.1). The pin bump to a CEF
+  artifact with the patch belongs to the browser lane; until then the nightly
+  flag stays off.
+- Notarization: the pack is not notarized. It is never quarantined (the app
+  downloads it, not a browser), so Gatekeeper does not assess it; its pin is
+  inside the notarized app. Notarizing the pack is a later hardening.
+- First Chromium tab on a slow link waits for about 100 MB. WebKit covers the
+  gap; the prefetch starts 20 s after launch to make that rare.
+- Disk: two engines can be on disk for one launch after an update.

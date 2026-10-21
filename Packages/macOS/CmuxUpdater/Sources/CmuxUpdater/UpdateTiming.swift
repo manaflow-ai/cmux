@@ -3,14 +3,13 @@ public import Foundation
 /// Fixed display/timeout durations that shape how the custom update UI behaves over time.
 ///
 /// These are intentionally declarations (constant values), not behavior, so a no-case
-/// `enum` namespace is appropriate here. They are consumed by ``UpdateDriver`` (to keep a
-/// check visible for a minimum duration and to time out a stalled check) and by
-/// ``UpdateController`` (to auto-dismiss the "no updates" result).
+/// `enum` namespace is appropriate here. They are consumed by ``UpdateDriver`` (to time out a
+/// stalled check) and by ``UpdateController`` (to auto-dismiss the "no updates" result).
+///
+/// There is no minimum "Checking for Updates…" time: a check shows its answer the moment
+/// Sparkle has read the feed (about 0.25 s for the 1 KB nightly appcast). A fixed 2 s minimum
+/// made every check read as slow (`plans/cmux-next/update-check-PERF.md`).
 public enum UpdateTiming {
-    /// Minimum time the "Checking for Updates…" state stays visible before transitioning,
-    /// so a near-instant check still reads as a deliberate action rather than a flicker.
-    public static let minimumCheckDisplayDuration: TimeInterval = 2.0
-
     /// How long the "No Updates Available" result stays visible before auto-dismissing.
     public static let noUpdateDisplayDuration: TimeInterval = 5.0
 

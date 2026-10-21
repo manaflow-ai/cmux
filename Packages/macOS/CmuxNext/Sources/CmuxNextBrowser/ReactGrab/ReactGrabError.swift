@@ -4,4 +4,6 @@ public nonisolated enum ReactGrabError: Error, Hashable, Sendable {
     case integrityMismatch
     /// The downloaded file is not UTF-8 text.
     case notText
+    /// The version does not make a valid download URL.
+    case badVersion
 }

@@ -9,3 +9,10 @@ public nonisolated enum HoverCardLayoutSetting: String, Sendable, Hashable, Case
     case classic
     case minimal
 }
+
+/// Lawrence 2026-10-20: "hovering on workspace group or tab group for a while should still show the card, like summary stuff, and should be fully customizable too." Which part leads the group card; the rest follow in their usual order.
+public nonisolated enum GroupHoverCardOrderSetting: String, Sendable, Hashable, CaseIterable {
+    case status
+    case members
+    case activity
+}

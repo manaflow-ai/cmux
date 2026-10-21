@@ -13,10 +13,13 @@ dependencies = [
  "cmux-chat-index",
  "cmux-coderouter",
  "cmux-codex-acp",
+ "cmux-git",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-panic-log",
  "cmux-sdk",
  "cmux-unix-socket",
+ "cmux-worktree-care",
  "crossterm",
  "dirs",
  "futures",
@@ -28,6 +31,7 @@ dependencies = [
  "ratatui",
  "regex",
  "reqwest",
+ "ring",
  "rustls",
  "schemars",
  "serde",
@@ -1033,7 +1037,7 @@ dependencies = [
 [[package]]
 name = "cmux-codex-acp"
 version = "0.1.0"
-source = "git+https://github.com/manaflow-ai/cmux-codex-acp?rev=882b976332ea3dd89df18b401ab13e14a5dc78cc#882b976332ea3dd89df18b401ab13e14a5dc78cc"
+source = "git+https://github.com/manaflow-ai/cmux-codex-acp?rev=e0a27f2f4210ad1a7dd1b33d5f33b273ac647e9b#e0a27f2f4210ad1a7dd1b33d5f33b273ac647e9b"
 dependencies = [
  "serde_json",
 ]
@@ -1123,6 +1127,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "url",
 ]
 
@@ -1132,11 +1137,16 @@ version = "0.1.0"
 dependencies = [
  "cmux-server",
  "cmux-server-core",
+ "flate2",
  "libc",
  "proptest",
+ "ring",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
+ "tar",
  "tempfile",
+ "tokio",
 ]
 
 [[package]]
@@ -1236,6 +1246,14 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-tungstenite",
+]
+
+[[package]]
+name = "cmux-panic-log"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde_json",
 ]
 
 [[package]]
@@ -1515,6 +1533,7 @@ dependencies = [
  "cmux-config",
  "cmux-host",
  "cmux-link",
+ "cmux-panic-log",
  "cmux-pty",
  "cmux-remote",
  "cmux-remote-protocol",
@@ -1539,6 +1558,7 @@ dependencies = [
  "ratatui",
  "regex",
  "reqwest",
+ "ring",
  "rquickjs",
  "rusqlite",
  "rustls",
@@ -1757,6 +1777,16 @@ dependencies = [
  "tokio-util",
  "x25519-dalek",
  "zeroize",
+]
+
+[[package]]
+name = "cmux-worktree-care"
+version = "0.1.0"
+dependencies = [
+ "cmux-git",
+ "libc",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

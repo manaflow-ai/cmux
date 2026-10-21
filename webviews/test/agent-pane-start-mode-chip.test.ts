@@ -10,7 +10,8 @@
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
-import { chromium, type Browser, type Page } from "playwright";
+import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -84,6 +85,13 @@ await requireBrowserLane("agent-pane-start-mode-chip.test.ts", async () => {
   );
   const [PICKED, OTHER] = [...chats.keys()];
   const calls: { method: string; params: Record<string, any> }[] = [];
+  /// Who waits for the first call of a method.
+  const waiting = new Map<string, (() => void)[]>();
+  /// Settles once the daemon has had a call of `method` since the last reset.
+  const called = (method: string) =>
+    calls.some((call) => call.method === method)
+      ? Promise.resolve()
+      : new Promise<void>((resolve) => waiting.set(method, [...(waiting.get(method) ?? []), resolve]));
   const sockets = new Set<Bun.ServerWebSocket<unknown>>();
   // What the stand-in acpmux starts a new chat in: the latest pick's mode, else full access.
   // `pinned`: a harness whose profile pins its mode, so acpmux sets none and takes no pick.
@@ -98,6 +106,8 @@ await requireBrowserLane("agent-pane-start-mode-chip.test.ts", async () => {
   /// The answer to one request; `undefined` holds it (a new chat acpmux has not started yet).
   function answer(method: string, params: Record<string, any>): unknown {
     calls.push({ method, params });
+    for (const resolve of waiting.get(method) ?? []) resolve();
+    waiting.delete(method);
     switch (method) {
       case "initialize":
         return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
@@ -200,17 +210,58 @@ await requireBrowserLane("agent-pane-start-mode-chip.test.ts", async () => {
     await daemon?.stop(true);
   });
 
+  /// A pane's page, whose socket notes each `_acpmux/start_mode` it asks and whether its answer came.
+  async function pane(context: BrowserContext): Promise<Page> {
+    const page = await context.newPage();
+    await installPaintedFrames(page);
+    await page.addInitScript(() => {
+      const asks: { id: unknown; answered: boolean }[] = [];
+      const noted = new WeakSet<WebSocket>();
+      (window as unknown as { __startModeAsks: typeof asks }).__startModeAsks = asks;
+      const send = WebSocket.prototype.send;
+      WebSocket.prototype.send = function (this: WebSocket, data) {
+        const message = typeof data === "string" ? (JSON.parse(data) as { id?: unknown; method?: string }) : {};
+        if (message.method === "_acpmux/start_mode") {
+          asks.push({ id: message.id, answered: false });
+          if (!noted.has(this)) {
+            noted.add(this);
+            this.addEventListener("message", (event) => {
+              const reply = JSON.parse(String(event.data)) as { id?: unknown; method?: string };
+              if (reply.method !== undefined) return;
+              for (const ask of asks) if (ask.id === reply.id) ask.answered = true;
+            });
+          }
+        }
+        return send.call(this, data);
+      };
+    });
+    return page;
+  }
+  /// How many `_acpmux/start_mode` asks `page` has sent.
+  const asked = (page: Page) =>
+    page.evaluate(() => (window as unknown as { __startModeAsks: unknown[] }).__startModeAsks.length);
+  /// Starts a new chat in `page`; returns how many start mode asks it had sent before.
+  async function startNewChat(page: Page): Promise<number> {
+    const before = await asked(page);
+    await page.evaluate(() => {
+      const actions = (window as { cmuxAcpmuxActions?: Record<string, (params: object) => Promise<unknown>> })
+        .cmuxAcpmuxActions;
+      void actions?.["chat.new"]?.({ harness: "claude" });
+    });
+    return before;
+  }
+
   /// Picks Normal in a pane on PICKED, then starts a new chat in a pane on OTHER that acpmux has not
   /// started yet (session/new is held), and returns that pane on the new chat.
   async function newChatAfterPick() {
     const context = await browser!.newContext({ viewport: { width: 900, height: 760 } });
     // The pane that will start the new chat shows its own chat, in full access.
-    const other = await context.newPage();
+    const other = await pane(context);
     await other.goto(url(OTHER));
     await other.getByText("Docs updated.").waitFor();
     await other.waitForFunction((selector) => document.querySelector(selector)?.textContent === "Full access", CHIP);
     // In another pane the person picks Normal.
-    const picked = await context.newPage();
+    const picked = await pane(context);
     await picked.goto(url(PICKED));
     await picked.getByText("Retry added.").waitFor();
     await picked.locator(".acpmux-access-trigger").click();
@@ -220,37 +271,39 @@ await requireBrowserLane("agent-pane-start-mode-chip.test.ts", async () => {
     ]);
     await picked.waitForFunction((selector) => document.querySelector(selector)?.textContent === "Normal", CHIP);
     // A new chat in the first pane.
-    await other.evaluate(() => {
-      const actions = (window as { cmuxAcpmuxActions?: Record<string, (params: object) => Promise<unknown>> })
-        .cmuxAcpmuxActions;
-      void actions?.["chat.new"]?.({ harness: "claude" });
-    });
-    for (let waited = 0; !calls.some((call) => call.method === "session/new"); waited += 50) {
-      if (waited > 10_000) throw new Error("no session/new");
-      await Bun.sleep(50);
-    }
+    const asks = await startNewChat(other);
+    await called("session/new");
     // The new chat draws in place of the old one.
     await other.getByText("Docs updated.").waitFor({ state: "detached" });
-    return { context, other };
+    return { context, other, asks };
   }
   const CHIP = ".acpmux-access-trigger .acpmux-mode-text";
-  /// The chip's text once it settles: what it shows for half a second running.
-  async function settledChip(page: Page): Promise<string | null> {
-    let last: string | null = null;
-    let since = Date.now();
-    for (const deadline = Date.now() + 10_000; Date.now() < deadline; await Bun.sleep(50)) {
-      const text = await page.locator(CHIP).first().textContent();
-      if (text !== last) [last, since] = [text, Date.now()];
-      else if (Date.now() - since >= 500) break;
+  /// The chip's text once it settles: the new chat has asked acpmux its start mode (after the
+  /// page's first `after` asks), every answer has come, and two frames have painted since with no
+  /// new ask (an answer may make the chat ask again).
+  async function settledChip(page: Page, after: number): Promise<string | null> {
+    for (let sent = -1, tries = 0; tries < 20; tries++) {
+      await page.waitForFunction(
+        (after) => {
+          const asks = (window as unknown as { __startModeAsks: { answered: boolean }[] }).__startModeAsks.slice(after);
+          return asks.length > 0 && asks.every((ask) => ask.answered);
+        },
+        after,
+        { timeout: 10_000 },
+      );
+      await page.evaluate(() => window.cmuxPaintFrame().then(() => window.cmuxPaintFrame()));
+      const now = await asked(page);
+      if (now === sent) break;
+      sent = now;
     }
-    return last;
+    return page.locator(CHIP).first().textContent();
   }
 
   test("a new chat shows the mode its pick starts it in", async () => {
     reset(false);
-    const { context, other } = await newChatAfterPick();
+    const { context, other, asks } = await newChatAfterPick();
     // acpmux answers the start mode: the pick's, Normal.
-    expect(await settledChip(other)).toBe("Normal");
+    expect(await settledChip(other, asks)).toBe("Normal");
     expect(calls.some((call) => call.method === "_acpmux/start_mode" && call.params.harness === "claude")).toBe(true);
     await context.close();
   });
@@ -258,24 +311,20 @@ await requireBrowserLane("agent-pane-start-mode-chip.test.ts", async () => {
   test("a new chat names no mode when acpmux sets none", async () => {
     // The profile pins its mode: acpmux takes no pick and starts the chat in none of its own.
     reset(true);
-    const { context, other } = await newChatAfterPick();
-    expect(await settledChip(other)).toBe("Mode");
+    const { context, other, asks } = await newChatAfterPick();
+    expect(await settledChip(other, asks)).toBe("Mode");
     await context.close();
   });
   test("a pending chat follows a pick made after it opened", async () => {
     reset(false);
     const context = await browser!.newContext({ viewport: { width: 900, height: 760 } });
     // The new chat opens first, in full access, and acpmux has not started it (session/new held).
-    const other = await context.newPage();
+    const other = await pane(context);
     await other.goto(url(OTHER));
     await other.getByText("Docs updated.").waitFor();
-    await other.evaluate(() => {
-      const actions = (window as { cmuxAcpmuxActions?: Record<string, (params: object) => Promise<unknown>> })
-        .cmuxAcpmuxActions;
-      void actions?.["chat.new"]?.({ harness: "claude" });
-    });
+    const asks = await startNewChat(other);
     await other.getByText("Docs updated.").waitFor({ state: "detached" });
-    expect(await settledChip(other)).toBe("Full access");
+    expect(await settledChip(other, asks)).toBe("Full access");
     // A sessionless pending chat still exposes the harness-specific full-access mode as a real
     // menu, rather than a disabled placeholder. The same path works for Claude and Codex mode ids.
     const pendingAccess = other.locator(".acpmux-access-trigger");
@@ -289,7 +338,7 @@ await requireBrowserLane("agent-pane-start-mode-chip.test.ts", async () => {
     ).toBe("true");
     await other.keyboard.press("Escape");
     // Then the person picks Normal in another pane: the pending chat names Normal before any send.
-    const picked = await context.newPage();
+    const picked = await pane(context);
     await picked.goto(url(PICKED));
     await picked.getByText("Retry added.").waitFor();
     await picked.locator(".acpmux-access-trigger").click();
@@ -298,6 +347,45 @@ await requireBrowserLane("agent-pane-start-mode-chip.test.ts", async () => {
       timeout: 10_000,
     });
     expect(calls.some((call) => call.method === "session/prompt")).toBe(false);
+    await context.close();
+  });
+
+  test("returning to the pane asks acpmux nothing; a pushed change still reaches the chip", async () => {
+    reset(false);
+    const context = await browser!.newContext({ viewport: { width: 900, height: 760 } });
+    const other = await pane(context);
+    await other.goto(url(OTHER));
+    await other.getByText("Docs updated.").waitFor();
+    const opened = await startNewChat(other);
+    await other.getByText("Docs updated.").waitFor({ state: "detached" });
+    expect(await settledChip(other, opened)).toBe("Full access");
+    const asks = () => calls.filter((call) => call.method === "_acpmux/start_mode").length;
+    const before = asks();
+    const sent = await asked(other);
+    // The person switches away and back: the pane is shown and focused again, twice.
+    for (let round = 0; round < 2; round++) {
+      await other.evaluate(() => {
+        document.dispatchEvent(new Event("visibilitychange"));
+        window.dispatchEvent(new Event("focus"));
+      });
+    }
+    // The page has handled both rounds and painted since: it sent no ask.
+    await other.evaluate(() => window.cmuxPaintFrame().then(() => window.cmuxPaintFrame()));
+    expect(await asked(other)).toBe(sent);
+    expect(asks()).toBe(before);
+    // Settings changes the default meanwhile: acpmux pushes `_acpmux/start_mode_changed` (it watches
+    // the settings file), and the pending chat asks once and names the new mode.
+    daemonState.startMode = "default";
+    const notice = JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/start_mode_changed", params: {} });
+    for (const socket of sockets) socket.send(notice);
+    await other.waitForFunction((selector) => document.querySelector(selector)?.textContent === "Normal", CHIP, {
+      timeout: 10_000,
+    });
+    // Once every answer is in, the push is the only ask since the rounds: a re-ask the rounds set
+    // off later would have landed by now.
+    expect(await settledChip(other, sent)).toBe("Normal");
+    expect(await asked(other)).toBe(sent + 1);
+    expect(asks()).toBe(before + 1);
     await context.close();
   });
 });

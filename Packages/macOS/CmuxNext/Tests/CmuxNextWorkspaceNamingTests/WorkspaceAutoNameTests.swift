@@ -53,6 +53,15 @@ struct WorkspaceAutoNameTests {
         #expect(Self.live.label(name: "workspace-3", title: nil, front: .chat(userName: "  ", title: "\n")) == nil)
     }
 
+    /// An agent's spinner frames (`⠐ Fix the login bug`) name the workspace by their words only
+    /// (plans/cmux-next/osc-titles.md), so the row does not change on every frame.
+    @Test func terminalTitleLosesItsStatusGlyphs() {
+        for raw in ["⠂ Fix the login bug", "⠐ Fix the login bug", "✳ Fix the login bug"] {
+            #expect(Self.live.label(name: "workspace-3", title: nil, front: Self.terminal(title: raw)) == "Fix the login bug")
+        }
+        #expect(Self.live.label(name: "Release", title: nil, front: Self.terminal(title: "⠂ Fix the login bug")) == nil)
+    }
+
     @Test func terminalShowsItsLiveTitle() {
         let front = Self.terminal(title: "npm run dev", cwd: "/Users/me/src/cmux")
         #expect(Self.live.label(name: "workspace-3", title: nil, front: front) == "npm run dev")

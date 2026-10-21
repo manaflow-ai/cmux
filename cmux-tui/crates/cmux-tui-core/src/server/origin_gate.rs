@@ -9,7 +9,7 @@
 use super::*;
 use crate::Actor;
 use crate::request_origin::{
-    CONFIRMATION_TTL_MS, HelloRole, RequestOrigin, forbidden, mint_token, needs_user,
+    CONFIRMATION_TTL_MS, HelloRole, LocalPeer, RequestOrigin, forbidden, mint_token, needs_user,
     valid_sha256_hex,
 };
 use crate::resource::RequestEnvelope;
@@ -92,11 +92,51 @@ fn check(mux: &Mux, client: u64, envelope: &RequestEnvelope) -> Result<Actor, Re
     Ok(peer_or_local(mux, client, transport, local))
 }
 
-/// `credential.mint` and `credential.rotate` are the owner's: a registered
-/// local Unix connection with no link peer record whose principal is the
-/// local user (or the verified app), on a request that presents no
-/// credential. An agent in a terminal or ACP session (it presents one, valid
-/// or not) is refused, so no agent can mint another identity or revoke one.
+/// Classifies one accepted local peer while its kernel PID evidence is live.
+fn classify_local_peer(
+    mux: &Mux,
+    peer_key: Option<&str>,
+    session_for_pid: impl FnOnce(u32) -> Option<u32>,
+) -> LocalPeer {
+    let Some(process) = peer_key.and_then(peer_pid) else { return LocalPeer::Unknown };
+    let Some(session) = session_for_pid(process) else { return LocalPeer::Unknown };
+    let terminal = mux.with_state(|state| {
+        state
+            .surfaces
+            .values()
+            .chain(state.terminal_catalog.values())
+            .find(|surface| surface.process_id() == Some(session))
+            .and_then(|surface| surface.terminal_public_id())
+            .map(|terminal| terminal.as_str().to_string())
+    });
+    if let Some(terminal) = terminal {
+        return LocalPeer::Terminal(terminal);
+    }
+    LocalPeer::Other
+}
+
+fn peer_pid(key: &str) -> Option<u32> {
+    let (pid, version) = key.strip_prefix("token:")?.split_once('.')?;
+    let pid = pid.parse().ok()?;
+    (!version.is_empty() && pid > 0).then_some(pid)
+}
+
+#[cfg(unix)]
+fn peer_session_id(pid: u32) -> Option<u32> {
+    let pid = libc::pid_t::try_from(pid).ok()?;
+    // SAFETY: getsid only reads kernel process metadata for the positive pid.
+    let session = unsafe { libc::getsid(pid) };
+    u32::try_from(session).ok().filter(|session| *session > 0)
+}
+
+#[cfg(not(unix))]
+fn peer_session_id(_pid: u32) -> Option<u32> {
+    None
+}
+
+/// `credential.mint` and `credential.rotate` require the verified frontend.
+/// Unknown, terminal-bound and other local peers fail closed. Acpmux treats a
+/// mint refusal as non-fatal until the frontend can delegate mint authority.
 fn check_credential_owner(
     mux: &Mux,
     client: u64,
@@ -108,8 +148,7 @@ fn check_credential_owner(
     {
         return Ok(());
     }
-    let owner = matches!(actor, Actor::User { id } if id == crate::conversation_store::LOCAL_USER)
-        || matches!(actor, Actor::Frontend { .. });
+    let owner = matches!(actor, Actor::Frontend { .. });
     let local = mux.control_clients.is_unix(client) && !mux.is_remote_client(client);
     let principal = mux.conversation_principal(client) == crate::conversation_store::LOCAL_USER;
     if owner && local && principal && !presents_credential {
@@ -319,10 +358,23 @@ pub(super) fn set_hello(
         return false;
     }
     record.origin.role = role;
-    record.origin.peer_key = peer_key;
+    if peer_key.is_some() {
+        record.origin.peer_key = peer_key;
+    }
     record.origin.page = page;
     record.origin.verified_app = role == HelloRole::Main && signature_proved;
     true
+}
+
+/// Records kernel peer identity at accept, before a legacy client can skip hello.
+pub(super) fn set_peer_identity_at_accept(mux: &Mux, client: u64, peer_key: Option<String>) {
+    let local_peer = classify_local_peer(mux, peer_key.as_deref(), peer_session_id);
+    let mut state =
+        mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(record) = state.clients.get_mut(&client) {
+        record.origin.peer_key = peer_key;
+        record.origin.local_peer = local_peer;
+    }
 }
 
 /// The page a WebSocket connection serves, from its handshake Origin
@@ -507,6 +559,10 @@ mod test_hooks {
 
     pub(in crate::server) fn set_peer_key_for_test(mux: &Arc<Mux>, client: u64, peer_key: &str) {
         with_origin(mux, client, |origin| origin.peer_key = Some(peer_key.to_string()));
+    }
+
+    pub(in crate::server) fn set_local_peer_for_test(mux: &Arc<Mux>, client: u64, peer: LocalPeer) {
+        with_origin(mux, client, |origin| origin.local_peer = peer);
     }
 
     pub(in crate::server) fn advance_origin_clock_for_test(mux: &Arc<Mux>, ms: u64) {

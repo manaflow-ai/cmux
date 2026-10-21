@@ -7,10 +7,11 @@ import Foundation
 public struct KeptTabRelaunch: Sendable, Equatable {
     public var surface: SurfaceID
 
-    /// The kept tabs of `tree` to restart, in tree order.
+    /// The kept tabs of `tree` to restart on connect, in tree order. Parked
+    /// ones (`relaunch.onShow`) wait until their workspace is first shown.
     public static func steps(tree: DaemonTree) -> [KeptTabRelaunch] {
         tree.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
-            .filter { $0.kind == .pty && $0.dead && $0.relaunch != nil }
+            .filter { $0.kind == .pty && $0.dead && $0.relaunch.map { !$0.onShow } == true }
             .map { KeptTabRelaunch(surface: $0.surface) }
     }
 }

@@ -19,15 +19,37 @@ extension SidebarListViewComponents {
         hoverCards.pin(target, from: hoverCard)
         return hoverCards.isShowing(target.id)
     }
-    /// The workspace row under `point` (this view's coordinates) that may
-    /// have a card now: none during a drag or rename, or off the visible rows.
+    /// The workspace row `point` (this view's coordinates) hovers, by the
+    /// list's own hover rule, that may have a card now: none during a drag or rename, or off the visible rows.
     func hoverCardWorkspace(at point: CGPoint) -> WorkspaceID? {
         guard drag == nil, !inlineRename.isActive, visibleRect.contains(point), !isHiddenOrHasHiddenAncestor,
               // The list's own rows (a dictionary): `model.isPlaceholder` walks every section, and this
               // runs on each scroll frame (hover geometry), O(workspaces) per frame at 1,000 rows.
-              case .workspace(let id)? = displayed.row(at: point.y)?.key, let row = workspaces[id],
+              case .workspace(let id)? = hoverHit(at: point)?.key, let row = workspaces[id],
               !row.rowState.isPending else { return nil }
         return id
+    }
+    /// The group header under `point` that may have a summary card now
+    /// (`sidebar.hoverCards.groups.workspaceGroups`): none during a drag, a rename or an open group
+    /// editor. One row lookup by position, like a workspace row's: a hover never walks the groups.
+    func hoverCardGroup(at point: CGPoint) -> GroupID? {
+        guard DesignSettings.shared.groupHoverCard.workspaceGroups, drag == nil, !inlineRename.isActive,
+              visibleRect.contains(point), !isHiddenOrHasHiddenAncestor,
+              case .group(let id)? = displayed.row(at: point.y)?.key, groups[id] != nil, !isEmptyTree(id) else { return nil }
+        return id
+    }
+    /// The workspaces in `id` and every group under it, in document order: the group's card counts them.
+    func subtreeWorkspaces(of id: GroupID) -> [SidebarWorkspace] {
+        (groupSubtrees[id] ?? [id]).flatMap { groups[$0]?.workspaces ?? [] }
+    }
+    /// No workspace in `id` nor under it: its card, which counts workspaces, would say nothing.
+    private func isEmptyTree(_ id: GroupID) -> Bool {
+        (groupSubtrees[id] ?? [id]).allSatisfy { groups[$0]?.workspaces.isEmpty ?? true }
+    }
+    /// The group header's frame on screen, nil when it is not laid out.
+    func hoverCardAnchor(forGroup id: GroupID) -> CGRect? {
+        guard let window, let row = displayed.row(for: .group(id)) else { return nil }
+        return window.convertToScreen(convert(frame(for: row), to: nil))
     }
     /// The row's frame on screen, nil when it is not laid out.
     func hoverCardAnchor(for id: WorkspaceID) -> CGRect? {

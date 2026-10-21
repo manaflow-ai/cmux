@@ -28,7 +28,7 @@ final class FileGridCell: NSCollectionViewItem {
         name.alignment = .center
         name.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         name.maximumNumberOfLines = 1
-        badge.font = .monospacedDigitSystemFont(ofSize: NSFont.smallSystemFontSize - 1, weight: .medium)
+        badge.font = .monospacedDigitSystemFont(ofSize: NSFont.smallSystemFontSize - 1, weight: .semibold)
         badge.textColor = .white
         badge.wantsLayer = true
         badge.drawsBackground = true

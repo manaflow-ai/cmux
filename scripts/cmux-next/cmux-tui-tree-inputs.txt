@@ -14,6 +14,7 @@ tree cmux-tui
 gitlink ghostty
 gitlink ghostty-next
 blob scripts/cmux-next/build-layout-reducer-ffi.sh
+blob scripts/ci/cargo-groups.sh
 blob scripts/ci/cmux-tui-darwin-builder
 blob scripts/ci/macos-cross.sh
 blob scripts/ci/macos_stubs.py
@@ -55,6 +56,7 @@ blob schemas/remote-tab/session.json
 blob schemas/terminal-sizing/fixtures.json
 blob schemas/settings/retired-keys.json
 blob schemas/settings/source/subsessions.json
+blob schemas/settings/source/trust.json
 blob schemas/settings/settings-schema.json
 blob schemas/settings/source/subsessions.json
 blob scripts/cmux-next/cmux-tui.pin

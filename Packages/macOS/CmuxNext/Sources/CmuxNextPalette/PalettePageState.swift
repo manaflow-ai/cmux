@@ -95,8 +95,8 @@ final class PageState {
                     sections.append(item.section)
                 }
                 items.append(item)
-                entries.append(PaletteSearchEntry(item, visible: provider.showsItemsForEmptyQuery && item.queryPrefix == nil,
-                                                  sectionIndex: sectionIndex))
+                let visible = provider.showsItemsForEmptyQuery && item.queryPrefix == nil && !item.hidesWhenQueryEmpty
+                entries.append(PaletteSearchEntry(item, visible: visible, sectionIndex: sectionIndex))
             }
         }
         // The empty query's Pinned section (the user's pins, `PaletteRankSettings`): the searcher

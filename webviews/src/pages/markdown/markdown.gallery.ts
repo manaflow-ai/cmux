@@ -3,6 +3,8 @@
 // (main.tsx) over an in-page cmuxPage host (src/gallery/frame/pages.ts).
 import { markdownPageEntry } from "../../gallery/format";
 import SHOWCASE from "../../gallery/fixtures/markdown-showcase.md?raw";
+// The user's five table cases (MARKDOWN-TABLE-SCROLL, test/markdown-table-scroll-cases.test.ts).
+import TABLE_SCROLL_CASES from "../../gallery/fixtures/markdown-table-scroll-cases.md?raw";
 import SHOWCASE_SVG from "../../gallery/fixtures/markdown-showcase-assets/sample.svg?raw";
 
 const README = `# Atlas web
@@ -122,6 +124,45 @@ $$
 - [ ] Open
 `;
 
+// Text selection over every kind of block (test/markdown-selection.test.ts, MARKDOWN-SELECTION): a
+// drag across paragraphs, highlights, math, a list, a table, code and a diagram keeps the text
+// under the pointer where it is, and a reload from disk keeps the selection on the same words.
+const SELECTION = `# Selection guide
+
+First paragraph with a [docs link](https://example.com/docs) and **bold words** in it.
+
+Second paragraph with ==highlighted words== and the formula $E = mc^2$ inline.
+
+- First list item
+- Second list item
+
+| Name | Role |
+| --- | --- |
+| Ada | Engineer |
+
+\`\`\`ts
+const answer = 42;
+\`\`\`
+
+\`\`\`mermaid
+graph LR
+  A --> B
+\`\`\`
+
+## Closing heading
+
+Last paragraph ends the guide.
+`;
+
+const REMOTE_IMAGES = `# Web images
+
+Remote images stay private until you choose to load them.
+
+![Build status](https://images.example.test/build-status.png)
+
+<img src="https://images.example.test/architecture.png" alt="Architecture diagram">
+`;
+
 const TASK_CHECKED = "- [x] Checked task\n- [x] Another completed task\n";
 const TASK_UNCHECKED = "- [ ] Unchecked task\n- [ ] Follow-up still needed\n";
 const TASK_NESTED =
@@ -238,6 +279,11 @@ export default markdownPageEntry({
       path: "/Users/you/src/atlas-web/MATRIX.md",
       text: WIDE_TABLE,
     },
+    "table-scroll": {
+      note: "Five tables: 20 columns, a long cell and code cells scroll sideways; 40 rows and a small table fit.",
+      path: "/Users/you/fun/markdown-table-scroll-test.md",
+      text: TABLE_SCROLL_CASES,
+    },
     "table-editing": {
       note: "A small table: cell selection, Tab and Return, column resizing.",
       path: "/Users/you/src/atlas-web/TEAM.md",
@@ -247,6 +293,16 @@ export default markdownPageEntry({
       note: "Obsidian syntax: highlights, comments, tags, wikilinks, callouts, math.",
       path: "/Users/you/src/atlas-web/VAULT.md",
       text: OBSIDIAN,
+    },
+    selection: {
+      note: "Text selection across paragraphs, highlights, math, a list, a table, code and a diagram.",
+      path: "/Users/you/src/atlas-web/SELECTION.md",
+      text: SELECTION,
+    },
+    "remote-images-blocked": {
+      note: "Web images before this document receives reader approval.",
+      path: "/Users/you/src/atlas-web/REMOTE-IMAGES.md",
+      text: REMOTE_IMAGES,
     },
     long: {
       note: "A long document (40 sections).",

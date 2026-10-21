@@ -5,7 +5,8 @@
 //! - its turn ended: "<chat> finished" with the reply's last line, or
 //!   "<chat> failed" (level error) when the turn failed;
 //! - it waits for the person (a permission or a question): "<chat> needs
-//!   input" with what it asks;
+//!   input" with what it asks, and again for each ask that comes while it
+//!   already waits;
 //! - its agent went away mid-turn: "<chat> stopped responding" (error).
 //!
 //! The app shows them like any tab notification (a banner unless that tab is
@@ -27,7 +28,7 @@
 //! Only this machine's chats notify: a session a peer reports (`peer`) is
 //! not followed, so a peer cannot post on, or read, a local chat's tab.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
@@ -202,7 +203,25 @@ fn follow(
             watching = true;
         } else if watching && message["method"] == "_acpmux/session_changed" {
             changed(&mux, &message["params"], chats);
+        } else if watching && message["method"] == "_acpmux/permission_pending" {
+            asked(&mux, &message["params"], chats);
         }
+    }
+}
+
+/// A new ask of a chat the watch follows: it comes right after the change that recorded it.
+fn asked(mux: &Mux, ask: &Value, chats: &mut HashMap<String, Chat>) {
+    // A peer's session is not this machine's chat.
+    if !ask["peer"].is_null() {
+        return;
+    }
+    let Some(chat) = ask["sessionId"].as_str().and_then(|session| chats.get_mut(session)) else {
+        return;
+    };
+    if let Some(notice) = chat.asked(ask)
+        && !chat.muted
+    {
+        mux.post_agent_chat_notice(&chat.session, &notice);
     }
 }
 
@@ -224,6 +243,7 @@ fn changed(mux: &Mux, params: &Value, chats: &mut HashMap<String, Chat>) {
 /// What the chat's change from `before` reads and posts; then the watch knows `next`.
 fn apply(mux: &Mux, before: Option<&Chat>, mut next: Chat, chats: &mut HashMap<String, Chat>) {
     next.notified_turn = before.and_then(|chat| chat.notified_turn.clone());
+    next.keep_asks(before);
     let waited = before.is_some_and(|chat| chat.indicator == "input");
     let read = before.is_some_and(|chat| chat.unread) && !next.unread;
     let muted = next.muted && !before.is_some_and(|chat| chat.muted);
@@ -255,6 +275,8 @@ struct Chat {
     notified_turn: Option<String>,
     last_message: String,
     last_seq: u64,
+    /// The asks of its current wait, by group (asks grouped on one card) or permission id.
+    asks: HashSet<String>,
 }
 
 struct Notice {
@@ -295,6 +317,39 @@ impl Chat {
             notified_turn: None,
             last_message: summary["lastMessage"]["text"].as_str().unwrap_or_default().to_owned(),
             last_seq: summary["lastSeq"].as_u64().unwrap_or(0),
+            asks: HashSet::new(),
+        })
+    }
+
+    /// The asks of the wait it had before, while it still waits (`apply`).
+    fn keep_asks(&mut self, before: Option<&Chat>) {
+        if self.indicator == "input"
+            && let Some(before) = before.filter(|chat| chat.indicator == "input")
+        {
+            self.asks.clone_from(&before.asks);
+        }
+    }
+
+    /// A new ask acpmux says the chat waits on (`_acpmux/permission_pending`): "needs input"
+    /// again when it comes while the chat already waits on another. The ask that starts the
+    /// wait notifies through the wait itself (`notices`); asks grouped on one card count once;
+    /// an ask an acpmux restart re-issues (`permission_reissued`, which names no turn) was told
+    /// before.
+    fn asked(&mut self, ask: &Value) -> Option<Notice> {
+        if self.indicator != "input" || ask.get("turnId").is_none() {
+            return None;
+        }
+        let key = ask["groupId"].as_str().or_else(|| ask["permissionId"].as_str())?;
+        let first = self.asks.is_empty();
+        if !self.asks.insert(key.to_owned()) || first {
+            return None;
+        }
+        Some(Notice {
+            key: format!("input-{}", ask["seq"].as_u64().unwrap_or(self.last_seq)),
+            title: format!("{} needs input", self.name),
+            body: short(&self.last_message, MAX_BODY_CHARS),
+            level: NotificationLevel::Warning,
+            restated: false,
         })
     }
 
@@ -370,4 +425,88 @@ fn short(text: &str, max: usize) -> String {
     let mut cut = text.chars().take(max - 1).collect::<String>();
     cut.push('…');
     cut
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A chat as acpmux summarizes it at `seq`.
+    fn chat(indicator: &str, seq: u64) -> Chat {
+        Chat::of(&json!({
+            "sessionId": "chat-1",
+            "title": "Review",
+            "indicator": indicator,
+            "lastSeq": seq,
+            "lastMessage": {"text": "Run npm test?"},
+        }))
+        .expect("a local chat")
+    }
+
+    /// The `_acpmux/permission_pending` a watcher gets for a new ask (a `permission_request`
+    /// record: it names its turn and its group, null when none).
+    fn ask(permission: &str, group: Option<&str>, seq: u64) -> Value {
+        json!({"permissionId": permission, "groupId": group, "turnId": "turn-1", "seq": seq,
+               "sessionId": "chat-1", "via": "watch", "request": {}})
+    }
+
+    /// The same ask re-issued by an acpmux that restarted (`permission_reissued`: no turn, no group).
+    fn reissued(permission: &str, seq: u64) -> Value {
+        json!({"permissionId": permission, "seq": seq, "sessionId": "chat-1", "via": "watch", "request": {}})
+    }
+
+    fn key(notice: Option<Notice>) -> Option<String> {
+        notice.map(|notice| notice.key)
+    }
+
+    /// The watch's chat after a change from `before`, as `apply` keeps it.
+    fn after(before: &Chat, indicator: &str, seq: u64) -> Chat {
+        let mut next = chat(indicator, seq);
+        next.keep_asks(Some(before));
+        next
+    }
+
+    #[test]
+    fn the_ask_that_starts_a_wait_notifies_through_the_wait_alone() {
+        let working = chat("working", 8);
+        let mut waiting = after(&working, "input", 10);
+        assert_eq!(waiting.notices(Some(&working)).len(), 1);
+        assert_eq!(key(waiting.asked(&ask("p1", None, 10))), None);
+    }
+
+    #[test]
+    fn a_second_ask_while_the_chat_waits_notifies_again() {
+        let mut waiting = after(&chat("working", 8), "input", 10);
+        waiting.asked(&ask("p1", None, 10));
+        let mut later = after(&waiting, "input", 12);
+        assert_eq!(key(later.asked(&ask("p2", None, 12))), Some("input-12".into()));
+        // The same ask heard again is not new.
+        assert_eq!(key(later.asked(&ask("p2", None, 12))), None);
+    }
+
+    #[test]
+    fn a_burst_grouped_on_one_card_notifies_once() {
+        let mut waiting = after(&chat("working", 8), "input", 10);
+        waiting.asked(&ask("p1", None, 10));
+        assert_eq!(key(waiting.asked(&ask("p2", Some("g1"), 12))), Some("input-12".into()));
+        assert_eq!(key(waiting.asked(&ask("p3", Some("g1"), 13))), None);
+        assert_eq!(key(waiting.asked(&ask("p4", Some("g1"), 14))), None);
+    }
+
+    #[test]
+    fn asks_an_acpmux_restart_reissues_post_nothing_new() {
+        let mut waiting = after(&chat("idle", 8), "input", 10);
+        assert_eq!(key(waiting.asked(&reissued("p1", 10))), None);
+        assert_eq!(key(waiting.asked(&reissued("p2", 11))), None);
+    }
+
+    #[test]
+    fn a_new_wait_starts_counting_again() {
+        let mut waiting = after(&chat("working", 8), "input", 10);
+        waiting.asked(&ask("p1", None, 10));
+        waiting.asked(&ask("p2", None, 11));
+        let answered = after(&waiting, "working", 12);
+        let mut again = after(&answered, "input", 14);
+        assert_eq!(key(again.asked(&ask("p3", None, 14))), None);
+    }
 }

@@ -249,9 +249,17 @@
       "scope": "chief:read",
       "class": "read"
     },
+    "chief.profile.history": {
+      "scope": "chief:read",
+      "class": "read"
+    },
     "chief.profile.list": {
       "scope": "chief:read",
       "class": "read"
+    },
+    "chief.profile.undo": {
+      "scope": "chief:write",
+      "class": "mutation"
     },
     "chief.profile.update": {
       "scope": "chief:write",
@@ -855,6 +863,10 @@
     },
     "memory_app.reload": {
       "scope": "memory_app:read",
+      "class": "read"
+    },
+    "memory.search": {
+      "scope": "memory:read",
       "class": "read"
     },
     "message.edit": {

@@ -7,7 +7,7 @@ import CmuxNextSidebar
 
 /// Workspace verbs that change what a workspace holds: duplicate (layout and
 /// directories, new terminals), merge into another workspace, move a pane
-/// out into a new workspace, icon, copy path (REWRITE.md round 3).
+/// out into a new workspace or window, icon, copy path (REWRITE.md round 3).
 enum WorkspaceStructureHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("workspace.duplicate", run: { try duplicate(context, $0, browsers: true) })
@@ -46,7 +46,8 @@ enum WorkspaceStructureHandlers {
         })
         registry.bind("workspace.clearIcon", run: { try changeIcon(to: nil, $0, context) })
         registry.bind("workspace.mergeInto", run: { try merge(context, $0) })
-        registry.bind("pane.moveToNewWorkspace", run: { try movePane(context, $0) })
+        registry.bind("pane.moveToNewWorkspace", run: { try movePane(context, $0, newWindow: false) })
+        registry.bind("pane.moveToNewWindow", run: { try movePane(context, $0, newWindow: true) })
     }
 
     // MARK: Duplicate
@@ -66,27 +67,45 @@ enum WorkspaceStructureHandlers {
         guard let daemon = context.services.machines.daemon(forWorkspace: workspace.id) else {
             throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn)
         }
-        let withBrowsers = browsers && daemon.supports(DaemonCapabilities.shared.frontendBrowserTabs)
         var blueprint = WorkspaceBlueprint(workspace)
-        if !withBrowsers { blueprint = blueprint.withoutBrowserTabs(fallbackDirectory: WorkspaceVerbHandlers.directory(of: workspace, context)) }
+        if !browsers || !daemon.supports(DaemonCapabilities.shared.frontendBrowserTabs) {
+            blueprint = blueprint.withoutBrowserTabs(fallbackDirectory: WorkspaceVerbHandlers.directory(of: workspace, context))
+        }
         let windows = context.services.windows
         let target = windows.targetWindow(preferring: windows.registry.value.owner(of: workspace.id) ?? context.activeWindow?.state.id)
-        var spawn = WorkspaceSpawn(cwd: firstLeafDirectory(blueprint), name: workspace.displayName)
-        spawn.slot = .below(workspace.id)
-        let engine: BrowserEngine = if case .open(let choice) = context.services.cache.browserTabs.resolve(requested: nil) {
+        build(blueprint, name: workspace.displayName, slot: .below(workspace.id), on: daemon, into: target,
+              label: "duplicate workspace", services: context.services, done: done)
+    }
+
+    /// Creates a workspace named `name` in window `target` (at `slot`, nil: `workspaces.newPlacement`)
+    /// and builds `blueprint` into it with new terminals, its color and icon too: the one path of
+    /// Duplicate Workspace and New Workspace from Template. Browser tabs open only where the daemon
+    /// serves them (else they are left out). `done` gets the new workspace's id once its layout is
+    /// built (nil when it failed); the failure is the returned work's result. `tracks` false leaves
+    /// the work untracked, for a caller that awaits it inside its own tracked work.
+    @discardableResult
+    static func build(_ blueprint: WorkspaceBlueprint, name: String?, slot: WorkspaceSlot?, on daemon: DaemonService, into target: String,
+                      label: String, services: AppServices, tracks: Bool = true,
+                      done: (@MainActor @Sendable (String?) -> Void)? = nil) -> ActionWork {
+        let withBrowsers = daemon.supports(DaemonCapabilities.shared.frontendBrowserTabs)
+        let blueprint = withBrowsers ? blueprint : blueprint.withoutBrowserTabs(fallbackDirectory: blueprint.firstDirectory)
+        let windows = services.windows
+        var spawn = WorkspaceSpawn(cwd: firstLeafDirectory(blueprint), name: name)
+        spawn.slot = slot
+        let engine: BrowserEngine = if case .open(let choice) = services.cache.browserTabs.resolve(requested: nil) {
             choice.engine
         } else {
             .webkit
         }
         let metadata = daemon.supports(DaemonCapabilities.shared.workspaceMetadata)
-        context.services.registry.track(Task {
+        let work = ActionWork { @MainActor in
             do {
                 let id = try await windows.createWorkspace(spawn, on: daemon, into: target)
                 let key = WorkspaceKey(rawValue: id)
-                let resource = daemon.store.stateResourceID(workspace: key), blueprint = blueprint
+                let resource = daemon.store.stateResourceID(workspace: key)
                 // Through the funnel: the action run waits for the layout's
                 // echo, so `created` names the tabs it made.
-                try await daemon.perform("duplicate workspace layout") { connection in
+                try await daemon.perform(label + " layout") { connection in
                     try await WorkspaceBlueprintBuilder(connection: connection, key: key, browsers: withBrowsers, defaultEngine: engine)
                         .build(blueprint)
                     if metadata, blueprint.color != nil || blueprint.icon != nil {
@@ -99,9 +118,11 @@ enum WorkspaceStructureHandlers {
                 return nil
             } catch {
                 done?(nil)
-                return ActionWorkFailure("duplicate workspace", error)
+                return ActionWorkFailure(label, error)
             }
-        })
+        }
+        if tracks { services.registry.track(work) }
+        return work
     }
 
     /// The directory the new workspace's first terminal starts in: the first
@@ -157,33 +178,43 @@ enum WorkspaceStructureHandlers {
 
     /// Moves the target pane's tabs into a new workspace (below its own):
     /// the first tab makes the workspace, the others follow in order.
-    private static func movePane(_ context: AppActionContext, _ invocation: ActionInvocation) throws {
+    /// Move Pane to New Workspace, or to New Window (beside its window, `openMovedWindow`): the
+    /// daemon moves each tab, so terminals keep running and pages are reparented, not reloaded.
+    private static func movePane(_ context: AppActionContext, _ invocation: ActionInvocation, newWindow: Bool) throws {
         guard let pane = context.daemonPane(invocation), let first = pane.tabs.first else {
             throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn)
         }
-        let workspace = context.services.machines.allWorkspaces.map(\.0).first { $0.screens.contains { $0.panes.contains { $0 === pane } } }
+        let services = context.services, windows = services.windows
+        if newWindow, let reason = TabPromotion.refusal(tab: first.id, services: services) { throw ActionFailure.invalidTarget(reason) }
+        let workspace = services.machines.allWorkspaces.map(\.0).first { $0.screens.contains { $0.panes.contains { $0 === pane } } }
+        // Read before the await: whether this run may change the view, and where the pane came from.
+        let allowed = ActionRunScope.viewChangeAllowed(), origin = windows.moveOrigin(of: workspace?.id)
         if let workspace, workspace.screens.flatMap(\.panes).count == 1 {
-            throw ActionFailure.invalidTarget(WorkspaceVerbStrings.onlyPane)
+            // The only pane: a new window takes its workspace; a new workspace would leave nothing.
+            guard newWindow else { throw ActionFailure.invalidTarget(WorkspaceVerbStrings.onlyPane) }
+            return windows.openMovedWindow([workspace.id], from: origin, select: allowed)
         }
         let rest = Array(pane.tabs.dropFirst())
-        let services = context.services
-        // Read before the await: whether this run may change the view.
-        let allowed = ActionRunScope.viewChangeAllowed()
-        services.registry.track(Task {
+        let work: ActionWork = Task {
             guard let key = await TabMoves.toNewWorkspace(first, services: services) else { return "move-tab-to-new-workspace failed (see the app log)" }
-            guard let workspace, let state = services.windows.registry.value.owner(of: workspace.id).flatMap({ services.windows.states[$0] })
-            else { return nil }
+            if newWindow {
+                await TabMoves.join(rest[...], workspace: key, services: services)
+                windows.openMovedWindow([key.rawValue], from: origin, select: allowed)
+                return nil
+            }
+            guard let workspace, let state = windows.registry.value.owner(of: workspace.id).flatMap({ windows.states[$0] }) else { return nil }
             // Once the daemon reports it: below the pane's workspace, the
             // other tabs follow in order, and the window shows it (the new
             // workspace is selected).
-            services.windows.claim(workspaceID: key.rawValue, in: state, select: allowed)
-            services.windows.place(newWorkspace: key.rawValue, in: state.id, at: .below(workspace.id)) { id, _ in
+            windows.claim(workspaceID: key.rawValue, in: state, select: allowed)
+            windows.place(newWorkspace: key.rawValue, in: state.id, at: .below(workspace.id)) { id, _ in
                 if let created = services.workspace(id: id) { moveTabs(rest, into: created, context) {} }
                 // A run this client's user did not start files it away.
-                if allowed { services.windows.show(workspaceID: id, in: state) }
+                if allowed { windows.show(workspaceID: id, in: state) }
             }
             return nil
-        })
+        }
+        if !newWindow { services.registry.track(work) }
     }
 
     /// Moves `tabs` into `workspace` one after another (each move waits for

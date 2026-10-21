@@ -11,6 +11,7 @@ import { HandsError, type AgentEvent, type HandCaller, type HandReply } from "..
 import { Hands } from "./contract.ts"
 import { CLAUDE } from "./models.ts"
 import type { StepPatch } from "./brain-runs.ts"
+import { effectRefusal } from "./effect-policy.ts"
 
 /**
  * The Chief's hands: the live `Hands` service (contract.ts) and two brain tools: `hands` (files and
@@ -277,12 +278,13 @@ const callerOf = (who: Who) => (): HandCaller | null => {
  * `hands` + `agent` pair): list, a pairing code for a machine, or a new cloud sandbox. Once a hand exists the
  * brain continues the run once with the full tools (the tools list never changes inside a pi turn: thinking is signed for it).
  */
-export const handsEntryTool = (env: Env, who: Who, onHand: (action: string, result: string) => Promise<void>): ToolRegistration<typeof HandsEntryArgs> => ({
+export const handsEntryTool = (env: Env, who: Who, onHand: (action: string, result: string) => Promise<void>, effectsAuthorized: () => boolean = () => true): ToolRegistration<typeof HandsEntryArgs> => ({
   name: "hands",
   description: "You have no hand yet (a machine for files, programs and coding agents). list: your hands. pair_code: a code + install line for a machine (name, profile). new_sandbox: a cloud sandbox with its hand (name). When a hand is ready, the full hands and agent tools come right after this step; then continue.",
   parameters: HandsEntryArgs,
   replay: "unsafe",
   execute: async (args) => {
+    if (!effectsAuthorized()) return effectRefusal()
     const text = await run(env, callerOf(who)(), handsProgram(args as HandsArgsT))
     // Records a hand found now; the full tools come at the next turn boundary.
     if ((args.action === "new_sandbox" || args.action === "list") && !text.startsWith("hands error")) await onHand(args.action, text).catch(() => undefined)
@@ -308,7 +310,8 @@ export const hasHand = (env: Env, who: Who): Promise<boolean> => {
 export const handsTools = (
   env: Env,
   who: () => { agent: string | null; owner: string | null; run?: string | undefined; conversation?: string | undefined; ledger?: (jti: string, o: LedgerOp) => unknown },
-  report: HandsReporter = () => undefined
+  report: HandsReporter = () => undefined,
+  effectsAuthorized: () => boolean = () => true
 ): [ToolRegistration<typeof HandsArgs>, ToolRegistration<typeof AgentArgs>] => {
   const caller = callerOf(who)
   return [
@@ -318,7 +321,7 @@ export const handsTools = (
         "Files and programs on your hands (machines that run cmux-hand: sandboxes, and later the person's Mac). Read a file to get its sha256, then edit with exact {old,new} pairs and that expect_sha256; a stale sha means someone changed the file: read again.",
       parameters: HandsArgs,
       replay: "unsafe",
-      execute: async (args) => ({ content: [{ type: "text", text: await run(env, caller(), handsProgram(args as HandsArgsT)) }] })
+      execute: async (args) => effectsAuthorized() ? ({ content: [{ type: "text", text: await run(env, caller(), handsProgram(args as HandsArgsT)) }] }) : effectRefusal()
     },
     {
       name: "agent",
@@ -326,7 +329,7 @@ export const handsTools = (
         "Coding agents (claude, codex, opencode) on a hand, through acpmux with the hand's own permission policy. start returns when the turn ends or wait_seconds passes, with the agent's last text, its tool calls and any permission it waits for; continue with wait (after_seq = last_seq).",
       parameters: AgentArgs,
       replay: "unsafe",
-      execute: async (args, api) => ({ content: [{ type: "text", text: await run(env, caller(), agentProgram(args as AgentArgsT, report, api.callId), { run: who().run, conversation: who().conversation, ledger: who().ledger }) }] })
+      execute: async (args, api) => effectsAuthorized() ? ({ content: [{ type: "text", text: await run(env, caller(), agentProgram(args as AgentArgsT, report, api.callId), { run: who().run, conversation: who().conversation, ledger: who().ledger }) }] }) : effectRefusal()
     }
   ]
 }

@@ -74,6 +74,28 @@ impl TurnBinding {
 }
 
 impl TurnBinding {
+    /// The subagent id (`a12`) of a subagent session name
+    /// (`<subagent prefix>a12`, and acpmux's `-<n>` for a taken name); None
+    /// for any other name.
+    pub fn subagent_id(&self, name: &str) -> Option<String> {
+        let id = name
+            .strip_prefix(&self.subagent_prefix)?
+            .split('-')
+            .next()?;
+        let digits = id.strip_prefix('a')?;
+        (!digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit())).then(|| id.to_owned())
+    }
+
+    /// The subagent id (`a<N>`) of the process `pid` when it runs under one
+    /// of this Chief's subagent sessions; None for any other caller.
+    pub fn subagent_of(&self, pid: i32) -> Option<String> {
+        let parent_exe = self.agent_parent.as_deref()?;
+        let name = agent_session_name(pid, parent_exe)?;
+        name.starts_with(&self.subagent_prefix)
+            .then(|| crate::tools::subagent_of_session(&name))
+            .flatten()
+    }
+
     /// `<turn prefix><digits>`, then any `-<digits>` acpmux adds to a taken
     /// name (`hub/new_request.rs` `unique_name_among`); nothing else.
     fn is_turn_name(&self, name: &str) -> bool {
@@ -82,6 +104,36 @@ impl TurnBinding {
                 .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
         })
     }
+}
+
+/// Whether `pid` is this process or runs under it (a native engine's tool
+/// child, such as its bash): such a caller acts for the Chief, not the owner.
+pub fn under_this_process(pid: i32) -> bool {
+    let me = std::process::id() as i32;
+    let mut current = pid;
+    for _ in 0..MAX_DEPTH {
+        if current == me {
+            return true;
+        }
+        match parent_pid(current) {
+            Some(parent) if parent > 1 => current = parent,
+            _ => return false,
+        }
+    }
+    false
+}
+
+/// Whether this process runs under any Chief's subagent session
+/// (`optchat-sub-…`, as the host's `subagent_prefix` matches): by the session
+/// name acpmux set on the agent above it, or by its own
+/// `ACPMUX_SESSION_NAME`. Used where no host answers to bind the caller (the
+/// settings and browse CLI's file fallbacks).
+pub fn this_process_is_a_subagent() -> bool {
+    let named =
+        |name: Option<String>| name.is_some_and(|name| name.trim().starts_with("optchat-sub-"));
+    named(std::env::var("ACPMUX_SESSION_NAME").ok())
+        || crate::acpmux_peer::expected()
+            .is_some_and(|acpmux| named(agent_session_name(std::process::id() as i32, &acpmux)))
 }
 
 /// The `ACPMUX_SESSION_NAME` of the nearest acpmux agent at or above `pid`.

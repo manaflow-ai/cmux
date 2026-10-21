@@ -51,7 +51,7 @@ Chief), with the actor and operation that made it.
 ## Engine = backend
 
 `harness`, `model`, `effort` in the record are the Chief's backend. On every
-committed write the daemon writes them into that Chief's
+committed write that changes them the daemon writes them into that Chief's
 `<brain home>/optchat/engine.json` (`harness`, `model`, `effort`; the
 compactor and speed fields stay), which the brain reads at each turn start, so
 `chief engine show` shows the record's engine. Brain home: the Chief home root

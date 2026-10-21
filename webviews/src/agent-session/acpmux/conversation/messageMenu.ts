@@ -6,7 +6,7 @@
 // report adds `openImage`, and the menu's Open Image clicks it (`openReportedImage`). The host uses
 // one report for one menu. On a code block, a command, a path or a link the report adds that
 // `part` (menuParts.ts), even outside a prompt or reply (a tool row).
-import { lexer, type Token, walkTokens } from "marked";
+import { Lexer, lexer, type Token, walkTokens } from "marked";
 import { turnRows } from "../diff";
 import type { AcpmuxSnapshot } from "../model";
 import { menuPartAt, type MenuPart } from "./menuParts";
@@ -38,6 +38,18 @@ export const canFork = (snapshot: AcpmuxSnapshot) =>
   !snapshot.summary?.peer &&
   snapshot.connection !== "disconnected" &&
   !snapshot.connection.startsWith("connecting");
+
+/// Why Fork Conversation from the app (the palette's step, the chat's right-click menu, its
+/// shortcut: `chat.forkTo`) cannot fork the chat now, or undefined when it can: "busy" while a turn
+/// runs, "unavailable" when acpmux, the connection or the chat's machine does not serve the fork,
+/// "nothingYet" before the chat's first finished turn (a Claude chat with none has no
+/// conversation to copy).
+export function forkRefusal(snapshot: AcpmuxSnapshot): "busy" | "unavailable" | "nothingYet" | undefined {
+  if (snapshot.isWorking) return "busy";
+  if (!canFork(snapshot)) return "unavailable";
+  if (latestForkSeq(snapshot.rows) === undefined) return "nothingYet";
+  return undefined;
+}
 
 /// Whether every completed turn can be forked: acpmux forks a Claude or Codex chat through any of
 /// them (`hub/fork_at.rs`, cx-yqiv, cx-a7r); other agents fork only at a chat's end.
@@ -162,6 +174,11 @@ function blocks(tokens: Token[]): string[] {
         return "tokens" in token && token.tokens ? [inline(token.tokens)] : "text" in token ? [String(token.text)] : [];
     }
   });
+}
+
+/// One line of inline Markdown (a table cell) as a person reads it; `---` or `# x` stay text.
+export function inlinePlainText(markdown: string): string {
+  return inline(Lexer.lexInline(markdown));
 }
 
 function inline(tokens: Token[]): string {

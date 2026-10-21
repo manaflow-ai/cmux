@@ -85,6 +85,11 @@ public nonisolated struct OmnibarState: Equatable, Sendable {
         /// The word under a single click on the elided, all-selected URL, in
         /// elided coordinates (Chromium `next_double_click_selection_*`).
         public var wordAtPress: NSRange?
+        /// The pointer moved past the drag threshold while pressed. What
+        /// AppKit selected during the press does not say it: on macOS 15 a
+        /// still click on the field, which grows when it takes focus, ends
+        /// with a few characters selected.
+        public var dragged = false
     }
 
     public var phase: Phase = .idle
@@ -115,6 +120,9 @@ public nonisolated struct OmnibarState: Equatable, Sendable {
     /// The edited text holds pasted text: Enter loads it as it is, with no
     /// host typo fix. Cleared when the text is emptied, reverted or committed.
     public var editHasPaste = false
+    /// `browser.omnibar.showFullURLs` (Chrome's "Always show full URLs"):
+    /// the steady-state text is the full URL, so nothing is elided.
+    public var showsFullURLs = false
 
     public init(pageURL: URL? = nil) { self.pageURL = pageURL }
 
@@ -133,7 +141,12 @@ public nonisolated struct OmnibarState: Equatable, Sendable {
     public var permanentText: String { BrowserURLDisplay.editingText(for: pageURL) }
 
     /// The steady-state page URL (Chromium `display_text_`).
-    public var displayText: String { BrowserURLDisplay.displayText(for: pageURL) }
+    public var displayText: String { steadyText(for: pageURL) }
+
+    /// The text the bar shows for `url` at rest: compact, or the full URL.
+    func steadyText(for url: URL?) -> String {
+        showsFullURLs ? BrowserURLDisplay.editingText(for: url) : BrowserURLDisplay.displayText(for: url)
+    }
 
     /// True when focusing may show the elided URL: it differs from the full one.
     var canElide: Bool { !permanentText.isEmpty && displayText != permanentText }
@@ -141,8 +154,8 @@ public nonisolated struct OmnibarState: Equatable, Sendable {
     /// Exactly what the field must contain.
     public var fieldText: String {
         switch phase {
-        case .idle: retainedText ?? BrowserURLDisplay.displayText(for: pageURL)
-        case .committing(let display): BrowserURLDisplay.displayText(for: display)
+        case .idle: retainedText ?? displayText
+        case .committing(let display): steadyText(for: display)
         case .focused: elided ? displayText : permanentText
         case .editing:
             if let selected = popup.selected, selected > 0, popup.rows.indices.contains(selected) {

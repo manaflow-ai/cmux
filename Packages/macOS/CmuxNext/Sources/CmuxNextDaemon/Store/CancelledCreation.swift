@@ -56,12 +56,8 @@ import Foundation
     static func hide(_ entry: PendingIntent, in store: DaemonStore) -> IntentUndo? {
         switch entry.kind {
         case .createTab:
-            guard let surface = entry.createdSurface ?? entry.replySurface, let tab = store.tabsBySurface[surface],
-                  let pane = store.index.pane(holding: tab), let index = pane.tabs.firstIndex(where: { $0 === tab }),
-                  let removed = pane.removeTab(surface: surface) else { return nil }
-            store.index.remove(removed)
-            store.index.noteTabOrderChanged()
-            return .hiddenTab(HiddenTab(tab: removed, pane: pane.handle, index: index))
+            guard let surface = entry.createdSurface ?? entry.replySurface, let hidden = hideTab(surface, in: store) else { return nil }
+            return .hiddenTab(hidden)
         case .splitPane(_, _, _, let provisional):
             guard let pane = daemonPane(provisional, in: store), let screen = store.screen(containing: pane.handle),
                   let index = screen.panes.firstIndex(where: { $0 === pane }) else { return nil }
@@ -93,6 +89,15 @@ import Foundation
         }
     }
 
+    /// Takes the daemon's tab on `surface` out of the visible records, with its place.
+    static func hideTab(_ surface: SurfaceID, in store: DaemonStore) -> HiddenTab? {
+        guard let tab = store.tabsBySurface[surface], let pane = store.index.pane(holding: tab),
+              let index = pane.tabs.firstIndex(where: { $0 === tab }), let removed = pane.removeTab(surface: surface) else { return nil }
+        store.index.remove(removed)
+        store.index.noteTabOrderChanged()
+        return HiddenTab(tab: removed, pane: pane.handle, index: index)
+    }
+
     static func unhide(_ undo: IntentUndo, in store: DaemonStore) {
         switch undo {
         case .hiddenTab(let hidden):
@@ -115,13 +120,15 @@ import Foundation
         }
     }
 
-    /// Tabs the cancelled creations' overlays took out of the visible records (the conservation check).
+    /// Tabs the cancelled creations' and closes' overlays took out of the visible records (the conservation check).
     static func hiddenTabs(in log: IntentLog) -> Int { log.entries.reduce(0) { $0 + hiddenTabs($1.undo) } }
 
     private static func hiddenTabs(_ undo: IntentUndo?) -> Int {
         switch undo {
         case .hiddenTab?: 1
         case .hiddenPane(let hidden)?: hidden.pane.tabs.count
+        case .closedTabs(let hidden)?: hidden.count
+        case .guessedTab?: 1
         default: 0
         }
     }

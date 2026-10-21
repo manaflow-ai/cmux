@@ -6,8 +6,9 @@ import Foundation
 
 /// The Home page's conversation actions (HomeActionCatalog): one path for
 /// the page's "+" menu, the File menu, the palette, `cmux action run` and
-/// the CLI verbs. Without arguments New Message, Invite and New Chief open
-/// their sheet on the Home page (the docked Home: a route of its page,
+/// the CLI verbs. Without arguments New Message opens the New Message page
+/// (a draft row and a To: field, as in Messages) and Invite and New Chief
+/// open their sheet on the Home page (the docked Home: a route of its page,
 /// AppActions+HomeDockRoutes); with arguments they run headless and the
 /// caller waits for the owner's answer (`ActionRegistry.track`).
 extension AppActions {
@@ -38,7 +39,7 @@ extension AppActions {
         })
         registry.bind("home.newChief", invoke: { invocation in
             guard let name = invocation["name"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else {
-                guard services.home.dock.isClassic else { return openDockRoute(HomeDockRoute.newChief, services) { $0.presentNewChief() } }
+                guard services.home.dock.isClassic else { return openChannelsRoute(HomeDockRoute.newChief, services) { $0.presentNewChief() } }
                 homePage(services)?.presentNewChief()
                 return
             }
@@ -60,12 +61,22 @@ extension AppActions {
             registry.bind(id) {
                 let step: @MainActor (TopHomePageView) -> Void = { page in
                     guard let next = page.sidebar.model().neighbor(of: page.shown, offset: offset) else { return }
-                    page.show(next)
+                    page.open(next)
                 }
-                // The docked Home steps its Messages list; Channels has its own keys (j/k).
+                // The docked Home steps its Messages list, or asks the Channels page to move through
+                // its own list (`home.moveConversation`, the page's Option-Up/Down).
                 guard services.home.dock.isClassic else {
                     return withDock(services) { dock in
-                        guard dock.mode == .messages, let page = dock.messages else { return }
+                        if dock.mode == .channels, let channels = dock.channels {
+                            // task-owner: one page call; ends with its answer (a second at most)
+                            Task { @MainActor in
+                                if await !HomeDockTab.moveConversation(channels, by: offset) {
+                                    registry.refuse(MiscHandlerStrings.channelsCannotStep, quiet: true)
+                                }
+                            }
+                            return
+                        }
+                        guard let page = dock.messages else { return }
                         step(page)
                     }
                 }
@@ -87,7 +98,7 @@ extension AppActions {
                 }
             }
             guard let page = homePage(services) else { return }
-            page.show(ConversationID(id))
+            page.open(ConversationID(id))
         })
     }
 

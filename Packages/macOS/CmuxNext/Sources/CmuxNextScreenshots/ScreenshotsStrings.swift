@@ -15,6 +15,12 @@ nonisolated struct ScreenshotsStrings {
     static var previewSource: String { t("screenshots.source.preview", "macOS Screenshot Previews") }
     static var dropFailed: String { t("screenshots.drop.failed", "Couldn’t save the dropped items") }
 
+    static var renameTitle: String { t("screenshots.rename.title", "Rename") }
+    static var renameConfirm: String { t("screenshots.rename.confirm", "Rename") }
+    static var cancel: String { t("screenshots.rename.cancel", "Cancel") }
+    static var renameExists: String { t("screenshots.rename.error.exists", "An item with that name already exists.") }
+    static var renameInvalid: String { t("screenshots.rename.error.invalid", "A name can’t be empty or contain “/”.") }
+
     static func history(of tool: String) -> String {
         String(format: t("screenshots.source.history", "%@ History"), tool)
     }

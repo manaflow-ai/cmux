@@ -96,18 +96,6 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         }
     }
 
-    /// The tint the selected work looks best under, replacing the theme's; nil for other sources.
-    public var preferredTintOpacity: Double? {
-        if case .art(let art) = self { return art.metadata.preferredTintOpacity }
-        return nil
-    }
-
-    /// The selected work's measured darkest and lightest colors; nil when unknown.
-    public var artRange: BackdropArtRange? {
-        if case .art(let art) = self { return art.metadata.range }
-        return nil
-    }
-
     /// A small image of the selection that is always here: the bundled thumbnail for art, the
     /// Desktop Pictures thumbnail for a macOS wallpaper.
     public var thumbnailURL: URL? {
@@ -116,12 +104,6 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         case .system(let path): return appleWallpaper(path, downloads: false).map(\.thumbnail) ?? imageURL
         case .file, .desktop: return imageURL
         }
-    }
-
-    /// The least theme tint over this image at full opacity (``BackdropArtMetadata/minimumTintOpacity``).
-    public var minimumTintOpacity: Double {
-        if case .art(let art) = self { return art.metadata.minimumTintOpacity }
-        return 0
     }
 
     /// Loads the selected image on the main actor for AppKit rendering.

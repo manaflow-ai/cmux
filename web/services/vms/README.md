@@ -326,6 +326,11 @@ Set these Vercel environment variables per production/staging environment:
   `CMUX_VM_ALLOW_FREE_PROVISIONING` is absent; prefer the clearly named allow switch for new
   deployments.
 - `CMUX_VM_FREESTYLE_ENABLED`, per-provider Freestyle create kill switch.
+- `CMUX_VM_DESKTOP_TRANSPORT`, which desktop a port open serves. Unset (the default) or any value
+  but `screen` keeps noVNC on 6901. `screen` makes 4180 the desktop (the cmux-screen host's
+  signaling WebSocket, opened as a `cmux://remote-view` tab) and 6901 an ordinary port. Leave it
+  unset: the image does not run the cmux-screen host yet (plans/cmux-next/remote-desktop-DESIGN.md,
+  migration steps M1 and M2).
 - `CMUX_CODEROUTER_EDGE_ORIGIN`, optional bare https origin guests dial for coderouter
   (`https://coderouter.dev` in production, the branch URL on a Vercel preview). Any other
   deployment without it (a dev backend, a local checkout) creates machines with no edge rule:

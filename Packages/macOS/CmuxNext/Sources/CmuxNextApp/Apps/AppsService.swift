@@ -23,11 +23,11 @@ final class AppsService {
     /// The control router once the socket starts (the CodeRouter page's ops run on it).
     private(set) var controlRouter: ControlRouter?
     /// The React CodeRouter page tab (Debug Settings `coderouter.surface = web`), registered on first open.
-    private var coderouterPage: CodeRouterPageTab?
+    private var coderouterPage: WebPageTab?
     /// An App Store request made while no main window could hold it (S22:
     /// the App Store is never a window of its own); the first window that
     /// mounts a pane shows it (`windowDidShowContent`).
-    private var waitingStore: (appID: String?, installed: Bool, focus: Bool)?
+    private var waitingStore: (appID: String?, tab: AppStoreModel.Tab?, focus: Bool)?
     var isStoreWaiting: Bool { waitingStore != nil }
     /// App pages (`app:<id>`), one provider per app, registered on first open.
     private var appPages: [String: AppPanePage] = [:]
@@ -38,7 +38,7 @@ final class AppsService {
     /// one client. Captures the client, not the service, so a page set that
     /// outlives the service still makes models.
     private(set) lazy var storePages = AppStorePages { [weak self, client = self.client, recovery = self.services.daemon.recovery] in
-        let model = AppStoreModel(client: client)
+        let model = AppStoreModel(client: client, features: SettingsAppFeatures(settings: { [weak self] in self?.services.settings }, showSettings: { [weak self] key in try? self?.services.settingsWindow.show(section: nil, setting: key, focus: true) })) { app in _ = self?.services.registry.perform("app.open", invocation: ActionInvocation(arguments: ["app": .string(app)], origin: .user)) }
         model.recovery = { recovery.appsRecovery }
         model.onNavigate = { self?.services.locationTrail.pageHistoryDidChange() }
         return model
@@ -68,8 +68,8 @@ final class AppsService {
         Task { [client] in client.useBundledDirectories(await AppPlatformResources.bundledDirectories()) }
     }
 
-    /// Serves app-side operations and admitted machine inventory reads
-    /// through the supervisor's verified-app provider channel.
+    /// Serves app-side operations, admitted machine inventory reads and the
+    /// Agent Memory app's search through the supervisor's verified-app provider channel.
     func attach(router: ControlRouter) {
         controlRouter = router
         let control: @Sendable (String, [String: JSONValue]) async throws(AppHostCapabilityError) -> JSONValue = { method, params throws(AppHostCapabilityError) in try await router.appControl(method, params) }
@@ -77,7 +77,11 @@ final class AppsService {
             machines?.agentInventoryRoutes() ?? []
         }
         let actionControl: @Sendable (String, [String: JSONValue], String) async throws(AppHostCapabilityError) -> JSONValue = { method, params, app throws(AppHostCapabilityError) in try await router.appControl(method, params, callerApp: app) }
-        transport.provider.attach(AppHostCapabilities([CodeRouterAppOps(control: control), ActionAppOps(control: actionControl), inventory]))
+        // The Agent Memory app's search, from the agent memory index while `agents.memory.enabled` is on.
+        let memory = AgentMemorySearchHandler(enabled: { [weak services] in
+            services?.settings?.snapshot.agentMemoryEnabled ?? false
+        }, index: BundledAgentMemoryIndex.bundled())
+        transport.provider.attach(AppHostCapabilities([CodeRouterAppOps(control: control), ActionAppOps(control: actionControl), inventory, memory]))
         if machineCatalog == nil {
             machineCatalog = MachineCatalogPublisher { [weak machines = services.machines] in
                 machines?.catalogSource()
@@ -90,23 +94,23 @@ final class AppsService {
     /// run shows it as the active window's App Store top page
     /// (TOP-SECTION-ITEMS-ARE-PAGES); automation, which never changes the
     /// view, opens it as a background tab (internal page `app-store`, one
-    /// per window). `appID` opens that listing, `installed` the Installed
-    /// tab. With no main window that can hold it, the request waits for
+    /// per window). `appID` opens that listing, `tab` a store tab (Features,
+    /// Installed); the React store has no Features tab and shows Discover. With no main window that can hold it, the request waits for
     /// one (a closed window comes back, or a new one opens), as Settings
     /// does: S22, the App Store never opens a window of its own.
-    func showStore(appID: String? = nil, installed: Bool = false, focus: Bool = true) {
+    func showStore(appID: String? = nil, tab: AppStoreModel.Tab? = nil, focus: Bool = true) {
         let key = focus ? TopPages.show(.page(.appStore), services: services)
             : services.pages.show(.appStore, in: services.windows.active, focus: false)?.key
         if let key {
             if let page = webStorePages[key] {
-                page.open(route: Self.storeRoute(appID: appID, installed: installed))
+                page.open(route: Self.storeRoute(appID: appID, installed: tab == .installed))
             } else {
-                storePages.present(key, appID: appID, installed: installed)
+                storePages.present(key, appID: appID, tab: tab)
             }
             waitingStore = nil
             return
         }
-        waitingStore = (appID, installed, focus)
+        waitingStore = (appID, tab, focus)
         if case let windows = services.windows, windows.restored, windows.controllers.isEmpty { windows.reopenOrCreateWindow() }
     }
 
@@ -115,7 +119,7 @@ final class AppsService {
     /// exists; an automation run still waits until a pane can hold its tab).
     func windowDidShowContent() {
         guard let request = waitingStore else { return }
-        showStore(appID: request.appID, installed: request.installed, focus: request.focus)
+        showStore(appID: request.appID, tab: request.tab, focus: request.focus)
     }
 
     /// Opens an app's page as a tab of the active window (one per window),
@@ -149,7 +153,7 @@ final class AppsService {
     /// web page, else the app's own pane page; nil when the app has no page.
     func pageProvider(appID: String, codeRouterAsPage: Bool = true) -> (any InternalPageProvider)? {
         if codeRouterAsPage, appID == CodeRouterPageTab.appID, PageTunables.coderouter.value == .web {
-            let tab = coderouterPage ?? CodeRouterPageTab(services: services)
+            let tab = coderouterPage ?? CodeRouterPageTab.make(services)
             if coderouterPage == nil {
                 coderouterPage = tab
                 services.pages.register(tab)

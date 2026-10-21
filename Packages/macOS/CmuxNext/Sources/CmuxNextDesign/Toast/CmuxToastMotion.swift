@@ -15,8 +15,8 @@ enum CmuxToastMotion {
 
     static func appear(_ toast: CmuxToastView) {
         guard let layer = layer(of: toast) else { return }
-        Motion.set(layer, "opacity", to: Float(1), fade: .fadeIn, from: Float(0))
-        Motion.set(layer, "transform.translation.y", to: CGFloat(0), spring: .appear, from: downward(toast) * rise)
+        Motion.overlays.set(layer, "opacity", to: Float(1), fade: .fadeIn, from: Float(0))
+        Motion.overlays.set(layer, "transform.translation.y", to: CGFloat(0), spring: .appear, from: downward(toast) * rise)
     }
 
     /// Runs `relayout`, which moves `toast` to a new frame at once, and
@@ -29,19 +29,19 @@ enum CmuxToastMotion {
         // Window space is y-up; the layer's translation follows its view's flip.
         let shown = (Motion.presentationValue(layer, "transform.translation.y") as? CGFloat) ?? 0
         let offset = (before - after) * (toast.superview?.isFlipped == true ? -1 : 1)
-        Motion.set(layer, "transform.translation.y", to: CGFloat(0), spring: .move, from: shown + offset)
+        Motion.overlays.set(layer, "transform.translation.y", to: CGFloat(0), spring: .move, from: shown + offset)
     }
 
     /// Fades `toast` out, then runs `remove`. `animated` false removes it now,
     /// as does a window off every screen (its fade would never finish).
     static func disappear(_ toast: CmuxToastView, animated: Bool, remove: @escaping @MainActor () -> Void) {
-        guard animated, Motion.canAnimate(in: toast), let layer = layer(of: toast), Motion.duration(.fadeOut) > 0 else { return remove() }
+        guard animated, Motion.canAnimate(in: toast), let layer = layer(of: toast), Motion.overlays.duration(.fadeOut) > 0 else { return remove() }
         toast.onHover = nil
         CATransaction.begin()
         CATransaction.setCompletionBlock {
             MainActor.assumeIsolated { remove() } // main-proof: CATransaction.h: the completion block is called on the main thread
         }
-        Motion.set(layer, "opacity", to: Float(0), fade: .fadeOut)
+        Motion.overlays.set(layer, "opacity", to: Float(0), fade: .fadeOut)
         CATransaction.commit()
     }
 

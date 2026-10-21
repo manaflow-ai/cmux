@@ -57,6 +57,7 @@ use crate::server::responses::send_response;
 use crate::server::{MessageWriter, Response};
 
 pub const AGENT_UPDATE_CAPABILITY: &str = "agent-update-v1";
+pub const AGENT_UPDATE_OWNER_CAPABILITY: &str = "agent-update-owner-v1";
 
 /// Replaces this machine's acpmux with the installed binary's build, keeping
 /// its agents running for the new one to adopt (blocking).
@@ -127,6 +128,7 @@ enum Verb {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Failure {
     NotTrusted,
+    OwnerMismatch,
     Unavailable,
     BadRequest,
     Busy,
@@ -139,6 +141,7 @@ impl Failure {
     fn code(self) -> &'static str {
         match self {
             Self::NotTrusted => "agent_update.not_trusted",
+            Self::OwnerMismatch => "agent_update.owner_mismatch",
             Self::Unavailable => "agent_update.unavailable",
             Self::BadRequest => "agent_update.bad_request",
             Self::Busy => "agent_update.busy",
@@ -151,6 +154,7 @@ impl Failure {
     fn message(self) -> &'static str {
         match self {
             Self::NotTrusted => "agent updates need a trusted local connection",
+            Self::OwnerMismatch => self.code(),
             Self::Unavailable => "this daemon has no acpmux",
             Self::BadRequest => "bad request",
             Self::Busy => "an agent update is already running on this machine",
@@ -195,6 +199,8 @@ pub(in crate::server) fn try_handle(
     if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
         return Some(reply(writer, id, Err(Failure::NotTrusted)));
     }
+    let expected_machine = object.remove("expected_machine_id");
+    let expects_owner = expected_machine.is_some();
     let params = Value::Object(object);
     let verb = match cmd.as_str() {
         PLAN => serde_json::from_value::<PlanParams>(params).ok().map(|_| Verb::Plan),
@@ -206,6 +212,19 @@ pub(in crate::server) fn try_handle(
     let Some(verb) = verb else {
         return Some(reply(writer, id, Err(Failure::BadRequest)));
     };
+    // A condition on this exact daemon, never a selector. Check it before
+    // consulting its socket, starting acpmux, or reserving the apply slot.
+    if let Some(expected) = expected_machine {
+        let Value::String(expected) = expected else {
+            return Some(reply(writer, id, Err(Failure::BadRequest)));
+        };
+        let Ok(expected) = crate::resource::MachinePublicId::parse(expected) else {
+            return Some(reply(writer, id, Err(Failure::BadRequest)));
+        };
+        if expected != mux.machine_public_id {
+            return Some(reply(writer, id, Err(Failure::OwnerMismatch)));
+        }
+    }
     let Some(socket) = mux.control_clients.agent_sessions.socket() else {
         return Some(reply(writer, id, Err(Failure::Unavailable)));
     };
@@ -228,7 +247,13 @@ pub(in crate::server) fn try_handle(
             let result = match verb {
                 Verb::Plan => plan(&socket),
                 Verb::Apply(params) => apply(&worker_mux, &socket, params),
-            };
+            }
+            .map(|mut value| {
+                if expects_owner {
+                    value["machine"] = json!(worker_mux.machine_public_id);
+                }
+                value
+            });
             drop(slot);
             reply(&worker_writer, worker_id, result);
         });
@@ -436,3 +461,7 @@ impl Mux {
         self.serves_agent_session_attach()
     }
 }
+
+#[cfg(all(test, unix))]
+#[path = "agent_update_owner_tests.rs"]
+mod owner_tests;

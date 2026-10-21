@@ -37,6 +37,18 @@ import Foundation
     /// `close-tabs`; a failure rejects the intent, so the records show what the daemon kept).
     public func onClose(_ close: @escaping (ClientTransactionID, SurfaceID) -> Void) { store.intentLog.closeCancelled = close }
 
+    /// The close of `transaction`'s daemon surface timed out (it may or may not have committed):
+    /// once the records say (call after a refresh), a creation whose tab is still there sends
+    /// its close again, at most ``closeAttemptLimit`` times; one whose tab is gone has left.
+    public func closeTimedOut(_ transaction: ClientTransactionID) {
+        guard store.intentLog.allowCloseRetry(transaction, limit: Self.closeAttemptLimit) else { return }
+        CancelledCreation.requestCloses(in: store)
+    }
+
+    /// Sends of a cancelled creation's close before its tab is left to the records (shown again
+    /// only if a snapshot says the daemon kept it).
+    public static let closeAttemptLimit = 3
+
     /// Whether tab `id` is still a pending creation's provisional tab (a close cancels it).
     public func isPending(tab id: String) -> Bool { CancelledCreation.transaction(showingTab: id, in: store) != nil }
 
@@ -67,6 +79,10 @@ extension CancelledCreation {
     static func requestCloses(in store: DaemonStore) {
         guard !store.overlayLifted else { return }
         for entry in store.intentLog.entries where entry.closeWhenCreated && !entry.closeRequested {
+            // A create's tab paired by a guess (``ProvisionalTab/matched(_:in:)``) is hidden but
+            // closed only once the daemon names it for this transaction: a wrong guess never
+            // closes another create's tab.
+            if case .createTab = entry.kind, !entry.createdConfirmed, entry.replySurface == nil { continue }
             guard let surface = closeSurface(entry) else { continue }
             store.intentLog.noteCloseRequested(entry.transaction)
             store.intentLog.closeCancelled?(entry.transaction, surface)

@@ -124,7 +124,7 @@ extension TabDragSession {
     func land(_ drag: Drag, at rect: CGRect, cardness: CGFloat, opacity: CGFloat, scale: CGFloat) {
         finishLanding()
         // The release settles with a slightly under-damped spring.
-        drag.motion.rectSpring = Motion.spring(.settle)
+        drag.motion.rectSpring = Motion.tabs.spring(.settle)
         drag.motion.setTarget(rect, cardness: cardness, opacity: opacity, scale: scale, jump: true,
                               velocity: drag.releaseVelocity(at: CACurrentMediaTime()))
         landing = drag

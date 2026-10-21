@@ -35,6 +35,13 @@ enum PaneHandlers {
         content.focus.send(.focusPane(pane.rawValue, source: .intent))
     }
 
+    /// A pane-navigation key (Focus Pane Left, Next Pane, a pane number, a column key) moves focus
+    /// where the person asked, so the layout records a keyboard move: no without-a-click flash.
+    static func focusByKey(_ pane: LayoutPaneID, in content: WorkspaceContentController) {
+        content.layoutModel.focus(pane, notify: false, source: .keyboard)
+        focus(pane, in: content)
+    }
+
     // MARK: Splits
 
     private static func bindSplits(_ registry: ActionRegistry, _ ctx: AppActionContext) {
@@ -82,13 +89,18 @@ enum PaneHandlers {
         let page = !invocation.opensTerminal && NewTabPage.splitsToPage(controller, direction: direction, byPerson: invocation.origin == .user)
         switch ctx.services.toolSplit(from: pane, edge: edge(direction), byPerson: invocation.origin == .user) {
         case .split:
-            if page, let controller { return NewTabPage.split(controller, edge: edge(direction)) }
+            if page, let controller { NewTabPage.split(controller, edge: edge(direction)); return }
         case .refused(let reason):
             return ctx.refuse(reason)
         case .tab(let strip):
             if let content = strip.workspace { focus(strip.layoutPaneID, in: content) }
             if page { return strip.newTabPage() }
             return strip.newTerminalTab(cwd: named, keep: keep, fromSelectedTab: true, daemonResolvesCwd: true)
+        case .besideDock(let dock):
+            // Every direction is a column on the dock's right: the pinned dock neither splits nor moves.
+            if page { NewTabPage.split(dock, edge: .right); return }
+            dock.workspace?.newColumn(after: dock.layoutPaneID, options: SpawnOptions(cwd: cwd, workspace: workspace, keep: keep))
+            return
         }
         let axis: SplitAxis = direction == .left || direction == .right ? .horizontal : .vertical
         let sizing = controller.flatMap { controller in
@@ -114,6 +126,10 @@ enum PaneHandlers {
         let keys = ctx.services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent, earlyTab: daemon.queuesCreatingInput ? provisional?.tabID : nil, tab: provisional?.tabID)
         // The provisional pane is in the store now, and the window lays it out and mounts it in this
         // turn, so it draws in the key's frame (instant-new-surfaces), not after a main-actor hop.
+        // The split and the even sizing of its chain are one gesture: both show in this frame, so
+        // every pane of the chain moves on one spring (split-spring-animation); the ratio intents
+        // go once the daemon made the split.
+        let shownSizing = provisional == nil ? nil : content?.layoutModel.showSplitSizing(sizing)
         let intended = provisional.map { provisional in
             defer { BenchSpans.measure("split.layout") { content?.applyCurrent() } }
             return BenchSpans.measure("split.intend") { command.intendNow(on: daemon, provisional: provisional) }
@@ -130,9 +146,10 @@ enum PaneHandlers {
                 BenchSpans.mark(provisional == nil ? "split.reply" : "split.reply.optimistic")
                 if provisional == nil { content?.expectFocus(on: created.surface, generation: intent) }
                 landed = true
-                content?.layoutModel.applySplitSizing(sizing)
+                if let model = content?.layoutModel { model.commitSplitSizing(shownSizing ?? model.showSplitSizing(sizing)) }
                 return nil
             } catch {
+                if let shownSizing { content?.layoutModel.cancelSplitSizing(shownSizing) }
                 logger.error("split failed: \(String(describing: error), privacy: .public)")
                 return "split: \(error)"
             }
@@ -158,7 +175,7 @@ enum PaneHandlers {
                 guard let next = neighbor(of: pane.layoutPaneID, direction: direction, in: content) else {
                     return ctx.refuseQuietly(RefusalStrings.noPaneInDirection(RefusalStrings.direction(direction)))
                 }
-                focus(next, in: content)
+                focusByKey(next, in: content)
             })
         }
         registry.bind("focusPreviousPane", invoke: { cycleFocus(ctx, $0, offset: -1) })
@@ -171,7 +188,7 @@ enum PaneHandlers {
             let order = screen.layout.panes
             let index = number >= 9 ? order.count - 1 : number - 1
             guard order.indices.contains(index) else { return ctx.refuseQuietly(RefusalStrings.noPaneWithNumber) }
-            focus(order[index], in: content)
+            focusByKey(order[index], in: content)
         })
     }
 
@@ -182,7 +199,7 @@ enum PaneHandlers {
         guard order.count > 1, let index = order.firstIndex(of: pane.layoutPaneID) else {
             return ctx.refuseQuietly(RefusalStrings.screenHasOnePane)
         }
-        focus(order[(index + offset + order.count) % order.count], in: content)
+        focusByKey(order[(index + offset + order.count) % order.count], in: content)
     }
 
     // MARK: Sizing

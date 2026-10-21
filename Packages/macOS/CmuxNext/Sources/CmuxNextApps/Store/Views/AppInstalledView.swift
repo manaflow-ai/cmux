@@ -55,7 +55,6 @@ struct AppInstalledRow: View {
                 .toggleStyle(.switch).controlSize(.mini).labelsHidden()
                 .tint(colors.secondary)
                 .disabled(!model.canChange)
-                .themedHelp(AppsStrings.enabled)
                 iconButton(app.hidden ? .actionShow : .actionHide, app.hidden ? AppsStrings.show : AppsStrings.hide,
                            enabled: model.canChange && !app.isBuiltIn) {
                     // task-owner: one hide or show from a button
@@ -75,7 +74,7 @@ struct AppInstalledRow: View {
         }
         .padding(Metrics.space3)
         .background(RoundedRectangle(cornerRadius: Metrics.itemCornerRadius + 2, style: .continuous).fill(colors.hover))
-        .animation(Motion.animation(.focus), value: app)
+        .animation(Motion.feedback.animation(.focus), value: app)
     }
 
     /// The supervisor's refusal of the last change, else a crashed host.

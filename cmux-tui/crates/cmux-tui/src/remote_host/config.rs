@@ -30,6 +30,13 @@ pub(crate) struct Config {
     /// this off for its own session: only the app starts that daemon.
     #[serde(default = "default_true")]
     pub spawn: bool,
+    /// Teammate access (teammate-access-DESIGN.md), off by default: while
+    /// off, `grants` are ignored. `cmux host grant` turns it on.
+    #[serde(default)]
+    pub teammate_access: bool,
+    /// Scoped, consented grants for allowlisted logins (`cmux host grant`).
+    #[serde(default)]
+    pub grants: Vec<super::grant::Grant>,
 }
 
 fn default_port() -> u16 {
@@ -50,6 +57,8 @@ impl Default for Config {
             session: None,
             port: DEFAULT_PORT,
             spawn: true,
+            teammate_access: false,
+            grants: Vec::new(),
         }
     }
 }

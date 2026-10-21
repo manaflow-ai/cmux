@@ -55,7 +55,8 @@ function settle(sessionId: string, list: number[]): void {
 export function setBookmarkTransport(next: BookmarkTransport | undefined): void {
   transport = next;
   version += 1;
-  marks = new Map();
+  // The marks shown stay until each session's read on the new connection answers (no dots leaving
+  // and coming back on a reconnect); only the reads are asked again.
   loaded = new Set();
   pending.clear();
   emit();
@@ -84,8 +85,15 @@ function load(sessionId: string): void {
         else toggleWith(via, sessionId, seq, true, () => forgetLocalMark(key));
     },
     () => {
-      // Unreachable or an older acpmux: no marks, and the next transport asks again.
-      if (via === transport) loaded.delete(sessionId);
+      // Unreachable or an older acpmux: no marks (the ones kept from the connection before go too),
+      // and the next transport asks again.
+      if (via !== transport) return;
+      loaded.delete(sessionId);
+      if (marks.has(sessionId)) {
+        marks = new Map(marks);
+        marks.delete(sessionId);
+        emit();
+      }
     },
   );
 }
@@ -129,6 +137,14 @@ function toggleWith(via: BookmarkTransport, sessionId: string, seq: number, on: 
 /// The seq of a prompt row (`user-<seq>`), or undefined for a row acpmux has not logged yet.
 export function promptSeq(rowId: string): number | undefined {
   const match = /^user-(\d+)$/.exec(rowId);
+  const seq = match ? Number(match[1]) : NaN;
+  return Number.isSafeInteger(seq) && seq > 0 ? seq : undefined;
+}
+
+/// The seq a row's pin is kept under: a prompt's (`user-<seq>`) or an answer's, its turn's
+/// `turn_result` record (`summary-<seq>`); undefined for a row acpmux has not logged.
+export function markSeq(rowId: string): number | undefined {
+  const match = /^(?:user|summary)-(\d+)$/.exec(rowId);
   const seq = match ? Number(match[1]) : NaN;
   return Number.isSafeInteger(seq) && seq > 0 ? seq : undefined;
 }

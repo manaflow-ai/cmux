@@ -1,0 +1,526 @@
+[
+ {
+  "run": "n1-fix-wg-01",
+  "kill_v": 3.59,
+  "before": [
+   "GEN-16532",
+   "GEN-16533",
+   "GEN-16534",
+   "GEN-16535",
+   "GEN-16536",
+   "GEN-16537"
+  ],
+  "after": [
+   "GEN-16532",
+   "GEN-16533",
+   "GEN-16534",
+   "GEN-16535",
+   "GEN-16536",
+   "GEN-16537"
+  ],
+  "replays": 2,
+  "prunes": 9,
+  "restored": [
+   [
+    "13833",
+    "12946",
+    "17218"
+   ]
+  ],
+  "restore_moved_by_prune": true,
+  "held_at_cap": [],
+  "no_match": [
+   "present: no match, placed at 0 (was 13806, report 0, request 13806)",
+   "present: no match, placed at 17066 (was 0, report 17066, request 13806)",
+   "present: no match, placed at 12898 (was 17066, report 12898, request 12898)"
+  ],
+  "blank_page": [],
+  "video_black_runs": [],
+  "source_frames": 837,
+  "load": [
+   8.19,
+   8.89,
+   8.58
+  ]
+ },
+ {
+  "run": "n1-fix-wg-02",
+  "kill_v": 3.59,
+  "before": [
+   "GEN-28306",
+   "GEN-28307",
+   "GEN-28308",
+   "GEN-28309",
+   "GEN-28310",
+   "GEN-28311"
+  ],
+  "after": [
+   "GEN-28306",
+   "GEN-28307",
+   "GEN-28308",
+   "GEN-28309",
+   "GEN-28310",
+   "GEN-28311"
+  ],
+  "replays": 2,
+  "prunes": 9,
+  "restored": [
+   [
+    "14076",
+    "13189",
+    "17241"
+   ]
+  ],
+  "restore_moved_by_prune": true,
+  "held_at_cap": [],
+  "no_match": [
+   "present: no match, placed at 0 (was 14044, report 0, request 14044)",
+   "present: no match, placed at 17089 (was 0, report 17089, request 14044)",
+   "present: no match, placed at 13141 (was 17089, report 13141, request 13141)"
+  ],
+  "blank_page": [],
+  "video_black_runs": [],
+  "source_frames": 915,
+  "load": [
+   9.21,
+   9.08,
+   8.67
+  ]
+ },
+ {
+  "run": "n1-fix-wg-03",
+  "kill_v": 3.6,
+  "before": [
+   "GEN-39987",
+   "GEN-39988",
+   "GEN-39989",
+   "GEN-39990",
+   "GEN-39991",
+   "GEN-39992"
+  ],
+  "after": [
+   "GEN-39987",
+   "GEN-39988",
+   "GEN-39989",
+   "GEN-39990",
+   "GEN-39991",
+   "GEN-39992"
+  ],
+  "replays": 2,
+  "prunes": 9,
+  "restored": [
+   [
+    "14226",
+    "13339",
+    "17426"
+   ]
+  ],
+  "restore_moved_by_prune": true,
+  "held_at_cap": [],
+  "no_match": [
+   "present: no match, placed at 0 (was 14188, report 0, request 17558)",
+   "present: no match, placed at 13291 (was 0, report 13291, request 13291)"
+  ],
+  "blank_page": [],
+  "video_black_runs": [],
+  "source_frames": 906,
+  "load": [
+   9.72,
+   9.24,
+   8.75
+  ]
+ },
+ {
+  "run": "n1-fix-wg-04",
+  "kill_v": 3.62,
+  "before": [
+   "GEN-51721",
+   "GEN-51722",
+   "GEN-51723",
+   "GEN-51724",
+   "GEN-51725",
+   "GEN-51726"
+  ],
+  "after": [
+   "GEN-51721",
+   "GEN-51722",
+   "GEN-51723",
+   "GEN-51724",
+   "GEN-51725",
+   "GEN-51726"
+  ],
+  "replays": 2,
+  "prunes": 11,
+  "restored": [
+   [
+    "13542",
+    "13542",
+    "17555"
+   ]
+  ],
+  "restore_moved_by_prune": false,
+  "held_at_cap": [],
+  "no_match": [
+   "present: no match, placed at 0 (was 13518, report 0, request 16877)",
+   "present: no match, placed at 13494 (was 0, report 13494, request 13494)"
+  ],
+  "blank_page": [],
+  "video_black_runs": [],
+  "source_frames": 926,
+  "load": [
+   9.77,
+   9.33,
+   8.8
+  ]
+ },
+ {
+  "run": "n1-fix-wg-05",
+  "kill_v": 3.63,
+  "before": [
+   "GEN-63534",
+   "GEN-63535",
+   "GEN-63536",
+   "GEN-63537",
+   "GEN-63538",
+   "GEN-63539"
+  ],
+  "after": [
+   "GEN-63534",
+   "GEN-63535",
+   "GEN-63536",
+   "GEN-63537",
+   "GEN-63538",
+   "GEN-63539"
+  ],
+  "replays": 2,
+  "prunes": 9,
+  "restored": [
+   [
+    "13823",
+    "12936",
+    "17043"
+   ]
+  ],
+  "restore_moved_by_prune": true,
+  "held_at_cap": [],
+  "no_match": [
+   "present: no match, placed at 0 (was 13782, report 0, request 13782)",
+   "present: no match, placed at 16888 (was 0, report 16888, request 13782)",
+   "present: no match, placed at 12888 (was 16888, report 12888, request 12888)"
+  ],
+  "blank_page": [],
+  "video_black_runs": [],
+  "source_frames": 893,
+  "load": [
+   9.75,
+   9.4,
+   8.85
+  ]
+ },
+ {
+  "run": "n1-fix-wg-06",
+  "kill_v": 3.61,
+  "before": [
+   "GEN-75303",
+   "GEN-75304",
+   "GEN-75305",
+   "GEN-75306",
+   "GEN-75307",
+   "GEN-75308"
+  ],
+  "after": [
+   "GEN-75303",
+   "GEN-75304",
+   "GEN-75305",
+   "GEN-75306",
+   "GEN-75307",
+   "GEN-75308"
+  ],
+  "replays": 2,
+  "prunes": 9,
+  "restored": [
+   [
+    "14061",
+    "13174",
+    "17204"
+   ]
+  ],
+  "restore_moved_by_prune": true,
+  "held_at_cap": [],
+  "no_match": [
+   "present: no match, placed at 0 (was 14020, report 0, request 14020)",
+   "present: no match, placed at 17048 (was 0, report 17048, request 14020)",
+   "present: no match, placed at 13126 (was 17048, report 13126, request 13126)"
+  ],
+  "blank_page": [],
+  "video_black_runs": [],
+  "source_frames": 901,
+  "load": [
+   10.02,
+   9.49,
+   8.91
+  ]
+ },
+ {
+  "run": "n1-fix-wg-07",
+  "kill_v": 3.59,
+  "before": [
+   "GEN-87058",
+   "GEN-87059",
+   "GEN-87060",
+   "GEN-87061",
+   "GEN-87062",
+   "GEN-87063"
+  ],
+  "after": [
+   "GEN-87058",
+   "GEN-87059",
+   "GEN-87060",
+   "GEN-87061",
+   "GEN-87062",
+   "GEN-87063"
+  ],
+  "replays": 2,
+  "prunes": 9,
+  "restored": [
+   [
+    "14285",
+    "13398",
+    "17592"
+   ]
+  ],
+  "restore_moved_by_prune": true,
+  "held_at_cap": [],
+  "no_match": [
+   "present: no match, placed at 0 (was 14259, report 0, request 14259)",
+   "present: no match, placed at 17440 (was 0, report 17440, request 14259)",
+   "present: no match, placed at 13350 (was 17440, report 13350, request 13350)"
+  ],
+  "blank_page": [],
+  "video_black_runs": [],
+  "source_frames": 820,
+  "load": [
+   9.25,
+   9.35,
+   8.89
+  ]
+ },
+ {
+  "run": "n1-fix-wg-08",
+  "kill_v": 3.59,
+  "before": [
+   "GEN-98717",
+   "GEN-98718",
+   "GEN-98719",
+   "GEN-98720",
+   "GEN-98721",
+   "GEN-98722"
+  ],
+  "after": [
+   "GEN-98717",
+   "GEN-98718",
+   "GEN-98719",
+   "GEN-98720",
+   "GEN-98721",
+   "GEN-98722"
+  ],
+  "replays": 2,
+  "prunes": 10,
+  "restored": [
+   [
+    "13526",
+    "13526",
+    "17599"
+   ]
+  ],
+  "restore_moved_by_prune": false,
+  "held_at_cap": [],
+  "no_match": [
+   "present: no match, placed at 0 (was 13489, report 0, request 13489)",
+   "present: no match, placed at 16844 (was 0, report 17448, request 16844, newer)",
+   "present: no match, placed at 13478 (was 16844, report 13478, request 13478)"
+  ],
+  "blank_page": [],
+  "video_black_runs": [],
+  "source_frames": 899,
+  "load": [
+   8.39,
+   9.08,
+   8.81
+  ]
+ },
+ {
+  "run": "n1-fix-wg-09",
+  "kill_v": 3.59,
+  "before": [
+   "GEN-110379",
+   "GEN-110380",
+   "GEN-110381",
+   "GEN-110382",
+   "GEN-110383",
+   "GEN-110384"
+  ],
+  "after": [
+   "GEN-110379",
+   "GEN-110380",
+   "GEN-110381",
+   "GEN-110382",
+   "GEN-110383",
+   "GEN-110384"
+  ],
+  "replays": 2,
+  "prunes": 10,
+  "restored": [
+   [
+    "13658",
+    "12771",
+    "16870"
+   ]
+  ],
+  "restore_moved_by_prune": true,
+  "held_at_cap": [],
+  "no_match": [
+   "present: no match, placed at 0 (was 13615, report 0, request 13615)",
+   "present: no match, placed at 16715 (was 0, report 16715, request 13615)",
+   "present: no match, placed at 12723 (was 16715, report 12723, request 12723)"
+  ],
+  "blank_page": [],
+  "video_black_runs": [],
+  "source_frames": 896,
+  "load": [
+   8.82,
+   9.12,
+   8.83
+  ]
+ },
+ {
+  "run": "n1-fix-wg-10",
+  "kill_v": 3.6,
+  "before": [
+   "GEN-122026",
+   "GEN-122027",
+   "GEN-122028",
+   "GEN-122029",
+   "GEN-122030",
+   "GEN-122031"
+  ],
+  "after": [
+   "GEN-122026",
+   "GEN-122027",
+   "GEN-122028",
+   "GEN-122029",
+   "GEN-122030",
+   "GEN-122031"
+  ],
+  "replays": 2,
+  "prunes": 9,
+  "restored": [
+   [
+    "13774",
+    "12887",
+    "16929"
+   ]
+  ],
+  "restore_moved_by_prune": true,
+  "held_at_cap": [],
+  "no_match": [
+   "present: no match, placed at 0 (was 13750, report 0, request 13750)",
+   "present: no match, placed at 16777 (was 0, report 16777, request 13750)",
+   "present: no match, placed at 12839 (was 16777, report 12839, request 12839)"
+  ],
+  "blank_page": [],
+  "video_black_runs": [],
+  "source_frames": 808,
+  "load": [
+   9.26,
+   9.18,
+   8.87
+  ]
+ },
+ {
+  "run": "n1-fix-wg-11",
+  "kill_v": 3.61,
+  "before": [
+   "GEN-133634",
+   "GEN-133635",
+   "GEN-133636",
+   "GEN-133637",
+   "GEN-133638",
+   "GEN-133639"
+  ],
+  "after": [
+   "GEN-133634",
+   "GEN-133635",
+   "GEN-133636",
+   "GEN-133637",
+   "GEN-133638",
+   "GEN-133639"
+  ],
+  "replays": 2,
+  "prunes": 9,
+  "restored": [
+   [
+    "13851",
+    "12964",
+    "17058"
+   ]
+  ],
+  "restore_moved_by_prune": true,
+  "held_at_cap": [],
+  "no_match": [
+   "present: no match, placed at 0 (was 13827, report 0, request 17209)",
+   "present: no match, placed at 12916 (was 0, report 12916, request 12916)"
+  ],
+  "blank_page": [],
+  "video_black_runs": [],
+  "source_frames": 893,
+  "load": [
+   8.72,
+   9.02,
+   8.82
+  ]
+ },
+ {
+  "run": "n1-fix-wg-12",
+  "kill_v": 3.59,
+  "before": [
+   "GEN-145408",
+   "GEN-145409",
+   "GEN-145410",
+   "GEN-145411",
+   "GEN-145412",
+   "GEN-145413"
+  ],
+  "after": [
+   "GEN-145408",
+   "GEN-145409",
+   "GEN-145410",
+   "GEN-145411",
+   "GEN-145412",
+   "GEN-145413"
+  ],
+  "replays": 2,
+  "prunes": 9,
+  "restored": [
+   [
+    "14094",
+    "13207",
+    "17159"
+   ]
+  ],
+  "restore_moved_by_prune": true,
+  "held_at_cap": [],
+  "no_match": [
+   "present: no match, placed at 0 (was 14058, report 0, request 17359)",
+   "present: no match, placed at 13159 (was 0, report 13159, request 13159)"
+  ],
+  "blank_page": [],
+  "video_black_runs": [],
+  "source_frames": 918,
+  "load": [
+   8.57,
+   8.96,
+   8.81
+  ]
+ }
+]

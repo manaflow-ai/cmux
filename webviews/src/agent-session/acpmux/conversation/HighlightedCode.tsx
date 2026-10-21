@@ -14,6 +14,7 @@ import { onHighlightTimeout, paneHighlightPool } from "./highlightPool";
 import { PlainCode } from "./StreamingCode";
 import { OpenPreview } from "./OpenPreview";
 import { languageLabel, type CodeBlockProps } from "./CodeBlock";
+import { currentChatMetrics } from "../chatDisplay";
 
 /// Pierre's line height: a line of the card's body.
 const LINE_HEIGHT = 20;
@@ -23,12 +24,19 @@ const codeUnsafeCSS = `${diffUnsafeCSS}
 :host {
   --diffs-dark-bg: transparent;
   --diffs-light-bg: transparent;
-  --diffs-font-size: 12px;
-  --diffs-line-height: ${LINE_HEIGHT}px;
+  --diffs-font-family: var(--cv-mono, var(--cmux-diff-code-font-family, "SF Mono", ui-monospace, Menlo, monospace));
+  --diffs-font-size: var(--cv-codeblock-size, 12px);
+  --diffs-line-height: var(--cv-codeblock-line-height, ${LINE_HEIGHT}px);
   background: transparent;
 }
 [data-line] > span { top: 0; }
 pre, code, [data-code], [data-content], [data-line] { background: transparent !important; --diffs-line-bg: transparent; }
+/* Pierre keeps a strip for its horizontal scrollbar under the lines at all times
+   (--diffs-scrollbar-gutter: 6px in WebKit, 0 where scrollbars overlay). It hangs into the card's
+   bottom padding instead, so the card is as tall as its lines in every engine, as the plain card
+   it replaces is (StreamingCode.tsx), and the text under a closing fence does not move. */
+pre[data-file] { display: flow-root; }
+[data-code] { margin-bottom: calc(-1 * var(--diffs-scrollbar-gutter, 0px)); }
 `;
 
 /// The pane's theme (applyAgentTheme) is light or dark; syntax colors follow it.
@@ -116,7 +124,7 @@ export function HighlightedCode({ code, lang = "text", label }: CodeBlockProps) 
       <DiffsHost
         ref={host}
         className="cv-codeblock__body selectable"
-        style={{ minHeight: code.replace(/\n$/, "").split("\n").length * LINE_HEIGHT }}
+        style={{ minHeight: code.replace(/\n$/, "").split("\n").length * currentChatMetrics().codeLineHeight }}
       />
     </div>
   );

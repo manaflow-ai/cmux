@@ -31,10 +31,28 @@ export async function teamPortalSession(input: {
 }): Promise<{ readonly url: string } | null> {
   const customerId = input.customerId ?? await stripeCustomerIdForStackTeam(input.teamId);
   if (!customerId) return null;
+  const configuration = teamPortalConfigurationId();
   const session = await stripe().billingPortal.sessions.create({
     customer: customerId,
     return_url: teamBillingReturnURL(input.origin, input.teamId),
+    ...(configuration ? { configuration } : {}),
   });
   if (!session.url) throw new Error("Stripe Billing Portal Session did not include a URL");
   return { url: session.url };
+}
+
+/**
+ * Deployed Team billing must use the restricted portal provisioned by the
+ * catalog script. Local Stripe fixtures may omit it and use their test-mode
+ * default configuration.
+ */
+export function teamPortalConfigurationId(
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): string | undefined {
+  const configuration = environment.STRIPE_TEAM_PORTAL_CONFIGURATION_ID?.trim();
+  if (configuration) return configuration;
+  if (environment.VERCEL === "1") {
+    throw new Error("Stripe Team Billing Portal configuration is not configured");
+  }
+  return undefined;
 }

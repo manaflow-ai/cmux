@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import Observation
 
 /// Each open group's members' line (cx-qno.17, cx-q5jw) as one view under
 /// the rows. The lines animate in the rows' own spring block (`RowMotion`),
@@ -9,6 +10,8 @@ import CmuxNextDesign
 @MainActor
 final class SidebarGroupLineViews {
     private var views: [GroupID: GroupLineView] = [:]
+    /// The lines the last `update` showed (a group's fold moves them without a pass over every row).
+    private(set) var lines: [SidebarGroupLine] = []
     /// Lines of closed or gone groups while they shrink and fade out.
     private var leavingViews: [NSView] = []
 
@@ -23,6 +26,7 @@ final class SidebarGroupLineViews {
     /// its rows' start frames) so both its ends move with the rows, and a
     /// line whose group closed or left shrinks back up into its header.
     func update(_ new: [SidebarGroupLine], from start: [SidebarGroupLine], in list: NSView, above decorations: NSView, animated: Bool) -> (changes: () -> Void, leaving: [NSView]) {
+        lines = new
         var gone = views
         let starts = Dictionary(start.map { ($0.group, $0.frame) }, uniquingKeysWith: { first, _ in first })
         var moves: [(GroupLineView, CGRect)] = []
@@ -65,9 +69,12 @@ final class SidebarGroupLineViews {
 
     /// Shows at once, at its frame, the line of each group in `lines` that has
     /// none (a group whose rows a drag hid: the last apply left its line out),
-    /// and leaves every other line, moving or not, as it is.
+    /// and leaves every other line, moving or not, as it is. The shown line joins `lines`: a fold keeps the lines
+    /// it does not touch from there, and without it the next fold took this line away.
     func showMissing(_ lines: [SidebarGroupLine], in list: NSView, above decorations: NSView) {
         for line in lines where views[line.group] == nil {
+            self.lines.removeAll { $0.group == line.group }
+            self.lines.insert(line, at: self.lines.firstIndex { $0.frame.minY > line.frame.minY } ?? self.lines.count) // list order
             let view = GroupLineView()
             list.addSubview(view, positioned: .above, relativeTo: decorations)
             views[line.group] = view
@@ -123,6 +130,22 @@ final class GroupLineView: NSView {
     }
 
     override func updateLayer() {
-        performWithTheme { layer?.backgroundColor = color.headerFill.cgColor }
+        let themed = observedThemed()
+        performWithTheme { layer?.backgroundColor = color.lineColor(themed: themed).cgColor }
     }
+
+    /// Reads `sidebar.groupColors` and repaints once when it changes; one observation at a time.
+    private func observedThemed() -> Bool {
+        let read = { SidebarGroupPalette.tunable.value == .theme }
+        guard !observesPalette else { return read() }
+        observesPalette = true
+        return withObservationTracking(read) { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.observesPalette = false
+                self?.needsDisplay = true
+            }
+        }
+    }
+
+    private var observesPalette = false
 }

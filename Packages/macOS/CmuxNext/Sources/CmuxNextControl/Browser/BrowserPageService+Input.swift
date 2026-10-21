@@ -63,12 +63,19 @@ extension BrowserPageService {
                 throw ControlError(code: value["code"]?.stringValue ?? "not_found", message: error, data: .object(data))
             }
             if let input = announce(call, value) {
-                await engine.announce(input.by(Self.optionalString(call, "agent")), tabID: tab.id)
+                await engine.announce(Self.attributed(input, call), tabID: tab.id)
             }
             var result = Self.base(tab)
             result["value"] = value["value"] ?? .null
             return .object(result)
         }
+    }
+
+    /// `input` as its agent sent it: `params.agent`'s name, from the
+    /// request's caller (``BrowserPageAgentOrigin``).
+    static func attributed(_ input: BrowserPageAgentInput, _ call: ControlCall) -> BrowserPageAgentInput {
+        input.by(optionalString(call, "agent"),
+                 from: BrowserPageAgentOrigin.resolve(params: call.request.params, topology: call.snapshot.topology))
     }
 
     static func optionalString(_ call: ControlCall, _ key: String) -> String? {

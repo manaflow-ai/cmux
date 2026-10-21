@@ -27,6 +27,12 @@ public final class CEFAgentRelay {
     /// The email verification detector's binding reports (`CEFVerificationBridge`), on the same events.
     private lazy var verification = tab.map { CEFVerificationBridge(tab: $0) }
     var mediaListens = false { didSet { updateWatch() } }
+    /// When a document first paints content (`CEFFirstPaintBridge`), on the
+    /// same events; it only reads them, so it never takes one off the stream.
+    private lazy var firstPaint = tab.map { CEFFirstPaintBridge(tab: $0) }
+    /// Design mode's binding posts (`CEFDesignModeBridge`), on the same events once the user turned it on.
+    private lazy var designMode = tab.map { CEFDesignModeBridge(tab: $0) }
+    var designModeListens = false { didSet { updateWatch() } }
 
     init(tab: CEFTab) { self.tab = tab }
 
@@ -42,7 +48,7 @@ public final class CEFAgentRelay {
     }
 
     private func updateWatch() {
-        if let tab, let browser = tab.browserID { tab.runtime.shim?.devToolsWatchEvents(browser, sink != nil || mediaListens ? 1 : 0) }
+        if let tab, let browser = tab.browserID { tab.runtime.shim?.devToolsWatchEvents(browser, sink != nil || mediaListens || designModeListens ? 1 : 0) }
     }
 
     /// Sends one raw DevTools message; its "id" must be a raw id (>= 2^30).
@@ -96,9 +102,19 @@ public final class CEFAgentRelay {
     // MARK: Tab lifetime (CEFTab)
 
     func deliver(_ json: String) {
+        // Reads the stream and always returns false, so a relayed agent that
+        // subscribed to page lifecycle events still sees them.
+        _ = firstPaint?.handle(json)
         if media?.handle(json) == true { return }
         if verification?.handle(json) == true { return }
+        if designMode?.handle(json) == true { return }
         sink?(json)
+    }
+
+    /// Readies the page to post design mode messages (``CEFDesignModeBridge/prepare()``).
+    func prepareDesignMode() async throws {
+        guard let designMode else { throw BrowserTabError.closed }
+        try await designMode.prepare()
     }
 
     func browserAttached() {
@@ -106,8 +122,9 @@ public final class CEFAgentRelay {
         if let browser = tab?.browserID {
             media?.attach(browser)
             verification?.attach(browser)
+            firstPaint?.attach(browser)
         }
-        if sink != nil || mediaListens { updateWatch() }
+        if sink != nil || mediaListens || designModeListens { updateWatch() }
     }
 
     func resumeWaiters(_ created: Bool) {

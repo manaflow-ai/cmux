@@ -249,9 +249,17 @@
       "scope": "chief:read",
       "class": "read"
     },
+    "chief.profile.history": {
+      "scope": "chief:read",
+      "class": "read"
+    },
     "chief.profile.list": {
       "scope": "chief:read",
       "class": "read"
+    },
+    "chief.profile.undo": {
+      "scope": "chief:write",
+      "class": "mutation"
     },
     "chief.profile.update": {
       "scope": "chief:write",
@@ -498,6 +506,10 @@
       "class": "mutation"
     },
     "conversation.list": {
+      "scope": "conversation:read",
+      "class": "read"
+    },
+    "conversation.members": {
       "scope": "conversation:read",
       "class": "read"
     },
@@ -857,6 +869,10 @@
       "scope": "memory_app:read",
       "class": "read"
     },
+    "memory.search": {
+      "scope": "memory:read",
+      "class": "read"
+    },
     "message.edit": {
       "scope": "message:write",
       "class": "mutation"
@@ -1022,6 +1038,14 @@
       "class": "mutation"
     },
     "participants.add": {
+      "scope": "participants:write",
+      "class": "mutation"
+    },
+    "participants.set_role": {
+      "scope": "participants:write",
+      "class": "mutation"
+    },
+    "participants.unban": {
       "scope": "participants:write",
       "class": "mutation"
     },
@@ -1256,6 +1280,10 @@
     "search_app.search": {
       "scope": "search_app:read",
       "class": "read"
+    },
+    "server.network.confirm": {
+      "scope": "server:write",
+      "class": "mutation"
     },
     "session.get": {
       "scope": "session:read",
@@ -1753,6 +1781,22 @@
       "scope": "window_record:write",
       "class": "mutation"
     },
+    "workspace_checklist.add": {
+      "scope": "workspace_checklist:write",
+      "class": "mutation"
+    },
+    "workspace_checklist.list": {
+      "scope": "workspace_checklist:read",
+      "class": "read"
+    },
+    "workspace_checklist.remove": {
+      "scope": "workspace_checklist:write",
+      "class": "mutation"
+    },
+    "workspace_checklist.update": {
+      "scope": "workspace_checklist:write",
+      "class": "mutation"
+    },
     "workspace_group.create": {
       "scope": "workspace_group:write",
       "class": "mutation"
@@ -1902,6 +1946,8 @@
     "firewall.list",
     "frontend_projection.get",
     "frontend_projection.put",
+    "grant.create",
+    "grant.revoke",
     "history.backups.purge",
     "history.clear",
     "history.entries.list",
@@ -1917,6 +1963,7 @@
     "home.requests.list",
     "home.settings.set",
     "host.enroll",
+    "host.network.bind",
     "host.remove",
     "host.replica.purge",
     "install.list",
@@ -1937,6 +1984,7 @@
     "layout.bulk",
     "network.list",
     "origin.confirmation.issue",
+    "ownership.transfer",
     "pairing_request.list",
     "pairing_request.resolve",
     "pane.close",

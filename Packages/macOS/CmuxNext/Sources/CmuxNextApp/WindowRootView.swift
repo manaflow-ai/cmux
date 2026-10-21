@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHistory
@@ -25,10 +26,12 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// The window's one material and tint (`WindowBackdrop`).
     let backdropView = WindowMaterialView(frame: .zero)
     /// Whether Reduce Transparency is on (tests pin it; the host setting
-    /// differs between machines).
-    private let reduceTransparency: @MainActor () -> Bool
+    /// differs between machines). Internal, not private: the painting itself
+    /// is in `WindowRootView+Surface`.
+    let reduceTransparency: @MainActor () -> Bool
     /// Sets the window's behind-window blur radius (tests record it).
-    private let applyWindowBlur: @MainActor (NSWindow, Int) -> Void
+    /// Internal for the same reason as `reduceTransparency`.
+    let applyWindowBlur: @MainActor (NSWindow, Int) -> Void
     /// The workspace content: the curved main pane, inset and rounded
     /// (cx-rkgu), or edge to edge.
     let contentHost = MainPaneCardView(frame: .zero)
@@ -80,6 +83,25 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     }
     /// Opens the collapsed band while the top-left corner is hovered.
     let collapsedBand: CollapsedBandReveal
+    /// The right sidebar (`WindowController+RightSidebar`), on the edge
+    /// opposite the sidebar; nil until it first shows.
+    var rightPanel: RightSidebarView? {
+        didSet {
+            guard rightPanel !== oldValue else { return }
+            oldValue?.removeFromSuperview()
+            if let rightPanel { addSubview(rightPanel, positioned: .below, relativeTo: titlebarBandBlocker) }
+            needsLayout = true
+        }
+    }
+    /// The right sidebar's on-screen width (0 while hidden): the main pane
+    /// is inset by it (`applyMainPane`).
+    var rightPanelWidth: CGFloat = 0 {
+        didSet {
+            guard rightPanelWidth != oldValue else { return }
+            applyMainPane()
+            layoutSubtreeIfNeeded()
+        }
+    }
 
     /// - Parameter sidebar: The window's sidebar.
     /// - Parameter reduceTransparency: The user's Reduce Transparency
@@ -144,6 +166,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         }
         placementObservation = observePlacement()
         contentHost.onFrameChange = { [weak self] in self?.updateMainPaneShade() }
+        wireContentAreaMotion()
         applyMainPane()
         mainPaneObservation = observeMainPane()
         // queue: .main: the workspace center may post off main; a selector
@@ -210,8 +233,11 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// when every frame is final: the agent cursor goes back on top after a
     /// reorder that added no view (no add hook ran), and the sidebar stays
     /// above Chromium pages and pane overlays (R126) as an occluder of the
-    /// window's overlay host.
+    /// window's overlay host. The sidebar's resize band gets a catcher panel
+    /// above pages, like a pane divider's hit area.
     func windowDidLayout() {
+        // Before the guard: the band's catcher needs no overlay host.
+        (window as? ShellWindow)?.overlayLayer.setSidebarResizeBand(sidebar.resizeBandInWindow)
         guard let window, let host = WindowOverlayHost.existingHost(for: window) else { return }
         host.repairAgentCursorOrder()
         let shows = sidebar.frame.width > 0.5 && !sidebar.isHidden
@@ -237,6 +263,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         var lightsMaxX: CGFloat = 0
         var midY = bounds.maxY - rowHeight / 2
         if let window, let lights = WindowTitlebar.trafficLightsFrame(in: window) {
+            (window as? ShellWindow)?.noteTrafficLights(lights)
             let local = convert(lights, from: nil)
             lightsMaxX = local.maxX
             midY = local.midY
@@ -256,6 +283,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         sidebar.sidebarView.titlebarLeadingReserve = sidebarSide == .left ? fullBandMaxX + Metrics.space2 : Metrics.space3
         if presenceChanged { onToolbarBandPresenceChange?() }
         layoutTitlebarReveal(rowHeight: rowHeight, fullBandMaxX: fullBandMaxX)
+        layoutRightPanel(rowHeight: rowHeight)
         guard let badge = titlebarBadge else { return }
         badge.isHidden = !showsTitlebarBadge
         guard showsTitlebarBadge else { return }
@@ -301,15 +329,21 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         }
         view.autoresizingMask = [.width, .height]
         view.isHidden = false
+        let paneCards = (view as? WorkspaceContentView)?.layoutView as? any PaneCardSource
         if holds, let outgoing {
-            paintHold.begin(outgoing: outgoing, incoming: view, in: contentHost) { [weak self] outgoing in
+            paintHold.begin(outgoing: outgoing, incoming: view, in: contentHost, release: { [weak self] outgoing in
                 guard let self, outgoing.superview === contentHost, outgoing !== content else { return }
                 withdraw(outgoing)
-            }
+            }, ended: { [weak self, weak view] in
+                // The shade cuts out the panes on screen: the incoming workspace's once it shows.
+                guard let self, let view, view === content else { return }
+                mainPaneShade.paneCards = paneCards
+            })
+        } else {
+            mainPaneShade.paneCards = paneCards
         }
         // A workspace's theme scope inherits this window's room theme.
         view.reparentRootedThemeScope()
-        mainPaneShade.paneCards = (view as? WorkspaceContentView)?.layoutView as? any PaneCardSource
         onContentChange?()
     }
 
@@ -375,35 +409,6 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         if let window { applyBackdrop(to: window) }
     }
 
-    /// The backdrop this view's theme and the Reduce Transparency setting
-    /// describe.
-    var backdrop: WindowBackdrop {
-        WindowBackdrop(themeTokens, reduceTransparency: reduceTransparency(), art: themeScope.backdropArt,
-                       selection: themeScope.backdropSelection, tuning: themeScope.appearanceTuning,
-                       tintOpacity: themeScope.backdropTintOpacity)
-    }
-
-    /// An opaque window paints the solid background on this layer. Over a
-    /// material the layer stays clear and the backdrop view's tint is the
-    /// one sheet; a frosted window's blur is the window's CGS radius
-    /// (`applyBackdrop(to:)`).
-    private func paintBackground() {
-        let backdrop = self.backdrop
-        performWithTheme { paintBackdropSheet(backdrop, surface: Palette.surfaceBackground, backdropView: backdropView) }
-    }
-
-    /// `NSWindow.install(kind:content:scope:)`: the backdrop before the
-    /// content view goes in.
-    func paintWindowSurface(of window: NSWindow) {
-        applyBackdrop(to: window)
-    }
-
-    /// Sets `window`'s opacity, background and blur radius for this view's
-    /// theme.
-    /// Values that already match are not written again, so a repeat call
-    /// (an appearance change while the window installs this view) never
-    /// touches the theme frame.
-    func applyBackdrop(to window: NSWindow) {
-        window.applyBackdrop(backdrop, surface: performWithTheme { Palette.surfaceBackground }, applyBlur: applyWindowBlur)
-    }
+    // The window's own background, opacity and blur are in
+    // `WindowRootView+Surface`.
 }

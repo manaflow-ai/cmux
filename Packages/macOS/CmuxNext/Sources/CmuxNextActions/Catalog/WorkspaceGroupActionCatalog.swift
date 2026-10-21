@@ -20,8 +20,8 @@ nonisolated enum WorkspaceGroupActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "toggleFocusedWorkspaceGroupCollapsed",
-                title: String(localized: "action.toggleFocusedWorkspaceGroupCollapsed", defaultValue: "Toggle Group Collapse", bundle: .module),
-                keywords: ["group", "expand", "collapse"],
+                title: String(localized: "action.toggleFocusedWorkspaceGroupCollapsed", defaultValue: "Collapse/Expand Workspace Group", bundle: .module),
+                keywords: ["group", "expand", "collapse", "toggle"],
                 defaultShortcut: Shortcut(".", modifiers: [.control, .command]), category: .workspace,
                 symbol: "chevron.up.chevron.down", surfaces: [.palette, .keyboard], targets: [.workspaceGroup],
                 cliName: "workspace-group toggle-collapse"
@@ -78,7 +78,7 @@ nonisolated enum WorkspaceGroupActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.workspaceGroup.copyID", defaultValue: "Copy Workspace Group ID", bundle: .module),
                 keywords: ["group", "identifier", "id"], category: .workspace, symbol: "doc.on.doc", surfaces: [.palette, .contextMenu],
                 targets: [.workspaceGroup],
-                surfacePlan: ActionSurfacePlan(cli: .exempt(.clipboard), contextMenus: [ActionSurfaceCatalog.p(.workspaceGroup, .inspect, 401, folder: .copy)])
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.clipboard), contextMenus: [ActionSurfaceCatalog.p(.workspaceGroup, .identity, 140, folder: .options)])
             ),
             ActionDescriptor(
                 id: "workspaceGroup.addToSection",
@@ -160,12 +160,12 @@ nonisolated enum WorkspaceGroupActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "workspaceGroup.closeWorkspaces",
-                title: String(localized: "action.workspaceGroup.closeWorkspaces", defaultValue: "Close All Workspaces in Group", bundle: .module),
+                title: String(localized: "action.workspaceGroup.closeWorkspaces", defaultValue: "Close Workspaces in Group", bundle: .module),
                 keywords: ["group", "remove"], category: .workspace, symbol: "xmark.square", surfaces: [.palette],
                 targets: [.workspaceGroup], cliName: "workspace-group close-workspaces",
                 destructive: true
             ),
-            // Close All Workspaces in Group for every other group of the window.
+            // Close Workspaces in Group for every other group of the window.
             ActionDescriptor(
                 id: "workspaceGroup.closeOthers",
                 title: String(localized: "action.workspaceGroup.closeOthers", defaultValue: "Close Other Groups", bundle: .module),

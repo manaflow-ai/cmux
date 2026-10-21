@@ -61,4 +61,20 @@ import Testing
         view.configure(.waiting(kind: .permission))
         #expect(view.indicator.plan == StaticStatusGlyph.permission.plan)
     }
+
+    @Test(arguments: [StatusBlockedKind?.none, .question])
+    func waitingDrawsTheAttentionDotNotATalkBubble(_ kind: StatusBlockedKind?) {
+        // Lawrence 2026-10-20: "rm the talk icon", and in the Static look / Reduce Motion too. A wait
+        // draws the same dot as the Codex-like set, in the attention tint; permission keeps the shield.
+        let rect = CGRect(x: 0, y: 0, width: 20, height: 20)
+        let dot = StaticStatusGlyph.dot.path(in: rect)
+        for plan in [StatusIndicatorPlan.make(.waiting(kind: kind), style: .arc, animates: true, set: .codex, isStatic: true),
+                     StatusIndicatorPlan.make(.waiting(kind: kind), style: .arc, animates: true, set: .still)] {
+            #expect(plan.tint == .attention && plan.animation == nil)
+            guard case .mark(.vector(let glyph)) = plan.glyph else { Issue.record("not a glyph: \(plan.glyph)"); continue }
+            #expect(glyph.path(in: rect) == dot, "the Static look still draws a talk bubble for \(String(describing: kind))")
+        }
+        let permission = StatusIndicatorPlan.make(.waiting(kind: .permission), style: .arc, animates: true, set: .codex, isStatic: true)
+        #expect(permission == StaticStatusGlyph.permission.plan)
+    }
 }

@@ -75,12 +75,29 @@ fn kind_schema(row: &Row) -> Value {
     match row.validation {
         Validation::Domain(DomainKind::BackdropSelection) => {
             let Kind::Choice(choices) = &row.kind else { return json!({ "type": "string" }) };
-            // `system:<absolute path>` (a macOS wallpaper) or `file:<absolute path>`.
-            let path = json!({ "type": "string", "pattern": "^(system|file):/" });
+            // `system:<absolute path>` (a macOS wallpaper), `file:<absolute path>`
+            // or `folder:<absolute path>` (not `/` alone).
+            let path = json!({ "type": "string", "pattern": "^((system|file):/|folder:/.)" });
             return json!({ "anyOf": [choice(choices), path] });
         }
         Validation::Domain(DomainKind::ChatRoots) => {
             return json!({ "type": "array", "items": { "type": "string", "pattern": "^/" } });
+        }
+        Validation::Domain(DomainKind::CustomDensities) => {
+            let density = json!({
+                "type": "object",
+                "required": ["id", "name"],
+                "properties": {
+                    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$" },
+                    "name": { "type": "string", "minLength": 1 },
+                    "basedOn": { "type": "string" },
+                    "level": { "type": "number" },
+                    "spacing": { "type": "number" },
+                    "fontSize": { "type": "number" },
+                    "tokens": { "type": "object", "additionalProperties": { "type": "number", "minimum": 0 } },
+                },
+            });
+            return json!({ "type": "array", "items": density });
         }
         _ => {}
     }
@@ -89,6 +106,15 @@ fn kind_schema(row: &Row) -> Value {
         Kind::Choice(choices) => choice(choices),
         Kind::ChoiceOrNumber(choices, range) => {
             json!({ "anyOf": [choice(choices), number(range)] })
+        }
+        Kind::ChoiceOrUrl(choices, url_key) => {
+            let url = json!({
+                "type": "object",
+                "properties": { url_key.as_str(): { "type": "string", "pattern": "^[Hh][Tt][Tt][Pp][Ss]?://[^/?#@\\s]+/?$" } },
+                "required": [url_key],
+                "additionalProperties": false,
+            });
+            json!({ "anyOf": [choice(choices), url] })
         }
         Kind::Number(range) => number(range),
         Kind::Color => json!({

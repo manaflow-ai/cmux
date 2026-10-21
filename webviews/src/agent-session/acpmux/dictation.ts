@@ -33,9 +33,9 @@ export function configureDictation(layout: Record<string, unknown> | undefined):
   autoSend = dictation?.autoSend === true;
 }
 
-/// The last few input levels, oldest first, read only by the mic button's waveform: it moves
-/// about 12 times a second without re-rendering the pane.
-const WAVE_BARS = 5;
+/// The last few input levels, oldest first, read only by the waveform beside the mic
+/// (DictationWave): it moves about 12 times a second without re-rendering the pane.
+const WAVE_BARS = 11;
 const silence: readonly number[] = Array(WAVE_BARS).fill(0);
 const level = { samples: silence, listeners: new Set<() => void>() };
 /// Adds the latest level while a session runs; anything else clears the waveform.
@@ -52,6 +52,11 @@ export const subscribeLevel = (listener: () => void) => {
 };
 export const readLevel = () => level.samples;
 
+/// A session is starting or listening, with no words to show yet: the prompt it writes into says
+/// "Listening…" (italic, as Claude's does) while empty. Composers read it from their pane's
+/// dictation (App.tsx passes `dictating`), not from page-wide state.
+export const isWaitingForWords = (state: DictationState) => state === "starting" || state === "listening";
+
 export const isActive = (state: DictationState) =>
   state === "starting" || state === "listening" || state === "finalizing";
 
@@ -60,6 +65,8 @@ export type Dictation = {
   /// The denied or failed state the composer shows until dismissed or the next start.
   notice: DictationUpdate | null;
   toggle(): void;
+  /// Ends the session and keeps its words (the finish key beside the waveform).
+  finish(): void;
   cancel(): void;
   openSettings(): void;
   dismiss(): void;
@@ -234,6 +241,11 @@ export function useDictation(
               : t("dictation.unavailable"),
         });
       });
+    },
+    finish() {
+      // The finish key goes away with the session: the keyboard returns to the prompt, where the words are.
+      prompt.current?.focus();
+      void call("dictation.stop").catch(() => {});
     },
     cancel() {
       void call("dictation.cancel").catch(() => {});

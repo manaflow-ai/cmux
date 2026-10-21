@@ -9,10 +9,24 @@ extension PageHostPool {
         scheduleBuild()
     }
 
+    /// A main window showed (its first workspace content): the spare parks there when the pool has
+    /// no window on screen yet. A window that never becomes key (an app launched in the background)
+    /// otherwise left the pool without a target, and the first Settings open loaded cold.
+    public func windowDidAppear(_ window: NSWindow?) {
+        guard let window, target?.isVisible != true else { return }
+        follow(window)
+    }
+
     /// Follows main windows as they become key and drops the spare after the last one closes.
+    /// A main window already on screen (the key one first) is the first target.
     public func start(isMainWindow: @escaping @MainActor (NSWindow) -> Bool,
                       fallback: @escaping @MainActor (NSWindow) -> NSWindow?) {
         guard windowObservers.isEmpty else { return }
+        let app = NSApplication.shared
+        if let shown = app.keyWindow.flatMap({ isMainWindow($0) ? $0 : nil })
+            ?? app.windows.first(where: { $0.isVisible && isMainWindow($0) }) {
+            follow(shown)
+        }
         let center = NotificationCenter.default
         windowObservers.append(center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) {
             [weak self] note in

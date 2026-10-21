@@ -8,6 +8,7 @@ import { useSyncExternalStore } from "react";
 export type DeviceChat = { key: string; harness: string; title?: string; updatedAt: number; parent?: string };
 
 let chats: DeviceChat[] = [];
+let pushes = 0;
 const listeners = new Set<() => void>();
 
 /// Replaces the list from a host push; anything malformed is dropped.
@@ -29,7 +30,14 @@ export function setDeviceChats(value: unknown): void {
       })
     : [];
   chats = next;
+  pushes += 1;
   for (const listener of listeners) listener();
+}
+
+/// How many pushes this page received: a list compares it with the one its rows answer
+/// (settledCache.ts) to tell a change it has not read from a mount.
+export function devicePushCount(): number {
+  return pushes;
 }
 
 export function deviceChats(): DeviceChat[] {

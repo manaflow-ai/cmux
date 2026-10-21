@@ -828,10 +828,19 @@ impl ServiceStream {
 
     pub async fn reject(&self, code: String, message: String) -> Result<(), ServiceError> {
         let payload = serde_json::to_vec(&ServiceControl::Rejected { code, message })?;
-        self.send_on(Lane::Control, Bytes::from(payload)).await?;
-        // Rejection and its terminal FIN share the control lane so an isolated
-        // interactive carrier cannot deliver FIN ahead of the reason.
-        self.close_on(Lane::Control).await
+        let lane = reset_lane(self.service);
+        self.send_on(lane, Bytes::from(payload)).await?;
+        // Rejection and its terminal FIN share one ordered lane so a split
+        // carrier cannot deliver FIN ahead of the reason. Tunnel streams must
+        // use the tunnel lane for both frames.
+        self.close_on(lane).await?;
+        if self.service == Service::TcpTunnel {
+            // A rejected OPEN is terminal; unlike an accepted tunnel, it does
+            // not wait for the peer's half-close. Mark it complete so Drop
+            // does not send a RESET after the ordered rejection and FIN.
+            self.state.fetch_or(STREAM_REMOTE_FIN, Ordering::AcqRel);
+        }
+        Ok(())
     }
 
     fn require_active(&self) -> Result<(), ServiceError> {

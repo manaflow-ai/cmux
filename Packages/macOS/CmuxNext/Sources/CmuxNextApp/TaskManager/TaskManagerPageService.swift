@@ -15,8 +15,8 @@ extension InternalPageID {
 /// SIGTERM through `signaler`.
 @MainActor
 final class TaskManagerPageService: InternalPageProvider {
-    private unowned let services: AppServices
-    private(set) lazy var source = AppTaskManagerSource(services: services)
+    private weak var services: AppServices?
+    let source: AppTaskManagerSource
     private let lineage: any ProcessLineage
     private let signaler: any ProcessSignaling
     private(set) var model: TaskManagerModel?
@@ -24,13 +24,14 @@ final class TaskManagerPageService: InternalPageProvider {
     init(services: AppServices, lineage: any ProcessLineage = SystemProcessLineage(),
          signaler: any ProcessSignaling = SystemProcessSignaler()) {
         self.services = services
+        self.source = AppTaskManagerSource(services: services)
         self.lineage = lineage
         self.signaler = signaler
     }
 
     /// Shows the Task Manager tab of the active window, else opens one.
     func show(focus: Bool) throws {
-        guard let window = services.windows.active ?? services.windows.controllers.first else {
+        guard let services, let window = services.windows.active ?? services.windows.controllers.first else {
             throw ActionFailure(message: RefusalStrings.noWindowOpen)
         }
         guard services.pages.show(.taskManager, in: window, focus: focus) != nil else {
@@ -72,6 +73,7 @@ final class TaskManagerPageService: InternalPageProvider {
         guard let key, signaler.terminate(key.pid) else {
             throw ActionFailure(message: TaskManagerKillRefusal.signalFailed.message)
         }
+        // task-owner: one refresh after the kill; ends when the snapshot is read
         if let model { Task { await model.refresh() } }
     }
 
@@ -93,7 +95,7 @@ final class TaskManagerPageService: InternalPageProvider {
     }
 
     func tabClosed(_ key: String) {
-        guard !services.pageIsOpen(.taskManager), let model else { return }
+        guard services?.pageIsOpen(.taskManager) != true, let model else { return }
         model.stop()
         self.model = nil
     }

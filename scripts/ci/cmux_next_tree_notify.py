@@ -16,6 +16,11 @@ the failure. A ready dispatch removes the marker; a failed one keeps it, so a
 later publication of the same key (a takeover run, a cmux-tui-pin-* push)
 still starts the jobs.
 
+--state failed is checked against the tree's completion.json on R2 first.
+publish-cmux-tui-tree.py writes it last and only once, so it is the record
+that the tree is published: a run cancelled after (or while another run)
+published the key reports ready, not the run's conclusion (#23517).
+
 Usage: cmux_next_tree_notify.py --repo OWNER/NAME --key KEY --state ready|failed
        [--reason TEXT]
 Needs GH_TOKEN with actions: write (dispatch, delete markers), contents: read
@@ -26,11 +31,13 @@ turn a good publication red; it prints a ::warning:: instead.
 from __future__ import annotations
 
 import argparse
+import http.client
 import io
 import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.request
 import zipfile
@@ -41,6 +48,7 @@ REF = re.compile(r"^[A-Za-z0-9._/-]{1,200}$")
 TIERS = ("daemon", "scheme")
 MAX_MARKERS = 50
 WORKFLOW = "cmux-next.yml"
+TREE_BASE = "https://files.cmux.com/cmux-tui/tree"
 
 
 class Api(Protocol):
@@ -89,6 +97,23 @@ class GitHub:
         return self._request("DELETE", f"{self.api_url}/{path}")[0]
 
 
+def fetch_completion(key: str) -> object | None:
+    """The tree's published completion.json, or None when it is absent or unreadable."""
+    # The query string bypasses a cached 404 at the CDN edge.
+    url = f"{TREE_BASE}/{key}/completion.json?notify={int(time.time())}"
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url), timeout=30) as response:
+            return json.loads(response.read())
+    except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError):
+        return None
+
+
+def completion_attests(completion: object, key: str) -> bool:
+    """The checks the artifacts workflow makes of a completion.json: its key and a binaries object."""
+    return (isinstance(completion, dict) and completion.get("key") == key
+            and isinstance(completion.get("binaries"), dict))
+
+
 def read_marker(api: Api, artifact: dict, key: str) -> dict | None:
     """The validated marker, or None when it is not one this script wrote."""
     try:
@@ -111,7 +136,12 @@ def read_marker(api: Api, artifact: dict, key: str) -> dict | None:
             return None
     elif dev_daily is not False:
         return None
-    if marker.get("origin") == "push":
+    if marker.get("origin") in ("push", "dispatch"):
+        if dev_daily and marker.get("origin") != "push":
+            return None
+        # A dispatch may run on a tag; a push marker names a branch.
+        if marker.get("ref_kind", "heads") not in (("heads", "tags") if marker["origin"] == "dispatch" else ("heads",)):
+            return None
         return marker if REF.match(str(marker.get("branch", ""))) else None
     if marker.get("origin") == "pull_request":
         if not re.fullmatch(r"[0-9]{1,9}", str(marker.get("pr", ""))):
@@ -124,8 +154,9 @@ def read_marker(api: Api, artifact: dict, key: str) -> dict | None:
 
 def dispatch_refs(marker: dict, repo: str) -> list[str]:
     """Where cmux-next.yml runs: the push's branch; a pull request's head
-    branch (its checks then show on the pull request) and then its base."""
-    if marker["origin"] == "push":
+    branch (its checks then show on the pull request) and then its base.
+    A dispatch on a branch runs there again, like a push."""
+    if marker["origin"] in ("push", "dispatch"):
         return [marker["branch"]]
     refs = []
     head_ref = str(marker.get("head_ref", ""))
@@ -136,12 +167,15 @@ def dispatch_refs(marker: dict, repo: str) -> list[str]:
 
 
 def is_current(api: Api, repo: str, marker: dict) -> bool:
-    if marker["origin"] == "push":
+    if marker["origin"] in ("push", "dispatch"):
         # A scheduled DEV build owns an immutable SHA. Its tree may finish
         # after feat-cmux-next advances, so the branch pointer is not an
         # admission signal for this marker. same-tree mode checks out the
         # recorded SHA and the publisher's source gate verifies it again.
         if marker.get("dev_daily"):
+            return True
+        # A tag has no head to move on (and is not a branch to look up).
+        if marker.get("ref_kind") == "tags":
             return True
         head = api.get(f"repos/{repo}/git/ref/heads/{marker['branch']}")
         return head.get("object", {}).get("sha") == marker["sha"]
@@ -150,8 +184,14 @@ def is_current(api: Api, repo: str, marker: dict) -> bool:
 
 
 def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
-           log: Callable[[str], None] = print) -> int:
+           log: Callable[[str], None] = print,
+           fetch_completion: Callable[[str], object | None] = fetch_completion) -> int:
     """Dispatches same-tree runs for the markers of <key>; returns how many."""
+    if state == "failed" and completion_attests(fetch_completion(key), key):
+        log(f"tree {key}: its completion.json is published, so the tree is ready whatever the "
+            f"reporting run's conclusion; starting the tree jobs (ready)")
+        state = "ready"
+        reason = f"tree {key} is published ({TREE_BASE}/{key}/completion.json)"
     listing = api.get(f"repos/{repo}/actions/artifacts?name=cmux-next-tree-wait-{key}&per_page=100")
     artifacts = [artifact for artifact in listing.get("artifacts", []) if not artifact.get("expired")]
     dispatched = 0

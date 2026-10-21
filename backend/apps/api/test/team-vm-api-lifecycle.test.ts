@@ -179,3 +179,40 @@ it("refuses an unknown creation default without provisioning a tenant or using t
     expect(t.service.calls).toHaveLength(0)
   }, { TEAM_VM_TRANSPORT: "unknown" })
 })
+
+
+it.each(["credential", "deadline"])("recovers a retained creation after the %s changes without replaying create", async (change) => {
+  await withTeamVmApi(async (t) => {
+    t.service.control.loseNextCreate = true
+    await t.wake()
+    expect((await t.status()).vm).toBeNull()
+    t.service.control.creationState = "pending"
+    if (change === "credential") {
+      t.service.control.key = "rotated-test-key"
+      await t.restart({ TEAM_VM_API_SERVICE_KEY: "rotated-test-key", TEAM_VM_API_IMAGE_REVISION: "v2" })
+    } else t.state.storage.sql.exec(`UPDATE team_vm_ledger SET api_sent_at = ?`, Date.now() - 48 * 60 * 60_000)
+    await t.owner.fakeAlarm(5_000)
+    const current = await t.status()
+    expect(current.vm).toMatch(/^vm_/)
+    expect(t.service.vms.get(current.vm!)?.install).toBeTruthy()
+    expect(t.service.calls.some((c) => c.method === "POST" && c.path === "/v1/vm-creations/by-key/reconcile")).toBe(true)
+    expect(t.service.calls.filter((c) => c.method === "POST" && c.path === "/v1/vms")).toHaveLength(1)
+    expect(t.service.control.creates).toBe(1)
+    expect((await t.owner.ledger(t.team)).rows[0]?.state).toBe("confirmed")
+  })
+})
+
+
+it.each(["cancelling", "cancelled"] as const)("does not replay a create after the API reports %s", async (state) => {
+  await withTeamVmApi(async (t) => {
+    t.service.control.loseNextCreate = true
+    await t.wake()
+    expect((await t.status()).vm).toBeNull()
+    t.service.control.creationState = state
+    await t.owner.fakeAlarm(5_000)
+    await t.wake()
+    expect((await t.status()).vm).toBeNull()
+    expect(t.service.calls.filter((c) => c.method === "POST" && c.path === "/v1/vms")).toHaveLength(1)
+    expect(t.service.control.creates).toBe(1)
+  })
+})

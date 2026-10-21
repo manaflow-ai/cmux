@@ -51,6 +51,12 @@ pub fn is_transport_error(message: &str) -> bool {
         "gateway timeout",
         "upstream connect error",
         "request timed out",
+        // Claude Code: "API Error: Connection lost mid-response." (2026-10-19, a turn cut
+        // mid-stream sat idle until a person typed "continue").
+        "connection lost",
+        "internal server error",
+        "premature close",
+        "other side closed",
     ];
     PHRASES.iter().any(|p| m.contains(p))
         || (m.contains("websocket")
@@ -70,6 +76,8 @@ mod tests {
             "WebSocket handshake failed: 502",
             "upstream connect error or disconnect/reset before headers",
             "read ECONNRESET",
+            "API Error: Connection lost mid-response. The response above may be incomplete.",
+            "API Error: 500 {\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"Internal server error\"}}",
         ] {
             assert!(is_transport_error(m), "{m}");
         }

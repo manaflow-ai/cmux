@@ -20,7 +20,7 @@ pub use compact::{
     strip_head, system_prompt, CompactPrompt, CompactRequest, MissingNode, SizeCheck,
     CMUX_PROMPT_ADDITIONS, FRAGMENT_DIVISOR, MIDRUN, RULER, TAELIN_PROMPT,
 };
-pub use memory::{most_due, Checkpoint, Memory, NotRunning, Store, Work, AHEAD};
+pub use memory::{free_node_text, most_due, Checkpoint, Memory, NotRunning, Store, Work, AHEAD};
 pub use node::{Kind, NodeId};
 pub use render::{
     block_cuts, block_pieces, cache_marks, cache_pieces, mark_piece, render_parts, render_view,

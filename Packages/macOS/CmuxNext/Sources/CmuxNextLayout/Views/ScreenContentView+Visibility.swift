@@ -8,8 +8,11 @@ extension ScreenContentView {
     // MARK: Chrome
 
     /// Focus ring, inactive dim and attention rings. Overlay-only: no pane
-    /// frame or inset depends on any of it.
-    func updateChrome(focused: PaneID?, dimsInactive: Bool, attention: [PaneID: AttentionMark], animated: Bool) {
+    /// frame or inset depends on any of it. `flashAnimated`: motion is allowed for the focus flash
+    /// even when the rest of the chrome snaps (a close or a new pane changes the layout's shape in
+    /// the same pass that moves focus); nil follows `animated`.
+    func updateChrome(focused: PaneID?, dimsInactive: Bool, attention: [PaneID: AttentionMark], animated: Bool,
+                      flashAnimated: Bool? = nil) {
         let multiple = paneFrames.count > 1
         let style = context.style
         let ringAllowed = (multiple || style.focusRing.showsForSinglePane)
@@ -18,6 +21,8 @@ extension ScreenContentView {
             && context.model.lastFocusSource != .pointer
             && context.model.lastFocusSource != .scroll
         let dim = style.inactiveDim(dimsInactive: dimsInactive)
+        let flashes = Self.requestsFocusFlash(enabled: FocusIndicatorTunables.flashOnMove.value, multiple: multiple,
+                                              source: context.model.lastFocusSource, animated: flashAnimated ?? animated)
         for pane in paneFrames.keys {
             guard let host = context.hosts[pane] else { continue }
             let isFocused = pane == focused
@@ -31,9 +36,19 @@ extension ScreenContentView {
                 border: PaneOverlayView.Border(shows: style.showsPaneBorder, width: style.paneBorderWidth, color: style.paneBorderColor),
                 attention: attention[pane],
                 attentionSettings: style.attention,
+                readByEntry: isFocused && context.model.attentionReadByEntry.contains(pane),
+                focused: isFocused, flashesFocus: flashes,
                 animated: animated
             )
         }
+    }
+
+    /// Whether a focus change flashes the ring on its pane (`focus.flashOnMove`): only focus nobody
+    /// clicked (a link open, the pane after a close, an agent handoff, all `programmatic`); a
+    /// click, scroll or key already shows where focus went. One pane on screen needs no cue, and a
+    /// window just opening or motion turned off shows none.
+    static func requestsFocusFlash(enabled: Bool, multiple: Bool, source: ColumnFocusSource, animated: Bool) -> Bool {
+        enabled && multiple && animated && source == .programmatic
     }
 
     // MARK: Visibility and hit testing
@@ -65,11 +80,15 @@ extension ScreenContentView {
 
     /// The pane under `localPoint`: a docked column's pane above the strip.
     func pane(at localPoint: NSPoint) -> PaneID? {
+        // Canvas panes overlap: the front-most one under the point.
+        if let canvas = canvasState.canvas { return canvas.pane(at: localPoint) }
+        // A pane scrolled out of its scroll area's window takes no click there.
+        func shown(_ pane: PaneID) -> Bool { displayedAreaWindow(of: pane)?.contains(localPoint) ?? true }
         if geometry.dock.contains(where: { $0.cover.contains(localPoint) }) {
-            return geometry.panes.first { !geometry.scrolls(pane: $0.key) && $0.value.contains(localPoint) }?.key
+            return geometry.panes.first { !geometry.scrolls(pane: $0.key) && $0.value.contains(localPoint) && shown($0.key) }?.key
         }
         let content = CGPoint(x: localPoint.x - stripShift, y: localPoint.y)
-        return geometry.panes.first { geometry.scrolls(pane: $0.key) && $0.value.contains(content) }?.key
+        return geometry.panes.first { geometry.scrolls(pane: $0.key) && $0.value.contains(content) && shown($0.key) }?.key
     }
 
     /// Displayed frame of `pane` in local coordinates: its host's frame (on the pixel grid, `applyPresentation`).

@@ -28,6 +28,9 @@ public struct BrowserPageAgentInput: Sendable, Equatable {
     /// The agent's name (`params.agent`, `cmux browser … --agent NAME`):
     /// its own cursor and name tag; nil draws as the unnamed CLI agent.
     public var agent: String?
+    /// The terminal or chat the agent runs in (the request's `caller`): the
+    /// tag names it and a click on the tag shows it; nil when unknown.
+    public var origin: BrowserPageAgentOrigin?
 
     /// An element rect in viewport CSS px.
     public struct Rect: Sendable, Equatable {
@@ -54,9 +57,11 @@ public struct BrowserPageAgentInput: Sendable, Equatable {
     ///   - replace: Whether the text replaces the value.
     ///   - secret: Whether the element hides its text.
     ///   - agent: The agent's name.
+    ///   - origin: Where the agent runs.
     public init(kind: Kind, rect: Rect? = nil, toRect: Rect? = nil, text: String? = nil, key: String? = nil,
-                replace: Bool = false, secret: Bool = false, agent: String? = nil) {
+                replace: Bool = false, secret: Bool = false, agent: String? = nil, origin: BrowserPageAgentOrigin? = nil) {
         self.kind = kind
+        self.origin = origin
         self.rect = rect
         self.toRect = toRect
         self.agent = agent
@@ -77,10 +82,11 @@ public struct BrowserPageAgentInput: Sendable, Equatable {
                                      replace: replace, secret: secret)
     }
 
-    /// This input as sent by agent `name` (nil keeps it unnamed).
-    func by(_ name: String?) -> BrowserPageAgentInput {
+    /// This input as sent by agent `name` (nil keeps it unnamed) from `origin`.
+    func by(_ name: String?, from origin: BrowserPageAgentOrigin? = nil) -> BrowserPageAgentInput {
         var copy = self
         copy.agent = name
+        copy.origin = origin
         return copy
     }
 

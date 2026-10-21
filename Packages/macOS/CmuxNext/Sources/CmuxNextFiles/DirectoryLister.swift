@@ -53,6 +53,7 @@ public struct DirectoryLister: DirectoryListing {
         defer { buffer.deallocate() }
         var entries: [FileEntry] = []
         var packageCache: [String: Bool] = [:]
+        // wakeup-allow: each pass blocks in getattrlistbulk for the next batch; 0 (the end) or an error ends it
         while true {
             let count = getattrlistbulk(fd, &request, buffer, capacity, 0)
             if count < 0 { throw FileBrowserError.unreadable(folder, errno) }

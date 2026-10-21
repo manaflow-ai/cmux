@@ -14,8 +14,9 @@ import { isDefaultChoice } from "./defaultChoice";
 import { CheckIcon, ChevronIcon, PICKER_LABELS, SearchIcon } from "./ComposerPickers";
 import { Icon } from "./icons/Icon";
 import { currentLanguage, useT } from "./i18n";
-import { MODEL_PICKER_MIN_HEIGHT, pickerHeightBounds, type ModelPickerProps } from "./modelPickerLayout";
-import { modelSections } from "./modelSections";
+import { useUpdateOffer } from "./HarnessHealthNotice";
+import { CHAT_COLUMN, MODEL_PICKER_MIN_HEIGHT, pickerHeightBounds, type ModelPickerProps } from "./modelPickerLayout";
+import { curatedSections, modelSections } from "./modelSections";
 import { effortWords, fitsQuery, modelEffort, parseQuery } from "./modelQuery";
 import { registerPicker } from "./pickerOpeners";
 import { QuickModelMenu, type QuickFamily, type QuickModel } from "./QuickModelMenu";
@@ -97,28 +98,6 @@ function sectionsFor(entry: HarnessChoice | undefined): { latest: ModelChoice[];
   const sections = curatedSections(modelSections(choices, entry.name), entry.top);
   choiceCache.set(entry, sections);
   return sections;
-}
-
-/// With a curated list: its models first, in its order, each followed by its variants ("Fable 5.1 ·
-/// 1M context"), and every other model under More models, newest family first, then older ones. Without one, or when
-/// the harness offers none of it, the catalog's newest family stays first.
-function curatedSections(
-  sections: { latest: ModelChoice[]; older: ModelChoice[] },
-  top: readonly string[] | undefined,
-): { latest: ModelChoice[]; older: ModelChoice[] } {
-  if (!top) return sections;
-  const all = [...sections.latest, ...sections.older];
-  const latest: ModelChoice[] = [];
-  for (const id of top) {
-    const model = all.find((choice) => choice.id === id || choice.release === id);
-    if (!model) continue;
-    const variants = all.filter(
-      (choice) => choice !== model && (choice.id.startsWith(`${id}[`) || choice.name.startsWith(`${model.name} · `)),
-    );
-    for (const choice of [model, ...variants]) if (!latest.includes(choice)) latest.push(choice);
-  }
-  if (latest.length === 0) return sections;
-  return { latest, older: all.filter((choice) => !latest.includes(choice)) };
 }
 
 /// `sectionsFor`, with the model the chat runs listed after the top ones when it is a folded one
@@ -215,6 +194,9 @@ const modelRow =
 /// The active row (pointer or arrows) has the hover wash; any other row gets it on hover.
 const rowFill = (active: boolean) => (active ? "bg-hover" : "bg-transparent hover:bg-hover");
 const emptyNote = "px-2.5 py-2 text-body text-muted";
+/// The update row's Update and Skip This Version: row-height text buttons, as wide as their words.
+const updateButton =
+  "flex h-[var(--ui-row-height,28px)] flex-none cursor-pointer items-center rounded-[var(--ui-row-radius,5px)] border-0 px-2 font-[inherit] text-control text-fg";
 
 function StarGlyph({ filled, size }: { filled: boolean; size: number }) {
   return (
@@ -257,6 +239,12 @@ export function ModelPicker(props: ModelPickerProps) {
   /// A signed-out harness's login command ("" when acpmux names none); undefined when it can start.
   const loginFor = useCallback((entry: HarnessChoice) => signedOut?.[entry.acpmuxHarness ?? entry.id], [signedOut]);
   const t = useT();
+  /// The chat's agent CLI has an update (hq#2569 #12): a dot on the chip and a row in the picker,
+  /// never a banner over the chat.
+  const update = useUpdateOffer();
+  const updateText = update
+    ? t("harness.outdated", { agent: update.agent, version: update.version, latest: update.latest })
+    : undefined;
   const modelText = t(PICKER_LABELS.model);
   const searchText = t("picker.search");
   const harnessText = t("picker.harness");
@@ -382,6 +370,8 @@ export function ModelPicker(props: ModelPickerProps) {
     side: "above",
     align: "start",
     minHeight: MODEL_PICKER_MIN_HEIGHT,
+    // Inside the chat column, never over the session rail or sidebar beside it.
+    boundary: CHAT_COLUMN,
   });
   useLayoutEffect(() => {
     if (!open) {
@@ -773,6 +763,9 @@ export function ModelPicker(props: ModelPickerProps) {
           data-label={chipFamily}
         />
       )}
+      {update && (
+        <span aria-hidden="true" className="acpmux-model-update-dot size-1.5 flex-none rounded-full bg-accent" />
+      )}
     </>
   );
   return (
@@ -800,10 +793,11 @@ export function ModelPicker(props: ModelPickerProps) {
             "data-menu": modelText,
             label: modelText,
             /* tooltip-allow: the chip drops the vendor its mark draws; the title keeps the full name */
-            title: usage ? `${chipLabel} · ${usage}` : chipLabel,
+            title: [chipLabel, usage, updateText].filter(Boolean).join(" · "),
           }}
           menu={{
             ...quick,
+            ...(update && updateText ? { update: { text: updateText, run: update.update } } : {}),
             // This harness's top models, the running one among them; a signed-out harness lists none.
             models:
               current && loginFor(current) === undefined
@@ -854,7 +848,7 @@ export function ModelPicker(props: ModelPickerProps) {
           data-menu={modelText}
           aria-label={modelText}
           /* tooltip-allow: the chip drops the vendor its mark draws; the title keeps the full name */
-          title={usage ? `${chipLabel} · ${usage}` : chipLabel}
+          title={[chipLabel, usage, updateText].filter(Boolean).join(" · ")}
           aria-haspopup="dialog"
           aria-expanded={open}
           aria-controls={open ? menuId : undefined}
@@ -880,7 +874,7 @@ export function ModelPicker(props: ModelPickerProps) {
         <PickerDialog
           ref={menu}
           id={menuId}
-          className="ui-popup ui-picker-popup acpmux-mp z-(--layer-dropdown) flex w-[min(310px,calc(100vw-24px))] overflow-hidden rounded-[var(--ui-popup-radius,8px)] text-control text-fg"
+          className="ui-popup ui-picker-popup acpmux-mp z-(--layer-dropdown) flex w-[min(310px,var(--available-width,calc(100vw-24px)))] overflow-hidden rounded-[var(--ui-popup-radius,8px)] text-control text-fg"
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the popover is positioned by the shared anchor helper.
           aria-label={modelText}
           // The anchor's room above or below the chip, between the picker's minimum and maximum
@@ -1108,7 +1102,7 @@ export function ModelPicker(props: ModelPickerProps) {
                           className={`acpmux-mp-favorite pointer-events-auto grid size-6 cursor-pointer place-items-center rounded-md border-0 bg-transparent p-0 text-muted hover:text-fg ${favorites.has(model.id) ? "" : "invisible group-hover:visible focus-visible:visible"}`}
                           aria-label={`${starredText}: ${model.name}`}
                           aria-pressed={favorites.has(model.id)}
-                          title={starredText}
+                          title={t(favorites.has(model.id) ? "picker.unstar" : "picker.star")}
                           onClick={() => toggleFavorite(model.id)}
                         >
                           <StarGlyph filled={favorites.has(model.id)} size={13} />
@@ -1158,6 +1152,28 @@ export function ModelPicker(props: ModelPickerProps) {
                 )}
               </PickerOptionList>
             </ScrollArea>
+            {update && (
+              <div className="acpmux-mp-update flex flex-none items-center gap-1 border-t-[0.5px] border-edge p-1.5 pl-2.5">
+                <span className="min-w-0 flex-1 truncate text-detail text-muted">{updateText}</span>
+                <button
+                  type="button"
+                  className={`acpmux-mp-update-run ${updateButton} ${rowFill(false)}`}
+                  onClick={() => {
+                    update.update();
+                    close();
+                  }}
+                >
+                  {t("harness.update")}
+                </button>
+                <button
+                  type="button"
+                  className={`acpmux-mp-update-skip ${updateButton} ${rowFill(false)}`}
+                  onClick={update.skip}
+                >
+                  {t("harness.skipVersion")}
+                </button>
+              </div>
+            )}
             {fastMode && (
               <div className="flex-none border-t-[0.5px] border-edge p-1.5">
                 <button

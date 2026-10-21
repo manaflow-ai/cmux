@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 /// The content of ``BrowserSectionOverlay``: dims the page outside the
 /// dragged rect, outlines it, and shows how to use it until a drag starts.
@@ -14,7 +15,7 @@ final class BrowserSectionOverlayView: NSView {
         selection = BrowserSectionSelection(bounds: CGRect(origin: .zero, size: size))
         super.init(frame: CGRect(origin: .zero, size: size))
         autoresizingMask = [.width, .height]
-        hint.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
+        hint.font = .systemFont(ofSize: TypeScale.body, weight: TypeScale.emphasis)
         hint.textColor = .white
         hint.alignment = .center
         hint.translatesAutoresizingMaskIntoConstraints = false

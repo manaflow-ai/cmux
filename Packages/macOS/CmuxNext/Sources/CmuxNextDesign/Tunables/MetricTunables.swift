@@ -5,6 +5,9 @@ public import Foundation
 /// density preset (or the user's `appearance.metrics.*` override in
 /// cmux.json); a Debug Settings override wins over both.
 public nonisolated struct MetricTunable: Sendable {
+    /// The metric's name (`sidebarRowHeight`): its Debug Settings id is `metrics.<name>`, and a
+    /// custom density's `tokens` keys it.
+    public let name: String
     public let compact: CGFloat
     public let comfortable: CGFloat
     /// The compact value under Compact tabs (`Metrics.compactTabs`), when it differs.
@@ -14,7 +17,7 @@ public nonisolated struct MetricTunable: Sendable {
 
     /// The value chrome uses now. Observation-tracked (density, cmux.json
     /// override and Debug Settings override).
-    @MainActor public var value: CGFloat { Metrics.scale(tunable.resolve(Metrics.pick(compactValue, comfortable, key))) }
+    @MainActor public var value: CGFloat { Metrics.scale(tunable.resolve(Metrics.pick(compactValue, comfortable, key, token: name))) }
     /// The compact value in effect: `tight` under Compact tabs, else `compact`.
     @MainActor var compactValue: CGFloat { tight.flatMap { Metrics.compactTabs ? $0 : nil } ?? compact }
     public var descriptor: TunableDescriptor { tunable.descriptor }
@@ -27,8 +30,8 @@ public nonisolated struct MetricTunable: Sendable {
         let note = compact == comfortable ? "" : " Default \(TunableExport.format(Double(compact))) compact, \(TunableExport.format(Double(comfortable))) comfortable."
         let tunable = DerivedTunable<CGFloat>.number(
             "metrics.\(name)", section, label, help: help + note, range: range ?? 0...upper, step: step, unit: .points,
-            code: "MetricTunables.\(name)") { Metrics.pick(tight.flatMap { Metrics.compactTabs ? $0 : nil } ?? compact, comfortable, key) }
-        return MetricTunable(compact: compact, comfortable: comfortable, tight: tight, key: key, tunable: tunable)
+            code: "MetricTunables.\(name)") { Metrics.pick(tight.flatMap { Metrics.compactTabs ? $0 : nil } ?? compact, comfortable, key, token: name) }
+        return MetricTunable(name: name, compact: compact, comfortable: comfortable, tight: tight, key: key, tunable: tunable)
     }
 }
 
@@ -71,10 +74,13 @@ public nonisolated enum MetricTunables {
         "tabMinActiveWidth", .tabs, "Tab min width (active)", help: "Narrowest the selected tab gets when the strip is crowded.",
         compact: MotionTabStrip(comfortable: false).minActiveWidth, comfortable: MotionTabStrip(comfortable: true).minActiveWidth,
         key: .tabMinActiveWidth, range: 32...320)
+    /// The favicon and the close button side by side, whole (Lawrence 2026-10-20, replacing Chrome's 32, where
+    /// the x never fits): `TabStripMetrics.faviconCloseWidth` at each density's tokens. Pill insets 2 x 1,
+    /// leading inset 8 (6 under Compact tabs), favicon 14 (16 comfortable), gap 4, x 16 (20 pt click
+    /// target), trailing inset 4. A test keeps these equal to the sum.
     public static let tabMinInactiveWidth = MetricTunable.make(
-        "tabMinInactiveWidth", .tabs, "Tab min width (inactive)", help: "Narrowest the other tabs get before the strip scrolls.",
-        compact: MotionTabStrip(comfortable: false).minInactiveWidth, comfortable: MotionTabStrip(comfortable: true).minInactiveWidth,
-        key: .tabMinInactiveWidth, range: 16...320)
+        "tabMinInactiveWidth", .tabs, "Tab min width (inactive)", help: "Narrowest the other tabs get before the strip scrolls: room for the favicon and the close button.",
+        compact: 48, comfortable: 50, tight: 46, key: .tabMinInactiveWidth, range: 16...320)
     public static let tabPinnedWidth = MetricTunable.make(
         "tabPinnedWidth", .tabs, "Pinned tab width", help: "Width of a pinned tab.",
         compact: MotionTabStrip(comfortable: false).pinnedWidth, comfortable: MotionTabStrip(comfortable: true).pinnedWidth,
@@ -113,7 +119,8 @@ public nonisolated enum MetricTunables {
     public static let scrollEdgeFade = MetricTunable.make("scrollEdgeFade", .focus, "Scroll edge fade", help: "Height of the fade where a list hides content.",
                                                           compact: 18, comfortable: 22)
 
-    static var metrics: [MetricTunable] {
+    /// Every density metric, in Debug Settings order.
+    public static var metrics: [MetricTunable] {
         [sidebarWidth, titlebarHeight, sidebarRowHeight, sidebarRowHeightWithSubtitle, sidebarHeaderHeight, roomDotDiameter, roomDotSlot,
          tabStripHeight, tabHeight, controlHeight, tabMaxWidth, tabMinActiveWidth, tabMinInactiveWidth, tabPinnedWidth, tabMinWidth, paletteRowHeight, paletteSearchHeight, paletteWidth, panelInset,
          columnGap, densityPaneCornerRadius, panelCornerRadius, itemCornerRadius, iconSize, smallIconSize, scrollEdgeFade]

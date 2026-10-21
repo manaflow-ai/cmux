@@ -115,9 +115,52 @@ export interface HomeChief {
   createdAt: string;
   /** The picture's hash (the page reads its bytes once per hash). */
   avatar?: string;
-  /** The engine the Chief's brain starts on (absent fields: the default engine, Claude). Changed
-   * later only in the Chief's settings in the app (`cmux chief engine`). */
+  /** The Chief's backend, the engine its brain runs on (the record's `engine`): an acpmux harness
+   * id, its model and effort. Absent fields: the Chief's usual (the owner's default, Claude). The
+   * Chief editor changes it (`chief.profile.update`, after the harness check passes). */
   engine?: { harness?: string; model?: string; effort?: string };
+  /** Only the person may change this Chief (`locked`): every Chief write is refused. */
+  locked?: boolean;
+}
+
+/** A Chief's backend as the editor picks it: "" means the Chief's usual (the owner's default). */
+export interface HomeChiefEngine {
+  harness: string;
+  model: string;
+  effort: string;
+}
+
+/** One committed state of a Chief's record (`chief.profile.history`), newest first. */
+export interface HomeChiefRevision {
+  rev: number;
+  /** When it was committed (ISO 8601). */
+  at: string;
+  /** Who made it: a Chief's id, or empty for the person (terminal or app). */
+  actor: string;
+  /** The operation that made it (`chief.profile.update`, `chief.profile.undo`, ...). */
+  operation: string;
+  record: HomeChief;
+}
+
+/** An acpmux harness a Chief may run on (`_acpmux/harnesses` with its probed models). */
+export interface HomeChiefBackend {
+  id: string;
+  name: string;
+  models: { id: string; name: string; efforts: string[] }[];
+  /** Why acpmux will not run it now (a failed launcher check), if it says. */
+  unavailable?: string;
+}
+
+/** Bring your own backend: an ACP agent command, or an Anthropic- or OpenAI-compatible endpoint.
+ * The key goes to the Keychain through the host; the page never keeps it after submit. */
+export type HomeChiefByoBackend =
+  | { kind: "command"; name: string; command: string; args: string[] }
+  | { kind: "anthropic-endpoint" | "openai-endpoint"; name: string; baseUrl: string; model: string; apiKey: string };
+
+/** `_acpmux/harness/doctor {id, prompt: true}`: each step, the first failing one with its fix. */
+export interface HomeChiefDoctor {
+  ok: boolean;
+  steps: { name: string; ok: boolean; detail?: string; fix?: string }[];
 }
 
 /** A Chief's profile text as the sheet edits it. */

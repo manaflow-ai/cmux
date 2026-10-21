@@ -1,0 +1,1200 @@
+{
+ "date": "2026-10-20",
+ "machine": {
+  "host": "cmux\u2019s Mac mini (6)",
+  "model": "Mac16,11",
+  "chip": "Apple M4 Pro",
+  "cores": 14,
+  "ram_gb": 48,
+  "macos": "27.0.1",
+  "build": "26A434",
+  "load_start": 2.77,
+  "displays": {
+   "count": 1,
+   "displays": [
+    {
+     "w": 1920,
+     "h": 1080,
+     "hz": 60.0,
+     "builtin": false
+    }
+   ]
+  },
+  "session": "System"
+ },
+ "cmux_ref": "3330ea7facf055addb18846e75fcde6311db7b7a",
+ "browsers": {
+  "cmux-chromium": {
+   "name": "cmux NEXT (Chromium tab)",
+   "bundle": "/Users/cmux/Library/Caches/cmux-perf-bench/apps/cmux-nightly/3946367535401/cmux NEXT.app",
+   "version": "1.0.0-nightly.3946367535401",
+   "team": "7WLXT3NR37"
+  },
+  "cmux-webkit": {
+   "name": "cmux NEXT (WebKit tab)",
+   "bundle": "/Users/cmux/Library/Caches/cmux-perf-bench/apps/cmux-nightly/3946367535401/cmux NEXT.app",
+   "version": "1.0.0-nightly.3946367535401",
+   "team": "7WLXT3NR37"
+  },
+  "cmux-terminal": {
+   "name": "cmux NEXT (terminals)",
+   "bundle": "/Users/cmux/Library/Caches/cmux-perf-bench/apps/cmux-nightly/3946367535401/cmux NEXT.app",
+   "version": "1.0.0-nightly.3946367535401",
+   "team": "7WLXT3NR37"
+  },
+  "chrome": {
+   "name": "Chrome",
+   "bundle": "/Users/cmux/Library/Caches/cmux-perf-bench/apps/chrome/2026-10-20/Google Chrome.app",
+   "version": "155.0.8059.85",
+   "team": "EQHXZ8M8AV"
+  },
+  "helium": {
+   "name": "Helium",
+   "bundle": "/Users/cmux/Library/Caches/cmux-perf-bench/apps/helium/0.19.4.1/Helium.app",
+   "version": "0.19.4.1",
+   "team": "S4Q33XPHB4"
+  },
+  "ardia": {
+   "name": "Ardia",
+   "bundle": "/Users/cmux/Library/Caches/cmux-perf-bench/apps/ardia/v0.2.38/Ardia.app",
+   "version": "0.2.38",
+   "team": "U5L5T3NGVV"
+  },
+  "dia": {
+   "name": "Dia",
+   "bundle": "/Users/cmux/Library/Caches/cmux-perf-bench/apps/dia/2026-10-20/Dia.app",
+   "version": "1.53.0",
+   "team": "S6N382Y83G"
+  },
+  "safari": {
+   "name": "Safari",
+   "bundle": "/Applications/Safari.app",
+   "version": "27.0.1",
+   "team": "not set"
+  }
+ },
+ "rows": {
+  "launch-window": {
+   "cmux-chromium": {
+    "median": 785.219,
+    "min": 420.63,
+    "max": 1178.562,
+    "n": 6
+   },
+   "cmux-webkit": {
+    "median": 794.4,
+    "min": 407.092,
+    "max": 1237.953,
+    "n": 6
+   },
+   "cmux-terminal": {
+    "median": 397.613,
+    "min": 382.317,
+    "max": 1248.425,
+    "n": 6
+   },
+   "chrome": {
+    "median": 2421.028,
+    "min": 388.718,
+    "max": 4610.27,
+    "n": 6
+   },
+   "helium": {
+    "median": 1272.226,
+    "min": 379.427,
+    "max": 2165.403,
+    "n": 6
+   },
+   "ardia": {
+    "median": 1172.11,
+    "min": 299.355,
+    "max": 2240.389,
+    "n": 6
+   },
+   "dia": {
+    "median": 2450.222,
+    "min": 1198.216,
+    "max": 3754.037,
+    "n": 6
+   },
+   "safari": {
+    "median": 504.86,
+    "min": 12.116,
+    "max": 582.258,
+    "n": 5
+   }
+  },
+  "memory-1": {
+   "cmux-chromium": {
+    "median": 946.6,
+    "min": 945.3,
+    "max": 994.3,
+    "n": 3
+   },
+   "cmux-webkit": {
+    "median": 999.6,
+    "min": 861.6,
+    "max": 1045.1,
+    "n": 3
+   },
+   "cmux-terminal": {
+    "median": 504.4,
+    "min": 450.4,
+    "max": 506.9,
+    "n": 3
+   },
+   "chrome": {
+    "median": 457.9,
+    "min": 452.8,
+    "max": 486.2,
+    "n": 3
+   },
+   "helium": {
+    "median": 447.5,
+    "min": 444.3,
+    "max": 528.6,
+    "n": 3
+   },
+   "ardia": {
+    "median": 355.7,
+    "min": 355.4,
+    "max": 358.9,
+    "n": 3
+   },
+   "dia": {
+    "median": 632.5,
+    "min": 631.4,
+    "max": 634.3,
+    "n": 3
+   },
+   "safari": {
+    "median": 271.8,
+    "min": 271.3,
+    "max": 272.3,
+    "n": 2
+   }
+  },
+  "power-idle-visible-1": {
+   "cmux-chromium": {
+    "median": 5.195,
+    "min": 2.186,
+    "max": 5.276,
+    "n": 3
+   },
+   "cmux-webkit": {
+    "median": 88.033,
+    "min": 58.944,
+    "max": 93.835,
+    "n": 3
+   },
+   "cmux-terminal": {
+    "median": 0.055,
+    "min": 0.045,
+    "max": 1.425,
+    "n": 3
+   },
+   "chrome": {
+    "median": 10.782,
+    "min": 8.736,
+    "max": 10.812,
+    "n": 3
+   },
+   "helium": {
+    "median": 37.964,
+    "min": 37.964,
+    "max": 39.935,
+    "n": 3
+   },
+   "ardia": {
+    "median": 0.405,
+    "min": 0.388,
+    "max": 0.492,
+    "n": 3
+   },
+   "dia": {
+    "median": 10.939,
+    "min": 6.308,
+    "max": 11.037,
+    "n": 3
+   },
+   "safari": {
+    "median": 1.586,
+    "min": 1.457,
+    "max": 1.714,
+    "n": 2
+   }
+  },
+  "idle-cpu-1": {
+   "cmux-chromium": {
+    "median": 2.63,
+    "min": 2.312,
+    "max": 2.668,
+    "n": 3
+   },
+   "cmux-webkit": {
+    "median": 4.256,
+    "min": 4.074,
+    "max": 4.797,
+    "n": 3
+   },
+   "cmux-terminal": {
+    "median": 0.143,
+    "min": 0.124,
+    "max": 0.327,
+    "n": 3
+   },
+   "chrome": {
+    "median": 2.757,
+    "min": 2.588,
+    "max": 2.833,
+    "n": 3
+   },
+   "helium": {
+    "median": 2.38,
+    "min": 1.533,
+    "max": 2.584,
+    "n": 3
+   },
+   "ardia": {
+    "median": 0.181,
+    "min": 0.177,
+    "max": 0.231,
+    "n": 3
+   },
+   "dia": {
+    "median": 2.317,
+    "min": 1.947,
+    "max": 2.421,
+    "n": 3
+   },
+   "safari": {
+    "median": 1.446,
+    "min": 1.074,
+    "max": 1.817,
+    "n": 2
+   }
+  },
+  "idle-wakeups-1": {
+   "cmux-chromium": {
+    "median": 72.966,
+    "min": 17.969,
+    "max": 75.411,
+    "n": 3
+   },
+   "cmux-webkit": {
+    "median": 73.224,
+    "min": 11.476,
+    "max": 75.537,
+    "n": 3
+   },
+   "cmux-terminal": {
+    "median": 5.054,
+    "min": 4.041,
+    "max": 9.873,
+    "n": 3
+   },
+   "chrome": {
+    "median": 44.799,
+    "min": 43.978,
+    "max": 46.602,
+    "n": 3
+   },
+   "helium": {
+    "median": 43.517,
+    "min": 42.978,
+    "max": 44.838,
+    "n": 3
+   },
+   "ardia": {
+    "median": 4.174,
+    "min": 3.825,
+    "max": 4.389,
+    "n": 3
+   },
+   "dia": {
+    "median": 42.88,
+    "min": 42.866,
+    "max": 43.652,
+    "n": 3
+   },
+   "safari": {
+    "median": 59.698,
+    "min": 59.645,
+    "max": 59.75,
+    "n": 2
+   }
+  },
+  "memory-10": {
+   "cmux-chromium": {
+    "median": 1175.5,
+    "min": 1170.1,
+    "max": 1182.2,
+    "n": 3
+   },
+   "cmux-webkit": {
+    "median": 1215.0,
+    "min": 1012.8,
+    "max": 1216.2,
+    "n": 3
+   },
+   "cmux-terminal": {
+    "median": 609.6,
+    "min": 575.8,
+    "max": 613.9,
+    "n": 3
+   },
+   "chrome": {
+    "median": 762.9,
+    "min": 750.9,
+    "max": 774.4,
+    "n": 3
+   },
+   "helium": {
+    "median": 864.1,
+    "min": 862.2,
+    "max": 906.8,
+    "n": 3
+   },
+   "ardia": {
+    "median": 822.0,
+    "min": 818.9,
+    "max": 869.7,
+    "n": 3
+   },
+   "dia": {
+    "median": 985.0,
+    "min": 982.8,
+    "max": 987.1,
+    "n": 3
+   },
+   "safari": {
+    "median": 485.0,
+    "min": 466.7,
+    "max": 503.3,
+    "n": 2
+   }
+  },
+  "memory-20": {
+   "cmux-chromium": {
+    "median": 1566.3,
+    "min": 1556.7,
+    "max": 1570.7,
+    "n": 3
+   },
+   "cmux-webkit": {
+    "median": 1468.3,
+    "min": 1239.6,
+    "max": 1483.5,
+    "n": 3
+   },
+   "cmux-terminal": {
+    "median": 704.8,
+    "min": 689.3,
+    "max": 707.4,
+    "n": 3
+   },
+   "chrome": {
+    "median": 908.0,
+    "min": 890.4,
+    "max": 943.2,
+    "n": 3
+   },
+   "helium": {
+    "median": 1130.0,
+    "min": 1129.3,
+    "max": 1176.3,
+    "n": 3
+   },
+   "ardia": {
+    "median": 1151.0,
+    "min": 1104.4,
+    "max": 1186.3,
+    "n": 3
+   },
+   "dia": {
+    "median": 1328.0,
+    "min": 1326.9,
+    "max": 1330.4,
+    "n": 3
+   },
+   "safari": {
+    "median": 671.5,
+    "min": 647.1,
+    "max": 695.9,
+    "n": 2
+   }
+  },
+  "power-idle-visible": {
+   "cmux-chromium": {
+    "median": 121.953,
+    "min": 116.996,
+    "max": 124.836,
+    "n": 3
+   },
+   "cmux-webkit": {
+    "median": 5.888,
+    "min": 0.941,
+    "max": 10.462,
+    "n": 3
+   },
+   "cmux-terminal": {
+    "median": 17.608,
+    "min": 5.256,
+    "max": 117.317,
+    "n": 3
+   },
+   "chrome": {
+    "median": 51.191,
+    "min": 1.233,
+    "max": 51.949,
+    "n": 3
+   },
+   "helium": {
+    "median": 1.317,
+    "min": 1.288,
+    "max": 2.923,
+    "n": 3
+   },
+   "ardia": {
+    "median": 1.03,
+    "min": 0.895,
+    "max": 1.165,
+    "n": 3
+   },
+   "dia": {
+    "median": 5.957,
+    "min": 5.898,
+    "max": 6.174,
+    "n": 3
+   },
+   "safari": {
+    "median": 1.57,
+    "min": 1.523,
+    "max": 1.616,
+    "n": 2
+   }
+  },
+  "idle-cpu-20": {
+   "cmux-chromium": {
+    "median": 3.604,
+    "min": 3.059,
+    "max": 4.217,
+    "n": 3
+   },
+   "cmux-webkit": {
+    "median": 12.639,
+    "min": 1.478,
+    "max": 12.759,
+    "n": 3
+   },
+   "cmux-terminal": {
+    "median": 6.057,
+    "min": 2.329,
+    "max": 8.032,
+    "n": 3
+   },
+   "chrome": {
+    "median": 2.967,
+    "min": 2.423,
+    "max": 3.038,
+    "n": 3
+   },
+   "helium": {
+    "median": 2.755,
+    "min": 2.118,
+    "max": 2.889,
+    "n": 3
+   },
+   "ardia": {
+    "median": 1.975,
+    "min": 1.863,
+    "max": 1.985,
+    "n": 3
+   },
+   "dia": {
+    "median": 9.923,
+    "min": 9.843,
+    "max": 9.985,
+    "n": 3
+   },
+   "safari": {
+    "median": 3.413,
+    "min": 3.295,
+    "max": 3.531,
+    "n": 2
+   }
+  },
+  "idle-wakeups-20": {
+   "cmux-chromium": {
+    "median": 56.455,
+    "min": 26.618,
+    "max": 80.732,
+    "n": 3
+   },
+   "cmux-webkit": {
+    "median": 389.333,
+    "min": 71.798,
+    "max": 389.634,
+    "n": 3
+   },
+   "cmux-terminal": {
+    "median": 6.385,
+    "min": 5.287,
+    "max": 9.065,
+    "n": 3
+   },
+   "chrome": {
+    "median": 63.511,
+    "min": 62.785,
+    "max": 65.446,
+    "n": 3
+   },
+   "helium": {
+    "median": 59.695,
+    "min": 56.62,
+    "max": 62.068,
+    "n": 3
+   },
+   "ardia": {
+    "median": 50.094,
+    "min": 49.699,
+    "max": 50.56,
+    "n": 3
+   },
+   "dia": {
+    "median": 138.712,
+    "min": 138.629,
+    "max": 138.907,
+    "n": 3
+   },
+   "safari": {
+    "median": 132.151,
+    "min": 120.634,
+    "max": 143.669,
+    "n": 2
+   }
+  },
+  "power-switch": {
+   "cmux-chromium": {
+    "median": 24.583,
+    "min": 22.696,
+    "max": 34.052,
+    "n": 3
+   },
+   "cmux-webkit": {
+    "median": 24.525,
+    "min": 5.325,
+    "max": 26.806,
+    "n": 3
+   },
+   "cmux-terminal": {
+    "median": 15.61,
+    "min": 5.268,
+    "max": 60.867,
+    "n": 3
+   },
+   "chrome": {
+    "median": 18.088,
+    "min": 17.437,
+    "max": 119.862,
+    "n": 3
+   },
+   "helium": {
+    "median": 17.627,
+    "min": 17.43,
+    "max": 25.606,
+    "n": 3
+   },
+   "dia": {
+    "median": 5.253,
+    "min": 4.732,
+    "max": 10.423,
+    "n": 3
+   }
+  },
+  "power-scroll": {
+   "cmux-chromium": {
+    "median": 1.508,
+    "min": 0.922,
+    "max": 1.774,
+    "n": 3
+   },
+   "cmux-webkit": {
+    "median": 14.21,
+    "min": 1.166,
+    "max": 16.168,
+    "n": 3
+   },
+   "chrome": {
+    "median": 7.73,
+    "min": 7.091,
+    "max": 7.921,
+    "n": 3
+   },
+   "helium": {
+    "median": 11.551,
+    "min": 10.914,
+    "max": 19.064,
+    "n": 3
+   },
+   "dia": {
+    "median": 11.048,
+    "min": 10.908,
+    "max": 11.178,
+    "n": 3
+   },
+   "safari": {
+    "median": 13.334,
+    "min": 13.27,
+    "max": 13.397,
+    "n": 2
+   }
+  },
+  "power-video": {
+   "cmux-chromium": {
+    "median": 2.138,
+    "min": 1.426,
+    "max": 3.11,
+    "n": 3
+   },
+   "cmux-webkit": {
+    "median": 30.609,
+    "min": 0.58,
+    "max": 32.896,
+    "n": 3
+   },
+   "chrome": {
+    "median": 31.612,
+    "min": 27.498,
+    "max": 32.293,
+    "n": 3
+   },
+   "helium": {
+    "median": 33.539,
+    "min": 30.28,
+    "max": 33.551,
+    "n": 3
+   },
+   "dia": {
+    "median": 69.32,
+    "min": 66.935,
+    "max": 101.669,
+    "n": 3
+   },
+   "safari": {
+    "median": 6.966,
+    "min": 6.742,
+    "max": 7.19,
+    "n": 2
+   }
+  },
+  "power-idle-hidden": {
+   "cmux-chromium": {
+    "median": 2.244,
+    "min": 1.579,
+    "max": 4.038,
+    "n": 3
+   },
+   "cmux-webkit": {
+    "median": 4.212,
+    "min": 0.499,
+    "max": 7.066,
+    "n": 3
+   },
+   "cmux-terminal": {
+    "median": 0.057,
+    "min": 0.048,
+    "max": 0.146,
+    "n": 3
+   },
+   "chrome": {
+    "median": 0.928,
+    "min": 0.887,
+    "max": 0.999,
+    "n": 3
+   },
+   "helium": {
+    "median": 1.075,
+    "min": 1.034,
+    "max": 1.077,
+    "n": 3
+   },
+   "dia": {
+    "median": 4.729,
+    "min": 4.704,
+    "max": 7.944,
+    "n": 3
+   },
+   "safari": {
+    "median": 1.333,
+    "min": 1.238,
+    "max": 1.428,
+    "n": 2
+   }
+  },
+  "memory-closed": {
+   "cmux-chromium": {
+    "median": 998.3,
+    "min": 984.1,
+    "max": 1002.9,
+    "n": 3
+   },
+   "cmux-webkit": {
+    "median": 1105.6,
+    "min": 899.0,
+    "max": 1114.8,
+    "n": 3
+   },
+   "cmux-terminal": {
+    "median": 683.7,
+    "min": 497.9,
+    "max": 688.0,
+    "n": 3
+   },
+   "chrome": {
+    "median": 433.9,
+    "min": 429.9,
+    "max": 496.5,
+    "n": 3
+   },
+   "helium": {
+    "median": 557.6,
+    "min": 478.3,
+    "max": 599.5,
+    "n": 3
+   },
+   "dia": {
+    "median": 680.4,
+    "min": 675.8,
+    "max": 715.8,
+    "n": 3
+   }
+  },
+  "newtab-paint": {
+   "cmux-webkit": {
+    "median": 142.608,
+    "min": 133.767,
+    "max": 454.543,
+    "n": 15
+   },
+   "chrome": {
+    "median": 78.868,
+    "min": 72.185,
+    "max": 102.278,
+    "n": 15
+   },
+   "helium": {
+    "median": 90.076,
+    "min": 77.035,
+    "max": 361.847,
+    "n": 15
+   },
+   "ardia": {
+    "median": 56.03,
+    "min": 52.235,
+    "max": 71.874,
+    "n": 15
+   },
+   "safari": {
+    "median": 189.673,
+    "min": 152.942,
+    "max": 230.942,
+    "n": 10
+   }
+  },
+  "power-home-idle": {
+   "cmux-terminal": {
+    "median": 1.746,
+    "min": 0.086,
+    "max": 2.837,
+    "n": 3
+   }
+  },
+  "idle-cpu-home": {
+   "cmux-terminal": {
+    "median": 0.233,
+    "min": 0.19,
+    "max": 0.331,
+    "n": 3
+   }
+  },
+  "idle-wakeups-home": {
+   "cmux-terminal": {
+    "median": 8.645,
+    "min": 4.225,
+    "max": 8.974,
+    "n": 3
+   }
+  },
+  "launch-link": {
+   "chrome": {
+    "median": 2409.128,
+    "min": 385.218,
+    "max": 4596.67,
+    "n": 6
+   },
+   "helium": {
+    "median": 1257.276,
+    "min": 365.227,
+    "max": 2170.103,
+    "n": 6
+   }
+  },
+  "tab-switch": {
+   "chrome": {
+    "median": 18.788,
+    "min": 16.169,
+    "max": 19.1,
+    "n": 3
+   },
+   "helium": {
+    "median": 20.058,
+    "min": 14.687,
+    "max": 22.18,
+    "n": 3
+   },
+   "cmux-webkit": {
+    "median": 42.645,
+    "min": 38.019,
+    "max": 47.271,
+    "n": 2
+   }
+  }
+ },
+ "published": {
+  "ardia": {
+   "power-idle-hidden": 3.9,
+   "power-idle-visible": 3.5,
+   "power-scroll": 28.2,
+   "power-video": 82.0,
+   "power-switch": 136,
+   "launch-window": 280,
+   "newtab-paint": 54.9,
+   "idle-wakeups-20": 13.6,
+   "idle-cpu-20": 0.45,
+   "memory-1": 298,
+   "memory-10": 714,
+   "memory-20": 1082
+  },
+  "helium": {
+   "power-idle-hidden": 3.1,
+   "power-idle-visible": 4.0,
+   "power-scroll": 51.9,
+   "power-video": 90.9,
+   "power-switch": 173,
+   "launch-window": 353,
+   "newtab-paint": 71.5,
+   "idle-wakeups-20": 28.1,
+   "idle-cpu-20": 1.02,
+   "memory-1": 374,
+   "memory-10": 773,
+   "memory-20": 1121
+  },
+  "dia": {
+   "power-idle-hidden": 1223,
+   "power-idle-visible": 848,
+   "power-scroll": 626,
+   "power-video": 779,
+   "power-switch": 763,
+   "launch-window": 2262,
+   "newtab-paint": 88.9,
+   "idle-wakeups-20": 38.7,
+   "idle-cpu-20": 1.05,
+   "memory-1": 480,
+   "memory-10": 1273,
+   "memory-20": 1822
+  }
+ },
+ "errors": [
+  {
+   "browser": "cmux-chromium",
+   "round": 1,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "cmux-chromium",
+   "round": 1,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "cmux-chromium",
+   "round": 1,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "cmux-chromium",
+   "round": 1,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "cmux-chromium",
+   "round": 1,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "cmux-chromium",
+   "round": 1,
+   "row": "tab-switch",
+   "note": "no visibilitychange seen"
+  },
+  {
+   "browser": "cmux-webkit",
+   "round": 1,
+   "row": "tab-switch",
+   "note": "no visibilitychange seen"
+  },
+  {
+   "browser": "ardia",
+   "round": 1,
+   "row": "session-error",
+   "note": "HTTPError: HTTP Error 404: Not Found"
+  },
+  {
+   "browser": "dia",
+   "round": 1,
+   "row": "launch-link",
+   "note": "no paint within 30 s"
+  },
+  {
+   "browser": "dia",
+   "round": 1,
+   "row": "launch-link",
+   "note": "no paint within 30 s"
+  },
+  {
+   "browser": "dia",
+   "round": 1,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "dia",
+   "round": 1,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "dia",
+   "round": 1,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "dia",
+   "round": 1,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "dia",
+   "round": 1,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "dia",
+   "round": 1,
+   "row": "tab-switch",
+   "note": "no visibilitychange seen"
+  },
+  {
+   "browser": "safari",
+   "round": 1,
+   "row": "launch-window",
+   "note": "error: Command '['open', '-g', '-a', '/Applications/Safari.app', 'http://127.0.0.1:57954/idle.html?id=launch196']' returned non-zero exit status 1."
+  },
+  {
+   "browser": "safari",
+   "round": 1,
+   "row": "session-error",
+   "note": "CalledProcessError: Command '['open', '-g', '-a', '/Applications/Safari.app', 'http://127.0.0.1:57954/idle.html?id=s197']' returned non-zero exit status 1."
+  },
+  {
+   "browser": "ardia",
+   "round": 2,
+   "row": "session-error",
+   "note": "HTTPError: HTTP Error 404: Not Found"
+  },
+  {
+   "browser": "dia",
+   "round": 2,
+   "row": "launch-link",
+   "note": "no paint within 30 s"
+  },
+  {
+   "browser": "dia",
+   "round": 2,
+   "row": "launch-link",
+   "note": "no paint within 30 s"
+  },
+  {
+   "browser": "dia",
+   "round": 2,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "dia",
+   "round": 2,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "dia",
+   "round": 2,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "dia",
+   "round": 2,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "dia",
+   "round": 2,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "dia",
+   "round": 2,
+   "row": "tab-switch",
+   "note": "no visibilitychange seen"
+  },
+  {
+   "browser": "cmux-chromium",
+   "round": 2,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "cmux-chromium",
+   "round": 2,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "cmux-chromium",
+   "round": 2,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "cmux-chromium",
+   "round": 2,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "cmux-chromium",
+   "round": 2,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "cmux-chromium",
+   "round": 2,
+   "row": "tab-switch",
+   "note": "no visibilitychange seen"
+  },
+  {
+   "browser": "ardia",
+   "round": 3,
+   "row": "session-error",
+   "note": "HTTPError: HTTP Error 404: Not Found"
+  },
+  {
+   "browser": "dia",
+   "round": 3,
+   "row": "launch-link",
+   "note": "no paint within 30 s"
+  },
+  {
+   "browser": "dia",
+   "round": 3,
+   "row": "launch-link",
+   "note": "no paint within 30 s"
+  },
+  {
+   "browser": "dia",
+   "round": 3,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "dia",
+   "round": 3,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "dia",
+   "round": 3,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "dia",
+   "round": 3,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "dia",
+   "round": 3,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "dia",
+   "round": 3,
+   "row": "tab-switch",
+   "note": "no visibilitychange seen"
+  },
+  {
+   "browser": "cmux-chromium",
+   "round": 3,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "cmux-chromium",
+   "round": 3,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "cmux-chromium",
+   "round": 3,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "cmux-chromium",
+   "round": 3,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "cmux-chromium",
+   "round": 3,
+   "row": "newtab-paint",
+   "note": "no paint within 15 s"
+  },
+  {
+   "browser": "cmux-chromium",
+   "round": 3,
+   "row": "tab-switch",
+   "note": "no visibilitychange seen"
+  }
+ ],
+ "method": "scripts/perf-bench/README.md",
+ "job": "39becc64970daf4531b6d3dd"
+}

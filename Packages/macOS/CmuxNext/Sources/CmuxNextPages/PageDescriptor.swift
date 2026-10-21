@@ -127,8 +127,12 @@ public nonisolated struct PageNativeOp {
     public static let popupHide = "cmux.app.popup.hide"
     /// Stream every page may subscribe to: the popup's `pick`, `highlight` and `dismiss`.
     public static let pagePopup = "cmux.page.popup"
-    /// The page commands the dispatcher sends (the Settings lead's page pattern).
-    public static let commands: Set<String> = ["find", "focusSearch", "back", "forward", "reset"]
+    /// The page command the host sends each time the page's web view becomes first responder: the
+    /// page focuses its primary input when nothing in it has focus (pane-focus-DESIGN.md P1).
+    public static let focusContent = "focusContent"
+    /// The page commands the dispatcher sends (the Settings lead's page pattern), and
+    /// ``focusContent``.
+    public static let commands: Set<String> = ["find", "focusSearch", "back", "forward", "reset", focusContent]
 }
 
 public extension PageDescriptor {
@@ -149,15 +153,22 @@ public extension PageDescriptor {
     /// The Settings page (R82: the only Settings UI). Its `cmux.settings.` ops and the native
     /// preview and sound ops share the namespace; the page may run only its own actions and the
     /// sections' buttons, and writes the pasteboard for a row's Copy Setting Key.
+    // Agents > Chiefs draws the Chief editor: the Chief owner through the host's page relay
+    // (`cmux.chief.profile.`) and the harness center (`cmux.chief.backend.`), as Home does.
+    // These notes sit above the call: gallery-coverage reads the id right after the open parenthesis.
     static let settings = PageDescriptor(
-        id: "cmux.settings", resource: "settings", namespaces: ["cmux.settings."],
+        id: "cmux.settings", resource: "settings", namespaces: ["cmux.settings.", "cmux.chief.profile.", "cmux.chief.backend."],
         nativeOps: [PageNativeOp.actionRun, PageNativeOp.clipboardWrite],
         actions: Set<String>(["palette.openCmuxSettingsFile", "openSettings", "browserProfile.new", "browserProfile.rename",
                   "browserProfile.setColor", "browserProfile.clearColor", "browserProfile.setIcon", "browserProfile.clearIcon",
                   "browserProfile.manageExtensions", "browserProfile.delete", "browserProfile.clearBrowsingData",
                   "reloadConfiguration",
+                  // Machines > Add Server… opens the Add Server card (no code: the page never approves).
+                  "server.addServer",
                   // Agents > Computer Use card (ComputerUseSetup).
-                  "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording"])
+                  "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording",
+                  // Settings › Import's cards (CmuxNextImportCards): a card's button, and Import from Browser.
+                  "import.card", "importFromBrowser"])
             .union(settingsSectionActions),
         dynamicPrefixes: ["backdrop", "museum", "icon"], ownsSearchField: true, acceptsFirstMouse: false)
 
@@ -192,7 +203,7 @@ public extension PageDescriptor {
     /// The actions a changelog "Try it" may run (compiled in, reviewed with each addition).
     static let changelogTryItActions: Set<String> = [
         "palette.checkForUpdates", "openSettings", "palette.searchShortcuts", "palette.newAgentChat",
-        "home.show", "appStore.show", "newBrowserWorkspace", "space.new",
+        "home.show", "appStore.show", "newBrowserWorkspace", "space.new", "renameWorkspace",
     ]
 
     /// The Files tree beside a chat (cx-p4rt): one folder, read only. `cmux.files.` lists it and

@@ -55,3 +55,20 @@ extension ChatController {
         }
     }
 }
+
+extension ChatController {
+    /// The link chip under `p` (host coordinates) and its pill on that line, or nil (the host's
+    /// hover card anchors to the rect; plans/cmux-next/home-link-chips-DESIGN.md). Text bubbles
+    /// only: a table's links (MarkdownLayout) are not chips yet.
+    func linkChip(at p: CGPoint) -> HomeLinkChipHit? {
+        guard let hit = demo?.hit(p), hit.row.markdown == nil, let tl = hit.row.text else { return nil }
+        let local = CGPoint(x: p.x - hit.body.minX - Fixture.bubblePadX, y: p.y - hit.body.minY - Fixture.bubblePadY)
+        guard local.y >= 0 else { return nil }
+        let i = CrashGuard.int(floor(local.y / Fixture.lineHeight), in: CrashGuard.countRange) // no trap on NaN
+        guard let span = tl.chipSpans(line: i).first(where: { local.x >= $0.x0 && local.x < $0.x1 }),
+              let url = MarkdownLinkPolicy.url(span.link) else { return nil }
+        let hard = hit.row.outgoing ? TextLayout.hardBreakAdvance : Fixture.lineHeight
+        let origin = CGPoint(x: hit.body.minX + Fixture.bubblePadX, y: hit.body.minY + Fixture.textBaseline + tl.lineOffset(i, hard: hard))
+        return HomeLinkChipHit(url: url, kind: span.kind, rect: HomeLinkChip.pillRect(span, origin: origin))
+    }
+}

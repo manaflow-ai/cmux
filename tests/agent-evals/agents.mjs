@@ -1,7 +1,9 @@
 // Agent adapters for agent evals. Each adapter returns the shell command that
 // runs the agent once, non-interactively, on the prompt in "$D/prompt.txt",
 // and reads the agent's final message from its output files.
-// Surfaces: "cli" (shell only) and "mcp" (also `cmux mcp serve`, code mode).
+// Surfaces: "cli" (shell only), "mcp" (also `cmux mcp serve`, code mode: two tools) and
+// "mcp-all" (`cmux mcp serve --all-tools`, every tool behind the harness's tool search, as
+// acpmux gave Claude Code and Codex before 2026-10-20).
 // The built-in "oracle" and "noop" agents validate the harness itself.
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -14,12 +16,15 @@ const CODEX_USER_MCP = ["node_repl", "openaiDeveloperDocs", "computer-use"];
 
 export const AGENTS = Object.freeze({
   claude: {
-    surfaces: ["cli", "mcp"],
+    surfaces: ["cli", "mcp", "mcp-all"],
     command: ({ dir, surface }) =>
       [
+        // Every tool only behind Claude Code's tool search, as acpmux set it (ENABLE_TOOL_SEARCH).
+        surface === "mcp-all" ? "ENABLE_TOOL_SEARCH=true" : "",
         "claude -p \"$(cat \"$D/prompt.txt\")\"",
         "--output-format json --dangerously-skip-permissions",
-        "--strict-mcp-config", `--mcp-config ${q(join(dir, surface === "mcp" ? "mcp.json" : "mcp-empty.json"))}`,
+        "--strict-mcp-config",
+        `--mcp-config ${q(join(dir, surface === "mcp" ? "mcp.json" : surface === "mcp-all" ? "mcp-all.json" : "mcp-empty.json"))}`,
         "--setting-sources project,local",
         "> \"$D/agent.out\" 2> \"$D/agent.err\"",
       ].join(" "),
@@ -40,13 +45,15 @@ export const AGENTS = Object.freeze({
     },
   },
   codex: {
-    surfaces: ["cli", "mcp"],
+    surfaces: ["cli", "mcp", "mcp-all"],
     command: ({ dir, surface }) =>
       [
         "codex exec --json --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check",
         "-c 'notify=[]'",
         ...CODEX_USER_MCP.map((name) => `-c ${q(`mcp_servers.${name}.enabled=false`)}`),
-        ...(surface === "mcp" ? [`-c ${q(`mcp_servers.cmux.command="${join(dir, "mcp.sh")}"`)}`] : []),
+        ...(surface === "mcp" || surface === "mcp-all"
+          ? [`-c ${q(`mcp_servers.cmux.command="${join(dir, surface === "mcp" ? "mcp.sh" : "mcp-all.sh")}"`)}`]
+          : []),
         "-o \"$D/last.txt\"",
         "\"$(cat \"$D/prompt.txt\")\"",
         "> \"$D/agent.out\" 2> \"$D/agent.err\" < /dev/null",

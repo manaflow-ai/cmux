@@ -165,13 +165,14 @@ pub(super) fn set_terminal_idle_policy(
     }))
 }
 
-pub(super) fn set_terminal_keep(
+/// The host id of the terminal named by exactly one of a PTY `surface` or a
+/// `terminal_id` (host id or public `term_` id).
+fn hosted_terminal_id(
     mux: &Arc<Mux>,
     surface: Option<SurfaceId>,
     terminal_id: Option<String>,
-    keep: bool,
-) -> anyhow::Result<Value> {
-    let terminal_id = match (surface, terminal_id) {
+) -> anyhow::Result<String> {
+    Ok(match (surface, terminal_id) {
         (Some(surface), None) => {
             let surface = get_surface(mux, surface)?;
             require_pty(&surface)?;
@@ -184,7 +185,32 @@ pub(super) fn set_terminal_keep(
             resolution.terminal.terminal_id
         }
         _ => anyhow::bail!("bad request: exactly one of surface or terminal_id"),
+    })
+}
+
+/// `terminal-resume-command`: an absent `command` reads, a string sets and
+/// null clears the terminal's resume command (`resume-command`).
+pub(super) fn terminal_resume_command(
+    mux: &Arc<Mux>,
+    surface: Option<SurfaceId>,
+    terminal_id: Option<String>,
+    command: Option<Option<String>>,
+) -> anyhow::Result<Value> {
+    let terminal_id = hosted_terminal_id(mux, surface, terminal_id)?;
+    let command = match command {
+        None => mux.terminal_resume_command(&terminal_id)?,
+        Some(command) => mux.set_terminal_resume_command(&terminal_id, command.as_deref())?,
     };
+    Ok(json!({ "terminal_id": terminal_id, "command": command }))
+}
+
+pub(super) fn set_terminal_keep(
+    mux: &Arc<Mux>,
+    surface: Option<SurfaceId>,
+    terminal_id: Option<String>,
+    keep: bool,
+) -> anyhow::Result<Value> {
+    let terminal_id = hosted_terminal_id(mux, surface, terminal_id)?;
     mux.set_terminal_keep(&terminal_id, keep)?;
     // `remote-terminal-tabs-v1`: the public id an attach by identity needs
     // (a remote-terminal reference knows only the host id).

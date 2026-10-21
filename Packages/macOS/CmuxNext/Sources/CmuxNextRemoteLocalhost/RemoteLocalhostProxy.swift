@@ -26,10 +26,17 @@ public final class RemoteLocalhostProxy: Sendable {
     public struct Route: Sendable {
         public var machineName: String
         public var opener: any LoopbackTunnelOpening
+        /// Whether non-loopback proxy targets may connect from this Mac.
+        public var allowsDirectDestinations: Bool
 
-        public init(machineName: String, opener: any LoopbackTunnelOpening) {
+        public init(
+            machineName: String,
+            opener: any LoopbackTunnelOpening,
+            allowsDirectDestinations: Bool = true
+        ) {
             self.machineName = machineName
             self.opener = opener
+            self.allowsDirectDestinations = allowsDirectDestinations
         }
     }
 
@@ -58,9 +65,22 @@ public final class RemoteLocalhostProxy: Sendable {
         /// Per-machine listeners, by machine key, and their routes by port.
         var machineListeners: [String: (listener: NWListener, port: UInt16)] = [:]
         var routesByPort: [UInt16: Route] = [:]
+        /// Latest externally owned route generation by machine key.
+        var routeVersions: [String: RouteVersion] = [:]
         var stats = Stats()
         /// Recent outcomes, newest last (`debug.remote-localhost`).
         var events: [String] = []
+    }
+
+    private struct RouteVersion: Comparable {
+        var incarnation: UInt64
+        var generation: UInt64
+
+        static func < (lhs: Self, rhs: Self) -> Bool {
+            lhs.incarnation == rhs.incarnation
+                ? lhs.generation < rhs.generation
+                : lhs.incarnation < rhs.incarnation
+        }
     }
 
     private let state = Mutex(State())
@@ -114,22 +134,58 @@ public final class RemoteLocalhostProxy: Sendable {
     /// The port of `machine`'s own listener, bound on first use; the
     /// route's opener is replaced on every call.
     public func listen(for machine: String, route: Route) async throws(StartError) -> UInt16 {
+        try await listen(for: machine, version: nil, route: route)
+    }
+
+    /// The peer-checked listener for a versioned external route. A delayed
+    /// older answer returns the listener but never replaces its newer opener.
+    public func listen(
+        for machine: String,
+        incarnation: UInt64,
+        generation: UInt64,
+        route: Route
+    ) async throws(StartError) -> UInt16 {
+        try await listen(
+            for: machine,
+            version: RouteVersion(incarnation: incarnation, generation: generation),
+            route: route
+        )
+    }
+
+    private func listen(for machine: String, version: RouteVersion?, route: Route) async throws(StartError) -> UInt16 {
         let existing: UInt16? = state.withLock { state in
             guard let port = state.machineListeners[machine]?.port else { return nil }
-            state.routesByPort[port] = route
+            let current = state.routeVersions[machine]
+            if Self.shouldInstall(version, over: current) {
+                state.routesByPort[port] = route
+                if let version { state.routeVersions[machine] = version }
+            }
             return port
         }
         if let existing { return existing }
         let (listener, port) = try await bind(route: route)
         let winner: UInt16 = state.withLock { state in
-            if let port = state.machineListeners[machine]?.port { return port }
+            if let existing = state.machineListeners[machine]?.port {
+                let current = state.routeVersions[machine]
+                if Self.shouldInstall(version, over: current) {
+                    state.routesByPort[existing] = route
+                    if let version { state.routeVersions[machine] = version }
+                }
+                return existing
+            }
             state.machineListeners[machine] = (listener, port)
             state.routesByPort[port] = route
+            if let version { state.routeVersions[machine] = version }
             return port
         }
         if winner != port { listener.cancel() }
         logger.info("remote-localhost proxy for \(route.machineName, privacy: .public) on 127.0.0.1:\(winner)")
         return winner
+    }
+
+    private static func shouldInstall(_ version: RouteVersion?, over current: RouteVersion?) -> Bool {
+        guard let version, let current else { return true }
+        return version >= current
     }
 
     /// Machine listener ports by machine key (`debug.remote-localhost`).
@@ -208,6 +264,7 @@ public final class RemoteLocalhostProxy: Sendable {
                 state.port = nil
                 state.machineListeners.removeAll()
                 state.routesByPort.removeAll()
+                state.routeVersions.removeAll()
             }
             return [state.listener].compactMap(\.self) + state.machineListeners.values.map(\.listener)
         }

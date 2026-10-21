@@ -112,8 +112,8 @@ public nonisolated struct BrowserTabState: Hashable, Sendable {
     /// (a tile, a link) names no address until it commits.
     public var showsLoad: Bool { isLoading && (hasEndedLoad || !BrowserNewTabPage.isNewTabPage(url)) }
 
-    /// The request is out and no response committed yet: Chromium's waiting throbber
-    /// (counter-clockwise), before the loading one (clockwise) once the page commits.
+    /// The request is out and no response committed yet (Chromium's waiting throbber state).
+    /// cmux draws it with the same clockwise spinner as loading.
     public var isWaiting: Bool {
         if case .provisional = phase { return true }
         return false

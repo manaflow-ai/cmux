@@ -8,6 +8,7 @@ mod app_stores;
 mod vscode;
 mod zed;
 
+use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
 use crate::state::projects::Observation;
@@ -15,6 +16,21 @@ use crate::state::projects::Observation;
 pub(crate) use app_stores::{scan_codex_app, scan_conductor, scan_t3code};
 pub(crate) use vscode::scan_vscode_family;
 pub(crate) use zed::scan_zed;
+
+/// A watched JSON source is small state, never an archive. The bounded read
+/// also defeats a grow-after-stat race.
+pub(super) const MAX_SOURCE_FILE_BYTES: usize = 32 * 1024 * 1024;
+/// Aggregate text retained from one SQLite source scan.
+pub(super) const MAX_SOURCE_TOTAL_BYTES: usize = 32 * 1024 * 1024;
+/// Matches the resource operation's complete-list ceiling.
+pub(super) const MAX_SOURCE_ENTRIES: usize = crate::state::projects_ops::MAX_OBSERVATIONS;
+/// Matches the project reducer's PATH_MAX ceiling.
+pub(super) const MAX_SOURCE_PATH_BYTES: usize = 4096;
+/// One editor workspace can list many project roots in one cell.
+pub(super) const MAX_SOURCE_LIST_BYTES: usize = 4 * 1024 * 1024;
+/// Editor timestamps are short ISO strings; this accommodates schema drift
+/// without materializing an attacker-sized cell.
+pub(super) const MAX_SOURCE_TIMESTAMP_BYTES: usize = 128;
 
 /// Everything one source currently lists (`project.observe` with `complete`).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -166,8 +182,23 @@ fn open_read_only(path: &Path) -> Option<rusqlite::Connection> {
     let flags =
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX;
     let connection = rusqlite::Connection::open_with_flags(path, flags).ok()?;
+    let _ = connection.set_limit(
+        rusqlite::limits::Limit::SQLITE_LIMIT_LENGTH,
+        i32::try_from(MAX_SOURCE_FILE_BYTES).ok()?,
+    );
     connection.busy_timeout(std::time::Duration::from_millis(200)).ok()?;
     Some(connection)
+}
+
+/// Reads one watched text source up to its hard byte ceiling.
+fn read_text_bounded(path: &Path) -> Option<String> {
+    let file = std::fs::File::open(path).ok()?;
+    let mut bytes = Vec::new();
+    file.take((MAX_SOURCE_FILE_BYTES + 1) as u64).read_to_end(&mut bytes).ok()?;
+    if bytes.len() > MAX_SOURCE_FILE_BYTES {
+        return None;
+    }
+    String::from_utf8(bytes).ok()
 }
 
 /// `YYYY-MM-DD HH:MM:SS` or ISO `...T...Z` (UTC, optional fraction) as ms

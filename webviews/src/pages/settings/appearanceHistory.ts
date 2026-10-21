@@ -13,7 +13,7 @@ export type TargetState = KeyState | ThemeState;
 /** One target before and after a change. */
 export type Change = { before: TargetState; after: TargetState };
 
-/** One undoable step: what the buttons' tooltips name ("Wallpaper → Shuffle Daily"). */
+/** One undoable step: what the buttons' tooltips name ("Wallpaper → Shuffle Paintings"). */
 export type HistoryEntry = { label: string; changes: Change[] };
 
 /** The identity of a target, so two states of one target compare. */

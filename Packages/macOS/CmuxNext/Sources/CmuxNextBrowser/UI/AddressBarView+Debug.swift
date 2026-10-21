@@ -136,3 +136,55 @@ extension AddressBarView {
         return field.convert(NSPoint(x: origin + prefix + 2 + 0.5, y: field.bounds.midY), to: nil)
     }
 }
+
+extension AddressBarView {
+    /// The field's frame in window coordinates (`debug.omnibar_bench` clicks its middle).
+    public var debugFieldFrameInWindow: NSRect { field.convert(field.bounds, to: nil) }
+
+    /// The bar shows editing now: the field editor is attached and the pill
+    /// wears the editing look (ring, or the card top), with no fade left to run.
+    public var debugShowsEditing: Bool {
+        controller.state.hasFocus && field.isFieldEditorActive && pill.state != .idle && !pill.debugIsFading
+    }
+
+    /// How the field editor draws its selection (`debug.omnibar` `editor`):
+    /// its text system, whether the window is key and the editor first
+    /// responder (AppKit draws the unemphasized color otherwise), and the
+    /// selection background resolved in the editor's appearance. Reads
+    /// `textLayoutManager` only: touching `layoutManager` would switch a
+    /// TextKit 2 editor to TextKit 1 for good.
+    public var debugEditorInfo: [String: String] {
+        guard let editor = field.currentEditor() as? NSTextView else { return [:] }
+        var info: [String: String] = [
+            "text_kit": editor.textLayoutManager == nil ? "1" : "2",
+            "window_key": String(window?.isKeyWindow ?? false),
+            "first_responder": String(window?.firstResponder === editor),
+            "draws_background": String(editor.drawsBackground),
+            "layer_backed": String(editor.layer != nil),
+            "editor_class": String(describing: type(of: editor)),
+        ]
+        // The field in global top-left screen points (screencapture -R).
+        if let window, let screen = window.screen ?? NSScreen.screens.first {
+            let rect = window.convertToScreen(field.convert(field.bounds, to: nil))
+            let top = NSScreen.screens.first?.frame.maxY ?? screen.frame.maxY
+            info["screen_rect"] = String(format: "%.0f,%.0f,%.0f,%.0f", rect.minX, top - rect.maxY, rect.width, rect.height)
+        }
+        if let color = editor.selectedTextAttributes[.backgroundColor] as? NSColor {
+            var resolved: NSColor?
+            editor.effectiveAppearance.performAsCurrentDrawingAppearance { resolved = color.usingColorSpace(.sRGB) }
+            if let rgb = resolved {
+                info["selection_bg"] = String(format: "%.3f %.3f %.3f %.3f", rgb.redComponent, rgb.greenComponent, rgb.blueComponent, rgb.alphaComponent)
+            }
+        } else {
+            info["selection_bg"] = "none"
+        }
+        return info
+    }
+
+    /// The field editor holds its whole text selected (Chrome's focusing click).
+    public var debugAllSelected: Bool {
+        guard let editor = field.currentEditor() as? NSTextView else { return false }
+        let length = (editor.string as NSString).length
+        return length > 0 && editor.selectedRange() == NSRange(location: 0, length: length)
+    }
+}

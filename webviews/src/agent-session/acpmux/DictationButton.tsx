@@ -1,7 +1,7 @@
-// The mic next to Send: a microphone while idle, a live waveform while listening.
+// The mic next to Send: a microphone, lit (an accent-tinted square, dictation.css) while a session
+// runs; the waveform and the finish key beside it are DictationListening's.
 import React from "react";
 import { MicIcon } from "./ComposerPickers";
-import { DictationLevelMeter } from "./DictationLevelMeter";
 import { isActive, type Dictation } from "./dictation";
 import { useT } from "./i18n";
 import { SHORTCUT_ACTIONS, tooltipProps, useShortcut } from "./shortcuts";
@@ -9,7 +9,6 @@ import { SHORTCUT_ACTIONS, tooltipProps, useShortcut } from "./shortcuts";
 export function DictationButton({ dictation }: { dictation: Dictation }) {
   const t = useT();
   const { state } = dictation;
-  const listening = state === "listening" || state === "finalizing";
   // Keep the state transition observable to assistive technology while the host is
   // starting the speech engine or committing the final transcript. `aria-pressed`
   // still communicates that the session can be stopped; busy adds the missing
@@ -30,7 +29,7 @@ export function DictationButton({ dictation }: { dictation: Dictation }) {
       onMouseDown={(event) => event.preventDefault()}
       onClick={dictation.toggle}
     >
-      {listening ? <DictationLevelMeter /> : <MicIcon />}
+      <MicIcon />
     </button>
   );
 }

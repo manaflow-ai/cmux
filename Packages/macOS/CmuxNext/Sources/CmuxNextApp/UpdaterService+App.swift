@@ -11,8 +11,9 @@ extension UpdaterService {
     /// Wires the updater to the App: the sheet (failure details, managed
     /// policy, required version), and a relaunch into an update that keeps
     /// every terminal and agent (no quit sheet; the footer pill's tooltip
-    /// says so, SIDEBAR-FOOTER-MINIMAL).
-    func attach(sheet: UpdateSheetController, services: AppServices) {
+    /// says so, SIDEBAR-FOOTER-MINIMAL). `simulating` is Debug Settings
+    /// "Simulate pending update" (DEV and NIGHTLY; elsewhere it stays off).
+    func attach(sheet: UpdateSheetController, services: AppServices, simulating: @escaping @MainActor @Sendable () -> Bool) {
         presentUpdateUI = { [weak services] in sheet.present(in: services?.windows.active?.window) }
         willRelaunch = { [weak services] in services?.quit.origins.record(.explicit(.keep)) }
         // The click: the windows leave the screen at once (S1); a failed
@@ -39,11 +40,14 @@ extension UpdaterService {
         }
         // What's New after an update: bundled documents and this feed's digests.
         whatsNew.load()
+        // The Updated card's change list when the update record has none (2026-10-20).
+        loadCurrentBuildNotesIfNeeded()
         runAllowListedAction = { [weak services] id in
             guard PageDescriptor.changelogTryItActions.contains(id) else { return }
             _ = services?.registry.perform(ActionID(rawValue: id), invocation: ActionInvocation(origin: .user))
         }
         attachTips(registry: services.registry)
+        UpdateSimulation(updater: self).follow(simulating)
         #if DEBUG
         UpdateHarnessProbe.install(updater: self)
         #endif
@@ -105,6 +109,6 @@ extension UpdaterService {
         if self.preferences != preferences { self.preferences = preferences }
         configure(checkAutomatically: updates.checkAutomatically, checkInterval: updates.checkIntervalSeconds,
                   downloadAutomatically: updates.downloadAutomatically,
-                  metered: UpdateMeteredMode(rawValue: updates.meteredNetwork.rawValue) ?? .deferLowData)
+                  metered: UpdateMeteredMode(rawValue: updates.meteredNetwork.rawValue) ?? .deferLowData, ring: updates.channel.rawValue)
     }
 }

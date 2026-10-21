@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextFiles
 
 /// The Files commands: one path per command, used by keys, context menus and
@@ -87,7 +88,7 @@ extension FilesPaneView {
 
     func revealInFinder() {
         let urls = model.selectedEntries.map(\.url)
-        if urls.isEmpty { NSWorkspace.shared.open(model.folder) } else { NSWorkspace.shared.activateFileViewerSelecting(urls) }
+        if urls.isEmpty { NSWorkspace.shared.openInBackground(model.folder) } else { NSWorkspace.shared.revealInBackground(urls) }
     }
 
     private func drop(_ urls: [URL], into folder: URL?, option: Bool, command: Bool) {

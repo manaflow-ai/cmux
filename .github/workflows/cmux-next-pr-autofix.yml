@@ -13,8 +13,10 @@ name: cmux-next PR autofix
 # changes their inputs (autofix-areas.sh: actions, settings), action-exports
 # regenerates them on a Mac (scripts/cmux-next/regenerate-action-exports.sh,
 # regenerate-settings-exports.sh) and repair copies them in before it rewrites
-# the docs shortcuts and the defaults snapshot from them. Rust and the docs read the
-# committed copy, so they stay checked in, but no person regenerates them.
+# the defaults snapshot from them, and the docs shortcuts and app-host files
+# from regenerated action exports (never from a settings-only artifact). Rust
+# and the docs read the committed copy, so they stay checked in, but no person
+# regenerates them.
 #
 # Two jobs hold the token boundary, so the pull request's own code never runs next to a write token:
 #   repair: runs the repairs the pull request's changed paths need
@@ -65,8 +67,11 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.sha }}
-          # The freshness guard needs the true merge base, not a depth-1 head.
+          # The freshness guard needs the true merge base, not a depth-1 head:
+          # the whole commit graph, but no historical blobs (a full clone took
+          # about 280 s here and ran into this job's 5-minute timeout).
           fetch-depth: 0
+          filter: blob:none
           persist-credentials: false
 
       - name: Autofix scripts from the base
@@ -137,10 +142,14 @@ jobs:
         shell: bash
         run: rm -f "${GITHUB_WORKSPACE:-$PWD}/.git/index.lock" 2>/dev/null || true
 
+      # The generator check needs the merge base, not historical blobs: with every
+      # blob this fetch put 5.3 GiB of all-branch history into the mini's reused
+      # workspace, which every later job on that runner kept (cmux14, 2026-10-21).
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
+          filter: blob:none # the commit graph without historical blobs, as action-areas
           persist-credentials: false
           submodules: false
 
@@ -200,7 +209,12 @@ jobs:
         if: steps.web-bundle-cache.outputs.cache-hit == 'true'
         run: scripts/cmux-next/build-web-bundles.sh --from web-bundles-out
 
+      # These bundles only host the export tests and are never shipped or cached, so a missing
+      # translation is a warning here: a stale settings schema must not stop the job that
+      # regenerates it (the deadlock after #22577).
       - name: Build the web bundles
+        env:
+          CMUX_STRINGS_BEST_EFFORT: "1"
         run: scripts/cmux-next/build-web-bundles.sh
 
       # A catalog that does not build is the pull request's own red elsewhere;
@@ -248,6 +262,13 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+      # The next job on this runner starts from the git seed at its own depth, not from
+      # this job's all-branch partial clone (a later job's missing blob would be fetched
+      # mid-step, unretried).
+      - name: Discard the workspace repository (self-hosted reused workspace)
+        if: always()
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
+
   repair:
     name: autofix repairs
     # The action exports come first: the docs shortcuts are rewritten from them.
@@ -267,6 +288,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
+          filter: blob:none # the commit graph without historical blobs, as action-areas
           persist-credentials: false
 
       # The autofix's own scripts come from the immutable base snapshot, and
@@ -393,10 +415,14 @@ jobs:
         run: |
           set -euo pipefail
           args=()
-          # Regenerated action exports: the docs shortcuts and app-host files follow them.
+          # Regenerated exports are copied in. The docs shortcuts and app-host
+          # files follow the action exports only when this run regenerated them:
+          # a settings-only artifact would rewrite them from the committed
+          # action-surfaces.json, which can be older than their committed copies
+          # (#21814 lost paletteKey.toggleActions that way).
           if [[ -d "$RUNNER_TEMP/action-exports" ]]; then
             args+=(--generated "$RUNNER_TEMP/action-exports")
-            SHORTCUTS=true APPHOST=true
+            [[ -d "$RUNNER_TEMP/action-exports/plans/cmux-next" ]] && SHORTCUTS=true APPHOST=true
           fi
           [[ "$GRAPH" == true ]] && args+=(--package-dump "$RUNNER_TEMP/package-dump.json")
           [[ "$STRINGS" == true ]] && args+=(--strings)
@@ -475,7 +501,7 @@ jobs:
             echo
             echo "Repairs: artifact \`pr-autofix-patch\`. A same-repo branch gets them as a commit from the push job; on a fork, download the artifact and run:"
             echo
-            echo "    git apply pr-autofix.patch && git commit -am 'chore(next): PR autofix' && git push   # on $HEAD_REF"
+            echo "    git apply --index pr-autofix.patch && git commit -m 'chore(next): PR autofix' && git push   # on $HEAD_REF (--index stages new files too)"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -530,6 +556,10 @@ jobs:
 
   push:
     name: push the repairs
+    # The contents-write App key is never exposed to PR-controlled workflow
+    # code. A main-only environment intentionally leaves PR repairs as an
+    # artifact until this push is moved behind a trusted workflow_run broker.
+    environment: cmux-pr-autofix
     needs: [action-areas, action-exports, repair]
     # Explicit status checks: the implicit success() would fail on the
     # action-exports job, which most pull requests skip. The areas must have
@@ -537,7 +567,7 @@ jobs:
     # Autofix-Run trailer, action-areas skips the exports for such a head, so a
     # push after a cancelled areas job (its fetch timing out) or failed exports
     # would leave the exports stale for every later run (#21814, run 39315375602).
-    if: ${{ !cancelled() && needs.action-areas.result == 'success' && (needs.action-exports.result == 'success' || needs.action-exports.result == 'skipped') && needs.repair.result == 'success' && needs.repair.outputs.patch == 'true' && github.event.pull_request.head.repo.full_name == github.repository }}
+    if: ${{ github.event_name != 'pull_request' && !cancelled() && needs.action-areas.result == 'success' && (needs.action-exports.result == 'success' || needs.action-exports.result == 'skipped') && needs.repair.result == 'success' && needs.repair.outputs.patch == 'true' && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents write token for a pull request branch; ephemeral Blacksmith VM
     timeout-minutes: 10
     permissions:

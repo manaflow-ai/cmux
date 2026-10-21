@@ -3,16 +3,24 @@ public import AppKit
 /// Pointer and trackpad routing. Mouse-downs focus the pane under the
 /// pointer, and so does the start of a scroll that passes through to a pane
 /// (`LayoutRootView+ScrollFocus`); horizontal scroll gestures over a columns screen are claimed by
-/// the layout (first dominant axis decides). Vertical ones pass through,
+/// the layout (first dominant axis decides), except where the pane's own
+/// content scrolls sideways (`LayoutRootView+ScrollClaim`); over a scroll area that can move,
+/// the area takes them first (scroll-areas-DESIGN.md I2). Vertical ones pass through,
 /// except over a column whose rows overflow: there they scroll the rows
 /// over the gaps between rows, or anywhere with Command held (rows.md V5).
 extension LayoutRootView {
     enum ScrollLock {
         case idle
-        case undecided(ScreenContentView?, rows: (ScreenContentView, ColumnID)?)
+        case undecided(ScreenContentView?, rows: (ScreenContentView, ColumnID)?, area: (ScreenContentView, NSPoint)?)
         case horizontal(ScreenContentView)
+        /// A horizontal gesture owned by a scroll area (scroll-areas-DESIGN.md I1, I2).
+        case area(ScreenContentView, SplitID)
         case vertical(ScreenContentView, ColumnID)
         case passthrough
+        /// A canvas pan (LayoutRootView+Canvas), through its momentum.
+        case canvas(ScreenContentView)
+        /// A gesture that began over a canvas pane: horizontal pans, vertical scrolls the pane.
+        case canvasUndecided(ScreenContentView)
     }
 
     func handleMonitored(_ event: NSEvent) -> NSEvent? {
@@ -30,6 +38,8 @@ extension LayoutRootView {
             return event
         case .scrollWheel:
             return handleScroll(event, locationInWindow: event.locationInWindow) ? nil : event
+        case .magnify:
+            return handleCanvasMagnify(event) ? nil : event
         default:
             return event
         }
@@ -38,8 +48,18 @@ extension LayoutRootView {
     private func activeColumnsView(at locationInWindow: NSPoint) -> ScreenContentView? {
         guard bounds.contains(convert(locationInWindow, from: nil)),
               let active = model.activeScreenID, let view = screenViews[active],
-              view.acceptsHorizontalScroll(at: view.convert(locationInWindow, from: nil)) else { return nil }
+              view.acceptsHorizontalScroll(at: view.convert(locationInWindow, from: nil)),
+              !paneContentClaimsHorizontalScroll(at: locationInWindow) else { return nil }
         return view
+    }
+
+    /// The active screen and the local point a horizontal scroll here would offer to a scroll
+    /// area; nil without areas or where the pane's content scrolls sideways itself (I3).
+    private func areaScrollCandidate(at locationInWindow: NSPoint) -> (ScreenContentView, NSPoint)? {
+        guard bounds.contains(convert(locationInWindow, from: nil)), let active = model.activeScreenID,
+              let view = screenViews[active], !view.areaScrolls.isEmpty,
+              !paneContentClaimsHorizontalScroll(at: locationInWindow) else { return nil }
+        return (view, view.convert(locationInWindow, from: nil))
     }
 
     /// The active screen's row column a vertical scroll here would move.
@@ -61,6 +81,7 @@ extension LayoutRootView {
     }
 
     private func handleScrollEvent(_ event: NSEvent, at locationInWindow: NSPoint) -> NSEvent? {
+        if let consumed = handleCanvasScroll(event, at: locationInWindow) { return consumed ? nil : event }
         // Momentum after a horizontal gesture we consumed: our spring owns the coast.
         if !event.momentumPhase.isEmpty {
             guard consumeMomentum else { return event }
@@ -76,6 +97,14 @@ extension LayoutRootView {
                 driver.start()
                 return nil
             }
+            if abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY), let (view, point) = areaScrollCandidate(at: locationInWindow) {
+                let direction = event.scrollingDeltaX < 0 ? 1 : -1
+                if let area = view.scrollArea(at: point, direction: direction) {
+                    view.discreteAreaScroll(area, direction: direction)
+                    driver.start()
+                    return nil
+                }
+            }
             guard abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY), let view = activeColumnsView(at: locationInWindow) else {
                 focusPaneForPassThroughScroll(at: locationInWindow)
                 return event
@@ -89,15 +118,18 @@ extension LayoutRootView {
             consumeMomentum = false
             let columns = activeColumnsView(at: locationInWindow)
             let rows = rowScrollTarget(event, at: locationInWindow)
-            scrollLock = columns == nil && rows == nil ? .passthrough : .undecided(columns, rows: rows)
+            let area = areaScrollCandidate(at: locationInWindow)
+            scrollLock = columns == nil && rows == nil && area == nil ? .passthrough : .undecided(columns, rows: rows, area: area)
         }
 
         switch scrollLock {
+        case .canvas, .canvasUndecided:
+            return event
         case .idle, .passthrough:
             if case .passthrough = scrollLock, phase.contains(.began) { focusPaneForPassThroughScroll(at: locationInWindow) }
             if phase.contains(.ended) || phase.contains(.cancelled) { scrollLock = .idle }
             return event
-        case let .undecided(view, rows):
+        case let .undecided(view, rows, area):
             let dx = abs(event.scrollingDeltaX)
             let dy = abs(event.scrollingDeltaY)
             if phase.contains(.ended) || phase.contains(.cancelled) {
@@ -105,6 +137,14 @@ extension LayoutRootView {
                 return event
             }
             guard dx + dy > 0 else { return event }
+            // Innermost first: an area that can move in the gesture's first direction owns it (I2).
+            if dx > dy, let (areaView, point) = area,
+               let id = areaView.scrollArea(at: point, direction: event.scrollingDeltaX < 0 ? 1 : -1) {
+                scrollLock = .area(areaView, id)
+                areaView.beginAreaScroll(id)
+                areaView.areaScroll(id, deltaX: event.scrollingDeltaX, timestamp: event.timestamp)
+                return nil
+            }
             if dx > dy, let view {
                 scrollLock = .horizontal(view)
                 view.beginUserScroll()
@@ -128,6 +168,17 @@ extension LayoutRootView {
                 driver.start()
             } else {
                 view.rowScroll(column, deltaY: event.scrollingDeltaY, timestamp: event.timestamp)
+                updateVisibility()
+            }
+            return nil
+        case let .area(view, id):
+            if phase.contains(.ended) || phase.contains(.cancelled) {
+                view.endAreaScroll(id, timestamp: event.timestamp)
+                scrollLock = .idle
+                consumeMomentum = true
+                driver.start()
+            } else {
+                view.areaScroll(id, deltaX: event.scrollingDeltaX, timestamp: event.timestamp)
                 updateVisibility()
             }
             return nil

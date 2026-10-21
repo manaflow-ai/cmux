@@ -71,6 +71,8 @@ public nonisolated struct BrowserSearchEngine: Hashable, Sendable, Codable, Iden
     )
 
     public static let builtIn: [BrowserSearchEngine] = [google, duckDuckGo, bing, brave, kagi]
+    /// Each built-in engine's search address by id (an imported engine maps to the one with its host).
+    public static var templates: [String: String] { Dictionary(uniqueKeysWithValues: builtIn.map { ($0.id, $0.queryTemplate) }) }
 
     /// A user's engine (`browser.customSearchEngine`): `search` and `suggest`
     /// take `{searchTerms}` or `%s`. Named after the search host.
@@ -104,13 +106,18 @@ public nonisolated struct OmniboxResolver: Sendable {
     /// Typed hosts already fixed once (`HostTypoFixup`); shared by every
     /// copy of this resolver.
     public let hostTypoMemory: HostTypoMemory
+    /// Bare words that resolved as intranet hosts (``IntranetHostProbe``);
+    /// shared by every copy of this resolver.
+    public let intranetHosts: IntranetHostMemory
 
     public init(urlResolver: BrowserURLResolver = BrowserURLResolver(), searchEngine: BrowserSearchEngine = .google,
-                keywords: [OmnibarKeyword] = [], hostTypoMemory: HostTypoMemory = HostTypoMemory()) {
+                keywords: [OmnibarKeyword] = [], hostTypoMemory: HostTypoMemory = HostTypoMemory(),
+                intranetHosts: IntranetHostMemory = IntranetHostMemory()) {
         self.urlResolver = urlResolver
         self.searchEngine = searchEngine
         self.keywords = keywords
         self.hostTypoMemory = hostTypoMemory
+        self.intranetHosts = intranetHosts
     }
 
     /// The URL typed `input` loads after its top-level-domain typo is fixed
@@ -144,8 +151,28 @@ public nonisolated struct OmniboxResolver: Sendable {
         if let url = urlResolver.url(for: input) {
             return .url(url)
         }
+        if let host = intranetHost(trimmed) {
+            return .url(host)
+        }
         let query = trimmed
         guard let url = searchEngine.searchURL(for: query) else { return nil }
         return .search(query: query, url: url)
+    }
+
+    /// `http://word/` for a bare word the probe found on the intranet (`wiki`).
+    private func intranetHost(_ text: String) -> URL? {
+        guard let label = IntranetHostProbe.candidate(text), intranetHosts.isIntranetHost(label) else { return nil }
+        return URL(string: "http://\(label)/")
+    }
+
+    /// The web search a typed intranet address also offers (Chrome lists
+    /// "go/gday - Google Search" under `http://go/gday`): the address may
+    /// be a word on a network without that host. Nil for any other input.
+    public func intranetSearchAlternative(for input: String) -> (query: String, url: URL)? {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.hasPrefix("?"), !trimmed.contains("://"), case .url(let url)? = destination(for: trimmed),
+              url.scheme == "http", let host = url.host(), !host.contains("."), !host.contains(":"),
+              !BrowserURLResolver.isLoopback(host), let search = searchEngine.searchURL(for: trimmed) else { return nil }
+        return (trimmed, search)
     }
 }

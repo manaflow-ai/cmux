@@ -118,7 +118,7 @@ public final class RemoteDesktopPaneView: NSView {
             toolbar.isHidden = !visible
             return
         }
-        Motion.animate(visible ? .fadeIn : .fadeOut, in: self, { toolbar.animator().alphaValue = target }, completion: { [weak self] in
+        Motion.overlays.animate(visible ? .fadeIn : .fadeOut, in: self, { toolbar.animator().alphaValue = target }, completion: { [weak self] in
             guard let self, !self.isHovering, self.state?.pinsToolbar == false else { return }
             self.toolbar.isHidden = true
         })

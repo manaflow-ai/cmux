@@ -5,14 +5,41 @@ import os
 /// The socket file: created with its mode, reclaimed when stale, and removed
 /// only while it is still this server's.
 extension ControlSocketServer {
-    /// Creates the socket's folder (0700, only this user) when it is missing,
-    /// so a first launch can bind under `~/.local/state/cmux`. A folder that
-    /// cannot be made fails the bind that follows, with its error.
-    static func makeStateDirectory(for path: String) {
+    /// Creates the socket's folder (0700, only this user) when it is missing.
+    /// The canonical state folder is also required to be a real directory
+    /// owned by this user and is tightened on every launch. Override parents
+    /// already present belong to their caller and are not changed.
+    static func makeStateDirectory(for path: String, protectExisting: Bool) throws {
         let parent = (path as NSString).deletingLastPathComponent
-        guard !parent.isEmpty, access(parent, F_OK) != 0 else { return }
-        try? FileManager.default.createDirectory(atPath: parent, withIntermediateDirectories: true,
-                                                 attributes: [.posixPermissions: 0o700])
+        guard !parent.isEmpty else { return }
+        var info = stat()
+        var created = false
+        if lstat(parent, &info) != 0 {
+            guard errno == ENOENT else {
+                if protectExisting { throw StartError.system(call: "lstat", errno: errno) }
+                return
+            }
+            try? FileManager.default.createDirectory(
+                atPath: parent, withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
+            created = true
+            guard lstat(parent, &info) == 0 else {
+                if protectExisting { throw StartError.system(call: "mkdir", errno: errno) }
+                return
+            }
+        }
+        guard protectExisting || created else { return }
+        guard info.st_mode & S_IFMT == S_IFDIR, info.st_uid == getuid() else {
+            throw StartError.pathOccupied(parent)
+        }
+        guard chmod(parent, 0o700) == 0 else {
+            throw StartError.system(call: "chmod", errno: errno)
+        }
+        guard lstat(parent, &info) == 0, info.st_mode & S_IFMT == S_IFDIR,
+              info.st_uid == getuid(), info.st_mode & 0o777 == 0o700 else {
+            throw StartError.system(call: "chmod", errno: EPERM)
+        }
     }
 
     /// Creates `link` to `target` when nothing is at `link`, or when a stale socket

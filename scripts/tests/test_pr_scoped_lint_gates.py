@@ -35,6 +35,8 @@ CLEAN = 'public struct Clean {\n    public init() {}\n}\n'
 LOCKED = 'import Foundation\nfinal class Locked {\n    private let lock = NSLock()\n}\n'
 UNLOCKED = 'import Foundation\nfinal class Locked {\n    private let count = 0\n}\n'
 CONVENTIONS_BASELINE = 'scripts/lint-ios-package-conventions-baseline.txt'
+MANIFEST = 'Packages/macOS/CmuxNext/Package.swift'
+APP_DEPENDENCY = '                "CmuxNextChiefMemory",\n'
 
 
 class Checkout:
@@ -161,6 +163,35 @@ class GateTests(unittest.TestCase):
         checkout.git('checkout', '-q', 'base')
         checkout.git('merge', '-q', '--no-ff', '-m', 'merge pr', 'pr')
         self.assertGate(checkout.gate('crash-class-gate.sh', '--pr'), False)
+
+    def manifest(self, old, new, count=1):
+        text = (ROOT / MANIFEST).read_text()
+        self.assertIn(old, text)
+        return text.replace(old, new, count)
+
+    def test_crash_class_pr_editing_only_manifest_dependencies_passes_beside_a_base_violation(self):
+        manifest = self.manifest(APP_DEPENDENCY, APP_DEPENDENCY + '                "CmuxNextAdded",\n')
+        manifest = manifest.replace('// Umbrella package', '// The umbrella package', 1)
+        checkout = self.checkout({f'{NEXT}/Owner.swift': ISOLATED_DEINIT}, {MANIFEST: manifest})
+        self.assertGate(checkout.gate('crash-class-gate.sh', '--pr'), True, '::warning', f'{NEXT}/Owner.swift')
+
+    def test_crash_class_pr_editing_manifest_swift_settings_owns_every_violation(self):
+        manifest = self.manifest('swiftSettings: uiSwiftSettings', 'swiftSettings: daemonSwiftSettings')
+        checkout = self.checkout({f'{NEXT}/Owner.swift': ISOLATED_DEINIT}, {MANIFEST: manifest})
+        self.assertGate(checkout.gate('crash-class-gate.sh', '--pr'), False, f'{NEXT}/Owner.swift',
+                        MANIFEST)
+
+    def test_crash_class_pr_adding_a_target_dependency_owns_every_violation(self):
+        # The lint reads `.target(name:` anywhere in the manifest, dependency lists included.
+        manifest = self.manifest(APP_DEPENDENCY, APP_DEPENDENCY + '                .target(name: "CmuxNextAdded"),\n')
+        checkout = self.checkout({f'{NEXT}/Owner.swift': ISOLATED_DEINIT}, {MANIFEST: manifest})
+        self.assertGate(checkout.gate('crash-class-gate.sh', '--pr'), False, f'{NEXT}/Owner.swift')
+
+    def test_crash_class_pr_whose_manifest_diff_is_unreadable_owns_every_violation(self):
+        manifest = self.manifest(APP_DEPENDENCY, APP_DEPENDENCY + '                "CmuxNextAdded",\n')
+        checkout = self.checkout({f'{NEXT}/Owner.swift': ISOLATED_DEINIT, '.gitattributes': f'{MANIFEST} -diff\n'},
+                                 {MANIFEST: manifest})
+        self.assertGate(checkout.gate('crash-class-gate.sh', '--pr'), False, f'{NEXT}/Owner.swift')
 
     def test_crash_class_without_pr_scope_fails_on_any_violation(self):
         checkout = self.checkout({f'{NEXT}/Owner.swift': ISOLATED_DEINIT})

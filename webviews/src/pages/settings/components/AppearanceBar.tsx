@@ -43,6 +43,7 @@ export function AppearanceBar() {
   return (
     <div
       className="appearance-bar"
+      // ui-allow: names the floating Undo, Redo and Reset row for VoiceOver; each control is its own Tab stop.
       role="toolbar"
       aria-label={t("settingsPage.history.toolbar")}
       data-appearance-bar=""

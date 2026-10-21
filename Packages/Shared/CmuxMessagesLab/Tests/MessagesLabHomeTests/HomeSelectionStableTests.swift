@@ -41,6 +41,7 @@ import Testing
         let summary = ConversationSummary(id: ConversationID("conv_sel"), title: "Chief", participants: people, lastSeq: 6,
                                           createdAt: base, updatedAt: base, readCursors: [:], readCursorTimes: [:])
         var core = ProjectionCore(me: Self.me)
+        core.replies = .streaming // the older stream bubble (HomeReplyDisplay)
         let (conv, w) = core.install(ConversationID("conv_sel"), items: items, summary: summary)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 700), styleMask: [.titled], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false

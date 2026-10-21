@@ -1,10 +1,12 @@
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
 // The chat's bottom stack (hq#1957, Leo 2026-10-14): the pull request dock, the queued prompts
-// and the composer card stack (a started chat has no folder strip, so the queue meets the card), under a question waiting for an answer, in the layout flow under the transcript, so none
+// and the composer card stack (a started chat has no folder strip, so the queue meets the card), under a question waiting for an answer, in the stack's own flow, so none
 // overlaps another and none is clipped (the queue never covers Allow and Deny, hq #1893). The stack never takes the whole pane: the transcript keeps
 // room, and the queue and the dock scroll inside their own heights instead. The page is the pane's
 // dev entry with its browser host, talking JSON-RPC to a stand-in acpmux daemon whose chat opened
 // three PRs and has a turn running, waiting on a permission, with six prompts queued behind it.
+// The stack lies over the transcript's foot (Leo 2026-10-19, as the Claude and Codex apps lay their
+// composer): the transcript runs the pane's height under it, and every part sits in the stack.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -143,6 +145,11 @@ await requireBrowserLane("agent-pane-bottom-stack.test.ts", async () => {
     }
   }
 
+  /// The chat drew its history: the PR commands' run, folded under its line with the short note
+  /// "Three PRs open." in it, as the run after the note (the merge in flight) joins it
+  /// (conversation/turns.ts mergeShortNotes, Debug toggle agentPane.debug.codexToolRuns).
+  const drawn = (page: Page) => page.locator("button.cv-tool", { hasText: "Ran commands" });
+
   let daemon: ReturnType<typeof Bun.serve> | undefined;
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
@@ -179,7 +186,7 @@ await requireBrowserLane("agent-pane-bottom-stack.test.ts", async () => {
       const warm = await browser.newPage();
       try {
         await warm.goto(url());
-        await warm.getByText("Three PRs open.").waitFor({ timeout: 25_000 });
+        await drawn(warm).waitFor({ timeout: 25_000 });
         await warm.close();
         break;
       } catch (error) {
@@ -207,6 +214,7 @@ await requireBrowserLane("agent-pane-bottom-stack.test.ts", async () => {
       return {
         main: box("main", ".acpmux-main")!,
         transcript: box("transcript", ".acpmux-main .acpmux-scroll")!,
+        stack: box("stack", ".acpmux-main > .acpmux-dock")!,
         parts: [
           box("ask", ".acpmux-asks-stack"),
           box("dock", ".acpmux-pr-dock"),
@@ -222,8 +230,13 @@ await requireBrowserLane("agent-pane-bottom-stack.test.ts", async () => {
       };
     });
 
-  /// Every part drawn, inside the chat column, below the transcript, and over no other part.
-  function expectStacked({ main, transcript, parts }: { main: Box; transcript: Box; parts: Box[] }) {
+  /// Every part drawn, inside the chat column, in the stack over the transcript's foot, and over no other part.
+  function expectStacked({ main, transcript, stack, parts }: { main: Box; transcript: Box; stack: Box; parts: Box[] }) {
+    // The transcript runs to the pane's bottom, under the stack, which ends there too.
+    expect({ transcriptToBottom: Math.abs(main.bottom - transcript.bottom) <= 0.5 }).toEqual({
+      transcriptToBottom: true,
+    });
+    expect({ stackToBottom: Math.abs(main.bottom - stack.bottom) <= 0.5 }).toEqual({ stackToBottom: true });
     // The chat has started: no location strip, and nothing left where it stood.
     // Six queued prompts fold: the fold's bar closes the queue, right on the card.
     expect(parts.map((part) => part.name)).toEqual(["ask", "dock", "queue", "fold", "card"]);
@@ -235,9 +248,9 @@ await requireBrowserLane("agent-pane-bottom-stack.test.ts", async () => {
         part: part.name,
         clipped: false,
       });
-      expect({ part: part.name, overTranscript: part.top < transcript.bottom - 0.5 }).toEqual({
+      expect({ part: part.name, outsideStack: part.top < stack.top - 0.5 }).toEqual({
         part: part.name,
-        overTranscript: false,
+        outsideStack: false,
       });
     }
     for (const [upper, lower] of parts.slice(0, -1).map((part, index) => [part, parts[index + 1]!] as const))
@@ -250,7 +263,7 @@ await requireBrowserLane("agent-pane-bottom-stack.test.ts", async () => {
   async function open(height: number) {
     const page = await browser!.newPage({ viewport: { width: 900, height } });
     await page.goto(url());
-    await page.getByText("Three PRs open.").waitFor();
+    await drawn(page).waitFor();
     await page.locator(".acpmux-pr-dock").waitFor({ timeout: 10_000 });
     // Six queued prompts fold behind "4 more queued"; open it so the whole queue draws.
     await page.locator(".acpmux-queue-fold").click();
@@ -269,7 +282,10 @@ await requireBrowserLane("agent-pane-bottom-stack.test.ts", async () => {
     const page = await open(480);
     const drawn = await layout(page);
     expectStacked(drawn);
-    expect(drawn.transcript.bottom - drawn.transcript.top).toBeGreaterThanOrEqual(96);
+    // What shows of it above the stack: 96 px, less the 32 px the split's quiet row under the card
+    // takes from it (bottomStack.css), never under 64.
+    const split = await page.locator(".acpmux-composer-foot").count();
+    expect(drawn.stack.top - drawn.transcript.top).toBeGreaterThanOrEqual(split ? 64 : 96);
     expect(drawn.queueScrolls).toBe(true);
     await page.close();
   });

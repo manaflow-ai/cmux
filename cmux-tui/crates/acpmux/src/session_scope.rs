@@ -26,7 +26,14 @@ pub(crate) fn command(
     program: &str,
     session: Option<&str>,
     env: &BTreeMap<String, String>,
+    remote: bool,
 ) -> Command {
+    // A remote profile's PATH is explicit child authority, not daemon-side
+    // launcher authority. Never probe or execute a scope wrapper selected
+    // from it before the reviewed harness starts.
+    if remote {
+        return Command::new(program);
+    }
     match session.and_then(|id| prefix(id, env)) {
         Some(prefix) => {
             let mut cmd = Command::new(&prefix[0]);

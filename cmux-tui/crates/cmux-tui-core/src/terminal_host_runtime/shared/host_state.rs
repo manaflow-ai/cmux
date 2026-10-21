@@ -531,6 +531,10 @@ pub(crate) enum ParserCommand {
         source_cursor: Option<u64>,
         acknowledge_with_replay: bool,
         targeted_ack: Option<(u64, HostTap)>,
+        /// The PTY already holds the new size (the program got SIGWINCH
+        /// when the command was queued); restore this size if the grid
+        /// cannot follow.
+        pty_previous: Option<PtySize>,
         response: SyncSender<ParserResizeResult>,
     },
     SetDefaults {

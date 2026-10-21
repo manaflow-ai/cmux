@@ -12,6 +12,10 @@ enum OpenInHandlers {
         registry.bind("filePreviewRevealInFinder", run: { invocation in
             NSWorkspace.shared.revealInBackground([try focusedFile(context, invocation)])
         })
+        // The focused file selected in a Files pane tab (the shared file menu's Reveal in cmux Files).
+        registry.bind("filePreviewRevealInFiles", run: { invocation in
+            try context.services.viewers.filesPanes.reveal(try focusedFile(context, invocation), focus: invocation.allowsViewChange)
+        })
         registry.bind("filePreviewOpenWith", run: { invocation in
             let file = try focusedFile(context, invocation)
             let name = invocation["app"]?.stringValue ?? ""

@@ -26,9 +26,9 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "agentChat.toggleNotificationMute",
-                title: String(localized: "action.agentChat.toggleNotificationMute", defaultValue: "Mute or Unmute Chat Notifications", bundle: .module),
+                title: String(localized: "action.agentChat.toggleNotificationMute", defaultValue: "Mute/Unmute Chat Notifications", bundle: .module),
                 keywords: ["mute", "silence", "quiet", "notifications", "agent", "chat"], category: .agents, symbol: "bell.slash",
-                surfaces: [.palette, .contextMenu], targets: [.tab]
+                surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "tab toggle-chat-notifications"
             ),
             ActionDescriptor(
                 id: "palette.newAgentChat",
@@ -100,7 +100,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "agentPane.continueIn",
-                title: String(localized: "action.agentPane.continueIn", defaultValue: "Continue in…", bundle: .module),
+                title: String(localized: "action.agentPane.continueIn", defaultValue: "Continue In…", bundle: .module),
                 keywords: ["agent", "chat", "continue", "handoff", "claude", "codex", "acpmux"],
                 category: .agents, symbol: "arrow.turn.up.right", surfaces: [.palette],
                 requires: [.agentPaneFocused], targets: [.pane],
@@ -118,7 +118,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 category: .agents, symbol: "cpu", surfaces: [.palette, .keyboard],
                 requires: [.agentPaneFocused], targets: [.pane],
                 // A chooser for a person. Scripts set the model with `debug.agent_pane set_model`
-                // or the acpmux CLI, so the CLI/MCP surface is exempt like Continue in….
+                // or the acpmux CLI, so the CLI/MCP surface is exempt like Continue In….
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
             ),
             ActionDescriptor(
@@ -146,7 +146,8 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ),
             // Copy Last Code Block (Opt-Cmd-;) and Archive Chat (Ctrl-Cmd-A), as in the Codex app
             // (cx-ncc.72). Only while an agent chat has the keyboard. Archive runs the chat menu's
-            // Archive; scripts use `cmux acp` and the chat's own transcript instead.
+            // Archive, or on a Priority row (an `agent-chat:` target) archives that row's chat;
+            // scripts use `cmux acp` and the chat's own transcript instead.
             ActionDescriptor(
                 id: "agentPane.copyLastCodeBlock",
                 title: String(localized: "action.agentPane.copyLastCodeBlock", defaultValue: "Copy Last Code Block", bundle: .module),
@@ -161,11 +162,12 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.agentPane.archiveChat", defaultValue: "Archive Chat", bundle: .module),
                 keywords: ["agent", "chat", "archive", "hide", "close", "done"],
                 defaultShortcut: Shortcut("a", modifiers: [.command, .control]),
-                category: .agents, symbol: "archivebox", surfaces: [.palette, .keyboard],
+                category: .agents, symbol: "archivebox", surfaces: [.palette, .keyboard, .contextMenu],
                 // A script names the chat's pane (`--target pane:…`); the target brings its own
-                // agentPaneFocused fact (`ActionRegistry.targetContext`).
-                requires: [.agentPaneFocused], targets: [.pane], cliName: "agent archive-chat",
-                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .guiOnly)
+                // agentPaneFocused fact (`ActionRegistry.targetContext`), as a Priority row's
+                // `agent-chat:` target does (`ActionContext.implied(byTargetKind:)`).
+                requires: [.agentPaneFocused], targets: [.pane, .agentChat], cliName: "agent archive-chat",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ContextMenuPlacement(.priorityRow, .close, 0)])
             ),
             ActionDescriptor(
                 id: "agentPane.git.commit",
@@ -202,27 +204,6 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 // unset. The command palette's chats page lists every chat.
                 category: .agents, symbol: "magnifyingglass", surfaces: [.palette, .keyboard]
             ),
-            // Previous Turn and Next Turn step the agent chat's transcript from prompt to prompt, as the
-            // thread minimap's ticks do (cx-f7c). The page handles them; a script reads the transcript instead.
-            // Ctrl-Opt arrows: Ctrl-Cmd arrows are the pane-resize aliases (KeyBindingDefaults).
-            ActionDescriptor(
-                id: "agentPane.previousTurn",
-                title: String(localized: "action.agentPane.previousTurn", defaultValue: "Previous Turn", bundle: .module),
-                keywords: ["agent", "chat", "turn", "prompt", "message", "previous", "up", "minimap"],
-                defaultShortcut: Shortcut(Shortcut.upArrowKey, modifiers: [.control, .option]),
-                category: .agents, symbol: "chevron.up", surfaces: [.palette, .keyboard],
-                requires: [.agentPaneFocused], targets: [.pane],
-                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
-            ),
-            ActionDescriptor(
-                id: "agentPane.nextTurn",
-                title: String(localized: "action.agentPane.nextTurn", defaultValue: "Next Turn", bundle: .module),
-                keywords: ["agent", "chat", "turn", "prompt", "message", "next", "down", "minimap"],
-                defaultShortcut: Shortcut(Shortcut.downArrowKey, modifiers: [.control, .option]),
-                category: .agents, symbol: "chevron.down", surfaces: [.palette, .keyboard],
-                requires: [.agentPaneFocused], targets: [.pane],
-                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
-            ),
             permissionAction("allowOnce", title: String(localized: "action.agentPane.permission.allowOnce", defaultValue: "Allow Once", bundle: .module), symbol: "checkmark", shortcut: Shortcut("1", modifiers: [.command, .option])),
             permissionAction("allowChat", title: String(localized: "action.agentPane.permission.allowChat", defaultValue: "Allow for This Chat", bundle: .module), symbol: "checkmark.circle", shortcut: Shortcut("2", modifiers: [.command, .option])),
             permissionAction("deny", title: String(localized: "action.agentPane.permission.deny", defaultValue: "Deny", bundle: .module), symbol: "xmark", shortcut: Shortcut("3", modifiers: [.command, .option])),
@@ -251,44 +232,52 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "palette.forkAgentConversationRight",
                 title: String(localized: "action.palette.forkAgentConversationRight", defaultValue: "Fork Conversation to the Right", bundle: .module),
-                keywords: ["agent", "fork"], category: .agents, symbol: "arrow.triangle.branch",
-                surfaces: [.palette, .contextMenu], requires: [.terminalFocused],
+                keywords: ["agent", "fork", "branch", "split"], defaultShortcut: Shortcut("y", modifiers: [.option, .command]),
+                category: .agents, symbol: "arrow.triangle.branch",
+                surfaces: [.palette, .contextMenu],
                 cliName: "agent fork-conversation-to-right"
             ),
             ActionDescriptor(
                 id: "palette.forkAgentConversationLeft",
                 title: String(localized: "action.palette.forkAgentConversationLeft", defaultValue: "Fork Conversation to the Left", bundle: .module),
                 keywords: ["agent", "fork"], category: .agents, symbol: "arrow.triangle.branch",
-                surfaces: [.palette, .contextMenu], requires: [.terminalFocused],
+                surfaces: [.palette, .contextMenu],
                 cliName: "agent fork-conversation-to-left"
             ),
             ActionDescriptor(
                 id: "palette.forkAgentConversationTop",
                 title: String(localized: "action.palette.forkAgentConversationTop", defaultValue: "Fork Conversation Above", bundle: .module),
                 keywords: ["agent", "fork"], category: .agents, symbol: "arrow.triangle.branch",
-                surfaces: [.palette, .contextMenu], requires: [.terminalFocused],
+                surfaces: [.palette, .contextMenu],
                 cliName: "agent fork-conversation-above"
             ),
             ActionDescriptor(
                 id: "palette.forkAgentConversationBottom",
                 title: String(localized: "action.palette.forkAgentConversationBottom", defaultValue: "Fork Conversation Below", bundle: .module),
                 keywords: ["agent", "fork"], category: .agents, symbol: "arrow.triangle.branch",
-                surfaces: [.palette, .contextMenu], requires: [.terminalFocused],
+                surfaces: [.palette, .contextMenu],
                 cliName: "agent fork-conversation-below"
             ),
             ActionDescriptor(
                 id: "palette.forkAgentConversationNewTab",
                 title: String(localized: "action.palette.forkAgentConversationNewTab", defaultValue: "Fork Conversation to New Tab", bundle: .module),
                 keywords: ["agent", "fork"], category: .agents, symbol: "arrow.triangle.branch",
-                surfaces: [.palette, .contextMenu], requires: [.terminalFocused],
+                surfaces: [.palette, .contextMenu],
                 cliName: "agent fork-conversation-to-new-tab"
             ),
             ActionDescriptor(
                 id: "palette.forkAgentConversationNewWorkspace",
                 title: String(localized: "action.palette.forkAgentConversationNewWorkspace", defaultValue: "Fork Conversation to New Workspace", bundle: .module),
                 keywords: ["agent", "fork"], category: .agents, symbol: "arrow.triangle.branch",
-                surfaces: [.palette, .contextMenu], requires: [.terminalFocused],
+                surfaces: [.palette, .contextMenu],
                 cliName: "agent fork-conversation-to-new-workspace"
+            ),
+            ActionDescriptor(
+                id: "palette.forkAgentConversationNewWindow",
+                title: String(localized: "action.palette.forkAgentConversationNewWindow", defaultValue: "Fork Conversation to New Window", bundle: .module),
+                keywords: ["agent", "fork", "window"], category: .agents, symbol: "arrow.triangle.branch",
+                surfaces: [.palette, .contextMenu],
+                cliName: "agent fork-conversation-to-new-window"
             ),
             ActionDescriptor(
                 id: "palette.computerUse.setup",
@@ -327,12 +316,30 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                                    kind: .string, isRequired: false),
                     ActionArgument(name: "host", title: String(localized: "argument.agent.host", defaultValue: "Session Host", bundle: .module),
                                    kind: .string, isRequired: false),
+                    // A group's name (made when missing), not a target: a launcher names it.
+                    ActionArgument(name: "group", title: String(localized: "argument.group", defaultValue: "Group", bundle: .module),
+                                   kind: .string, isRequired: false),
                 ],
                 cliName: "agent open",
                 // It starts the workspace's terminal: action.run waits the
                 // terminal start deadline, not 2 s, so the caller's run ends
                 // once the workspace exists (it renames it later by key).
                 startsTerminal: true,
+                surfacePlan: ActionSurfacePlan(palette: .exempt(.noObject), cli: .offered, contextMenuExemption: .noObject)
+            ),
+            // Agents and scripts (`cmux agent open-tab SESSION`): an existing acpmux session's chat as a tab of a pane.
+            ActionDescriptor(
+                id: "agent.openSessionTab",
+                title: String(localized: "action.agent.openSessionTab", defaultValue: "Open Agent Session in Tab", bundle: .module),
+                keywords: ["agent", "session", "acpmux", "subagent", "tab", "chat"], category: .agents,
+                symbol: "bubble.left.and.text.bubble.right", surfaces: [.keyboard],
+                arguments: [
+                    ActionArgument(name: "session", title: String(localized: "argument.agent.session", defaultValue: "Session", bundle: .module),
+                                   kind: .string),
+                    ActionArgument(name: "host", title: String(localized: "argument.agent.host", defaultValue: "Session Host", bundle: .module),
+                                   kind: .string, isRequired: false),
+                ],
+                targets: [.pane, .tab], cliName: "agent open-tab",
                 surfacePlan: ActionSurfacePlan(palette: .exempt(.noObject), cli: .offered, contextMenuExemption: .noObject)
             ),
             // The Home Chief's settings sidebar (the header's name pill does the same).
@@ -352,15 +359,50 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 symbol: "stop.circle", surfaces: [.palette],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
-            // The local Chief's memory inspector (optchat-inspector.md): what the
-            // model saw each turn and the memory tree, in a browser tab in a new
-            // column. Debug builds only (DEV and nightly).
+            // The built-in Memory Inspector (memory-inspector-native-DESIGN.md): a
+            // Chief's memory tree, search, and the owner's edits, deletes and undo,
+            // in a native pane tab in the Home right column. Every build.
             ActionDescriptor(
                 id: "chief.openMemoryInspector",
                 title: String(localized: "action.chief.openMemoryInspector", defaultValue: "Chief: Open Memory Inspector", bundle: .module),
-                keywords: ["chief", "memory", "optchat", "view", "zoom", "tree", "trace", "cache", "debug", "inspector"],
-                category: .agents, symbol: "brain", surfaces: [.palette], isDebugOnly: true,
-                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+                keywords: ["chief", "memory", "optchat", "view", "zoom", "tree", "edit", "delete", "forget", "inspector"],
+                category: .agents, symbol: "brain", surfaces: [.palette], cliName: "chief memory",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
+            // Chief Usage (chief-usage-analytics-DESIGN.md): tokens, cost, cache hit and turn
+            // time of this Mac's Chiefs, as a page tab (Home's right column in Home). The
+            // Chief's row menu in Home runs it too. `cmux chief usage` prints the same summary.
+            // Move Chief To… (remote-groups-DESIGN.md slice 6, chief-migration-DESIGN.md 8a): This Mac, a
+            // remote group or cmux Cloud; a dry run's report first, then the move and `move reach`.
+            // `cmux action run chief.moveTo --arg target=…` reaches it by id.
+            ActionDescriptor(
+                id: "chief.moveTo",
+                title: String(localized: "action.chief.moveTo", defaultValue: "Move Chief To…", bundle: .module),
+                keywords: ["chief", "move", "migrate", "host", "remote", "mac mini", "linux", "vm", "cloud"],
+                category: .agents, symbol: "arrow.right.circle", surfaces: [.palette],
+                arguments: [ActionArgument(name: "target", title: String(localized: "argument.chiefMoveTarget", defaultValue: "Target", table: "RemoteActions", bundle: .module),
+                                           kind: .string, isRequired: false,
+                                           suggestions: ActionSuggestions(source: ActionSuggestions.chiefMoveTargets, pinned: []))],
+                destructive: true,
+                // `cmux chief move --to` and the Chief's MCP `move` tool run the same move (one implementation).
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.familyMember), contextMenuExemption: .noObject)
+            ),
+            ActionDescriptor(
+                id: "chief.openUsage",
+                title: String(localized: "action.chief.openUsage", defaultValue: "Chief Usage", bundle: .module),
+                keywords: ["chief", "usage", "cost", "tokens", "cache", "spend", "stats", "analytics"],
+                category: .agents, symbol: "dollarsign.circle", surfaces: [.palette],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
+            // The Chief view gallery: experimental views beside the Chief (where every agent is,
+            // an agent board, the CI fleet, landing PRs, today's timeline), as a page tab in Home's
+            // right column. Debug Settings > Home > "Chief view gallery"; DEV and NIGHTLY only.
+            ActionDescriptor(
+                id: "chief.openViews",
+                title: String(localized: "action.chief.openViews", defaultValue: "Chief View Gallery", bundle: .module),
+                keywords: ["chief", "views", "gallery", "agents", "where", "everybody", "board", "fleet", "landing", "timeline"],
+                category: .agents, symbol: "square.grid.2x2", surfaces: [.palette],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
             ActionDescriptor(
                 id: "agentActivity.open",

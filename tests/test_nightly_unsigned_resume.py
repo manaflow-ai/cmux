@@ -160,9 +160,9 @@ class WorkflowRoutingTests(unittest.TestCase):
         values = {"inputs.nightly_next_unsigned_run": "123" if resuming else "",
                   "needs.decide.outputs.track": "nightly-next", "needs.decide.outputs.fast_build": "false",
                   "needs.decide.outputs.build_only": "false", "github.ref_name": "nightly-next",
-                  "github.repository_owner": "manaflow-ai"}
+                  "github.repository_owner": "manaflow-ai", "runner.environment": "github-hosted"}
         condition = expression.removeprefix("${{").removesuffix("}}").strip()
-        condition = re.sub(r"\b(?:inputs|needs|steps|github|env)\.[\w.-]+", lambda m: repr(values.get(m[0], "")), condition)
+        condition = re.sub(r"\b(?:inputs|needs|steps|github|env|runner)\.[\w.-]+", lambda m: repr(values.get(m[0], "")), condition)
         condition = re.sub(r"\bvars\.[\w.-]+", "''", condition)
         condition = condition.replace("&&", " and ").replace("||", " or ")
         return eval(condition, {"__builtins__": {}}, {"always": lambda: True, "success": lambda: True,

@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import CmuxNextWakeups
+import CmuxUpdater
 import Network
 public import Foundation
 
@@ -12,8 +13,8 @@ extension UpdaterService {
     /// found update the person closed or snoozed (``updateSnooze``) stays
     /// hidden; a check they ask for clears that first (``checkForUpdates()``).
     public var card: UpdateCard? {
-        guard let card = flow.card else { return nil }
-        if case .available(let version) = card, updateSnooze.hides(version: version, at: now()) { return nil }
+        guard let card = flow.card(downloadsAutomatically: downloadSetting.enabled) else { return pulledWatch.card }
+        if case .available(let version) = card, updateSnooze.hides(version: version, at: now()) { return pulledWatch.card }
         return card
     }
 
@@ -43,7 +44,7 @@ extension UpdaterService {
         }.first ?? .proceed
         if action == .cancelPendingInstall {
             log.append("quit: install on quit is off, cancelling the staged update")
-            cancelStaged()
+            _ = cancelStaged()
         }
         return action
     }
@@ -85,6 +86,7 @@ extension UpdaterService {
 
     /// Feeds ``indicatorPhase`` to the gate when it moved.
     func syncFlowPhase() {
+        dropStaleStagedUpdate()
         let phase = indicatorPhase
         guard phase != flow.phase else { return }
         if userCheckRunning, phase != .checking { userCheckRunning = false }
@@ -97,21 +99,26 @@ extension UpdaterService {
         #endif
         let wasInstalling = flow.phase == .installing
         let wasReady = if case .ready = flow.phase { true } else { false }
+        let clickedInstall = flow.installRequested
         send(.sparkle(phase))
         followStagedUpdate(phase)
         switch phase {
         case .ready:
             recordStagedUpdate()
             keepRunningBuildForRollback()
-        case .note where wasInstalling || wasReady:
+        case .note where wasInstalling || (wasReady && clickedInstall):
             // The install failed: no relaunch comes. The windows come back and the failure's
             // sheet opens with Retry and Download Manually, so the click never ends in silence.
+            // A staged update that ends without a click (a background failure) opens nothing.
             log.append("install ended without a relaunch")
             installAbandoned?()
             presentUpdateUI?()
             #if DEBUG
             UpdateHarness.mark("failure_sheet_presented")
             #endif
+        case .note(let note) where !flow.userAsked:
+            // A scheduled check's result shows nothing; the log keeps it (`cmux update log`).
+            log.append("background check: \(note.text) (not shown)")
         default:
             break
         }
@@ -130,16 +137,27 @@ extension UpdaterService {
 
 extension UpdaterService {
     /// Applies `updates.checkAutomatically`, `checkIntervalSeconds`,
-    /// `downloadAutomatically` and `meteredNetwork` to Sparkle. No-op
-    /// without a driver.
+    /// `downloadAutomatically`, `meteredNetwork` and, when given, `channel`
+    /// (``follow(ring:)``) to Sparkle. The ring is kept without a driver too (the probe reads it).
     public func configure(checkAutomatically: Bool, checkInterval: TimeInterval, downloadAutomatically: Bool,
-                          metered: UpdateMeteredMode = .deferLowData) {
+                          metered: UpdateMeteredMode = .deferLowData, ring: String? = nil) {
+        if let ring { follow(ring: ring) }
         downloadSetting = (downloadAutomatically, metered)
         if automaticUpdates != downloadAutomatically { automaticUpdates = downloadAutomatically }
         guard let controller else { return }
         controller.setSchedule(automaticChecks: checkAutomatically, interval: checkInterval)
         followNetwork()
         applyDownloadPolicy()
+    }
+
+    /// Follows `updates.channel`: which release ring's appcast items Sparkle and the probe offer.
+    /// Takes the setting's raw value (`stable`, `nightly`, `canary`, `dev`); anything else is Nightly.
+    public func follow(ring rawValue: String) {
+        let ring = UpdateRing(rawValue: rawValue) ?? .nightly
+        guard self.ring != ring else { return }
+        self.ring = ring
+        controller?.ring = ring
+        log.append("update ring \(ring.rawValue)")
     }
 
     /// Recomputes whether found updates download by themselves: the user's

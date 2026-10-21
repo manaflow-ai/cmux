@@ -61,6 +61,14 @@ import Testing
         #expect(lines.place == nil)
     }
 
+    @Test func aTerminalTitledByItsFolderSaysTheFolderOnce() {
+        var shell = TabItem(id: TabID("home"), title: "~", subtitle: "~")
+        shell.hover = TabHoverFacts(kind: .terminal)
+        #expect(TabHoverCardLines.make(shell, report: nil, now: Date()).place == nil)
+        shell.title = "cargo build"
+        #expect(TabHoverCardLines.make(shell, report: nil, now: Date()).place == "~")
+    }
+
     @Test func aTerminalSaysHowItsLastCommandEnded() {
         var failed = TabItem(id: TabID("t-failed"), title: "swift test", status: .failure)
         failed.hover = TabHoverFacts(kind: .terminal)

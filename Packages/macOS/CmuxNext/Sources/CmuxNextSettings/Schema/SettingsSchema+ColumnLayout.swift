@@ -66,13 +66,22 @@ nonisolated enum ColumnLayoutSettingsSchema {
                 kind: .toggle, default: .bool(ColumnLayoutSettings.rowsFallback), keywords: ["row", "column", "scroll", "vertical"]
             ),
             SettingDescriptor(
-                ColumnLayoutSettings.focusPaneOnScrollPath, section: .general, group: columns,
-                title: SettingsText.keyed("settings.layout.focusPaneOnScroll", "Focus Pane on Scroll"),
-                help: SettingsText.keyed("settings.layout.focusPaneOnScroll.help",
-                                        "Scrolling over a pane focuses it. Momentum and scrolling within a second of typing leave focus where it is."),
-                summary: SettingsText.keyed("settings.layout.focusPaneOnScroll.summary", "Scrolling a pane focuses it"),
-                kind: .toggle, default: .bool(ColumnLayoutSettings.focusPaneOnScrollFallback),
-                keywords: ["focus", "scroll", "wheel", "trackpad", "pane", "follows mouse"]
+                ColumnLayoutSettings.focusFollowsMousePath, section: .general, group: columns,
+                title: SettingsText.keyed("settings.layout.focusFollowsMouse", "Focus Follows Mouse"),
+                help: SettingsText.keyed("settings.layout.focusFollowsMouse.help",
+                                        "Moving the pointer onto a pane or scrolling over it focuses that pane. Off keeps focus where you type until you click. Momentum and the first second after typing never move focus."),
+                summary: SettingsText.keyed("settings.layout.focusFollowsMouse.summary", "Hovering or scrolling a pane focuses it"),
+                kind: .toggle, default: .bool(ColumnLayoutSettings.focusFollowsMouseFallback),
+                keywords: ["focus", "scroll", "wheel", "trackpad", "pane", "follows mouse", "hover", "pointer"]
+            ),
+            SettingDescriptor(
+                ColumnLayoutSettings.scrollAreasPath, section: .general, group: columns,
+                title: SettingsText.keyed("settings.layout.scrollAreas", "Scroll Areas"),
+                help: SettingsText.keyed("settings.layout.scrollAreas.help",
+                                        "Side-by-side panes that do not fit scroll sideways instead of shrinking, also in docked columns."),
+                summary: SettingsText.keyed("settings.layout.scrollAreas.summary", "Splits scroll instead of squashing"),
+                kind: .toggle, default: .bool(ColumnLayoutSettings.scrollAreasFallback),
+                keywords: ["scroll", "area", "split", "squash", "dock", "horizontal", "overflow"]
             ),
             SettingDescriptor(
                 ColumnLayoutSettings.minimumPaneWidthPath, section: .general, group: columns,

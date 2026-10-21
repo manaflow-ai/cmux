@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 public import Observation
 public import CmuxNextTerminalGeometry
 
@@ -73,7 +74,12 @@ public extension TerminalSessionDelegate {
     func terminalSession(_ session: TerminalSession, perform action: TerminalHostAction) -> Bool { false }
     func terminalSession(_ session: TerminalSession, contextMenuFor event: NSEvent) -> NSMenu? { nil }
     func terminalSession(_ session: TerminalSession, open url: URL) -> Bool {
-        NSWorkspace.shared.open(url, configuration: NSWorkspace.OpenConfiguration())
+        guard let safeURL = TerminalSurfaceView.url(from: url.absoluteString) else { return false }
+        if safeURL.isFileURL {
+            NSWorkspace.shared.revealInBackground([safeURL])
+            return true
+        }
+        NSWorkspace.shared.open(safeURL, configuration: NSWorkspace.OpenConfiguration())
         return true
     }
     func terminalSession(_ session: TerminalSession, openLink text: String) -> Bool {

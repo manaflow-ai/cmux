@@ -48,6 +48,8 @@ public final class PaletteController {
     private var panel: PalettePanel?
     private weak var parentWindow: NSWindow?
     private var presentationGeneration = 0
+    /// The open panel sits on a control (`show(scope:anchoredTo:)`), not centered over its window.
+    private var isAnchored = false
 
     public init(
         registry: ActionRegistry,
@@ -58,6 +60,9 @@ public final class PaletteController {
         self.registry = registry
         self.sources = sources
         self.model = PaletteModel(usage: usage ?? LocalPaletteUsageStore(persistence: frecencyPersistence))
+        // What an open's first frame does not show (the command page's workspaces and tabs)
+        // loads once that frame is committed.
+        model.afterFrame = { work in scheduleAfterFrameCommit(work) }
         model.onDismiss = { [weak self] in self?.hide() }
         // A command that refuses shows why on its row instead of beeping,
         // and the palette comes back on the same page.
@@ -75,39 +80,62 @@ public final class PaletteController {
 
     /// Opens `scope` above the root (`palette.open`, a scope's shortcut).
     /// Returns false for a scope the graph does not have.
+    /// - Parameter anchor: a control the panel opens from (the sidebar's
+    ///   Search button): the panel sits just above it, its leading edge on the
+    ///   control's, inside the screen. Nil centers it over the window.
     @discardableResult
-    public func show(scope: PaletteScopeID, query: String = "", relativeTo window: NSWindow? = nil) -> Bool {
+    public func show(scope: PaletteScopeID, query: String = "", relativeTo window: NSWindow? = nil, anchoredTo anchor: NSView? = nil) -> Bool {
         configureScopes()
         guard model.navigation.graph.contains(scope) else { return false }
         markOpenStarted()
         captureContext()
         model.open(scope: scope, query: query)
         modelReady = .now
-        present(relativeTo: window)
+        present(relativeTo: window ?? anchor?.window, anchor: anchor.flatMap(Self.screenRect(of:)))
         return true
+    }
+
+    /// `view`'s frame on the screen, or nil when it is in no window.
+    private static func screenRect(of view: NSView) -> NSRect? {
+        guard let window = view.window else { return nil }
+        return window.convertToScreen(view.convert(view.bounds, to: nil))
     }
 
     // MARK: Registry wiring
 
     /// Binds the palette's own catalog actions: Command Palette (toggle),
-    /// Go to Workspace and Search Keyboard Shortcuts. Go to Tab is Search
-    /// Tabs, which the App binds (`tab.search`).
+    /// Go to Workspace (Cmd-P, what is open now), Search (Cmd-Shift-A, everything) and Search
+    /// Keyboard Shortcuts. Go to Tab is Search Tabs, which the App binds (`tab.search`).
     public func bindRegistryActions() {
         registry.bind("commandPalette") { [weak self] in self?.toggle(.commands) }
         registry.bind("palette.searchShortcuts") { [weak self] in self?.show(.keyboardShortcuts) }
+        // Cmd-Shift-A: Search, which adds history and agent chats to the open items
+        // (search-everything-DESIGN.md section 10.1). The id predates the change; user key files name it.
+        registry.bind("search.chats", invoke: { [weak self] invocation in
+            self?.show(scope: PaletteScopeID.search, query: invocation["query"]?.stringValue ?? "")
+        })
         if sources.workspaces != nil {
             // With a workspace (a palette row's typed ref, `palette.run`,
             // the CLI) it switches to it; without one it opens the page.
             registry.bind("goToWorkspace", invoke: { [weak self] invocation in
                 if let workspace = invocation["workspace"]?.targetValue?.id ?? invocation["workspace"]?.stringValue {
-                    self?.sources.workspaces?.selectWorkspace(id: workspace)
-                } else {
+                    guard let self, let source = self.sources.workspaces else { return }
+                    // An id that names no workspace is refused, never a silent success.
+                    guard source.workspaces.contains(where: { $0.id == workspace }) else {
+                        return self.registry.refuseNotFound(PaletteStrings.workspaceNotFound(workspace))
+                    }
+                    source.selectWorkspace(id: workspace)
+                } else if self?.show(scope: PaletteScopeID.workspaces) != true {
+                    // Cmd-P lists only what is open: workspaces, then their groups, panes and tabs.
                     self?.show(.workspaces)
                 }
             })
         }
         registry.argumentCollector = { [weak self] id, invocation in
             self?.collectArguments(for: id, invocation: invocation)
+        }
+        registry.argumentAsker = { [weak self] id, invocation, ask in
+            self?.collectArguments(for: id, invocation: invocation, asking: ask)
         }
     }
 
@@ -185,15 +213,18 @@ public final class PaletteController {
 
     /// Opens the palette to collect the missing arguments of `id`, then runs
     /// it. Installed as the registry's `argumentCollector`, so a menu item or
-    /// shortcut for an argument-taking action asks inline.
-    public func collectArguments(for id: ActionID, invocation: ActionInvocation, relativeTo window: NSWindow? = nil) {
+    /// shortcut for an argument-taking action asks inline. `ask` also asks for
+    /// one optional argument (``ActionRegistry/ask(_:_:_:)``: a menu Rename with
+    /// no name asks for it here instead of in a separate dialog).
+    public func collectArguments(for id: ActionID, invocation: ActionInvocation, asking ask: ActionArgumentAsk? = nil,
+                                 relativeTo window: NSWindow? = nil) {
         guard let descriptor = registry.descriptor(for: id) else { return }
         // Without its arguments, an action that opens a scope opens it, as its palette row does.
-        if invocation.arguments.isEmpty, let scope = scope(openedBy: id), show(scope: scope, relativeTo: window) { return }
+        if ask == nil, invocation.arguments.isEmpty, let scope = scope(openedBy: id), show(scope: scope, relativeTo: window) { return }
         captureContext()
         let flow = PaletteArgumentFlow(registry: registry, descriptor: descriptor, targets: sources.targets,
                                        captured: capturedTargets, preview: sources.argumentPreview,
-                                       swatches: sources.argumentSwatches)
+                                       swatches: sources.argumentSwatches, ask: ask)
         let effect = flow.effect(collected: invocation)
         if case .perform(let handler) = effect {
             // Nothing left to ask.
@@ -224,7 +255,8 @@ public final class PaletteController {
         }
     }
 
-    private func present(relativeTo window: NSWindow?) {
+    /// `anchor`: the screen rect of the control the panel opens from, or nil.
+    private func present(relativeTo window: NSWindow?, anchor: NSRect? = nil) {
         model.usage.prepare()
         let started = openStarted ?? .now
         let modelDone = modelReady ?? started
@@ -253,7 +285,9 @@ public final class PaletteController {
         parentWindow = parent
         // The room (theme) of the window it opens over.
         (parent?.themeScope ?? .app).adopt(panel)
-        panel.setFrame(frame(for: parent, size: PaletteLayout.windowSize), display: false)
+        isAnchored = anchor != nil
+        let size = PaletteLayout.windowSize
+        panel.setFrame(anchor.map { frame(above: $0, on: parent?.screen, size: size) } ?? frame(for: parent, size: size), display: false)
         if let parent, panel.parent !== parent {
             panel.parent?.removeChildWindow(panel)
             parent.addChildWindow(panel, ordered: .above)
@@ -335,10 +369,13 @@ public final class PaletteController {
         content.autoresizingMask = [.width, .height]
         content.onPreferredSizeChange = { [weak self, weak panel] size in
             guard let self, let panel, self.isVisible else { return }
-            // Keep the top edge fixed when density changes while open.
+            // Keep the top edge fixed when density changes while open; an
+            // anchored panel keeps its bottom-left corner on its control.
             var frame = panel.frame
-            frame.origin.y += frame.height - size.height
-            frame.origin.x += (frame.width - size.width) / 2
+            if !self.isAnchored {
+                frame.origin.y += frame.height - size.height
+                frame.origin.x += (frame.width - size.width) / 2
+            }
             frame.size = size
             panel.setFrame(frame, display: true)
         }
@@ -362,6 +399,18 @@ public final class PaletteController {
         }
         self.panel = panel
         return panel
+    }
+
+    /// Just above `anchor` (a control's screen rect), the card's leading edge
+    /// on the control's, clamped to the visible screen when there is one.
+    private func frame(above anchor: NSRect, on screen: NSScreen?, size: CGSize) -> NSRect {
+        let margin = PaletteLayout.shadowMargin
+        var origin = NSPoint(x: anchor.minX - margin, y: anchor.maxY + Metrics.space2 - margin)
+        if let visible = (screen ?? NSScreen.screens.first(where: { $0.frame.intersects(anchor) }))?.visibleFrame {
+            origin.x = min(max(origin.x, visible.minX), visible.maxX - size.width)
+            origin.y = min(max(origin.y, visible.minY), visible.maxY - size.height)
+        }
+        return NSRect(origin: origin, size: size)
     }
 
     /// Top-centered over the parent window at about a sixth of its height,

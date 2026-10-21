@@ -13,24 +13,27 @@ import Testing
     @Test func homeSheetsPaintThePopupSurface() throws {
         let scope = try ThemedOverlayColorsTests.purpleRoom()
         let surface = scope.perform { Palette.popupSurface }
-        let sheets: [HomeSheetController] = [HomeComposeSheet(contacts: []), HomeInviteSheet(pending: []), HomeNewChiefSheet()]
+        let sheets: [HomeSheetController] = [HomeInviteSheet(pending: []), HomeNewChiefSheet()]
         for sheet in sheets {
             scope.root(sheet.view)
             let fill = try #require(sheet.view.layer?.backgroundColor.flatMap(NSColor.init(cgColor:)),
                                     "\(type(of: sheet)) paints a surface over the system sheet background")
             #expect(ThemedOverlayColorsTests.same(fill, surface), "\(type(of: sheet)): \(fill) vs \(surface)")
         }
-        // New Message's people list lets that surface show instead of the control background.
-        let compose = HomeComposeSheet(contacts: [])
-        scope.root(compose.view)
-        #expect((compose.table.backgroundColor.usingColorSpace(.sRGB)?.alphaComponent ?? 1) < 0.01)
-        #expect(compose.scroll.borderType == .noBorder)
+        // New Message's suggestion list (a page now, no sheet) lets the popup surface show.
+        let suggestions = HomeRecipientSuggestionsView(frame: NSRect(x: 0, y: 0, width: 300, height: 120))
+        scope.root(suggestions)
+        suggestions.applyColors()
+        #expect((suggestions.table.backgroundColor.usingColorSpace(.sRGB)?.alphaComponent ?? 1) < 0.01)
+        #expect(suggestions.scroll.borderType == .noBorder)
+        let list = try #require(suggestions.layer?.backgroundColor.flatMap(NSColor.init(cgColor:)))
+        #expect(ThemedOverlayColorsTests.same(list, surface))
     }
 
     @Test func homeFieldsDrawTheThemeNotTheSystemBezel() throws {
         let scope = try ThemedOverlayColorsTests.purpleRoom()
         let roots: [NSView] = [
-            HomeComposeSheet(contacts: []).view, HomeInviteSheet(pending: []).view, HomeNewChiefSheet().view,
+            HomeInviteSheet(pending: []).view, HomeNewChiefSheet().view,
             HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: OfflineEngine()),
         ]
         let ink = scope.perform { Palette.textPrimary }
@@ -40,8 +43,8 @@ import Testing
             scope.root(root)
             fields += Self.editableFields(in: root)
         }
-        // Compose: search and group name; Invite: email; New Chief: name; Chief settings: name.
-        #expect(fields.count >= 5)
+        // Invite: email; New Chief: name; Chief settings: name.
+        #expect(fields.count >= 3)
         for field in fields {
             let name = field.accessibilityLabel() ?? "\(type(of: field))"
             #expect(!field.isBezeled && !field.drawsBackground, "\(name): AppKit's bezel and fill are gone")
@@ -67,5 +70,5 @@ private struct OfflineEngine: HomeChiefEngineSource {
     var isLocal: Bool { true }
     var place: String? { nil }
     func read() async throws(HomeChiefEngineError) -> HomeChiefSnapshot { throw .localUnreachable }
-    func set(_ key: String, _ value: String?) async throws(HomeChiefEngineError) -> HomeChiefSnapshot { throw .localUnreachable }
+    func set(_ fields: [String: String?]) async throws(HomeChiefEngineError) -> HomeChiefSnapshot { throw .localUnreachable }
 }

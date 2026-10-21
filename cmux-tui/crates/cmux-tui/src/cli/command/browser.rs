@@ -229,10 +229,7 @@ fn parse_browser_profile_open(
     };
     let mut params = map_with("url", Value::String(url));
     params.insert("profile".into(), Value::String(flags.required("profile")?));
-    if let Some(engine) = flags.take("engine") {
-        validate_one_of("--engine", &engine, &["webkit", "cef"])?;
-        params.insert("engine".into(), Value::String(engine));
-    }
+    insert_engine(&mut params, flags)?;
     insert_optional_string(&mut params, flags, "title", "title");
     if let Some(background) = flags.take("background") {
         validate_one_of("--background", &background, &["true", "false"])?;
@@ -268,9 +265,28 @@ fn parse_browser_open(
     let mut params = Map::new();
     params.insert("url".into(), Value::String(url));
     insert_optional_string(&mut params, flags, "name", "name");
+    insert_engine(&mut params, flags)?;
     add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
     add_pixel_size(&mut params, flags)?;
     request(ResourceOperation::TabCreateBrowser, selectors, flags, params)
+}
+
+/// `--engine chromium|webkit` (also `chrome`, `cef`, `safari`) as the
+/// wire's `engine` field (`cef` or `webkit`). Absent leaves the field out:
+/// the person's `browser.defaultEngine` (Chromium unless set to WebKit)
+/// decides, in the app and in the daemon.
+pub(super) fn insert_engine(
+    params: &mut Map<String, Value>,
+    flags: &mut Flags,
+) -> Result<(), UsageError> {
+    let Some(engine) = flags.take("engine") else { return Ok(()) };
+    let tag = match engine.to_ascii_lowercase().as_str() {
+        "chromium" | "chrome" | "cef" => "cef",
+        "webkit" | "safari" => "webkit",
+        _ => return Err(UsageError::new("--engine must be chromium or webkit")),
+    };
+    params.insert("engine".into(), Value::String(tag.into()));
+    Ok(())
 }
 
 fn browser_no_args(

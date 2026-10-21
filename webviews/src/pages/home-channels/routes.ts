@@ -3,9 +3,9 @@
 // only sets the hash; the "+" button and the palette set the same hash, so a plain browser works
 // the same with no host.
 //   #/new/message                  a new message or channel: people and Chiefs, an optional title
-//   #/new/chief                    a new Chief
+//   #/new/chief                    a new Chief (a page on the right side, not a sheet: ChiefPage)
 //   #/conversation/<id>/invite     add people or Chiefs to a conversation
-//   #/chief/<agent>/edit           edit a Chief's profile
+//   #/chief/<agent>/edit           edit a Chief's profile, backend, lock and history (a page too)
 //   #/chief/<agent>/archive        archive (delete) a Chief, after a confirmation
 
 export type HomeRoute =

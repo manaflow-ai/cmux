@@ -48,6 +48,7 @@ impl Brain {
     /// not know: the run's key as its reply's key, and the messages the reply
     /// answers. A failure is logged once per process (display only).
     pub(super) fn turn_run(&mut self, update: crate::run::RunUpdate) {
+        self.desk_note_activity(&update.turn, &update.live);
         let Some(turn) = self.state.turn.as_ref().filter(|t| t.key == update.turn) else {
             return;
         };
@@ -89,11 +90,7 @@ impl Brain {
         }
         // A reply to a group message goes into that message's thread
         // (`reply_threads`): the run shows there while it works.
-        if let Some((root, _)) = turn
-            .answers
-            .first()
-            .and_then(|id| self.reply_threads.get(id))
-        {
+        if let Some((root, _)) = self.reply_thread(&conversation, &turn.answers) {
             run.insert("thread_root".into(), serde_json::json!(root));
         }
         let Some(daemon) = self.daemon.as_mut() else {

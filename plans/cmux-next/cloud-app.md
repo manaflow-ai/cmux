@@ -317,7 +317,7 @@ our original needs; where they differ, the chosen shape wins.
   the `cmux-cloud-session` credential kind, the host credential relay op, a `cache` data class.
 - Lane 12 (transport): `cmux.link.connect {route}` -> carrier for Cloud VMs (VPC route, token), and
   the date when `cmux link` replaces `remote connect --wireguard-hub`.
-- Browser host lead: a per-tab proxy route op (`browser.tab.open {url, proxy: {app, route}}`).
+- Browser host lead: `cloud.browser.open` returns a random credential, process incarnation and link generation with its loopback proxy. `browser.tab.open {url, machineStore}` version-fences a mutual-HMAC CONNECT opener behind the app's per-machine peer-process-checked listener and denies non-loopback destinations; Chromium receives only that app listener, never the credential or the `cmux-cloud` port. Client and server proofs bind a fresh nonce and target so a process that rebinds a stale port receives no reusable secret or browser bytes.
 - Rust CLI owner: generated `cmux cloud …` verbs from the fragment (`cli.path`).
 - Sidebar lead: a connector machine section keyed `<app>/<target>`.
 - iOS lead: the iOS client contract in 3.7.

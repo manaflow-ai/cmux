@@ -50,6 +50,15 @@ public final class PersonalStore {
         return sessionIndex[id]
     }
     public func group(_ id: WorkspaceGroupID) -> WorkspaceGroupModel? { groups.first { $0.id == id } }
+    /// The group the sidebar-document group item `id` names, as the daemon reads it: `itm_g_<id>` first.
+    public func group(item id: String) -> WorkspaceGroupModel? {
+        Self.legacyGroupID(item: id).flatMap(group) ?? group(WorkspaceGroupID(rawValue: id))
+    }
+    /// The group a sidebar-document group item `itm_g_<id>` names (the daemon's `legacy_group_id`):
+    /// a group migrated or synced from this store. A group the document made keeps its own id.
+    public nonisolated static func legacyGroupID(item: String) -> WorkspaceGroupID? {
+        item.hasPrefix("itm_g_") ? WorkspaceGroupID(rawValue: String(item.dropFirst(6))) : nil
+    }
 
     public func workspace(session: String, key: String) -> PersonalWorkspace? {
         _ = workspaces

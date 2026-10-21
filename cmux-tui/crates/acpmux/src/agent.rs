@@ -15,7 +15,12 @@ use tokio::process::Child;
 use tokio::sync::{Mutex, mpsc, oneshot};
 
 mod command;
-pub(crate) use command::{command_env, harness_command};
+#[cfg(unix)]
+pub(crate) mod session_tmp;
+pub(crate) use command::{
+    REMOTE_ENV_POLICY_ID, REMOTE_ENV_POLICY_KEY, command_env, command_env_cleared, harness_command,
+    host_environment,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
@@ -149,6 +154,9 @@ pub struct ChildAgent {
     /// (`codex_app_server.rs`) and run directly under acpmux.
     codex: Option<CodexLink>,
     hosted: Option<Hosted>,
+    /// Its cmux MCP server lists every tool (`agent_tools::lists_all_tools`,
+    /// decided at its session/new or load), for a fork through it.
+    pub all_tools: std::sync::atomic::AtomicBool,
     /// Windows: the agent's job (its process group on Unix).
     #[cfg(windows)]
     job: Option<crate::job::Job>,
@@ -247,6 +255,7 @@ impl ChildAgent {
             translator: translator.clone(),
             codex,
             hosted: None,
+            all_tools: std::sync::atomic::AtomicBool::new(false),
             #[cfg(windows)]
             job,
         });
@@ -775,6 +784,17 @@ impl ChildAgent {
         self.is_alive().await
     }
 
+    /// Whether Claude Code's translator runs this agent: here, or in its host
+    /// (only that translator answers the host's query with modes). None: the
+    /// host did not answer in time.
+    pub async fn runs_claude(&self) -> Option<bool> {
+        if self.translator.is_some() {
+            return Some(true);
+        }
+        let Some(h) = &self.hosted else { return Some(false) };
+        h.link().query().await.ok().map(|reply| reply.modes.is_some())
+    }
+
     /// The Claude translator's state, wherever the translator runs.
     pub async fn claude_state(&self) -> Option<ClaudeState> {
         if let Some(tr) = &self.translator {
@@ -905,6 +925,7 @@ impl ChildAgent {
                 exit_seen: std::sync::atomic::AtomicBool::new(false),
                 exit: tokio::sync::Notify::new(),
             }),
+            all_tools: std::sync::atomic::AtomicBool::new(false),
             #[cfg(windows)]
             job: None,
         });

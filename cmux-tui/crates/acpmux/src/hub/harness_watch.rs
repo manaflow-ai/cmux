@@ -2,7 +2,12 @@
 //! (BRING-YOUR-OWN-HARNESS H2, slice 2b).
 //!
 //! One non-recursive watcher (FSEvents on macOS, inotify on Linux) over the
-//! profile sources: the managed folders, the user folder and cmux.json. The
+//! profile sources: the managed folders, the user folder and cmux.json. On
+//! macOS a kqueue watch on the same folders (`record_watch::DirWatch`) also
+//! reports a profile file added, removed or renamed: FSEvents goes through
+//! fseventsd, which falls behind a burst of writes anywhere on the volume (a
+//! build) by many seconds or drops the events (cx-ckdxf), and the kernel's
+//! vnode events do not. FSEvents still reports an edit inside a file. The
 //! folder that holds the user folder is watched too, so a user folder that
 //! `cmux harness add` creates later is picked up; nothing is created here.
 //! No timers and no polling: the event thread blocks until an event comes,
@@ -25,9 +30,9 @@ use notify::Watcher as _;
 use crate::config::ProfileSources;
 
 /// A burst ends after this much quiet...
-const QUIET: Duration = Duration::from_millis(200);
+pub(super) const QUIET: Duration = Duration::from_millis(200);
 /// ...or after this long.
-const MAX_BURST: Duration = Duration::from_secs(2);
+pub(super) const MAX_BURST: Duration = Duration::from_secs(2);
 
 /// The hub's profile hot-reload state: the live watcher and the change feed
 /// that `_acpmux/watch` connections forward.
@@ -62,13 +67,25 @@ impl Drop for HarnessWatchState {
 pub(crate) struct HarnessWatcher {
     watcher: StdMutex<notify::RecommendedWatcher>,
     watched: StdMutex<Vec<PathBuf>>,
+    /// The kqueue watch on `watched` (macOS), made again when it changes; its
+    /// events reach the event thread as rescans through `events`.
+    #[cfg(target_os = "macos")]
+    kernel: StdMutex<Option<crate::agent_host::record_watch::DirWatch>>,
+    #[cfg(target_os = "macos")]
+    events: std::sync::mpsc::Sender<notify::Result<notify::Event>>,
 }
 
 impl Hub {
-    /// Watches the harness profile sources of the loaded config. Call once,
+    /// Watches the harness profile sources of the loaded config, and the
+    /// settings file (`start_settings_watch`). Call once,
     /// inside the runtime, before any other config write. A config built in
-    /// code (no sources) watches nothing.
+    /// code (no sources) watches no profiles.
     pub fn start_harness_watch(self: &Arc<Self>) {
+        // The settings file too: a start-mode setting change reaches the
+        // watchers (`settings_watch.rs`).
+        self.start_settings_watch();
+        // And each attached session's HEAD, so its branch stays live (`git_watch.rs`).
+        self.start_git_watch();
         let Ok(handle) = tokio::runtime::Handle::try_current() else {
             tracing::warn!("harness watch: no async runtime");
             return;
@@ -84,6 +101,8 @@ impl Hub {
             return;
         }
         let (tx, rx) = std::sync::mpsc::channel();
+        #[cfg(target_os = "macos")]
+        let events = tx.clone();
         let watcher = match notify::recommended_watcher(move |event| {
             let _ = tx.send(event);
         }) {
@@ -96,6 +115,10 @@ impl Hub {
         let watch = Arc::new(HarnessWatcher {
             watcher: StdMutex::new(watcher),
             watched: StdMutex::new(Vec::new()),
+            #[cfg(target_os = "macos")]
+            kernel: StdMutex::new(None),
+            #[cfg(target_os = "macos")]
+            events,
         });
         watch.refresh(&sources);
         *self.harness_watch.watcher.lock().unwrap_or_else(|p| p.into_inner()) = Some(watch.clone());
@@ -178,6 +201,8 @@ impl HarnessWatcher {
         let mut watched = self.watched.lock().unwrap_or_else(|p| p.into_inner());
         let mut watcher = self.watcher.lock().unwrap_or_else(|p| p.into_inner());
         // A removed folder's watch is gone with it: forget it so it returns.
+        #[cfg(target_os = "macos")]
+        let before = watched.clone();
         watched.retain(|dir| dir.is_dir());
         for dir in wanted {
             if dir.is_dir()
@@ -187,7 +212,58 @@ impl HarnessWatcher {
                 watched.push(dir);
             }
         }
+        #[cfg(target_os = "macos")]
+        if *watched != before {
+            let mut kernel = self.kernel.lock().unwrap_or_else(|p| p.into_inner());
+            // The old watch ends when dropped; the new one is armed before
+            // this returns, so the reload that follows a refresh reads every
+            // change it missed.
+            *kernel = None;
+            let events = self.events.clone();
+            let sources = sources.clone();
+            let mut last = sources_print(&sources);
+            *kernel = crate::agent_host::record_watch::DirWatch::start(&watched, move || {
+                // The folders also hold other files (cmux.json's folder):
+                // only a change to a profile source is a rescan.
+                let now = sources_print(&sources);
+                if now == last {
+                    return false;
+                }
+                last = now;
+                let rescan = notify::Event::new(notify::EventKind::Any)
+                    .set_flag(notify::event::Flag::Rescan);
+                // The event thread ended: this watch is done too.
+                events.send(Ok(rescan)).is_err()
+            });
+        }
     }
+}
+
+/// A path's size and modification time.
+#[cfg(target_os = "macos")]
+type Stamp = (u64, Option<std::time::SystemTime>);
+
+/// What the profile sources hold: each source folder's entries with their
+/// size and modification time (None for a missing folder), and cmux.json's.
+#[cfg(target_os = "macos")]
+fn sources_print(sources: &ProfileSources) -> Vec<(PathBuf, Option<Stamp>)> {
+    let stamp = |path: &Path| std::fs::metadata(path).ok().map(|m| (m.len(), m.modified().ok()));
+    let mut print = Vec::new();
+    for dir in sources.managed.iter().chain(sources.user_dir.iter()) {
+        print.push((dir.clone(), stamp(dir)));
+        let mut entries: Vec<PathBuf> = std::fs::read_dir(dir)
+            .map(|read| read.filter_map(|entry| entry.ok().map(|entry| entry.path())).collect())
+            .unwrap_or_default();
+        entries.sort();
+        print.extend(entries.into_iter().map(|path| {
+            let at = stamp(&path);
+            (path, at)
+        }));
+    }
+    if let Some(cmux_json) = &sources.cmux_json {
+        print.push((cmux_json.clone(), stamp(cmux_json)));
+    }
+    print
 }
 
 /// True when `path` is a profile source: a file in a source folder, a source

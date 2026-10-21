@@ -97,7 +97,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
   /** Team admins (Stack team_admin), per tenant. */
   const admins = new Map<string, Set<string>>();
   const upstream = makeFakeUpstream(UPSTREAM_KEY);
-  const upstreamClient = makeUpstreamClient({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), environment: "local", fetch: upstream.fetch });
+  const upstreamClient = makeUpstreamClient({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), environment: "local", fetch: (request) => upstream.fetch(request) });
   const upstreamRequests = upstream.calls;
   const audit: AuditRow[] = [];
   /** Tenants whose plan allows creating VMs. */
@@ -133,9 +133,17 @@ export async function makeHarness(options: HarnessOptions = {}) {
   const getKey = createLocalJWKSet({ keys: [jwk] });
 
   const ownership = Layer.succeed(OwnershipStore, {
+    findCreation: (tenantId, key) => Effect.sync(() => {
+      const row = [...resources].reverse().find((r) => r.tenantId === tenantId && r.kind === "vm" && r.creation?.key === key);
+      return row?.creation === undefined ? null : { receipt: row.creation.receipt, labels: row.labels, createdBy: row.createdBy, deleted: deleted.has(row.cmuxId), committed: row.committed !== false };
+    }),
     allocationStatus: (tenantId, cmuxId) => Effect.sync(() => {
       const row = resources.find((r) => r.tenantId === tenantId && r.kind === "vm" && r.cmuxId === cmuxId);
-      return !row ? "absent" as const : deleted.has(cmuxId) ? "deleted" as const : "live" as const;
+      return !row ? "absent" as const : deleted.has(cmuxId) ? "deleted" as const : row.committed === false ? "pending" as const : "live" as const;
+    }),
+    creationKey: (tenantId, cmuxId) => Effect.sync(() => {
+      const row = resources.find((r) => r.tenantId === tenantId && r.kind === "vm" && r.cmuxId === cmuxId);
+      return row?.creation?.key ?? null;
     }),
     find: (tenantId, kind, cmuxId) =>
       Effect.sync(() =>
@@ -144,8 +152,10 @@ export async function makeHarness(options: HarnessOptions = {}) {
     record: (resource) => Effect.gen(function* () {
       if (resource.kind === "vm" && recordFault.before > 0) { recordFault.before--; return yield* Effect.fail(new StoreError({ operation: "ownership.record", cause: "injected before commit" })); }
       const existing = resources.find((r) => r.cmuxId === resource.cmuxId);
-      if (existing && (existing.tenantId !== resource.tenantId || existing.kind !== resource.kind || existing.upstreamId !== resource.upstreamId || deleted.has(existing.cmuxId))) return yield* Effect.fail(new StoreError({ operation: "ownership.record", cause: "allocation identity conflict" }));
+      if (existing && (existing.tenantId !== resource.tenantId || existing.kind !== resource.kind || existing.upstreamId !== resource.upstreamId || existing.createdBy !== resource.createdBy || existing.displayName !== resource.displayName || JSON.stringify(existing.labels) !== JSON.stringify(resource.labels) || JSON.stringify(existing.creation) !== JSON.stringify(resource.creation) || deleted.has(existing.cmuxId))) return yield* Effect.fail(new StoreError({ operation: "ownership.record", cause: "allocation identity conflict" }));
       if (!existing) resources.push({ ...resource, createdAt: nextCreatedAt(resource.createdAt) });
+      // Mirrors the SQL: recording the same allocation again may commit it, never uncommit it.
+      else if (existing.committed === false && resource.committed !== false) resources[resources.indexOf(existing)] = { ...existing, committed: true };
       if (resource.kind === "vm" && recordFault.after > 0) { recordFault.after--; return yield* Effect.fail(new StoreError({ operation: "ownership.record", cause: "injected lost commit reply" })); }
     }),
     // Mirrors the SQL: tenant and kind, live rows, newest first by (created_at, cmux_id), keyset after a position.
@@ -165,7 +175,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
           )
           .slice(0, page.limit),
       ),
-    countLive: (tenantId, kind) => Effect.sync(() => resources.filter((row) => row.tenantId === tenantId && row.kind === kind && live(row)).length),
+    countLive: (tenantId, kind) => Effect.sync(() => resources.filter((row) => row.tenantId === tenantId && row.kind === kind && live(row) && row.committed !== false).length),
     markDeleted: (tenantId, kind, cmuxId) =>
       Effect.sync(() => {
         if (resources.some((row) => row.tenantId === tenantId && row.kind === kind && row.cmuxId === cmuxId)) deleted.add(cmuxId);
@@ -321,7 +331,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
     resources,
     recordFault,
     setProviderConfig(baseUrl = UPSTREAM_URL, apiKey = UPSTREAM_KEY) {
-      Object.assign(upstreamClient, makeUpstreamClient({ baseUrl, apiKey: Redacted.make(apiKey), environment: "local", fetch: upstream.fetch }));
+      Object.assign(upstreamClient, makeUpstreamClient({ baseUrl, apiKey: Redacted.make(apiKey), environment: "local", fetch: (request) => upstream.fetch(request) }));
     },
     /** Whether the ownership row for `cmuxId` is marked deleted. */
     isDeleted: (cmuxId: string) => deleted.has(cmuxId),

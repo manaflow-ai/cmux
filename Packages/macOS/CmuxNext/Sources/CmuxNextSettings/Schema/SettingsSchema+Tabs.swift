@@ -11,11 +11,12 @@ nonisolated enum TabSettingsSchema {
             help: SettingsText.keyed("settings.tabs.newTabPosition.help",
                                     "Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab."),
             kind: .choice([
-                SettingChoice(NewTabPosition.end.rawValue, SettingsText.keyed("settings.choice.newTabPositionEnd", "At the End")),
                 SettingChoice(NewTabPosition.afterCurrent.rawValue, SettingsText.keyed("settings.choice.newTabPositionAfterCurrent", "After the Current Tab")),
+                SettingChoice(NewTabPosition.end.rawValue, SettingsText.keyed("settings.choice.newTabPositionEnd", "At the End")),
+                SettingChoice(NewTabPosition.start.rawValue, SettingsText.keyed("settings.choice.newTabPositionStart", "At the Start")),
             ]),
             default: .string(NewTabPosition.fallback.rawValue),
-            keywords: ["new tab", "cmd-t", "position", "order", "right", "end", "after", "insert"]
+            keywords: ["new tab", "cmd-t", "position", "order", "right", "end", "after", "start", "first", "beginning", "insert"]
         )
     }
 
@@ -51,6 +52,19 @@ nonisolated enum TabSettingsSchema {
             kind: .toggle,
             default: .bool(NewTerminalWorkspaceSetting.fallback),
             keywords: ["new terminal", "workspace", "space", "tab", "option"]
+        )
+    }
+
+    /// `tabs.terminalFirst`: Cmd-T, Cmd-D and Cmd-Shift-D open a terminal, as in cmux classic (#23021).
+    static func terminalFirst(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(
+            TerminalFirstSetting.configPath, section: .general, group: group,
+            title: SettingsText.keyed("settings.tabs.terminalFirst", "New Tabs and Splits Open a Terminal"),
+            help: SettingsText.keyed("settings.tabs.terminalFirst.help",
+                                     "When on, Cmd-T, Cmd-D and Cmd-Shift-D open a terminal, as in cmux classic, instead of the New Tab page."),
+            kind: .toggle,
+            default: .bool(TerminalFirstSetting.fallback),
+            keywords: ["terminal", "classic", "new tab", "split", "cmd-t", "cmd-d", "new tab page", "default"]
         )
     }
 

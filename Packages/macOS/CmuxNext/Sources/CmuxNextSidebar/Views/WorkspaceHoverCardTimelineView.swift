@@ -28,19 +28,24 @@ final class WorkspaceHoverCardTimelineView: NSView {
         rowsStack.alignment = .leading
         rowsStack.spacing = Metrics.space2
         rowsStack.translatesAutoresizingMaskIntoConstraints = false
-        document.translatesAutoresizingMaskIntoConstraints = false
+        // The document is sized by frame in `configure`, so a wheel right after the card shows
+        // scrolls it before any layout pass (a constraint-sized one is zero high until then).
         document.addSubview(rowsStack)
         scrollView.documentView = document
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true
-        scrollView.autohidesScrollers = true
-        scrollView.scrollerStyle = .overlay
+        SystemScrollers.followAsCard(scrollView)
         scrollView.verticalScrollElasticity = .none
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(header)
         addSubview(scrollView)
         let height = scrollView.heightAnchor.constraint(equalToConstant: 0)
         heightConstraint = height
+        // Just below required: the document is sized by frame from a fitting height measured
+        // before it has its width, so a taller real layout (wrapped rows) conflicted with that
+        // frame on each layout pass while the card showed (204 conflicts in 3 h, up to 46 a second).
+        let documentBottom = rowsStack.bottomAnchor.constraint(equalTo: document.bottomAnchor)
+        documentBottom.priority = .init(999)
         NSLayoutConstraint.activate([
             header.topAnchor.constraint(equalTo: topAnchor),
             header.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -50,13 +55,10 @@ final class WorkspaceHoverCardTimelineView: NSView {
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
             height,
-            document.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor),
-            document.trailingAnchor.constraint(equalTo: scrollView.contentView.trailingAnchor),
-            document.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor),
             rowsStack.topAnchor.constraint(equalTo: document.topAnchor),
             rowsStack.leadingAnchor.constraint(equalTo: document.leadingAnchor),
             rowsStack.trailingAnchor.constraint(equalTo: document.trailingAnchor),
-            rowsStack.bottomAnchor.constraint(equalTo: document.bottomAnchor),
+            documentBottom,
         ])
     }
 
@@ -89,6 +91,7 @@ final class WorkspaceHoverCardTimelineView: NSView {
             row.text.preferredMaxLayoutWidth = textWidth
         }
         let content = rowsStack.fittingSize.height
+        document.frame = CGRect(x: 0, y: 0, width: width, height: content)
         heightConstraint?.constant = min(content, maxHeight)
         if changed { scrollView.contentView.scroll(to: .zero) }
         applyColors()
@@ -134,7 +137,7 @@ final class WorkspaceHoverCardTimelineView: NSView {
         for (index, row) in rows.enumerated() {
             let entry = index < entries.count ? entries[index] : nil
             row.time.textColor = Palette.textSecondary
-            row.icon.contentTintColor = entry?.kind == .waiting ? Palette.accent : Palette.textSecondary
+            row.icon.contentTintColor = entry?.kind == .waiting ? Palette.litGlyph : Palette.textSecondary
             // What the person said reads in the primary ink, what happened in the secondary.
             row.text.textColor = entry?.kind == .prompt ? Palette.textPrimary : Palette.textSecondary
         }

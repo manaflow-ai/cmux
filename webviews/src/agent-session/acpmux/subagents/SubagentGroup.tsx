@@ -53,19 +53,41 @@ export function groupElapsed(agents: readonly Subagent[], now: number): number {
   return Math.max(0, end - start);
 }
 
-/// The current time, ticking each second only while `live`.
+/// The session's clock against this computer's (the snapshot's `clockOffsetMs`: this computer's
+/// clock minus the session's; a peer runs on its own). A subagent's times are the session's.
+export const SubagentClockContext = createContext(0);
+
+/// The current time on the session's clock (SubagentClockContext), ticking each second only
+/// while `live`, so it counts against the subagents' own start and end times. A hidden pane's
+/// clock rests (the tray above the composer, a group card and the summary rows tick with it) and
+/// catches up the moment the pane shows again.
 export function useNow(live: boolean): number {
+  const offset = useContext(SubagentClockContext);
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     if (!live) return;
-    setNow(Date.now());
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const tick = () => setNow(Date.now());
+    const sync = () => {
+      clearInterval(timer);
+      timer = undefined;
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      tick();
+      timer = setInterval(tick, 1000);
+    };
+    sync();
+    if (typeof document === "undefined") return () => clearInterval(timer);
+    document.addEventListener("visibilitychange", sync);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", sync);
+    };
   }, [live]);
-  return now;
+  return now - offset;
 }
 
-function Avatar({ agent, dot = false }: { agent: Subagent; dot?: boolean }) {
+/// A subagent's avatar: the harness's mark in the agent's tone, with its status dot when `dot`.
+export function Avatar({ agent, dot = false }: { agent: Subagent; dot?: boolean }) {
   const harness = useContext(SubagentHarnessContext);
   return (
     <span className="cv-subagent-avatar" data-state={agent.state}>
@@ -82,12 +104,15 @@ function groupLabel(t: Translate, language: PaneLanguage, agents: readonly Subag
   const n = agents.length;
   const count = (state: string) => agents.filter((agent) => agent.state === state).length;
   const [runningCount, failed, done] = [count("running"), count("failed"), count("completed")];
+  // Stopped by the person (cancelled) or lost by acpmux (disconnected): ended, not failed.
+  const stopped = count("cancelled") + count("disconnected");
   if (n > 0 && runningCount === n) return t("subagents.allRunning", { n });
   if (n > 0 && done === n) return t("subagents.allDone", { n });
   if (n > 0 && failed === n) return t("subagents.allFailed", { n });
   const states = [
     runningCount > 0 && t("summary.subagents.running", { n: runningCount }),
     failed > 0 && t("summary.subagents.failed", { n: failed }),
+    stopped > 0 && t("summary.subagents.stopped", { n: stopped }),
     runningCount === 0 && done > 0 && t("summary.subagents.done", { n: done }),
   ].filter((part): part is string => typeof part === "string");
   const total = t("subagents.count", { n });
@@ -189,7 +214,7 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
 /// A running subagent's stop button. It stays off while Claude has the request (and after Claude
 /// takes it, until the subagent ends); when acpmux or Claude refuses, it says so and can be tried
 /// again.
-function StopButton({ agent, stop }: { agent: Subagent; stop: (id: string) => Promise<unknown> }) {
+export function StopButton({ agent, stop }: { agent: Subagent; stop: (id: string) => Promise<unknown> }) {
   const t = useT();
   const [state, setState] = useState<"idle" | "stopping" | "failed">("idle");
   const label = t(state === "failed" ? "subagents.stopFailed" : "subagents.stop", { name: agent.name });

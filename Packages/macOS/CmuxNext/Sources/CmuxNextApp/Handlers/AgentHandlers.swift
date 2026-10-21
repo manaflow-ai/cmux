@@ -2,50 +2,41 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCompat
+import CmuxNextComputerUse
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextHomeEngine
 import CmuxNextOnboarding
 import CmuxNextSettings
 import Observation
 
-/// Agent actions. Forks read the agent session the daemon reports for the
-/// focused terminal (`TabModel.agent`, from `list-agents` state) and start
-/// `claude --resume <session> --fork-session` in a new terminal placed by
-/// daemon commands. New Agent Chat opens the React acpmux pane in a tab
+/// Agent actions. Fork Conversation (``AgentForkDestination``): an agent chat tab forks through
+/// its page (`chat.forkTo`) and opens the fork at the destination (`AgentTabStore.openFork`); a
+/// terminal forks the agent session the daemon reports for it (`TabModel.agent`, from
+/// `list-agents` state) by its CLI (`claude --resume <session> --fork-session`, `codex fork
+/// <session>`) in a new terminal placed by daemon commands. New Agent Chat opens the React acpmux pane in a tab
 /// (CmuxNextAgentPane), and Toggle Dictation drives its composer's mic.
 /// Start Agent toggles the floating `QuickComposerController` panel.
 /// Computer Use Setup and its two grants run `ComputerUseSetup`.
-/// Terminal-as-chat, Teams, and Computer Use focus/stop are
-/// typed-unavailable.
+/// Launch Claude/Codex Teams run `AgentTeamsLaunch`. Computer Use
+/// focus/stop are typed-unavailable.
 enum AgentHandlers {
-    enum Placement {
-        case right, left, above, below, newTab, newWorkspace
-    }
-
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("agentPaneZoomIn", run: { invocation in try setAgentPaneZoom(by: AgentPaneZoomSetting.step, context: context, invocation: invocation) })
         registry.bind("agentPaneZoomOut", run: { invocation in try setAgentPaneZoom(by: -AgentPaneZoomSetting.step, context: context, invocation: invocation) })
         registry.bind("agentPaneZoomReset", run: { invocation in try resetAgentPaneZoom(context, invocation: invocation) })
-        let forks: [(ActionID, Placement)] = [
-            ("palette.forkAgentConversationRight", .right), ("palette.forkAgentConversationLeft", .left),
-            ("palette.forkAgentConversationTop", .above), ("palette.forkAgentConversationBottom", .below),
-            ("palette.forkAgentConversationNewTab", .newTab), ("palette.forkAgentConversationNewWorkspace", .newWorkspace),
-        ]
-        for (id, placement) in forks {
-            registry.bind(id, run: { try fork(placement, invocation: $0, context: context) })
+        for (id, destination) in forkActions {
+            registry.bind(id, run: { try fork(destination, invocation: $0, context: context) })
         }
         registry.bind("agentActivity.open", run: { _ in context.services.agentActivityPage.open() })
         AgentSessionWorkspace.bind(into: registry, context: context)
+        AgentSessionTab.bind(into: registry, context: context)
         ChiefInspectorHandlers.bind(into: registry, context: context)
         AddHarnessHandler.bind(into: registry, context: context)
         AgentHarnessHandlers.bind(into: registry, context: context)
-        registry.bind("home.toggleChiefSettings", run: { _ in
-            NotificationCenter.default.post(name: HomeHostView.toggleSettings, object: nil)
-        })
-        registry.bind(HomeChiefControl.stopAction, run: { _ in
-            NotificationCenter.default.post(name: HomeChiefControl.stopNotification, object: nil)
-        })
+        // The front window's Home, else the Chief directly (HomeChiefActions).
+        HomeChiefActions.bind(into: registry, context: context)
         // Start Agent: its key, the palette, the menu and the CLI toggle one floating panel, and so
         // does Start Agent from Any App, its opt-in system-wide key (`app.startAgentGlobalHotKey`).
         // The panel takes the keyboard from the frontmost app, so automation
@@ -120,18 +111,17 @@ enum AgentHandlers {
                 view.runPermissionAction(command, byPerson: invocation.origin == .user)
             })
         }
-        // Previous Turn and Next Turn step the agent chat's transcript from prompt to prompt (cx-f7c).
-        let turnSteps: [(ActionID, Bool)] = [("agentPane.previousTurn", false), ("agentPane.nextTurn", true)]
-        for (id, forward) in turnSteps {
-            registry.bind(id, run: { invocation in
+        // Previous and Next Turn and Bookmarked Prompt step the agent chat's transcript (cx-f7c).
+        for step in AgentTranscriptStep.allCases {
+            registry.bind(ActionID(rawValue: step.actionID), run: { invocation in
                 guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
                       let view = context.services.agentTabs.existingView(key) else {
                     return context.refuse(MiscHandlerStrings.noAgentChat)
                 }
-                view.stepTurn(forward: forward)
+                view.step(step)
             })
         }
-        // Continue in… is a user-facing chooser. Headless callers use the
+        // Continue In… is a user-facing chooser. Headless callers use the
         // acpmux-owned CLI operation, so automation cannot open this UI unless
         // it explicitly requests focus.
         registry.bind("agentPane.continueIn", run: { invocation in
@@ -190,11 +180,14 @@ enum AgentHandlers {
             })
         }
         TerminalChatHandler.bind(into: registry, context: context)
-        registry.bindUnavailable(["palette.launchClaudeTeams", "palette.launchCodexTeams"], ActionFailure(message: MiscHandlerStrings.agentTeams))
-        registry.bindUnavailable(
-            ["computerUseFocus", "computerUseFocusCallingTerminal", "computerUseStop"],
-            ActionFailure(message: MiscHandlerStrings.computerUse)
-        )
+        AgentTeamsLaunch.bind(into: registry, context: context)
+        let services = context.services
+        let helper = ComputerUseHelperDaemon.shared
+        ComputerUseHandlers.bind(
+            into: registry,
+            sessions: CuaComputerUseSessions(configuration: { helper.configuration },
+                                             phase: { [weak services] in services?.onboarding.computerUseSetup.phase ?? .off }),
+            focus: AppComputerUseFocus(services: services))
     }
 
     private static let agentPaneZoomPath = AgentPaneZoomSetting.configPath
@@ -235,21 +228,44 @@ enum AgentHandlers {
         pane.newAgentTab()
     }
 
-    /// The shell line that forks `session`, or nil for agents without fork
-    /// support or session ids that are not plain tokens.
-    static func forkCommand(agent: String?, session: String?) -> String? {
-        guard agent?.lowercased().contains("claude") == true, let session, !session.isEmpty,
-              session.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) else { return nil }
-        return "claude --resume \(session) --fork-session"
+    /// Fork Conversation's actions, in the palette step's order (the default destination first).
+    static let forkActions: [(ActionID, AgentForkDestination)] = [
+        ("palette.forkAgentConversationRight", .right), ("palette.forkAgentConversationLeft", .left),
+        ("palette.forkAgentConversationTop", .up), ("palette.forkAgentConversationBottom", .down),
+        ("palette.forkAgentConversationNewTab", .tab), ("palette.forkAgentConversationNewWorkspace", .workspace),
+        ("palette.forkAgentConversationNewWindow", .window),
+    ]
+
+    /// The destination fork action `id` opens at, or nil for another action.
+    static func destination(of id: ActionID) -> AgentForkDestination? {
+        forkActions.first { $0.0 == id }?.1
     }
 
-    private static func fork(_ placement: Placement, invocation: ActionInvocation, context: AppActionContext) throws {
-        guard let (pane, id) = context.scope(invocation).tab, let tab = pane.tab(id), tab.kind == .pty else {
-            throw ActionFailure(message: MiscHandlerStrings.noTerminal)
+    /// The shell line that forks a terminal agent's `session` by its own CLI (Claude Code, Codex),
+    /// or nil for other agents and session ids that are not plain tokens.
+    static func forkCommand(agent: String?, session: String?) -> String? {
+        guard let agent = agent?.lowercased(), let session, !session.isEmpty,
+              session.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) else { return nil }
+        if agent.contains("claude") { return "claude --resume \(session) --fork-session" }
+        if agent.contains("codex") { return "codex fork \(session)" }
+        return nil
+    }
+
+    private static func fork(_ destination: AgentForkDestination, invocation: ActionInvocation, context: AppActionContext) throws {
+        guard let (pane, id) = context.scope(invocation).tab, let tab = pane.tab(id) else {
+            throw ActionFailure(message: MiscHandlerStrings.noForkTarget)
         }
+        // An agent chat (a Home chat, a subagent chat, a chat on another machine): its page forks
+        // through acpmux and the app opens the fork at the destination.
+        if let view = context.services.agentTabs.existingView(tab.id) {
+            guard !context.services.agentTabs.isNewTabPage(tab.id) else { throw ActionFailure(message: MiscHandlerStrings.noForkTarget) }
+            view.forkConversation(to: destination)
+            return
+        }
+        guard tab.kind == .pty else { throw ActionFailure(message: MiscHandlerStrings.noForkTarget) }
         guard let status = tab.agent, status.session?.isEmpty == false else { throw ActionFailure(message: MiscHandlerStrings.noAgentSession) }
         guard let command = forkCommand(agent: status.agent, session: status.session) else {
-            throw ActionFailure(message: MiscHandlerStrings.forkClaudeOnly)
+            throw ActionFailure(message: MiscHandlerStrings.forkTerminalAgents)
         }
         let connection = try context.requireConnection()
         let handle = pane.pane.handle
@@ -259,7 +275,7 @@ enum AgentHandlers {
         let repair = context.services.emptyWorkspaces
         // A fork into a new workspace is placed like Cmd-N: in the current group (cx-caoh).
         let key = WorkspaceKey.generate()
-        if placement == .newWorkspace {
+        if destination == .workspace || destination == .window {
             let windows = context.services.windows
             NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: NewWorkspacePlacements.rule(for: nil, in: windows), windows: windows)
         }
@@ -267,24 +283,30 @@ enum AgentHandlers {
             do {
                 let surface: SurfaceID?
                 var workspace: WorkspaceKey?
-                switch placement {
+                switch destination {
                 case .right, .left:
                     surface = try await connection.split(handle, direction: .right, options: options).surface
                     // A split always opens right/below; swap to put the fork first.
-                    if placement == .left { try await connection.swapPane(handle, with: .direction(.right)) }
-                case .below, .above:
+                    if destination == .left { try await connection.swapPane(handle, with: .direction(.right)) }
+                case .down, .up:
                     surface = try await connection.split(handle, direction: .down, options: options).surface
-                    if placement == .above { try await connection.swapPane(handle, with: .direction(.down)) }
-                case .newTab:
+                    if destination == .up { try await connection.swapPane(handle, with: .direction(.down)) }
+                case .tab:
                     surface = try await connection.newTab(in: handle, options: options).surface
-                case .newWorkspace:
+                case .workspace, .window:
                     workspace = key
                     surface = try await WorkspaceCreation.create(key, name: nil, on: connection, repair: repair) { created in
                         try await connection.createTerminal(in: created, cwd: options.cwd).surface
                     }
                 }
                 if let surface { try await connection.send(surface, text: line) }
-                if let workspace { context.window(showing: workspace.rawValue) }
+                if let workspace {
+                    context.window(showing: workspace.rawValue)
+                    // A new window: the fork's new workspace moves there, as Move Workspace to New Window moves one.
+                    if destination == .window {
+                        _ = context.registry.perform("moveWorkspaceToNewWindow", invocation: ActionInvocation(target: ActionTargetRef(kind: .workspace, id: workspace.rawValue), origin: .user))
+                    }
+                }
             } catch {
                 logger.error("fork-agent-conversation failed: \(String(describing: error), privacy: .public)")
             }
@@ -308,6 +330,10 @@ enum AgentHandlers {
             guard path.hasPrefix("/") else { throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path)) }
             guard let url = AgentPaneFileOpen.resolve(path) else { throw ActionFailure(message: MiscHandlerStrings.fileNotFound(path)) }
             guard let pane = context.paneController(invocation) else { return }
+            // `cmux open` run from an agent chat: a quote from the file's viewer goes back to that chat.
+            if let session = invocation.callerAgentSession, let chat = context.services.agentTabs.tab(showing: session) {
+                context.services.chatQuoteOpeners.noteOpened(url, byAgentTab: chat)
+            }
             if let reason = context.services.viewers.openFile(url, in: pane, userChose: invocation.origin == .user) { throw ActionFailure(message: reason) }
             return
         }

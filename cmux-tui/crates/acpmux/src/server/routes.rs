@@ -33,6 +33,7 @@ fn params_of(file: &routes::RouteFile) -> Value {
         ("openai_base_url", "openaiBaseUrl"),
         ("health_url", "healthUrl"),
         ("auto_fallback", "autoFallback"),
+        ("account_home", "accountHome"),
     ] {
         if let Some(x) = obj.remove(from) {
             obj.insert(to.into(), x);

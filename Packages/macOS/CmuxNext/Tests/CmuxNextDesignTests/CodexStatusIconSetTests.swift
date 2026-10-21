@@ -41,8 +41,18 @@ import Testing
         let blue = Self.colors.color(for: .unread).components ?? []
         #expect(blue.map { ($0 * 255).rounded() } == [57, 130, 245, 255])
         #expect(Self.plan(.error) == StatusIndicatorPlan(glyph: .mark(.vector(.info)), animation: nil, tint: .danger))
-        #expect(Self.plan(.waiting(kind: .question)) == StatusIndicatorPlan(glyph: .mark(.vector(.waiting)), animation: nil, tint: .loading))
         #expect(Self.plan(.waiting(kind: .permission)) == StatusIndicatorPlan(glyph: .mark(.vector(.shieldLine)), animation: nil, tint: .loading))
         #expect(Self.plan(.idle) == .hidden)
+    }
+
+    @Test(arguments: [StatusBlockedKind?.none, .question])
+    func waitingOnYouDrawsTheSharedDotNotATalkBubble(_ kind: StatusBlockedKind?) {
+        // Lawrence 2026-10-20: "rm the talk icon" (the grey speech bubble beside the work spinner in
+        // tabs, sidebar rows and group headers). Waiting on you keeps the one existing dot shape, in
+        // the attention tint so it reads apart from done's blue dot; no new glyph.
+        let plan = Self.plan(.waiting(kind: kind))
+        #expect(plan.glyph != .mark(.vector(.waiting)), "the talk bubble is back")
+        #expect(plan == StatusIndicatorPlan(glyph: .mark(.vector(.dot)), animation: nil, tint: .attention))
+        #expect(Self.plan(.waiting(kind: kind), animates: false) == plan)
     }
 }

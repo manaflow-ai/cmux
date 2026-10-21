@@ -36,6 +36,9 @@ final class PaneHostView: NSView, RestingPlacement {
         wantsLayer = true
         layer?.masksToBounds = true
         clipView.frame = bounds
+        // `layoutClip` places the content itself: autoresizing would resize held content on every
+        // spring frame before it is set back (`contentFrame(in:)`).
+        clipView.autoresizesSubviews = false
         addSubview(clipView)
         content.translatesAutoresizingMaskIntoConstraints = true
         content.autoresizingMask = [.width, .height]
@@ -59,6 +62,57 @@ final class PaneHostView: NSView, RestingPlacement {
     /// to rest tells the content, whose window-relative chrome held its motion layout.
     var restOffset: CGVector = .zero {
         didSet { if restOffset == .zero, oldValue != .zero, window != nil { reporter?.paneFrameInWindowDidChange() } }
+    }
+
+    /// Whether the host's frame is on a layout spring (`RestingPlacement`): set before the frame of
+    /// each moving display frame and cleared after the frame it lands at, so content resized on the
+    /// landing frame still sees the motion, then hears it end once (`PaneMotionSettling`): a
+    /// terminal reports its grid there, one PTY resize per zoom instead of one per frame.
+    var isOnLayoutSpring = false {
+        didSet {
+            guard oldValue != isOnLayoutSpring else { return }
+            if isOnLayoutSpring {
+                heldContentSize = LayoutTunables.holdsContentInMotion.value ? content.frame.size : nil
+            } else {
+                heldContentSize = nil
+                // The one layout at the size the spring landed at, before the content hears it landed.
+                layoutClip()
+                content.notifyPaneMotionSettled()
+            }
+        }
+    }
+
+    /// The host's size at rest (its spring rect's target), set with ``restOffset`` on every
+    /// presented frame; nil before the screen first places it.
+    var restSize: CGSize?
+
+    /// The content's size when the current layout spring started; nil at rest or with
+    /// `LayoutTunables.holdsContentInMotion` off.
+    private var heldContentSize: CGSize?
+
+    /// The content's frame in the clip: the clip's bounds at rest. On a layout spring it keeps the
+    /// larger of its size when the spring started and its size at rest (Leo 2026-10-20: a panel
+    /// opening beside a chat lagged, the chat reflowing on every frame), so a page or a terminal
+    /// lays out once and the clip shows what each frame shows. It is pinned at the edge nearer its
+    /// rest, so it rides that edge: a pane opening on the right slides in from the right while the
+    /// chat keeps its width under it until the spring lands.
+    private func contentFrame(in clip: CGRect) -> CGRect {
+        guard let held = heldContentSize, let restSize else { return clip }
+        let rest = CGSize(width: max(0, clip.width + restSize.width - frame.width),
+                          height: max(0, clip.height + restSize.height - frame.height))
+        let size = CGSize(width: max(clip.width, held.width, rest.width), height: max(clip.height, held.height, rest.height))
+        // The far edge's distance from its rest against the near edge's (`restOffset`).
+        let trailing = abs(restOffset.dx + restSize.width - frame.width) < abs(restOffset.dx) - 0.5
+        let bottom = abs(restOffset.dy + restSize.height - frame.height) < abs(restOffset.dy) - 0.5
+        return CGRect(x: trailing ? clip.maxX - size.width : clip.minX,
+                      y: bottom == isFlipped ? clip.maxY - size.height : clip.minY,
+                      width: size.width, height: size.height)
+    }
+
+    /// A host taken out of the layout mid-spring is at rest: its content reports what it holds.
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        if superview == nil { isOnLayoutSpring = false }
     }
 
     /// Whether the pane sits in a docked column: it then shows the
@@ -123,7 +177,8 @@ final class PaneHostView: NSView, RestingPlacement {
         // launch frame. AppKit does not reliably run the child's autoresizing
         // pass when the clip view is resized manually, so keep the content
         // frame in lockstep with the clip bounds here.
-        if content.frame != clipView.bounds { content.frame = clipView.bounds }
+        let content = contentFrame(in: clipView.bounds)
+        if self.content.frame != content { self.content.frame = content }
         applyChromeShape()
     }
 
@@ -163,6 +218,16 @@ final class PaneHostView: NSView, RestingPlacement {
     /// reaches (`StripClipMaskLayer.cutouts`).
     /// Returns true when the clip changed: a Chromium page in this pane then
     /// re-reads its clip shape, which carries this mask (`CEFClipShape`).
+    /// The part of this host (own coordinates) that takes clicks while it sits in a scroll area
+    /// (scroll-areas-DESIGN.md): what scrolled out of the area's window is masked away and must
+    /// not take clicks meant for the view beside the area. Nil outside an area.
+    var areaHitClip: CGRect?
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        if let areaHitClip, !areaHitClip.contains(convert(point, from: superview)) { return nil }
+        return super.hitTest(point)
+    }
+
     @discardableResult
     func setStripClip(_ rect: CGRect?, cutouts: [CGRect] = []) -> Bool {
         guard let layer else { return false }
@@ -187,10 +252,12 @@ final class PaneHostView: NSView, RestingPlacement {
 
     func setChrome(showsRing: Bool, dim: CGFloat, dimFill: PaneOverlayView.DimFill = .pane, focusRing: FocusRingSettings,
                    ringAlphaOverride: CGFloat? = nil, tabEmphasis: ChromeEmphasis = .full, border: PaneOverlayView.Border,
-                   attention: AttentionMark?, attentionSettings: AttentionSettings, animated: Bool) {
+                   attention: AttentionMark?, attentionSettings: AttentionSettings, readByEntry: Bool = false,
+                   focused: Bool = false, flashesFocus: Bool = false, animated: Bool) {
         reporter?.setChromeEmphasis(tabEmphasis, animated: animated)
         chrome.update(showsRing: showsRing, dim: dim, dimFill: dimFill, focusRing: focusRing, ringAlphaOverride: ringAlphaOverride, border: border,
-                      attention: attention, attentionSettings: attentionSettings, animated: animated)
+                      attention: attention, attentionSettings: attentionSettings, readByEntry: readByEntry,
+                      focused: focused, flashesFocus: flashesFocus, animated: animated)
     }
 }
 

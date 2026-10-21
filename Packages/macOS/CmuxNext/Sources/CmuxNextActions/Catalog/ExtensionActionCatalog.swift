@@ -25,9 +25,18 @@ nonisolated enum ExtensionActionCatalog: ActionCatalogGroup {
                        "extension manage", extra: ["settings", "list"], arguments: []),
             descriptor("browser.extensions.webStore", String(localized: "action.extensions.webStore", defaultValue: "Open Chrome Web Store", table: "Extensions", bundle: .module), "bag",
                        "extension web-store", extra: ["install", "store", "add"], arguments: []),
-            descriptor("browser.extensions.loadUnpacked", String(localized: "action.extensions.loadUnpacked", defaultValue: "Load Unpacked Extension…", table: "Extensions", bundle: .module),
-                       "folder.badge.plus", "extension load-unpacked", extra: ["install", "developer", "folder"],
-                       arguments: [ExtensionArgument.path]),
+            {
+                var loadUnpacked = descriptor(
+                    "browser.extensions.loadUnpacked",
+                    String(localized: "action.extensions.loadUnpacked", defaultValue: "Load Unpacked Extension…", table: "Extensions", bundle: .module),
+                    "folder.badge.plus", "extension load-unpacked", extra: ["install", "developer", "folder"],
+                    arguments: [ExtensionArgument.path]
+                )
+                // Unpacked code is persistent and can run across the browser profile. Keep the
+                // in-app palette/menu/keyboard entrypoints, but refuse every socket origin.
+                loadUnpacked.isPersonOnly = true
+                return loadUnpacked
+            }(),
             descriptor("browser.extension.run", String(localized: "action.extension.run", defaultValue: "Run Extension", table: "Extensions", bundle: .module), "play",
                        "extension run", extra: ["popup", "click", "action"], surfaces: [.palette, .keyboard, .contextMenu]),
             descriptor("browser.extension.options", String(localized: "action.extension.options", defaultValue: "Extension Options", table: "Extensions", bundle: .module), "gearshape",

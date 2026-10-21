@@ -17,9 +17,13 @@ struct PageInputCursorEvents {
 
     /// The session an agent's inputs draw as: ``AgentCursorSessionLabel/cliSession``,
     /// with `:NAME` for a named agent.
-    static func sessionID(agent: String?) -> String {
+    /// A known caller (`origin`) adds `|` and its tab id: two agents of one
+    /// name in two workspaces draw two cursors, each with its own tag link.
+    static func sessionID(agent: String?, origin: BrowserPageAgentOrigin? = nil) -> String {
         let name = (agent ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        return name.isEmpty ? AgentCursorSessionLabel.cliSession : AgentCursorSessionLabel.cliSession + ":" + name
+        let session = name.isEmpty && origin == nil ? AgentCursorSessionLabel.cliSession : AgentCursorSessionLabel.cliSession + ":" + name
+        guard let origin else { return session }
+        return session + String(AgentCursorSessionLabel.callerSeparator) + origin.tabID
     }
 
     /// The event and typing `input` draws as; nil for a pointer input with no measured element.
@@ -50,7 +54,7 @@ struct PageInputCursorEvents {
                                  key: printable && input.secret ? nil : key, masked: printable && input.secret)
         }
         if kind != .type && kind != .key, center == nil { return nil }
-        let session = Self.sessionID(agent: input.agent)
+        let session = Self.sessionID(agent: input.agent, origin: input.origin)
         let seq = seqs[session, default: 0]
         seqs[session] = seq + 1
         let elapsed = ContinuousClock.now - start

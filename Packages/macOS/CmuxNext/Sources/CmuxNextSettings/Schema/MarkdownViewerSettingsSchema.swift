@@ -23,8 +23,10 @@ nonisolated enum MarkdownViewerSettingsSchema {
     /// The page's default (`--cmux-md-code-scale`, as GitHub's 85%).
     static let codeScaleFallback: Double = 0.875
 
-    /// Every row's key (agents may set them: looks only).
-    static var keys: Set<String> { Set(descriptors.map(\.id)) }
+    /// Display-only keys agents may set. Automatic web images are a person's privacy choice.
+    static var agentSettableKeys: Set<String> {
+        Set(descriptors.map(\.id)).subtracting(["markdown.remoteImages"])
+    }
 
     static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.markdownViewer", "Markdown Viewer")
@@ -34,6 +36,10 @@ nonisolated enum MarkdownViewerSettingsSchema {
                               kind: kind, default: value, keywords: ["markdown", "viewer", "reading"] + keywords)
         }
         return [
+            row(["remoteImages"], SettingsText.keyed("settings.markdown.remoteImages", "Load Web Images Automatically"),
+                help: SettingsText.keyed("settings.markdown.remoteImages.help",
+                                         "Web image sites can see your address and when you open a document. When off, each document asks before loading its web images."),
+                .toggle, .bool(false), ["image", "web", "remote", "privacy", "tracking", "automatic"]),
             row(["layout", "width"], SettingsText.keyed("settings.markdown.width", "Text Width"),
                 help: SettingsText.keyed("settings.markdown.width.help",
                                          "The widest a line of text gets, in characters (30 to 1000). On a wider window the text stays centered with margins. Wide tables and code scroll sideways in their own box."),
@@ -70,6 +76,14 @@ nonisolated enum MarkdownViewerSettingsSchema {
                                          "Code as a share of the text size. A monospaced font looks bigger than the text font at the same size, so code is a little smaller by default."),
                 .number(SettingNumber(codeScaleRange, step: 0.025, unit: .fraction, placeholder: codeScaleFallback)),
                 .number(codeScaleFallback), ["code", "font", "size", "monospace", "scale"]),
+            SettingDescriptor(
+                ["markdown", "code", "family"], section: .appearance, group: group,
+                title: SettingsText.keyed("settings.markdown.codeFont", "Code Font"),
+                help: SettingsText.keyed("settings.markdown.codeFont.help",
+                                         "The font of code blocks and inline code. Empty uses the terminal font. The agent chat uses it too unless it has its own."),
+                kind: .fontFamily, default: nil,
+                keywords: ["markdown", "viewer", "reading", "code", "font", "family", "monospace"]
+            ),
             // A fixed code block size in pixels; `code.scale` is the row. Kept so cmux.json files that
             // set it still validate and the viewer can clear it when the user picks a code size.
             SettingDescriptor(

@@ -33,9 +33,9 @@ final class ProgressLineView: NSView {
         }
         // A bar that just appeared starts in place; later progress glides.
         if !wasVisible && visible {
-            Motion.transaction(nil, apply)
+            Motion.indicators.transaction(nil, apply)
         } else {
-            Motion.transaction(spring: .move, apply)
+            Motion.indicators.transaction(spring: .move, apply)
         }
     }
 

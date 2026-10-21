@@ -64,6 +64,7 @@ export class AccountReader {
     this.host.set({
       teams: teams.status === "fulfilled" ? teams.value : [],
       plan: plan.status === "fulfilled" ? plan.value : undefined,
+      planFailed: plan.status === "rejected" && !isUnsupported(plan.reason),
       migration: migration.status === "fulfilled" ? migration.value : undefined,
     });
   }
@@ -73,9 +74,11 @@ export class AccountReader {
     if (!this.client || this.host.get().unavailable.includes(CloudOps.planGet)) return;
     try {
       const plan = await this.client.call<CloudPlan>(CloudOps.planGet, {});
-      if (session === this.host.session()) this.host.set({ plan });
+      if (session === this.host.session()) this.host.set({ plan, planFailed: false });
     } catch {
-      // The plan shown stays; the next change or page open reads it again.
+      // The plan shown stays; the next change or page open reads it again. Without one, the
+      // storefront shows the failure and Retry.
+      if (session === this.host.session() && !this.host.get().plan) this.host.set({ planFailed: true });
     }
   }
 

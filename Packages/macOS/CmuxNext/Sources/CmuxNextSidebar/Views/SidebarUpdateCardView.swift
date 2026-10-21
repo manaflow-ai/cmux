@@ -35,18 +35,10 @@ final class SidebarUpdateCardView: NSView {
     /// The staged update's highlights (the React ready surface; set by the sidebar).
     var highlights: (any SidebarSurfaceIsland)? {
         didSet {
-            // A new page gets a new popup (the old one held the old page).
-            if let notesPanel {
-                // Its close must not park the new page or close the new popup.
-                notesPanel.onClosed = nil
-                notesPanel.onDismiss = nil
-                notesPanel.host.onPointerExit = nil
-                notesPanel.host.onPointerEnter = nil
-                cancelNotesClose()
-                notesPanel.parent?.removeChildWindow(notesPanel)
-                notesPanel.orderOut(nil)
-            }
-            notesPanel = nil
+            // A new page closes the popup that held the old one.
+            cancelNotesClose()
+            if notesAreShown { hoverCards()?.endOwned(Self.notesID) }
+            oldValue?.onHeightChange = nil
             oldValue?.view.removeFromSuperview()
             highlights?.onAction = { [weak self] in self?.hideNotes() }
             parkHighlights()
@@ -76,8 +68,10 @@ final class SidebarUpdateCardView: NSView {
         highlights.view.autoresizingMask = [.width, .height]
         parking.addSubview(highlights.view)
     }
-    /// The themed popup the highlights show in (no arrow: the popup style every cmux popup has).
-    var notesPanel: SidebarUpdateNotesPanel?
+    /// The highlights page's host in the app's one hover card (menu-wide, page-tall).
+    let notesHost = SidebarPopoverIslandHost(width: SidebarUpdateCardView.popoverWidth)
+    /// The app's one hover card coordinator (the sidebar's list's); the popup shows in its window.
+    var hoverCards: @MainActor () -> HoverCardCoordinator? = { nil }
     /// The highlights page's place while the popover is closed.
     let parking = SidebarIslandParking()
     /// Set by the hover owner (`PointerHover`, cx-3wu5).
@@ -87,6 +81,8 @@ final class SidebarUpdateCardView: NSView {
     /// whole card opens the popup even when no enter reached it (a still pointer the card
     /// appeared under, an enter that a child window covering the card at that moment took).
     private var moveTracking: NSTrackingArea?
+    /// The mouse went down on the card's body (not one of its controls).
+    private var clickStartedOnCard = false
     /// The popup's delayed close after the pointer left the card or the popup
     /// (``scheduleNotesClose()``): one-shot, re-armed while the pointer is on its way.
     /// Tests swap in one on a manual clock.
@@ -99,12 +95,17 @@ final class SidebarUpdateCardView: NSView {
     /// action, the app resigning active): moves over the card do not reopen it
     /// until the pointer leaves and comes back.
     var notesDismissedWhileHovered = false
+    /// A click on the card pinned the preview open (Leo 2026-10-20: hover previews, a click
+    /// expands it to read and scroll): the pointer leaving no longer closes it, and it grows
+    /// to ``SidebarUpdateCardView/pinnedMaxHeightFraction`` of the window. Another click on the
+    /// card, Hide, an action in it or another hover card taking the window unpins it.
+    var notesPinned = false
     /// The pointer on screen, read by every popup check (tests place it).
     var screenPointer: () -> CGPoint = { NSEvent.mouseLocation }
     /// Shows and hides the card with its entrance and exit (``SidebarCardTransition``).
     private(set) lazy var presence = SidebarCardPresence(self, policy: motionPolicy)
     /// The motion settings the card's transitions follow (`Motion.policy`; tests set their own before the first card).
-    var motionPolicy: @MainActor () -> MotionPolicy = { Motion.policy }
+    var motionPolicy: @MainActor () -> MotionPolicy = { Motion.overlays.policy }
     /// The card plays its exit: the slot keeps it in place until it has gone.
     var isLeaving: Bool { presence.isLeaving }
 
@@ -117,6 +118,9 @@ final class SidebarUpdateCardView: NSView {
         detailLabel.lineBreakMode = .byTruncatingTail
         detailLabel.maximumNumberOfLines = 1
         [titleLabel, detailLabel, checkbox, button, closeButton].forEach(addSubview)
+        checkbox.setAccessibilityIdentifier("cmux.sidebar.update.automatic")
+        button.setAccessibilityIdentifier("cmux.sidebar.update.install")
+        closeButton.setAccessibilityIdentifier("cmux.sidebar.update.hide")
         button.onPress = { [weak self] in self?.onInstall?() }
         closeButton.onPress = { [weak self] in self?.closePressed() }
         checkbox.onToggle = { [weak self] on in self?.onAutomaticUpdates?(on) }
@@ -248,13 +252,16 @@ final class SidebarUpdateCardView: NSView {
 
     override func menu(for event: NSEvent) -> NSMenu? { closeMenu }
 
-    /// Hide: one click hides this version's card at once (no menu).
+    /// Hide: one click hides this version's card (no menu). It fades out; under Reduce Motion it
+    /// goes in one frame (Lawrence 2026-10-20).
     private func closePressed() {
         hideNotes()
+        presence.hidesNextAtOnce = motionPolicy().reduceMotion
         if let id = card?.id, let action = card?.closeAction { onCloseAction?(id, action) }
     }
 
     @objc private func closeItem(_ item: NSMenuItem) {
+        presence.hidesNextAtOnce = motionPolicy().reduceMotion
         if let id = card?.id, let action = item.representedObject as? String { onCloseAction?(id, action) }
     }
 
@@ -285,6 +292,24 @@ final class SidebarUpdateCardView: NSView {
         guard !isHovered || !notesAreShown else { return }
         pointerHover?.refresh()
         if isHovered, !notesAreShown, !notesDismissedWhileHovered { showNotes() }
+    }
+
+    // MARK: Click
+
+    override func mouseDown(with event: NSEvent) {
+        // Control-click is a right click: AppKit's default opens the card's context menu.
+        if event.modifierFlags.contains(.control) {
+            super.mouseDown(with: event)
+            return
+        }
+        // The card's own body (labels pass their clicks here); its controls take their own.
+        clickStartedOnCard = true
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        defer { clickStartedOnCard = false }
+        guard clickStartedOnCard, bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
+        toggleNotesPinned()
     }
 
     override func viewDidHide() {

@@ -16,8 +16,8 @@ enum WorkspaceHandlers {
         WorkspaceBulkClose.bind(into: registry, context: context)
         WorkspaceSetVerbs.bind(into: registry, context: context)
 
-        registry.bindUnavailable(["palette.openFolderInVSCodeInline"], ActionFailure.needsAppCapability("vscode-inline"))
-        registry.bindUnavailable(["palette.openWorkspacePullRequests"], ActionFailure.needsAppCapability("github-integration"))
+        VSCodeInlineHandlers.bind(into: registry, context: context)
+        registry.bind("palette.openWorkspacePullRequests", run: { invocation in try openPullRequestLinks(context, invocation) })
         // Find Work: the palette's current-work page (workspaces needing attention, then the
         // user's GitHub review requests and assignments), from the palette, the CLI and the menu.
         context.services.palette.sources.actionPages["palette.findWork"] = { [weak services = context.services] in
@@ -27,18 +27,25 @@ enum WorkspaceHandlers {
             context.services.palette.show(page: FindWorkPalettePage(services: context.services).page(),
                                           relativeTo: context.activeWindow?.window)
         })
-        registry.bindUnavailable(["reopenPreviousSession"], ActionFailure.needsDaemonCapability("closed-history-v1"))
+        registry.bind("reopenPreviousSession", run: { _ in try PreviousLaunchRestorer(services: context.services).restore() })
         registry.bind("reopenClosedWorkspace", invoke: { _ in
             guard let entry = DaemonClosedHistory.entries([.workspace], in: context.services).first(where: { $0.item.group == nil })
                 ?? context.refuse(RefusalStrings.noRecentlyClosedWorkspace) else { return }
             DaemonClosedHistory.reopen(entry, services: context.services)
         })
-        for id: ActionID in ["saveLayoutTemplate", "palette.layout.open", "manageLayouts"] {
-            registry.bindUnavailable([id], ActionFailure.needsDaemonCapability("layout-templates-v1"))
-        }
-        for id: ActionID in ["reconnectWorkspace", "disconnectWorkspace", "copyWorkspaceSSHError"] {
-            registry.bindUnavailable([id], ActionFailure.needsDaemonCapability("remote-workspaces-v1"))
-        }
+        LayoutTemplateHandlers.bind(into: registry, context: context)
+    }
+
+    /// Open All Workspace PR Links: each web link of the workspace's status
+    /// entries as a browser tab in the focused pane of a window showing it,
+    /// the first selected.
+    private static func openPullRequestLinks(_ context: AppActionContext, _ invocation: ActionInvocation) throws {
+        let (workspace, _) = try context.workspace(invocation)
+        let links = WorkspacePullRequestLinks(workspace.status?.entries ?? []).urls
+        guard !links.isEmpty else { throw ActionFailure(message: RefusalStrings.noWorkspacePullRequestLinks) }
+        let shown = context.services.windows.controllers.compactMap(\.content).first { $0.workspace.id == workspace.id }
+        guard let pane = shown?.focusedPane else { throw ActionFailure(message: RefusalStrings.noWindowShowsWorkspace) }
+        for (index, url) in links.enumerated() { pane.newBrowserTab(url: url, background: index > 0) }
     }
 
     // MARK: Creation
@@ -149,11 +156,19 @@ enum WorkspaceHandlers {
 
     // MARK: Navigation
 
+    /// Next or previous workspace among the members of the target's group, as the sidebar shows
+    /// the group (the group Close Other Workspaces in Group reads). A navigation with nowhere to
+    /// go (R136: no group, or alone in it) is refused quietly: callers get the reason.
     private static func selectInGroup(_ context: AppActionContext, _ invocation: ActionInvocation, offset: Int) throws {
         let current = try context.workspace(invocation).model
         guard let state = context.activeWindow?.state else { throw ActionFailure.invalidTarget(RefusalStrings.noWindowOpen) }
-        let peers = context.sidebarOrder.filter { $0.group == current.group }
-        guard let index = peers.firstIndex(where: { $0 === current }), peers.count > 1 else { return }
-        context.services.windows.show(workspaceID: peers[(index + offset + peers.count) % peers.count].id, in: state)
+        guard let group = try WorkspaceVerbHandlers.group(of: current, context) else {
+            throw ActionFailure.noTarget(RefusalStrings.workspaceNotInGroup)
+        }
+        let peers = group.workspaces.map(\.id.rawValue)
+        guard let index = peers.firstIndex(of: current.id), peers.count > 1 else {
+            throw ActionFailure.noTarget(RefusalStrings.noOtherWorkspaceInGroup)
+        }
+        context.services.windows.show(workspaceID: peers[(index + offset + peers.count) % peers.count], in: state)
     }
 }

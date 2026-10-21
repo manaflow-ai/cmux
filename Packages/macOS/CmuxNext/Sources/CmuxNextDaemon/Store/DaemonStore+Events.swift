@@ -6,13 +6,20 @@ extension DaemonStore {
         case none
         /// Refetch `list-workspaces` and apply it.
         case resync
+        /// Refetch `list-personal` alone and apply it (`personal-changed`).
+        case personal
     }
 
     /// Applies one event in place. Returns `.resync` when the event cannot be
     /// applied exactly (revision gap, generation change, coarse invalidation).
     @discardableResult
     public func apply(_ event: DaemonEvent) -> Followup {
-        let followup = withOverlayLifted { applyEvent(event, sequence: nil) }
+        var followup = withOverlayLifted { applyEvent(event, sequence: nil) }
+        // One event without a sequence: its personal state is fetched now (no barrier to hold back).
+        if followup == .personal {
+            followup = .none
+            refetchPersonal()
+        }
         workspaceListMayHaveChanged()
         // Waiters see the visible state, so they run once the overlay is back.
         flushAppliedWaiters()
@@ -57,17 +64,31 @@ extension DaemonStore {
             var followup = Followup.none
             for envelope in batch {
                 if envelope.sequence > snapshotBarrier || envelope.event.outlivesSnapshot {
-                    if applyEvent(envelope.event, sequence: envelope.sequence, envelope: envelope) == .resync { followup = .resync }
+                    switch applyEvent(envelope.event, sequence: envelope.sequence, envelope: envelope) {
+                    case .resync: followup = .resync
+                    case .personal:
+                        personalRefetch.saw(envelope.sequence)
+                        if followup == .none { followup = .personal }
+                    case .none: break
+                    }
                 } else if let transaction = envelope.event.clientTransactionID {
                     // Superseded by the snapshot (which holds its result),
-                    // but its echo still settles the patch and the intent.
+                    // but its echo still settles the patch and the intent,
+                    // and names a create's tab in the snapshot's records: a
+                    // creation the person closed first keeps hiding (and then
+                    // closes) that tab instead of leaving the log with it
+                    // shown (tab-spam-race: a resync during Cmd-T/Cmd-W spam).
                     confirm(transaction)
+                    ProvisionalTab.echoed(envelope.event, transaction: transaction, in: self)
                     settleIntentOnEcho(transaction, needsResync: false, sequence: envelope.sequence)
                 }
             }
             // A batch that needs a resync is reflected only once the snapshot
-            // lands (`resync` advances to its barrier).
-            if followup == .none, let last = batch.map(\.sequence).max() { advanceAppliedSequence(to: last) }
+            // lands (`resync` advances to its barrier); one with a personal change
+            // only up to that change, until `list-personal` lands (`refetchPersonal`).
+            if followup != .resync, let last = batch.map(\.sequence).max() {
+                advanceAppliedSequence(to: personalRefetch.reachable(applying: last))
+            }
             return followup
         }
     }
@@ -170,6 +191,8 @@ extension DaemonStore {
 
         case .paneAdded(let delta):
             guard let screen = screensByHandle[delta.screen] else { return .resync }
+            // A pending split's pane, seen once: if it closes before a layout places it, the split settles.
+            if !intentLog.isEmpty { intentLog.noteDaemonPane(PaneModel.identity(delta.entity)) }
             if let existing = screen.panes.first(where: { $0.id == PaneModel.identity(delta.entity) }) {
                 existing.update(delta.entity)
                 indexed(existing, in: screen)
@@ -246,6 +269,8 @@ extension DaemonStore {
             return applyLayoutChange(screen: screen, layout: layout)
         case .treeChanged, .layoutChanged:
             return .resync
+        case .personalChanged:
+            return .personal
         case .overflow:
             clearPresence()
             return .resync
@@ -274,12 +299,12 @@ extension DaemonStore {
             return .none
 
         case .sessionState(let item): session.apply(item, in: self); return .none
-        case .bookmarksChanged, .historyChanged, .keybindingsChanged, .conversationChanged, .conversationTyping, .conversationDraft, .conversationLive, .conversationRunChanged, .cloudConversations,
+        case .terminalRegistryChanged, .bookmarksChanged, .historyChanged, .keybindingsChanged, .conversationChanged, .conversationTyping, .conversationDraft, .conversationLive, .conversationRunChanged, .cloudConversations,
              .terminalClipboardRead, .terminalClipboardReadCancelled, .unknown: // .unknown: the `apps-*` events of apps-v1
             sideEvents.deliver(event, envelope: envelope)
             return .none
 
-        case .scrollChanged, .bell, .frontendProjectionChanged, .terminalRegistryChanged, .client:
+        case .scrollChanged, .bell, .frontendProjectionChanged, .client:
             return .none
         }
     }

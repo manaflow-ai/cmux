@@ -74,6 +74,12 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// An agent turn runs in one of the workspace's tabs (daemon agent
     /// state): the row's working indicator.
     public var agentWorking: Bool
+    /// The Priority view's chip for the workspace's most urgent agent chat on this Mac
+    /// (`sidebar.rowStatus`): needs you, done, failed or lost. Nil when every chat works or is idle.
+    public var agentChip: SidebarPriorityEntry.State?
+    /// What the agent working in the workspace does right now (its acpmux lane's step, masked by
+    /// acpmux; `sidebar.nowLine`): the row's "Now:" line. Nil while no chat on this Mac works.
+    public var agentStep: String?
     /// Set only when the user chose an icon or color. When nil, the row
     /// draws no icon (WORKSPACE-ROWS-NO-DEFAULT-ICON).
     public var icon: WorkspaceIcon?
@@ -131,17 +137,20 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// plays sound or is muted; a click on it mutes or unmutes them. Nil
     /// while every tab is silent.
     public var audio: SidebarWorkspaceAudio?
+    /// The workspace's checklist in list order (`workspace-checklist-v1`); empty without items.
+    public var checklist: [SidebarChecklistItem] = []
     /// The hover card's extra facts (elapsed time, model, task, command, needs-input reason).
     public var detail = SidebarWorkspaceDetail()
+    /// The person's notes for the workspace (Edit Workspace Description…): its first line leads
+    /// the row's second line and the hover card shows it whole. Nil while unset.
+    public var workspaceDescription: String?
+    /// The task lane the person pinned (Mark as Done, Set Workspace Status): the row draws its
+    /// glyph before the title when the workspace has no icon of its own, and the hover card
+    /// names it. Nil while automatic.
+    public var taskStatus: SidebarTaskStatus?
     /// The title's weight from the user's row decoration (`SidebarRowDecoration`); nil is the
     /// default (regular).
     public var titleWeight: SidebarRowDecoration.Weight?
-    /// The acpmux sessions of the workspace's agent chats and the coordinator that started one
-    /// (the App maps it); `parentWorkspace` is resolved from it (`SidebarAgentLink.linking`).
-    public var agentLink: SidebarAgentLink?
-    /// The workspace whose agent session started this one's (its `mux.parent`): Group by Status
-    /// with elbows lists this row under it. Nil for a row no listed agent started.
-    public var parentWorkspace: WorkspaceID?
 
     public init(
         id: WorkspaceID,

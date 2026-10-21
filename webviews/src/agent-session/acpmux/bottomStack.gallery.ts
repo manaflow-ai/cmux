@@ -29,6 +29,8 @@ const rows = [
   row("permission", 0, { permission }),
 ];
 const individual = chat(rows, { isWorking: true, permission, queue });
+// Two more asks wait behind the shown one (a question, a second subagent's command).
+const individualWaiting = chat(rows, { isWorking: true, permission, permissionsWaiting: 2, queue });
 const prQueue = chat(
   [
     user("Open the pull request", 1),
@@ -118,16 +120,10 @@ const checkPrQueue: Play = async (ctx) => {
   geometry(ctx);
   await ctx.click({ selector: ".acpmux-queued" });
   geometry(ctx);
-  const scope = ctx.find({ selector: ".acpmux-composer-context" });
-  const composer = ctx.find({ selector: ".acpmux-composer-box" });
-  const style = ctx.document.defaultView!.getComputedStyle(scope);
-  const composerStyle = ctx.document.defaultView!.getComputedStyle(composer);
-  if (
-    style.backgroundColor !== composerStyle.backgroundColor ||
-    style.boxShadow !== "none" ||
-    parseFloat(style.borderTopWidth) !== 0
-  )
-    throw new Error("The folder/host strip paints a separate surface");
+  // A started chat has no folder/host strip (#20869, locationRow.ts): the queue is the composer's
+  // top strip, and no hidden slot for the strip may hold space above it.
+  if (ctx.document.querySelector(".acpmux-composer-context, .acpmux-composer-strip-placeholder"))
+    throw new Error("A started chat with a queue still draws the folder/host strip");
 };
 async function samplePinned(ctx: PlayContext, frames = 8) {
   const scroller = ctx.find({ selector: ".acpmux-scroll" }) as HTMLElement;
@@ -142,7 +138,7 @@ async function samplePinned(ctx: PlayContext, frames = 8) {
 }
 const trustThenPermission: Play = async (ctx) => {
   await checkTrust(ctx);
-  await ctx.click({ role: "button", name: "Trust" });
+  await ctx.click({ role: "button", name: "Trust folder" });
   await samplePinned(ctx);
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-permission-card"));
   if (ctx.document.querySelectorAll(".acpmux-permission-card").length !== 1)
@@ -165,9 +161,15 @@ const trustThenPermission: Play = async (ctx) => {
   await ctx.click({ selector: ".acpmux-access-grant-remove" });
   await checkTrust(ctx);
 };
+const waitingInLine: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-permission-ask"));
+  const note = ctx.document.querySelector(".acpmux-permission-ask .acpmux-permission-waiting")?.textContent;
+  if (note !== "2 more waiting") throw new Error(`Expected "2 more waiting" on the card, got ${note}`);
+  geometry(ctx);
+};
 const trusted: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-trust-ask"));
-  await ctx.click({ role: "button", name: "Trust" });
+  await ctx.click({ role: "button", name: "Trust folder" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-permission-card"));
   ctx.find({
     role: "button",
@@ -177,6 +179,18 @@ const trusted: Play = async (ctx) => {
   });
   if (ctx.document.querySelector(".acpmux-trust-ask")) throw new Error("Granted trust still renders in transcript");
   geometry(ctx);
+};
+// The chat's folder is a repository: the pane offers Trust repo first (one answer for every
+// worktree of it), and the answer clears the question for the permission card.
+const repoNative = {
+  "acp.trust.get": { cwd: CWD, level: "unknown", repo: { root: CWD, worktree: false } },
+  "acp.trust.set": { cwd: CWD, level: "trusted" },
+};
+const trustedRepo: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-trust-ask"));
+  await ctx.click({ role: "button", name: "Trust repo" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-permission-card"));
+  if (ctx.document.querySelector(".acpmux-trust-ask")) throw new Error("Granted trust still renders in transcript");
 };
 export default agentPaneEntry({
   id: "agent-pane.bottom-stack",
@@ -194,6 +208,12 @@ export default agentPaneEntry({
     "trust-then-individual": { snapshot: individual, native, play: trustThenPermission },
     "trusted-permission-queue": { snapshot: grouped, native, play: trusted },
     "trusted-individual-queue": { snapshot: individual, native, play: trusted },
+    "trusted-individual-waiting": {
+      snapshot: individualWaiting,
+      native: { "acp.trust.get": { cwd: CWD, level: "trusted" } },
+      play: waitingInLine,
+    },
     "compact-trust-queue": { snapshot: grouped, native, height: 420, play: checkTrust },
+    "trust-repo-permission-queue": { snapshot: grouped, native: repoNative, play: trustedRepo },
   },
 });

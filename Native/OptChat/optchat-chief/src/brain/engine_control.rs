@@ -8,8 +8,8 @@
 //!
 //! Answer: `{"engine": {harness, model, effort, compactor_harness,
 //! compactor_model}, "choice": <engine.json>, "last_turn": <turn.end>|null,
-//! "recent": [<turn.end>...], "offered": {"models": [{id, name}...],
-//! "efforts": [...]}}`, or `{"error": {"code", "message"}}`.
+//! "recent": [<turn.end>...], "offered": {"models": [{id, name, family?,
+//! efforts?, fast?, aliases?, ...}...], "efforts": [...], "speeds": [...]}}`, or `{"error": {"code", "message"}}`.
 
 use serde_json::{Value, json};
 
@@ -159,6 +159,13 @@ impl Brain {
                 (self.log)(&format!("engine answer: acpmux models: {e}"));
                 Vec::new()
             });
+        // The speeds the turns' harness runs (Fast only on codex), as a set checks.
+        let family = self.family_of(&engine.harness);
+        let speeds: Vec<&str> = crate::engine::SPEEDS
+            .iter()
+            .copied()
+            .filter(|speed| crate::engine::check_speed(speed, family).is_ok())
+            .collect();
         json!({
             "engine": {
                 "harness": engine.harness,
@@ -172,30 +179,23 @@ impl Brain {
             "choice": choice,
             "last_turn": recent.first().cloned().unwrap_or(Value::Null),
             "recent": recent,
-            "offered": {"models": models, "efforts": EFFORTS},
+            "offered": {"models": models, "efforts": EFFORTS, "speeds": speeds},
         })
     }
 
     /// chief.stop: a running turn stops as for a newer message, and its end
     /// posts nothing: the owner already knows they stopped it.
-    /// Every subagent at work stops too (the reference client's stop).
+    /// Subagents at work go on: only their own stop (chief.stop {name}) or a
+    /// control cancel stops one (2026-10-20: a Home stop while the Chief
+    /// worked stopped every subagent).
     pub(super) fn owner_stop(&mut self) -> Value {
-        let subagents = self.stop_subagents();
         let turn = self.phase == Phase::Running;
         if turn {
-            self.deny_pending("the owner stopped the turn");
             self.owner_stopped = true;
-            self.interrupt.request();
+            self.interrupt.request_hard();
             (self.log)("the owner stopped the running turn");
         }
-        if subagents.is_empty() {
-            return json!({"stopped": turn});
-        }
-        (self.log)(&format!(
-            "the owner stopped subagents {}",
-            subagents.join(", ")
-        ));
-        json!({"stopped": true, "subagents": subagents})
+        json!({"stopped": turn})
     }
 }
 

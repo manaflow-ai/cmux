@@ -8,11 +8,17 @@ final class NewTabButtonView: NSView {
         didSet {
             guard oldValue != isHovered else { return }
             updateColors(animated: true)
-            if isHovered { TabStripSignals.shared.onNewTabButtonHover?() }
+            if isHovered {
+                TabStripSignals.shared.onNewTabButtonHover?()
+                if themedToolTip != nil { themedToolTipShortcut = shortcut?() }
+            }
         }
     }
     var isPressed = false { didSet { if oldValue != isPressed { updateColors(animated: false) } } }
     var onPress: (() -> Void)?
+    /// The new tab action's shortcut as the person sees it ("⌘T"), read on hover so a rebinding
+    /// shows at once; the tooltip draws it after its text.
+    var shortcut: (() -> String?)?
     /// VoiceOver moved its focus onto (true) or off (false) the plus.
     var onAccessibilityFocus: ((Bool) -> Void)?
 
@@ -35,6 +41,9 @@ final class NewTabButtonView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel(Strings.axNewTab)
+        setAccessibilityIdentifier("cmux.tabs.newTab")
+        // The plus says what it does and that holding it opens the new tab menu (`TabNewTabHold`).
+        themedToolTip = Strings.newTabHoldHint
     }
 
     @available(*, unavailable)
@@ -89,8 +98,8 @@ final class NewTabButtonView: NSView {
     private func updateColors(animated: Bool) {
         let token = animated ? ChromeHover.fade(showing: isHovered || isPressed, pressed: isPressed) : nil
         // An instant change also ends a fill still easing in.
-        if (token.map(Motion.duration) ?? 0) == 0 { fillLayer.removeAnimation(forKey: "backgroundColor") }
-        Motion.transaction(token) {
+        if (token.map(Motion.tabs.duration) ?? 0) == 0 { fillLayer.removeAnimation(forKey: "backgroundColor") }
+        Motion.tabs.transaction(token) {
             performWithTheme {
                 fillLayer.backgroundColor = ChromeHover.fillColor(.init(hovering: isHovered, pressed: isPressed))?.cgColor
                 glyphLayer.strokeColor = (isHovered ? Palette.textPrimary : Palette.textSecondary).cgColor

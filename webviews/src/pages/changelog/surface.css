@@ -13,16 +13,16 @@ html[data-surface] #root {
 html[data-surface] .wn-pop {
   width: auto;
 }
-/* The popover is at most 60% of its window tall (SidebarUpdateCardView.notesHeight); a longer page
+/* The popover is at most 60% of its window tall (SidebarUpdateCardView.notesHeight); a longer list
    scrolls in place, with the wheel or the trackpad, while the popover stays open (Leo 2026-10-19:
-   "you cant even scroll through it"). The root still reports its whole height. The Updated card's
-   slot is the page's height, so it never scrolls. */
+   "you cant even scroll through it"). The popover itself is the scroller (the shared card scroller
+   and edge fades, scrollers.ts); the page reports its whole content height (surface.tsx). The
+   Updated card's slot is the page's height, so it never scrolls. */
 html[data-surface="ready"],
 html[data-surface="ready"] body {
   height: 100%;
+  overflow: hidden;
 }
-html[data-surface="ready"] body {
-  overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior: contain;
+html[data-surface="ready"] .wn-pop {
+  max-height: 100vh;
 }

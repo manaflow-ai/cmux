@@ -10,6 +10,7 @@
 pub mod exit;
 
 mod config;
+mod creation_history;
 mod error;
 mod output;
 mod prompt;
@@ -17,8 +18,8 @@ mod prompt;
 pub use prompt::{NoPrompt, Prompt, StdinPrompt};
 
 use std::ffi::OsString;
-use std::io::Write;
-use std::path::PathBuf;
+use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
 
 use clap::{Args, Parser, Subcommand};
 use cmux_vm_client::raw::{ByteStream, Client, types};
@@ -78,6 +79,12 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Command {
+    /// Inspect a device's network permissions
+    #[command(subcommand)]
+    Device(DeviceCommand),
+    /// Inspect or reconcile an original VM creation without allocating another VM
+    #[command(subcommand)]
+    Creation(CreationCommand),
     /// Create a VM
     Create(CreateArgs),
     /// Grow an existing VM to at least the requested resources
@@ -117,9 +124,101 @@ enum Command {
 }
 
 #[derive(Subcommand, Debug)]
+enum CreationCommand {
+    /// Discover server-issued handles after a lost create response
+    List(CreationListArgs),
+    /// Read retained creation intent and ownership without provider I/O
+    Get(CreationArgs),
+    /// Recover the original allocation; never creates, starts or grows a VM
+    Reconcile(CreationArgs),
+    /// Fence a pending creation and delete its verified allocation (requires confirmation)
+    Cancel(CreationCancelArgs),
+}
+
+#[derive(Args, Debug)]
+struct CreationCancelArgs {
+    #[arg(long)]
+    idempotency_key: String,
+    /// Confirm cancellation without an interactive prompt
+    #[arg(long)]
+    yes: bool,
+}
+
+#[derive(Args, Debug)]
+struct CreationArgs {
+    /// The original creation's idempotency key
+    #[arg(long)]
+    idempotency_key: String,
+}
+
+#[derive(Args, Debug)]
+struct CreationListArgs {
+    /// List pending server-issued work newest first, without scanning completed history
+    #[arg(long)]
+    pending: bool,
+    /// Backfill pages to advance before returning a resumable cursor (default 32)
+    #[arg(long, requires = "pending", value_parser = clap::value_parser!(u32).range(1..=128))]
+    index_pages: Option<u32>,
+    /// Page size (1-100)
+    #[arg(long, value_parser = clap::value_parser!(u32).range(1..=100))]
+    limit: Option<u32>,
+    /// Continue from a previous page's opaque cursor
+    #[arg(long)]
+    cursor: Option<String>,
+}
+
+#[derive(Subcommand, Debug)]
 enum FileCommand {
     /// Show file metadata on a running, paused, stopped or retired VM
     Stat(FileStatArgs),
+}
+
+#[derive(Subcommand, Debug)]
+enum DeviceCommand {
+    /// Read public peer identities and directed overlay permissions
+    OverlayPolicy(DeviceArg),
+    /// Enroll a provider-free destination using a locally signed public request
+    EnrollServer(ServerEnrollArgs),
+    /// Approve public keys and print a short-lived server enrollment code
+    ServerCode(ServerEnrollArgs),
+    /// Redeem a signed code file without reading account configuration
+    RedeemServerCode(ServerEnrollArgs),
+    /// Read a provider-free server's identity
+    GetServer(DeviceArg),
+    /// List visible provider-free servers in a mesh
+    Servers(ServerListArgs),
+    /// Read a provider-free server's directed policy and Native tenant binding
+    ServerPolicy(DeviceArg),
+    /// Revoke a provider-free server identity (requires confirmation)
+    RevokeServer(ServerRevokeArgs),
+}
+
+#[derive(Args, Debug)]
+struct ServerEnrollArgs {
+    /// Mesh id (mesh_...)
+    mesh_id: String,
+    /// Public binding JSON, or a signed enrollment JSON for enroll/redeem
+    #[arg(long)]
+    request: PathBuf,
+}
+
+#[derive(Args, Debug)]
+struct ServerListArgs {
+    mesh_id: String,
+}
+
+#[derive(Args, Debug)]
+struct ServerRevokeArgs {
+    device_id: String,
+    /// Confirm revoking this identity without a prompt
+    #[arg(long)]
+    yes: bool,
+}
+
+#[derive(Args, Debug)]
+struct DeviceArg {
+    /// Device id (dev_...)
+    device_id: String,
 }
 
 #[derive(Args, Debug)]
@@ -386,6 +485,21 @@ fn json_requested(args: &[OsString]) -> bool {
         .any(|a| a.as_os_str() == "--json")
 }
 
+// Bound the file and serialize through generated public types so extra local
+// fields (including private keys) cannot enter an API request or an error.
+fn server_request<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, CliError> {
+    let file =
+        std::fs::File::open(path).map_err(|_| CliError::usage("could not read server request"))?;
+    let mut bytes = Vec::new();
+    file.take(16_385)
+        .read_to_end(&mut bytes)
+        .map_err(|_| CliError::usage("could not read server request"))?;
+    if bytes.len() > 16_384 {
+        return Err(CliError::usage("server request exceeds 16 KiB"));
+    }
+    serde_json::from_slice(&bytes).map_err(|_| CliError::usage("invalid server request"))
+}
+
 async fn execute(
     cli: Cli,
     env: &dyn Fn(&str) -> Option<String>,
@@ -393,6 +507,32 @@ async fn execute(
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<(), CliError> {
+    if matches!(
+        &cli.command,
+        Command::Device(DeviceCommand::RedeemServerCode(_))
+    ) {
+        if cli.config.is_some() || cli.team.is_some() {
+            return Err(CliError::usage(
+                "server code redemption uses --base-url or CMUX_VM_BASE_URL; --config and --team do not apply",
+            ));
+        }
+        let base_url = cli
+            .base_url
+            .or_else(|| env("CMUX_VM_BASE_URL"))
+            .unwrap_or_else(|| cmux_vm_client::DEFAULT_BASE_URL.to_owned());
+        let client = cmux_vm_client::unauthenticated_raw_client(
+            &base_url,
+            concat!("cmux-vm/", env!("CARGO_PKG_VERSION")),
+        )
+        .map_err(|e| CliError::usage(e.to_string()))?;
+        return dispatch(
+            &client,
+            cli.command,
+            prompt,
+            output::Printer::new(cli.json, stdout),
+        )
+        .await;
+    }
     let settings = Settings::resolve(
         cli.base_url.as_deref(),
         cli.team.as_deref(),
@@ -502,6 +642,56 @@ async fn dispatch(
                 )));
             }
             out.vm(&response)
+        }
+        Command::Creation(command) => {
+            let body = match command {
+                CreationCommand::List(args) => {
+                    let page = creation_history::fetch(
+                        client,
+                        args.cursor,
+                        args.limit,
+                        args.pending,
+                        args.index_pages.unwrap_or(32),
+                    )
+                    .await?;
+                    return out.creation_list(&page, args.pending, args.index_pages);
+                }
+                CreationCommand::Get(args) => {
+                    let key = parse_key::<types::VmCreationsGetVmCreationIdempotencyKey>(
+                        &args.idempotency_key,
+                    )?;
+                    fetch_body(client.vm_creations_get_vm_creation(&key, None)).await?
+                }
+                CreationCommand::Cancel(args) => {
+                    let key = parse_key::<types::VmCreationsCancelVmCreationIdempotencyKey>(
+                        &args.idempotency_key,
+                    )?;
+                    if !args.yes {
+                        if !prompt.is_interactive() {
+                            return Err(CliError::usage(
+                                "creation cancel requires --yes without a terminal",
+                            ));
+                        }
+                        let answer = prompt.ask("Cancel this pending VM creation and delete its allocation? Type cancel to confirm: ")
+                            .map_err(|e| CliError::cancelled(format!("could not read confirmation: {e}")))?;
+                        if answer.trim() != "cancel" {
+                            return Err(CliError::cancelled(
+                                "creation cancellation was not confirmed",
+                            ));
+                        }
+                    }
+                    return out.creation_cancellation(
+                        &fetch_body(client.vm_creations_cancel_vm_creation(&key, None)).await?,
+                    );
+                }
+                CreationCommand::Reconcile(args) => {
+                    let key = parse_key::<types::VmCreationsReconcileVmCreationIdempotencyKey>(
+                        &args.idempotency_key,
+                    )?;
+                    fetch_body(client.vm_creations_reconcile_vm_creation(&key, None)).await?
+                }
+            };
+            out.creation(&body)
         }
         Command::Image(ImageCommand::List) => {
             let images = fetch_body(client.vms_list_vm_images(None)).await?;
@@ -613,6 +803,97 @@ async fn dispatch(
             out.deleted(&vm_id)
         }
         Command::Snapshot(command) => snapshot(client, command, prompt, out).await,
+        Command::Device(DeviceCommand::OverlayPolicy(args)) => {
+            let id = args
+                .device_id
+                .parse::<types::DeviceId>()
+                .map_err(|_| CliError::usage("invalid device id"))?;
+            let body = fetch_body(client.mesh_get_device_overlay_policy(id.as_str(), None)).await?;
+            out.overlay_policy(&body)
+        }
+        Command::Device(DeviceCommand::EnrollServer(args)) => {
+            let id = args
+                .mesh_id
+                .parse::<types::MeshId>()
+                .map_err(|_| CliError::usage("invalid mesh id"))?;
+            let request: types::EnrollDeviceRequest = server_request(&args.request)?;
+            let body = fetch_body(client.overlay_servers_enroll_overlay_server(
+                id.as_str(),
+                None,
+                None,
+                &request,
+            ))
+            .await?;
+            out.overlay_server(&body)
+        }
+        Command::Device(DeviceCommand::ServerCode(args)) => {
+            let id = args
+                .mesh_id
+                .parse::<types::MeshId>()
+                .map_err(|_| CliError::usage("invalid mesh id"))?;
+            let request: types::OverlayServerBinding = server_request(&args.request)?;
+            let body = fetch_body(client.overlay_servers_create_overlay_server_code(
+                id.as_str(),
+                None,
+                None,
+                &request,
+            ))
+            .await?;
+            out.overlay_server_code(&body)
+        }
+        Command::Device(DeviceCommand::RedeemServerCode(args)) => {
+            let id = args
+                .mesh_id
+                .parse::<types::MeshId>()
+                .map_err(|_| CliError::usage("invalid mesh id"))?;
+            let request: types::CodeEnrollOverlayServerRequest = server_request(&args.request)?;
+            let body = fetch_body(
+                client.overlay_server_device_code_enroll_overlay_server(id.as_str(), &request),
+            )
+            .await?;
+            out.overlay_server(&body)
+        }
+        Command::Device(DeviceCommand::GetServer(args)) => {
+            let id = args
+                .device_id
+                .parse::<types::DeviceId>()
+                .map_err(|_| CliError::usage("invalid device id"))?;
+            let body =
+                fetch_body(client.overlay_servers_get_overlay_server(id.as_str(), None)).await?;
+            out.overlay_server(&body)
+        }
+        Command::Device(DeviceCommand::Servers(args)) => {
+            let id = args
+                .mesh_id
+                .parse::<types::MeshId>()
+                .map_err(|_| CliError::usage("invalid mesh id"))?;
+            let body =
+                fetch_body(client.overlay_servers_list_overlay_servers(id.as_str(), None)).await?;
+            out.overlay_server_list(&body)
+        }
+        Command::Device(DeviceCommand::ServerPolicy(args)) => {
+            let id = args
+                .device_id
+                .parse::<types::DeviceId>()
+                .map_err(|_| CliError::usage("invalid device id"))?;
+            let body =
+                fetch_body(client.overlay_servers_get_overlay_server_policy(id.as_str(), None))
+                    .await?;
+            let _: cmux_vm_client::types::OverlayServerPolicy = serde_json::from_slice(&body)
+                .map_err(|_| CliError::unexpected("invalid server policy response"))?;
+            out.overlay_policy(&body)
+        }
+        Command::Device(DeviceCommand::RevokeServer(args)) => {
+            let id = args
+                .device_id
+                .parse::<types::DeviceId>()
+                .map_err(|_| CliError::usage("invalid device id"))?;
+            if !args.yes {
+                confirm(prompt, Destroy::RevokeOverlayServer, id.as_str())?;
+            }
+            call(client.overlay_servers_revoke_overlay_server(id.as_str(), None)).await?;
+            out.revoked(id.as_str())
+        }
         Command::ApiKey(command) => api_key(client, command, prompt, out).await,
         Command::File(FileCommand::Stat(args)) => {
             let id = args
@@ -731,6 +1012,7 @@ enum Destroy {
     DeleteVm,
     DeleteSnapshot,
     RevokeApiKey,
+    RevokeOverlayServer,
 }
 
 impl Destroy {
@@ -741,6 +1023,7 @@ impl Destroy {
             Destroy::DeleteVm => ("delete", "Delete", "VM id"),
             Destroy::DeleteSnapshot => ("delete", "Delete", "snapshot id"),
             Destroy::RevokeApiKey => ("revoke", "Revoke", "API key id"),
+            Destroy::RevokeOverlayServer => ("revoke", "Revoke", "device id"),
         }
     }
 }
@@ -774,7 +1057,7 @@ fn confirm(prompt: &mut dyn Prompt, action: Destroy, id: &str) -> Result<(), Cli
     } else {
         let past = match action {
             Destroy::RetireVm => "retired",
-            Destroy::RevokeApiKey => "revoked",
+            Destroy::RevokeApiKey | Destroy::RevokeOverlayServer => "revoked",
             _ => "deleted",
         };
         Err(CliError::cancelled(format!(

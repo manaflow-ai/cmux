@@ -1,5 +1,6 @@
 // Tool calls that send a message to another agent: `tell-coordinator`, `cmux send`, a write
-// into a coordinator mailbox (`coordinator-inbox/<name>.jsonl`) and Claude Code's SendMessage. The transcript draws
+// into a coordinator mailbox (`coordinator-inbox/<name>.jsonl`), Claude Code's SendMessage and
+// cmux-sessions' send_to_session. The transcript draws
 // them as message cards (MessageCard.tsx) instead of raw shell or JSON.
 import type { AcpmuxActivity } from "../model";
 
@@ -29,6 +30,14 @@ export function agentMessage(tool: Tool): AgentMessage | undefined {
     const text = typeof body === "string" ? body : body === undefined ? "" : JSON.stringify(body, null, 2);
     return { channel: "agent", to: input.to, text: oneMessage(text) };
   }
+  // The cmux-sessions MCP server's message to a chat (session_mcp.rs, #21858), as a harness names
+  // an MCP tool: `mcp__cmux-sessions__send_to_session`, `cmux-sessions.send_to_session` or bare.
+  if (
+    input &&
+    /^(?:(?:mcp__)?cmux-sessions(?:__|\.))?send_to_session$/.test(tool.title.trim()) &&
+    typeof input.session === "string"
+  )
+    return { channel: "agent", to: input.session, text: oneMessage(typeof input.text === "string" ? input.text : "") };
   // A file tool that creates or appends to a message in a mailbox. A rewrite of an existing
   // file is an edit, whatever folder it is in.
   const diffs = tool.diffs ?? [];

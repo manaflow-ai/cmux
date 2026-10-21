@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { AccentRowEditor } from "./AccentRowEditor";
 import { ChoiceOrNumberEditor } from "./ChoiceOrNumberEditor";
+import { ChoiceOrUrlEditor } from "./ChoiceOrUrlEditor";
 import { ChoiceSetEditor } from "./ChoiceSetEditor";
 import { ColorEditor } from "./ColorEditor";
 import { DomainListEditor } from "./DomainListEditor";
@@ -13,6 +14,7 @@ import { NumberListEditor } from "./NumberListEditor";
 import { OrderedChoicesEditor } from "./OrderedChoicesEditor";
 import { SegmentedEditor } from "./SegmentedEditor";
 import { SoundEditor } from "./SoundEditor";
+import { StringMapEditor } from "./StringMapEditor";
 import { TextEditor } from "./TextEditor";
 import { ThemeRowEditor } from "./ThemeRowEditor";
 import { TimeRangeEditor } from "./TimeRangeEditor";
@@ -39,6 +41,8 @@ export function Editor(props: EditorProps): ReactNode {
       );
     case "choice_or_number":
       return <ChoiceOrNumberEditor {...props} />;
+    case "choice_or_url":
+      return <ChoiceOrUrlEditor {...props} />;
     case "number":
       return <NumberEditor {...props} />;
     case "color":
@@ -73,7 +77,7 @@ export function Editor(props: EditorProps): ReactNode {
     case "number_list":
       return <NumberListEditor {...props} />;
     case "string_map":
-      // Only cmux-browser and page-hidden keys have this kind, and the page never lists them (schema.ts).
-      return null;
+      // A site per line with its engine (browser.siteEngines); appearance.themeEdits never shows as a row.
+      return <StringMapEditor {...props} />;
   }
 }

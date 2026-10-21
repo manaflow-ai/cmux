@@ -9,8 +9,6 @@ nonisolated enum FeedStrings {
 
     static var title: String { t("feed.title", "Feed") }
     static var empty: String { t("feed.empty", "Nothing new") }
-    static var menubarEmpty: String { t("menubar.empty", "No open requests") }
-    static var openFeed: String { t("menubar.openFeed", "Open Feed") }
     static var markAllRead: String { t("feed.markAllRead", "Mark All Read") }
     static var github: String { t("feed.github", "GitHub") }
     static var addConnection: String { t("feed.addConnection", "Add connection") }
@@ -59,6 +57,11 @@ nonisolated enum FeedStrings {
     static var answeredInTerminal: String { t("item.answeredInTerminal", "Answered in the terminal") }
     static func answeredOn(_ device: String) -> String { t("item.answeredOn", "Answered on \(device)") }
     static func threadCount(_ count: Int) -> String { t("item.threadCount", "\(count) items") }
+
+    /// An update card's title: "Claude Code updated to 2.1.305" (UpdateFeedCard).
+    static func updatedTo(_ name: String, _ version: String) -> String { t("update.updatedTo", "\(name) updated to \(version)") }
+    static func updatedFrom(_ version: String) -> String { t("update.from", "From \(version)") }
+    static func moreChanges(_ count: Int) -> String { t("update.moreChanges", "\(count) more changes") }
 
     static var disconnected: String { t("owner.disconnected", "Feed is unreachable") }
     static var moving: String { t("owner.moving", "Moving to the cloud. Try again.") }

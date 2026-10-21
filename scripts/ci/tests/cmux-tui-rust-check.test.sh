@@ -45,6 +45,17 @@ grep -q '^0022 .*/.build/cmux-tui-rust-target clippy --workspace --all-targets -
 grep -q '^0022 .*/.build/cmux-tui-rust-target nextest run --workspace --locked --profile ci --no-tests=fail cmux_link::$' "$TMP/calls" || fail "test: $(cat "$TMP/calls")"
 ! grep -q ' --doc' "$TMP/calls" || fail "doc tests ran with a filter: $(cat "$TMP/calls")"
 rm -f "$TMP/calls"
+# terminal: only the terminal stack's crates (ghostty-vt's VT, tmux regress and
+# kitty suites, the PTY, sizing, encode and client crates), no fmt, clippy or doc tests.
+ARGS=(terminal)
+run CMUX_CI_STEP_KEY=k >/dev/null || fail "terminal mode refused"
+grep -q '^0022 .*/.build/cmux-tui-rust-target nextest run -p ghostty-vt -p ghostty-vt-sys -p cmux-pty -p cmux-terminal-sizing -p cmux-terminal-client -p cmux-encode --locked --profile ci --no-tests=fail$' "$TMP/calls" || fail "terminal: $(cat "$TMP/calls")"
+! grep -q -E ' fmt | clippy | --doc|--workspace' "$TMP/calls" || fail "terminal mode ran more than the terminal crates: $(cat "$TMP/calls")"
+rm -f "$TMP/calls"
+ARGS=(terminal 'tmux_conformance')
+run CMUX_CI_STEP_KEY=k >/dev/null || fail "terminal mode with a filter refused"
+grep -q -- '--no-tests=fail tmux_conformance$' "$TMP/calls" || fail "terminal filter: $(cat "$TMP/calls")"
+rm -f "$TMP/calls"
 ARGS=(test 'x; rm -rf /')
 run CMUX_CI_STEP_KEY=k >/dev/null && fail "accepted a filter with shell syntax"
 ARGS=(deploy)

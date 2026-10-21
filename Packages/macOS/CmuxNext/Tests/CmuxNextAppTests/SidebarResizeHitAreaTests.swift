@@ -57,14 +57,20 @@ import Testing
         #expect(try hit(atX: edge + offset, in: root, window: window) === handle, "a click \(offset) pt from the edge")
     }
 
-    /// The resize cursor (cursor rects) and the hover line (tracking areas) use the visible rect:
-    /// all of the band must be visible, not clipped by the sidebar.
+    /// The resize cursor (cursor rects) and the hover line (tracking areas) stop at each
+    /// ancestor's bounds: no ancestor may clip the band. (`visibleRect` is not reliable in a
+    /// window that is never on screen, as on the fleet.)
     @Test func theWholeBandShowsTheResizeCursor() throws {
         let (window, root) = root()
         defer { window.close() }
         let handle = try handle(in: root)
         #expect(handle.bounds.width >= 8, "the band is \(handle.bounds.width) pt")
-        #expect(handle.visibleRect.width == handle.bounds.width, "visible \(handle.visibleRect.width) of \(handle.bounds.width) pt")
+        let band = handle.convert(handle.bounds, to: nil)
+        for ancestor in sequence(first: handle.superview, next: { $0?.superview }).compactMap({ $0 }) {
+            let clip = ancestor.convert(ancestor.bounds, to: nil)
+            #expect(clip.intersection(band).width == band.width,
+                    "\(type(of: ancestor)) clips the band to \(clip.intersection(band).width) of \(band.width) pt")
+        }
     }
 
     @Test func theBandStaysThin() throws {

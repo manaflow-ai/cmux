@@ -8,6 +8,17 @@ enum ServerMetrics {
     static let cardRadius: CGFloat = 10
     static let rowHeight: CGFloat = 30
     static let padding: CGFloat = 14
+    /// The Add Server card.
+    static let cardWidth: CGFloat = 380
+    static let codeFieldHeight: CGFloat = 44
+    static let rowFieldHeight: CGFloat = 28
+    static let fieldRadius: CGFloat = 9
+    static let chipHeight: CGFloat = 26
+    static let spinnerSize: CGFloat = 12
+    static let factsIconSize: CGFloat = 18
+    static let factsIconWidth: CGFloat = 28
+    static let successIconSize: CGFloat = 32
+    static let bannerFillOpacity: CGFloat = 0.12
 }
 
 /// Date and size text (absolute times: nothing on screen counts down, so

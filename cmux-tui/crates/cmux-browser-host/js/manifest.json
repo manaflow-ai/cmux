@@ -2,6 +2,7 @@
   "repl": [
     "vendor/acorn.js",
     "vendor/playwright-locator-utils.js",
+    "human-mouse.js",
     "runtime-core.js",
     "snapshot.js",
     "api.js",

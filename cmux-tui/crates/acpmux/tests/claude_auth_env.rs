@@ -312,6 +312,40 @@ async fn the_daemons_turn_values_never_reach_an_agent() {
     }
 }
 
+/// A Chief turn or compactor runs a fresh Claude process per turn; its
+/// preset's SUBROUTER_SESSION_KEY with SUBROUTER_SESSION_HEADER=1 must reach
+/// the API as `X-Subrouter-Session`, next to the route's own header lines,
+/// or the sr2 gateway spreads the turns over accounts and their prompt
+/// cache goes cold (a226: 43% of Chief turns rewrote 38k-83k tokens). A
+/// preset without the opt-in (a subagent, one long session) sends none, and
+/// the daemon's own turn values never become a header.
+#[tokio::test]
+async fn a_turn_session_key_becomes_the_subrouter_session_header() {
+    let dir = scratch("srsession", "export EDITOR=vi\n");
+    let route = "X-Subrouter-Agent: claude";
+    let turn = json!({"ANTHROPIC_API_KEY": "sk-test", "ANTHROPIC_CUSTOM_HEADERS": route,
+        "SUBROUTER_SESSION_KEY": "optchat-c0eb-turn", "SUBROUTER_SESSION_HEADER": "1"});
+    let bare = json!({"ANTHROPIC_API_KEY": "sk-test",
+        "SUBROUTER_SESSION_KEY": "optchat-c0eb-compact", "SUBROUTER_SESSION_HEADER": "1"});
+    let sub = json!({"ANTHROPIC_API_KEY": "sk-test", "ANTHROPIC_CUSTOM_HEADERS": route,
+        "SUBROUTER_SESSION_KEY": "optchat-c0eb-sub"});
+    let bad = json!({"ANTHROPIC_API_KEY": "sk-test", "ANTHROPIC_CUSTOM_HEADERS": route,
+        "SUBROUTER_SESSION_KEY": "two words\nX-Evil: 1", "SUBROUTER_SESSION_HEADER": "1"});
+    let harnesses = json!({"claude": claude(turn), "bare": claude(bare), "sub": claude(sub), "bad": claude(bad)});
+    let daemon_turn = [("SUBROUTER_SESSION_KEY", "daemon-turn"), ("SUBROUTER_SESSION_HEADER", "1")];
+    for (harness, want) in [
+        ("claude", json!("X-Subrouter-Agent: claude\nX-Subrouter-Session: optchat-c0eb-turn")),
+        ("bare", json!("X-Subrouter-Session: optchat-c0eb-compact")),
+        ("sub", json!(route)),
+        ("bad", json!(route)),
+    ] {
+        // One daemon per case: `ask` names every session "auth".
+        let d = start(&dir, harnesses.clone(), &daemon_turn).await;
+        let (reply, _) = ask(&d, harness).await;
+        assert_eq!(found(&reply)["customHeaders"], want, "{harness}: {reply:?}");
+    }
+}
+
 /// (b) `apiKeyHelper` in ~/.claude/settings.json whose command is only on
 /// the login shell's PATH.
 #[tokio::test]
@@ -481,6 +515,48 @@ async fn the_login_shell_is_cached_without_secrets_and_rerun_on_change() {
     assert_eq!(runs(), 3, "an edited rc file runs the shell again");
 }
 
+#[tokio::test]
+async fn a_linked_login_environment_cache_is_never_trusted() {
+    let dir = scratch("cache-link", "echo run >> \"$HOME/shell-runs\"\nexport NO_PROXY=plain\n");
+    let config = json!({"harnesses": {}, "permissionPolicy": "deny-all"});
+    // The readiness line comes before the login environment resolves (the
+    // shell runs in `finish_startup`), and no agent spawn waits for it here:
+    // wait for startup to finish before the daemon stops.
+    {
+        let d = start_config(&dir, config.clone(), &[]).await;
+        startup_finished(&d).await;
+    }
+    let runs =
+        || std::fs::read_to_string(dir.join("home/shell-runs")).unwrap_or_default().lines().count();
+    assert_eq!(runs(), 1);
+    let cache = dir.join("login-env.json");
+    let planted = dir.join("planted-login-env.json");
+    std::fs::copy(&cache, &planted).unwrap();
+    std::fs::remove_file(&cache).unwrap();
+    std::os::unix::fs::symlink(&planted, &cache).unwrap();
+    {
+        let d = start_config(&dir, config, &[]).await;
+        startup_finished(&d).await;
+    }
+    assert_eq!(runs(), 2, "the daemon trusted a linked login cache");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Wait until the daemon reports its startup complete (`_acpmux/status`
+/// `ready`): a login shell it had to wait for has run by then.
+async fn startup_finished(d: &Daemon) {
+    let mut rpc = Rpc::connect(&d.socket).await;
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let status = rpc.call("_acpmux/status", json!({})).await;
+        if status["ready"] == true {
+            return;
+        }
+        assert!(Instant::now() < deadline, "the daemon never finished its startup: {status}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
 /// Wait up to `limit` for the daemon's login cache to hold `NO_PROXY=want`.
 async fn cached_no_proxy(dir: &Path, want: &str, limit: Duration) -> bool {
     let deadline = Instant::now() + limit;
@@ -593,6 +669,34 @@ async fn an_rc_file_the_shell_rewrites_stops_being_read_again() {
         settled,
         "the daemon kept running the login shell ({settled} runs, then more)"
     );
+}
+
+/// The first health answer counts a Claude sign-in the login shell exports
+/// (hq#2569 #2), even when it is asked before the shell has answered: the
+/// health call waits for the daemon's startup, as its own check does,
+/// instead of reading an environment without the login shell. (A slow
+/// shell, 1.5 s here, is the case of a loaded machine or a heavy ~/.zshrc.)
+#[tokio::test]
+async fn the_first_health_answer_counts_a_sign_in_from_a_slow_login_shell() {
+    let dir = scratch("hl", "sleep 1.5\nexport ANTHROPIC_API_KEY=from-login-shell\n");
+    // A Claude CLI by path (no PATH harness finds it).
+    std::fs::create_dir_all(dir.join("bin")).unwrap();
+    write_executable(
+        &dir.join("bin/claude"),
+        "#!/bin/sh\n[ \"$1\" = --version ] && echo '2.1.0 (Claude Code)'\nexit 0\n",
+    );
+    let config = json!({"harnesses": {"cl": {"argv": [dir.join("bin/claude")]}},
+        "defaultHarness": "cl", "permissionPolicy": "approve-all"});
+    let d = start_config(&dir, config, &[]).await;
+    let mut rpc = Rpc::connect(&d.socket).await;
+    let health = rpc.call("_acpmux/harness/health", json!({})).await;
+    let row = health["harnesses"]
+        .as_array()
+        .and_then(|rows| rows.iter().find(|row| row["id"] == "cl"))
+        .unwrap_or_else(|| panic!("no cl row: {health}"))
+        .clone();
+    assert_eq!(row["auth"], "signedIn", "{health}");
+    assert_eq!(row["authDetail"], "an API key (ANTHROPIC_API_KEY)", "{health}");
 }
 
 /// A login shell that hangs: the daemon stops waiting after 3 s, and

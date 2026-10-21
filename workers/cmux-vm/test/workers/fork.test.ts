@@ -74,6 +74,7 @@ describe("forkVm", () => {
     const body = await json(response);
     expect(body).toEqual({
       _tag: "ForkIncomplete",
+      creationKey: expect.stringMatching(/^vcr_[0-9a-hjkmnp-tv-z]{26}$/),
       message: expect.any(String),
       snapshotId: expect.stringMatching(SNAPSHOT_ID),
     });
@@ -82,11 +83,11 @@ describe("forkVm", () => {
     expect(JSON.stringify(body)).not.toMatch(/sh-|vm-/);
   });
 
-  it("resumes from the kept snapshot on a retry with the same idempotency key, without a second snapshot", async () => {
+  it("resumes a confirmed rejection from the kept snapshot without a second snapshot", async () => {
     const source = h.addVm(TENANT_A, "running");
     const key = await h.addKey(TENANT_A, ["vm:write"]);
     const headers = { "idempotency-key": "fork-1" };
-    h.upstream.fail("create", 503);
+    h.upstream.fail("create", 429);
 
     const failed = await fork(key, source.vmId, headers);
     expect(failed.status).toBe(503);
@@ -129,6 +130,19 @@ describe("forkVm", () => {
     expect(response.status).toBe(409);
     expect(createCalls()).toHaveLength(0);
     expect(h.resources.filter((row) => row.kind === "snapshot")).toHaveLength(0);
+  });
+
+  it("frees both quota slots after unkeyed forks the provider refuses", async () => {
+    const limited = await makeHarness({ maxVms: 2, maxSnapshots: 1 });
+    try {
+      const source = limited.addVm(TENANT_A, "stopped");
+      const key = await limited.addKey(TENANT_A, ["vm:write"]);
+      for (let i = 0; i < 2; i++)
+        expect((await limited.request(`/v1/vms/${source.vmId}/fork`, bearer(key), { method: "POST", body: {} })).status).toBe(409);
+      expect((await limited.request("/v1/vms", bearer(key), { method: "POST", body: { displayName: "after refused forks" } })).status).toBe(201);
+    } finally {
+      await limited.dispose();
+    }
   });
 
   it("refuses a fork without billing before taking a snapshot", async () => {

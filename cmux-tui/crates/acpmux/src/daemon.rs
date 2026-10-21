@@ -16,6 +16,7 @@ mod router_owner;
 pub(crate) use router_owner::open_router_owner;
 pub(crate) use router_owner::router_owner_path;
 use router_owner::{ensure_router, release_router};
+mod notify;
 #[cfg(windows)]
 mod windows;
 
@@ -33,6 +34,58 @@ pub struct DaemonOptions {
     pub dev_origins: Vec<String>,
     /// `--dev`: a development launch (see `dev_origins_permitted`).
     pub dev: bool,
+}
+
+/// The daemon's panic log, `$ACPMUX_HOME/panics.jsonl` (cmux-panic-log):
+/// a panic in a request task ends only that task and used to leave just
+/// two lines in `daemon.log` (the 2026-10-14 sort panic). The cmux-next
+/// app sends new lines to Sentry.
+pub fn panic_log_path() -> std::path::PathBuf {
+    home().join("panics.jsonl")
+}
+
+/// Debug builds only: `thread` makes a worker thread panic once the hook
+/// is installed (tests/panic_log.rs). Its line carries `"test": true`.
+#[cfg(debug_assertions)]
+const TEST_PANIC_ENV: &str = "ACPMUX_TEST_PANIC";
+#[cfg(debug_assertions)]
+const TEST_PANIC_THREAD: &str = "acpmux-panic-test";
+
+/// Install the panic log hook; the previous hook (stderr, so `daemon.log`) still runs.
+fn install_panic_log() {
+    let mut fields = cmux_panic_log::Fields::new();
+    fields.insert("process".into(), "acpmux".into());
+    fields.insert("pid".into(), std::process::id().into());
+    fields.insert("version".into(), env!("CARGO_PKG_VERSION").into());
+    let path = panic_log_path();
+    cmux_panic_log::install_with_opener(
+        move || {
+            crate::config::private_state_append(&path)
+                .map_err(|error| std::io::Error::other(error.to_string()))
+        },
+        fields,
+        is_test_panic_thread,
+    );
+    #[cfg(debug_assertions)]
+    if std::env::var(TEST_PANIC_ENV).as_deref() == Ok("thread") {
+        let _ = std::thread::Builder::new()
+            .name(TEST_PANIC_THREAD.into())
+            // crash-allow: debug-only test trigger for the acpmux panic log
+            .spawn(|| panic!("acpmux test panic"));
+    }
+}
+
+/// The debug test trigger's thread; its line carries `"test": true`.
+fn is_test_panic_thread(thread: &str) -> bool {
+    #[cfg(debug_assertions)]
+    {
+        thread == TEST_PANIC_THREAD
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = thread;
+        false
+    }
 }
 
 /// How long SIGTERM or `_acpmux/shutdown` may take before the daemon exits
@@ -72,6 +125,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // State holds tokens, prompts and tool output. Older builds created the
     // home with the process umask; narrow it before reading any of them.
     crate::config::private_state_dir(&home())?;
+    install_panic_log();
     let mut config = Config::load()?;
     // config.json holds the dashboard token: owner-only, also when another
     // tool wrote it with the umask's mode and the daemon never saves it.
@@ -219,7 +273,18 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         }
     }
     let mailbox = crate::mailbox::Mailbox::open(home().join("mailbox"))?;
-    let hub = Hub::new_with_mailbox(config, store, mailbox);
+    let memory_store = config.store.mode == crate::config::StoreMode::Memory;
+    // Only the session list before the ready line; the chat logs load right after it.
+    let hub = Hub::new_deferred(config, store, mailbox);
+    // Temporary folders of sessions this daemon no longer has, before the
+    // socket serves (`agent/session_tmp.rs`).
+    #[cfg(unix)]
+    hub.sweep_session_tmp();
+    // The forum log (`forum.rs`): on disk unless the store is in memory; a
+    // log that cannot open leaves the posts in memory.
+    if !memory_store && let Err(e) = hub.open_forum(&home().join("forum")) {
+        tracing::warn!("forum log unavailable, keeping posts in memory: {e:#}");
+    }
     if let Some(key) = person_key {
         // A Team-signed daemon takes the key only from the signed app's
         // `_acpmux/person_enroll`: a same-uid process could restart it with
@@ -265,13 +330,19 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     hub.set_probe_only(Hub::probe_only_from_env(
         std::env::var("ACPMUX_PROBE_HARNESSES").ok().as_deref(),
     ));
+    // The agent message runaway guard (`hub/agent_pairs.rs`): `ACPMUX_AGENT_PAIR_GUARD=0` turns
+    // it off; `ACPMUX_AGENT_PAIR_{ALTERNATIONS,REPEATS,SIMILARITY,MAX_MESSAGES,WINDOW_SECS}` tune it.
+    hub.set_agent_pair_guard(crate::hub::PairGuard::from_env(|k| std::env::var(k).ok()));
     if !std::env::var("ACPMUX_AGENT_HOSTS").is_ok_and(|v| v == "0") {
         hub.enable_agent_hosts();
     }
     hub.begin_startup(login_env);
     // The ACP Registry and agent CLI health, off the startup path (`hub/health_view.rs`).
     hub.start_harness_checks();
-    std::fs::write(home().join("daemon.pid"), std::process::id().to_string())?;
+    crate::config::write_atomic(
+        &home().join("daemon.pid"),
+        std::process::id().to_string().as_bytes(),
+    )?;
     // The listener's token is on the hub before the unix socket serves, so a
     // `_acpmux/web_token_rotate` can never be overwritten by the launch token.
     let ws_listener = ws_listener.map(|(l, token)| {
@@ -362,6 +433,18 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     {
         let hub = hub.clone();
         tokio::spawn(async move {
+            // Debug builds only: `ACPMUX_TEST_DELAY_LOAD_LOGS_MS` holds the chat-log
+            // load, as a large log store does, so integration tests can ask in that
+            // window. Bounded; release builds have no seam.
+            #[cfg(debug_assertions)]
+            if let Some(ms) = std::env::var("ACPMUX_TEST_DELAY_LOAD_LOGS_MS")
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+            {
+                tokio::time::sleep(Duration::from_millis(ms.min(10_000))).await;
+            }
+            // The chat logs (tails, cut-off turns, queues), before adoption as before.
+            hub.load_logs_async().await;
             // Agents that outlived the previous daemon come back first.
             hub.adopt_agent_hosts().await;
             hub.finish_startup().await;
@@ -374,7 +457,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             }
         });
     }
-    tokio::spawn(notify_loop(hub.clone()));
+    tokio::spawn(notify::notify_loop(hub.clone()));
 
     let shutdown = async {
         #[cfg(unix)]
@@ -778,18 +861,30 @@ fn not_ready(path: &std::path::Path, ready: &str, error: &anyhow::Error) -> anyh
 /// with wider bits is narrowed to 0600.
 #[cfg(unix)]
 fn open_daemon_log(path: &std::path::Path) -> Result<std::fs::File> {
-    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-    let log = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .mode(0o600)
-        .open(path)
-        .with_context(|| format!("open {}", path.display()))?;
-    if log.metadata()?.permissions().mode() & 0o077 != 0 {
-        log.set_permissions(std::fs::Permissions::from_mode(0o600))
-            .with_context(|| format!("chmod 0600 {}", path.display()))?;
+    crate::config::private_state_append(path)
+}
+
+#[cfg(all(test, unix))]
+mod state_file_tests {
+    use super::*;
+
+    #[test]
+    fn daemon_log_refuses_a_symlink() {
+        let dir = std::env::temp_dir().join(format!(
+            "acpmux-log-link-{}-{}",
+            std::process::id(),
+            uuid::Uuid::now_v7()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("outside");
+        let log = dir.join("daemon.log");
+        std::fs::write(&target, "outside").unwrap();
+        std::os::unix::fs::symlink(&target, &log).unwrap();
+
+        assert!(open_daemon_log(&log).is_err(), "the daemon opened a linked log");
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "outside");
+        let _ = std::fs::remove_dir_all(&dir);
     }
-    Ok(log)
 }
 
 /// Start `<exe> [prefix] daemon run --ready-fd N` in its own session and
@@ -798,7 +893,7 @@ fn open_daemon_log(path: &std::path::Path) -> Result<std::fs::File> {
 /// only after the daemon wrote [`KEY_READY`] on it.
 #[cfg(unix)]
 fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::File> {
-    let exe = std::env::current_exe()?;
+    let this = crate::self_command::SelfCommand::current()?;
     crate::config::private_state_dir(&home())?;
     let log = open_daemon_log(&home().join("daemon.log"))?;
     let log_err = log.try_clone()?;
@@ -818,7 +913,7 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::Fi
         None => None,
     };
     let key_fd = pair.as_ref().map(|(_, theirs)| std::os::fd::AsRawFd::as_raw_fd(theirs));
-    let mut cmd = std::process::Command::new(exe);
+    let mut cmd = this.command(&["daemon", "run", "--ready-fd"]);
     crate::config::scrub_nested_claude_env(&mut cmd);
     // The daemon serves every session: its starter's turn values are not its own.
     for k in crate::config::inherited_caller_scoped_keys() {
@@ -827,8 +922,6 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::Fi
     // The daemon must use this client's state directory, including a host
     // override that its own environment would not reproduce.
     cmd.env("ACPMUX_HOME", home())
-        .args(DAEMON_PREFIX.get().map(Vec::as_slice).unwrap_or_default())
-        .args(["daemon", "run", "--ready-fd"])
         .arg(write_fd.to_string())
         .args(key_fd.map(|fd| ["--person-key-fd".to_owned(), fd.to_string()]).into_iter().flatten())
         .stdin(std::process::Stdio::null())
@@ -877,63 +970,6 @@ fn hand_key(mut link: std::os::unix::net::UnixStream, key: &str) {
         tracing::warn!("hand the person key to the daemon: {e}");
     }
     let _ = link.shutdown(std::net::Shutdown::Both);
-}
-
-/// Run `notify_command` from the config on two transitions only: a
-/// permission request, and a turn that ended while no client was attached.
-async fn notify_loop(hub: Arc<Hub>) {
-    let mut rx = hub.subscribe();
-    loop {
-        let ev = match rx.recv().await {
-            Ok(e) => e,
-            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
-            Err(_) => break,
-        };
-        let kind = ev.record.kind.as_str();
-        if kind != "permission_request" && kind != "turn_result" {
-            continue;
-        }
-        let Some(cmd) = hub.config.read().await.notify_command.clone() else { continue };
-        let Ok(session) = hub.resolve(&ev.session_id) else { continue };
-        let summary = hub.session_summary(&session);
-        // A chat some client shows needs no notification (`hub/seen.rs`).
-        if kind == "turn_result" && summary["shown"] == true {
-            continue;
-        }
-        let name = summary.get("name").and_then(Value::as_str).unwrap_or("").to_owned();
-        let text = match kind {
-            "permission_request" => format!(
-                "{name} needs a permission: {}",
-                ev.record
-                    .msg
-                    .pointer("/request/toolCall/title")
-                    .and_then(Value::as_str)
-                    .unwrap_or("tool")
-            ),
-            _ => format!(
-                "{name} finished ({})",
-                ev.record.msg.get("status").and_then(Value::as_str).unwrap_or("completed")
-            ),
-        };
-        let mut c = tokio::process::Command::new("sh");
-        // The daemon starter's turn values are not this command's (config::TURN_SCOPED_ENV).
-        for k in crate::config::inherited_caller_scoped_keys() {
-            c.env_remove(k);
-        }
-        crate::login_env::apply_tokio(&mut c);
-        c.arg("-c")
-            .arg(&cmd)
-            .env("ACPMUX_EVENT", kind)
-            .env("ACPMUX_SESSION_ID", &ev.session_id)
-            .env("ACPMUX_SESSION_NAME", &name)
-            .env("ACPMUX_TEXT", &text);
-        crate::config::scrub_nested_claude_env_tokio(&mut c);
-        let _ = c
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn();
-    }
 }
 
 /// The fixed dashboard port belongs to the shared daemon (`~/.acpmux`). Any other home (a

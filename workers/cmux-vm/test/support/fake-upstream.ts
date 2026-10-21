@@ -21,6 +21,10 @@ export interface FakeSnapshot {
   readonly id: string;
   readonly sourceVmId: string;
   readonly autoDeleteSeconds: number | null;
+  readonly public?: boolean;
+  readonly ttlSeconds?: number | null;
+  readonly slug?: string;
+  readonly displayName?: string;
 }
 
 /** One upstream call as the fake saw it. `json` is the parsed JSON body, if any. */
@@ -82,7 +86,7 @@ const notFound = () => Response.json({ code: "NOT_FOUND", message: "no such VM" 
 const conflict = (message: string) => Response.json({ code: "CONFLICT", message }, { status: 409 });
 
 export function makeFakeUpstream(apiKey: string) {
-  const faults = { lostCreateResponses: 0 };
+  const faults = { lostCreateResponses: 0, lostSnapshotResponses: 0 };
   const vms = new Map<string, FakeVm>();
   const snapshots = new Map<string, FakeSnapshot>();
   const tlsRules = new Map<string, Record<string, unknown>>();
@@ -151,7 +155,7 @@ export function makeFakeUpstream(apiKey: string) {
         return vm === undefined ? notFound() : Response.json(vmBody(vm));
       case "getSnapshot": {
         const id = decodeURIComponent(url.pathname.slice("/v5/snapshots/".length));
-        const snapshot = snapshots.get(id);
+        const snapshot = snapshots.get(id) ?? [...snapshots.values()].find((s) => s.slug === id);
         return snapshot === undefined ? notFound() : Response.json(snapshot);
       }
       case "listTlsRules": {
@@ -204,8 +208,16 @@ export function makeFakeUpstream(apiKey: string) {
           sourceVmId: vm.id,
           autoDeleteSeconds: typeof auto === "number" ? auto : null,
         };
+        if (typeof body === "object" && body !== null) {
+          Object.assign(snapshot, {
+            ...("slug" in body && typeof body.slug === "string" ? { slug: body.slug } : {}),
+            ...("displayName" in body && typeof body.displayName === "string" ? { displayName: body.displayName } : {}),
+            ...("ttlSeconds" in body && typeof body.ttlSeconds === "number" ? { ttlSeconds: body.ttlSeconds } : {}),
+          });
+        }
         snapshots.set(snapshot.id, snapshot);
-        return Response.json({ snapshotId: snapshot.id, sourceVmId: vm.id, snapshot: { id: snapshot.id, createdAt: "2026-10-03T00:00:00Z", updatedAt: "2026-10-03T00:00:00Z" } });
+        if (faults.lostSnapshotResponses > 0) { faults.lostSnapshotResponses--; throw new TypeError("lost provider snapshot response"); }
+        return Response.json({ snapshotId: snapshot.id, sourceVmId: vm.id, snapshot: { ...snapshot, public: false, createdAt: "2026-10-03T00:00:00Z", updatedAt: "2026-10-03T00:00:00Z" } });
       }
       case "deleteSnapshot": {
         const match = SNAPSHOT_PATH.exec(url.pathname);

@@ -1,6 +1,10 @@
 {
   "comment": "License review data for rust_notices.py. Owned by the license review: change an entry only with a stated reason. Elections fail the run when the crate's manifest expression changes.",
   "extra_license_files": {
+    "crc-catalog": [
+      "LICENSES/Apache-2.0.txt",
+      "LICENSES/MIT.txt"
+    ],
     "r-efi": [
       "AUTHORS"
     ],
@@ -23,6 +27,7 @@
     ]
   },
   "extra_license_reasons": {
+    "crc-catalog": "The .crate keeps its MIT and Apache-2.0 texts in a REUSE-style LICENSES/ directory, not at the top level.",
     "r-efi": "AUTHORS holds the MIT text and the copyright holders; the README points there.",
     "regex-syntax": "The Unicode tables are derived from Unicode data under the Unicode license.",
     "ring": "Bundled code under its own terms: the once_cell polyfill (MIT and Apache-2.0 texts) and fiat-crypto output (Apache-2.0, the fiat-crypto authors).",
@@ -772,6 +777,21 @@
         }
       ]
     },
+    "webrtc 0.17.2": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE-MIT, LICENSE-APACHE at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/webrtc-rs-webrtc-1da3fe8ee84d/LICENSE-MIT",
+          "source": "https://raw.githubusercontent.com/webrtc-rs/webrtc/1da3fe8ee84db8d266322cbcfcb357c745959a8e/LICENSE-MIT",
+          "sha256": "56cc6c08157f4faf70d351b3a7ceac143399d5359a78c180e06dcd0390784f4d"
+        },
+        {
+          "file": "texts/webrtc-rs-webrtc-1da3fe8ee84d/LICENSE-APACHE",
+          "source": "https://raw.githubusercontent.com/webrtc-rs/webrtc/1da3fe8ee84db8d266322cbcfcb357c745959a8e/LICENSE-APACHE",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+        }
+      ]
+    },
     "wezterm-input-types 0.1.0": {
       "reason": "the .crate ships no license file; the text is the repository's LICENSE.md at the commit that .cargo_vcs_info.json records for this release",
       "files": [
@@ -794,6 +814,21 @@
           "file": "texts/retep998-winapi-rs-9497609ef44c/LICENSE-MIT",
           "source": "https://raw.githubusercontent.com/retep998/winapi-rs/9497609ef44cc9bcd16cd2411c0ee6ccaf5483aa/LICENSE-MIT",
           "sha256": "5b19674a1db628a475850a131956ed49521b744e3dda8f5a94141f9aba681219"
+        }
+      ]
+    },
+    "yasna 0.5.2": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE-MIT, LICENSE-APACHE at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/qnighy-yasna.rs-b7e65f9a4c31/LICENSE-MIT",
+          "source": "https://raw.githubusercontent.com/qnighy/yasna.rs/b7e65f9a4c317494cce2d18ea02b3d6eaaea7985/LICENSE-MIT",
+          "sha256": "2a7df90e60fd5512b8bca35d3ce90e068f21c52d962855053fd1d9e2e7ca0f16"
+        },
+        {
+          "file": "texts/qnighy-yasna.rs-b7e65f9a4c31/LICENSE-APACHE",
+          "source": "https://raw.githubusercontent.com/qnighy/yasna.rs/b7e65f9a4c317494cce2d18ea02b3d6eaaea7985/LICENSE-APACHE",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
         }
       ]
     }

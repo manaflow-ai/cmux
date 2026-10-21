@@ -21,8 +21,9 @@ extension TerminalHostView: PaneParkableContent {}
 extension AgentPaneView: PaneParkableContent, PaneTabRowSharing {}
 /// An internal page (Markdown, a file viewer, Settings) is a WKWebView too: taking it out of the window
 /// and back on every switch re-attached its web process the same way (tab-switch-fast). Its view
-/// lives as long as its tab (`InternalPageTabStore.close` removes it), so parking costs no memory.
-extension InternalPageView: PaneParkableContent {}
+/// lives as long as its tab (`InternalPageTabStore.close` removes it), so parking costs no memory. Its
+/// page's tools share the tab row (the docked Home's Chief tools, `HomeDockSwitchView+TabRow`).
+extension InternalPageView: PaneParkableContent, PaneTabRowForwarding { var tabRowSharer: PaneTabRowSharing? { content as? PaneTabRowSharing } }
 
 /// One parked view, weak: the content cache owns it.
 struct ParkedContent {

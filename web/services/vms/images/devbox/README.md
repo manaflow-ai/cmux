@@ -226,7 +226,11 @@ on 6901. The contract (`web/services/vms/images/desktop.ts`;
   generated config), and every agent's launch drops the model-plane endpoints
   and placeholder, so an own credential is never sent to CodeRouter (OpenCode
   sends `opencode auth login` keys to whatever `OPENAI_BASE_URL` and
-  `ANTHROPIC_BASE_URL` name). Image-only: older machines keep the old
+  `ANTHROPIC_BASE_URL` name). A machine whose control-plane-derived
+  `/etc/cmux/vm-kind` is `team` (or unavailable) always uses team mode:
+  teammates share the same Unix HOME and could otherwise read a personal
+  provider login. Use own sign-in only on an `owner` machine. Image-only:
+  older machines keep the old
   behavior until they are recreated.
 - Ghostty comes from a pinned community `.deb` for Ubuntu 24.04
   (`ARG CMUX_IMAGE_GHOSTTY_DEB_URL` in the Dockerfile, verified against
@@ -358,8 +362,9 @@ unit with `CMUX_TUI_REMOTE_WS_BIND=[::]:1337` (the driver reaches the daemon
 at the VM's IPv6 address, so the listener must be dual-stack), reads the
 platform instance id from the metadata service, wipes the remote identity
 when the machine is a clone, and starts the daemon. The driver runs no
-bootstrap at create and no guest work on attach, so nothing on a running
-machine changes its cmux-tui: upgrade running machines with
+bootstrap at create; a first enrolled-auth attach uses only the daemon's
+short-lived invitation/approval commands, while later attaches are exec-free.
+Nothing in that flow changes the installed cmux-tui: upgrade running machines with
 `bun scripts/upgrade-fleet-cmux-tui.ts` and the in-place guest script
 `scripts/cloud-vm/cmux-tui-upgrade.sh`, under the compatibility rules in
 docs/cloud-guest-upgrades.md. The container Dockerfile still ships only the
@@ -578,20 +583,23 @@ snapshot to address an attach failure:
 ```bash
 # From web/, using the Freestyle account that owns this snapshot.
 # Load FREESTYLE_API_KEY from ~/.secrets/cmux.env without printing it.
-bun run devbox:verify:private-link sh-<snapshot-id> /path/to/cmux-tui
+bun run devbox:verify:private-link sh-<snapshot-id> /path/to/cmux-tui [--client-grant]
 ```
 
-For a Mac app, use its `Contents/Resources/bin/cmux-tui` binary. The probe
+Pass `--client-grant` for a pre-promotion image whose manifest row does not yet
+carry `cmuxRemoteAuth`; promoted images are also safe to test explicitly this
+way. For a Mac app, use its `Contents/Resources/bin/cmux-tui` binary. The probe
 first requires the client's `wireguard-hub` capability; an older client must
 be updated before a private-network image can be assessed. Rebuilding a guest
 image cannot add that missing capability to an installed Mac app.
 
 The probe creates its own VPC, VM from the requested snapshot, and temporary
-WireGuard tunnel. It uses the production driver to confirm the machine serves
-the trusted-carrier listener, dials it with `--carrier` (no enrollment, no
-approval), reads the session snapshot through the private hub, then connects
-again the same way. The report records both commits and the trusted-listener,
-reconnect, and snapshot results.
+WireGuard tunnel. For a compatibility image it confirms the trusted-carrier
+listener and dials with `--carrier`; a client-grant image instead uses the
+production invitation and approval path, then proves a separate `--carrier`
+dial is rejected over the same live network path. It reads the session snapshot
+through the private hub, then reconnects with the resulting enrollment. The
+report records both commits, auth mode, carrier refusal, reconnect, and snapshot results.
 The client need not match the image's older baked commit: successful protocol
 operations are the compatibility check.
 

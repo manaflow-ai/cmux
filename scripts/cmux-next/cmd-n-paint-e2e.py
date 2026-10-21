@@ -10,24 +10,38 @@ adopted page showed one frame on another background), and the content area never
 color it was not before the key.
 Fails on any such frame and prints where the frame strips are.
 
+`--split N` (Leo 2026-10-20: "the layout shifts" when a new workspace opens from a split one): the
+workspace is split into N panes first (Cmd-D, then Cmd-Shift-D), so the prewarmed page waits at a
+split pane's size and Cmd-N's new workspace, one pane over the whole area, must still show it in
+one step: no frame of the page laid out at the old pane's size.
+
 `--cold` (bd cx-ec99): the first Cmd-N goes the moment the app answers on its socket after launch,
 with no wait for a ready spare, and its content area must never turn flat (the person sees the
 New Tab page's frame, never an empty pane, while its page loads). Start this script before the app.
 
-The app runs already (a capture slot: `capture-host launch`), with its debug socket.
+The app runs already (a capture slot: `capture-host launch`), with its debug socket; or `--app` and
+`--tag` launch a tagged DEV build here (no activation, scratch config, as instant-new-surfaces-bench.py
+does) and quit it at the end, for CI's GUI runners (cmux-next-frame-pacing.yml, `instant`).
 
-Usage: cmd-n-paint-e2e.py --socket <path> [--runs 3] [--keys n,t] [--out DIR] [--cold]
+Usage: cmd-n-paint-e2e.py (--socket <path> | --app PATH --tag TAG) [--runs 3] [--keys n,t] [--out DIR] [--cold] [--split N]
 """
-import argparse, json, socket, sys, time
+import argparse, atexit, glob, json, os, signal, socket, subprocess, sys, tempfile, time
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--socket", required=True)
+parser.add_argument("--socket")
+parser.add_argument("--app", help="a tagged DEV app to launch (with --tag) instead of one already running")
+parser.add_argument("--tag")
 parser.add_argument("--runs", type=int, default=3)
 parser.add_argument("--keys", default="n,t", help="Command-<key> openings to check, comma separated")
 parser.add_argument("--out", default="/tmp/cmd-n-paint", help="where the app writes each run's frames")
 parser.add_argument("--duration-ms", type=float, default=700)
 parser.add_argument("--cold", action="store_true", help="the first Cmd-N right after launch: no ready spare, no blank frame")
+parser.add_argument("--split", type=int, default=1, help="split the workspace into this many panes before the openings")
 opts = parser.parse_args()
+if bool(opts.app) != bool(opts.tag) or bool(opts.socket) == bool(opts.app):
+    parser.error("pass --socket, or --app with --tag")
+if opts.app:
+    opts.socket = f"/tmp/cmux-debug-{opts.tag}.sock"
 
 
 def rpc(method, params=None, timeout=30):
@@ -66,7 +80,53 @@ def spare_ready():
     return any(s.get("ready") for s in state.get("spares") or [])
 
 
+def launch(app_path, tag):
+    """Starts the tagged app on its debug socket with a scratch config; it quits at exit."""
+    app_path = os.path.abspath(app_path.rstrip("/"))
+    binary = next((p for p in sorted(glob.glob(os.path.join(app_path, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
+    if not binary:
+        sys.exit(f"no executable in {app_path}")
+    if os.path.exists(opts.socket):
+        os.remove(opts.socket)
+    scratch = tempfile.mkdtemp(prefix=f"cmd-n-paint-{tag}-")
+    open(os.path.join(scratch, "ghostty"), "w").close()
+    config = os.path.join(scratch, "cmux.json")
+    open(config, "w").write("{}\n")
+    env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
+           "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
+           "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": config,
+           "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(scratch, "ghostty"), "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,900"}
+    os.makedirs(opts.out, exist_ok=True)
+    log = open(os.path.join(opts.out, f"app-{tag}.log"), "a")
+    process = subprocess.Popen([binary], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
+
+    def quit_app():
+        rpc("action.run", {"action": "quitEndSessions"}, timeout=10)
+        try:
+            process.wait(timeout=20)
+        except subprocess.TimeoutExpired:
+            os.kill(process.pid, signal.SIGKILL)
+        cli = os.path.join(app_path, "Contents/Resources/bin/cmux")
+        subprocess.run([cli, "server", "stop", "--session", f"cmux-app-{tag}", "--end-terminals"],
+                       env={k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}, capture_output=True, timeout=30)
+        if os.path.exists(opts.socket):
+            os.remove(opts.socket)
+    atexit.register(quit_app)
+    wait("the tagged app's socket", lambda: os.path.exists(opts.socket) and (rpc("debug.windows") or {}).get("windows"), 120)
+    time.sleep(2)  # test harness wait: the first workspace settles
+
+
+if opts.app:
+    launch(opts.app, opts.tag)
 failures = []
+if opts.split > 1:
+    wait("a ready spare before the splits", spare_ready, 60)
+    for index in range(opts.split - 1):
+        # Split Right, then Split Down: each opens a New Tab page in the new pane (NewTabPage.split).
+        rpc("debug.key", {"key": "d", "modifiers": ["command"] + (["shift"] if index else [])})
+        time.sleep(1.0)  # test harness wait: the split's pane shows
+    # The spare follows the focused pane's size once that settles (NewTabSparePool.fitSettle).
+    time.sleep(1.0)  # test harness wait
 for run in range(opts.runs):
     for key in opts.keys.split(","):
         if key == "t":

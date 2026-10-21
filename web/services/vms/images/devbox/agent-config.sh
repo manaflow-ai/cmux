@@ -67,7 +67,7 @@ cmux_write_agent_configs() {
         done
       } > "$HOME/.config/cmux/model-plane.env" 2>/dev/null
     ) || true
-  elif [ -f "$HOME/.config/cmux/model-plane.env" ]; then
+  elif [ "${cmux_shared_machine-0}" != 1 ] && [ -f "$HOME/.config/cmux/model-plane.env" ]; then
     . "$HOME/.config/cmux/model-plane.env" 2>/dev/null || true
   elif [ -f /etc/cmux/model-plane.env ]; then
     # Baked into the image: the same alias origin for every machine; the
@@ -581,8 +581,30 @@ cmux_claude_set_team_env_aside() {
   fi
 }
 
+# A team-billed VM is a shared Unix identity even while its creator is the
+# team's only member. Never let a caller-supplied provider credential reach
+# this shared shell's managed state: replace the complete model plane with the
+# root-owned image copy before any config is materialized. Missing/unreadable
+# image data leaves the values absent (team launch will fail closed), and the
+# shared flag prevents falling back to an older HOME copy.
+cmux_prepare_shared_machine_model_env() {
+  cmux_shared_machine=0
+  cmux_kind=$(head -c 64 /etc/cmux/vm-kind 2>/dev/null | tr -d '[:space:]')
+  [ "$cmux_kind" = owner ] && return 0
+  cmux_shared_machine=1
+  unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL ANTHROPIC_CUSTOM_HEADERS \
+    CLAUDE_CODE_OAUTH_TOKEN CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_VERTEX CLAUDE_CODE_USE_FOUNDRY \
+    CLAUDE_CONFIG_DIR CODEX_API_KEY CODEX_HOME OPENAI_API_KEY OPENAI_BASE_URL \
+    OPENCODE_CONFIG OPENCODE_CONFIG_DIR CMUX_CLAUDE_TEAM_BASE_URL CMUX_CLAUDE_TEAM_API_KEY \
+    CMUX_CODEROUTER_URL
+  if [ -f /etc/cmux/model-plane.env ]; then
+    . /etc/cmux/model-plane.env 2>/dev/null || true
+  fi
+}
+
+cmux_prepare_shared_machine_model_env
 cmux_write_agent_configs
 cmux_write_cua_mcp_config
 cmux_claude_set_team_env_aside
-unset -f cmux_write_agent_configs cmux_claude_set_team_env_aside cmux_claude_plane_pair
-unset cmux_claude_plane_base cmux_claude_plane_key
+unset -f cmux_prepare_shared_machine_model_env cmux_write_agent_configs cmux_claude_set_team_env_aside cmux_claude_plane_pair
+unset cmux_claude_plane_base cmux_claude_plane_key cmux_kind cmux_shared_machine

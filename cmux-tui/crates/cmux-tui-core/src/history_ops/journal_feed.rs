@@ -11,8 +11,19 @@
 //! the session: a session that never serves history (most tests, a
 //! reopened registry) never has a second holder that could outlive its
 //! last owner by a fold.
+//!
+//! Cost on a long-running daemon (CLI agent papercuts item 5): the journal
+//! is mostly terminal output in sealed gzip segments (gigabytes), and the
+//! fold used to start at sequence 0 on every daemon start and inflate all
+//! of it, page by page under the registry lock, while a list waited (`cmux
+//! history list` past its timeout, the daemon near 100% CPU). Now the fold
+//! resumes from its saved cursor (merged.rs `restore`/`save`), a read past
+//! the in-memory journal skips terminal output and output-only segments,
+//! the feed and a list take turns page by page instead of both reading the
+//! same pages, and a list stops folding after its budget.
 
 use std::sync::{Arc, Weak};
+use std::time::Instant;
 
 use cmux_history::HistoryKind;
 use serde_json::Value;
@@ -64,30 +75,71 @@ fn page(mux: &Mux, cursor: u64) -> anyhow::Result<(Vec<(HistoryKind, Value)>, u6
             scanned = scanned.max(page.scanned_through.min(page.head_sequence));
         }
         SharedJournalRead::Gap { .. } | SharedJournalRead::Unavailable => {
-            for record in &mux.session_journal_after(cursor, PAGE)?.records {
+            // Past the in-memory journal: neither fold reads terminal
+            // output, so skip it (and the sealed segments that hold only
+            // output) instead of inflating it.
+            // Read on a reader of our own, never through the registry, whose
+            // lock every write takes.
+            let (behind, reached) = match mux.shared_journal_handle().open_reader()? {
+                Some(reader) => {
+                    let head = reader.head()?;
+                    reader.without_output_after(cursor, head, PAGE)?
+                }
+                // An in-memory registry has no file to open.
+                None => {
+                    let head = mux.session_journal_head()?;
+                    mux.session_journal_without_output_after(cursor, head, PAGE)?
+                }
+            };
+            for record in &behind {
                 take(record)?;
             }
+            scanned = scanned.max(reached);
         }
     }
     Ok((records, scanned))
 }
 
-/// Folds every committed record after the module's cursor. Returns the kinds
-/// that changed.
-pub(super) fn catch_up(mux: &Mux) -> anyhow::Result<Vec<HistoryKind>> {
+/// What one [`catch_up`] did.
+pub(super) struct CaughtUp {
+    /// The kinds that changed.
+    pub(super) changed: Vec<HistoryKind>,
+    /// The fold reached the journal head (false: the deadline came first).
+    pub(super) complete: bool,
+}
+
+/// Folds every committed record after the module's cursor, or until
+/// `deadline`, one page per turn, then saves the agent fold when it moved
+/// (merged.rs `save`).
+pub(super) fn catch_up(mux: &Mux, deadline: Option<Instant>) -> anyhow::Result<CaughtUp> {
     let mut changed = Vec::new();
-    loop {
+    let complete = loop {
+        if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+            break false;
+        }
+        let turn = mux.history.turn();
+        mux.history.restore(mux);
         let cursor = mux.history.cursor();
-        let (records, scanned) = page(mux, cursor)?;
+        let (records, scanned) = match page(mux, cursor) {
+            Ok(page) => page,
+            Err(error) => {
+                mux.history.save(mux);
+                return Err(error);
+            }
+        };
         if scanned <= cursor {
-            return Ok(changed);
+            mux.history.save(mux);
+            break true;
         }
         for kind in mux.history.fold(cursor, scanned, &records) {
             if !changed.contains(&kind) {
                 changed.push(kind);
             }
         }
-    }
+        mux.history.save(mux);
+        drop(turn);
+    };
+    Ok(CaughtUp { changed, complete })
 }
 
 /// Starts the session's history feed once, when the shared journal is on.
@@ -117,8 +169,10 @@ fn run(weak: &Weak<Mux>, kernel: &crate::journal_kernel::JournalKernel) {
             if mux.daemon_shutdown_requested() {
                 return;
             }
-            match catch_up(&mux) {
-                Ok(changed) if !changed.is_empty() => mux.history.changed(&mux, &changed),
+            match catch_up(&mux, None) {
+                Ok(caught) if !caught.changed.is_empty() => {
+                    mux.history.changed(&mux, &caught.changed);
+                }
                 Ok(_) => {}
                 Err(error) => eprintln!("cmux-tui: history feed read failed: {error:#}"),
             }
@@ -126,3 +180,7 @@ fn run(weak: &Weak<Mux>, kernel: &crate::journal_kernel::JournalKernel) {
         epoch = kernel.wait_until(epoch, None);
     }
 }
+
+#[cfg(test)]
+#[path = "journal_feed_tests.rs"]
+mod tests;

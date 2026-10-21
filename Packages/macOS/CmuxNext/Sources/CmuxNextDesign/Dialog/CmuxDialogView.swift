@@ -82,10 +82,11 @@ public final class CmuxDialogView: NSView {
     }
 
     /// Gives the keyboard to the first text field, else the default button,
-    /// else the first control.
+    /// else Cancel (a question with no default: a key typed on must not tick
+    /// a check box), else the first control.
     public func focusInitial() {
         let field = focusables.first { $0 is NSTextField }
-        let fallback = buttonViews.first { $0.button.role == .default } ?? focusables.first
+        let fallback = buttonViews.first { $0.button.role == .default } ?? buttonViews.first { $0.button.role == .cancel } ?? focusables.first
         guard let target = field ?? fallback else { return }
         window?.makeFirstResponder(target)
     }
@@ -202,7 +203,7 @@ public final class CmuxDialogView: NSView {
 
         let content = NSView()
         content.addSubview(stack)
-        let surface = Glass.makeOverlayPanel(content: content)
+        let surface = Glass.makeOverlayPanel(content: content, tone: .neutralGlass(.dialog))
         addSubview(surface)
         self.surface = surface
         NSLayoutConstraint.activate([
@@ -256,11 +257,15 @@ public final class CmuxDialogView: NSView {
             return captioned(caption, box, width: width)
         case .choice(let id, let caption, let options, let selected):
             let popup = ThemedPopUpButton(frame: .zero, pullsDown: false)
+            // A disabled option lists greyed out and is never the selection.
+            popup.autoenablesItems = false
             for option in options {
                 popup.addItem(withTitle: option.label)
                 popup.lastItem?.representedObject = option.value
-                if option.value == selected { popup.select(popup.lastItem) }
+                popup.lastItem?.isEnabled = option.isEnabled
+                if option.value == selected, option.isEnabled { popup.select(popup.lastItem) }
             }
+            if popup.selectedItem?.isEnabled != true, let first = popup.itemArray.first(where: \.isEnabled) { popup.select(first) }
             popup.identifier = NSUserInterfaceItemIdentifier("cmux.dialog.field.\(id)")
             popup.setAccessibilityLabel(caption ?? spec.title)
             popup.translatesAutoresizingMaskIntoConstraints = false

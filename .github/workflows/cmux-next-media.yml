@@ -25,18 +25,27 @@ name: cmux-next media
 # and 8 running jobs on 2026-10-14 and saturated those runners. It now runs:
 #   - on a merge: a push to feat-cmux-next that touches the UI paths tours
 #     that merge (the previous head against the new one) and comments on the
-#     merged pull request. One merge tour runs at a time; a newer merge
-#     replaces the waiting one, and a running tour is never cancelled.
+#     merged pull request. Every merge gets its own run and is never
+#     cancelled: tours run side by side in a Mac's slots (#22046) and queue
+#     for a gui runner otherwise. A merge that changes nothing a Mac tours
+#     takes no Mac and finishes in the route job.
 #   - on a pull request labeled `media-tour` (add the label to get a tour;
 #     every later push of that pull request tours again).
+#   - on a pull request without the label whose Swift UI change
+#     (Packages/macOS/CmuxNext/Sources) a specific tour covers: any tour in
+#     path_map.py other than the catch-all core tour
+#     (scripts/ci/media_auto_tour.py; not drafts, and never with the
+#     `no-media-tour` label). Over the 300 merges before 2026-10-21 that was
+#     21, against 118 that touched UI paths.
+# The route job decides; when no tour is wanted it takes no Mac and the PR
+# gets no comment.
 # Either way a change with nothing for a Mac to tour takes no Mac: no UI
 # paths, or only webview code, whose look the gallery advisory run checks in
 # Linux Chromium on the pull request (a webview-only merge gets no capture of
 # its own). Native-bridge, glass and theme webview files still tour. Add the
 # `media-tour-mac` label (with `media-tour`) to tour a webview change on a Mac.
-# A pull request without the label starts no job. Classic main has no
-# cmux-next UI, and a nightly schedule would run only from main's copy of
-# this file, so neither has a tour.
+# Classic main has no cmux-next UI, and a nightly schedule would run only
+# from main's copy of this file, so neither has a tour.
 on:
   push:
     branches: [feat-cmux-next]
@@ -69,18 +78,24 @@ on:
 
 permissions: {}
 
-# A pull request run that tours (labeled media-tour, and not a label event for
-# another label) shares the pull request's group and replaces its older tour.
-# Any other pull request run gets a group of its own, so it cancels nothing.
-# Merge tours share one group without cancel-in-progress.
+# A pull request run (not a label event for another label) shares the pull
+# request's group and replaces its older tour; whether it tours is the route
+# job's call, and that depends on the whole pull request's diff, so a later
+# push of a toured pull request tours again. Adding `no-media-tour` joins it too,
+# so it cancels a running tour. A label event for another label
+# gets a group of its own, so it cancels nothing.
+# Each merge run gets a group of its own. One shared merge group made every
+# merge wait behind the running tour, and a newer merge then replaced the
+# waiting run: 95 of 100 cancelled runs on 2026-10-20 were such zero-job
+# replacements, and each replaced merge lost its tour and its PR comment.
 concurrency:
-  group: ${{ github.event_name == 'push' && 'cmux-next-media-feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'media-tour') && (github.event.action != 'labeled' || github.event.label.name == 'media-tour') && format('cmux-next-media-{0}', github.event.pull_request.number) || format('cmux-next-media-idle-{0}', github.run_id) }}
+  group: ${{ github.event_name == 'push' && format('cmux-next-media-merge-{0}', github.sha) || github.event_name == 'pull_request' && (github.event.action != 'labeled' || github.event.label.name == 'media-tour' || github.event.label.name == 'no-media-tour') && format('cmux-next-media-{0}', github.event.pull_request.number) || format('cmux-next-media-idle-{0}', github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   route:
     name: Pick the tour runner
-    if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch' && inputs.base_sha != '' || github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'media-tour') && (github.event.action != 'labeled' || github.event.label.name == 'media-tour')) }}
+    if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch' && inputs.base_sha != '' || github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'labeled' || github.event.label.name == 'media-tour' || github.event.label.name == 'no-media-tour')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
@@ -89,6 +104,7 @@ jobs:
     outputs:
       runs_on: ${{ steps.pick.outputs.runs_on }}
       reason: ${{ steps.pick.outputs.reason }}
+      wanted: ${{ steps.decide.outputs.wanted }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -96,8 +112,33 @@ jobs:
           sparse-checkout: |
             scripts/ci/cmux_next_media_runner.py
             scripts/ci/pr_runner_pool.py
+            scripts/ci/media_auto_tour.py
             scripts/cmux-next/media/path_map.py
           sparse-checkout-cone-mode: false
+
+      - name: Decide whether this pull request gets a tour
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          PR: ${{ github.event.pull_request.number }}
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          ACTION: ${{ github.event.action }}
+          DRAFT: ${{ github.event.pull_request.draft }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" != pull_request ]; then
+            echo "wanted=true" >> "$GITHUB_OUTPUT"
+            echo "a merge to feat-cmux-next or a batch dispatch tours"
+            exit 0
+          fi
+          # The files API lists at most 3000; past that the label decides.
+          if ! gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[].filename' \
+            > "$RUNNER_TEMP/changed.txt"; then
+            echo "::warning::could not list the pull request's files; only the media-tour label tours"
+            : > "$RUNNER_TEMP/changed.txt"
+          fi
+          python3 scripts/ci/media_auto_tour.py --changed "$RUNNER_TEMP/changed.txt"
 
       # The changed paths, read here on Linux so a change the Mac tour would
       # not capture (no UI, or only webview code, which the gallery advisory
@@ -105,6 +146,7 @@ jobs:
       # written only when the listing is complete; without it the picker
       # picks a Mac as before and the tour maps the paths itself.
       - name: List the changed paths
+        if: ${{ steps.decide.outputs.wanted == 'true' }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -130,6 +172,7 @@ jobs:
 
       - name: Pick an owned gui runner
         id: pick
+        if: ${{ steps.decide.outputs.wanted == 'true' }}
         env:
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
           OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
@@ -386,8 +429,9 @@ jobs:
           base="${RUNNER_TEMP:?}/cmux-next-base"
           [ -d "$base" ] || { echo "the base app was reused; no base tree needed"; exit 0; }
           pin=scripts/cmux-next/pin-cmux-tui.sh
-          base_key="$(cd "$base" && "./$pin" key)"
-          head_key="$("./$pin" key)"
+          # --rev: plain key prints CMUX_TUI_TREE_KEY when the job has one.
+          base_key="$(cd "$base" && "./$pin" key --rev HEAD)"
+          head_key="$("./$pin" key --rev HEAD)"
           if [ "$head_key" != "$base_key" ]; then
             echo "the head changes cmux-tui ($head_key, base $base_key): both apps use their own trees"
             exit 0
@@ -506,7 +550,7 @@ jobs:
     name: Post the tour media
     needs: [route, tour]
     # A batch dispatch has no PR to post on: the queue reads the tour's artifact.
-    if: ${{ github.event_name != 'workflow_dispatch' && !cancelled() && needs.route.result == 'success' }}
+    if: ${{ github.event_name != 'workflow_dispatch' && !cancelled() && needs.route.result == 'success' && needs.route.outputs.wanted == 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     # contents: write reaches the pr-media branch; main and the feature
@@ -522,9 +566,14 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.base.sha || github.sha }}
           persist-credentials: false
+          # pr-media.py refuses to upload without its privacy check
+          # (pr_media_privacy.py; the OCR tool only runs on macOS, so here
+          # media are left to main's after-push scan and text is checked).
           sparse-checkout: |
             scripts/pr-media.py
             scripts/ci/pr_status.py
+            scripts/ci/pr_media_privacy.py
+            scripts/ci/pr_media_ocr.swift
             scripts/cmux-next/media/publish.py
           sparse-checkout-cone-mode: false
 
@@ -591,6 +640,11 @@ jobs:
           TOUR_RESULT: ${{ needs.tour.result }}
           TOUR_IS_UI: ${{ needs.tour.outputs.is_ui }}
           TREE_NOTE: ${{ needs.tour.outputs.tree_note }}
+          # The agent logins whose PRs the privacy check enforces. The private
+          # names stay out of this dispatchable job (secrets need an environment);
+          # it checks with the built-in fleet patterns, and main's
+          # pr-media-privacy.yml scans every push with the names.
+          PR_MEDIA_AGENT_AUTHORS: ${{ vars.PR_MEDIA_AGENT_AUTHORS }}
         run: |
           set -euo pipefail
           note=""

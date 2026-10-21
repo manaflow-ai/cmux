@@ -269,7 +269,7 @@ fn report(output: &Output) -> Value {
 #[track_caller]
 fn assert_row_schema(report: &Value) {
     let rows = report["checks"].as_array().unwrap_or_else(|| panic!("no checks array: {report}"));
-    assert_eq!(rows.len(), 7, "{report}");
+    assert_eq!(rows.len(), 8, "{report}");
     for row in rows {
         let mut keys: Vec<&str> = row.as_object().unwrap().keys().map(String::as_str).collect();
         keys.sort_unstable();
@@ -385,6 +385,49 @@ fn agents_doctor_reports_missing_wiring_without_changing_anything() {
 
     // Read-only also means the harness itself never ran.
     assert!(!world.marker("claude").exists(), "doctor ran the claude it found");
+}
+
+/// A `cmux` that a login shell can find before the app's CLI (a PyPI
+/// `cmux` in ~/.local/bin) and that is older than this CLI is named, with
+/// its version and a fix; a newer or same-version one is not. The doctor
+/// runs only its `--version`.
+#[test]
+fn agents_doctor_warns_about_an_older_cmux_on_path() {
+    let world = World::new("cli-shadow");
+    let missing_app = world.dir.join("no-app.sock");
+    // Written by a short-lived `sh`, as `World::harness` does, so no sibling
+    // test's fork inherits a write descriptor (ETXTBSY).
+    let fake_cmux = |version: &str| {
+        let path = world.bin.join("cmux");
+        let script = format!(
+            "#!/bin/sh\n[ \"$1\" = --version ] || touch \"$0.ran\"\necho \"cmux {version}\"\n"
+        );
+        let status = Command::new("/bin/sh")
+            .args(["-c", "printf '%s' \"$2\" >\"$1\" && chmod 755 \"$1\"", "sh"])
+            .arg(&path)
+            .arg(script)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        path
+    };
+
+    let old = fake_cmux("0.13.4");
+    let first = report(&world.run(&missing_app, &["--json", "agents", "doctor"]));
+    assert_row_schema(&first);
+    let shadow = row(&first, "cli.shadow");
+    assert_eq!(shadow["status"], "outdated", "{first}");
+    assert_eq!(shadow["reason"], "older_cli_on_path", "{first}");
+    let detail = shadow["detail"].as_str().unwrap();
+    assert!(detail.contains("0.13.4") && detail.contains("cmux"), "{first}");
+    assert!(shadow["fix"].as_str().is_some_and(|fix| !fix.is_empty()), "{first}");
+    assert!(!world.marker("cmux").exists(), "doctor ran {} beyond --version", old.display());
+
+    fake_cmux("99.0.0");
+    let second = report(&world.run(&missing_app, &["--json", "agents", "doctor"]));
+    let shadow = row(&second, "cli.shadow");
+    assert_eq!(shadow["status"], "ok", "{second}");
+    assert_eq!(shadow["fix"], Value::Null, "{second}");
 }
 
 #[test]
@@ -526,7 +569,7 @@ fn mcp_status(row: &Value, report: &Value) -> &'static str {
         });
     match row["status"].as_str().unwrap() {
         "ok" | "not_applicable" => "ok",
-        "cmux_only" | "unknown" => "warn",
+        "cmux_only" | "unknown" | "outdated" => "warn",
         "missing" if row["id"].as_str().unwrap().starts_with("harness.") && any_harness => "warn",
         "missing" => "fail",
         other => panic!("unknown CLI status {other}"),

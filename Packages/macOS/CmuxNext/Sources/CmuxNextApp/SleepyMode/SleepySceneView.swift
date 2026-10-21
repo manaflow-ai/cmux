@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import SwiftUI
 
 /// Sleepy Mode's scene: a night sky with twinkling stars, a moon, drifting Zs,
@@ -11,9 +12,15 @@ struct SleepySceneView: View {
 
     var body: some View {
         ZStack {
-            TimelineView(.animation(minimumInterval: 0.1)) { context in
-                Canvas { canvas, size in
-                    Self.drawSky(canvas, size: size, time: context.date.timeIntervalSinceReferenceDate)
+            Group {
+                if Motion.panes.animatesLoops {
+                    // motion: allow the scene's 10 fps loop runs only while Motion.panes.animatesLoops
+                    TimelineView(.animation(minimumInterval: 0.1)) { context in
+                        Self.sky(time: context.date.timeIntervalSinceReferenceDate)
+                    }
+                } else {
+                    // Motion off (the master switch, Panes and Windows, speed off or Reduce Motion): a still sky.
+                    Self.sky(time: 0)
                 }
             }
             .ignoresSafeArea()
@@ -52,6 +59,13 @@ struct SleepySceneView: View {
 
     /// Stars at fixed spots (a seeded walk, the same on every frame) that
     /// twinkle, and three Zs rising from the moon's corner.
+    /// The sky at `time` (seconds since the reference date).
+    private static func sky(time: TimeInterval) -> some View {
+        Canvas { canvas, size in
+            drawSky(canvas, size: size, time: time)
+        }
+    }
+
     private static func drawSky(_ canvas: GraphicsContext, size: CGSize, time: TimeInterval) {
         var seed: UInt64 = 0x5EED
         func next() -> Double {

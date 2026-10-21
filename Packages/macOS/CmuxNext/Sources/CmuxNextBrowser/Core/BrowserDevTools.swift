@@ -31,6 +31,8 @@ public nonisolated enum BrowserDevToolsCommand: Hashable, Sendable {
     case close
     /// Move the tools; reopens them when they move into or out of a window.
     case dock(BrowserDevToolsDock)
+    /// Open on one panel (Network, Performance, Memory...).
+    case panel(WebDevToolsPanel)
 }
 
 /// What the tools of one page look like now.

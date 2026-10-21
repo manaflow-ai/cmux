@@ -38,6 +38,8 @@ export type CardInput =
   /// Text typed into the active item's Other field.
   | { type: "otherText"; text: string }
   | { type: "escape" }
+  /// The Next button: the next question still unanswered.
+  | { type: "next" }
   /// The explicit Submit button.
   | { type: "submit" };
 
@@ -84,6 +86,28 @@ export function cardAnswer(state: CardState): Answer {
 
 export const canSubmit = (state: CardState): boolean =>
   isPending(state.question) && answerProblems(state.question, cardAnswer(state)).length === 0;
+
+/// The indices of the items with no answer yet. Other with typed text answers its item.
+export function unansweredItems(state: CardState): number[] {
+  const answer = cardAnswer(state);
+  return state.question.items.flatMap((item, index) => {
+    const chosen = answer.selections[item.id];
+    return !chosen || (chosen.optionIDs.length === 0 && !chosen.other) ? [index] : [];
+  });
+}
+
+/// The unanswered item after the active one (wrapping to the first), never the active one itself.
+export function nextUnanswered(state: CardState): number | undefined {
+  const open = unansweredItems(state).filter((index) => index !== state.activeItem);
+  return open.find((index) => index > state.activeItem) ?? open[0];
+}
+
+/// What the card's primary button does: "next" while another question still needs an answer and
+/// this is not the last step, else "submit" (sent once every question has an answer).
+export function primaryAction(state: CardState): "next" | "submit" {
+  const last = state.activeItem >= state.question.items.length - 1;
+  return !canSubmit(state) && !last && nextUnanswered(state) !== undefined ? "next" : "submit";
+}
 
 /// Replaces the question (for example when the owner's answered state arrives) and keeps the
 /// local choices for a still-pending ask.
@@ -145,6 +169,11 @@ export function sendCard(state: CardState, input: CardInput): Step {
     case "escape":
       if (state.editingOther) return { state: { ...state, editingOther: false }, effect: NONE };
       return { state, effect: { type: "resign" } };
+    case "next": {
+      const next = nextUnanswered(state);
+      if (next === undefined) return { state, effect: NONE };
+      return { state: { ...state, editingOther: false, activeItem: next }, effect: NONE };
+    }
     case "submit":
       return { state, effect: canSubmit(state) ? { type: "submit", answer: cardAnswer(state) } : NONE };
   }
@@ -178,17 +207,9 @@ function choose(state: CardState, row: number, item: Item, shouldAdvance: boolea
 
 /// Moves to the next unanswered item, or submits when every item is answered.
 function advance(state: CardState): Step {
-  const answer = cardAnswer(state);
-  const items = state.question.items;
-  const unanswered = (index: number) => {
-    const chosen = answer.selections[items[index]!.id];
-    return !chosen || (chosen.optionIDs.length === 0 && !chosen.other);
-  };
-  const indices = items.map((_, index) => index);
-  const next =
-    indices.find((index) => index > state.activeItem && unanswered(index)) ??
-    indices.find((index) => unanswered(index));
+  const open = unansweredItems(state);
+  const next = open.find((index) => index > state.activeItem) ?? open[0];
   if (next !== undefined)
     return { state: next === state.activeItem ? state : { ...state, activeItem: next }, effect: NONE };
-  return { state, effect: canSubmit(state) ? { type: "submit", answer } : NONE };
+  return { state, effect: canSubmit(state) ? { type: "submit", answer: cardAnswer(state) } : NONE };
 }

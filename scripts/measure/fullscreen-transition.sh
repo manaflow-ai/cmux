@@ -5,8 +5,12 @@
 # missed frames, and the top row's place before and after). Needs a logged-in console (an owned mini).
 #   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/fullscreen-transition.sh \
 #     --ref <sha> --artifact artifacts/fullscreen/report.json [--arg=--rounds=3] [--arg=--spaces]
+# To time an older commit, revert the change on a scratch ref of the tip (the script blob must match the reviewed one).
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
+# A step's checkout has empty submodules: reload.sh needs Ghostty's headers (GhosttyKit itself comes
+# from the pinned cache) and ghostty-next for the bundled cmux-tui.
+git submodule update --init --depth 1 ghostty ghostty-next >/dev/null
 tag="fullscreen"
 out="$(pwd)/artifacts/fullscreen"
 mkdir -p "$out"

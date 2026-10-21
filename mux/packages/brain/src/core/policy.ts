@@ -11,12 +11,12 @@ export const ASK = "ask";
 /**
  * `remote.autoApprove` from a Chief's settings (`{"remote": {"autoApprove":
  * bool}}`): a remote-origin turn runs with the configured policy instead of
- * `ask`. Default true; a missing or non-bool value is the default.
+ * `ask`. The secure default is false; a missing or non-bool value asks.
  */
 export function remoteAutoApprove(settings: unknown): boolean {
   const remote = (settings as { remote?: unknown } | null | undefined)?.remote;
   const value = (remote as { autoApprove?: unknown } | null | undefined)?.autoApprove;
-  return typeof value === "boolean" ? value : true;
+  return typeof value === "boolean" ? value : false;
 }
 
 /** `ask` when a paired device drives the turn and remote.autoApprove is off; else the configured policy. */
@@ -25,8 +25,7 @@ export function turnPolicy(remote: boolean, autoApprove: boolean, configured: st
 }
 
 /** The policy floor for a child spawned now: `ask` during an ask turn or while an ask child or subagent is live, unless remote.autoApprove is on. */
-export function spawnFloor(autoApprove: boolean, turnAsk: boolean, askChildLive: boolean, askSubagentLive: boolean): string | null {
-  if (autoApprove) return null;
+export function spawnFloor(_autoApprove: boolean, turnAsk: boolean, askChildLive: boolean, askSubagentLive: boolean): string | null {
   return turnAsk || askChildLive || askSubagentLive ? ASK : null;
 }
 

@@ -39,19 +39,19 @@ terminal program gets the encoded key. FIXED = changed by this audit.
 | Clear screen and scrollback | Cmd-K (Ghostty `clear_screen`) | Cmd-K `performable:clear_screen` | Cmd-K `terminal.clear` (daemon clear-history, 8251d62d6a8e, 4b5d8e0886f5) | match |
 | Clear screen, keep scrollback | Cmd-Shift-K | none | Cmd-Shift-K `clearScreenKeepScrollback` | match |
 | Font size, this terminal | Cmd-= / Cmd-+ / Cmd-- / Cmd-0 (Ghostty) | `increase_font_size:1`, `decrease_font_size:1`, `reset_font_size` | `terminal.increaseFontSize` etc. run the same Ghostty actions; the workspace-wide actions on the same keys yield in a terminal | match |
-| Font size, whole workspace | Ctrl-Cmd-= / Ctrl-Cmd-- / Ctrl-Cmd-0 | none | Cmd-= / Cmd-- / Cmd-0 outside a terminal; Ctrl-Cmd-=/-/0 is UI scale | differs by an earlier cmux-next decision (UI scale); see Decisions |
+| Font size, whole workspace | Ctrl-Cmd-= / Ctrl-Cmd-- / Ctrl-Cmd-0 | none | Cmd-= / Cmd-- / Cmd-0 outside a terminal; Ctrl-Shift-Cmd-=/-/0 is UI scale (Ctrl-Cmd-= is Equalize) | differs by an earlier cmux-next decision (UI scale); see Decisions |
 
 ## Splits and panes
 
 | Action | Shipping cmux | Ghostty default | cmux-next | State |
 | --- | --- | --- | --- | --- |
 | Split right / down | Cmd-D / Cmd-Shift-D | `new_split:right` / `new_split:down` | Cmd-D `splitRight` / Cmd-Shift-D `splitDown` | match |
-| Focus pane in a direction | Cmd-Opt-arrows | Cmd-Opt-arrows `goto_split` | Cmd-Opt-arrows `focusLeft` etc. (also Ctrl-Cmd-H/J/K/L) | match |
+| Focus pane in a direction | Cmd-Opt-arrows | Cmd-Opt-arrows `goto_split` | Cmd-Opt-arrows `focusLeft` etc. (also Ctrl-Cmd-H/J/K/L). 2f3e1f95983 had moved Cmd-Opt-Left / Right to the sidebar; back to pane focus 2026-10-20 and reserved (schemas/keybindings/ghostty-reserved-keys.json) | match |
 | Focus previous / next pane, focus history | Cmd-[ / Cmd-] focus history Back / Forward (no pane previous / next key) | Cmd-[ / Cmd-] `goto_split:previous/next` | Cmd-[ / Cmd-] `focusHistoryBack` / `focusHistoryForward` everywhere but a web page (Back / Forward there), also Ctrl-- / Ctrl-Shift-- outside a terminal. Before: the key router consumed Cmd-[ / Cmd-] outside a browser, so they did nothing in a terminal | FIXED (chief decision): matches the shipping cmux; a `super+[` / `super+]` keybind in the user's Ghostty config still wins |
 | Focus pane N | Ctrl-Cmd-1...9 | none | Ctrl-Cmd-1...9 `focusPaneByNumber` | match |
 | Resize pane | Ctrl-Shift-H/J/K/L; Ctrl-Cmd-arrows (Ghostty) | Ctrl-Cmd-arrows `resize_split` | both, `resizePane*` | match |
 | Zoom pane | Cmd-Shift-Return | Cmd-Shift-Return `toggle_split_zoom` | Cmd-Shift-Return `toggleSplitZoom` | match |
-| Equalize | Ctrl-Shift-Cmd-= | Ctrl-Cmd-= `equalize_splits` | Ctrl-Shift-Cmd-= `equalizeSplits` | match |
+| Equalize | Ctrl-Shift-Cmd-= | Ctrl-Cmd-= `equalize_splits` | Ctrl-Cmd-= `equalizeSplits` (Lawrence 2026-10-19; UI scale moved to Ctrl-Shift-Cmd-=/-/0) | matches Ghostty, differs from the shipping cmux |
 | New pane, auto layout | Ctrl-Cmd-N | none | Ctrl-Cmd-N `newPaneAutoLayout` | match |
 
 ## Tabs, workspaces and windows
@@ -63,7 +63,7 @@ terminal program gets the encoded key. FIXED = changed by this audit.
 | Close other tabs in pane | Cmd-Opt-T | none | Cmd-Opt-T `closeOtherTabsInPane` | match |
 | Cmd-Opt-W | nothing (Ghostty `close_tab:this` unbound) | `close_tab:this` | Before: Ghostty `close_tab:this` closed the tab | FIXED: unbound in cmux's Ghostty defaults; the key goes to the program |
 | Cmd-Opt-Shift-W | nothing (Ghostty `close_all_windows` unbound) | `close_all_windows` | Before: Ghostty closed every window | FIXED: unbound in cmux's Ghostty defaults |
-| Next / previous tab | Cmd-Shift-] / [; Ctrl-Tab / Ctrl-Shift-Tab | Cmd-Shift-] / [, Ctrl-Tab / Ctrl-Shift-Tab `next_tab` / `previous_tab` | Cmd-Shift-] / [ and Ctrl-Tab / Ctrl-Shift-Tab: the focused pane's next / previous tab (`nextSurface` / `prevSurface`, Lawrence 2026-10-15, #20116); Cmd-Opt-Right / Left, Ctrl-PageDown / Up and Ctrl-Cmd-] / [: next / previous sidebar item (`nextSidebarTab` / `prevSidebarTab`, Leo 2026-10-12); they win over Ghostty keybinds | match for Cmd-Shift-] / [ and Ctrl-Tab |
+| Next / previous tab | Cmd-Shift-] / [; Ctrl-Tab / Ctrl-Shift-Tab | Cmd-Shift-] / [, Ctrl-Tab / Ctrl-Shift-Tab `next_tab` / `previous_tab` | Cmd-Shift-] / [ and Ctrl-Tab / Ctrl-Shift-Tab: the focused pane's next / previous tab (`nextSurface` / `prevSurface`, Lawrence 2026-10-15, #20116); Ctrl-PageDown / Up and Ctrl-Cmd-] / [: next / previous sidebar item (`nextSidebarTab` / `prevSidebarTab`, Leo 2026-10-12; Cmd-Opt-Right / Left went back to pane focus, Lawrence 2026-10-20); they win over Ghostty keybinds | match for Cmd-Shift-] / [ and Ctrl-Tab |
 | Tab N | Ctrl-1...9 (9 = last) | none | Ctrl-1...9 `selectSurfaceByNumber` | match |
 | Workspace N | Cmd-1...9 | Cmd-1...8 `goto_tab`, Cmd-9 `last_tab` | Cmd-1...9 `selectWorkspaceByNumber` | match |
 | Move tab | Cmd-Opt-Shift-[ / ]; Cmd-Opt-Shift-arrows; Ctrl-Shift-Cmd-[ / ] | none on macOS | the same keys, `moveSurface*` | match |
@@ -151,7 +151,8 @@ first-terminal Cmd-K rows fail in both runs because that terminal is not first r
 ## Decisions (earlier cmux-next choices that differ from the shipping cmux; the chief kept them, 2026-10-11)
 
 - Workspace-wide terminal font size: the shipping cmux uses Ctrl-Cmd-=/-/0; cmux-next uses
-  Cmd-=/-/0 outside a terminal and gives Ctrl-Cmd-=/-/0 to UI scale.
+  Cmd-=/-/0 outside a terminal and gives Ctrl-Shift-Cmd-=/-/0 to UI scale (moved from Ctrl-Cmd
+  on 2026-10-19, when Lawrence gave Ctrl-Cmd-= to Equalize Splits, as in Ghostty).
 - Cmd-Z in a terminal: the shipping cmux sends it to the program; cmux-next routes Ghostty's
   `performable:undo` to Reopen Last Closed Item.
 - Cmd-J: Click by Hint in the shipping cmux; the leader key in cmux-next.

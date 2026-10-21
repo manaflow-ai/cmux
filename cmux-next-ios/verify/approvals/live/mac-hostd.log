@@ -1,0 +1,53 @@
+2026-10-14T07:12:10.067317Z  INFO cnx_hostd::host: registered device={"createdAt":"2026-10-14T07:12:09.681Z","deviceId":"49e46aa1-b7fb-4959-a6bb-1e3afdc5e4f5","kind":"mac","lastSeenAt":null,"name":"cmux’s Mac mini (2)","ownerUserI
+2026-10-14T07:12:29.313589Z  INFO cnx_hostd::host: link up session_id="13ae00a7-1700-4ba0-948f-e4e19e588935" kind=WebRtc path=Direct phone="12064ee0-47ee-427c-84bb-2f2c6fc2ee9b"  pair_host-host=174.6ms link_ready=174.6ms
+2026-10-14T07:12:29.461114Z  INFO cnx_hostd::services: channel opened service="daemon" channel=3 lane=Bulk own_stream=false peer="12064ee0-47ee-427c-84bb-2f2c6fc2ee9b"
+2026-10-14T07:12:29.461149Z  INFO cnx_hostd::services: channel refused or failed service="daemon" code="unpaired" reason="pair this iPhone with the Mac first (auth)"
+2026-10-14T07:12:29.461120Z  INFO cnx_hostd::services: channel opened service="version" channel=1 lane=Bulk own_stream=false peer="12064ee0-47ee-427c-84bb-2f2c6fc2ee9b"
+2026-10-14T07:12:29.461215Z  INFO cnx_hostd::services: channel refused or failed service="version" code="unpaired" reason="pair this iPhone with the Mac first (auth)"
+2026-10-14T07:14:51.777369Z  INFO cnx_hostd::host: link up session_id="ae4ff193-4921-40f0-b445-7e865eeedd2a" kind=WebRtc path=Direct phone="12064ee0-47ee-427c-84bb-2f2c6fc2ee9b"  pair_host-host=183.5ms link_ready=183.6ms
+2026-10-14T07:14:51.796060Z  INFO cnx_hostd::services: channel opened service="daemon" channel=3 lane=Bulk own_stream=false peer="12064ee0-47ee-427c-84bb-2f2c6fc2ee9b"
+2026-10-14T07:14:51.796072Z  INFO cnx_hostd::services: channel opened service="version" channel=1 lane=Bulk own_stream=false peer="12064ee0-47ee-427c-84bb-2f2c6fc2ee9b"
+2026-10-14T07:14:51.796104Z  INFO cnx_hostd::services: channel refused or failed service="version" code="unpaired" reason="pair this iPhone with the Mac first (auth)"
+2026-10-14T07:14:51.796079Z  INFO cnx_hostd::services: channel refused or failed service="daemon" code="unpaired" reason="pair this iPhone with the Mac first (auth)"
+2026-10-14T07:15:12.678290Z  INFO cnx_hostd::host: link up session_id="8ab33714-b099-4f19-80cd-1d44afd5c537" kind=WebRtc path=Direct phone="c23e2ef8-300e-4b47-af01-61988c34162d"  pair_host-host=183.6ms link_ready=183.6ms
+2026-10-14T07:15:12.691999Z  INFO cnx_hostd::services: channel opened service="auth" channel=1 lane=Bulk own_stream=false peer="c23e2ef8-300e-4b47-af01-61988c34162d"
+2026-10-14T07:15:12.692012Z  INFO cnx_hostd::services: channel opened service="version" channel=3 lane=Bulk own_stream=false peer="c23e2ef8-300e-4b47-af01-61988c34162d"
+2026-10-14T07:15:12.691996Z  INFO cnx_hostd::services: channel opened service="daemon" channel=5 lane=Bulk own_stream=false peer="c23e2ef8-300e-4b47-af01-61988c34162d"
+2026-10-14T07:15:51.003739Z  INFO cnx_hostd::services: channel opened service="acpmux" channel=7 lane=Bulk own_stream=false peer="c23e2ef8-300e-4b47-af01-61988c34162d"
+2026-10-14T07:15:51.042990Z  INFO cnx_hostd::services: channel opened service="chief" channel=9 lane=Bulk own_stream=false peer="c23e2ef8-300e-4b47-af01-61988c34162d"
+2026-10-14T07:15:51.043136Z  INFO cnx_hostd::services: channel refused or failed service="chief" code="unavailable" reason="cmux-tui session chief: No such file or directory (os error 2)"
+2026-10-14T07:17:40.754017Z  INFO cnx_hostd::host: registered device={"createdAt":"2026-10-14T07:12:09.681Z","deviceId":"49e46aa1-b7fb-4959-a6bb-1e3afdc5e4f5","kind":"mac","lastSeenAt":null,"name":"cmux’s Mac mini (2)","ownerUserI
+2026-10-14T07:17:56.302156Z  INFO cnx_hostd::host: link up session_id="e90da471-e6db-4bfd-9b76-d1c1b280c502" kind=WebRtc path=Direct phone="c23e2ef8-300e-4b47-af01-61988c34162d"  pair_host-host=175.0ms link_ready=175.0ms
+2026-10-14T07:17:56.313166Z  INFO cnx_hostd::services: channel opened service="auth" channel=1 lane=Bulk own_stream=false peer="c23e2ef8-300e-4b47-af01-61988c34162d"
+2026-10-14T07:17:56.313270Z  INFO cnx_hostd::services: channel opened service="version" channel=5 lane=Bulk own_stream=false peer="c23e2ef8-300e-4b47-af01-61988c34162d"
+2026-10-14T07:17:56.313279Z  INFO cnx_hostd::services: channel opened service="daemon" channel=3 lane=Bulk own_stream=false peer="c23e2ef8-300e-4b47-af01-61988c34162d"
+2026-10-14T07:17:56.314826Z  INFO cnx_hostd::services: channel opened service="acpmux" channel=7 lane=Bulk own_stream=false peer="c23e2ef8-300e-4b47-af01-61988c34162d"
+2026-10-14T07:17:56.379348Z  INFO cnx_hostd::services: channel opened service="chief" channel=9 lane=Bulk own_stream=false peer="c23e2ef8-300e-4b47-af01-61988c34162d"
+2026-10-14T07:17:56.379438Z  INFO cnx_hostd::services: channel refused or failed service="chief" code="unavailable" reason="cmux-tui session chief: No such file or directory (os error 2)"
+2026-10-14T07:18:45.029637Z  INFO cnx_hostd::host: link up session_id="919ffa72-f835-4313-828b-4b49f9cf74f6" kind=WebRtc path=Direct phone="c23e2ef8-300e-4b47-af01-61988c34162d"  pair_host-host=549.5ms link_ready=549.6ms
+2026-10-14T07:18:45.039438Z  INFO cnx_hostd::services: channel opened service="daemon" channel=5 lane=Bulk own_stream=false peer="c23e2ef8-300e-4b47-af01-61988c34162d"
+2026-10-14T07:18:45.039445Z  INFO cnx_hostd::services: channel opened service="auth" channel=1 lane=Bulk own_stream=false peer="c23e2ef8-300e-4b47-af01-61988c34162d"
+2026-10-14T07:18:45.039450Z  INFO cnx_hostd::services: channel opened service="version" channel=3 lane=Bulk own_stream=false peer="c23e2ef8-300e-4b47-af01-61988c34162d"
+2026-10-14T07:18:45.198562Z  INFO cnx_hostd::services: channel opened service="acpmux" channel=7 lane=Bulk own_stream=false peer="c23e2ef8-300e-4b47-af01-61988c34162d"
+2026-10-14T07:19:37.522362Z  INFO cnx_hostd::host: link up session_id="0d9a824d-3e2e-4894-af35-6ca6c12b0acf" kind=WebRtc path=Direct phone="ccf5433a-e98f-40c2-b26a-eb615c40d5ed"  pair_host-host=152.7ms link_ready=152.7ms
+2026-10-14T07:19:37.532233Z  INFO cnx_hostd::services: channel opened service="auth" channel=1 lane=Bulk own_stream=false peer="ccf5433a-e98f-40c2-b26a-eb615c40d5ed"
+2026-10-14T07:19:37.532467Z  INFO cnx_hostd::services: channel opened service="version" channel=5 lane=Bulk own_stream=false peer="ccf5433a-e98f-40c2-b26a-eb615c40d5ed"
+2026-10-14T07:19:37.532477Z  INFO cnx_hostd::services: channel opened service="daemon" channel=3 lane=Bulk own_stream=false peer="ccf5433a-e98f-40c2-b26a-eb615c40d5ed"
+2026-10-14T07:20:55.727281Z  INFO cnx_hostd::services: channel opened service="acpmux" channel=7 lane=Bulk own_stream=false peer="ccf5433a-e98f-40c2-b26a-eb615c40d5ed"
+2026-10-14T07:20:55.766151Z  INFO cnx_hostd::services: channel opened service="chief" channel=9 lane=Bulk own_stream=false peer="ccf5433a-e98f-40c2-b26a-eb615c40d5ed"
+2026-10-14T07:20:55.766220Z  INFO cnx_hostd::services: channel refused or failed service="chief" code="unavailable" reason="cmux-tui session chief: No such file or directory (os error 2)"
+2026-10-14T07:20:55.983052Z  INFO cnx_hostd::services: channel opened service="auth" channel=11 lane=Bulk own_stream=false peer="ccf5433a-e98f-40c2-b26a-eb615c40d5ed"
+2026-10-14T07:21:19.625087Z  INFO cnx_hostd::host: link up session_id="a220596f-6178-4fe9-8105-d1b9566a0511" kind=WebRtc path=Direct phone="f105f7c5-6681-4585-a25c-52f37ce633c6"  pair_host-host=152.2ms link_ready=152.2ms
+2026-10-14T07:21:19.633628Z  INFO cnx_hostd::services: channel opened service="version" channel=5 lane=Bulk own_stream=false peer="f105f7c5-6681-4585-a25c-52f37ce633c6"
+2026-10-14T07:21:19.633636Z  INFO cnx_hostd::services: channel opened service="daemon" channel=3 lane=Bulk own_stream=false peer="f105f7c5-6681-4585-a25c-52f37ce633c6"
+2026-10-14T07:21:19.633635Z  INFO cnx_hostd::services: channel opened service="auth" channel=1 lane=Bulk own_stream=false peer="f105f7c5-6681-4585-a25c-52f37ce633c6"
+2026-10-14T07:21:25.216453Z  INFO cnx_hostd::services: channel refused or failed service="auth" code="denied" reason="the Mac did not allow this iPhone"
+2026-10-14T07:21:25.216492Z  INFO cnx_hostd::services: channel refused or failed service="daemon" code="unpaired" reason="pair this iPhone with the Mac first (auth)"
+2026-10-14T07:21:25.216564Z  INFO cnx_hostd::services: channel refused or failed service="version" code="unpaired" reason="pair this iPhone with the Mac first (auth)"
+2026-10-14T07:22:17.169943Z  INFO cnx_hostd::host: link up session_id="6656b4f4-9d9b-4fa2-88cd-a71250bc4baf" kind=WebRtc path=Direct phone="f105f7c5-6681-4585-a25c-52f37ce633c6"  pair_host-host=188.8ms link_ready=188.8ms
+2026-10-14T07:22:17.183058Z  INFO cnx_hostd::services: channel opened service="auth" channel=1 lane=Bulk own_stream=false peer="f105f7c5-6681-4585-a25c-52f37ce633c6"
+2026-10-14T07:22:17.194008Z  INFO cnx_hostd::services: channel opened service="version" channel=5 lane=Bulk own_stream=false peer="f105f7c5-6681-4585-a25c-52f37ce633c6"
+2026-10-14T07:22:17.194017Z  INFO cnx_hostd::services: channel opened service="daemon" channel=3 lane=Bulk own_stream=false peer="f105f7c5-6681-4585-a25c-52f37ce633c6"
+2026-10-14T07:22:17.194127Z  INFO cnx_hostd::services: channel refused or failed service="auth" code="denied" reason="the Mac did not allow this iPhone"
+2026-10-14T07:22:17.194132Z  INFO cnx_hostd::services: channel refused or failed service="daemon" code="unpaired" reason="pair this iPhone with the Mac first (auth)"
+2026-10-14T07:22:17.194169Z  INFO cnx_hostd::services: channel refused or failed service="version" code="unpaired" reason="pair this iPhone with the Mac first (auth)"

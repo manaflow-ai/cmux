@@ -8,6 +8,7 @@ import CmuxNextDaemon
 import CmuxNextHistory
 import CmuxNextRemoteView
 import CmuxNextScreenshots
+import CmuxNextStash
 import Foundation
 import os
 #if DEBUG
@@ -19,6 +20,9 @@ import CmuxNextRemoteBrowser
 /// it survives relaunch like any tab.
 final class HistoryPageService: HistoryPageSource {
     private unowned let services: AppServices
+    /// The Stashed page's stashes (stash-v1), History's sibling page.
+    private(set) lazy var stash = StashService(host: stashHost)
+    private(set) lazy var stashHost = StashAppHost(services)
 
     init(services: AppServices) {
         self.services = services
@@ -142,7 +146,7 @@ extension TabContentCache {
 
     static func isAppPage(_ url: URL?) -> Bool {
         HistoryPageAddress.matches(url) || BookmarkPageAddress.matches(url) || AgentActivityPageAddress.matches(url)
-            || ScreenshotsPageAddress.matches(url)
+            || ScreenshotsPageAddress.matches(url) || VaultPageAddress.matches(url)
             || RemoteViewTabRecord.matches(url) || isRemoteBrowserPage(url) || MachineBrowserRecord.matches(url)
     }
 
@@ -196,6 +200,11 @@ extension TabContentCache {
                 pages.forget(key)
                 self?.leaveAppPage(key, to: target)
             }
+            return page
+        }
+        if VaultPageAddress.matches(url) {
+            let page = services.vaultPages.makePage(key: key, engine: engine, profile: profile)
+            page.onNavigate = { [weak self] target in self?.leaveAppPage(key, to: target) }
             return page
         }
         if BookmarkPageAddress.matches(url) {

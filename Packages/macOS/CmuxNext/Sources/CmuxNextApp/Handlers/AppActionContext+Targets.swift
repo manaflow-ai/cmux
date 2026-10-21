@@ -62,6 +62,27 @@ extension AppActionContext {
         return nil
     }
 
+    /// Sets `id`'s target reason (after its bind): while `reason` returns a string, the
+    /// invocation's menu row is disabled and every run (palette, CLI, MCP, keyboard) is refused
+    /// with it. The lookups in `reason` never refuse on their own.
+    func setTargetReason(_ id: ActionID, _ reason: @escaping @MainActor (ActionInvocation) -> String?) {
+        ActionTargetReasons.set(id, in: registry) { [weak registry] invocation in
+            registry?.withoutRefusals { reason(invocation) }
+        }
+    }
+
+    /// Runs an action's asynchronous work and reports its failure: a capturing caller (the CLI,
+    /// MCP) awaits it and answers it; a palette, menu or keyboard run shows it when it comes.
+    func report(_ work: @escaping @MainActor () async -> ActionWorkFailure?) {
+        let task = Task { @MainActor in await work() }
+        if registry.isCapturingWork {
+            registry.track(task)
+        } else {
+            // task-owner: a run nobody awaits; the refusal shows when the work ends.
+            Task { @MainActor [weak registry] in if let failure = await task.value { registry?.refuse(failure.message) } }
+        }
+    }
+
     /// Statement form: `guard ... else { return ctx.refuse("why") }`.
     func refuse(_ reason: String) {
         registry.refuse(reason)
@@ -129,9 +150,10 @@ extension AppActionContext {
     }
 
     /// The tabs a tab action on `id` acts on: every selected tab of `pane`'s strip from a menu opened
-    /// on one of them (`actsOnTabSelection`), else `id`.
+    /// on one of them (`actsOnTabSelection`) or from the palette or a shortcut on the focused tab (no
+    /// tab target), else `id`. So the tab menu and Cmd-Shift-P act on the same tabs.
     func actingTabs(_ invocation: ActionInvocation, _ pane: PaneController, _ id: StripTabID) -> [StripTabID] {
-        invocation.actsOnTabSelection ? pane.stripModel.actingTabs(for: id) : [id]
+        invocation.actsOnTabSelection || explicitTarget(invocation, kinds: [.tab]) == nil ? pane.stripModel.actingTabs(for: id) : [id]
     }
 
     /// The daemon tabs Move Tab to New Workspace or Window takes for `tab`: on one of several

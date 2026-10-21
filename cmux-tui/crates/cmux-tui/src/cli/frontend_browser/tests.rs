@@ -49,12 +49,22 @@ fn the_created_tab_is_the_first_tab_id_in_created() {
 
 #[test]
 fn open_browser_targets_a_tab_of_the_pane_or_nothing() {
-    let params = open_browser_params("https://a.test", Some("tab_c"));
+    let params = open_browser_params("https://a.test", None, Some("tab_c"));
     assert_eq!(params["action"], "openBrowser");
     assert_eq!(params["args"], json!({"url": "https://a.test"}));
     assert_eq!(params["target"], "tab:tab_c");
     assert_eq!(params["wait"], true);
-    assert!(open_browser_params("https://a.test", None).get("target").is_none());
+    assert!(open_browser_params("https://a.test", None, None).get("target").is_none());
+}
+
+#[test]
+fn open_browser_passes_an_asked_engine_and_no_engine_otherwise() {
+    let chromium = open_browser_params("https://a.test", Some("cef"), None);
+    assert_eq!(chromium["args"], json!({"url": "https://a.test", "engine": "cef"}));
+    let webkit = open_browser_params("https://a.test", Some("webkit"), None);
+    assert_eq!(webkit["args"]["engine"], "webkit");
+    // No engine: the app's `browser.defaultEngine` decides.
+    assert!(open_browser_params("https://a.test", None, None)["args"].get("engine").is_none());
 }
 
 #[test]

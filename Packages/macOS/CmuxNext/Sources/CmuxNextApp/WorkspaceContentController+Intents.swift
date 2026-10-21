@@ -10,7 +10,9 @@ extension WorkspaceContentController {
     func handle(_ intent: LayoutIntent) {
         switch intent {
         case .focus(let pane):
-            // Mouse-down in a pane or layout keyboard navigation.
+            // Mouse-down in a pane or layout keyboard navigation. A press in a workspace shown beside the focused one
+            // (`sidebar.multiView`) focuses it first: a parked content's pane is not in the window's topology.
+            if isParked, state.viewSet?.contains(workspace.id) == true { services.windows.show(workspaceID: workspace.id, in: state) }
             focus.send(.focusPane(pane.rawValue, source: .intent))
         case .setSplitRatio(let split, let ratio, let transaction, _):
             guard let handle = handles.splits[split] else { return layoutModel.rejectTransaction(transaction) }
@@ -89,6 +91,16 @@ extension WorkspaceContentController {
             case .refused(let reason):
                 services.registry.refuse(reason)
             }
+        }
+    }
+
+    /// A new terminal column right of `after`, its shell spawned with `options` (a person's new
+    /// terminal from Home's pinned dock alone, `ChatColumnPlacement.openBesideDock`).
+    func newColumn(after: LayoutPaneID, options: SpawnOptions) {
+        guard let handle = handles.panes[after] else { return }
+        let request = layoutModel.prepareNewColumn(nextTo: after)
+        spawnPane("new-pane-right", then: { [layoutModel] in layoutModel.commitNewColumnResize(request) }) {
+            try await $0.newColumn(rightOf: handle, width: request.width, options: options)
         }
     }
 

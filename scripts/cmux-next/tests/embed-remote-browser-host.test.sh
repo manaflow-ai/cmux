@@ -2,7 +2,9 @@
 # embed-remote-browser-host.sh under Xcode's /bin/bash 3.2, with a stub host
 # binary, a fake app CEF framework and a file:// stand-in for the controller
 # artifact store (no network, no R2). Covers: the DEV layout (CEF symlink,
-# five helpers, signatures), Release embeds nothing and removes a stale host,
+# five helpers, signatures), Release embeds it the same way (the iPhone host
+# streams phone browser tabs from it) and builds without it, saying so, when it is
+# unavailable unless CMUX_NEXT_REQUIRE_RB_HOST=1,
 # a sha256 mismatch fails the build (also from a damaged store copy), a CEF
 # pin mismatch or an unavailable pinned binary fails the build naming the
 # artifact and digest, the explicit CMUX_NEXT_SKIP_RB_HOST=1 opt-out embeds
@@ -66,11 +68,18 @@ codesign --verify "$host/Contents/Frameworks/cmux-remote-browser-host Helper (GP
 run Debug
 grep -q 'already embedded' <<<"$out" || fail "second Debug run did not reuse the embed" "$out"
 
-# 2. Release: embeds nothing and removes the host left by the Debug build.
+# 2. Release: embeds the same layout (the iPhone host's browser tabs need it).
+new_app
 run Release
 [[ $rc == 0 ]] || fail "Release run failed" "$out"
-[[ ! -e "$host" ]] || fail "Release left the host in the app" "$out"
-grep -q 'Release configuration' <<<"$out" || fail "Release did not say why" "$out"
+[[ -x "$host/Contents/MacOS/cmux-remote-browser-host" ]] || fail "Release did not embed the host" "$out"
+[[ "$(readlink "$host/Contents/Frameworks/$FW")" == "../../../../Frameworks/$FW" ]] || fail "Release CEF is not the app symlink"
+n=$(ls -d "$host/Contents/Frameworks/cmux-remote-browser-host Helper"*.app | wc -l | tr -d ' ')
+[[ $n == 5 ]] || fail "Release: expected 5 helpers, got $n"
+# A universal Release app embeds the arm64 host too.
+new_app
+run Release "arm64 x86_64"
+[[ $rc == 0 && -x "$host/Contents/MacOS/cmux-remote-browser-host" ]] || fail "universal Release did not embed the host" "$out"
 
 # 3. sha256 mismatch from the store fails the build (fail closed), also optional mode.
 printf 'tampered' > "$TMP/bad"; serve "$TMP/bad"; rm -rf "$TMP/cache"; new_app
@@ -104,6 +113,13 @@ run Debug
 [[ $rc != 0 && ! -e "$host" ]] || fail "an unavailable pinned binary did not fail the build" "$out"
 grep -q "cmux-remote-browser-host-macos-arm64" <<<"$out" || fail "the failure does not name the artifact" "$out"
 grep -q "$sha" <<<"$out" || fail "the failure does not name the pinned digest" "$out"
+
+# 6a. Release with the binary unavailable: builds without it and says so; required, it fails.
+run Release
+[[ $rc == 0 && ! -e "$host" ]] || fail "an unavailable host failed or embedded in Release" "$out"
+grep -q 'Release build without the remote browser host' <<<"$out" || fail "Release did not say it lacks the host" "$out"
+run Release arm64 CMUX_NEXT_REQUIRE_RB_HOST=1
+[[ $rc != 0 && ! -e "$host" ]] || fail "a required host did not fail the Release build" "$out"
 
 # 6b. The explicit opt-out embeds nothing, says so in the log and records it in
 # the app (Contents/Resources/RemoteBrowserHostOptOut.txt, shown in About).

@@ -5,6 +5,74 @@
 use super::*;
 
 wire_errors! {
+    /// The error codes team_vm.ssh_cert.revoke declares.
+    TeamVmSshCertRevokeError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        TeamVmSshCaNotConfigured = "team_vm.ssh_ca_not_configured",
+        TeamVmSshRevocationsFull = "team_vm.ssh_revocations_full",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Show the team VM: its state, epoch and active wake leases.
+    TeamVmStatusOp {
+        name: "team_vm.status",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:TeamVmDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: TeamVmStatusParams,
+        result: TeamVmView,
+        error: TeamVmStatusError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmStatusParams {}
+
+wire_errors! {
+    /// The error codes team_vm.status declares.
+    TeamVmStatusError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Accept the risk of a team VM tainted by a member removal and keep using it: members get certificates again and the VM's install may bind. Owners and admins only, in a person's session; names the tainted epoch; audited.
+    TeamVmTaintAcceptOp {
+        name: "team_vm.taint.accept",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "destructive",
+        principals: [Session],
+        params: TeamVmTaintAcceptParams,
+        result: TeamVmTaintAcceptResult,
+        error: TeamVmTaintAcceptError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmTaintAcceptParams {
+    pub epoch: i64,
+    pub users: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmTaintAcceptResult {
+    pub epoch: i64,
+    pub accepted_by: String,
+    pub accepted_at: i64,
+}
+
+wire_errors! {
     /// The error codes team_vm.taint.accept declares.
     TeamVmTaintAcceptError {
         AuthForbidden = "auth.forbidden",

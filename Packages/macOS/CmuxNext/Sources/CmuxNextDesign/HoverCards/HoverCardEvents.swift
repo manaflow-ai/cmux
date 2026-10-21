@@ -29,6 +29,11 @@ public nonisolated enum HoverCardEvent: Hashable, Sendable {
     case targetRemoved(HoverTargetID)
     /// Show `target`'s card now, until a dismissal (Show Resource Usage).
     case pin(HoverTarget)
+    /// A card its owner shows (the sidebar's Update Ready highlights) took the one card window
+    /// (true), or left it (false). Taking it ends any pending or shown card without a hide (the
+    /// one card morphs to the owner's content); while it shows, the next target the pointer
+    /// reaches takes the card back at once, with no hover delay.
+    case owned(Bool)
 }
 
 /// Outputs: what the coordinator does to the one card and the one timer.

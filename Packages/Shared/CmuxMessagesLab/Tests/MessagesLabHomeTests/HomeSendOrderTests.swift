@@ -9,7 +9,7 @@ import Testing
 /// order: the reply posts after my send, so its one streaming bubble stays the
 /// newest row, below my send, and the posted reply takes that bubble's place.
 /// Each step drives the same `ProjectionCore` calls `HomeProjection` makes
-/// (`stream`, `step`, the send) against a real MessagesLab store.
+/// (`streams`, `step`, the send) against a real MessagesLab store.
 @MainActor @Suite(.serialized) struct HomeSendOrderTests {
     static let me = ParticipantID("user_me")
     static let chief = ParticipantID("agent_chief")
@@ -30,11 +30,9 @@ import Testing
                        delivery: delivery, messageID: seq.map { MessageID("msg_\($0)") })
     }
 
-    /// The running reply as HomeStore holds it: its whole text so far.
-    static func draft(_ text: String) -> HomeTurnDraft {
-        var d = HomeTurnDraft(participant: chief, turn: turn)
-        d.segments[0] = text
-        return d
+    /// The running reply as HomeStore's timeline holds it: its whole text so far.
+    static func draft(_ text: String) -> [HomeStreamRow] {
+        [HomeStreamRow(turn: turn, author: chief, text: text)]
     }
 
     /// The texts the projection shows, oldest first (streams last, as RowBuilder draws them).
@@ -53,11 +51,12 @@ import Testing
     /// The Chief streams, I send twice mid-word, it streams on and posts its reply.
     @Test func aSendMidStreamNeverSplitsTheReply() throws {
         var core = ProjectionCore(me: Self.me)
+        core.replies = .streaming // the older stream bubble (HomeReplyDisplay)
         let base = [Self.item("h1", 1, Self.me, "Find Cmd+P")]
         let (conv, w) = core.install(Self.id, items: base, summary: Self.summary)
         let store = Store(conversation: conv, baseDate: Replay.base, windowStart: w.start, total: w.total)
         store.responder = nil
-        func stream(_ text: String) { for a in core.stream(Self.draft(text), state: store.state) { store.dispatch(a) } }
+        func stream(_ text: String) { for a in core.streams(Self.draft(text), state: store.state) { store.dispatch(a) } }
         func send(_ key: IdempotencyKey, _ text: String) -> Bool {
             store.dispatch(.setDraft(text))
             store.dispatch(.send)
@@ -101,7 +100,7 @@ import Testing
         #expect(!d.rebuild)
         #expect(d.handOffAt != nil, "the posted reply ends the stream in place, no second receive")
         let cut = d.handOffAt ?? d.actions.count
-        let streamed = core.stream(nil, state: store.state)
+        let streamed = core.streams([], state: store.state)
         for (i, a) in d.actions.enumerated() {
             if i == cut { streamed.forEach(store.dispatch) }
             store.dispatch(a)
@@ -115,11 +114,12 @@ import Testing
     /// Chunks only grow the bubble in order: a late, older `.streamSet` never takes text back.
     @Test func streamChunksApplyInOrder() {
         var core = ProjectionCore(me: Self.me)
+        core.replies = .streaming // the older stream bubble (HomeReplyDisplay)
         let (conv, w) = core.install(Self.id, items: [], summary: Self.summary)
         let store = Store(conversation: conv, baseDate: Replay.base, windowStart: w.start, total: w.total)
         store.responder = nil
         for text in ["One", "One two", "One two three"] {
-            for a in core.stream(Self.draft(text), state: store.state) { store.dispatch(a) }
+            for a in core.streams(Self.draft(text), state: store.state) { store.dispatch(a) }
         }
         let sid = ProjectionCore.streamID(Self.turn)
         store.dispatch(.streamSet(sid, text: "One", parts: nil, seq: 1)) // a stale chunk delivered late
