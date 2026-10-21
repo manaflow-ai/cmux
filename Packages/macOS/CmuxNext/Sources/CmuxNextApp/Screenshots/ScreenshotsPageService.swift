@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextFileGrid
+import CmuxNextFiles
 import CmuxNextScreenshots
 import CmuxNextSettings
 import Foundation
@@ -16,7 +17,9 @@ final class ScreenshotsPageService {
     private unowned let services: AppServices
     /// One cache for every Screenshots page (and, later, the Finder pane's grids).
     let thumbnails = ThumbnailCache()
-    private let workspace = AppFileGridWorkspace()
+    private let workspace = AppScreenshotsWorkspace()
+    /// Drops, renames and trashes go through the Files pane's operations.
+    private let files = FileOperator()
     private let detector = ScreenshotSourceDetector(environment: SystemScreenshotEnvironment())
     /// Open pages by tab key.
     private var pages: [String: ScreenshotsPageTab] = [:]
@@ -49,7 +52,7 @@ final class ScreenshotsPageService {
     func makePage(key: String, engine: BrowserEngineKind, profile: BrowserProfileID) -> ScreenshotsPageTab {
         let model = ScreenshotsModel()
         let page = ScreenshotsPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile, model: model,
-                                      cache: thumbnails, workspace: workspace)
+                                      cache: thumbnails, workspace: workspace, files: files)
         page.onClose = { [weak self] in self?.pages.removeValue(forKey: key) }
         pages[key] = page
         followSettings()

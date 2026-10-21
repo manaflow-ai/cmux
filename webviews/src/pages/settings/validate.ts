@@ -78,6 +78,27 @@ export function isSearchTemplate(value: unknown): value is string {
   return isPageURL(text.replaceAll("%s", "x").replaceAll("{searchTerms}", "x"));
 }
 
+/**
+ * One custom density (`appearance.customDensities`): a lowercase id, a name, and optional numbers.
+ * The Swift rule is `CustomDensitiesSetting.density(from:)`.
+ */
+export function isCustomDensity(value: unknown): boolean {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const entry = value as Record<string, unknown>;
+  const id = entry.id;
+  if (typeof id !== "string" || id.length < 1 || id.length > 64 || id.startsWith("-") || !/^[a-z0-9-]+$/.test(id))
+    return false;
+  if (typeof entry.name !== "string" || entry.name.trim() === "") return false;
+  for (const key of ["level", "spacing", "fontSize"]) {
+    const number = entry[key];
+    if (number !== undefined && (typeof number !== "number" || !Number.isFinite(number))) return false;
+  }
+  const tokens = entry.tokens;
+  if (tokens === undefined) return true;
+  if (typeof tokens !== "object" || tokens === null || Array.isArray(tokens)) return false;
+  return Object.values(tokens).every((token) => typeof token === "number" && Number.isFinite(token) && token >= 0);
+}
+
 /** Returns null when `value` is valid for `row`, otherwise a short English reason. */
 export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domains>): string | null {
   const choices = row.choices?.map((choice) => choice.value) ?? [];
@@ -86,6 +107,11 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
     if (typeof value === "string" && (choices.includes(value) || value === "daily" || /^(system|file):\//.test(value)))
       return null;
     return "expected none, daily, a listed painting, system:<absolute path> or file:<absolute path>";
+  }
+  if (row.validation === "domain:custom_densities") {
+    return Array.isArray(value) && value.every(isCustomDensity)
+      ? null
+      : "expected a list of densities, each with a lowercase id and a name";
   }
   if (row.validation === "domain:search_template") {
     return isSearchTemplate(value) ? null : "expected a web address with %s or {searchTerms}, or empty";

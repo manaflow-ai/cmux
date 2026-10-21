@@ -174,6 +174,8 @@ pub fn models() -> &'static [(String, String)] {
 }
 
 #[cfg(test)]
+mod background_output_tests;
+#[cfg(test)]
 mod edit_diff_tests;
 mod inbound;
 mod outbound;

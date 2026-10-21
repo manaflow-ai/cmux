@@ -179,3 +179,25 @@ async fn the_unix_socket_and_a_peers_local_client_still_need_the_person() {
     assert!(r.get("error").is_none(), "peer via web: {r}");
     let _ = std::fs::remove_dir_all(&d);
 }
+
+/// A session a remote device STARTS on the bridge begins in its `ask` mode
+/// (approval `untrusted`: Codex asks before every change), never in the
+/// bridge's default `agent`, and the catalog tells the device so: the
+/// bridge is startable in `ask`, the adapter is not (cnx-ios parity round 2).
+#[tokio::test]
+async fn a_remote_device_starts_the_codex_bridge_in_its_asking_mode() {
+    let d = dir("ask");
+    let hub = hub(&d);
+    let mut web = Client::new(&hub, Origin::Web, ConnAuth::ListenerToken);
+    let created = web.new_on(&d, "bridge").await;
+    assert_eq!(created["result"]["modes"]["currentModeId"], "ask", "{created}");
+    let catalog = web.call("_acpmux/harnesses", json!({})).await;
+    let rows = &catalog["result"]["harnesses"];
+    assert_eq!(rows["bridge"]["remote"], json!({"startable": true, "modes": ["ask"]}), "{catalog}");
+    assert_eq!(rows["adapter"]["remote"]["startable"], json!(false), "{catalog}");
+    // The unix socket's own new session keeps the bridge's default.
+    let mut local = Client::new(&hub, Origin::Local, ConnAuth::LocalSocket);
+    let own = local.new_on(&d, "bridge").await;
+    assert_ne!(own["result"]["modes"]["currentModeId"], "ask", "{own}");
+    let _ = std::fs::remove_dir_all(&d);
+}

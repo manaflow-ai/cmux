@@ -1,0 +1,96 @@
+//! The panic log of cmux's background processes.
+//!
+//! A detached daemon (the session owner, the acpmux daemon) has no stdio a
+//! person sees, so the default panic message goes nowhere or into a log no
+//! one reads: the acpmux sort panic of 2026-10-14 ended one request task and
+//! left only two lines in `daemon.log`. [`install`] adds a panic hook that
+//! appends one JSON line per panic to a file (message, location, thread,
+//! backtrace, plus the caller's fields) and then runs the previous hook, so
+//! a process that catches and recovers from a panic keeps doing so. The
+//! cmux-next app reads new lines and sends them to Sentry under the user's
+//! telemetry choice (`RustPanicForwarder`).
+//!
+//! Each line is a JSON object with these keys, plus every key in `fields`:
+//! `message`, `location` (`file:line:col`), `thread`, `at_ms`, `test`
+//! (true for a debug test panic, which the app never sends) and
+//! `backtrace` (at most [`MAX_BACKTRACE_BYTES`]).
+
+use std::io::Write;
+use std::path::{Path, PathBuf};
+
+/// Largest backtrace kept per line.
+pub const MAX_BACKTRACE_BYTES: usize = 16 * 1024;
+/// The log stops growing at this size; the app reads it from its own offset.
+pub const MAX_LOG_BYTES: u64 = 1024 * 1024;
+
+/// Fields every line carries besides the panic itself (process, pid, version).
+pub type Fields = serde_json::Map<String, serde_json::Value>;
+
+/// Install a hook that appends each panic to `path`, then runs the previous
+/// hook. `is_test_thread` marks lines from a debug test trigger (`"test": true`).
+pub fn install(path: PathBuf, fields: Fields, is_test_thread: fn(&str) -> bool) {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let thread = std::thread::current().name().unwrap_or("unnamed").to_string();
+        let message = info
+            .payload()
+            .downcast_ref::<&str>()
+            .map(|text| (*text).to_string())
+            .or_else(|| info.payload().downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "non-text panic payload".to_string());
+        let location = info.location().map(ToString::to_string).unwrap_or_default();
+        let backtrace = std::backtrace::Backtrace::force_capture().to_string();
+        let test = is_test_thread(&thread);
+        append(&path, &record(&fields, &message, &location, &thread, test, backtrace));
+        previous(info);
+    }));
+}
+
+/// One log line's JSON: `fields` plus the panic's own keys (which win).
+pub fn record(
+    fields: &Fields,
+    message: &str,
+    location: &str,
+    thread: &str,
+    test: bool,
+    mut backtrace: String,
+) -> serde_json::Value {
+    if backtrace.len() > MAX_BACKTRACE_BYTES {
+        let mut end = MAX_BACKTRACE_BYTES;
+        while !backtrace.is_char_boundary(end) {
+            end -= 1;
+        }
+        backtrace.truncate(end);
+    }
+    let at_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis())
+        .unwrap_or_default();
+    let mut line = fields.clone();
+    line.insert("message".into(), message.into());
+    line.insert("location".into(), location.into());
+    line.insert("thread".into(), thread.into());
+    line.insert("at_ms".into(), serde_json::json!(at_ms));
+    line.insert("test".into(), test.into());
+    line.insert("backtrace".into(), backtrace.into());
+    serde_json::Value::Object(line)
+}
+
+/// Append `record` as one line, unless the log is full. Never panics.
+pub fn append(path: &Path, record: &serde_json::Value) {
+    if std::fs::metadata(path).is_ok_and(|meta| meta.len() >= MAX_LOG_BYTES) {
+        return;
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.create(true).append(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        // Backtraces and messages may hold paths: owner-only, never through a planted link.
+        options.mode(0o600).custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
+    }
+    if let Ok(mut file) = options.open(path) {
+        // One write per line, so concurrent panics never interleave a line.
+        let _ = file.write_all(format!("{record}\n").as_bytes());
+    }
+}

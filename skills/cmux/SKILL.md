@@ -26,11 +26,15 @@ cmux workspace list
 cmux pane list
 cmux tab list
 cmux workspace create --name api
-cmux pane pane_… split --right
-cmux pane pane_… run -- npm run dev                # new tab running the argv
+cmux pane pane_… split --right -- npm run dev     # new pane running the argv; focus stays
+cmux pane pane_… run -- npm run dev                # new tab in an existing pane
 cmux tab tab_… move --workspace ws_… --screen screen_… --pane pane_… --index 0
 cmux pane flash-focused                            # attention cue (app action)
 ```
+
+## Which `cmux` to run
+
+Inside a cmux terminal, `$CMUX_BUNDLED_CLI_PATH` is the CLI that ships with the running app. A login shell (`zsh -lc`, which Codex and other agents use) can put an older `cmux` first on `PATH`, for example a `uv tool` or `pipx` install of the PyPI `cmux` package. That CLI can lack verbs such as `browser page`. When a verb or flag that this skill documents is missing, run `"$CMUX_BUNDLED_CLI_PATH"` instead, or define `cmux() { "${CMUX_BUNDLED_CLI_PATH:-cmux}" "$@"; }` once per shell. Do not run `cmux daemon stop` to cure a version mismatch: it stops the user's session.
 
 ## Selectors
 
@@ -43,6 +47,19 @@ Every instance selector is a public id (`ws_…`, `pane_…`, `tab_…`, `term_�
 ## App actions
 
 Every action in the app's registry is also a verb: `cmux action list --noun workspace` lists them and `cmux action describe "<noun> <verb>"` shows arguments. Run one with `cmux <noun> <verb> [--target ID] [--<arg> VALUE]`, for example `cmux workspace set-color --target ws_… --color blue`. The daemon grammar is tried first; words it rejects run as an app action.
+
+## Screenshots of the app
+
+Agents without Screen Recording permission can still see cmux: these verbs write a PNG of cmux's own windows. They never focus, raise or activate anything, and they work while the window is in the background or covered.
+
+```bash
+cmux window screenshot --out window.png                 # the focused window
+cmux window screenshot --target win_… --out -           # PNG inline as base64
+cmux pane screenshot --target pane_… --out pane.png
+cmux tab screenshot --target tab_… --out tab.png
+```
+
+The reply's `result` holds `path` (or `png_base64` for `--out -`; a PNG over 4 MiB still goes to a file), `width` and `height` in pixels, `scale` (pixels per point) and `method` (`window`, or `page` for a browser tab that is not on screen, which its engine renders in the background). Without `--out` the PNG goes to the temporary directory. A pane or terminal tab that no window shows, or a minimized window, fails with `screenshot.unavailable` and the reason; read a terminal's text with `cmux terminal <id> screen read` instead.
 
 ## Settings
 

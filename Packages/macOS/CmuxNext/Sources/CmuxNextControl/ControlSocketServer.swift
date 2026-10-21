@@ -217,6 +217,14 @@ public final class ControlSocketServer: Sendable {
         return true
     }
 
+    /// Closes the listener and every connection, then binds the socket again
+    /// at the same path and mode (Restart CLI Listener). Throws what
+    /// ``start()`` throws, leaving the server stopped.
+    public func restart() throws {
+        stop()
+        try start()
+    }
+
     /// Stops accepting, closes every connection, and removes the socket file
     /// if it is still the one this server created.
     public func stop() {

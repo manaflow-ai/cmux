@@ -18,12 +18,16 @@ extension TranscriptDocumentView {
 
     // Not passed up the responder chain: the pane host's own hover (the field's attachments)
     // has its own tracking area.
-    override func mouseMoved(with event: NSEvent) { updateLinkCursor(event, always: false) }
+    override func mouseMoved(with event: NSEvent) {
+        updateLinkCursor(event, always: false)
+        controller?.onPointerMoved?(window.map { $0.convertPoint(toScreen: event.locationInWindow) })
+    }
 
     override func cursorUpdate(with event: NSEvent) { updateLinkCursor(event, always: true) }
 
     override func mouseExited(with event: NSEvent) {
         if overLink { overLink = false; NSCursor.arrow.set() }
+        controller?.onPointerMoved?(nil)
     }
 
     /// Whether the pointer is over a link now (the hand is set).

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCompat
+import CmuxNextDaemon
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextTerminal
@@ -40,8 +41,9 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     /// hovered link (`debug.terminal.links menu`).
     func linkMenu(_ session: TerminalSession, text: String? = nil, services: AppServices) -> (rows: [LinkMenuRow], items: [NSMenuItem]) {
         let target = target(of: session, in: services)
+        let allowsLocalFiles = allowsLocalFiles(session, services: services)
         // main-actor-ok: a right-click resolves one path (a few stat calls), as the click does.
-        switch (text ?? session.model.hoveredLink).flatMap({ TerminalLinkResolver.resolve($0, cwd: cwd(of: session)) }) {
+        switch (text ?? session.model.hoveredLink).flatMap({ TerminalLinkResolver.resolve($0, cwd: cwd(of: session), allowsLocalFiles: allowsLocalFiles) }) {
         case .url(let link)?:
             let menu = LinkMenu { [weak services] url in
                 services?.registry.perform("browser.link.openInNewTab", invocation: ActionInvocation(target: target, arguments: ["url": .string(url.absoluteString)]))
@@ -61,8 +63,9 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     /// click returns: a browser tab or an app launch never stalls the
     /// terminal's output and drawing.
     func terminalSession(_ session: TerminalSession, open url: URL) -> Bool {
+        guard case .url(let safeURL)? = TerminalLinkResolver.resolve(url.absoluteString, cwd: nil, allowsLocalFiles: false) else { return false }
         let request = linkRequest(session)
-        Task { @MainActor [weak self] in self?.openWeb(url, request) }
+        Task { @MainActor [weak self] in self?.openWeb(safeURL, request) }
         return true
     }
 
@@ -72,14 +75,18 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     /// files the code editor page and a folder Finder; a path that exists nowhere opens nothing.
     func terminalSession(_ session: TerminalSession, openLink text: String) -> Bool {
         let request = linkRequest(session), cwd = cwd(of: session)
+        let allowsLocalFiles = services.map { self.allowsLocalFiles(session, services: $0) } ?? false
         Task { @MainActor [weak self] in
-            let target = await Task.detached(priority: .userInitiated) { TerminalLinkResolver.resolve(text, cwd: cwd) }.value
+            let target = await Task.detached(priority: .userInitiated) {
+                TerminalLinkResolver.resolve(text, cwd: cwd, allowsLocalFiles: allowsLocalFiles)
+            }.value
             switch target {
             case .url(let url)?: self?.openWeb(url, request)
             case .file(let url, isDirectory: true)?: LinkRouter.shared.showInFinder(url)
             case .file(let url, isDirectory: false)?:
                 LinkRouter.shared.record("file:\(url.path)")
-                self?.services?.viewers.openFile(url, in: nil, markdown: false)
+                guard let services = self?.services else { return }
+                services.linkOpener.openFile(url, from: services.linkOpener.source(tab: request.tab?.id))
             case nil: break
             }
         }
@@ -95,7 +102,35 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     /// or a path that names a file or folder (``TerminalLinkResolver``, the click's own rule).
     func terminalSessionLinkCheck(_ session: TerminalSession) -> TerminalLinkCheck? {
         let start = services.flatMap { services in target(of: session, in: services).flatMap { services.cache.tabModel($0.id)?.cwd } }
-        return { text, cwd in TerminalLinkResolver.resolve(text, cwd: cwd ?? start) != nil }
+        let allowsLocalFiles = services.map { self.allowsLocalFiles(session, services: $0) } ?? false
+        return { text, cwd in TerminalLinkResolver.resolve(text, cwd: cwd ?? start, allowsLocalFiles: allowsLocalFiles) != nil }
+    }
+
+    /// Clipboard writes stay silent only for the focused local PTY when its
+    /// foreground executable is known and is not a remote transport.
+    func terminalSessionAllowsClipboardWrite(_ session: TerminalSession) async -> Bool {
+        guard let services, let ref = target(of: session, in: services),
+              let tab = services.cache.tabModel(ref.id) else { return false }
+        let daemon = services.machines.daemon(forTab: tab)
+        let policy = TerminalClipboardWritePolicy()
+        guard policy.canCheckProcess(isFocused: session.model.isFocused,
+                                     isLocalDaemon: daemon.isLocal,
+                                     isRemoteTerminal: tab.kind == .remoteTerminal),
+              let connection = daemon.connection,
+              let process = try? await connection.request(TerminalProcessInfoRequest(surface: tab.surface), timeout: .seconds(1)) else {
+            return false
+        }
+        return policy.allowsSilentWrite(isFocused: session.model.isFocused,
+                                        isLocalDaemon: daemon.isLocal,
+                                        isRemoteTerminal: tab.kind == .remoteTerminal,
+                                        foregroundExecutable: process.foregroundExecutable)
+    }
+
+    /// A local path belongs to this Mac only for a local PTY tab, never a remote-terminal projection.
+    private func allowsLocalFiles(_ session: TerminalSession, services: AppServices) -> Bool {
+        guard let ref = target(of: session, in: services), let tab = services.cache.tabModel(ref.id),
+              tab.kind != .remoteTerminal else { return false }
+        return services.machines.daemon(forTab: tab).isLocal
     }
 
     /// What the click carried: Cmd-Option (`browserProfile.openLink` without a profile: the
@@ -116,21 +151,25 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
                 target: request.tab, arguments: ["url": .string(url.absoluteString)]))
             return
         }
-        LinkRouter.shared.open(url, otherTarget: request.other, explicit: request.option)
+        LinkRouter.shared.open(url, otherTarget: request.other, explicit: request.option, source: request.tab?.id)
     }
 
     /// Every surface's links go through ``LinkRouter`` (cx-ir3z4), wired here once: a Chief
-    /// subagent's link runs `link.open`; a cmux link opens a browser tab in the focused pane on
-    /// the default engine. With no window it waits for one, never the system, which may be cmux
+    /// subagent's link runs `link.open`; a cmux link opens a browser tab on the default engine
+    /// where ``LinkOpener`` places it (the pane right of the clicked tab's pane, or a new split). With no window it waits for one, never the system, which may be cmux
     /// itself as the default browser (a loop).
     private static func routeLinks(to services: AppServices) {
         let router = LinkRouter.shared
         router.routing = { [weak services] in services?.settings?.snapshot.linkRouting ?? .fallback }
         router.textEditor = { [weak services] in services?.settings?.snapshot.textEditor.application ?? "" }
         router.appLink = { [weak services] url in services.map { CmuxAppLinks.open(url, services: $0) } ?? false }
-        router.openInCmux = { [weak services] url, background in
-            guard let pane = services?.windows.active?.focusedPane else { services?.externalOpen.perform(.browserTab(url)); return }
-            pane.newBrowserTab(url: url, background: background)
+        // A click in a chat or page view opens beside the pane showing it (not the focused pane).
+        router.sourceTab = { [weak services] view in services?.linkOpener.source(containing: view)?.currentTabKey }
+        router.openInCmux = { [weak services] url, background, source in
+            guard let services else { return }
+            // Beside the source pane (`layout.linkPlacement`, LinkOpener), never in its place.
+            guard let pane = services.linkOpener.source(tab: source) else { services.externalOpen.perform(.browserTab(url)); return }
+            services.linkOpener.openWeb(url, from: pane, background: background)
         }
     }
 

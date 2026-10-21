@@ -92,6 +92,9 @@ enum ClassicImportStrings {
     static var imported: String {
         String(localized: "classicImport.toast.imported", defaultValue: "Workspaces from classic cmux are open.", bundle: .module)
     }
+    static var allHere: String {
+        String(localized: "classicImport.toast.allHere", defaultValue: "Every workspace from classic cmux is already open here.", bundle: .module)
+    }
     static var nothingSaved: String {
         String(localized: "classicImport.toast.none", defaultValue: "Classic cmux has no saved workspaces to import.", bundle: .module)
     }
@@ -119,7 +122,7 @@ enum ClassicImportStrings {
     static func notice(_ summary: ClassicImportSummary) -> String {
         let stayed = (summary.leftCloudVMs ? [cloudVMsStay] : []) + (summary.leftSSH ? [sshStays] : [])
             + (summary.leftSSHScrollback ? [sshScrollbackStays] : []) + (summary.leftTabs ? [tabsStay] : [])
-        let opened = summary.opened > 0 ? [imported] : stayed.isEmpty ? [nothingSaved] : []
+        let opened = summary.opened > 0 ? [imported] : summary.alreadyHere > 0 ? [allHere] : stayed.isEmpty ? [nothingSaved] : []
         return (opened + stayed).joined(separator: " ")
     }
 

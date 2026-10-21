@@ -12,8 +12,12 @@ use std::path::Path;
 
 use serde_json::{Value, json};
 
-/// Tools that only read the OptChat memory: allowed without asking.
-pub const MEMORY_TOOLS: [&str; 2] = ["mcp__optchat__zoom", "mcp__optchat__date"];
+/// Tools that only read (the OptChat memory, the versions): allowed without asking.
+pub const MEMORY_TOOLS: [&str; 3] = [
+    "mcp__optchat__zoom",
+    "mcp__optchat__date",
+    "mcp__optchat__version",
+];
 
 /// One permission request waiting for a person.
 #[derive(Clone, Debug, PartialEq)]

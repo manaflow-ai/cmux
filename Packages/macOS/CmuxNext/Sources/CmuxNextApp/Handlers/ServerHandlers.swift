@@ -34,10 +34,14 @@ enum ServerHandlers {
         registry.bind("server.addServer", run: { invocation in
             // No code: the sheet. A code: the same lookup and approve, headless (scripts, a Mac nobody watches).
             guard let code = invocation["code"]?.stringValue, !code.isEmpty else { return menuBar.open(.approver) }
+            guard ServerHeadlessApproval.allows(origin: invocation.origin) else {
+                throw ActionFailure(message: ServerHeadlessApproval.notFromThisMac)
+            }
             let services = context.services
             registry.track(Task { @MainActor in
                 let source = CloudPairingSource.app(feed: services.feed, auth: services.cloud.auth, chiefPlaced: { [weak services] in services?.home.refreshChiefTab() })
-                let reject = await ServerHeadlessApproval.run(source: source, code: code, name: invocation["name"]?.stringValue,
+                let reject = await ServerHeadlessApproval.run(source: source, code: code, words: invocation["words"]?.stringValue,
+                                                              name: invocation["name"]?.stringValue,
                                                               runChief: invocation["chief"]?.boolValue)
                 return reject.map { ActionWorkFailure($0) }
             })

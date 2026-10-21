@@ -265,6 +265,30 @@ import Testing
         #expect(access(path, F_OK) != 0, "stop removes the restored socket")
     }
 
+    /// Restart CLI Listener (`palette.restartSocketListener`): the listener is
+    /// closed and bound again at the same path with the same mode, so a new
+    /// connect reaches the server and the socket file is the server's own.
+    @Test func restartBindsTheListenerAgainAtItsPath() throws {
+        let path = temporarySocketPath()
+        let server = try makeServer(.allowAll, path: path)
+        defer { server.stop() }
+        #expect(try LineClient(path: path).send("ping") == "PONG")
+        var before = stat()
+        #expect(lstat(path, &before) == 0)
+
+        try server.restart()
+
+        #expect(server.isRunning)
+        var after = stat()
+        #expect(lstat(path, &after) == 0)
+        #expect(after.st_mode & S_IFMT == S_IFSOCK)
+        #expect(after.st_mode & 0o777 == ControlAccessMode.allowAll.filePermissions)
+        #expect(after.st_ino != before.st_ino, "the socket file was not bound again")
+        #expect(try LineClient(path: path).send("ping") == "PONG", "a new connect does not reach the restarted server")
+        server.stop()
+        #expect(access(path, F_OK) != 0, "stop after a restart leaves the socket file behind")
+    }
+
     /// A listening socket at `path` that is not a ``ControlSocketServer`` (no watch of its own).
     func plainListener(at path: String) throws -> Int32 {
         let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)

@@ -146,6 +146,8 @@ test("Change Background… on a workspace chooses that workspace's own backgroun
   const follow = picker.querySelector<HTMLButtonElement>('[aria-label="Same as All Workspaces"]')!;
   expect(follow.getAttribute("aria-pressed")).toBe("true");
   expect(picker.textContent).not.toContain("Choose Image");
+  // Material is the window's, not the workspace's: it stays in the card on This Workspace too.
+  expect(picker.querySelector('[data-row-key="appearance.backgroundBlur"]')).not.toBeNull();
 
   const none = picker.querySelector<HTMLButtonElement>('[aria-label="No wallpaper"]')!;
   const appPreviews = runs(page, "cmux.settings.preview").length;
@@ -224,23 +226,30 @@ test("This Workspace's Opacity previews while the slider moves, saves on release
   page.unmount();
 });
 
-test("Window Glass sets the Clear Glass material and turning it off returns the default", async () => {
+// Leo, 10-19: "the opacity thing, and then the window glass, it just doesn't make sense". The
+// wallpaper card holds the window's two controls, Opacity and Material, once each. The Window Glass
+// switch (Material = Clear Glass under another name), the legacy Backdrop Art chooser and the
+// experimental Glass Transparency slider (a second opacity) are gone from the page; their keys
+// still load.
+test("the wallpaper card holds Opacity and Material once each, and nothing repeats them", async () => {
   const page = await renderPage({ path: "/settings/appearance" });
-  const row = page.container.querySelector<HTMLElement>('[data-card="backdrop"] [data-window-glass]')!;
-  const glass = row.querySelector<HTMLButtonElement>('[role="switch"]')!;
-  expect(glass.getAttribute("aria-checked")).toBe("false");
-  await act(async () => glass.click());
-  await settle();
-  expect(runs(page, "cmux.settings.set").at(-1)).toMatchObject({
-    key: "appearance.backgroundBlur",
-    value: "glass-clear",
-  });
-  expect(glass.getAttribute("aria-checked")).toBe("true");
-  await act(async () => glass.click());
-  await settle();
-  expect(runs(page, "cmux.settings.reset").at(-1)).toMatchObject({ key: "appearance.backgroundBlur" });
-  expect(glass.getAttribute("aria-checked")).toBe("false");
+  const card = page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
+  expect(card.querySelector("[data-window-glass]")).toBeNull();
+  const material = card.querySelector<HTMLElement>('[data-row-key="appearance.backgroundBlur"]');
+  expect(material).not.toBeNull();
+  expect(card.querySelector('[data-row-key="appearance.backgroundOpacity"]')).not.toBeNull();
+  for (const key of ["appearance.backgroundBlur", "appearance.backgroundOpacity"]) {
+    expect(page.container.querySelectorAll(`[data-row-key="${key}"]`).length).toBe(1);
+  }
+  expect(page.container.querySelector('[data-row-key="appearance.backdropArt"]')).toBeNull();
   page.unmount();
+  const labs = await renderPage({
+    path: "/settings/experimental",
+    mock: { values: { "appearance.experimentalControls": true } },
+  });
+  expect(labs.container.querySelector('[data-row-key="appearance.glassTransparency"]')).toBeNull();
+  expect(labs.container.querySelector('[data-row-key="appearance.hue"]')).not.toBeNull();
+  labs.unmount();
 });
 
 test("sweeping the pointer across the picker previews nothing", async () => {

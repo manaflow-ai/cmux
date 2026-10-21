@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import CmuxNextResources
 import Foundation
 
@@ -20,16 +21,42 @@ struct TabHoverCardLines: Equatable {
     /// hibernated.
     static func make(_ item: TabItem, report: ResourceReport?, now: Date) -> Self {
         let facts = item.hover
-        let where_ = facts.kind == .browser ? item.subtitle.map(host) : [item.subtitle, facts.branch].compactMap(\.self).nilIfEmpty
+        let where_ = facts.kind == .browser ? item.subtitle.flatMap(host) : [item.subtitle, facts.branch].compactMap(\.self).nilIfEmpty
         let badges = [item.profileBadge.map { Strings.browserProfile($0.name) }, item.machineBadgeHelp,
                       item.themeBadge.map { Strings.axTheme($0.name) }, where_]
         return TabHoverCardLines(
-            title: item.title.isEmpty ? Strings.untitled : item.title,
+            title: title(item),
             place: badges.compactMap(\.self).nilIfEmpty,
-            status: status(facts, now: now),
+            status: status(facts, now: now) ?? exitStatus(item),
             detail: item.statusDetail.flatMap { $0.isEmpty ? nil : $0 },
             memory: memory(item, report: report)
         )
+    }
+
+    /// The tab's title; a blank page's address is no title (Leo 2026-10-19: "about:blank").
+    static func title(_ item: TabItem) -> String {
+        if item.title.isEmpty || (item.hover.kind == .browser && isBlank(item.title)) { return Strings.untitled }
+        return item.title
+    }
+
+    /// An `about:` address (`about:blank`), which names no page.
+    static func isBlank(_ address: String) -> Bool { address.lowercased().hasPrefix("about:") }
+
+    /// The color of what the tab is doing (its status row's dot), nil when it reports nothing.
+    static func tone(_ item: TabItem) -> HoverCardTone? {
+        switch item.hover.activity {
+        case .working?, .running?: return .working
+        case .needsInput?: return .attention
+        case .failed?: return .danger
+        case .idle?: return .secondary
+        case nil: break
+        }
+        switch item.status {
+        case .failure: return .danger
+        case .success: return .success
+        case .needsInput: return .attention
+        case .none: return nil
+        }
     }
 
     /// The card's rows below the title, in order.
@@ -48,6 +75,16 @@ struct TabHoverCardLines: Equatable {
         }
         let duration: String? = word == nil ? nil : facts.since.map { Self.elapsed(since: $0, now: now) }
         return [word, duration, facts.model].compactMap(\.self).nilIfEmpty
+    }
+
+    /// A terminal whose last command ended: "Done" or "Failed" (its exit status), nil otherwise.
+    static func exitStatus(_ item: TabItem) -> String? {
+        guard item.hover.kind == .terminal else { return nil }
+        switch item.status {
+        case .success: return Strings.axSuccess
+        case .failure: return Strings.axFailure
+        case .none, .needsInput: return nil
+        }
     }
 
     /// "Memory 106 MB" (with the CPU when notable); for a hibernated page "Hibernated", with
@@ -73,7 +110,8 @@ struct TabHoverCardLines: Equatable {
 
     /// A page address's host ("cmux.com"); a local file's path from home ("~/Docs/a.html");
     /// the text itself otherwise.
-    static func host(_ address: String) -> String {
+    static func host(_ address: String) -> String? {
+        if isBlank(address) { return nil }
         if let url = URL(string: address), url.isFileURL {
             return (url.path(percentEncoded: false) as NSString).abbreviatingWithTildeInPath
         }

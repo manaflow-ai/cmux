@@ -32,10 +32,19 @@ public struct FolderWatcher: FolderWatching {
 
     public func changes(in folder: URL) -> AsyncStream<FolderChange> {
         AsyncStream { continuation in
-            let box = FolderWatchStream(folder: folder.standardizedFileURL.resolvingSymlinksInPath(),
-                                        latency: latency, continuation: continuation)
+            let box = FolderWatchStream(folder: Self.realFolder(folder), latency: latency, continuation: continuation)
             continuation.onTermination = { _ in box.stop() }
             box.start()
         }
+    }
+
+    /// The kernel's path for `folder` (`realpath(3)`), as FSEvents reports paths: /private/var/...
+    /// for the temp directory. `resolvingSymlinksInPath()` would give /var/..., and every child
+    /// event would then fail the parent check. A folder that does not resolve keeps its path.
+    static func realFolder(_ folder: URL) -> URL {
+        let standard = folder.standardizedFileURL
+        guard let resolved = realpath(standard.path, nil) else { return standard }
+        defer { free(resolved) }
+        return URL(fileURLWithPath: String(cString: resolved), isDirectory: true)
     }
 }

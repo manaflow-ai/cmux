@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 public import Observation
 public import CmuxNextTerminalGeometry
 
@@ -60,6 +61,9 @@ public protocol TerminalSessionDelegate: AnyObject {
     /// The check that decides which detected links under a Cmd-hover are links
     /// (``TerminalSession/linkCheck``), read when the delegate is set. Nil: all of them.
     func terminalSessionLinkCheck(_ session: TerminalSession) -> TerminalLinkCheck?
+    /// Whether an OSC 52 / Kitty write may change the pasteboard without asking.
+    /// Return false when the terminal's focus or process provenance is not proven local.
+    func terminalSessionAllowsClipboardWrite(_ session: TerminalSession) async -> Bool
     /// BEL with the `system` bell feature enabled.
     func terminalSessionDidRingBell(_ session: TerminalSession)
     /// Ghostty asked to close the surface (for example `close_surface`).
@@ -73,7 +77,12 @@ public extension TerminalSessionDelegate {
     func terminalSession(_ session: TerminalSession, perform action: TerminalHostAction) -> Bool { false }
     func terminalSession(_ session: TerminalSession, contextMenuFor event: NSEvent) -> NSMenu? { nil }
     func terminalSession(_ session: TerminalSession, open url: URL) -> Bool {
-        NSWorkspace.shared.open(url, configuration: NSWorkspace.OpenConfiguration())
+        guard let safeURL = TerminalSurfaceView.url(from: url.absoluteString) else { return false }
+        if safeURL.isFileURL {
+            NSWorkspace.shared.revealInBackground([safeURL])
+            return true
+        }
+        NSWorkspace.shared.open(safeURL, configuration: NSWorkspace.OpenConfiguration())
         return true
     }
     func terminalSession(_ session: TerminalSession, openLink text: String) -> Bool {
@@ -81,6 +90,7 @@ public extension TerminalSessionDelegate {
         return terminalSession(session, open: url)
     }
     func terminalSessionLinkCheck(_ session: TerminalSession) -> TerminalLinkCheck? { nil }
+    func terminalSessionAllowsClipboardWrite(_ session: TerminalSession) async -> Bool { false }
     /// Ghostty's `bell-features` decide (no system beep by default).
     func terminalSessionDidRingBell(_ session: TerminalSession) {
         GhosttyRuntime.shared.bellSettings.ring()

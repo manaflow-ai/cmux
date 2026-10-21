@@ -54,7 +54,7 @@ public final class QuickComposerPanel: NSPanel, QuickComposerWindow, NSWindowDel
 
     public func present(_ content: NSView, focus: NSView?) {
         // Read per show: the panel is reused, and motion settings change live.
-        animationBehavior = Motion.animatesMovement ? .utilityWindow : .none
+        animationBehavior = Motion.overlays.animatesMovement ? .utilityWindow : .none
         if content.superview !== surface.contentView {
             surface.contentView.subviews.forEach { $0.removeFromSuperview() }
             content.frame = surface.contentView.bounds

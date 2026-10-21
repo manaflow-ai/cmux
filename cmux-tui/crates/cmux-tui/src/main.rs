@@ -43,6 +43,7 @@ mod private_mode;
 mod signal_sender;
 mod websocket_credential;
 // The agent hook helper, also built as the standalone `cmux-tui-hook`.
+mod feature_flags;
 #[path = "bin/cmux-tui-hook.rs"]
 mod hook_helper;
 mod host_colors;
@@ -101,6 +102,7 @@ mod test_exec;
 #[cfg(test)]
 mod test_wait;
 mod ui;
+mod update_notice;
 mod version_report;
 
 use headless::run_headless;
@@ -1008,7 +1010,7 @@ fn version_report_json() -> serde_json::Value {
     #[cfg(not(unix))]
     let (build_identity, build_time, remote_protocol) = (None, 0, None);
     let executable = std::env::current_exe().ok().and_then(|path| std::fs::canonicalize(path).ok());
-    version_report::version_json(
+    let mut report = version_report::version_json(
         &version_report::BuildFacts {
             build_identity,
             build_time,
@@ -1017,7 +1019,12 @@ fn version_report_json() -> serde_json::Value {
             remote_protocol,
         },
         executable.as_deref(),
-    )
+    );
+    // The invite wave this tester is in and what its signed flags turn off (#10).
+    let (cohort, disabled_features) = feature_flags::report();
+    report["cohort"] = serde_json::json!(cohort);
+    report["disabled_features"] = serde_json::json!(disabled_features);
+    report
 }
 
 #[cfg(unix)]
@@ -1864,6 +1871,7 @@ fn run_main() {
         // SAFETY: still single-threaded startup, as for the captures above.
         unsafe { startup_env::take_agent_caller_env() };
     }
+    let headless = args.headless;
     let config = config::StartupConfigSnapshot::load();
     let provider = resolve_provider_launch(&args, &config)
         .unwrap_or_else(|error| usage_exit(&error.to_string()));
@@ -1908,6 +1916,10 @@ fn run_main() {
         None if args.attach => run_attach(args, config),
         None => run_server(args, provider_workspace_authority, config),
     };
+    if result.is_ok() && !headless {
+        // After the TUI restored the terminal: the one update line (#8).
+        update_notice::print_on_exit();
+    }
     if let Err(e) = result {
         if session::is_expected_remote_shutdown(&e) {
             return;

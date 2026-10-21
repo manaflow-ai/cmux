@@ -137,14 +137,14 @@ public final class ChiefPetController {
         let drew = bubble.bubble.show(feed.notices, expanded: expanded)
         let height = ChiefPetBubblePanel.height(count: feed.notices.count, expanded: expanded)
         // With no screen (a display being reconfigured) it still takes its size, over the pet.
-        let visible = panel.screen?.visibleFrame ?? ChiefPetPanel.screenUnderPointer()?.visibleFrame ?? panel.frame.insetBy(dx: -4000, dy: -4000)
+        let visible = panel.visibleFrame() ?? ChiefPetPanel.screenUnderPointer()?.visibleFrame ?? panel.frame.insetBy(dx: -4000, dy: -4000)
         bubble.setFrame(ChiefPetBubblePanel.frame(height: height, over: panel.frame, in: visible), display: drew)
         guard !bubble.isVisible else { return }
         bubble.alphaValue = animated && drew ? 0 : 1
         panel.addChildWindow(bubble, ordered: .above)
         bubble.orderFrontRegardless()
         if bubble.alphaValue == 0 {
-            Motion.animateTimed(.fadeIn, in: bubble.contentView) { bubble.animator().alphaValue = 1 }
+            Motion.home.animateTimed(.fadeIn, in: bubble.contentView) { bubble.animator().alphaValue = 1 }
         }
     }
 
@@ -172,6 +172,11 @@ public final class ChiefPetController {
         made.pet.onDragEnded = { [weak self, weak made] in
             made?.saveOrigin()
             self?.render(animated: false)
+            self?.placeReply()
+        }
+        made.onKeptOnScreen = { [weak self] in
+            self?.render(animated: false)
+            self?.placeReply()
         }
         panel = made
         return made

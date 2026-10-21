@@ -312,6 +312,40 @@ async fn the_daemons_turn_values_never_reach_an_agent() {
     }
 }
 
+/// A Chief turn or compactor runs a fresh Claude process per turn; its
+/// preset's SUBROUTER_SESSION_KEY with SUBROUTER_SESSION_HEADER=1 must reach
+/// the API as `X-Subrouter-Session`, next to the route's own header lines,
+/// or the sr2 gateway spreads the turns over accounts and their prompt
+/// cache goes cold (a226: 43% of Chief turns rewrote 38k-83k tokens). A
+/// preset without the opt-in (a subagent, one long session) sends none, and
+/// the daemon's own turn values never become a header.
+#[tokio::test]
+async fn a_turn_session_key_becomes_the_subrouter_session_header() {
+    let dir = scratch("srsession", "export EDITOR=vi\n");
+    let route = "X-Subrouter-Agent: claude";
+    let turn = json!({"ANTHROPIC_API_KEY": "sk-test", "ANTHROPIC_CUSTOM_HEADERS": route,
+        "SUBROUTER_SESSION_KEY": "optchat-c0eb-turn", "SUBROUTER_SESSION_HEADER": "1"});
+    let bare = json!({"ANTHROPIC_API_KEY": "sk-test",
+        "SUBROUTER_SESSION_KEY": "optchat-c0eb-compact", "SUBROUTER_SESSION_HEADER": "1"});
+    let sub = json!({"ANTHROPIC_API_KEY": "sk-test", "ANTHROPIC_CUSTOM_HEADERS": route,
+        "SUBROUTER_SESSION_KEY": "optchat-c0eb-sub"});
+    let bad = json!({"ANTHROPIC_API_KEY": "sk-test", "ANTHROPIC_CUSTOM_HEADERS": route,
+        "SUBROUTER_SESSION_KEY": "two words\nX-Evil: 1", "SUBROUTER_SESSION_HEADER": "1"});
+    let harnesses = json!({"claude": claude(turn), "bare": claude(bare), "sub": claude(sub), "bad": claude(bad)});
+    let daemon_turn = [("SUBROUTER_SESSION_KEY", "daemon-turn"), ("SUBROUTER_SESSION_HEADER", "1")];
+    for (harness, want) in [
+        ("claude", json!("X-Subrouter-Agent: claude\nX-Subrouter-Session: optchat-c0eb-turn")),
+        ("bare", json!("X-Subrouter-Session: optchat-c0eb-compact")),
+        ("sub", json!(route)),
+        ("bad", json!(route)),
+    ] {
+        // One daemon per case: `ask` names every session "auth".
+        let d = start(&dir, harnesses.clone(), &daemon_turn).await;
+        let (reply, _) = ask(&d, harness).await;
+        assert_eq!(found(&reply)["customHeaders"], want, "{harness}: {reply:?}");
+    }
+}
+
 /// (b) `apiKeyHelper` in ~/.claude/settings.json whose command is only on
 /// the login shell's PATH.
 #[tokio::test]

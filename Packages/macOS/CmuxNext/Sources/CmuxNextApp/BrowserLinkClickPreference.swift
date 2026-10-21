@@ -11,6 +11,7 @@ extension BrowserLinkClickMapping {
             case .currentTab: .currentTab
             case .backgroundTab: .backgroundTab
             case .foregroundTab: .foregroundTab
+            case .linkPlacement: .linkPlacement
             case .newWindow: .newWindow
             case .download: .download
             }
@@ -25,6 +26,8 @@ extension BrowserLinkClickMapping {
 enum BrowserLinkClickPreference {
     static func follow(_ settings: SettingsController, webKit: WebKitEngine, cef: CEFEngine) {
         cef.builtInAdBlocker = { [weak settings] in settings?.snapshot.browserBuiltInAdBlocker ?? true }  // browser.builtInAdBlocker, read at Chromium start
+        // Chrome enterprise policies follow from here too: AppDelegate, which starts the followers, is at its line budget.
+        BrowserManagedPolicyPreference.follow(settings, webKit: webKit, cef: cef)
         Task { [weak settings, weak webKit, weak cef] in
             guard let settings else { return }
             for await setting in ObservationStream({ settings.snapshot.browserLinkClicks }) {

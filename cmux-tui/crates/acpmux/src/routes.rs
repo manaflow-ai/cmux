@@ -342,7 +342,12 @@ pub fn places(cfg: &crate::config::Config) -> (Option<PathBuf>, PathBuf) {
         .and_then(|p| p.parent())
         .map(Path::to_path_buf)
         .unwrap_or_else(crate::config::home);
-    (routes_dir(cfg.profile_sources.user_dir.as_deref()), state)
+    // Beside cmux.json when there is one: a DEV build's user harness folder is
+    // in its acpmux home (`profiles::build_harness_dir`), its routes are not.
+    let sources = &cfg.profile_sources;
+    let config_dir = sources.cmux_json.as_deref().and_then(Path::parent);
+    let routes = config_dir.map(|d| d.join("routes"));
+    (routes.or_else(|| routes_dir(sources.user_dir.as_deref())), state)
 }
 
 fn backups_dir(home: &Path) -> PathBuf {

@@ -143,7 +143,7 @@ final class ChiefPetReplyPanel: NSPanel, NSTextFieldDelegate {
         }
         if super.performKeyEquivalent(with: event) { return true }
         let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
-        let editing = (flags == .command && ["a", "c", "v", "x", "z"].contains(key)) || (flags == [.command, .shift] && key == "z")
+        let editing = (flags == .command && ["a", "c", "v", "x", "z"].contains(key)) || (flags == [.command, .shift] && ["v", "z"].contains(key))
         return flags.contains(.command) && !editing
     }
 

@@ -141,6 +141,17 @@ pub(crate) fn harness_command(
     // Only its own session's credential: never acpmux's, a preset's or a Chief's.
     crate::launch_credential::apply(&mut cmd, session.map(|(id, _)| id));
     crate::harness_limits::lift_claude(&mut cmd, profile, session.is_some());
+    // A Chief turn or compactor (fresh process per turn): one sticky
+    // subrouter account, so its prompt cache stays readable (subrouter_session.rs).
+    let claude_code = profile.kind == crate::config::HarnessKind::ClaudeStdio
+        || family.is_some_and(|f| f.starts_with("claude"));
+    if claude_code {
+        let env = command_env(&cmd);
+        let get = |k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
+        if let Some(headers) = crate::subrouter_session::custom_headers(get) {
+            cmd.env(crate::subrouter_session::HEADERS_ENV, headers);
+        }
+    }
     // A Claude agent's sign-in inputs, for a clear message if it has none.
     match (family == Some("claude"), session) {
         (true, Some((id, _))) => crate::claude_auth::remember(id, &command_env(&cmd)),

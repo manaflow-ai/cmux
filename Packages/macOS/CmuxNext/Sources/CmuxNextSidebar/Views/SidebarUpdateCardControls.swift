@@ -213,7 +213,7 @@ final class SidebarUpdateCheckbox: NSView {
     var onToggle: ((Bool) -> Void)?
     private(set) var isOn = false
     private let box = CALayer()
-    private let mark = NSImageView()
+    private let mark = DecorativeImageView() // the checkbox's AXValue says it
     private let label = ChromeLabel(labelWithString: "")
 
     /// Full Keyboard Access focus: the box's edge in the theme's focus color, not the system's blue ring.

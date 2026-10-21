@@ -77,6 +77,30 @@ impl HostShared {
             payload.extend_from_slice(&rows.to_le_bytes());
             self.smart.publish(Frame::new(MessageKind::Resized, payload))
         });
+        // The program gets SIGWINCH now, not when the parser reaches this
+        // command behind up to MAX_HOST_PARSER_QUEUED_BYTES of output. The
+        // order rule still holds: the reader enqueues under
+        // `source_order_lock`, which this call holds until the parser
+        // answers, so every byte read after this resize parses after the
+        // grid resize; the output queued ahead of it was written at the
+        // old size and parses on the old grid.
+        let pty_previous = if changed {
+            let previous = pty_size(size.0, size.1, *cell_pixels);
+            if let Err(error) =
+                self.master.lock().unwrap().resize(pty_size(cols, rows, *cell_pixels))
+            {
+                self.smart.close_failed_transition(source_cursor);
+                return Err(error);
+            }
+            Some(previous)
+        } else {
+            None
+        };
+        let restore_pty = || {
+            if let Some(previous) = pty_previous {
+                let _ = self.master.lock().unwrap().resize(previous);
+            }
+        };
         let (response_sender, response_receiver) = sync_channel(1);
         let command = ParserCommand::Resize {
             cols,
@@ -85,15 +109,18 @@ impl HostShared {
             source_cursor,
             acknowledge_with_replay,
             targeted_ack: targeted_ack.map(|(request_id, tap)| (request_id, tap.clone())),
+            pty_previous,
             response: response_sender,
         };
         if self.parser_commands.send(command).is_err() {
+            restore_pty();
             self.smart.close_failed_transition(source_cursor);
             anyhow::bail!("terminal parser worker stopped");
         }
         let result = match response_receiver.recv() {
             Ok(result) => result,
             Err(_) => {
+                restore_pty();
                 self.smart.close_failed_transition(source_cursor);
                 anyhow::bail!("terminal parser worker stopped");
             }
@@ -111,6 +138,8 @@ impl HostShared {
         }
     }
 
+    /// The parser's resize when the PTY has not changed yet (tests).
+    #[cfg(test)]
     pub(crate) fn apply_parser_resize(
         &self,
         cols: u16,
@@ -119,6 +148,31 @@ impl HostShared {
         acknowledge_with_replay: bool,
         targeted_ack: Option<(u64, HostTap)>,
         cell_pixels: (u16, u16),
+    ) -> ParserResizeResult {
+        self.apply_parser_resize_after_pty(
+            cols,
+            rows,
+            source_cursor,
+            acknowledge_with_replay,
+            targeted_ack,
+            cell_pixels,
+            None,
+        )
+    }
+
+    /// Apply a queued resize to the grid. With `pty_previous`, the PTY
+    /// already holds the new size; a failure before the grid changes puts
+    /// the PTY back to `pty_previous`.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn apply_parser_resize_after_pty(
+        &self,
+        cols: u16,
+        rows: u16,
+        source_cursor: Option<u64>,
+        acknowledge_with_replay: bool,
+        targeted_ack: Option<(u64, HostTap)>,
+        cell_pixels: (u16, u16),
+        pty_previous: Option<PtySize>,
     ) -> ParserResizeResult {
         let mut term = self.term.lock().unwrap();
         let previous = (term.cols(), term.rows());
@@ -151,7 +205,9 @@ impl HostShared {
                         "could not preflight terminal-host resize replay; geometry unchanged",
                     )?;
                 }
-                master.resize(next_size)?;
+                if pty_previous.is_none() {
+                    master.resize(next_size)?;
+                }
                 if let Err(error) =
                     term.resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))
                 {
@@ -247,6 +303,13 @@ impl HostShared {
             Ok(acknowledgement_queued)
         })();
         let applied = (term.cols(), term.rows());
+        if acknowledgement_queued.is_err()
+            && applied == previous
+            && previous != (cols, rows)
+            && let Some(pty_previous) = pty_previous
+        {
+            let _ = self.master.lock().unwrap().resize(pty_previous);
+        }
         ParserResizeResult {
             acknowledgement_queued: acknowledgement_queued.map_err(|error| error.to_string()),
             changed: applied != previous,

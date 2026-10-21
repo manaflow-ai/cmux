@@ -335,6 +335,12 @@ jobs:
             CMUX_TUI_NPM_BOOTSTRAP_VERSION="$CMUX_TUI_DISTRIBUTION_VERSION"
             export CMUX_TUI_NPM_BOOTSTRAP_VERSION
           fi
+          # macOS: line tables in a separate .dSYM per binary (the published binary
+          # gets no DWARF), kept as cmux-tui-dsyms-<target> and uploaded to Sentry by
+          # cmux-tui-artifacts.yml, so crashes in cmux-tui and acpmux symbolicate.
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            export CARGO_PROFILE_RELEASE_DEBUG=line-tables-only CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=packed
+          fi
           cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host --release --locked --target ${{ matrix.build_target }}
           # The app host runs each app's JS next to the daemon, which finds it
           # beside its own executable (cmux-tui-core::apps). Unix only.
@@ -384,6 +390,12 @@ jobs:
           if [[ "$PACKAGE_NPM" == "true" ]]; then
             CMUX_TUI_NPM_BOOTSTRAP_VERSION="$CMUX_TUI_DISTRIBUTION_VERSION"
             export CMUX_TUI_NPM_BOOTSTRAP_VERSION
+          fi
+          # macOS: line tables in a separate .dSYM per binary (the published binary
+          # gets no DWARF), kept as cmux-tui-dsyms-<target> and uploaded to Sentry by
+          # cmux-tui-artifacts.yml, so crashes in cmux-tui and acpmux symbolicate.
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            export CARGO_PROFILE_RELEASE_DEBUG=line-tables-only CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=packed
           fi
           cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host --release --locked --target ${{ matrix.build_target }}
           # The app host runs each app's JS next to the daemon, which finds it
@@ -616,6 +628,16 @@ jobs:
         if: matrix.target == 'x86_64-unknown-linux-musl'
         shell: bash
         run: cmux-tui/scripts/smoke-remote-release.sh "dist/cmux-tui-${{ matrix.target }}"
+
+      # Debug symbols only, never shipped: cmux-tui-artifacts.yml uploads them to Sentry.
+      - name: Upload macOS debug symbols artifact
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          retention-days: ${{ inputs.retention_days }}
+          name: cmux-tui-dsyms-${{ matrix.target }}
+          path: cmux-tui/target/${{ matrix.target }}/release/*.dSYM
+          if-no-files-found: warn
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

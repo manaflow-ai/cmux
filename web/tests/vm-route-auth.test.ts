@@ -1655,6 +1655,9 @@ describe("VM REST auth", () => {
       amount: 1,
       details: { amount: 1 },
       message: "This team has no Cloud VM create credits left.",
+      upgradeRequired: true,
+      upgradePlanId: "max",
+      upgradeUrl: "https://cmux.com/api/billing/checkout?plan=max&cmux_source=vm_create_credits",
     });
   });
 
@@ -1716,6 +1719,9 @@ describe("VM REST auth", () => {
       error: "vm_create_credits_insufficient",
       amount: 1,
       message: "Your account has no Cloud VM create credits left.",
+      upgradeRequired: true,
+      upgradePlanId: "max",
+      upgradeUrl: "https://cmux.com/api/billing/checkout?plan=max&cmux_source=vm_create_credits",
     });
     expect(payload.message).not.toContain("team");
     expect(payload.action).not.toContain("team");

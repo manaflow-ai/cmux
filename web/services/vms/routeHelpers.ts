@@ -45,7 +45,7 @@ import {
   type VmWorkflowError,
 } from "./errors";
 import { recordSpanTiming } from "./timings";
-import { planIncludes } from "../billing/planTier";
+import { nextUpgradePlanId, planIncludes } from "../billing/planTier";
 import { authProviderErrorResponse } from "./authErrors";
 import { goCapacityConstraint } from "./goUsage";
 import { isSyntheticAccountEmail, rememberSyntheticUser } from "../analytics/syntheticAccounts";
@@ -559,6 +559,29 @@ export function vmBillingTeamErrorResponse(err: {
 const VM_UPGRADE_URL = "https://cmux.com/pricing";
 
 /**
+ * Where a tenant with no Cloud VM create credits goes to buy more: the cmux
+ * checkout, tagged so billing can see where the purchase started.
+ */
+export const VM_CREATE_CREDITS_CHECKOUT_URL =
+  "https://cmux.com/api/billing/checkout?plan=pro&cmux_source=vm_create_credits";
+
+/**
+ * The fields every `vm_create_credits_insufficient` response carries, so each
+ * client shows a checkout button instead of a dead error.
+ */
+export function vmCreateCreditsCheckoutExtra(amount: number, planId: string | null | undefined) {
+  // Send the tenant to the next plan up: a Pro, Team or Founder's tenant to Max
+  // (never to the plan it already has), a Max tenant to the pricing page.
+  const upgradePlanId = nextUpgradePlanId(planId);
+  const upgradeUrl = upgradePlanId === null
+    ? VM_UPGRADE_URL
+    : upgradePlanId === "pro"
+      ? VM_CREATE_CREDITS_CHECKOUT_URL
+      : `https://cmux.com/api/billing/checkout?plan=${upgradePlanId}&cmux_source=vm_create_credits`;
+  return { amount, upgradeRequired: true, upgradePlanId, upgradeUrl } as const;
+}
+
+/**
  * The paid-plan gate response. Copy comes from the `vmErrors.requiresPro`
  * catalog so non-English clients get a translated upgrade instruction; the
  * machine-readable `upgradeUrl`/`upgradeRequired` fields stay locale-free.
@@ -864,8 +887,8 @@ export function vmCreateLikeErrorResponders(input: {
         error: "vm_create_credits_insufficient",
         status: 402,
         message: "This team has no Cloud VM create credits left.",
-        action: "Upgrade the team's plan or ask an admin to add Cloud VM create credits, then retry.",
-        extra: { amount: error.amount },
+        action: `Get more Cloud VM credits at ${vmCreateCreditsCheckoutExtra(error.amount, input.planId).upgradeUrl}, or ask a team admin to add some, then retry.`,
+        extra: vmCreateCreditsCheckoutExtra(error.amount, input.planId),
         details: { amount: error.amount },
       }),
     VmModelPlaneError: (error) => vmModelPlaneErrorResponse(error, input.operation),

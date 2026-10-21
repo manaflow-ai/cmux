@@ -586,6 +586,13 @@
     "browser"
    ]
   },
+  "ColumnMoveDirection": {
+   "kind": "enum",
+   "values": [
+    "left",
+    "right"
+   ]
+  },
   "PaneDirection": {
    "kind": "enum",
    "values": [
@@ -4574,6 +4581,28 @@
      "default": null,
      "since": 12,
      "capability": "remote-terminal-tabs-v1"
+    }
+   },
+   "additional_properties": false
+  },
+  "TerminalResumeCommandResult": {
+   "kind": "object",
+   "fields": {
+    "terminal_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "command": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
     }
    },
    "additional_properties": false
@@ -10979,6 +11008,67 @@
    "constraints": [
     "The keep flag is stored durably with the terminal and survives owner restarts.",
     "A terminal that is not kept is ended, as close-terminal does, once it has had no tab placement for the owner's reap grace period (default 30 seconds); a placement restored within the period cancels it."
+   ]
+  },
+  "terminal-resume-command": {
+   "authority": "control",
+   "since": 12,
+   "capability": "resume-command",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "constraints": [
+       {
+        "pattern": "^(term_)?[0-9a-f]{32}$",
+        "format": "terminal host id (UUIDv4 hex without dashes) or public term_ resource id"
+       }
+      ]
+     },
+     "command": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "constraints": [
+       {
+        "format": "one line of 1-4096 bytes without control characters, trimmed; absent reads, null clears"
+       }
+      ]
+     }
+    },
+    "additional_properties": false,
+    "constraints": [
+     "Exactly one of surface or terminal_id is present."
+    ]
+   },
+   "result": {
+    "kind": "ref",
+    "name": "TerminalResumeCommandResult"
+   },
+   "stream": null,
+   "constraints": [
+    "The resume command is stored durably with the terminal and survives owner restarts.",
+    "When the owner respawns the terminal it types the command on the new prompt without a newline; it never runs on its own."
    ]
   },
   "new-tab": {
@@ -21870,7 +21960,7 @@
    },
    "stream": null,
    "constraints": [
-    "The owner's trusted connection only: a registered Unix client with no link peer record acting as the local user (a local client, or the link's owner_session splice). Link-stamped, relayed, WebSocket, unregistered and agent-bound connections are refused with origin.forbidden before anything is forwarded; the remote relay never admits it. Read-only: one of seven /api paths, GET, forwarded as one line to the brain host's tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET); answers above 5 MiB are refused. Every daemon advertises chief-inspect-v1; one without that socket answers the owner chief.not_configured. See spec/commands.md."
+    "The owner's trusted connection only: a registered Unix client with no link peer record acting as the local user (a local client, or the link's owner_session splice). Link-stamped, relayed, WebSocket, unregistered and agent-bound connections are refused with origin.forbidden before anything is forwarded; the remote relay never admits it. Reads: one of nine /api read paths, GET; the owner's memory changes (/api/memory/edit, /api/memory/delete, /api/memory/undo): POST, which the brain refuses to the Chief's own sessions; the reserved query key chief names a non-default Chief's brain. Forwarded as one line to the brain host's tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET); answers above 5 MiB are refused. Every daemon advertises chief-inspect-v1; one without that socket answers the owner chief.not_configured. See spec/commands.md."
    ]
   },
   "snapshot-request": {
@@ -22230,6 +22320,42 @@
       "type": {
        "kind": "scalar",
        "name": "uint64"
+      }
+     }
+    },
+    "kind": "object"
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "since": 12,
+   "stream": null
+  },
+  "move-column": {
+   "authority": "control",
+   "capability": "column-move-v1",
+   "constraints": [
+    "pane names any pane of the column that moves; the whole column (every pane, split and row) trades places with its neighbor in direction.",
+    "A docked column never moves and is never crossed. See spec/commands.md for the result object and error codes."
+   ],
+   "request": {
+    "additional_properties": false,
+    "fields": {
+     "direction": {
+      "nullable": false,
+      "presence": "required",
+      "type": {
+       "kind": "ref",
+       "name": "ColumnMoveDirection"
+      }
+     },
+     "pane": {
+      "nullable": false,
+      "presence": "required",
+      "type": {
+       "kind": "ref",
+       "name": "Id"
       }
      }
     },

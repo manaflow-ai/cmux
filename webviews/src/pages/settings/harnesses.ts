@@ -12,7 +12,8 @@ export function offersUpdate(row: HarnessRow): boolean {
   return !!row.outdated && !!row.update && !row.update.elevated && row.ownerUpdate === true;
 }
 
-/** Creation and unknown outcomes cannot authorize a second update. */
+/** A job still being created, running, or whose creation reply was lost blocks a second update;
+ * any end observation (`exited`, even with an unknown outcome) settles it. */
 export function updateUnsettled(state: HarnessesState | null | undefined, id: string): boolean {
   return (state?.jobs ?? []).some((job) => job.profiles.includes(id) && job.state !== "exited");
 }

@@ -18,7 +18,19 @@ export function NumberEditor({ row, value, disabled, labelId }: EditorProps) {
   const effective = useSettingsSelector((state) => effectiveNumber(state, row)?.value ?? null);
   const badge = useSettingsSelector((state) => effectiveNumber(state, row)?.badge ?? null);
   const known = useSettingsSelector((state) => effectiveNumber(state, row)?.known ?? false);
-  const range = row.range!;
+  const schemaRange = row.range!;
+  // The app may narrow the low end (the window Opacity over a picture stops at the legibility
+  // floor, below which the window kept the same tint and the slider moved nothing).
+  const floor = useSettingsSelector((state) => state.host?.derived_min?.[row.key] ?? null);
+  // Snapped up to a step so the thumb's stops stay round (63% → 65%).
+  const snapped =
+    typeof floor === "number" && schemaRange.step > 0
+      ? Math.round(Math.ceil(floor / schemaRange.step - 1e-9) * schemaRange.step * 1e6) / 1e6
+      : floor;
+  const range =
+    typeof snapped === "number" && snapped > schemaRange.min && snapped <= schemaRange.max
+      ? { ...schemaRange, min: snapped }
+      : schemaRange;
   const stored = typeof value === "number" ? value : null;
   const [drag, setDrag] = useState<number | null>(null);
   const pending = useRef<number | null>(null);
@@ -64,10 +76,11 @@ export function NumberEditor({ row, value, disabled, labelId }: EditorProps) {
         max={range.max}
         step={range.step}
         value={current}
-        disabled={disabled}
+        // A range with no travel (Opacity over a picture whose legibility floor reaches its cap).
+        disabled={disabled || range.min >= range.max}
         aria-labelledby={labelId}
         onChange={(event) => {
-          const next = Number(event.currentTarget.value);
+          const next = Math.min(Math.max(Number(event.currentTarget.value), range.min), range.max);
           pending.current = next;
           setDrag(next);
           store.preview(row.key, next);

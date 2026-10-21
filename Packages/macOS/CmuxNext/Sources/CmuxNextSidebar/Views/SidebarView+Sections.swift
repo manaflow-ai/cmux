@@ -104,7 +104,8 @@ extension SidebarViewComponents {
             aboveRegion.update(content(model.placingTransientItems(in: [])), width: width)
             if list.blocks != blocks {
                 list.blocks = blocks
-                if reloadsList { list.reload(animated: true) }
+                // The document changed under the list (an item added, a section an agent filled): calm, not under the pointer.
+                if reloadsList { list.showModelChange(animates: true) }
             }
         } else {
             aboveRegion.update(content(shownAbove), width: width)

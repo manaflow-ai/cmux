@@ -1,9 +1,8 @@
 // Whether this page is the key one: its window is the key window and its web view has the keyboard.
 // A field can hold DOM focus while it is not (the window is in the background, another pane has the
 // keyboard, the New Tab page focused its field before the user came to it). Then the composer draws
-// neither its caret nor its focused ring, as the Claude app's caret shows only while its composer
-// is focused (composerStates.css, `:root[data-page-inactive]`): a caret and an unfocused-looking box
-// never show together.
+// no caret, as the Claude app's caret shows only while its composer is focused (composerStates.css,
+// `:root[data-page-inactive]`). The box itself looks the same focused or not.
 //
 // The page is key when `document.hasFocus()` and visible; the window's `focus` and `blur`, the
 // document's visibility, and a key or press on the page (the user is here) keep it current.

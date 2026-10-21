@@ -13,7 +13,7 @@ const card = (container: HTMLElement) => container.querySelector<HTMLElement>('[
 const ids = (element: HTMLElement) =>
   [...element.querySelectorAll<HTMLElement>("[data-harness]")].map((row) => row.dataset.harness);
 
-test("owner job receipts stay pending until a terminal exit and unknown outcomes block another update", async () => {
+test("owner job receipts stay pending until a terminal exit; a lost reply blocks another update, an unknown exit does not", async () => {
   const page = await renderPage({ path: "/settings/agents" });
   await settle();
   const base = page.provider.harnesses;
@@ -62,6 +62,15 @@ test("owner job receipts stay pending until a terminal exit and unknown outcomes
     card(page.container)!.querySelector<HTMLButtonElement>('[data-harness="codex"] [data-harness-action="update"]')
       ?.disabled,
   ).toBe(true);
+  // An end observation without a process result is settled: it says so and allows another update.
+  await show("exited", { outcome: "unknown" });
+  job = card(page.container)!.querySelector<HTMLElement>("[data-agent-update-job]");
+  expect(job?.dataset.agentUpdateJob).toBe("exited");
+  expect(job?.textContent).toContain("Outcome unknown");
+  expect(
+    card(page.container)!.querySelector<HTMLButtonElement>('[data-harness="codex"] [data-harness-action="update"]')
+      ?.disabled,
+  ).toBe(false);
   page.unmount();
 });
 

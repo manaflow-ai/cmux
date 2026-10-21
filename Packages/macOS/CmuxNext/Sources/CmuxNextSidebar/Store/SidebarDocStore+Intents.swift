@@ -40,7 +40,10 @@ extension SidebarDocStore {
         switch intent {
         case .reorder(let ids, let position):
             let moving = items(ids)
-            guard let anchored = drag.anchoredTarget(position, moving: moving, model: model) else { return false }
+            // Rows the document does not place, on a machine it holds no section for here: their adopt (already
+            // queued by `items`) makes the section, then they move to the slot (a219's gap, pinning-DESIGN.md).
+            guard let anchored = drag.anchoredTarget(position, moving: moving, model: model)
+                ?? drag.unplacedTarget(position, moving: ids).map({ (target: $0, adopt: [[String: String]]()) }) else { return false }
             // An anchor this client has no item for is adopted in the same `sidebar.apply`, before the move.
             adopt += anchored.adopt.map { ref -> [String: Any] in ["op": "adopt", "refs": [ref]] }
             move(moving, to: anchored.target, title: title)

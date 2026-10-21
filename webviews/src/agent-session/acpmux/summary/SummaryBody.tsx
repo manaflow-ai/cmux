@@ -1,4 +1,5 @@
 import React, { type ReactNode } from "react";
+import { openProcessTerminal } from "../processTerminal";
 import { Counts } from "../changes/Counts";
 import { changedByTools } from "../changes/turnCheckpoint";
 import { useT, type StringKey } from "../i18n";
@@ -189,10 +190,22 @@ export function SummaryBody({
         title={t("summary.backgroundTasks")}
         items={summary.backgroundTasks}
         row={(task) => (
-          <li key={task.id} className="acpmux-summary-row" data-state={task.state}>
-            <Icon name="terminal" size={ROW_ICON} row />
-            <span className="acpmux-summary-text">{task.command}</span>
-            <span className="acpmux-summary-meta">{t(TASK_STATES[task.state])}</span>
+          <li key={task.id}>
+            {/* A click opens its terminal beside the chat (processTerminal.ts). */}
+            <button
+              type="button"
+              className="acpmux-summary-row acpmux-summary-link"
+              data-state={task.state}
+              title={t("bgTask.showOutput")}
+              onClick={() => {
+                onFollow?.();
+                void openProcessTerminal(task.id);
+              }}
+            >
+              <Icon name="terminal" size={ROW_ICON} row />
+              <span className="acpmux-summary-text">{task.command}</span>
+              <span className="acpmux-summary-meta">{t(TASK_STATES[task.state])}</span>
+            </button>
           </li>
         )}
       />

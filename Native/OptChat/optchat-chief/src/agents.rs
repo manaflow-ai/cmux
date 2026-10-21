@@ -297,6 +297,7 @@ pub fn child_spec(flags: &Flags, name: &str, cwd: &str) -> SessionSpec {
         tags: BTreeMap::new(),
         env: Default::default(),
         fast: false,
+        peer: None,
     }
 }
 

@@ -7,7 +7,7 @@
 //   prompt shows there from the send on, never first as a transcript bubble.
 // - ⌘Enter steers, and an agent that cannot steer is told to stop the turn and run it next
 //   (`_meta.acpmux.interrupt`); the button says so.
-// - Esc on an empty composer stops the turn.
+// - Esc on an empty composer stops the turn on a second press (escapeStop.ts); the first says so.
 // - Stop always frees the chat: acpmux's forced end of a turn whose agent ignored the cancel says
 //   so, and a turn still open a few seconds after Stop stops showing as working (cosmic-gray,
 //   2026-10-14: a chat stuck "running" after `/permissions`, Stop doing nothing).
@@ -397,14 +397,32 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       }
     });
 
-    test("Esc on an empty composer stops the turn", async () => {
+    test("one Esc on an empty composer only says to press it again; the second stops the turn", async () => {
       const page = await openChat();
       await page.locator(".acpmux-composer-prompt").click();
       // The send guard ignores a stop right after a send; nothing was sent here.
       await page.keyboard.press("Escape");
+      await page.locator(".acpmux-md-placeholder", { hasText: "Press Esc again to stop" }).waitFor({ timeout: 2_000 });
+      // The second press must land inside the 800 ms window, so no long wait here.
+      expect(cancels.length).toBe(0);
+      await page.keyboard.press("Escape");
       const deadline = Date.now() + 5_000;
       while (cancels.length === 0 && Date.now() < deadline) await page.waitForTimeout(50);
       expect(cancels.map((c) => c.sessionId)).toEqual([SESSION]);
+      await page.close();
+    });
+
+    test("two Esc presses far apart do not stop the turn, and the hint goes away", async () => {
+      const page = await openChat();
+      await page.locator(".acpmux-composer-prompt").click();
+      await page.keyboard.press("Escape");
+      const hint = page.locator(".acpmux-md-placeholder", { hasText: "Press Esc again to stop" });
+      await hint.waitFor({ timeout: 2_000 });
+      // The placeholder goes back to its usual text once the window ends.
+      await hint.waitFor({ state: "detached", timeout: 3_000 });
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(300);
+      expect(cancels.length).toBe(0);
       await page.close();
     });
   });

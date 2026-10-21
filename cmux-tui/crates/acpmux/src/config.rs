@@ -631,6 +631,12 @@ pub struct Config {
     /// `webRoots`: folders a Web connection may use (`server/remote_guard.rs`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub web_roots: Vec<String>,
+    /// `vmHost`: this machine is a dedicated agent VM (a Chief's cloud
+    /// subagent host), so the VM boundary is the sandbox: a remote chain's
+    /// Claude Code runs there without Seatbelt (`hub/remote_sandbox.rs`).
+    /// Honored off macOS only, read from this file only (no RPC sets it).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub vm_host: bool,
     /// `pool`: hidden pre-created sessions that make a harness switch
     /// instant (`hub/pool/`).
     #[serde(default, skip_serializing_if = "PoolConfig::is_default")]
@@ -992,6 +998,9 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
             .open(&tmp)
             .with_context(|| format!("write {}", tmp.display()))?;
         f.write_all(bytes).with_context(|| format!("write {}", tmp.display()))?;
+        // On disk before the rename: a power loss never leaves an empty
+        // session.json (its session id and ACP session id) behind.
+        f.sync_all().with_context(|| format!("sync {}", tmp.display()))?;
     }
     // Windows: created with an owner-only access list (`owner_only.rs`).
     #[cfg(windows)]
@@ -1007,8 +1016,16 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
         }
         .with_context(|| format!("write {}", tmp.display()))?;
         f.write_all(bytes).with_context(|| format!("write {}", tmp.display()))?;
+        f.sync_all().with_context(|| format!("sync {}", tmp.display()))?;
     }
     std::fs::rename(&tmp, path).with_context(|| format!("rename to {}", path.display()))?;
+    // The rename itself is durable once its directory is synced.
+    #[cfg(unix)]
+    if let Some(dir) = path.parent()
+        && let Ok(dir) = std::fs::File::open(dir)
+    {
+        let _ = dir.sync_all();
+    }
     Ok(())
 }
 
@@ -1022,7 +1039,7 @@ pub use nested_env::{
 pub(crate) use nested_env::{inherited_caller_scoped_keys, is_nested_claude_key};
 mod launchers;
 pub(crate) use launchers::which;
-pub use launchers::{subrouter_route, verify_launchers, verify_launchers_with};
+pub use launchers::{is_subrouter_proxy, subrouter_route, verify_launchers, verify_launchers_with};
 mod codex_adapter;
 mod discover;
 pub use codex_adapter::{CODEX_ACP_PACKAGE, adapter_package_launch, resolve_adapter_package_bin};

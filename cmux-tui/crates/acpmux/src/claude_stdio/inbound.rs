@@ -296,6 +296,24 @@ impl Translator {
                             {
                                 shells.remove(tool);
                             }
+                            // The launch's result names the output file while
+                            // the shell runs; the task notification names it
+                            // only at its end. A shell announced already is
+                            // announced again with it, once.
+                            if let Some(shell) = shells.get_mut(tool).filter(|s| s.output.is_none())
+                                && let Some(file) = launch_output_file(&text)
+                            {
+                                shell.output = Some(file);
+                                if shell.announced && shell.background {
+                                    let mut update = background_task_update(tool, shell, "running");
+                                    update["origin"] = json!(if shell.launched {
+                                        "background"
+                                    } else {
+                                        "auto_backgrounded"
+                                    });
+                                    out.push(shell_update(shell, update));
+                                }
+                            }
                         }
                         // ACP content replaces the call's content: a finished edit
                         // keeps its diff, and a failed one says why.
@@ -876,6 +894,15 @@ fn compaction_summary_text(line: &Value) -> Option<String> {
         _ => return None,
     };
     (!text.trim().is_empty()).then_some(text)
+}
+
+/// The output file a background Bash launch's result names ("… Output is
+/// being written to: PATH"), as Claude Code words it; None for any other text.
+fn launch_output_file(text: &str) -> Option<String> {
+    const MARK: &str = "Output is being written to: ";
+    let rest = &text[text.find(MARK)? + MARK.len()..];
+    let path = rest.lines().next()?.trim();
+    (path.starts_with('/') && path.ends_with(".output")).then(|| path.to_owned())
 }
 
 /// A `background_task_update` for one shell.

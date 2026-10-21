@@ -19,7 +19,9 @@ extension AgentCLIUpdateActions {
 
     /// The palette's target machine, else the active daemon, while the app still routes to it.
     /// Recovery reattaches only the original machine/session; the ledger is the local owner's.
-    public convenience init(daemons: Daemons, unsupported: @escaping @MainActor () -> String, localMachine: String) {
+    public convenience init(daemons: Daemons, unsupported: @escaping @MainActor () -> String,
+                            nothingToUpdate: @escaping @MainActor () -> String,
+                            stillUpdating: @escaping @MainActor (String) -> String, localMachine: String) {
         let registered: @MainActor (DaemonService) -> Bool = { daemons.machine($0.machineID) === $0 }
         let ledger: @MainActor () async throws -> (AgentCLIIntentLedger, @MainActor () -> Bool) = {
             guard let local = daemons.machine(localMachine) else { throw DaemonError.notConnected }
@@ -38,7 +40,7 @@ extension AgentCLIUpdateActions {
                 $0.identity?.machineResourceID == machine && $0.identity?.sessionResourceID == session
             }) else { throw DaemonError.notConnected }
             return try Route.capture(original, registered: registered)
-        }, unsupported: unsupported, localMachine: localMachine)
+        }, unsupported: unsupported, nothingToUpdate: nothingToUpdate, stillUpdating: stillUpdating, localMachine: localMachine)
     }
 }
 
@@ -87,7 +89,8 @@ extension AgentCLIUpdateActions.Route {
             throw DaemonError.missingCapabilities(["agent-cli-update-job-resolve-v1"])
         }
         var carrier: AgentCLIJobCarrier?
-        // Recovery captures the same transport without inventory or acpmux work.
+        // The owner-checked carrier, opened on first use: recovery and Resume start or observe
+        // without an inventory read, and a route re-captured after a reconnect opens it to observe.
         let captured: @MainActor () async throws -> AgentCLIJobCarrier = {
             guard current() else { throw DaemonError.notConnected }
             if let carrier { return carrier }

@@ -24,7 +24,7 @@ import re
 import sys
 
 # The swift archive is saved last in a seed, so its time is the seed's.
-SEED_ARCHIVE = re.compile(r"^v1/[^/]+/objects/cmux-next-fast-v2-swift-[A-Za-z0-9._-]+\.tar\.(?:zst|gz)$")
+SEED_ARCHIVE = re.compile(r"^v1/[^/]+/objects/cmux-next-fast-v3-swift-[A-Za-z0-9._-]+\.tar\.(?:zst|gz)$")
 
 
 def parse_time(value: str) -> datetime:

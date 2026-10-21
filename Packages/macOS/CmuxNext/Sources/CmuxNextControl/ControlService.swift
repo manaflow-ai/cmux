@@ -100,6 +100,12 @@ public final class ControlService {
         bridge.detach()
     }
 
+    /// Binds the control socket again (Restart CLI Listener): open
+    /// connections close; the router and its methods stay.
+    public func restartListener() throws {
+        try server.restart()
+    }
+
     /// The mode when nothing chooses one. The socket file is 0600 in a
     /// directory only this user can read, so the kernel already limits it to
     /// this user; descent from the app adds no boundary and refuses this

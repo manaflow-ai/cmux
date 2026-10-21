@@ -48,6 +48,8 @@ nonisolated enum AcpmuxDaemonLauncher {
         return variables
     }
 
+    /// Starts the daemon and waits for its ready line. `deadline` is a stall time: the wait ends
+    /// with an error only after that long with no write to the daemon's log, or at its exit.
     @concurrent static func launch(_ environment: AcpmuxEnvironment, deadline: Duration = .seconds(20)) async throws -> AcpmuxWebEndpoint {
         try await launch(environment, deadline: deadline, onSpawn: { _ in })
     }
@@ -165,9 +167,23 @@ nonisolated enum AcpmuxDaemonLauncher {
         Darwin.close(outputPipe[1])
         outputPipe[1] = -1
         let reader = AgentPaneLineReader(handle: FileHandle(fileDescriptor: outputPipe[0], closeOnDealloc: false))
+        // The ready line, or the daemon's exit (end of file), is the signal. `deadline` bounds only
+        // a stall: the wait goes on while the daemon still writes its log (AcpmuxLogProgress).
+        let progress = AcpmuxLogProgress(logPath: environment.logPath)
         let line: String
         do {
-            line = try await withAgentPaneDeadline(deadline, label: "acpmux start") { try await reader.firstLine() }
+            line = try await withThrowingTaskGroup(of: String?.self) { group in
+                group.addTask { try await reader.firstLine() }
+                group.addTask {
+                    try await progress.stalled(for: deadline)
+                    return nil
+                }
+                defer { group.cancelAll() }
+                guard let first = try await group.next(), let line = first else {
+                    throw AgentPaneDeadlineExceeded(label: "acpmux start (no log write for \(deadline))")
+                }
+                return line
+            }
         } catch AgentPaneLineReader.Failure.endOfFile {
             throw Failure.exited(logPath: environment.logPath)
         }

@@ -60,6 +60,14 @@ impl Brain {
             return false;
         }
         let items: Vec<Queued> = self.queue.drain(..take).collect();
+        // Never feed a non-owner's text into an approve-all session. It waits
+        // for the current turn to end, then starts its own ask-policy turn.
+        if !self.turn_ask && items.iter().any(Queued::requires_approval) {
+            for item in items.into_iter().rev() {
+                self.queue.push_front(item);
+            }
+            return false;
+        }
         let mut blocks: Vec<serde_json::Value> = items
             .iter()
             .flat_map(|i| i.images.iter())
@@ -141,9 +149,10 @@ impl Brain {
         self.maybe_start_turn();
     }
 
-    /// Whether a delivered batch has a paired device's message: the turn's
-    /// local effects then need an approval (README "Remote-origin messages").
-    pub(super) fn taint_remote(&mut self, items: &[Queued]) {
+    /// Applies the strictest policy of a batch delivered to a running ask
+    /// turn. A paired device follows remote.autoApprove; a non-owner always
+    /// keeps the gate on.
+    pub(super) fn taint_approval(&mut self, items: &[Queued]) {
         let remote = items.iter().any(|i| {
             matches!(
                 i.source,
@@ -153,9 +162,10 @@ impl Brain {
                 }
             )
         });
-        if remote {
-            self.turn_remote = true;
-            self.turn_ask = !self.chief.remote_auto_approve;
+        let non_owner = items.iter().any(Queued::requires_approval);
+        if remote || non_owner {
+            self.turn_remote |= remote;
+            self.turn_ask |= non_owner || (remote && !self.chief.remote_auto_approve);
             self.interrupt.set_gate(self.turn_ask);
         }
     }

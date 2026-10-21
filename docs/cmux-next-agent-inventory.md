@@ -234,7 +234,9 @@ Settings Refresh restores intents only through an already admitted original
 machine/session, then observes any retained terminal. It cannot fall back to
 the focused or local machine. An unsettled intent blocks a fresh update of the
 same CLI on that machine, from any session: an unreachable session may be a
-live server still running the updater, and a true orphan waits out the age bound. Only a new user gesture or native confirmation may
+live server still running the updater. Settings shows such a row as an unknown
+update a person may dismiss (a local ledger delete); otherwise it waits out the
+age bound. A ledger row that fails validation is skipped, not the whole list. Only a new user gesture or native confirmation may
 resume an unstarted (`not_found` or `prepared`) intent, preserving its original
 key and family. Pending execution stays fenced; a created receipt only
 reattaches. An intent settles, and stops blocking, when its terminal exits (with

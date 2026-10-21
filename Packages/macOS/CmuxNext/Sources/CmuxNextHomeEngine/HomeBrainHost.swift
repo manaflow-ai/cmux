@@ -165,8 +165,13 @@ public nonisolated struct HomeBrainHost: Sendable {
         // Only the Chief host starts that daemon (a tab never does, cx-ebm.54): the
         // host that ran on it ends, and the one launched below starts it with this
         // Chief home's env.
-        if let acpmux, await AcpmuxChiefHandoff(environment: acpmux, chiefMuxHome: muxHome.path).handOffIfStale(),
-           let pid = await ChiefHostStop.stop(home: ChiefHome(root: muxHome, isolated: false)) {
+        // An update never cuts a Chief turn: a host that takes it is asked to hand off when idle
+        // (SIGUSR1) and keeps this daemon until its turn ends; its exit restarts this start
+        // (ChiefBrainWatch), which then hands the daemon off. Only an older host is stopped here.
+        let chiefHome = ChiefHome(root: muxHome, isolated: false)
+        if let acpmux, await AcpmuxChiefHandoff(environment: acpmux, chiefMuxHome: muxHome.path)
+            .handOffIfStale(waitFor: { ChiefHostStop.askToHandOffWhenIdle(home: chiefHome) }),
+           let pid = await ChiefHostStop.stop(home: chiefHome) {
             _ = await AgentPaneProcessExit(pid: pid).event(within: .seconds(15))
         }
         // A live host reads the token file at each connect: keep its binding.

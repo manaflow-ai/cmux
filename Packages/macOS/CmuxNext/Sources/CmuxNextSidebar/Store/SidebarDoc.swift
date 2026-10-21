@@ -46,6 +46,8 @@ public nonisolated struct SidebarDocSection: Hashable, Sendable, Identifiable {
     public var room: String?
     public var maxRows: Int?
     public var keepsClosed: Bool
+    /// A machine section made a remote group (remote-groups-DESIGN.md slice 4).
+    public var hostGroup = false
 
     public init(id: String, kind: SidebarDocSectionKind, title: String? = nil, showsTitle: Bool = false, region: SidebarRegion = .middle,
                 look: SectionLook = .list, arrangement: SectionArrangement = .list, room: String? = nil, maxRows: Int? = nil,
@@ -104,10 +106,14 @@ public nonisolated struct SidebarDocItem: Hashable, Sendable, Identifiable {
     public var label: String?
     /// A url item's page icon address (body `icon_url`): the favicon its row draws.
     public var iconURL: String?
+    /// A group member pinned inside its group (`extra.pinned`): the reducer
+    /// lists it first among the members (plans/cmux-next/pinning-DESIGN.md).
+    public var pinnedInGroup: Bool
 
     public init(id: String, section: String, parent: String? = nil, body: SidebarDocBody, showsLabel: Bool = true, span: Int? = nil,
-                label: String? = nil, iconURL: String? = nil) {
+                label: String? = nil, iconURL: String? = nil, pinnedInGroup: Bool = false) {
         self.iconURL = iconURL
+        self.pinnedInGroup = pinnedInGroup && parent != nil
         self.id = id
         self.section = section
         self.parent = parent
@@ -235,6 +241,14 @@ public nonisolated struct SidebarDocRecords: Hashable, Sendable {
         items.values.first { $0.body.workspace == ref }
     }
 
+    /// Whether item `id` reads as pinned (Pin/Unpin labels, the row's hover
+    /// pin): at the top level of Pinned, or pinned inside its group. A member
+    /// of a pinned group is not pinned itself; Pin pins it in that group.
+    public func isPinned(item id: String) -> Bool {
+        guard let item = items[id] else { return false }
+        return item.pinnedInGroup || (item.parent == nil && item.section == SidebarDocStore.pinnedSection)
+    }
+
     /// Records from a `sidebar.get` reply.
     public init(document data: Data) throws {
         let wire = try JSONDecoder().decode(SidebarDocWire.Document.self, from: data)
@@ -243,9 +257,46 @@ public nonisolated struct SidebarDocRecords: Hashable, Sendable {
         for item in wire.items.compactMap(\.value) { items[item.id] = item.record }
     }
 
-    /// Applies one batch's `state_upsert` / `state_delete` changes.
-    public mutating func apply(batch data: Data) {
-        guard let batch = try? JSONDecoder().decode(SidebarDocWire.Batch.self, from: data) else { return }
+    /// Applies one batch's `state_upsert` / `state_delete` changes. Returns the groups the batch
+    /// folded or opened (id to `collapsed`) when that is all it changed: a fold is view state, so the
+    /// store redraws no row for it (plans/cmux-next/state-ownership-DESIGN.md). Nil for any other change.
+    @discardableResult
+    public mutating func apply(batch data: Data) -> [String: Bool]? {
+        guard let batch = try? JSONDecoder().decode(SidebarDocWire.Batch.self, from: data) else { return nil }
+        var folds: [String: Bool]? = [:]
+        for change in batch.changes.compactMap(\.value) {
+            switch (change.kind, change.resource) {
+            case ("state_upsert", "sidebar_item"):
+                guard let new = change.item?.record, let old = items[new.id],
+                      let collapsed = Self.foldOnly(from: old, to: new) else { folds = nil; continue }
+                folds?[new.id] = collapsed
+            case (_, "sidebar_section"), ("state_delete", "sidebar_item"):
+                folds = nil
+            default:
+                break // the batch's `sidebar_doc` revision marker; a restated `sidebar_layout`
+            }
+        }
+        applyChanges(batch)
+        if let revision = batch.revision?.value { self.revision = revision }
+        return folds?.isEmpty == false ? folds : nil
+    }
+
+    /// The new fold when `new` changes only the fold of group `old`; nil for any other change.
+    /// Only a change of the fold alone: an upsert that changes nothing the record shows may still
+    /// move the item (its place lives in the reducer's order), so it redraws.
+    ///
+    /// Compares whole values, with no expression pattern on `old.body`: Swift 6.3.3 (Xcode 26.6)
+    /// crashed in Release (CopyPropagation, "Found outside of lifetime use") on
+    /// `case .group(name, color, icon, _) = old.body` with `old` borrowed from `items`.
+    static func foldOnly(from old: SidebarDocItem, to new: SidebarDocItem) -> Bool? {
+        guard let collapsed = new.body.groupCollapsed, let wasCollapsed = old.body.groupCollapsed,
+              collapsed != wasCollapsed else { return nil }
+        var refolded = old
+        refolded.body = old.body.withGroupCollapsed(collapsed)
+        return refolded == new ? collapsed : nil
+    }
+
+    private mutating func applyChanges(_ batch: SidebarDocWire.Batch) {
         for change in batch.changes.compactMap(\.value) {
             switch (change.kind, change.resource) {
             case ("state_upsert", "sidebar_section"):
@@ -260,6 +311,18 @@ public nonisolated struct SidebarDocRecords: Hashable, Sendable {
                 break
             }
         }
-        if let revision = batch.revision?.value { self.revision = revision }
+    }
+}
+
+nonisolated extension SidebarDocBody {
+    /// A group's fold; nil for any other item.
+    var groupCollapsed: Bool? {
+        if case let .group(_, _, _, collapsed) = self { collapsed } else { nil }
+    }
+
+    /// This body with its group fold set to `collapsed`; any other body unchanged.
+    func withGroupCollapsed(_ collapsed: Bool) -> SidebarDocBody {
+        guard case let .group(name, color, icon, _) = self else { return self }
+        return .group(name: name, color: color, icon: icon, collapsed: collapsed)
     }
 }

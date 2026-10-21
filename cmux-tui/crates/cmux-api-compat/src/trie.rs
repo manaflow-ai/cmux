@@ -15,7 +15,7 @@
 //!   materialized: its subtree is parsed, edited, and re-serialized. Every
 //!   other byte of the message is copied as-is.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde_json::Value;
 
@@ -29,6 +29,10 @@ pub(crate) struct Node {
     by_output: HashMap<String, usize>,
     pub(crate) wild: Option<Box<Node>>,
     pub(crate) slow: Vec<Op>,
+    /// Input keys that are dropped and match no member (rename targets and
+    /// deletions of untouched keys). A set, not members, so a long rename
+    /// chain stays one member.
+    pub(crate) dropped: HashSet<String>,
     /// Set by `finish`: some member carries a default.
     pub(crate) has_defaults: bool,
 }
@@ -56,7 +60,21 @@ impl Member {
 impl Node {
     /// True when the node changes nothing (its subtree can be copied raw).
     pub(crate) fn is_identity(&self) -> bool {
-        self.members.is_empty() && self.wild.is_none() && self.slow.is_empty()
+        self.members.is_empty()
+            && self.wild.is_none()
+            && self.slow.is_empty()
+            && self.dropped.is_empty()
+    }
+
+    /// True when input key `key` has an entry already (a member or a drop).
+    fn touched(&self, key: &str) -> bool {
+        self.by_input.contains_key(key) || self.dropped.contains(key)
+    }
+
+    /// True when untouched input key `key` is dropped. Valid after `finish`.
+    #[inline]
+    pub(crate) fn drops(&self, key: &str) -> bool {
+        !self.dropped.is_empty() && self.dropped.contains(key)
     }
 
     /// Adds one operation (in chain order) to the trie.
@@ -100,7 +118,7 @@ impl Node {
         if let Some(&index) = self.by_output.get(key) {
             return Some(index);
         }
-        if self.by_input.contains_key(key) {
+        if self.touched(key) {
             return None;
         }
         Some(self.push_member(Member::new(
@@ -134,7 +152,7 @@ impl Node {
                 }
                 let source = if let Some(index) = self.by_output.remove(&from) {
                     Some(index)
-                } else if !self.by_input.contains_key(&from) {
+                } else if !self.touched(&from) {
                     Some(self.push_member(Member::new(Some(from), None, self.wild_clone())))
                 } else {
                     None
@@ -154,7 +172,7 @@ impl Node {
                     if member.input.is_some() && member.default.is_none() {
                         member.default = Some(value);
                     }
-                } else if self.by_input.contains_key(&key) {
+                } else if self.touched(&key) {
                     let mut member = Member::new(None, Some(key), Node::default());
                     member.default = Some(value);
                     self.push_member(member);
@@ -176,8 +194,8 @@ impl Node {
             member.output = None;
             member.default = None;
             member.node = Node::default();
-        } else if !self.by_input.contains_key(&key) {
-            self.push_member(Member::new(Some(key), None, Node::default()));
+        } else if !self.touched(&key) {
+            self.dropped.insert(key);
         }
     }
 
@@ -241,7 +259,9 @@ impl Node {
     /// Applies this node to a parsed value (used for materialized subtrees).
     pub(crate) fn apply_value(&self, value: &mut Value) {
         match value {
-            Value::Object(map) if !self.members.is_empty() || self.wild.is_some() => {
+            Value::Object(map)
+                if !self.members.is_empty() || self.wild.is_some() || !self.dropped.is_empty() =>
+            {
                 let old = std::mem::take(map);
                 let mut seen = vec![false; self.members.len()];
                 for (key, mut inner) in old {
@@ -254,6 +274,7 @@ impl Node {
                                 map.insert(output.clone(), inner);
                             }
                         }
+                        None if self.drops(&key) => {}
                         None => {
                             if let Some(wild) = &self.wild {
                                 wild.apply_value(&mut inner);

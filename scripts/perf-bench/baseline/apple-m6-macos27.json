@@ -1,0 +1,265 @@
+{
+ "machine": {
+  "host": "cmux20",
+  "chip": "Apple M6",
+  "model": "Mac18,5",
+  "macos": "27.0"
+ },
+ "sha": "e775c2af222689df9d64549912b3f6f46384e7ce",
+ "job": "914d13021d593bfc1910ebc7",
+ "note": "tab-switch rows only (tagged Debug build); the Release xbench rows come from a full run",
+ "rows": {
+  "tab-switch-chromium-2-ctrl_tab": {
+   "cmux-debug": {
+    "median": 14.654,
+    "p90": 18.344,
+    "n": 5
+   }
+  },
+  "tab-switch-chromium-2-cmd_shift_bracket": {
+   "cmux-debug": {
+    "median": 15.529,
+    "p90": 17.882,
+    "n": 5
+   }
+  },
+  "tab-switch-chromium-2-click": {
+   "cmux-debug": {
+    "median": 23.661,
+    "p90": 24.999,
+    "n": 5
+   }
+  },
+  "tab-switch-chromium-10-ctrl_tab": {
+   "cmux-debug": {
+    "median": 17.662,
+    "p90": 21.523,
+    "n": 20
+   }
+  },
+  "tab-switch-chromium-10-cmd_shift_bracket": {
+   "cmux-debug": {
+    "median": 19.371,
+    "p90": 21.437,
+    "n": 20
+   }
+  },
+  "tab-switch-chromium-10-click": {
+   "cmux-debug": {
+    "median": 27.923,
+    "p90": 32.356,
+    "n": 20
+   }
+  },
+  "tab-switch-chromium-30-ctrl_tab": {
+   "cmux-debug": {
+    "median": 22.892,
+    "p90": 33.207,
+    "n": 58
+   }
+  },
+  "tab-switch-chromium-30-cmd_shift_bracket": {
+   "cmux-debug": {
+    "median": 26.946,
+    "p90": 38.951,
+    "n": 58
+   }
+  },
+  "tab-switch-chromium-30-click": {
+   "cmux-debug": {
+    "median": 34.026,
+    "p90": 40.354,
+    "n": 51
+   }
+  },
+  "tab-switch-webkit-2-ctrl_tab": {
+   "cmux-debug": {
+    "median": 14.98,
+    "p90": 19.14,
+    "n": 5
+   }
+  },
+  "tab-switch-webkit-2-cmd_shift_bracket": {
+   "cmux-debug": {
+    "median": 14.965,
+    "p90": 19.959,
+    "n": 5
+   }
+  },
+  "tab-switch-webkit-2-click": {
+   "cmux-debug": {
+    "median": 19.044,
+    "p90": 22.77,
+    "n": 5
+   }
+  },
+  "tab-switch-webkit-10-ctrl_tab": {
+   "cmux-debug": {
+    "median": 17.668,
+    "p90": 20.641,
+    "n": 20
+   }
+  },
+  "tab-switch-webkit-10-cmd_shift_bracket": {
+   "cmux-debug": {
+    "median": 14.612,
+    "p90": 18.307,
+    "n": 20
+   }
+  },
+  "tab-switch-webkit-10-click": {
+   "cmux-debug": {
+    "median": 18.57,
+    "p90": 24.405,
+    "n": 20
+   }
+  },
+  "tab-switch-webkit-30-ctrl_tab": {
+   "cmux-debug": {
+    "median": 20.264,
+    "p90": 26.01,
+    "n": 58
+   }
+  },
+  "tab-switch-webkit-30-cmd_shift_bracket": {
+   "cmux-debug": {
+    "median": 19.805,
+    "p90": 24.369,
+    "n": 58
+   }
+  },
+  "tab-switch-webkit-30-click": {
+   "cmux-debug": {
+    "median": 22.634,
+    "p90": 26.776,
+    "n": 52
+   }
+  },
+  "tab-switch-markdown-2-ctrl_tab": {
+   "cmux-debug": {
+    "median": 11.856,
+    "p90": 17.954,
+    "n": 5
+   }
+  },
+  "tab-switch-markdown-2-cmd_shift_bracket": {
+   "cmux-debug": {
+    "median": 10.934,
+    "p90": 13.134,
+    "n": 6
+   }
+  },
+  "tab-switch-markdown-2-click": {
+   "cmux-debug": {
+    "median": 9.355,
+    "p90": 21.513,
+    "n": 5
+   }
+  },
+  "tab-switch-markdown-10-ctrl_tab": {
+   "cmux-debug": {
+    "median": 12.41,
+    "p90": 19.262,
+    "n": 20
+   }
+  },
+  "tab-switch-markdown-10-cmd_shift_bracket": {
+   "cmux-debug": {
+    "median": 13.384,
+    "p90": 17.825,
+    "n": 20
+   }
+  },
+  "tab-switch-markdown-10-click": {
+   "cmux-debug": {
+    "median": 13.622,
+    "p90": 21.455,
+    "n": 20
+   }
+  },
+  "tab-switch-markdown-30-ctrl_tab": {
+   "cmux-debug": {
+    "median": 14.434,
+    "p90": 18.935,
+    "n": 58
+   }
+  },
+  "tab-switch-markdown-30-cmd_shift_bracket": {
+   "cmux-debug": {
+    "median": 13.85,
+    "p90": 19.418,
+    "n": 58
+   }
+  },
+  "tab-switch-markdown-30-click": {
+   "cmux-debug": {
+    "median": 15.593,
+    "p90": 21.842,
+    "n": 52
+   }
+  },
+  "tab-switch-chat-2-ctrl_tab": {
+   "cmux-debug": {
+    "median": 7.758,
+    "p90": 17.14,
+    "n": 5
+   }
+  },
+  "tab-switch-chat-2-cmd_shift_bracket": {
+   "cmux-debug": {
+    "median": 13.546,
+    "p90": 16.765,
+    "n": 5
+   }
+  },
+  "tab-switch-chat-2-click": {
+   "cmux-debug": {
+    "median": 19.136,
+    "p90": 21.132,
+    "n": 5
+   }
+  },
+  "tab-switch-chat-10-ctrl_tab": {
+   "cmux-debug": {
+    "median": 9.207,
+    "p90": 15.302,
+    "n": 20
+   }
+  },
+  "tab-switch-chat-10-cmd_shift_bracket": {
+   "cmux-debug": {
+    "median": 11.429,
+    "p90": 19.133,
+    "n": 20
+   }
+  },
+  "tab-switch-chat-10-click": {
+   "cmux-debug": {
+    "median": 14.887,
+    "p90": 21.148,
+    "n": 20
+   }
+  },
+  "tab-switch-chat-30-ctrl_tab": {
+   "cmux-debug": {
+    "median": 14.736,
+    "p90": 25.131,
+    "n": 58
+   }
+  },
+  "tab-switch-chat-30-cmd_shift_bracket": {
+   "cmux-debug": {
+    "median": 14.79,
+    "p90": 24.108,
+    "n": 58
+   }
+  },
+  "tab-switch-chat-30-click": {
+   "cmux-debug": {
+    "median": 18.462,
+    "p90": 24.706,
+    "n": 52
+   }
+  }
+ }
+}

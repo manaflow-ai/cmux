@@ -96,7 +96,7 @@ public final class ChromeHover {
         guard shown != target else { return }
         guard animated, let token = fade(to: target, pressed: pressed).map({ $0 == .hoverOut ? clearing : $0 }) else {
             layer.removeAnimation(forKey: "backgroundColor")
-            Motion.transaction(nil) { layer.backgroundColor = target }
+            Motion.feedback.transaction(nil) { layer.backgroundColor = target }
             return
         }
         // Fade to or from the same color at alpha 0, not to black (a `.clear`
@@ -107,7 +107,7 @@ public final class ChromeHover {
         let clear = hue?.copy(alpha: 0) ?? NSColor.clear.cgColor
         let end = target.flatMap { $0.alpha > 0 ? $0 : nil } ?? clear
         let start = onScreen.flatMap { $0.alpha > 0 ? $0 : nil } ?? clear
-        Motion.set(layer, "backgroundColor", to: end, fade: token, from: start)
+        Motion.feedback.set(layer, "backgroundColor", to: end, fade: token, from: start)
     }
 
     /// Call from the view's `layout()`.
@@ -154,7 +154,7 @@ public final class ChromeHover {
         view.performWithTheme {
             // `paint` eases from the color at alpha 0, so the first hover fades in too.
             Self.paint(fill, Self.fillColor(state), animated: animated, pressed: state.pressed)
-            Motion.transaction(nil) {
+            Motion.feedback.transaction(nil) {
                 fill.borderColor = Palette.focusRing.cgColor
                 fill.borderWidth = state.focused ? Metrics.lineWidth(1.5) : 0
             }
