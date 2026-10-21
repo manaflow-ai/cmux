@@ -141,3 +141,35 @@ fn constants_match_the_spec() {
     assert_eq!(spec.minimum_text_contrast, crate::MINIMUM_TEXT_CONTRAST);
     assert_eq!(spec.minimum_mark_contrast, crate::MINIMUM_MARK_CONTRAST);
 }
+
+/// In a see-through window the quieter inks hold their minimums over the tint
+/// on the worst desktop for the theme (Swift `SeeThroughInkTests`), as far as
+/// the primary ink reaches there; an opaque window keeps the spec's inks.
+#[test]
+fn see_through_inks_hold_over_the_worst_desktop() {
+    for (background, foreground) in [(0xFEFFFF, 0x000000), (0x1E1E1E, 0xFFFFFF)] {
+        for opacity in [0.3, 0.6, 0.85] {
+            let input = ThemeInput {
+                background: Rgb::hex(background),
+                foreground: Rgb::hex(foreground),
+                background_opacity: opacity,
+                background_blur: -1,
+                ..ThemeInput::GHOSTTY_DEFAULT
+            };
+            let t = ThemeTokens::derive(&input);
+            let surfaces = crate::tokens::see_through_surfaces(
+                input.background,
+                opacity,
+                t.is_dark,
+                &[t.pressed_fill, t.selection_fill],
+            );
+            for surface in surfaces {
+                let reach = t.text_primary.contrast(surface);
+                let secondary = t.text_secondary.contrast(surface);
+                let tertiary = t.text_tertiary.contrast(surface);
+                assert!(secondary >= crate::MINIMUM_TEXT_CONTRAST.min(reach) - 1e-9, "{opacity}");
+                assert!(tertiary >= crate::MINIMUM_MARK_CONTRAST.min(reach) - 1e-9, "{opacity}");
+            }
+        }
+    }
+}

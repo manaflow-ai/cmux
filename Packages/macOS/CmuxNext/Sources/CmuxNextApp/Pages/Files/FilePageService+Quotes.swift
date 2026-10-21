@@ -22,8 +22,9 @@ extension FilePageService {
         for id in ["home.sendSelectionToChief", "home.sendSelectionTo"] as [ActionID] {
             guard let title = registry.title(for: id) else { continue }
             rows.append(.init(title: title) { [weak page] in
-                page?.webKitView.evaluateJavaScript("String(getSelection())") { value, _ in
-                    guard let text = value as? String, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                // task-owner: one selection read per menu choice; ends with the page's answer
+                Task { @MainActor in
+                    guard let text = await page?.selectedText(), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
                     _ = registry.perform(id, invocation: ActionInvocation(arguments: ["text": .string(text)], origin: .user))
                 }
             })
