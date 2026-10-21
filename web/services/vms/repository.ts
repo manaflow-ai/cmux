@@ -801,6 +801,10 @@ export type VmRepositoryShape = Partial<VmHealthRepositoryMethods> & {
   readonly activeAccessLeasesForUser?: (userId: string) => Effect.Effect<CloudVmAccessLeaseRow[], VmDatabaseError>;
   readonly markLeasesRevoked: (ids: readonly string[]) => Effect.Effect<void, VmDatabaseError>;
   readonly recordUsageEvent: (input: VmUsageEventInput) => Effect.Effect<void, VmDatabaseError>;
+  /** Insert one snapshot-created event once across concurrent succeeded replays. */
+  readonly recordSnapshotUsageEventIfMissing?: (
+    input: VmUsageEventInput & { readonly vmId: string },
+  ) => Effect.Effect<void, VmDatabaseError>;
   readonly recordUsageEvents: (inputs: readonly VmUsageEventInput[]) => Effect.Effect<void, VmDatabaseError>;
 };
 
