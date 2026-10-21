@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, us
 import { pasteIsOnlyFileNames } from "./attachments";
 import { COMPOSER_READY_EVENT } from "./composerFocus";
 import { liftInlineImages } from "./inlineImages";
+import { withoutBreakTags } from "./breakTags";
 import { isImeKeyEvent } from "../../pages/shared/imeKeys";
 import { activeFormats, applyFormat, type MarkdownFormat } from "./markdownFormat";
 import "./markdownField.css";
@@ -133,16 +134,6 @@ const trailingSpaces = (view: EditorView) => /[ \t]+$/.exec(view.state.doc.lastC
 /// Whether pasted HTML holds an image of its own data (an <img> with a `data:` source).
 const htmlHasDataImage = (html: string) => /<img\b[^<>]*\ssrc\s*=\s*["']?\s*data:/i.test(html);
 
-/** Text copied as Milkdown's markdown (before this field copied plain text) wrote a blank line as
- * a `<br />` line between blank lines: that placeholder is a blank line. Every other character,
- * a `<br>` in pasted source included, stays as copied. */
-const withoutBreakPlaceholders = (text: string) =>
-  text
-    .replace(/\r\n?/g, "\n")
-    .replace(/\n\n<br \/>(?=\n\n)/g, "")
-    .replace(/^<br \/>\n\n/, "\n")
-    .replace(/\n\n<br \/>\n?$/, "\n");
-
 const BLOCK_TAG = /^(P|DIV|LI|PRE|BLOCKQUOTE|H[1-6]|UL|OL|TABLE|TR|SECTION|ARTICLE|HEADER|FOOTER)$/;
 
 /** HTML pasted with no plain text, as its text: each `<br>` and block (a `<p>`) ends a line. */
@@ -150,9 +141,11 @@ function htmlText(html: string): string {
   const template = document.createElement("template");
   template.innerHTML = html;
   let out = "";
+  // Inside a <pre>, the text's own spaces and newlines are its lines.
+  let pre = 0;
   const walk = (node: Node) => {
     if (node.nodeType === Node.TEXT_NODE) {
-      out += (node.textContent ?? "").replace(/\s+/g, " ");
+      out += pre ? (node.textContent ?? "") : (node.textContent ?? "").replace(/\s+/g, " ");
       return;
     }
     if (node.nodeType !== Node.ELEMENT_NODE) return;
@@ -164,8 +157,10 @@ function htmlText(html: string): string {
     if (tag === "STYLE" || tag === "SCRIPT" || tag === "META" || tag === "TITLE") return;
     const block = BLOCK_TAG.test(tag);
     if (block && out && !out.endsWith("\n")) out += "\n";
+    if (tag === "PRE") pre += 1;
     for (const child of node.childNodes) walk(child);
-    if (block) out += "\n";
+    if (tag === "PRE") pre -= 1;
+    if (block && !(tag === "PRE" && out.endsWith("\n"))) out += "\n";
   };
   for (const child of template.content.childNodes) walk(child);
   return out.replace(/[ \t]+\n/g, "\n").replace(/^\n+|\n+$/g, "");
@@ -458,7 +453,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
               if (data && !data.getData("vscode-editor-data")) {
                 const html = data.getData("text/html");
                 const text = data.getData("text/plain");
-                const plain = text ? withoutBreakPlaceholders(text) : html ? htmlText(html) : "";
+                const plain = text ? withoutBreakTags(text) : html ? htmlText(html) : "";
                 if (plain) {
                   if (beforeInput(editorView, plain, true)) return true;
                   insertPlain(editorView, plain);
@@ -793,8 +788,8 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
           if (!current) return;
           if (beforeInput(current, text, true)) return;
           // A paste event that carries `text` as the clipboard's plain text, so the paste takes the
-          // path a person's does (Milkdown's markdown paste: blank lines kept, lines not split into
-          // paragraphs). Plain data, not a DataTransfer: jsdom has neither it nor ClipboardEvent.
+          // path a person's does (the field's plain-text paste: its lines as line breaks, never
+          // parsed as markdown or HTML). Plain data, not a DataTransfer: jsdom has neither it nor ClipboardEvent.
           const event = new Event("paste");
           Object.defineProperty(event, "clipboardData", {
             value: {

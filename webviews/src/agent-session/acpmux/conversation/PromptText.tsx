@@ -6,6 +6,7 @@
 // drawn again from history, stays as the reader left it. Find opens a collapsed prompt, or a closed
 // chip, that holds its current match. The bubble keeps the whole text; Copy copies all of it.
 import { useContext, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { withoutBreakTags } from "../breakTags";
 import { useT, usePaneLanguage } from "../i18n";
 import { FindReveal } from "./chatFind";
 import {
@@ -89,7 +90,7 @@ export function PromptText({
         {parts.map((part, index) =>
           part.kind === "text" ? (
             <span key={index} className="cv-user__typed">
-              {show(part.text)}
+              {show(withoutBreakTags(part.text))}
             </span>
           ) : (
             <PasteChip

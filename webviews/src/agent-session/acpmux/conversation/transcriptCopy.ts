@@ -1,9 +1,11 @@
+import { withoutBreakTags } from "../breakTags";
 import type { AcpmuxRow } from "../model";
 
 /// Copy source text rather than rendered Markdown, including rows outside the virtual viewport.
 export function transcriptCopyText(row: AcpmuxRow): string {
   const parts: string[] = [];
-  if (row.text?.trim()) parts.push(row.text.trim());
+  // A prompt sent with Milkdown's `<br />` blank-line placeholder copies it as the blank line.
+  if (row.text?.trim()) parts.push(row.kind === "user" ? withoutBreakTags(row.text).trim() : row.text.trim());
   if (row.shell) {
     if (row.shell.command.trim()) parts.push(`$ ${row.shell.command.trim()}`);
     if (row.shell.output.trim()) parts.push(row.shell.output.trim());

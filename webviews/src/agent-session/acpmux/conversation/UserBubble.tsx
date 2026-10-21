@@ -16,6 +16,7 @@ import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, u
 import type { AcpmuxRow, PromptImage } from "../model";
 import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
+import { withoutBreakTags } from "../breakTags";
 import { liftInlineImages, withoutDataUris } from "../inlineImages";
 import { DeliveryMark } from "./PromptDelivery";
 import { ChevronLeft, ChevronRight, ImageIcon, Pencil } from "./icons";
@@ -98,7 +99,7 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
           )}
           <MessageTime at={row.at} className="cv-user__time" />
           <ReadReceipt row={row} />
-          <MessageCopy text={row.text ?? text} />
+          <MessageCopy text={withoutBreakTags(row.text ?? text)} />
           {through !== undefined && (
             <button
               type="button"
