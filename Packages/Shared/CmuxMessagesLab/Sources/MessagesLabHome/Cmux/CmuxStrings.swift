@@ -161,4 +161,12 @@ enum CmuxStrings {
     static var approvalUnavailable: String {
         String(localized: "home.approval.unavailable", defaultValue: "Answer it in the Chief's agent tab", table: "CmuxHome", bundle: .module)
     }
+    /// A click on a card whose request moved on before the card redrew (answered elsewhere, cancelled).
+    static var approvalStale: String {
+        String(localized: "home.approval.stale", defaultValue: "This approval is no longer open", table: "CmuxHome", bundle: .module)
+    }
+    /// A click on a card whose message is not the Chief's (only the Chief's own approvals answer).
+    static var approvalNotChief: String {
+        String(localized: "home.approval.notChief", defaultValue: "Only the Chief's own approvals can be answered here", table: "CmuxHome", bundle: .module)
+    }
 }

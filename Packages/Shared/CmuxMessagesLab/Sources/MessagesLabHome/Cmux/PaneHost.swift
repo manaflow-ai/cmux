@@ -370,6 +370,11 @@ final class ChatController: NSObject, NSTextViewDelegate {
     private var linkPress: (url: URL, at: CGPoint)?
     /// cmux: the host took this press as a link drag; its later moves and release are not ours.
     private var linkDragTaken = false
+    /// cmux: the approval card's button this press went down on (ChatController+Approval.swift); its
+    /// release there clicks it.
+    var approvalPress: ApprovalTarget?
+    /// cmux: the approval card's button the pointer is over, as the shown card draws it.
+    var approvalPointer: ApprovalTarget?
     private(set) lazy var selection = TranscriptSelection(controller: self)
     /// cmux: Reply to Selection's quote while the reply is written (ChatController+ReplyQuote.swift);
     /// nil: a reply answers the whole message.
@@ -673,6 +678,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
         if let tv = demo?.compose.textView.view, demo?.compose.fieldRect.contains(p) == true { window?.makeFirstResponder(tv); return }
         linkPress = nil
         linkDragTaken = false
+        // cmux: a press on an approval card's button is the button's (no selection, link drag or tapback hold).
+        if approvalPressBegan(at: p) { return }
         if e.clickCount == 1 {
             if onDragLink != nil, let url = linkURL(at: p) { linkPress = (url, p) }
             selection.mouseDown(p)
@@ -689,6 +696,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         // cmux: a link pressed and moved past the selection's slop goes to the host as a link drag
         // (a split or pane drop zone); it then owns the gesture, so no selection, click or hold here.
         if linkDragTaken { return }
+        if approvalPress != nil { approvalPointerMoved(p); return }
         if let press = linkPress, hypot(p.x - press.at.x, p.y - press.at.y) > 3 {
             linkPress = nil
             let screen = window.map { $0.convertPoint(toScreen: host.convert(p, to: nil)) } ?? p
@@ -708,6 +716,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         }
     }
     func mouseUp(at p: CGPoint, _ e: NSEvent) {
+        if approvalPressEnded(at: p) { return }
         if linkDragTaken {
             linkDragTaken = false
             _ = selection.mouseUp()
@@ -730,6 +739,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
         // cmux: the Chief's status line opens its turn's details.
         if let line = demo.statusLineFrame(), line.contains(p) { intents?.statusLineClicked(line, in: host); return }
         if let hit = demo.hit(p) {
+            // cmux: a button of the Chief's approval card (a thread view's come through hostControl).
+            if approvalClicked(hit, at: p) { return }
             // cmux: a link (re-checked at click time, MarkdownLinkPolicy) opens in PaneLinks.
             if openLink(hit, at: p) { return }
             // cmux: a reply's quote shows its words in the original (ChatController+ReplyQuote.swift).

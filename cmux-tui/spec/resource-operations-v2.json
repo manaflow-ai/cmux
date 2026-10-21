@@ -17311,6 +17311,123 @@
         "Every committed state is kept as a revision (chief.profile.history, the newest 100 per Chief) and can be restored with chief.profile.undo."
       ]
     },
+    "chief.settings.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "chief": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 70
+            },
+            "description": "The Chief whose brain the request goes to (capability chief-brains-v1): a live Chief's id (agent_mux is the default Chief). Absent: the default Chief."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "JsonValue"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Owner only (risk: owner). Only the owner's trusted connection may call it: a registered Unix client with no link peer record whose conversation principal is user_local (a local client or the link's owner_session splice). An agent-bound, relayed, WebSocket or page connection is refused with origin.forbidden before anything is forwarded; the remote relay never admits it.",
+        "chief-brains-v1: with chief naming a live Chief other than the default, the daemon forwards to that Chief's own brain (the tools socket in its brain directory under the daemon's Chief home) and to no other; absent, null or agent_mux reaches the default Chief's brain as before. A Chief that does not exist: operation.failed details.reason not_found. A daemon that runs no Chief brains: not_configured. A Chief whose brain does not run now (never started here, stopped after 30 minutes idle, or between restarts): unavailable; a read or stop never starts a brain (chief.engine.set and chief.settings.set do). With agents off in the build session: the agents-disabled refusal, as for the default Chief.",
+        "The daemon forwards one line to the Chief brain's tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET, as chief-inspect does): optchat-chief's settings tool. Without it: operation.failed details.reason not_configured. A brain refusal is operation.failed with details.reason refused (a gate loosened during a remote-origin or another participant's turn, or while such a message waits) or invalid (an unknown key or value), and extra.message the brain's text.",
+        "The result is {settings}: the brain's per-Chief settings (optchat/settings.json as the brain owns it), passed through unchanged: {approvals: {autoApproveAll}, remote: {autoApprove, ask}, home: {ask}, replies, show, cloud, cache}."
+      ]
+    },
+    "chief.settings.set": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "chief": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 70
+            },
+            "description": "The Chief whose brain the request goes to (capability chief-brains-v1): a live Chief's id (agent_mux is the default Chief). Absent: the default Chief."
+          },
+          "key": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            },
+            "description": "The setting: approvals.autoApproveAll, remote.ask, home.ask, remote.autoApprove, cache.ttl, replies.thread, show.afterReport or cloud.autoPauseIdleSeconds."
+          },
+          "value": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            },
+            "description": "Its value as text: true or false for the approval gates, as optchat-chief settings set takes it."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Owner only (risk: owner). Only the owner's trusted connection may call it: a registered Unix client with no link peer record whose conversation principal is user_local (a local client or the link's owner_session splice). An agent-bound, relayed, WebSocket or page connection is refused with origin.forbidden before anything is forwarded; the remote relay never admits it.",
+        "chief-brains-v1: with chief naming a live Chief other than the default, the daemon forwards to that Chief's own brain (the tools socket in its brain directory under the daemon's Chief home) and to no other; absent, null or agent_mux reaches the default Chief's brain as before. A Chief that does not exist: operation.failed details.reason not_found. A daemon that runs no Chief brains: not_configured. A Chief whose brain does not run now (never started here, stopped after 30 minutes idle, or between restarts): unavailable; a read or stop never starts a brain (chief.engine.set and chief.settings.set do). With agents off in the build session: the agents-disabled refusal, as for the default Chief.",
+        "The daemon forwards one line to the Chief brain's tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET, as chief-inspect does): optchat-chief's settings tool. Without it: operation.failed details.reason not_configured. A brain refusal is operation.failed with details.reason refused (a gate loosened during a remote-origin or another participant's turn, or while such a message waits) or invalid (an unknown key or value), and extra.message the brain's text.",
+        "The brain is the one writer of the settings and checks the change: loosening an approval gate (approvals.autoApproveAll or remote.autoApprove on, remote.ask or home.ask off) is refused during a turn that asks, a remote-origin turn or a turn another participant wrote in; tightening one is always allowed. The value is {settings} read back from the brain after the write; replayed is always false."
+      ]
+    },
     "chief.stop": {
       "class": "mutation",
       "idempotency": "required",

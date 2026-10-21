@@ -316,8 +316,12 @@ impl Brain {
 
     /// The policy floor for a child spawned now (`chief agents spawn` asks
     /// the host): `ask` during an ask turn or while an ask child is live,
-    /// unless the Mac turned on remote.autoApprove.
+    /// unless the Mac turned on remote.autoApprove. None while
+    /// `approvals.autoApproveAll` is on: subagents run with their own policy.
     pub fn spawn_policy(&self) -> Option<&'static str> {
+        if self.chief.auto_approve_all {
+            return None;
+        }
         // The shared rule (cmux_chief::policy::spawn_floor).
         cmux_chief::policy::spawn_floor(
             self.chief.remote_auto_approve,

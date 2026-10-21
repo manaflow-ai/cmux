@@ -48,6 +48,10 @@ const CONVERSATION_REASON: &str = "A conversation belongs to the person: MCP cli
 /// agent-bound connection); an MCP client is an agent acting as the user.
 const CHIEF_REASON: &str = "The Chief's engine and turn are the owner's: cmux chief, Home and the owner's scripts control them, never an agent.";
 
+/// The Chief's approval gates (auto-approve-all, ask before acting on other
+/// devices or on Home) are the owner's: an agent never loosens or reads them.
+const CHIEF_SETTINGS_REASON: &str = "The Chief's approval settings are the owner's: the Chief settings card in Home and optchat-chief settings change them, never an agent.";
+
 /// The person's Chiefs: the owner and each Chief itself (its own bound
 /// connection) use the registry; an MCP client is an agent acting as the user.
 const AVATAR_REASON: &str = "A person's picture is set by that person (cmux avatar set, Home) and a Chief's by the person or that Chief, never by an agent acting as the user.";
@@ -93,6 +97,8 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("chief.engine.get", CHIEF_REASON),
     ("chief.engine.set", CHIEF_REASON),
     ("chief.stop", CHIEF_REASON),
+    ("chief.settings.get", CHIEF_SETTINGS_REASON),
+    ("chief.settings.set", CHIEF_SETTINGS_REASON),
     ("chief.profile.list", CHIEF_REGISTRY_REASON),
     ("chief.profile.get", CHIEF_REGISTRY_REASON),
     ("chief.profile.create", CHIEF_REGISTRY_REASON),

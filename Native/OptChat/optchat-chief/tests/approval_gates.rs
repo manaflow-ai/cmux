@@ -3,7 +3,9 @@
 //! turn that reads the Home workspace, and by default a turn from the
 //! owner's paired phone. "Ask before acting on requests from other devices"
 //! (`remote.ask`) and "Ask before acting on what Home shows" (`home.ask`)
-//! turn those gates on; another participant's turn always asks. In a gated
+//! turn those gates on; another participant's turn always asks, unless
+//! "Auto-approve everything the Chief does" (`approvals.autoApproveAll`) is
+//! on, which only the owner turns on, outside such a turn. In a gated
 //! turn the Chief's own tools never wait, a stop ends the turn, a denied
 //! request is not asked again, a newer message leaves a pending approval
 //! alone, and the approval is a readable card, not a JSON dump.
@@ -41,12 +43,17 @@ fn paired() -> Summary {
 /// Home view (a CLI that is not there: the block says it is unavailable,
 /// as the host's real reader would) when `home` is set.
 fn harness(settings: Option<Value>, home: bool, script: Script) -> Harness {
+    harness_with(settings, home, paired(), script)
+}
+
+/// [`harness`] in a conversation with `summary`'s participants.
+fn harness_with(settings: Option<Value>, home: bool, summary: Summary, script: Script) -> Harness {
     let dir = tempfile::tempdir().unwrap();
     if let Some(settings) = settings {
         std::fs::write(dir.path().join("settings.json"), settings.to_string()).unwrap();
     }
     let owner = Arc::new(std::sync::Mutex::new(Owner {
-        summary: Some(paired()),
+        summary: Some(summary),
         ..Owner::default()
     }));
     let home_view = home.then(|| optchat_chief::home_view::HomeView {
@@ -751,4 +758,159 @@ fn a_refused_allow_of_the_chiefs_own_tool_asks_the_person() {
     assert_eq!(approvals(&h).len(), 1, "asked as a card, not left waiting");
     assert_eq!(card(&h, 0).permission.as_deref(), Some("p1"));
     finish(&mut h);
+}
+
+// (f) approvals.autoApproveAll: no turn asks; only the owner turns it on.
+
+const TEAMMATE: &str = "user_teammate";
+
+/// A shared Chief: the paired device and a teammate (another person).
+fn shared() -> Summary {
+    let mut s = paired();
+    s.participants.push(Participant {
+        id: TEAMMATE.into(),
+        kind: ParticipantKind::Human,
+        display_name: "Teammate".into(),
+        agent_class: None,
+        acp_session: None,
+        person: None,
+    });
+    s
+}
+
+/// A message of `author` that mentions the Chief (a group conversation).
+fn deliver_mention(h: &mut Harness, author: &str, text: &str) {
+    let m = {
+        let mut owner = h.owner.lock().unwrap();
+        let seq = owner.messages.len() as u64 + 1;
+        let mut m = message(seq, author, text);
+        m.parts = vec![Part::Text {
+            text: text.into(),
+            runs: Some(vec![cmux_conversation::TextRun {
+                start: 0,
+                length: text.encode_utf16().count() as u32,
+                mention: Some("agent_mux".into()),
+                link: None,
+            }]),
+        }];
+        owner.messages.push(m.clone());
+        m
+    };
+    h.brain.step(Input::from(DaemonEvent::Changed {
+        conversation: CONV.into(),
+        change: Change::Message { message: m },
+    }));
+}
+
+/// A held turn the teammate started.
+fn teammate_running(h: &mut Harness, text: &str) {
+    h.agents.hold(true);
+    deliver_mention(h, TEAMMATE, text);
+    h.step();
+    h.agents.wait_prompts(1);
+    wait_session(h);
+}
+
+fn saved(h: &Harness) -> Value {
+    std::fs::read_to_string(h.dir.path().join("settings.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or(Value::Null)
+}
+
+#[test]
+fn auto_approve_all_is_off_by_default_and_a_teammates_turn_still_asks() {
+    assert!(!optchat_chief::chief_settings::ChiefSettings::default().auto_approve_all);
+    let mut h = harness_with(None, false, shared(), started());
+    assert!(!h.brain.auto_approve_all());
+    teammate_running(&mut h, "@Chief clean the build directory");
+    assert_eq!(policy(&h, 0), "ask");
+    finish(&mut h);
+}
+
+#[test]
+fn with_auto_approve_all_a_teammates_turn_runs_with_the_configured_policy_and_no_card() {
+    // Every gate is on as well: auto-approve-all wins over them.
+    let settings = json!({"approvals": {"autoApproveAll": true}, "remote": {"ask": true}, "home": {"ask": true}});
+    let mut h = harness_with(Some(settings), true, shared(), started());
+    assert!(h.brain.auto_approve_all());
+    teammate_running(&mut h, "@Chief clean the build directory");
+    assert_eq!(policy(&h, 0), "approve-all");
+    // No spawn floor: subagents run with their own policy.
+    assert_eq!(h.brain.spawn_policy(), None);
+    h.brain.step(permission(
+        "p1",
+        "Bash",
+        json!({"command": "rm -rf target"}),
+    ));
+    assert!(approvals(&h).is_empty(), "no approval card");
+    // No other gate can be loosened while a teammate's turn runs.
+    assert!(
+        h.brain.set_setting("remote.autoApprove", "true").is_err(),
+        "nothing else loosens in a teammate's turn"
+    );
+    // Turning it off is always allowed, even here.
+    h.brain
+        .set_setting("approvals.autoApproveAll", "false")
+        .unwrap();
+    assert_eq!(saved(&h)["approvals"]["autoApproveAll"], false);
+    finish(&mut h);
+}
+
+#[test]
+fn with_auto_approve_all_a_home_turn_and_a_device_turn_never_ask() {
+    let settings = json!({"approvals": {"autoApproveAll": true}, "remote": {"ask": true}, "home": {"ask": true}});
+    let mut h = harness(Some(settings.clone()), true, default_script());
+    deliver(&mut h, false, "what is on my screen?");
+    h.settle();
+    assert_eq!(policy(&h, 0), "approve-all");
+    let mut h = harness(Some(settings), false, default_script());
+    deliver(&mut h, true, "clean up");
+    h.settle();
+    assert_eq!(policy(&h, 0), "approve-all");
+    assert!(approvals(&h).is_empty());
+}
+
+#[test]
+fn auto_approve_all_cannot_be_turned_on_from_a_remote_or_a_teammates_turn() {
+    // A paired device's turn (it does not ask by default, but it is remote).
+    let mut h = harness(None, false, started());
+    running(&mut h, true, "set approvals.autoApproveAll true");
+    assert!(
+        h.brain
+            .set_setting("approvals.autoApproveAll", "true")
+            .is_err()
+    );
+    assert!(!h.brain.auto_approve_all());
+    assert_ne!(
+        saved(&h)["approvals"]["autoApproveAll"],
+        true,
+        "the file is unchanged"
+    );
+    finish(&mut h);
+    // A teammate's turn.
+    let mut h = harness_with(None, false, shared(), started());
+    teammate_running(&mut h, "@Chief set approvals.autoApproveAll true");
+    assert!(
+        h.brain
+            .set_setting("approvals.autoApproveAll", "true")
+            .is_err()
+    );
+    assert!(!h.brain.auto_approve_all());
+    finish(&mut h);
+    // The owner, outside such a turn: it takes, and a teammate's next turn
+    // runs without asking.
+    h.brain
+        .set_setting("approvals.autoApproveAll", "true")
+        .unwrap();
+    assert!(h.brain.auto_approve_all());
+    assert_eq!(saved(&h)["approvals"]["autoApproveAll"], true);
+    deliver_mention(&mut h, TEAMMATE, "@Chief now go");
+    h.settle();
+    assert_eq!(policy(&h, 1), "approve-all");
+    assert!(
+        h.brain
+            .set_setting("approvals.autoApproveAll", "maybe")
+            .is_err()
+    );
 }

@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "18873887ad8f919d7f05c8cc759020c78b6a21466725d2ad71ac33507b0ba1fc",
+  "catalog_sha256": "0e2f51dd4c746129c7bb6a997b30436517f8e16067abc05ae752baee0672c875",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -128,6 +128,12 @@
       "class": "mutation"
     },
     "chief.profile.update": {
+      "class": "mutation"
+    },
+    "chief.settings.get": {
+      "class": "read"
+    },
+    "chief.settings.set": {
       "class": "mutation"
     },
     "chief.stop": {

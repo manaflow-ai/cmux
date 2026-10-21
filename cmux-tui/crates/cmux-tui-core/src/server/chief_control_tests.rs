@@ -1,6 +1,7 @@
-//! `chief.engine.get|set` and `chief.stop`: the owner's trusted connection
-//! only, forwarded to the brain's tools socket as optchat-chief's `engine`
-//! and `stop` tools, its answer and refusals mapped to the v2 result.
+//! `chief.engine.get|set`, `chief.stop` and `chief.settings.get|set`: the
+//! owner's trusted connection only, forwarded to the brain's tools socket as
+//! optchat-chief's `engine`, `stop` and `settings` tools, its answer and
+//! refusals mapped to the v2 result.
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixListener;
@@ -120,10 +121,19 @@ fn a_brain_refusal_keeps_its_code_and_text() {
 /// Runs `operation` through the origin gate's parse and `handle_with` on
 /// `client`, with the fake brain at `socket`; the response line.
 fn call(mux: &Arc<Mux>, client: u64, operation: &str, socket: &Path) -> Value {
+    call_with(mux, client, operation, json!({}), socket)
+}
+
+/// [`call`] with `extra` params beside the selectors.
+fn call_with(mux: &Arc<Mux>, client: u64, operation: &str, extra: Value, socket: &Path) -> Value {
     let (writer, outbound) = tests::captured_writer();
+    let mut params = json!({"machine":"current","session":"current"});
+    for (key, value) in extra.as_object().cloned().unwrap_or_default() {
+        params[key] = value;
+    }
     let mut line = json!({"protocol":"cmux.protocol/2","type":"request","id":"c","operation":operation,
-                          "params":{"machine":"current","session":"current"}});
-    if operation != "chief.engine.get" {
+                          "params":params});
+    if !operation.ends_with(".get") {
         line["idempotency_key"] = json!("k1");
     }
     let line = line.to_string();
@@ -165,8 +175,19 @@ fn an_agent_bound_connection_reaches_nothing_and_the_owner_reaches_the_brain() {
     )
     .unwrap();
     let (_dir, sock, seen) = brain(json!({"stopped": true}));
-    for operation in ["chief.stop", "chief.engine.set", "chief.engine.get"] {
-        let refused = call(&mux, agent, operation, &sock);
+    for operation in [
+        "chief.stop",
+        "chief.engine.set",
+        "chief.engine.get",
+        "chief.settings.get",
+        "chief.settings.set",
+    ] {
+        let extra = if operation == "chief.settings.set" {
+            json!({"key": "approvals.autoApproveAll", "value": "true"})
+        } else {
+            json!({})
+        };
+        let refused = call_with(&mux, agent, operation, extra, &sock);
         assert_eq!(refused["error"]["code"], "origin.forbidden", "{operation}: {refused}");
     }
     assert!(seen.lock().unwrap().is_empty(), "nothing reached the brain");
@@ -199,5 +220,53 @@ fn engine_speed_and_a_named_stop_reach_the_brain() {
     assert_eq!(
         stop["value"],
         json!({"stopped":true,"subagents":["a3"],"note":"Stopped by the user: a3."})
+    );
+}
+
+/// chief.settings.get|set are optchat-chief's `settings` tool: the set is
+/// read back, both answer the brain's settings as JSON, and the brain's
+/// refusal (another person's or a remote turn) keeps its words.
+#[test]
+fn the_settings_ops_reach_the_brains_settings_tool() {
+    assert_eq!(
+        tool_line(ResourceOperation::ChiefSettingsGet, &fields(json!({}))),
+        json!({"tool":"settings"})
+    );
+    assert_eq!(
+        tool_line(
+            ResourceOperation::ChiefSettingsSet,
+            &fields(json!({"key":"approvals.autoApproveAll","value":"true"}))
+        ),
+        json!({"tool":"settings","key":"approvals.autoApproveAll","value":"true"})
+    );
+    let mux = Mux::new_for_test("chief-control-settings", crate::SurfaceOptions::default());
+    let owner = mux.control_clients.register(ClientTransport::Unix, writer());
+    let settings = json!({"approvals":{"autoApproveAll":true},"remote":{"ask":false}});
+    let (_dir, sock, seen) = brain(json!({"text": format!("{settings:#}")}));
+    let set = call_with(
+        &mux,
+        owner,
+        "chief.settings.set",
+        json!({"key":"approvals.autoApproveAll","value":"true"}),
+        &sock,
+    );
+    assert_eq!(set["result"]["value"]["settings"], settings, "{set}");
+    assert_eq!(
+        seen.lock().unwrap().as_slice(),
+        [
+            json!({"tool":"settings","key":"approvals.autoApproveAll","value":"true"}),
+            json!({"tool":"settings"})
+        ]
+    );
+    let get = call(&mux, owner, "chief.settings.get", &sock);
+    assert_eq!(get["result"]["settings"], settings, "{get}");
+    let refusal = json!({"error":"refused: approvals.autoApproveAll can be set to true only by the owner on the Mac"});
+    let error = result(&mux, ResourceOperation::ChiefSettingsSet, Ok(refusal)).unwrap_err();
+    assert_eq!(error.code, "operation.failed");
+    assert_eq!(error.details["reason"], "refused");
+    assert!(
+        error.details["extra"]["message"].as_str().unwrap().contains("only by the owner"),
+        "{:?}",
+        error.details
     );
 }

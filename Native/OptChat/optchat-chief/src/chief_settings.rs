@@ -2,8 +2,9 @@
 //! (`{"remote": {"autoApprove": false}, "cache": {"ttl": "1h"}}`), shown later in the Chief settings
 //! sidebar. The host reads the file once at start and owns the value after
 //! that: a change goes through the host (`Brain::set_setting`), which
-//! refuses to loosen the approval gates (`remote.autoApprove` on, `remote.ask`
-//! or `home.ask` off) during a remote-origin turn, and writes the file. An edit of the file by hand takes effect at the next
+//! refuses to loosen the approval gates (`approvals.autoApproveAll` or
+//! `remote.autoApprove` on, `remote.ask` or `home.ask` off) during a
+//! remote-origin or another participant's turn, and writes the file. An edit of the file by hand takes effect at the next
 //! host start (README "Remote-origin messages").
 
 use std::path::Path;
@@ -15,6 +16,13 @@ use crate::prompt::CacheTtl;
 /// The settings this host knows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ChiefSettings {
+    /// "Auto-approve everything the Chief does" (`approvals.autoApproveAll`):
+    /// no turn asks, whatever started it (another participant's message,
+    /// a paired device, ambient Home text), and the spawn floor is not
+    /// applied (subagents run with their own policy). Default false; only
+    /// the owner turns it on, from outside a turn that asks, a remote-origin
+    /// or another participant's turn (`Brain::set_setting`).
+    pub auto_approve_all: bool,
     /// A remote-origin turn (the owner's own paired device) runs with the
     /// configured policy instead of `ask`. Default false; true is an explicit
     /// opt-in that applies only to that owner's paired devices.
@@ -24,7 +32,8 @@ pub struct ChiefSettings {
     /// machine) asks before each local effect. Default false: the owner's
     /// own devices run like the Mac (Leo, 2026-10-20; the gate is for a
     /// shared Chief or a phone that might be lost). `remote.autoApprove`
-    /// true still wins over it. Another participant's turn always asks.
+    /// true still wins over it. Another participant's turn always asks
+    /// (unless `approvals.autoApproveAll` is on).
     pub remote_ask: bool,
     /// "Ask before acting on what Home shows" (`home.ask`): every turn that
     /// reads the Home workspace block (terminal screens, titles, URLs: text
@@ -86,6 +95,7 @@ impl ReplyThreads {
 impl Default for ChiefSettings {
     fn default() -> ChiefSettings {
         ChiefSettings {
+            auto_approve_all: false,
             remote_auto_approve: false,
             remote_ask: false,
             home_ask: false,
@@ -96,6 +106,9 @@ impl Default for ChiefSettings {
         }
     }
 }
+
+/// The key of `ChiefSettings::auto_approve_all`.
+pub const AUTO_APPROVE_ALL: &str = "approvals.autoApproveAll";
 
 /// The key of `ChiefSettings::remote_auto_approve`.
 pub const REMOTE_AUTO_APPROVE: &str = "remote.autoApprove";
@@ -121,7 +134,7 @@ pub const CLOUD_AUTO_PAUSE_IDLE_SECONDS: &str = "cloud.autoPauseIdleSeconds";
 impl ChiefSettings {
     /// Whether a turn a paired device started asks before its local effects.
     pub fn remote_gate(self) -> bool {
-        self.remote_ask && !self.remote_auto_approve
+        self.remote_ask && !self.remote_auto_approve && !self.auto_approve_all
     }
 
     /// The settings in `path`; a missing or unreadable file is the defaults.
@@ -131,6 +144,9 @@ impl ChiefSettings {
             .and_then(|t| serde_json::from_str(&t).ok())
             .unwrap_or(Value::Null);
         ChiefSettings {
+            auto_approve_all: value["approvals"]["autoApproveAll"]
+                .as_bool()
+                .unwrap_or(false),
             remote_auto_approve: cmux_chief::policy::remote_auto_approve(&value),
             remote_ask: value["remote"]["ask"].as_bool().unwrap_or(false),
             home_ask: value["home"]["ask"].as_bool().unwrap_or(false),
@@ -150,6 +166,7 @@ impl ChiefSettings {
         let mut value =
             json!({"remote": {"autoApprove": self.remote_auto_approve, "ask": self.remote_ask}});
         value["home"] = json!({"ask": self.home_ask});
+        value["approvals"] = json!({"autoApproveAll": self.auto_approve_all});
         if let Some(ttl) = self.cache_ttl {
             value["cache"] = json!({"ttl": ttl.as_str()});
         }

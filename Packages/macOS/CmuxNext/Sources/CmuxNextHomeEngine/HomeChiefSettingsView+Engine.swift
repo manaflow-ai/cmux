@@ -11,6 +11,7 @@ extension HomeChiefSettingsView {
     /// end) off the main actor, then shows them, or why it could not.
     @discardableResult
     public func refresh() -> Task<Void, Never> {
+        refreshApprovals()
         let source = source
         let home = muxHome
         // task-owner: one read off the main actor; ends when it is shown

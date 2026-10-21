@@ -11,11 +11,18 @@ import Testing
 /// `permission` is a card with Allow and Deny, and a click answers acpmux as the person before it
 /// answers the part.
 @Suite(.serialized) @MainActor struct HomeApprovalCardTests {
+    nonisolated static let headline = "Allow Chief to run `cmux browser right navigate --url https://www.cnn.com`?"
+    nonisolated static let reason = "Started from Leo's iPhone: Ask before acting on requests from other devices is on."
+    nonisolated static let arguments = "{\n  \"command\": \"cmux browser right navigate --url https://www.cnn.com\"\n}"
+
+    /// The question as optchat-chief's `approval::card` posts it.
     static func approval(harness: AgentQuestion.Harness = .chief, permission: String? = "p1",
-                         state: AgentQuestion.State = .pending) -> AgentQuestion {
+                         state: AgentQuestion.State = .pending, preview: String? = arguments) -> AgentQuestion {
         AgentQuestion(id: permission ?? "q", source: .init(harness: harness, session: "s1", permission: permission, agentName: "Chief"),
-                      items: [.init(id: "approval", header: "Approval", prompt: "Bash wants to run: ls -la",
-                                    options: [.init(id: "allow", label: "Allow"), .init(id: "deny", label: "Deny")],
+                      items: [.init(id: "approval", header: "Approval", prompt: headline,
+                                    options: [.init(id: "allow", label: "Allow once", detail: reason,
+                                                    preview: preview.map { .init(text: $0, format: .monospace) }),
+                                              .init(id: "deny", label: "Deny")],
                                     allowsOther: false)],
                       state: state)
     }
@@ -55,9 +62,12 @@ import Testing
         let card = try #require(Self.card(mapped(Self.approval())))
         #expect(card.status == .pending)
         #expect(card.session == "s1" && card.permission == "p1")
-        #expect(card.prompt == "Bash wants to run: ls -la")
+        #expect(card.prompt == Self.headline)
+        #expect(card.header == "Approval" && card.reason == Self.reason && card.preview == Self.arguments)
+        #expect(card.allowLabel == "Allow once" && card.denyLabel == "Deny", "the buttons say what the part's options say")
         let layout = HomeApprovalRowProvider.layout(card, width: 300)
         #expect(layout.allow != nil && layout.deny != nil)
+        #expect(layout.chip != nil && !layout.reason.isEmpty && layout.preview != nil)
     }
 
     @Test func anAnsweredOrCancelledApprovalIsOneLine() throws {
@@ -87,7 +97,7 @@ import Testing
         let part = mapped(Self.approval(), author: Self.agent)
         #expect(Self.card(part) == nil)
         guard case .text(let text, _)? = part else { Issue.record("not text: \(String(describing: part))"); return }
-        #expect(text.contains("Bash wants to run: ls -la"))
+        #expect(text.contains("cmux browser right navigate"))
         // A participant the summary does not list (a stranger, a left member) is not a Chief either.
         #expect(Self.card(mapped(Self.approval(), author: ParticipantID("agent_gone"))) == nil)
         #expect(Self.card(mapped(Self.approval(), author: Self.me)) == nil)
@@ -225,6 +235,273 @@ import Testing
         let message = try await posted(rig)
         let result = await rig.view.projection.decideApproval(chief: rig.chief.rawValue, message: message, partIndex: 0, session: "s1", permission: "p1", allow: true)
         #expect(result == .failure(.unavailable))
+    }
+
+    // MARK: The whole card
+
+    @Test func theHeadlinesCodeSpansAreMonospacedWithoutTheirFences() {
+        let (text, code) = HomeApprovalRowProvider.codeSpans(Self.headline)
+        #expect(text == "Allow Chief to run cmux browser right navigate --url https://www.cnn.com?")
+        #expect(code.count == 1)
+        #expect((text as NSString).substring(with: code[0]) == "cmux browser right navigate --url https://www.cnn.com")
+        // A longer fence holds a backtick (optchat-chief's code_span pads it with a space).
+        let fenced = HomeApprovalRowProvider.codeSpans("Run `` echo `x` ``?")
+        #expect(fenced.text == "Run echo `x`?" && fenced.code.count == 1)
+        // An unmatched fence stays text.
+        #expect(HomeApprovalRowProvider.codeSpans("a ` b").text == "a ` b")
+        let layout = HomeApprovalRowProvider.promptLayout(Self.headline, width: 300)
+        #expect(layout.runs.contains { $0.style == ["code"] && $0.start == code[0].location && $0.length == code[0].length })
+    }
+
+    @Test func theArgumentsBlockShowsAtMostEightLinesAndSaysWhenItIsCut() throws {
+        let long = (1...20).map { "  \"line\($0)\": \($0)," }.joined(separator: "\n")
+        let card = try #require(Self.card(mapped(Self.approval(preview: long))))
+        let layout = HomeApprovalRowProvider.layout(card, width: 380)
+        #expect(layout.previewLines.count == HomeApprovalRowProvider.previewMaxLines)
+        #expect(layout.previewLines.last?.text.hasSuffix("\u{2026}") == true)
+        let short = try #require(Self.card(mapped(Self.approval())))
+        let shortLayout = HomeApprovalRowProvider.layout(short, width: 380)
+        #expect(shortLayout.previewLines.count >= 3 && shortLayout.previewLines.count < HomeApprovalRowProvider.previewMaxLines)
+        #expect(shortLayout.previewLines.allSatisfy { !$0.text.hasSuffix("\u{2026}") })
+        // No arguments: no block.
+        #expect(HomeApprovalRowProvider.layout(try #require(Self.card(mapped(Self.approval(preview: nil)))), width: 380).preview == nil)
+    }
+
+    @Test func theButtonsSitAtTheRightUnderTheArguments() throws {
+        let card = try #require(Self.card(mapped(Self.approval())))
+        for width in [CGFloat(200), 300, 420, 900] {
+            let l = HomeApprovalRowProvider.layout(card, width: width)
+            let allow = try #require(l.allow), deny = try #require(l.deny), block = try #require(l.preview)
+            #expect(deny.maxX < allow.minX, "Deny, then the primary Allow once")
+            #expect(abs(allow.maxX - (l.size.width - Fixture.bubblePadX)) < 1, "right aligned at \(width)")
+            #expect(deny.minX >= Fixture.bubblePadX - 0.5 && allow.maxX <= l.size.width)
+            #expect(allow.minY >= block.maxY && l.size.height >= allow.maxY)
+            #expect(l.size.width <= HomeApprovalRowProvider.maxWidth)
+        }
+    }
+
+    @Test func anAnsweredCardIsOneLineAsTallAsATextBubble() throws {
+        let allowed = AgentQuestionAnswer(selections: ["approval": .init(optionIDs: ["allow"])])
+        let card = try #require(Self.card(mapped(Self.approval(state: .answered(allowed)))))
+        let l = HomeApprovalRowProvider.layout(card, width: 380)
+        #expect(l.size.height == Fixture.lineHeight + 2 * Fixture.bubblePadY)
+        let summary = try #require(l.summary)
+        #expect(summary.status.text == CmuxStrings.approvalAllowed)
+        #expect(summary.rest?.text.contains("cmux browser") == true, "the headline follows, without its fences")
+        #expect(summary.rest?.text.contains("`") == false)
+        #expect(l.allow == nil && l.preview == nil && l.chip == nil)
+    }
+
+    @Test func thePointerDrawsOnlyOnAnEnabledButton() throws {
+        var card = try #require(Self.card(mapped(Self.approval())))
+        #expect(HomeApprovalRowProvider.buttonState(card, allow: true) == .rest)
+        card.pointer = .init(allow: true)
+        #expect(HomeApprovalRowProvider.buttonState(card, allow: true) == .hover)
+        #expect(HomeApprovalRowProvider.buttonState(card, allow: false) == .rest)
+        card.pointer = .init(allow: false, pressed: true)
+        #expect(HomeApprovalRowProvider.buttonState(card, allow: false) == .pressed)
+        card.busy = true
+        #expect(HomeApprovalRowProvider.buttonState(card, allow: false) == .disabled)
+        #expect(HomeApprovalRowProvider.buttonState(card, allow: true) == .disabled)
+    }
+
+    // MARK: Clicks in the real transcript
+
+    /// The shown approval card (the visible row's own hit: its body rect is where the bitmap
+    /// draws), found the way a pointer would.
+    func cardHit(_ rig: HomeChatRig) -> MessagesWindowView.Hit? {
+        guard let demo = rig.view.controller.demo else { return nil }
+        let b = rig.view.controller.host.bounds
+        for y in stride(from: b.maxY, to: b.minY, by: -4) {
+            for x in stride(from: b.minX, to: b.maxX, by: 8) {
+                if let hit = demo.hit(CGPoint(x: x, y: y)), case let .custom(c) = hit.row.part, c.kind == HomeApprovalRowProvider.kind {
+                    return hit
+                }
+            }
+        }
+        return nil
+    }
+
+    /// The card at `ref` as the transcript has it now.
+    func shownCard(_ rig: HomeChatRig, _ ref: MessagesLabHome.PartRef) -> HomeApprovalRowProvider.Payload? {
+        guard let m = rig.view.controller.store?.state.conversation.messages.last(where: { $0.id == ref.messageId }),
+              case let .custom(c)? = m.parts[checked: ref.partIndex] else { return nil }
+        return HomeApprovalRowProvider.payload(c)
+    }
+
+    /// The center of the card's Allow (`allow`) or Deny in the host's coordinates.
+    func center(of hit: MessagesWindowView.Hit, allow: Bool) throws -> CGPoint {
+        guard case let .custom(c) = hit.row.part else { throw CardError.notACard }
+        let card = try #require(HomeApprovalRowProvider.payload(c))
+        let l = HomeApprovalRowProvider.layout(card, width: hit.body.width)
+        let r = try #require(allow ? l.allow : l.deny)
+        return CGPoint(x: hit.body.minX + r.midX, y: hit.body.minY + r.midY)
+    }
+
+    enum CardError: Error { case notACard }
+
+    /// Frames until the posted card shows (a bounded wait: each try lays the transcript out).
+    func waitForCard(_ rig: HomeChatRig) async {
+        for _ in 0..<200 where cardHit(rig) == nil {
+            rig.frame()
+            await Task.yield()
+        }
+    }
+
+    /// A rig whose conversation shows one pending Chief approval for `permission`.
+    func shown(permission: String, decider: FakeDecider?) async throws -> (HomeChatRig, MessagesWindowView.Hit) {
+        let rig = try await HomeChatRig(history: 2)
+        rig.view.projection.approvals = decider
+        let key = IdempotencyKey.make()
+        _ = await rig.source.post(parts: [.question(Self.approval(permission: permission))], from: rig.chief,
+                                  in: HomeChatRig.conversation, key: key)
+        await waitForCard(rig)
+        guard let hit = cardHit(rig) else { rig.stop(); throw CardError.notACard }
+        return (rig, hit)
+    }
+
+    /// The regression (PR 22639 dogfood, "the buttons don't work"): a click on Allow in the
+    /// conversation itself, not a thread view, never reached the card: `ChatController.clicked`
+    /// only focused the message box.
+    @Test func aClickOnAllowInTheTranscriptDecides() async throws {
+        let decider = FakeDecider()
+        let (rig, hit) = try await shown(permission: "p-click-allow", decider: decider)
+        defer { rig.stop() }
+        // The drawn card and the hit rects share one layout at the row's real body geometry.
+        guard case let .custom(c) = hit.row.part, let card = HomeApprovalRowProvider.payload(c) else { Issue.record("not a card"); return }
+        let measured = HomeApprovalRowProvider.layout(card, width: hit.body.width)
+        #expect(abs(measured.size.height - hit.body.height) <= 1, "measured \(measured.size) body \(hit.body)")
+        rig.view.controller.clicked(try center(of: hit, allow: true))
+        await HomeChatRig.until { decider.calls.count == 1 }
+        #expect(decider.calls.first?.0 == "s1" && decider.calls.first?.1 == "p-click-allow" && decider.calls.first?.2 == true)
+    }
+
+    @Test func aClickOnDenyInTheTranscriptDecides() async throws {
+        let decider = FakeDecider()
+        let (rig, hit) = try await shown(permission: "p-click-deny", decider: decider)
+        defer { rig.stop() }
+        rig.view.controller.clicked(try center(of: hit, allow: false))
+        await HomeChatRig.until { decider.calls.count == 1 }
+        #expect(decider.calls.first?.2 == false)
+    }
+
+    /// The press and the release through the mouse path: the press draws the pressed button and
+    /// starts no selection; the release on it clicks; a second click while the first is in flight
+    /// does nothing.
+    @Test func aPressAndReleaseOnAButtonClicksItOnce() async throws {
+        let decider = FakeDecider()
+        let (rig, hit) = try await shown(permission: "p-press", decider: decider)
+        defer { rig.stop() }
+        let controller = rig.view.controller
+        let p = try center(of: hit, allow: true)
+        controller.approvalPointerMoved(p)
+        #expect(shownCard(rig, hit.row.ref)?.pointer == .init(allow: true, pressed: false), "hover")
+        #expect(controller.approvalPressBegan(at: p))
+        #expect(shownCard(rig, hit.row.ref)?.pointer == .init(allow: true, pressed: true), "press")
+        #expect(controller.approvalPressEnded(at: p))
+        #expect(shownCard(rig, hit.row.ref)?.busy == true, "in flight: the buttons are off")
+        controller.clicked(p)
+        await HomeChatRig.until { decider.calls.count == 1 }
+        for _ in 0..<50 { await Task.yield() }
+        #expect(decider.calls.count == 1, "one decision")
+    }
+
+    @Test func aReleaseOffThePressedButtonDoesNothing() async throws {
+        let decider = FakeDecider()
+        let (rig, hit) = try await shown(permission: "p-release-off", decider: decider)
+        defer { rig.stop() }
+        let controller = rig.view.controller
+        #expect(controller.approvalPressBegan(at: try center(of: hit, allow: true)))
+        #expect(controller.approvalPressEnded(at: try center(of: hit, allow: false)))
+        for _ in 0..<50 { await Task.yield() }
+        #expect(decider.calls.isEmpty)
+        #expect(shownCard(rig, hit.row.ref)?.pointer == .init(allow: false), "the pointer now hovers Deny")
+        controller.approvalPointerMoved(nil)
+        #expect(shownCard(rig, hit.row.ref)?.pointer == nil)
+    }
+
+    // MARK: Every click that cannot decide says why
+
+    /// The click's provider is gone (no card here any more): the click shows why on the card.
+    @Test func aClickThatCannotStartShowsWhyOnTheCard() async throws {
+        let decider = FakeDecider()
+        let (rig, hit) = try await shown(permission: "p-unregistered", decider: decider)
+        defer { rig.stop() }
+        CustomRows.unregister(HomeApprovalRowProvider.kind)
+        defer {
+            CustomRows.register(HomeApprovalRowProvider.shared)
+            HomeApprovalRowProvider.shared.setLocal(HomeApprovalRowProvider.key(session: "s1", permission: "p-unregistered"), .init())
+        }
+        rig.view.controller.clicked(try center(of: hit, allow: true))
+        #expect(shownCard(rig, hit.row.ref)?.error == CmuxStrings.approvalUnavailable)
+        #expect(HomeApprovalRowProvider.shared.local(HomeApprovalRowProvider.key(session: "s1", permission: "p-unregistered")).error
+            == CmuxStrings.approvalUnavailable, "a rebuild keeps it")
+        #expect(decider.calls.isEmpty)
+    }
+
+    @Test func aCardNoPaneShowsIsNotShownAndTheClickSaysSo() async throws {
+        let rig = try await HomeChatRig(history: 2)
+        defer { rig.stop() }
+        let ref = MessagesLabHome.PartRef(messageId: "msg_not_here", partIndex: 0)
+        #expect(rig.view.projection.decideApproval(ref, allow: true) == .notShown)
+        var payload = HomeApprovalRowProvider.Payload(session: "s1", permission: "p-not-shown", prompt: "x", status: .pending)
+        payload.busy = false
+        let part = try #require(HomeApprovalRowProvider.custom(payload))
+        defer { HomeApprovalRowProvider.shared.setLocal(HomeApprovalRowProvider.key(payload), .init()) }
+        #expect(HomeApprovalRowProvider.shared.click(part, ref: ref, allow: true) == CmuxStrings.approvalUnavailable)
+        #expect(HomeApprovalRowProvider.shared.local(HomeApprovalRowProvider.key(payload)).error == CmuxStrings.approvalUnavailable)
+    }
+
+    @Test func aLookAlikeFromAnotherAuthorIsRefused() async throws {
+        let rig = try await HomeChatRig(history: 2)
+        defer { rig.stop() }
+        let key = IdempotencyKey.make()
+        _ = await rig.source.post(parts: [.question(Self.approval(permission: "p-me"))], from: rig.me, in: HomeChatRig.conversation, key: key)
+        await HomeChatRig.until { rig.store.transcript(for: HomeChatRig.conversation).contains { $0.key == key && $0.seq != nil } }
+        rig.frame()
+        func isPrompt(_ part: Part) -> Bool {
+            guard case let .text(t, _) = part else { return false }
+            return t.contains("cmux browser right navigate")
+        }
+        let message = try #require(rig.view.controller.store?.state.conversation.messages.last { $0.parts.contains(where: isPrompt) })
+        let index = try #require(message.parts.firstIndex(where: isPrompt))
+        #expect(rig.view.projection.decideApproval(MessagesLabHome.PartRef(messageId: message.id, partIndex: index), allow: true)
+            == .refused(CmuxStrings.approvalNotChief))
+    }
+
+    @Test func aCardAnsweredMeanwhileIsRefusedAsNoLongerOpen() async throws {
+        let rig = try await HomeChatRig(history: 2)
+        defer { rig.stop() }
+        let decider = FakeDecider()
+        rig.view.projection.approvals = decider
+        let allowed = AgentQuestionAnswer(selections: ["approval": .init(optionIDs: ["allow"])])
+        let key = IdempotencyKey.make()
+        _ = await rig.source.post(parts: [.question(Self.approval(permission: "p-answered", state: .answered(allowed)))],
+                                  from: rig.chief, in: HomeChatRig.conversation, key: key)
+        await waitForCard(rig)
+        let hit = try #require(cardHit(rig))
+        #expect(rig.view.projection.decideApproval(hit.row.ref, allow: true) == .refused(CmuxStrings.approvalStale))
+        #expect(decider.calls.isEmpty)
+    }
+
+    @Test func aClickWhileADecisionIsInFlightChangesNothing() async throws {
+        let decider = FakeDecider()
+        let (rig, hit) = try await shown(permission: "p-busy", decider: decider)
+        defer { rig.stop() }
+        let key = HomeApprovalRowProvider.key(session: "s1", permission: "p-busy")
+        HomeApprovalRowProvider.shared.setLocal(key, .init(busy: true))
+        defer { HomeApprovalRowProvider.shared.setLocal(key, .init()) }
+        #expect(rig.view.projection.decideApproval(hit.row.ref, allow: true) == .inFlight)
+        for _ in 0..<50 { await Task.yield() }
+        #expect(decider.calls.isEmpty)
+    }
+
+    @Test func withoutTheProviderInstalledAClickIsRefused() async throws {
+        let (rig, hit) = try await shown(permission: "p-uninstalled", decider: FakeDecider())
+        defer { rig.stop() }
+        CustomRows.unregister(HomeApprovalRowProvider.kind)
+        defer { CustomRows.register(HomeApprovalRowProvider.shared) }
+        #expect(rig.view.projection.decideApproval(hit.row.ref, allow: true) == .refused(CmuxStrings.approvalUnavailable))
     }
 }
 

@@ -118,8 +118,10 @@ and render-server field animation, blurred header and native scrolling.
   `HomeDiagramRendering` before the image, a refused source stays text;
   `HomeMapping.parts` splits only while it is registered),
   `HomeApprovalRowProvider` (the Chief's permission approval, a `question` part of
-  harness `chief` with a `permission`, as a drawn card of kind `cmux.approval` with Allow and
-  Deny: a click answers acpmux through the host's `HomeApprovalDeciding`, then the part),
+  harness `chief` with a `permission`, as a drawn card of kind `cmux.approval`: header chip,
+  headline, reason, arguments block, then the part's Deny and Allow once; a click in the
+  transcript (`ChatController+Approval.swift`) or a thread view (`hostControl`) answers acpmux
+  through the host's `HomeApprovalDeciding`, then the part, and a click that cannot says why on the card),
   `HomeMarkdown` (an agent's Markdown as MessagesLab text and style runs;
   people's text stays plain), `HomeFlightRecorder` (the flight recorder's
   policy, log folder and Save Last 10 Seconds, plus the helpers it calls from

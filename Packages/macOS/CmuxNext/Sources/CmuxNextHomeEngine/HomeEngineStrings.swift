@@ -93,6 +93,26 @@ public nonisolated enum HomeEngineStrings {
         String(localized: "home.engine.defaultNamed", defaultValue: "Default (%@)", table: "Home", bundle: .module)
     }
     static var agentSection: String { String(localized: "home.engine.section.agent", defaultValue: "Agent", table: "Home", bundle: .module) }
+    static var approvalsSection: String {
+        String(localized: "home.engine.section.approvals", defaultValue: "Approvals", table: "Home", bundle: .module)
+    }
+    /// The `approvals.autoApproveAll` toggle: no turn asks before acting.
+    static var autoApproveAll: String {
+        String(localized: "home.engine.approvals.autoApproveAll", defaultValue: "Auto-approve everything the Chief does", table: "Home", bundle: .module)
+    }
+    /// Under the auto-approve toggle: it also lets other people's messages act without asking.
+    static var autoApproveAllWarning: String {
+        String(localized: "home.engine.approvals.autoApproveAllWarning",
+               defaultValue: "This also covers requests from other people in shared chats.", table: "Home", bundle: .module)
+    }
+    /// The `remote.ask` toggle.
+    static var remoteAsk: String {
+        String(localized: "home.engine.approvals.remoteAsk", defaultValue: "Ask before acting on requests from other devices", table: "Home", bundle: .module)
+    }
+    /// The `home.ask` toggle.
+    static var homeAsk: String {
+        String(localized: "home.engine.approvals.homeAsk", defaultValue: "Ask before acting on what Home shows", table: "Home", bundle: .module)
+    }
     static var appearanceSection: String {
         String(localized: "home.engine.section.appearance", defaultValue: "Appearance", table: "Home", bundle: .module)
     }

@@ -308,6 +308,8 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::ChiefEngineGet
         | ResourceOperation::ChiefEngineSet
         | ResourceOperation::ChiefStop
+        | ResourceOperation::ChiefSettingsGet
+        | ResourceOperation::ChiefSettingsSet
         | ResourceOperation::ChiefProfileList
         | ResourceOperation::ChiefProfileGet
         | ResourceOperation::ChiefProfileCreate

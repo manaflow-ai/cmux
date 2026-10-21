@@ -1194,6 +1194,10 @@ def _validate_catalog_type(
                 # passed through unchanged (its turn summaries grow fields).
                 "operations.chief.engine.get.result",
                 "operations.chief.engine.set.result.arguments[0]",
+                # The Chief brain's per-Chief settings, owned by optchat-chief
+                # (optchat/settings.json) and passed through unchanged.
+                "operations.chief.settings.get.result",
+                "operations.chief.settings.set.result.arguments[0]",
             }
             is_explicit_extra = (
                 context.startswith("types.")

@@ -457,8 +457,13 @@ impl Brain {
                 )
             });
         let participant_requires_approval = items.iter().any(Queued::requires_approval);
+        self.turn_participant =
+            std::mem::take(&mut self.participant_taint) || participant_requires_approval;
         let remote_requires_approval = self.turn_remote && self.chief.remote_gate();
-        self.turn_why = if participant_requires_approval {
+        // `approvals.autoApproveAll`: the owner chose that no turn asks.
+        self.turn_why = if self.chief.auto_approve_all {
+            None
+        } else if participant_requires_approval {
             Some(crate::approval::Why::Participant)
         } else if remote_requires_approval {
             Some(crate::approval::Why::Device(self.device_name(&items)))
@@ -1260,8 +1265,10 @@ impl Brain {
             (self.log)(&format!("turn {key} stopped for a newer message"));
             // The turn that answers both keeps this one's remote origin.
             self.remote_taint |= self.turn_remote;
+            self.participant_taint |= self.turn_participant;
         }
         self.turn_remote = false;
+        self.turn_participant = false;
         self.turn_ask = false;
         self.turn_why = None;
         self.turn_denied.clear();
@@ -1578,6 +1585,7 @@ impl Brain {
             });
         }
         self.turn_remote = false;
+        self.turn_participant = false;
         self.turn_ask = false;
         self.turn_why = None;
         self.turn_denied.clear();

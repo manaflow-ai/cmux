@@ -20,6 +20,8 @@ extension TranscriptDocumentView {
     // has its own tracking area.
     override func mouseMoved(with event: NSEvent) {
         updateLinkCursor(event, always: false)
+        // cmux: the Chief's approval card draws the hover of the button under the pointer.
+        if let controller { controller.approvalPointerMoved(controller.host.convert(event.locationInWindow, from: nil)) }
         controller?.onPointerMoved?(window.map { $0.convertPoint(toScreen: event.locationInWindow) })
     }
 
@@ -27,6 +29,7 @@ extension TranscriptDocumentView {
 
     override func mouseExited(with event: NSEvent) {
         if overLink { overLink = false; NSCursor.arrow.set() }
+        controller?.approvalPointerMoved(nil)
         controller?.onPointerMoved?(nil)
     }
 

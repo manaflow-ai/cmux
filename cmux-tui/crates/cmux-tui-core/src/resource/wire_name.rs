@@ -51,6 +51,8 @@ impl ResourceOperation {
             Self::ChiefEngineGet => "chief.engine.get",
             Self::ChiefEngineSet => "chief.engine.set",
             Self::ChiefStop => "chief.stop",
+            Self::ChiefSettingsGet => "chief.settings.get",
+            Self::ChiefSettingsSet => "chief.settings.set",
             Self::ChiefProfileList => "chief.profile.list",
             Self::ChiefProfileGet => "chief.profile.get",
             Self::ChiefProfileCreate => "chief.profile.create",

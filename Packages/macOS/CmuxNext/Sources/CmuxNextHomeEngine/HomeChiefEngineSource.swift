@@ -12,6 +12,11 @@ public nonisolated protocol HomeChiefEngineSource: Sendable {
     func read() async throws(HomeChiefEngineError) -> HomeChiefSnapshot
     /// Sets (nil: clears) any of harness, model and effort in one brain write; the snapshot after.
     func set(_ fields: [String: String?]) async throws(HomeChiefEngineError) -> HomeChiefSnapshot
+    /// The brain's approval settings (`chief.settings.get`, HomeChiefApprovals.swift); a source
+    /// without them throws `.unsupported` (the default).
+    func readApprovals() async throws(HomeChiefEngineError) -> HomeChiefApprovals
+    /// Turns one approval setting on or off (`chief.settings.set`); the settings after.
+    func setApproval(_ gate: HomeChiefApprovals.Gate, on: Bool) async throws(HomeChiefEngineError) -> HomeChiefApprovals
 }
 
 /// This Mac's brain. It reads its mux home's files (engine.json, profile,

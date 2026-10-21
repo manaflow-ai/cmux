@@ -61,8 +61,12 @@ impl Brain {
         }
         let items: Vec<Queued> = self.queue.drain(..take).collect();
         // Never feed a non-owner's text into an approve-all session. It waits
-        // for the current turn to end, then starts its own ask-policy turn.
-        if !self.turn_ask && items.iter().any(Queued::requires_approval) {
+        // for the current turn to end, then starts its own ask-policy turn
+        // (with `approvals.autoApproveAll` on no turn asks: it is steered in).
+        if !self.turn_ask
+            && !self.chief.auto_approve_all
+            && items.iter().any(Queued::requires_approval)
+        {
             for item in items.into_iter().rev() {
                 self.queue.push_front(item);
             }
@@ -165,7 +169,11 @@ impl Brain {
         let non_owner = items.iter().any(Queued::requires_approval);
         if remote || non_owner {
             self.turn_remote |= remote;
-            let why = if non_owner {
+            self.turn_participant |= non_owner;
+            let why = if self.chief.auto_approve_all {
+                // `approvals.autoApproveAll`: no turn asks.
+                None
+            } else if non_owner {
                 Some(crate::approval::Why::Participant)
             } else if remote && self.chief.remote_gate() {
                 Some(crate::approval::Why::Device(self.device_name(items)))

@@ -1140,7 +1140,18 @@ be lost):
 | The owner on this Mac: Home, the pet, `cmux chief -p` (same uid, `user_local` over the owner socket) | never | |
 | One that reads the Home workspace block (the host reads it on every turn) | only when on | `home.ask`, "Ask before acting on what Home shows", default false |
 | One a paired device started, or one that supersedes such a turn | only when on | `remote.ask`, "Ask before acting on requests from other devices", default false; `remote.autoApprove` true still wins |
-| Another participant wrote in it (a shared Chief, a channel) | always | |
+| Another participant wrote in it (a shared Chief, a channel) | always, unless auto-approve-all is on | |
+| Any turn, with auto-approve-all on | never | `approvals.autoApproveAll`, "Auto-approve everything the Chief does", default false |
+
+`approvals.autoApproveAll` on means no turn asks, whatever started it:
+another participant's message in a shared chat, a paired device, ambient Home
+text. It wins over `remote.ask` and `home.ask` (the Mac's Chief settings show
+those two greyed out while it is on), and the spawn floor is not applied, so a
+subagent runs with its own policy (`MUX_POLICY` or `--policy`). Only the owner
+turns it on: the host refuses it, like every loosening, during a turn that
+asks, a remote-origin turn or a turn another participant wrote in (and while
+such a message waits or is being steered in). Turning it off is always
+allowed; it applies from the next turn (a running turn keeps its policy).
 
 The strictest reason of the turn wins until it ends. History: Lawrence added
 the device gate on 2026-10-05 (0654733226a, default ask), made auto-approve the
@@ -1207,12 +1218,15 @@ In a turn that asks, the turn session runs with acpmux policy `ask` instead of
   codex those need an approval too.
 
 The settings are per Chief (`optchat/settings.json`; `optchat-chief settings set
-remote.ask|home.ask|remote.autoApprove true|false`). The host owns them: it
+approvals.autoApproveAll|remote.ask|home.ask|remote.autoApprove true|false`;
+the Mac app's Chief settings card, Approvals section, through the daemon's
+owner-only `chief.settings.get` / `chief.settings.set`). The host owns them: it
 reads the file at start and changes them only through `Brain::set_setting`,
 which refuses to loosen a gate (`remote.ask` or `home.ask` off,
-`remote.autoApprove` on) while remote-origin work runs, settles or waits in
-the queue, or while an `ask` child is live, whoever asks (a command an
-approved remote turn runs reaches the host the same way). No chat message
+`approvals.autoApproveAll` or `remote.autoApprove` on) while remote-origin or
+another participant's work runs, settles or waits in the queue, or while an
+`ask` child is live, whoever asks (a command an approved remote turn runs
+reaches the host the same way). No chat message
 changes them. With the host stopped, the CLI edits the file directly (no turn
 can run then). Tightening a gate is always allowed.
 
@@ -1251,6 +1265,10 @@ Policy analysis (the relay rules of this repository's CLAUDE.md):
   `optchat/settings.json` directly (the host reads it at its next start).
   With the device gate off (the default), remote-origin turns are as
   powerful as local ones.
+- Accepted risk (opt-in): with `approvals.autoApproveAll` on, a message from
+  another participant of a shared chat runs local commands on the Mac with
+  the owner's policy and no approval, as the owner's own message does. The
+  Chief settings card says so under the toggle.
 - Residual risk: an approval is full authority for the shown call. An
   approved command can start a background process that outlives the turn,
   or start an acpmux session directly with another policy (outside `chief
@@ -1272,7 +1290,10 @@ mixed-origin turn stays `ask`; a local turn keeps approve-all; a child
 spawned from an `ask` turn asks too, and its shell call waits for a person)
 and `tests/approval_gates.rs` (the owner's turns and, by default, a paired
 device's never ask; `remote.ask` and `home.ask` turn the gates on and
-`remote.autoApprove` wins; the Chief's own tools never wait; stop ends a turn
+`remote.autoApprove` wins; with `approvals.autoApproveAll` on a participant's
+turn and a Home turn run with the configured policy and no card and no spawn
+floor, and it cannot be turned on from a remote or participant turn; the
+Chief's own tools never wait; stop ends a turn
 whose call waits; a denied request is not asked twice and a loop on it ends
 the turn with a line; a newer message leaves a card alone; the card's line,
 reason, arguments and buttons; only the owner's card answer counts, in the

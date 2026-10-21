@@ -35,18 +35,23 @@ enum HomeApprovalFailure: Error, Equatable {
 /// the person (``approvals``), then the question part (`question.answer`), so the card and the
 /// Chief both see the answer.
 extension HomeProjection {
-    /// A click on the card's Allow (`allow`) or Deny of `ref`; false when this projection does not
-    /// show that message (another pane's card).
-    func decideApproval(_ ref: PartRef, allow: Bool) -> Bool {
-        guard let item = shown.first(where: { HomeMapping.id($0, aliases: aliases) == ref.messageId }),
-              let message = item.messageID else { return false }
+    /// A click on the card's Allow (`allow`) or Deny of `ref`. ``HomeApprovalClick/notShown`` when this
+    /// projection does not show that message (another pane's card); every other way a click cannot
+    /// start a decision is a ``HomeApprovalClick/refused(_:)`` with the reason the card shows.
+    func decideApproval(_ ref: PartRef, allow: Bool) -> HomeApprovalClick {
+        // A closed pane's projection shows nothing (its weak owner entry may outlive it a moment).
+        guard !stopped, let item = shown.first(where: { HomeMapping.id($0, aliases: aliases) == ref.messageId }) else { return .notShown }
+        // A message the owner has not logged yet (no id) cannot take an answer.
+        guard let message = item.messageID else { return .refused(CmuxStrings.approvalStale) }
         let partIndex = HomeMapping.homeIndex(ref.partIndex, HomeMapping.projectedParts(item, summary: shownSummary).owners)
         // Only a Chief's own card answers (HomeMapping.approvalCard): another author's look-alike is text.
-        guard HomeMapping.isChief(item.author, shownSummary), case .question(let question)? = item.parts[checked: partIndex],
-              question.isPending, let permission = question.source.permission,
-              let cards = HomeApprovalRowProvider.installed else { return true }
+        guard HomeMapping.isChief(item.author, shownSummary) else { return .refused(CmuxStrings.approvalNotChief) }
+        // The part moved on (answered on another device, cancelled) before the card redrew.
+        guard case .question(let question)? = item.parts[checked: partIndex], question.isPending,
+              let permission = question.source.permission else { return .refused(CmuxStrings.approvalStale) }
+        guard let cards = HomeApprovalRowProvider.installed else { return .refused(CmuxStrings.approvalUnavailable) }
         let key = HomeApprovalRowProvider.key(session: question.source.session, permission: permission)
-        guard !cards.local(key).busy else { return true }
+        guard !cards.local(key).busy else { return .inFlight }
         showApproval(key, HomeApprovalRowProvider.Local(busy: true), item: item, ref: ref)
         // task-owner: one decision; ends with the decider's and the owner's answers
         let chief = item.author.rawValue
@@ -65,7 +70,7 @@ extension HomeProjection {
                 if !stopped { showApproval(key, failure.local, item: item, ref: ref) }
             }
         }
-        return true
+        return .started
     }
 
     /// Answers the approval at `partIndex` of `message`: acpmux first (an allow counts only from the

@@ -1,5 +1,6 @@
-//! `chief.engine.get`, `chief.engine.set` and `chief.stop`: the owner's
-//! control of the Chief brain on `cmux.protocol/2`. Like `chief-inspect`, the
+//! `chief.engine.get`, `chief.engine.set`, `chief.stop`, `chief.settings.get`
+//! and `chief.settings.set`: the owner's control of the Chief brain on
+//! `cmux.protocol/2`. Like `chief-inspect`, the
 //! daemon forwards one line to the brain host's tools socket
 //! (`CMUX_TUI_CHIEF_TOOLS_SOCKET`) and answers its JSON; the brain owns the
 //! engine file and the turn. Owner only (risk: owner): a registered Unix
@@ -44,6 +45,8 @@ pub(super) const fn handles(operation: ResourceOperation) -> bool {
         ResourceOperation::ChiefEngineGet
             | ResourceOperation::ChiefEngineSet
             | ResourceOperation::ChiefStop
+            | ResourceOperation::ChiefSettingsGet
+            | ResourceOperation::ChiefSettingsSet
     )
 }
 
@@ -88,7 +91,19 @@ pub(super) fn handle_with(
             Route::Named(chief) => named_socket(&mux, operation, &chief).map(Some),
         };
         let answer = socket.and_then(|socket| {
-            disabled_unless_answered(operation, ask(operation, &line, socket.as_deref()))
+            let answer = ask(operation, &line, socket.as_deref());
+            // A settings write answers one line ("key = value"): the result
+            // is the settings after it, read back from the same brain.
+            let answer = match answer {
+                Ok(written)
+                    if operation == ResourceOperation::ChiefSettingsSet
+                        && written.get("error").is_none() =>
+                {
+                    ask(operation, &json!({"tool": "settings"}), socket.as_deref())
+                }
+                other => other,
+            };
+            disabled_unless_answered(operation, answer)
         });
         let answer = result(&mux, operation, answer);
         // The record is the backend's one source (u2586): a set the brain
@@ -195,8 +210,10 @@ fn named_socket(
     if let Some(path) = answering() {
         return Ok(path);
     }
-    let startable = operation == ResourceOperation::ChiefEngineSet
-        && !crate::agent_launch::disabled()
+    let startable = matches!(
+        operation,
+        ResourceOperation::ChiefEngineSet | ResourceOperation::ChiefSettingsSet
+    ) && !crate::agent_launch::disabled()
         && !matches!(crate::chief_brains::tools_socket(chief), Err(("not_configured", _)));
     if startable {
         // The supervisor says at once when no brain process runs (restart
@@ -266,14 +283,20 @@ pub(super) fn require_owner(mux: &Mux, client: u64) -> Result<(), ResourceError>
     ))
 }
 
-/// The tools-socket line of `operation` (optchat-chief's `engine` and
-/// `stop` tools).
+/// The tools-socket line of `operation` (optchat-chief's `engine`, `stop`
+/// and `settings` tools).
 pub(super) fn tool_line(
     operation: ResourceOperation,
     fields: &serde_json::Map<String, Value>,
 ) -> Value {
     match operation {
         ResourceOperation::ChiefEngineGet => json!({"tool": "engine", "action": "show"}),
+        ResourceOperation::ChiefSettingsGet => json!({"tool": "settings"}),
+        ResourceOperation::ChiefSettingsSet => {
+            let field =
+                |key: &str| fields.get(key).cloned().unwrap_or(Value::String(String::new()));
+            json!({"tool": "settings", "key": field("key"), "value": field("value")})
+        }
         ResourceOperation::ChiefEngineSet => {
             let mut line = json!({"tool": "engine", "action": "set"});
             for key in [
@@ -308,6 +331,16 @@ pub(super) fn result(
     answer: Result<Value, ResourceError>,
 ) -> Result<Value, ResourceError> {
     let answer = answer?;
+    // The `settings` tool answers a refusal as one string
+    // ("refused: ... only by the owner on the Mac ...").
+    if let Some(Value::String(message)) = answer.get("error") {
+        let reason = if message.starts_with("refused") { "refused" } else { "invalid" };
+        return Err(ResourceError::operation_failed(
+            operation.wire_name(),
+            reason,
+            json!({"message": message}),
+        ));
+    }
     if let Some(error) = answer.get("error") {
         let code = error.get("code").and_then(Value::as_str).filter(|c| !c.is_empty());
         let message = error.get("message").and_then(Value::as_str).unwrap_or_default();
@@ -319,6 +352,21 @@ pub(super) fn result(
     }
     let value = match operation {
         ResourceOperation::ChiefEngineGet => return Ok(answer),
+        // The brain shows its settings as pretty-printed JSON text.
+        ResourceOperation::ChiefSettingsGet | ResourceOperation::ChiefSettingsSet => {
+            let text = answer.get("text").and_then(Value::as_str).unwrap_or_default();
+            let settings: Value = serde_json::from_str(text).map_err(|e| {
+                ResourceError::operation_failed(
+                    operation.wire_name(),
+                    "internal",
+                    json!({"message": format!("the Chief's settings are not JSON: {e}")}),
+                )
+            })?;
+            if operation == ResourceOperation::ChiefSettingsGet {
+                return Ok(json!({"settings": settings}));
+            }
+            json!({"settings": settings})
+        }
         ResourceOperation::ChiefStop => {
             let mut value =
                 json!({"stopped": answer.get("stopped").and_then(Value::as_bool).unwrap_or(false)});

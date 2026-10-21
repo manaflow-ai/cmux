@@ -680,6 +680,13 @@ pub struct Brain {
     /// A remote-origin turn was stopped for a newer message: the turn that
     /// answers both keeps its origin.
     remote_taint: bool,
+    /// Another participant (not the owner) wrote in the running turn, or in
+    /// a turn it supersedes: no approval gate can be loosened until it ends,
+    /// even when `approvals.autoApproveAll` lets it run without asking.
+    turn_participant: bool,
+    /// A participant's turn was stopped for a newer message: the turn that
+    /// answers both keeps that origin.
+    participant_taint: bool,
     /// The running turn's permission requests waiting for a person.
     approvals: VecDeque<crate::approval::Pending>,
     /// Writes the log's description of each turn image (None: references only).
@@ -805,6 +812,8 @@ impl Brain {
             turn_denied: Vec::new(),
             repeat_denials: 0,
             remote_taint: false,
+            turn_participant: false,
+            participant_taint: false,
             approvals: VecDeque::new(),
             after_turn: None,
             notices: Vec::new(),
@@ -1359,12 +1368,18 @@ impl Brain {
         self.chief.remote_auto_approve
     }
 
+    /// Whether `approvals.autoApproveAll` is on.
+    pub fn auto_approve_all(&self) -> bool {
+        self.chief.auto_approve_all
+    }
+
     /// Changes a per-Chief setting and saves it. An approval gate can be
-    /// loosened (`remote.autoApprove` on, `remote.ask` or `home.ask` off)
-    /// only when no remote-origin work is running, settling or queued: never
-    /// by a paired device, nor by a command a remote turn runs (an approved
-    /// shell command reaches the host the same way). Tightening one is
-    /// always allowed.
+    /// loosened (`approvals.autoApproveAll` or `remote.autoApprove` on,
+    /// `remote.ask` or `home.ask` off) only when no remote-origin or other
+    /// participant's work is running, settling or queued: never by a paired
+    /// device or another person, nor by a command such a turn runs (an
+    /// approved shell command reaches the host the same way). Tightening one
+    /// is always allowed.
     pub fn set_setting(&mut self, key: &str, value: &str) -> Result<String, String> {
         use crate::chief_settings::{
             CACHE_TTL, REMOTE_AUTO_APPROVE, REPLY_THREADS, SHOW_AFTER_REPORT, parse_bool,
@@ -1415,40 +1430,58 @@ impl Brain {
             (self.log)(&format!("setting {key} = {}", ttl.as_str()));
             return Ok(format!("{key} = {}", ttl.as_str()));
         }
-        use crate::chief_settings::{HOME_ASK, REMOTE_ASK};
-        if key != REMOTE_AUTO_APPROVE && key != REMOTE_ASK && key != HOME_ASK {
+        use crate::chief_settings::{AUTO_APPROVE_ALL, HOME_ASK, REMOTE_ASK};
+        if key != REMOTE_AUTO_APPROVE
+            && key != REMOTE_ASK
+            && key != HOME_ASK
+            && key != AUTO_APPROVE_ALL
+        {
             return Err(format!(
-                "unknown setting {key:?} (known: {REMOTE_ASK}, {HOME_ASK}, {REMOTE_AUTO_APPROVE}, {CACHE_TTL}, {REPLY_THREADS}, {SHOW_AFTER_REPORT})"
+                "unknown setting {key:?} (known: {AUTO_APPROVE_ALL}, {REMOTE_ASK}, {HOME_ASK}, {REMOTE_AUTO_APPROVE}, {CACHE_TTL}, {REPLY_THREADS}, {SHOW_AFTER_REPORT})"
             ));
         }
         let on = parse_bool(value)?;
-        // Loosening a gate: autoApprove on, or an ask gate off.
-        let loosens = if key == REMOTE_AUTO_APPROVE { on } else { !on };
-        let remote_queued = self.queue.iter().any(|q| {
-            matches!(
-                q.source,
-                Source::Message {
-                    remote: Some(_),
-                    ..
-                }
-            )
-        });
+        // Loosening a gate: an auto-approve on, or an ask gate off.
+        let loosens = if key == REMOTE_AUTO_APPROVE || key == AUTO_APPROVE_ALL {
+            on
+        } else {
+            !on
+        };
+        // Another participant's or a paired device's message waiting, or
+        // being steered into the running turn.
+        let foreign = |q: &Queued| {
+            q.requires_approval()
+                || matches!(
+                    q.source,
+                    Source::Message {
+                        remote: Some(_),
+                        ..
+                    } | Source::Resume { remote: true, .. }
+                )
+        };
+        let foreign_queued = self.queue.iter().any(foreign)
+            || self.steering.iter().any(|s| s.items.iter().any(foreign));
         if loosens
             && (self.turn_ask
                 || self.turn_remote
                 || self.remote_taint
-                || remote_queued
+                || self.turn_participant
+                || self.participant_taint
+                || foreign_queued
                 || self.ask_child_live())
         {
-            (self.log)(&format!("refused: {key} = {on} during remote-origin work"));
+            (self.log)(&format!(
+                "refused: {key} = {on} during remote-origin or another participant's work"
+            ));
             return Err(format!(
-                "refused: {key} can be set to {on} only from the Mac, outside a turn that asks or a paired device started"
+                "refused: {key} can be set to {on} only by the owner on the Mac, outside a turn that asks, a paired device started or another person wrote in"
             ));
         }
         let mut next = self.chief;
         match key {
             REMOTE_ASK => next.remote_ask = on,
             HOME_ASK => next.home_ask = on,
+            AUTO_APPROVE_ALL => next.auto_approve_all = on,
             _ => next.remote_auto_approve = on,
         }
         next.save(&self.settings.settings_file)

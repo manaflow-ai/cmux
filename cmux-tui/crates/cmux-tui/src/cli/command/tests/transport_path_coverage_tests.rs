@@ -243,6 +243,10 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "chief.engine.get"
                         | "chief.engine.set"
                         | "chief.stop"
+                        // The Mac app's Chief settings card (Approvals) and
+                        // `optchat-chief settings` read and set these.
+                        | "chief.settings.get"
+                        | "chief.settings.set"
                         // `cmux chief list|new|adopt|edit|delete` send these
                         // (cli/chief/registry.rs), outside the noun grammar.
                         | "chief.profile.list"

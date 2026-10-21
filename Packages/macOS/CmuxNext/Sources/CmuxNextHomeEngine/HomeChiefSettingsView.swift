@@ -16,6 +16,8 @@ import UniformTypeIdentifiers
 ///
 /// - Identity: the avatar, a menu to change it, and the name beside it.
 /// - Agent: Harness, Model and Effort rows; "Default" names what it runs.
+/// - Approvals: auto-approve everything, and the two ask gates it overrides
+///   (`HomeChiefApprovals`, the brain's `chief.settings.*`); hidden for a brain without them.
 /// - Appearance: rows other features add (`addAppearanceRow`), hidden while empty.
 /// - Diagnostics: the last turns, where the brain runs, traces and memory,
 ///   behind a closed disclosure.
@@ -53,6 +55,12 @@ public final class HomeChiefSettingsView: NSView {
     let harnessHint = ThemedLabel(wrappingLabelWithString: "")
     /// Why the engine could not be read or set, or a picture could not be used.
     let failure = ThemedLabel(wrappingLabelWithString: "")
+    let approvalsHeader = ThemedLabel(labelWithString: HomeEngineStrings.approvalsSection)
+    let approvalsRows = NSStackView()
+    /// One checkbox and its title per approval setting, in the card's order.
+    var approvalControls: [(gate: HomeChiefApprovals.Gate, box: ThemedCheckbox, title: ThemedLabel)] = []
+    /// The approval settings the brain last answered; nil hides the section.
+    var shownApprovals: HomeChiefApprovals?
     let appearanceHeader = ThemedLabel(labelWithString: HomeEngineStrings.appearanceSection)
     let appearanceRows = NSStackView()
     let diagnosticsToggle = NSButton()
@@ -159,6 +167,7 @@ public final class HomeChiefSettingsView: NSView {
         note.preferredMaxLayoutWidth = Self.width - 2 * Self.inset
         addFullWidth(note)
         stack.setCustomSpacing(Metrics.space4, after: note)
+        buildApprovals()
         // Appearance: rows other features add; the section shows once it has one.
         appearanceHeader.font = Typography.header
         appearanceHeader.ink = .secondary
@@ -189,6 +198,7 @@ public final class HomeChiefSettingsView: NSView {
     public func use(_ source: any HomeChiefEngineSource) -> Task<Void, Never> {
         self.source = source
         shownEngine = nil
+        showApprovals(nil)
         changeFailed = false
         checkingHarness = nil
         // A named Chief's panel keeps its own files (cx-327wl), never the default's.

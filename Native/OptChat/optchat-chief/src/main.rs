@@ -21,11 +21,14 @@ optchat-chief usage backfill [--force] [--mux-home DIR]   convert old traces int
 optchat-chief agents list | prompt NAME \"text\" | allow NAME [OPTION_ID] | deny NAME
 optchat-chief browse [--mux-home DIR] [--out FILE]          the whole memory as one HTML page
 optchat-chief import [--mux-home DIR] FILE                  append JSON lines {\"text\", \"kind\"?, \"date\"?} (host stopped)
-optchat-chief settings [show | set remote.ask true|false | set home.ask true|false | set remote.autoApprove true|false
-                       | set replies.thread auto|always|never | set show.afterReport true|false] [--mux-home DIR]
-                                                           per-Chief settings; remote.ask: ask before acting on requests from
-                                                           other devices; home.ask: ask in turns that read Home (both default
-                                                           false; loosened only from the Mac, outside a remote-origin turn)
+optchat-chief settings [show | set approvals.autoApproveAll true|false | set remote.ask true|false | set home.ask true|false
+                       | set remote.autoApprove true|false | set replies.thread auto|always|never
+                       | set show.afterReport true|false] [--mux-home DIR]
+                                                           per-Chief settings; approvals.autoApproveAll: no turn asks, other
+                                                           people's included; remote.ask: ask before acting on requests from
+                                                           other devices; home.ask: ask in turns that read Home (all default
+                                                           false; loosened only by the owner, outside a remote-origin or
+                                                           another person's turn)
 optchat-chief import-claude-code dry-run|write [--projects DIR] [--mux-home DIR] [--append-after-live]
                                                            Claude Code transcripts (default ~/.claude/projects) as messages;
                                                            dry-run prints counts only, write appends them (host stopped)
@@ -225,10 +228,11 @@ fn main() -> std::process::ExitCode {
                         let mut s = optchat_chief::chief_settings::ChiefSettings::load(&file);
                         if let Some((key, value)) = set {
                             use optchat_chief::chief_settings::{
-                                CACHE_TTL, HOME_ASK, REMOTE_ASK, REMOTE_AUTO_APPROVE, parse_bool,
-                                parse_ttl,
+                                AUTO_APPROVE_ALL, CACHE_TTL, HOME_ASK, REMOTE_ASK,
+                                REMOTE_AUTO_APPROVE, parse_bool, parse_ttl,
                             };
                             match key {
+                                AUTO_APPROVE_ALL => s.auto_approve_all = parse_bool(value)?,
                                 REMOTE_AUTO_APPROVE => s.remote_auto_approve = parse_bool(value)?,
                                 REMOTE_ASK => s.remote_ask = parse_bool(value)?,
                                 HOME_ASK => s.home_ask = parse_bool(value)?,
