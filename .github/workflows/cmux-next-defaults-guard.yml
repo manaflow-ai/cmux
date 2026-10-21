@@ -15,9 +15,9 @@ name: cmux-next defaults guard
 # branch whatever the pull request's base, so the feat-cmux-next copy never ran
 # (#23105 merged a new default with no call). The guard and the owners file are
 # still the feat-cmux-next base's: both are checked out at the pull request's
-# base commit below, never from main. Keep this file the same as the
-# feat-cmux-next copy (the review re-run, cmux-next-defaults-guard-review.yml,
-# finds this run by this file name).
+# base commit below, never from main. This copy is the one that runs, so change
+# it here; the feat-cmux-next copy keeps the file name the review re-run
+# (cmux-next-defaults-guard-review.yml) looks this run up by.
 #
 # Trust: only pull_request_target runs this, so the workflow, the guard and
 # the owners file are always the base's. The head is only read as data (JSON
@@ -68,8 +68,20 @@ jobs:
           REPO: ${{ github.repository }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        # git, not the API: the compare call failed when the installation ran
+        # out of quota (#23427). A treeless fetch of both tips (commits only,
+        # about 3 s and 33 MiB) gives git merge-base the history it needs; the
+        # API stays as the fallback.
         run: |
-          merge_base="$(gh api "repos/$REPO/compare/$BASE_SHA...$HEAD_SHA" --jq .merge_base_commit.sha)"
+          history="$RUNNER_TEMP/merge-base.git"
+          git init -q --bare "$history"
+          if git -C "$history" fetch -q --filter=tree:0 --no-tags "https://github.com/$REPO" "$BASE_SHA" "$HEAD_SHA" \
+            && merge_base="$(git -C "$history" merge-base "$BASE_SHA" "$HEAD_SHA")"; then
+            :
+          else
+            echo "::warning::git could not find the merge base; asking the API"
+            merge_base="$(gh api "repos/$REPO/compare/$BASE_SHA...$HEAD_SHA" --jq .merge_base_commit.sha)"
+          fi
           echo "sha=$merge_base" >> "$GITHUB_OUTPUT"
 
       - name: Check out the merge base's defaults (data)
