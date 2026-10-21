@@ -131,8 +131,8 @@ fn cmux_setup_trust_an_agent_runs_the_fix_reruns_it_and_undoes_it() {
     assert_eq!(check["folder"], folder.as_str());
     let fix = check["fix"].as_str().expect("status names its fix").to_owned();
 
-    // A dry run plans and writes nothing.
-    let planned = world.json(&["setup", "trust", "--dry-run"]);
+    // A dry run plans and writes nothing (agents add --json out of habit).
+    let planned = world.json(&["setup", "trust", "--dry-run", "--json"]);
     assert_eq!(planned["state"], "planned", "{planned}");
     assert_eq!(planned["dry_run"], true);
     assert!(planned["undo"].is_string(), "{planned}");

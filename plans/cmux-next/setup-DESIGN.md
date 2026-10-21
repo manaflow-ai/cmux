@@ -68,6 +68,10 @@ The Chief loads the `cmux-setup` skill (shipped in optchat-chief's
    there is one so a sub-session waiting on the folder goes on at once.
    Claude Code's and Codex's files keep their one writer. The record already
    holding the level is `ok`; `undo` names the level it held before.
+   It writes even when an auto-trust rule already answers: acpmux does not
+   count a rule alone as the person's answer (a Web turn still asks). Once
+   #23151 lands, a parent's or main repo's record answers too (`via`);
+   forgetting such a folder must point at `via`, with a test.
 2. `harness [ID]` (next): `harness doctor` and `login --status` for each
    harness; a missing CLI or sign-in comes back as `needs_user` with the
    login command.
