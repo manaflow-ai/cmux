@@ -27,7 +27,7 @@ final class BrowserDownloadsPopup {
 
     private let popup = NativePopupHost(panel: NativePopupPanel(identifier: "cmux.browser.downloads"))
     private let model = BrowserDownloadsPopupModel()
-    private var content: NSHostingView<BrowserDownloadsPopupView>?
+    private var content: FirstMouseHostingView<BrowserDownloadsPopupView>?
     private weak var anchor: NSView?
     /// The toolbar the popup opened from, which draws its button pressed while it is open.
     private weak var buttons: BrowserToolbarButtonsView?
@@ -83,6 +83,7 @@ final class BrowserDownloadsPopup {
                       showFolder: @escaping () -> Void, makeKey: Bool) -> Bool {
         guard let window = anchor.window else { return false }
         cancelAutoClose()
+        generation += 1
         if let old = self.anchor, old !== anchor { self.buttons?.setPopupOpen(false, anchor: old) }
         self.anchor = anchor
         self.buttons = buttons
@@ -108,29 +109,38 @@ final class BrowserDownloadsPopup {
         guard popup.show(size: CGSize(width: ceil(size.width), height: ceil(size.height)), anchor: rect, in: window,
                          preferred: .below, trailing: true, makeKey: makeKey) != nil else { return false }
         buttons.setPopupOpen(true, anchor: anchor)
+        buttons.onDetach = { [weak self] in self?.close() }
         followRows()
         return true
     }
 
-    private func makeContent() -> NSHostingView<BrowserDownloadsPopupView> {
-        let content = NSHostingView(rootView: BrowserDownloadsPopupView(model: model))
+    private func makeContent() -> FirstMouseHostingView<BrowserDownloadsPopupView> {
+        let content = FirstMouseHostingView(rootView: BrowserDownloadsPopupView(model: model))
         let card = Glass.makeOverlayPanel(content: content, cornerRadius: PopupStyle.standard.cornerRadius)
         popup.panel.adoptPopupStyle(card: card)
         self.content = content
         return content
     }
 
+    /// Bumped by every show and close: an observation of an earlier show stops.
+    private var generation = 0
+
     /// While the popup shows, a row added or removed resizes it under the button.
     private func followRows() {
         guard popup.isShown, let list = model.list else { return }
-        let count = withObservationTracking { list.items.count } onChange: { [weak self] in
-            Task { @MainActor in self?.resize() }
+        let current = generation
+        _ = withObservationTracking { list.items.count } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self, self.generation == current else { return }
+                self.resize()
+            }
         }
-        _ = count
     }
 
     private func resize() {
-        guard popup.isShown, let anchor, let window = anchor.window, let content else { return }
+        guard popup.isShown, let content else { return }
+        // The button left the screen (another tab, the tab closed): the popup goes with it.
+        guard let anchor, let window = anchor.window, !anchor.isHiddenOrHasHiddenAncestor else { return close() }
         content.layoutSubtreeIfNeeded()
         let size = content.fittingSize
         let rect = window.convertToScreen(anchor.convert(CmuxPopoverAnchor.rect(in: anchor), to: nil))
@@ -143,6 +153,8 @@ final class BrowserDownloadsPopup {
 
     private func closed() {
         cancelAutoClose()
+        generation += 1
+        buttons?.onDetach = nil
         if let anchor { buttons?.setPopupOpen(false, anchor: anchor) }
         anchor = nil
     }
@@ -280,7 +292,7 @@ private struct BrowserDownloadPopupRow: View {
         .background(RoundedRectangle(cornerRadius: 6).fill(hovered ? model.colors.hover : Color.clear))
         .padding(.horizontal, 4)
         .overlay(BrowserDownloadRowEvents(
-            file: BrowserDownloadsMenu.draggableFile(download),
+            file: { BrowserDownloadsMenu.draggableFile(download) },
             menu: { model.menu(for: download) },
             open: { file in model.onOpen(file) },
             hover: { inside in
@@ -297,7 +309,7 @@ private struct BrowserDownloadPopupRow: View {
 /// The row's pointer: a click opens the finished file, a drag carries it
 /// out as a file URL, a right-click shows the row's menu.
 private struct BrowserDownloadRowEvents: NSViewRepresentable {
-    let file: URL?
+    let file: () -> URL?
     let menu: () -> NSMenu?
     let open: (URL) -> Void
     let hover: (Bool) -> Void
@@ -305,7 +317,7 @@ private struct BrowserDownloadRowEvents: NSViewRepresentable {
     func makeNSView(context: Context) -> BrowserDownloadRowEventView { BrowserDownloadRowEventView() }
 
     func updateNSView(_ view: BrowserDownloadRowEventView, context: Context) {
-        view.file = file
+        view.fileProvider = file
         view.menuProvider = menu
         view.onOpen = open
         view.onHover = hover
@@ -313,7 +325,7 @@ private struct BrowserDownloadRowEvents: NSViewRepresentable {
 }
 
 final class BrowserDownloadRowEventView: NSView, NSDraggingSource {
-    var file: URL?
+    var fileProvider: () -> URL? = { nil }
     var menuProvider: () -> NSMenu? = { nil }
     var onOpen: (URL) -> Void = { _ in }
     var onHover: (Bool) -> Void = { _ in }
@@ -326,7 +338,7 @@ final class BrowserDownloadRowEventView: NSView, NSDraggingSource {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect, .assumeInside], owner: self)
         addTrackingArea(area)
         tracking = area
     }
@@ -340,9 +352,9 @@ final class BrowserDownloadRowEventView: NSView, NSDraggingSource {
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard !dragged, let down = downEvent, let file else { return }
+        guard !dragged, let down = downEvent else { return }
         let start = down.locationInWindow, now = event.locationInWindow
-        guard hypot(now.x - start.x, now.y - start.y) >= 3 else { return }
+        guard hypot(now.x - start.x, now.y - start.y) >= 3, let file = fileProvider() else { return }
         dragged = true
         let item = NSDraggingItem(pasteboardWriter: file as NSURL)
         let icon = NSWorkspace.shared.icon(forFile: file.path(percentEncoded: false))
@@ -354,7 +366,7 @@ final class BrowserDownloadRowEventView: NSView, NSDraggingSource {
 
     override func mouseUp(with event: NSEvent) {
         defer { downEvent = nil }
-        guard !dragged, let file, bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
+        guard !dragged, bounds.contains(convert(event.locationInWindow, from: nil)), let file = fileProvider() else { return }
         onOpen(file)
     }
 
@@ -366,4 +378,10 @@ final class BrowserDownloadRowEventView: NSView, NSDraggingSource {
     func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
         context == .outsideApplication ? [.copy, .generic] : [.copy, .generic, .link]
     }
+}
+
+/// The popup's content: a click on a control (a footer button) acts on the
+/// first click, also while the popup opened without the keys.
+final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }

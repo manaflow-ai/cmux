@@ -104,7 +104,16 @@ public final class BrowserToolbarButtonsView: NSStackView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window != nil { refresh() }
+        if window != nil { refresh() } else { onDetach?() }
+    }
+
+    /// The toolbar left the screen (its pane parked it, the tab closed or
+    /// moved): a popup open under one of its buttons closes. Set by the popup.
+    public var onDetach: (() -> Void)?
+
+    public override func viewDidHide() {
+        super.viewDidHide()
+        onDetach?()
     }
 
     /// Shown again after its pane parked it (another tab showed).
