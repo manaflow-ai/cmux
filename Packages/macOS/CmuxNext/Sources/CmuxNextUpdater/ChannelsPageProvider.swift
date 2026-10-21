@@ -1,3 +1,4 @@
+import CmuxUpdater
 public import CmuxNextPages
 public import CmuxNextSettings
 

@@ -1,4 +1,3 @@
-import CmuxUpdater
 public import Foundation
 
 /// What picking a slower ring (Dev to Nightly) does to the build this Mac runs. Sparkle never

@@ -1,4 +1,4 @@
-import CmuxUpdater
+public import CmuxUpdater
 public import Foundation
 
 /// The way back from a faster ring (``RingReturn``): read on demand when the Channels card

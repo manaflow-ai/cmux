@@ -1,4 +1,4 @@
-import CmuxUpdater
+public import CmuxUpdater
 public import Foundation
 
 /// The Settings > Updates Channels card (`cmux.settings.channels.state`): every
