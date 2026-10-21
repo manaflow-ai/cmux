@@ -5,6 +5,7 @@ import { FindReveal, isRevealRow } from "./chatFind";
 import { useContext, useMemo, useState, type ReactNode } from "react";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { copyText } from "./clipboard";
+import { CopyButton } from "./CopyButton";
 import { MessageCard } from "./MessageCard";
 import { McpCallRows } from "./McpCallRows";
 import { mcpNames, McpNamesContext } from "./mcpCalls";
@@ -16,10 +17,8 @@ import { toolGroups, type ToolGroup } from "./toolGroups";
 import { isFoldedRun } from "./toolRunSummary";
 import { TurnActionsContext } from "./turnActions";
 import { workedLabel } from "./turns";
-import { ChevronDown, ChevronRight, Copy, Retry, TurnFork } from "./icons";
-import { Menu, MenuButton, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator } from "../../../ui/Menu";
-import { retryModelSections, type RetryModel } from "./retryModelSections";
-import type { TurnActions } from "./turnActions";
+import { ChevronRight, Retry, TurnFork } from "./icons";
+import { RetryModelMenu } from "./RetryModelMenu";
 import { useT } from "../i18n";
 import { failureCopy, failureKind, type FailureRoute } from "../failureCopy";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
@@ -142,7 +141,6 @@ const clock = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-d
 /// count here instead.
 export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const t = useT();
-  const [copied, setCopied] = useState(false);
   const { fork, forkSeq, forkAny, retry, retryWith, reauthenticate, route, switchModel } =
     useContext(TurnActionsContext);
   const text = row.text;
@@ -167,19 +165,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
         </time>
         <span className="cv-turn-action-group">
           {text && (
-            <button
-              type="button"
-              className="cv-iconbtn cv-iconbtn--compact"
-              aria-label={copied ? t("turn.copied") : t("turn.copy")}
-              onClick={() =>
-                void copyText(text).then(
-                  () => setCopied(true),
-                  () => setCopied(false),
-                )
-              }
-            >
-              <Copy size={14} />
-            </button>
+            <CopyButton text={text} label={t("turn.copy")} className="cv-iconbtn cv-iconbtn--compact" size={14} />
           )}
           {retry && prompt && (
             <button
@@ -217,55 +203,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
         </span>
       </div>
     </>
-  );
-}
-
-/// Retry with another model (cx-ncc.62): the chat harness's models, the current one checked, drawn
-/// as the pane's other menus (the Reasoning menu's look, composerControls.css: its rows and trailing check column): releases under
-/// Models, the harness's aliases and modes under their own title, each model once
-/// (retryModelSections.ts). One section draws without a title.
-function RetryModelMenu({
-  retryWith,
-  onPick,
-}: {
-  retryWith: NonNullable<TurnActions["retryWith"]>;
-  onPick(model: string): void;
-}) {
-  const t = useT();
-  const { models, aliases } = retryModelSections(retryWith.models, retryWith.current);
-  const rows = (list: readonly RetryModel[]) => (
-    <MenuRadioGroup value={retryWith.current ?? ""} onValueChange={onPick}>
-      {list.map((model) => (
-        <MenuRadioItem key={model.id} value={model.id} className="acpmux-retry-item" closeOnClick>
-          <span className="acpmux-retry-text">
-            <span className="acpmux-menu-label">{model.name}</span>
-          </span>
-        </MenuRadioItem>
-      ))}
-    </MenuRadioGroup>
-  );
-  const titled = models.length > 0 && aliases.length > 0;
-  return (
-    <Menu>
-      <MenuButton
-        className="cv-iconbtn cv-iconbtn--compact cv-turn-retry-menu"
-        label={t("turn.retryWith")}
-        title={t("turn.retryWith")}
-      >
-        <ChevronDown size={12} />
-      </MenuButton>
-      <MenuPopup label={t("turn.retryWith")} align="start" className="acpmux-retry-menu">
-        {titled ? (
-          <>
-            <MenuGroup label={t("turn.retryWith.models")}>{rows(models)}</MenuGroup>
-            <MenuSeparator />
-            <MenuGroup label={t("turn.retryWith.aliases")}>{rows(aliases)}</MenuGroup>
-          </>
-        ) : (
-          rows([...models, ...aliases])
-        )}
-      </MenuPopup>
-    </Menu>
   );
 }
 

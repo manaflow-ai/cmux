@@ -977,6 +977,14 @@ path = "tests/test_merge_compile_guard.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_feat_ci_guard_group.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_guards_new_reds.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_web_lint_prepush.py"
 lane = "linux-guard"
 
@@ -1398,6 +1406,10 @@ path = "tests/test_cmux_tui_superseded_push.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_tui_publisher_testing.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_media_tour_gate.py"
 lane = "linux-guard"
 
@@ -1535,6 +1547,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_next_promotion_queue.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_pr_capture_check.py"
 lane = "linux-guard"
 
 [[test]]

@@ -55,6 +55,19 @@ nonisolated enum TabSettingsSchema {
         )
     }
 
+    /// `tabs.terminalFirst`: Cmd-T, Cmd-D and Cmd-Shift-D open a terminal, as in cmux classic (#23021).
+    static func terminalFirst(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(
+            TerminalFirstSetting.configPath, section: .general, group: group,
+            title: SettingsText.keyed("settings.tabs.terminalFirst", "New Tabs and Splits Open a Terminal"),
+            help: SettingsText.keyed("settings.tabs.terminalFirst.help",
+                                     "When on, Cmd-T, Cmd-D and Cmd-Shift-D open a terminal, as in cmux classic, instead of the New Tab page."),
+            kind: .toggle,
+            default: .bool(TerminalFirstSetting.fallback),
+            keywords: ["terminal", "classic", "new tab", "split", "cmd-t", "cmd-d", "new tab page", "default"]
+        )
+    }
+
     /// `tabs.cmdWClosesPinnedTabs`: whether the user's Cmd-W closes a pinned tab.
     static func cmdWClosesPinnedTabs(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(
