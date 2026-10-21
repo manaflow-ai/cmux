@@ -9,6 +9,9 @@ import CmuxNextSettings
 @MainActor public final class AgentPaneTabRow {
     /// The page's tools' width in CSS pixels, gap included; 0 while it draws no tools in the row.
     public private(set) var toolsWidth: CGFloat = 0
+    /// The last positive ``toolsWidth``, kept after the row ends or the page loads again: whether
+    /// the tools fit a pane's row (`PaneTabRowSharing.fitsTabRow`); 0 before the page first reported.
+    public private(set) var neededWidth: CGFloat = 0
     /// Called when ``toolsWidth`` changes, or the page loads again (the pane lays out again).
     public var onChange: (() -> Void)?
     /// The row last pushed to the page, nil before the first.
@@ -16,6 +19,7 @@ import CmuxNextSettings
 
     /// The page reported its tools' width.
     func report(width: CGFloat) {
+        if width > 0 { neededWidth = width }
         guard width != toolsWidth else { return }
         toolsWidth = width
         onChange?()
@@ -38,6 +42,12 @@ import CmuxNextSettings
     public func sharedWidth(zoom: CGFloat) -> CGFloat? {
         guard ChromeTunables.tabRowTools.value, toolsWidth > 0 else { return nil }
         return toolsWidth * max(0.25, zoom)
+    }
+
+    /// ``neededWidth`` in points at `zoom`; nil while the setting is off or before the page reported.
+    public func sharedNeed(zoom: CGFloat) -> CGFloat? {
+        guard ChromeTunables.tabRowTools.value, neededWidth > 0 else { return nil }
+        return neededWidth * max(0.25, zoom)
     }
 
     /// Offers `view`'s page the top `height` points of the pane, less `trailingInset` at the trailing
@@ -64,6 +74,7 @@ extension AgentPageEvent {
 /// A chat's header tools share its pane's tab row (the conformance is the App's, PaneContentView+Parking).
 extension PaneTabRowSharing where Self: AgentPaneView {
     public var tabRowToolsWidth: CGFloat? { model.tabRow.sharedWidth(zoom: webView.pageZoom) }
+    public var tabRowToolsNeed: CGFloat? { model.tabRow.sharedNeed(zoom: webView.pageZoom) }
     public var onTabRowToolsChange: (() -> Void)? { get { model.tabRow.onChange } set { model.tabRow.onChange = newValue } }
     public func setTabRow(height: CGFloat, trailingInset: CGFloat) { AgentPaneTabRow.offer(points: height, trailingInset: trailingInset, to: self) }
 }
