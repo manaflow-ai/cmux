@@ -101,7 +101,7 @@ import Testing
         defer { h.tearDown() }
         let created = Created()
         let browserTabs = h.services.cache.browserTabs
-        browserTabs.create = { _, _, url, _, _, _, _ in
+        browserTabs.create = { _, _, url, _, _, _, _, _ in
             created.urls.append(url)
             return CmuxNextDaemon.SurfaceID(rawValue: UInt64(created.urls.count) + 900)
         }

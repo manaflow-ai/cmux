@@ -197,10 +197,17 @@ extension DaemonConnection {
     }
 
     /// App-rendered browser tab (`frontend-browser-tabs-v1`); `activate: false` keeps the pane's active tab, `after` puts it right after that tab.
+    /// `split` opens it in a new pane split from `pane` instead (`frontend-browser-tab-split-v1`); a daemon
+    /// without that capability gets `missingCapabilities` and no request, never a tab in `pane`.
     @discardableResult
     public func newFrontendBrowserTab(url: String, engine: BrowserEngine, in pane: PaneID?, title: String? = nil, profileID: String? = nil,
-                                      activate: Bool? = nil, after: SurfaceID? = nil) async throws -> NewFrontendBrowserTabRequest.Response {
-        try await NewFrontendBrowserTabRequest(url: url, engine: engine, pane: pane, title: title, profileID: profileID, activate: activate, after: after).send(on: self)
+                                      activate: Bool? = nil, after: SurfaceID? = nil,
+                                      split: ConversationTabSplit? = nil) async throws -> NewFrontendBrowserTabRequest.Response {
+        if split != nil, identity?.supports(DaemonCapabilities.shared.frontendBrowserTabSplit) != true {
+            throw DaemonError.missingCapabilities([DaemonCapabilities.shared.frontendBrowserTabSplit])
+        }
+        return try await NewFrontendBrowserTabRequest(url: url, engine: engine, pane: pane, title: title, profileID: profileID,
+                                                      activate: activate, after: after, split: split).send(on: self)
     }
 
     @discardableResult

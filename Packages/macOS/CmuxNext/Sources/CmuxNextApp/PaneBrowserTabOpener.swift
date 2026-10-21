@@ -28,6 +28,16 @@ struct PaneBrowserTabOpener {
         return servesTabs ? .daemon : .sessionLocal
     }
 
+    /// Whether a new tab of this pane can open straight in a new split of it: the pane's machine
+    /// makes its browser tabs and serves `frontend-browser-tab-split-v1` (``PaneBrowserTabSplit``).
+    /// Else a caller makes the tab here and moves it.
+    var splitsDirectly: Bool {
+        let daemon = controller.daemon
+        let route = Self.machineRoute(isLocal: daemon.isLocal, connected: daemon.connection != nil,
+                                      servesTabs: controller.services.cache.browserTabs.isAvailable(in: controller.pane))
+        return route == .daemon && PaneBrowserTabSplit.isServed(by: daemon)
+    }
+
     /// Whether a session-local (WebKit) tab may stand in when the daemon
     /// cannot make browser tabs.
     /// Never for a Chromium request or a Chromium internal page: those are
@@ -46,11 +56,13 @@ struct PaneBrowserTabOpener {
     /// surface once the daemon made the tab. `opener` is the tab of the page
     /// that asked for it: the new tab goes next to it in Chrome's order
     /// (`BrowserTabOpeners`); without it the tab goes to the end.
+    /// `split`: the tab opens straight in a new pane on that side of this one
+    /// (``PaneBrowserTabSplit``, when ``splitsDirectly``), never in this pane's strip.
     /// False when the tab is refused (no tab, no daemon request). A local file goes where
     /// `LocalFileHandoff` shows it (a tab's first load is not guarded): Markdown opens the markdown
-    /// page unless the caller waits for the tab, and media Chromium cannot play opens in WebKit.
+    /// page unless the caller waits for the tab or a split, and media Chromium cannot play opens in WebKit.
     func open(url: URL?, engine requested: String?, inherited: String?, adopting child: (any BrowserTab)?,
-              background: Bool, profile: String?, notice: String?, opener: SurfaceID?,
+              background: Bool, profile: String?, notice: String?, opener: SurfaceID?, split: SplitDirection? = nil,
               then: (@MainActor (SurfaceID) -> Void)?) -> Bool {
         let services = controller.services
         var target = url
@@ -60,7 +72,7 @@ struct PaneBrowserTabOpener {
             guard let routed = ChromiumPageRouter.routed(typed, services: services, focus: !background) else { return false }
             target = routed
         }
-        if child == nil, then == nil, let url = target, services.viewers.openMarkdownHandoff(url, in: controller, focus: !background) {
+        if child == nil, then == nil, split == nil, let url = target, services.viewers.openMarkdownHandoff(url, in: controller, focus: !background) {
             return true
         }
         // `browser.enabled` off: a web page goes to the default browser, a file to its app, a blank tab is refused.
@@ -107,19 +119,31 @@ struct PaneBrowserTabOpener {
             let newTabAddress = services.newTabAddress(for: choice)
             let controller = controller, model = controller.pane
             let intent = background ? nil : controller.workspace?.beginFocusIntent()
+            // A new tab the user asked for opens the New Tab page; an
+            // adopted page (popup, extension tab) keeps its own.
+            let address = url?.absoluteString ?? (child == nil ? newTabAddress : BrowserNewTabPage.blankURL)
+            // A tab for a new split shows there now and is made there in one daemon commit.
+            let splitting = split.flatMap { child == nil && PaneBrowserTabSplit.isServed(by: daemon)
+                ? PaneBrowserTabSplit(showing: address, from: controller, direction: $0) : nil }
             services.registry.track(Task {
                 do {
-                    // A new tab the user asked for opens the New Tab page; an
-                    // adopted page (popup, extension tab) keeps its own.
-                    let address = url?.absoluteString ?? (child == nil ? newTabAddress : BrowserNewTabPage.blankURL)
-                    let surface = try await pageRequests.openers.open(opener, foreground: !background, in: model,
+                    let surface: SurfaceID
+                    if let splitting {
+                        guard let made = try await splitting.open({ wire in
+                            try await browserTabs.open(choice, in: model, url: address, profile: profile, notice: notice, split: wire)
+                        }) else { return nil } // the person closed the new pane first
+                        surface = made
+                    } else {
+                        surface = try await pageRequests.openers.open(opener, foreground: !background, in: model,
                                                                       browserTabs: browserTabs) { after in
-                        try await browserTabs.open(choice, in: model, url: address, profile: profile, notice: notice, after: after)
+                            try await browserTabs.open(choice, in: model, url: address, profile: profile, notice: notice, after: after)
+                        }
                     }
                     if let child { pageRequests.adopt(child, surface: surface) }
                     then?(surface)
                     guard !background else { return nil }
-                    controller.selectWhenReported(surface: surface)
+                    // A split's tab is its new pane's only tab, selected there already.
+                    if splitting == nil { controller.selectWhenReported(surface: surface) }
                     controller.workspace?.expectFocus(on: surface, target: url == nil ? .addressBar : .content, generation: intent)
                     return nil
                 } catch {

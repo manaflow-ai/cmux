@@ -44,16 +44,8 @@ use crate::workspace_registry::FrontendBrowserRecord;
 pub(crate) enum ConversationTabTarget {
     Pane(Option<PaneId>),
     Workspace(WorkspaceId),
-    /// A new pane on the `direction` side of `pane` (`right`, `down`, `left`
-    /// or `up`) that holds only the tab: one `pane.split` commit and one
-    /// `pane-added` delta, under the caller-minted `pane_id` and `split_id`
-    /// when given.
-    Split {
-        pane: PaneId,
-        direction: &'static str,
-        pane_id: Option<String>,
-        split_id: Option<String>,
-    },
+    /// A new pane split from a pane that holds only the tab ([`TabSplit`]).
+    Split(TabSplit),
 }
 
 /// A created or replayed conversation tab.
@@ -156,21 +148,13 @@ impl Mux {
             ConversationTabTarget::Workspace(workspace) => {
                 self.new_conversation_tab_in(actor, workspace, fields)
             }
-            ConversationTabTarget::Split { pane, direction, pane_id, split_id } => {
-                fields.insert(PANE_BROWSER_URL_FIELD.into(), CONVERSATION_TAB_URL.into());
-                if let Some(pane_id) = pane_id {
-                    fields.insert(CLIENT_PANE_ID_FIELD.into(), Value::String(pane_id));
-                }
-                if let Some(split_id) = split_id {
-                    fields.insert(CLIENT_SPLIT_ID_FIELD.into(), Value::String(split_id));
-                }
-                // `pinned-dock-alone-v1`: a split right of Home's dock alone is a new column
-                // beside it, as wide as a link Home opens there (`workspace.open_url`).
-                let beside_lone_dock = direction == "right"
-                    && self.with_state(|state| pane_in_lone_pinned_column(state, pane));
-                let width = beside_lone_dock.then_some(LONE_DOCK_NEIGHBOR_WIDTH);
-                self.split_browser_pane_with_fields_as(actor, pane, direction, width, fields, size)
-            }
+            ConversationTabTarget::Split(split) => self.split_tab_pane_with_fields_as(
+                actor,
+                split,
+                CONVERSATION_TAB_URL.to_string(),
+                fields,
+                size,
+            ),
         };
         match created {
             Ok(surface) => {
@@ -218,7 +202,7 @@ impl Mux {
                 let id = state.resource_indexes.pane_ids.get(pane).context("unknown pane")?;
                 Ok(serde_json::json!({"pane": id.as_str()}))
             }
-            ConversationTabTarget::Split { pane, direction, pane_id, split_id } => {
+            ConversationTabTarget::Split(TabSplit { pane, direction, pane_id, split_id }) => {
                 let id = state.resource_indexes.pane_ids.get(pane).context("unknown pane")?;
                 let mut ids =
                     serde_json::json!({"pane": id.as_str(), "split": direction, "pane_id": pane_id});
