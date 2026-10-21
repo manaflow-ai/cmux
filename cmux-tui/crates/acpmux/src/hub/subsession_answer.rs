@@ -301,4 +301,39 @@ mod tests {
         assert_eq!(outcome["optionId"], "go", "{outcome}");
         assert_eq!(outcome[ANSWERED_BY_SLOT]["session"], "parent", "{outcome}");
     }
+
+    /// The folder-trust card (`trust_wait.rs`) is the person's: an ancestor
+    /// cannot trust a folder for them, even on an entry recorded otherwise.
+    #[tokio::test]
+    async fn subsession_answer_never_answers_a_folder_trust_card() {
+        let (hub, session, _conn) = hub_with_session().await;
+        let request = super::super::trust_wait::card("/tmp/untrusted", "child");
+        assert!(!super::super::questions::ancestor_answerable(&request, false));
+        let (reply, _rx) = oneshot::channel();
+        let id = uuid::Uuid::now_v7().to_string();
+        let entry = PendingPermission {
+            request,
+            reply,
+            decision_nonce: super::super::person::new_nonce(),
+            ancestor_may_answer: true,
+            prev_status: SessionStatus::Waiting,
+        };
+        session.permissions.lock().unwrap().pending.insert(id.clone(), entry);
+        let prompt = "child wants to work in /tmp/untrusted. Do you trust this folder?";
+        let e = hub
+            .respond_permission(
+                &session,
+                &id,
+                Some("trust".to_owned()),
+                Some(json!({(prompt): "Trust folder"})),
+                Some(json!({"session": "parent", "name": "parent"})),
+                Answerer { ancestor: Some("parent"), ..Default::default() },
+                Control::Local,
+            )
+            .await
+            .expect_err("a folder-trust card");
+        let reason = e.data.as_ref().map(|d| d["reason"].clone());
+        assert_eq!(reason, Some(json!(REASON)), "{e:?}");
+        assert!(session.permissions.lock().unwrap().pending.contains_key(&id), "it stays pending");
+    }
 }
