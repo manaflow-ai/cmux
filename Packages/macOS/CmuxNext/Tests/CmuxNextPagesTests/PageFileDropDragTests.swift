@@ -63,8 +63,12 @@ struct PageFileDropDragTests {
         _ = web.draggingEntered(second)
         _ = web.draggingUpdated(second)
         #expect(reads == 2)
-        // A new drag enter reads again (the exit and end resets call WebKit, which a fake drag cannot serve).
-        _ = web.draggingEntered(second)
+        // The drag ends: WebKit has no `draggingEnded:`, so the end must not forward it (it threw
+        // "unrecognized selector" and ended the app). The next drag reads again.
+        web.draggingEnded(second)
+        let third = Drag(sequence: 3)
+        _ = web.draggingEntered(third)
+        _ = web.draggingUpdated(third)
         #expect(reads == 3)
     }
 }
