@@ -302,11 +302,12 @@ pub(super) fn mode_eligible(
     plain && !remote && !keep_harness_mode && !profile_sets_mode(profile)
 }
 
-/// The mode ids a session's harness offers.
+/// The mode ids a session's harness offers, for the policy modes (`policy_mode.rs`).
 pub(super) fn offered_ids(meta: &crate::store::SessionMeta) -> Vec<String> {
     available(meta)
 }
 
+/// The mode ids a session's harness offers.
 fn available(meta: &crate::store::SessionMeta) -> Vec<String> {
     offered(meta).into_iter().map(|(id, _)| id).collect()
 }

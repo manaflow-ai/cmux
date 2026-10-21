@@ -120,10 +120,12 @@ impl Hub {
         // child is seen here, or starts after and reads the mode written here.
         let spawning = session.spawn_lock.lock().await;
         let child = session.child.lock().await.clone();
+        // An agent in a host this daemon has not reached yet (adoption after a restart, a broken
+        // link) runs too: `set_mode` reaches the host again (`readopt`), which replays nothing.
         let running = match child {
             Some(child) => child.is_alive().await,
             None => false,
-        };
+        } || Self::host_record_live(&session.id);
         // A chat whose agent is not running starts none: its saved mode becomes the policy's,
         // which the agent's next start restores (`replay_config`, Claude's `--permission-mode`).
         // The Codex bridge also reports the mode as its `mode` config option, which
