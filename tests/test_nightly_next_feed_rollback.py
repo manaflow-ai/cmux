@@ -140,5 +140,39 @@ class CommandTests(unittest.TestCase):
         self.assertFalse(out.exists())
 
 
+class PulledListTests(unittest.TestCase):
+    AT = "2026-10-20T21:00:00Z"
+
+    def test_first_pull_lists_every_pulled_build_newest_first(self):
+        entries = rollback.pulled_list(None, ["300", "400"], "200", "crashes at launch", self.AT)
+        self.assertEqual([e["build"] for e in entries], ["400", "300"])
+        self.assertEqual(entries[0], {"build": "400", "reason": "crashes at launch", "pulledAt": self.AT, "serve": "200"})
+
+    def test_merges_into_the_existing_list_and_replaces_a_repeat(self):
+        existing = json.dumps([{"build": "150", "reason": "old", "pulledAt": "x", "serve": "140"},
+                               {"build": "300", "reason": "first", "pulledAt": "x", "serve": "200"}])
+        entries = rollback.pulled_list(existing, ["300"], "250", "again", self.AT)
+        self.assertEqual([e["build"] for e in entries], ["300", "150"])
+        self.assertEqual(entries[0]["reason"], "again")
+
+    def test_serving_a_pulled_build_again_clears_it(self):
+        existing = json.dumps([{"build": "300", "reason": "r", "pulledAt": "x", "serve": "200"}])
+        self.assertEqual(rollback.pulled_list(existing, ["400"], "300", "r", self.AT)[0]["build"], "400")
+        self.assertNotIn("300", [e["build"] for e in rollback.pulled_list(existing, ["400"], "300", "r", self.AT)])
+
+    def test_unreadable_existing_counts_as_empty_and_bad_builds_refuse(self):
+        self.assertEqual(len(rollback.pulled_list("not json", ["5"], "4", "r", self.AT)), 1)
+        with self.assertRaises(rollback.Refused):
+            rollback.pulled_list(None, ["5x"], "4", "r", self.AT)
+
+    def test_cli_writes_the_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "pulled.json"
+            code = rollback.main(["pulled", "--existing", str(Path(tmp) / "missing.json"), "--pulled", "9 8",
+                                  "--serve", "7", "--reason", "r", "--at", self.AT, "--out", str(out)])
+            self.assertEqual(code, 0)
+            self.assertEqual([e["build"] for e in json.loads(out.read_text())], ["9", "8"])
+
+
 if __name__ == "__main__":
     unittest.main()
