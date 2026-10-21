@@ -17,6 +17,13 @@ import Foundation
 /// workspace name), `key` (a caller-chosen workspace key, a lowercase UUID,
 /// so the caller can rename the workspace later), `cwd` (the terminal's), `host`
 /// (`chief:<home id>`: the session runs in this app's Chief home's acpmux).
+///
+/// With `pane` or `workspace` (#23026, `cmux agents chat new`) no workspace is
+/// made: the chat tab opens in that pane (the workspace's active pane) from the
+/// daemon's tree, so a workspace no window shows works too. The tab is
+/// selected in its pane for when the pane is shown; focus and the shown
+/// workspace stay where they are. The run's result names `tab`, `pane` and
+/// `workspace`.
 enum AgentSessionWorkspace {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("agent.openSessionWorkspace", run: { invocation in
@@ -33,8 +40,70 @@ enum AgentSessionWorkspace {
         let cwd = invocation["cwd"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         // The Chief host's own acpmux runs the session (`chief:<home id>`); absent: this Mac's.
         let host = invocation["host"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        if let target = try existingPane(invocation, services: context.services) {
+            let task = try open(session: session, in: target.pane, of: target.daemon, host: host, services: context.services)
+            context.services.registry.track(result: task)
+            return
+        }
         let task = try open(session: session, name: name, key: key, cwd: cwd, host: host, services: context.services)
         context.services.registry.track(task)
+    }
+
+    /// The pane the run names (`pane`, else `workspace`'s active pane) and its daemon; nil
+    /// when it names neither. Throws when the named pane or workspace is not in any tree.
+    private static func existingPane(_ invocation: ActionInvocation, services: AppServices) throws -> (pane: PaneModel, daemon: DaemonService)? {
+        if let id = argumentID(invocation, "pane") {
+            guard let pane = services.pane(id: id) else { throw ActionFailure(message: RefusalStrings.noPaneID(id), isNotFound: true) }
+            return (pane, services.machines.daemon(forPane: pane))
+        }
+        guard let id = argumentID(invocation, "workspace") else { return nil }
+        let found = services.machines.allWorkspaces.first { workspace, _ in
+            workspace.id == id || workspace.resourceID?.rawValue == id || workspace.key?.rawValue == id.lowercased()
+        }
+        guard let (workspace, daemon) = found, let screen = workspace.screens.first,
+              let pane = screen.panes.first(where: { $0.handle == screen.defaultPane }) ?? screen.panes.first else {
+            throw ActionFailure(message: RefusalStrings.noWorkspace(id), isNotFound: true)
+        }
+        return (pane, daemon)
+    }
+
+    /// A target or string argument's id, nil when absent or empty.
+    private static func argumentID(_ invocation: ActionInvocation, _ name: String) -> String? {
+        let id = invocation[name]?.targetValue?.id ?? invocation[name]?.stringValue
+        return id.flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// Opens a tab on `session` in an existing `pane` of `daemon` without showing it or moving
+    /// focus (see the type), and hands back its ids.
+    static func open(session: String, in pane: PaneModel, of daemon: DaemonService, host: String?,
+                     services: AppServices) throws -> ActionResultWork {
+        guard services.agentTabs.canHostChat else { throw ActionFailure(message: MiscHandlerStrings.quickChatUnavailable) }
+        let workspace = services.machines.allWorkspaces.first { candidate, _ in
+            candidate.screens.contains { $0.panes.contains { $0 === pane } }
+        }?.0
+        // A store tab bound to the session (agent-session-tabs-v1); a refusal throws here.
+        let pending = try services.agentTabs.open(in: pane.handle, of: daemon, session: session, linked: true, host: host)
+        return Task { @MainActor in
+            do {
+                let created = try await pending.value()
+                // Selected wherever the pane is shown, never shown now.
+                for window in services.windows.controllers {
+                    window.state.selection.select(created.key, in: pane.id)
+                }
+                let tab = daemon.store.tab(id: created.key)
+                var result: [String: ActionResultValue] = [
+                    "session": .string(session), "tab": .string(tab?.resourceID?.rawValue ?? created.key),
+                    "pane": .string(pane.resourceID?.rawValue ?? pane.id),
+                ]
+                if let workspace { result["workspace"] = .string(workspace.resourceID?.rawValue ?? workspace.id) }
+                return .success(result)
+            } catch let refusal as AgentTabRefusal {
+                return .failure(ActionWorkFailure("agent.openSessionWorkspace: \(refusal.message)"))
+            } catch {
+                daemon.logger.error("agent.openSessionWorkspace in pane failed: \(String(describing: error), privacy: .public)")
+                return .failure(ActionWorkFailure("agent.openSessionWorkspace: \(error)"))
+            }
+        }
     }
 
     /// Starts the new workspace for `session` (see the type) and returns its

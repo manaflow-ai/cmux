@@ -22,6 +22,14 @@ import Foundation
 /// PNG fits one answer), `width` and `height` (pixels), `scale` (pixels per
 /// point) and `method` (`window` or `page`). A person's run (palette, menu)
 /// also copies the image.
+///
+/// Agents and scripts may capture panes and tabs (#23026), never browser
+/// pixels: a browser tab, or a pane whose shown tab is one, is refused to any
+/// run that is not a person's, which uses the browser host's guarded capture
+/// (`cmux browser page screenshot`, masked for other sessions) instead. A
+/// terminal's or an agent chat's pixels show nothing its text reads
+/// (`cmux terminal … screen read`, `cmux agents chat read`) do not.
+/// `window.screenshot` stays a person's only (`isPersonOnly`).
 enum ScreenshotHandlers {
     /// The capture gave no image; the message says why.
     static let unavailableCode = "screenshot.unavailable"
@@ -43,6 +51,9 @@ enum ScreenshotHandlers {
                 if invocation.target == nil { throw ActionFailure(message: MiscHandlerStrings.noPane) }
                 return
             }
+            if invocation.origin != .user, let id = pane.stripModel.selectedID, pane.tab(id)?.kind == .browser {
+                throw ActionFailure(message: ScreenshotStrings.browserNeedsGuardedCapture)
+            }
             guard let window = pane.view.window, pane.isVisible, !pane.view.isHiddenOrHasHiddenAncestor else {
                 throw ActionFailure(message: ScreenshotStrings.paneNotShown)
             }
@@ -54,6 +65,9 @@ enum ScreenshotHandlers {
         registry.bind("tab.screenshot", run: { invocation in
             let output = try ScreenshotOutput(invocation)
             let (tab, controller) = try resolveTab(invocation, services: context.services)
+            if invocation.origin != .user, tab.kind == .browser {
+                throw ActionFailure(message: ScreenshotStrings.browserNeedsGuardedCapture)
+            }
             if let controller, let window = controller.view.window, controller.isVisible, controller.currentTabKey == tab.id,
                !controller.view.contentHost.isHiddenOrHasHiddenAncestor {
                 let view = controller.view.contentHost
