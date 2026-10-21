@@ -75,3 +75,20 @@ Publish an already captured matrix with `scripts/gallery-deploy.sh --matrix g5-p
 For the native cmux-next lane, use `scripts/cmux-next/motion-evidence.py` with the socket of the exact
 tagged DEBUG app. It wraps `scripts/ci/frame-pacing/golden.py`, writes a `motion-evidence.json`
 manifest, and preserves the per-display-link traces and optional `debug.window_record` frames.
+
+## Gallery health
+
+`health.ts` checks that every gallery state renders. It runs the matrix (`runLocal`) and calls a
+state (`entry#variant`) broken when its stage errors, never reports ready, draws nothing, the
+renderer dies, or its play can't find or reach the state ("no element for", "waitFor did not
+hold", "Gallery control missing"). Layout shift, long frames and motion stay the matrix's findings.
+A state broken on the first run is rendered twice more, and only a state broken every time counts.
+
+`broken-allowlist.json` names known broken states, each with why it waits. A broken state that is
+not listed fails the check; a listed state that now renders is printed so its line can go. The
+`gallery health` workflow renders the entries a pull request touches (everything when this folder
+or the workflow changes) and the whole gallery daily, in four shards:
+
+```sh
+CMUX_GALLERY_IN_VM=1 bun health.ts --manifest manifest.json --gallery-dir ../../webviews/dist/gallery
+```
