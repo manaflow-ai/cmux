@@ -105,14 +105,8 @@ harness itself exited. Its last output is kept and its command is shown with
   as Claude Code's own Ctrl-B does. Its answer carries `backgrounded`
   (Claude Code's SDK reads a missing one as true). The moved shells then
   come as task events like any other, and the translator gives the ones
-  that were in the foreground at the request origin `user_backgrounded`.
-  The hub waits 10 s for the answer and passes that wait to the translator
-  (`timeoutMs`). The marks go again when the answer says nothing moved, when
-  that wait ends unanswered, or when the turn ends first, so a shell Claude
-  Code moves later on its own stays `auto_backgrounded`. A shell that already
-  moved, or that another request moved or still waits on, keeps its mark: of
-  two Ctrl-Bs close together, the second's `backgrounded: false` leaves the
-  first's shell the person's.
+  that were in the foreground at the request origin `user_backgrounded`
+  (unmarked again when nothing moved).
 
 **Codex** (`codex app-server`, through the `cmux-codex-acp` bridge):
 
@@ -219,9 +213,7 @@ process's command line and its kill never leave the machine.
   `process/background` sends `background_tasks` with and without
   `tool_use_id`, answers Claude Code's `backgrounded`, lists the moved shell
   `user_backgrounded`, answers false with no turn running without asking,
-  turns Claude Code's refusal into an error, leaves no mark when Claude Code
-  never answers or the turn ends first, keeps the first of two requests'
-  shell the person's when the second answers false, and refuses a chat of another
+  turns Claude Code's refusal into an error, and refuses a chat of another
   agent (Codex too, in `codex_processes.rs`) and Web and Peer connections.
 - To build: after a daemon restart an adopted host's processes are listed
   again.

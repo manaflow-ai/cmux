@@ -273,17 +273,10 @@ impl Translator {
                                 asked.push(call.clone());
                             }
                         }
-                        // The hub stops waiting after `timeoutMs`, and the marks go then
-                        // (`end_background_asks`); without one, at the turn's end.
-                        let wait = p.get("timeoutMs").and_then(Value::as_u64);
-                        let deadline = wait.and_then(|ms| {
-                            std::time::Instant::now()
-                                .checked_add(std::time::Duration::from_millis(ms))
-                        });
                         self.pending
                             .lock()
                             .await
-                            .insert(id.to_string(), Pending::Background(asked, deadline));
+                            .insert(id.to_string(), Pending::Background(asked));
                         let mut request = json!({"subtype": "background_tasks"});
                         if let Some(tool) = tool {
                             request["tool_use_id"] = json!(tool);
