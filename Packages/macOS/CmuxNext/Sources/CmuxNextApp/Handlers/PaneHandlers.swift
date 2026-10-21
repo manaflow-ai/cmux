@@ -89,6 +89,11 @@ enum PaneHandlers {
             if let content = strip.workspace { focus(strip.layoutPaneID, in: content) }
             if page { return strip.newTabPage() }
             return strip.newTerminalTab(cwd: named, keep: keep, fromSelectedTab: true, daemonResolvesCwd: true)
+        case .besideDock(let dock):
+            // Every direction is a column on the dock's right: the pinned dock neither splits nor moves.
+            if page { NewTabPage.split(dock, edge: .right); return }
+            dock.workspace?.newColumn(after: dock.layoutPaneID, options: SpawnOptions(cwd: cwd, workspace: workspace, keep: keep))
+            return
         }
         let axis: SplitAxis = direction == .left || direction == .right ? .horizontal : .vertical
         let sizing = controller.flatMap { controller in
