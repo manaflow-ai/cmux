@@ -27,7 +27,7 @@ cmux tab list --json
 
 The terminal record lists the tabs that show it, and a tab record names its pane. Use those ids for every mutating command.
 
-`current` means the session's active workspace, screen and pane, which is what the user is looking at. It is not the caller: an agent can run in one workspace while the user looks at another. Use `current` only when the user asked about the focused context, and say so.
+`caller` names your own workspace, screen, pane, tab or terminal (`cmux pane caller split --right`, `cmux workspace caller rename …`), and fails rather than guess when there is no caller. Inside cmux, `current` means the caller's object too; it is the focused object (what the user is looking at) only without a caller, such as a shell outside cmux, or with `--socket`/`--session`. Prefer `caller` in agent scripts.
 
 ## Non-disruptive automation
 
