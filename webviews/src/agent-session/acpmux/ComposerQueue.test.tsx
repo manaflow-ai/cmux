@@ -134,3 +134,90 @@ test("⌘↩ on a row, held or not, sends nothing and keeps focus on it", async 
   expect(edits).toEqual([]);
   expect(dom!.window.document.activeElement).toBe(row);
 });
+
+// A queued prompt keeps and shows its images (Leo, 2026-10-21: "do queued messages have pics?"):
+// small thumbnails under its text, each opening the image viewer; while it is edited, each has a
+// remove control, and saving keeps only the images left.
+const SHOT_A = "a".repeat(64);
+const SHOT_B = "b".repeat(64);
+const pictured = [
+  {
+    id: "p-1",
+    prompt: "why does this overlap?",
+    images: [
+      { id: SHOT_A, mimeType: "image/png", name: "sidebar.png", src: "data:image/png;base64,QQ==" },
+      { id: SHOT_B, mimeType: "image/png", name: "toolbar.png", src: "data:image/png;base64,Qg==" },
+    ],
+  },
+];
+
+async function renderPictured(onChange: (id: string, edit: QueueEdit) => Promise<boolean>, opened: string[][]) {
+  const container = installDom();
+  const { ImageViewerContext } = await import("./conversation/imageViewerContext");
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ImageViewerContext.Provider value={(src, alt) => opened.push([src, alt])}>
+        <ComposerQueue queue={pictured} chat="c" t={t} onChange={onChange} onRemove={async () => true} />
+      </ImageViewerContext.Provider>,
+    );
+  });
+  return container;
+}
+
+const thumbnails = (container: HTMLElement) => [
+  ...container.querySelectorAll<HTMLButtonElement>('[data-prompt-id="p-1"] .acpmux-queued-image'),
+];
+
+test("a queued prompt with two images shows two thumbnails under its text; a click opens one", async () => {
+  const opened: string[][] = [];
+  const container = await renderPictured(async () => true, opened);
+  const shown = thumbnails(container);
+  expect(shown.length).toBe(2);
+  expect(shown.map((button) => button.querySelector("img")?.getAttribute("src"))).toEqual([
+    "data:image/png;base64,QQ==",
+    "data:image/png;base64,Qg==",
+  ]);
+  // Under the text: the thumbnails come after it in the row.
+  const text = container.querySelector('[data-prompt-id="p-1"] .acpmux-queued-text')!;
+  expect(text.compareDocumentPosition(shown[0]!) & dom!.window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  await act(async () => shown[1]!.click());
+  expect(opened).toEqual([["data:image/png;base64,Qg==", "toolbar.png"]]);
+});
+
+test("editing a queued prompt removes one of its images and saves the rest", async () => {
+  const edits: [string, QueueEdit][] = [];
+  const container = await renderPictured(async (id, edit) => {
+    edits.push([id, edit]);
+    return true;
+  }, []);
+  const [edit] = actions(container, "p-1");
+  await act(async () => edit.click());
+  const removes = [
+    ...container.querySelectorAll<HTMLButtonElement>('[data-prompt-id="p-1"] .acpmux-queued-image-remove'),
+  ];
+  expect(removes.length).toBe(2);
+  await act(async () => removes[0]!.click());
+  expect(thumbnails(container).length).toBe(1);
+  const field = container.querySelector<HTMLTextAreaElement>('[data-prompt-id="p-1"] textarea')!;
+  await act(async () => {
+    field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  });
+  expect(edits).toEqual([["p-1", { op: "update", text: "why does this overlap?", images: [SHOT_B] }]]);
+});
+
+test("editing only a queued prompt's text sends no image list, so it keeps them all", async () => {
+  const edits: [string, QueueEdit][] = [];
+  const container = await renderPictured(async (id, edit) => {
+    edits.push([id, edit]);
+    return true;
+  }, []);
+  const [edit] = actions(container, "p-1");
+  await act(async () => edit.click());
+  const field = container.querySelector<HTMLTextAreaElement>('[data-prompt-id="p-1"] textarea')!;
+  await act(async () => {
+    field.value = "why does the sidebar overlap?";
+    field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  });
+  expect(edits).toEqual([["p-1", { op: "update", text: "why does the sidebar overlap?" }]]);
+});
