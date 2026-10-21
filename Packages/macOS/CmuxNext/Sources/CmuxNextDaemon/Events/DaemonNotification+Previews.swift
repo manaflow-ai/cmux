@@ -1,20 +1,4 @@
-import CoreGraphics
-
-/// When a banner shows what the agent said (its last message, `DaemonNotification.preview`),
-/// named like macOS's own Show Previews. The app keeps it at `whenUnlocked` until the
-/// `notifications.showPreviews` setting lands.
-public enum NotificationPreviews: String, Hashable, Sendable, CaseIterable {
-    case always
-    /// Not while the screen is locked (default).
-    case whenUnlocked
-    case never
-
-    /// Whether the login session's screen is locked now, as the window server reports it.
-    public static var screenIsLocked: Bool {
-        let session = CGSessionCopyCurrentDictionary() as? [String: Any]
-        return session?["CGSSessionScreenIsLocked"] as? Bool ?? false
-    }
-}
+public import CmuxNextCompat
 
 extension DaemonNotification {
     /// The poster's subtitle (`cmux notify --subtitle`), unless empty.

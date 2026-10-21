@@ -326,6 +326,9 @@ export type ProcessBackgroundResult = {
   backgrounded: boolean;
 } & Record<string, unknown>;
 
+/** `_acpmux/protocol` takes no params. */
+export type ProtocolParams = Record<string, never>;
+
 /** A purged session: only its id is left. */
 export type PurgedSession = {
   sessionId: string;

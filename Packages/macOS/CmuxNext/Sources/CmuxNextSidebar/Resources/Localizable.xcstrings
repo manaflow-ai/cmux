@@ -20836,10 +20836,22 @@
     "sidebar.groupEditor.closeAll": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
+        "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Close All in Group"
+            "value": "إغلاق الكل في المجموعة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zatvori sve u grupi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Luk alle i gruppen"
           }
         },
         "de": {
@@ -20848,16 +20860,10 @@
             "value": "Alle in der Gruppe schließen"
           }
         },
-        "fr": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tout fermer dans le groupe"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إغلاق الكل في المجموعة"
+            "value": "Close All in Group"
           }
         },
         "es": {
@@ -20866,16 +20872,28 @@
             "value": "Cerrar todo en el grupo"
           }
         },
-        "zh-Hant": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "關閉群組中的全部"
+            "value": "Tout fermer dans le groupe"
           }
         },
-        "zh-Hans": {
+        "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "关闭组中的全部"
+            "value": "Chiudi tutto nel gruppo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ内をすべて閉じる"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បិទទាំងអស់ក្នុងក្រុម"
           }
         },
         "ko": {
@@ -20884,10 +20902,64 @@
             "value": "그룹에서 모두 닫기"
           }
         },
-        "ja": {
+        "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "グループ内をすべて閉じる"
+            "value": "Lukk alle i gruppen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zamknij wszystkie w grupie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fechar tudo no grupo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закрыть все в группе"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิดทั้งหมดในกลุ่ม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gruptakilerin Tümünü Kapat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закрити всі в групі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đóng tất cả trong nhóm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭组中的全部"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉群組中的全部"
           }
         }
       }

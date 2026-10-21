@@ -703,6 +703,10 @@ def named(step_list, name):
     return matches[0], step_list[matches[0]]
 
 
+# cmux-next lanes whose bot re-runs stay on the minis through attempt 3; attempt 4 leaves them.
+MINIS_FIRST_THROUGH_ATTEMPT_3 = frozenset({"cmux-next.yml", "cmux-next-batch.yml", "cmux-tui-artifacts.yml"})
+
+
 TOKEN = re.compile(r"\s*(\|\||&&|==|!=|>=|<=|>|<|!|\(|\)|\[|\]|,|'(?:[^']|'')*'|[0-9]+(?:\.[0-9]+)?|[A-Za-z_][A-Za-z0-9_.*-]*)")
 
 
@@ -967,17 +971,20 @@ class Wiring(unittest.TestCase):
         self.assertIn("admission-derived-data-v1-${RUNNER_OS}-${RUNNER_ARCH}-${fingerprint}-", key["run"])
         nightly = load("nightly.yml")["jobs"]["refresh-test-compilation-cache"]
         job = workflow["jobs"]["seed"]
-        # Every nightly cold seed lands on a pool the per-push seeder uses, on
-        # the same Xcode, and the macOS 15 pool gets one too.
+        # No nightly job runs on Blacksmith (user decision 2026-10-19,
+        # 1adad047017b), so the nightly cold seed runs on GitHub-hosted macOS 26
+        # and macOS 15, not on the per-push seeder's Blacksmith pools. A seed only
+        # serves the runner width it was built on, so on manaflow-ai these cold
+        # seeds no longer reach pull-request admission; each still uses the
+        # Xcode the per-push seeder uses for its macOS version.
         self.assertEqual(nightly["runs-on"], "${{ matrix.pool }}")
-        self.assertLessEqual(set(nightly["strategy"]["matrix"]["pool"]), set(seed_pools()))
-        self.assertEqual(nightly["strategy"]["matrix"]["pool"][-1], seed_pools()[-1])
-        self.assertEqual(nightly["env"]["CMUX_CI_XCODE_APP"], job["env"]["CMUX_CI_XCODE_APP"])
-        # On the lane's pools the seeder uses the nightly's Xcode.
-        context = github_context("push", MACOS_RUNNER_PR="blacksmith-6vcpu-macos-26")
-        context["matrix"] = {"pool": "blacksmith-6vcpu-macos-26"}
-        self.assertEqual(evaluate(job["env"]["CMUX_CI_XCODE_APP"], context),
-                         evaluate(nightly["env"]["CMUX_CI_XCODE_APP"], context))
+        schedule = github_context("schedule")
+        nightly_pools = [pool if "${{" in pool else f"${{{{ '{pool}' }}}}" for pool in nightly["strategy"]["matrix"]["pool"]]
+        self.assertEqual([evaluate(pool, schedule) for pool in nightly_pools], ["macos-26", "macos-15"])
+        for hosted, blacksmith in (("macos-26", "blacksmith-6vcpu-macos-26"), ("macos-15", "blacksmith-6vcpu-macos-15")):
+            with self.subTest(pool=hosted):
+                self.assertEqual(evaluate(nightly["env"]["CMUX_CI_XCODE_APP"], {**schedule, "matrix": {"pool": hosted}}),
+                                 evaluate(job["env"]["CMUX_CI_XCODE_APP"], {**schedule, "matrix": {"pool": blacksmith}}))
 
         # Resolve against the same Swift package cache admission restores, so
         # a layout change invalidates both keys together.
@@ -1442,8 +1449,11 @@ class Wiring(unittest.TestCase):
         # attempt 3 of the bot's re-runs (the rescue's move of a stuck attempt
         # 2) never does, so the rescue cannot loop. A person's re-run may
         # (test_a_retry_goes_to_blacksmith_after_a_host_fault_...).
-        # The cmux-next workflows use the same bot attempt-3 Blacksmith fallback
-        # as the other native workflows, so no retry attempt takes an owned label.
+        # The cmux-next workflows keep the bot's attempt 3 on the minis and send
+        # attempt 4 off them: #22565 gates every cmux-next fleet fallback at
+        # run_attempt <= 3 (cx-urd.50). owned_pool_rescue.py stops watching
+        # cmux-next bot runs after attempt 2 (#21438), so it does not re-run a
+        # refused attempt 3.
         mini, root, gui, side = ("glaeda-std-xcode-26.6", "glaeda-root-std-xcode-26.6",
                                  "glaeda-gui-std-xcode-26.6", "glaeda-side-std-xcode-26.6")
         owned_jobs = (" admission shard-1 lag cli-product swift-package remote-daemon ")
@@ -1457,7 +1467,7 @@ class Wiring(unittest.TestCase):
                     continue
                 runs_on = (runs_on.replace("format(' shard-{0} ', matrix.shard)", "' shard-1 '")
                            .replace("format('shard-{0}', matrix.shard)", "'shard-1'"))
-                last = "3"
+                last = "4" if path.name in MINIS_FIRST_THROUGH_ATTEMPT_3 else "3"
                 for attempt in ("1", "2", "3", "4")[:int(last)]:
                     context = github_context("pull_request", ref="refs/pull/1/merge",
                                              CI_PR_POOL_OWNED="1", CI_SIDE_LANE_RUNNER=side,
@@ -1488,7 +1498,10 @@ class Wiring(unittest.TestCase):
         for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
             text = path.read_text(encoding="utf-8")
             with self.subTest(workflow=path.name):
-                pattern = r"run_attempt (?:<= ?[3-9]|== ?[2-9])"
+                # cmux-next.yml's `run_attempt == 2 && bot` gates send the bot's
+                # attempt 2 to Blacksmith or hosted runners, never a fleet label.
+                pattern = (r"run_attempt <= ?[4-9]" if path.name in MINIS_FIRST_THROUGH_ATTEMPT_3
+                           else r"run_attempt (?:<= ?[3-9]|== ?[2-9])")
                 self.assertIsNone(re.search(pattern, text))
         self.assertIn("(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]')",
                       load("ci-macos.yml")["jobs"]["late-placement"]["if"])
