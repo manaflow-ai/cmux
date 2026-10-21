@@ -738,7 +738,7 @@ async fn a_client_prompt_named_like_a_push_still_gets_the_rule() {
 /// #22153 review: any agent session may post on many keys; one rules block carries at most
 /// 16 KiB of agents' posts, and the rest come with the session's later prompts.
 #[tokio::test]
-async fn agents_posts_past_one_blocks_share_wait_for_later_prompts() {
+async fn agents_rules_past_one_blocks_share_wait_for_later_prompts() {
     let hub = hub();
     let mut app = Client::person(&hub).await;
     let a = app.new_session().await;
