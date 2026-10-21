@@ -15,6 +15,8 @@ mod agents_doctor;
 #[cfg(unix)]
 mod app;
 #[cfg(unix)]
+mod app_browser_route;
+#[cfg(unix)]
 mod app_focus;
 #[cfg(unix)]
 mod apps_run;

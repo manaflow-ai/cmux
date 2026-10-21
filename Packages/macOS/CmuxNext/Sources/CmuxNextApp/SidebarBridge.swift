@@ -89,8 +89,7 @@ final class SidebarBridge {
             focus.send(.focusTarget(.content, source: .keyboard))
         }
         seedFromSnapshot(state)
-        // Clear until real content (released by `markReadyForReveal`, or by
-        // the reveal deadline); a no-op once the sidebar region is ready.
+        // Clear until real content (`markReadyForReveal`, or the deadline); a no-op once it is ready.
         services.launchReveal.hold(container, until: .sidebar)
         observe()
         observeSections()
@@ -239,7 +238,8 @@ final class SidebarBridge {
         selectionHold.flush()
         organizationQueue.drain(loaded: usesPersonalOrganization, local: services.machines.local, run: handle, refuse: refuseOrganization)
         groupFlow.openPendingEditor()
-        if !launching || sections.contains(where: { $0.workspaces.contains { $0.rowState != .placeholder } }) { markReadyForReveal() }
+        // Shown once rows are real, or when nothing saved stands in (a fresh profile: no glass-only launch frame).
+        if !launching || seed.sections.isEmpty || sections.contains(where: { $0.workspaces.contains { $0.rowState != .placeholder } }) { markReadyForReveal() }
         recordSnapshot()
     }
 

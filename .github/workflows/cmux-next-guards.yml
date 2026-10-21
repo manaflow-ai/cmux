@@ -47,6 +47,45 @@ jobs:
       linux_guard_cli: ${{ 'false' }}
       linux_guard_source: ${{ 'false' }}
 
+  # ci-guards.yml's `ci` group (workflow lints, hook trust, runner and cache policy: scripts/ci/guards-local.sh's
+  # default set) ran only in ci.yml's "CI fast guards", which skips feat-cmux-next pull requests, and ci.yml never
+  # runs on its pushes. Nothing ran it for the branch: tests/test_preflight_trust.py errored there unseen until
+  # #23006 (tests/test_feat_ci_guard_group.py).
+  ci-guard-group:
+    name: cmux-next CI guard group
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      # The branch had 24 of the group's 134 steps red before this job ran there (2026-10-21), so the job fails
+      # only on a step red on this change but not on its base; the base's reds are warnings
+      # (scripts/ci/guards_new_reds.py). The base's steps run with this checkout's runner (--root).
+      - name: Checkout the base
+        if: (github.event.pull_request.base.sha || github.event.before || '') != '' && (github.event.pull_request.base.sha || github.event.before) != '0000000000000000000000000000000000000000'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.event.before }}
+          path: .guard-base
+          persist-credentials: false
+
+      - name: Run the ci guard group
+        env:
+          CMUX_GUARDS_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
+        run: |
+          scripts/ci/guards-local.sh --no-stamp --keep-going --jobs 8 --results "$RUNNER_TEMP/guards-head.json" || true
+          if [ -d .guard-base ]; then
+            scripts/ci/guards-local.sh --no-stamp --keep-going --jobs 8 --root .guard-base \
+              --results "$RUNNER_TEMP/guards-base.json" > "$RUNNER_TEMP/guards-base.log" 2>&1 || true
+            tail -1 "$RUNNER_TEMP/guards-base.log"
+          fi
+          python3 scripts/ci/guards_new_reds.py "$RUNNER_TEMP/guards-head.json" "$RUNNER_TEMP/guards-base.json"
+
   vt-link-graph:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
@@ -276,6 +315,9 @@ jobs:
 
       - name: The backdrop art catalog and brightness range
         run: python3 tests/test_backdrop_art_generator.py
+
+      - name: The fast gates workflow and its merge and gate script
+        run: python3 tests/test_cmux_next_fast_gates.py
 
   # Every web bundle build runs gen-strings.mjs strict, but only pull requests
   # that touch webviews/ run its tests. 2c661dec960b renamed a setting in Swift
