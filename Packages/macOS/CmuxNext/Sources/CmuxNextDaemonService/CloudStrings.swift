@@ -36,10 +36,13 @@ public enum CloudStrings {
     public static var notConnected: String { String(localized: "cloud.failed.notConnected", defaultValue: "The Cloud machine is not connected yet.", table: "Cloud", bundle: .module) }
     public static var commandRequired: String { String(localized: "cloud.failed.commandRequired", defaultValue: "Pass a command to run on the Cloud machine.", table: "Cloud", bundle: .module) }
     public static var alreadySignedIn: String { String(localized: "cloud.failed.alreadySignedIn", defaultValue: "Already signed in.", table: "Cloud", bundle: .module) }
+    /// Team Picker's `team` names no team of this account.
+    public static func noSuchTeam(_ team: String) -> String {
+        String(format: String(localized: "cloud.failed.noSuchTeam", defaultValue: "No team named “%@” in this account.", table: "Cloud", bundle: .module), team)
+    }
     public static var noTeams: String { String(localized: "cloud.failed.noTeams", defaultValue: "This account has no teams.", table: "Cloud", bundle: .module) }
     public static var invalidPort: String { String(localized: "cloud.failed.invalidPort", defaultValue: "Port must be between 1 and 65535.", table: "Cloud", bundle: .module) }
     public static var noAddress: String { String(localized: "cloud.failed.noAddress", defaultValue: "The machine has no private address yet.", table: "Cloud", bundle: .module) }
-    public static var renameMachineTitle: String { String(localized: "cloud.prompt.renameMachine", defaultValue: "Rename Machine", table: "Cloud", bundle: .module) }
     public static var killMachineTitle: String { String(localized: "cloud.prompt.killMachine", defaultValue: "Kill this Cloud machine?", table: "Cloud", bundle: .module) }
     public static var killMachineBody: String { String(localized: "cloud.prompt.killMachineBody", defaultValue: "The machine and every terminal on it are deleted. This cannot be undone.", table: "Cloud", bundle: .module) }
     public static var kill: String { String(localized: "cloud.button.kill", defaultValue: "Kill Machine", table: "Cloud", bundle: .module) }
@@ -76,10 +79,7 @@ public enum CloudStrings {
     public static func result(_ title: String, _ summary: String) -> String {
         String(format: String(localized: "cloud.toast.result", defaultValue: "%1$@: %2$@", table: "Cloud", bundle: .module), title, summary)
     }
-    public static var rename: String { String(localized: "cloud.button.rename", defaultValue: "Rename", table: "Cloud", bundle: .module) }
-    public static var select: String { String(localized: "cloud.button.select", defaultValue: "Select", table: "Cloud", bundle: .module) }
     public static var copy: String { String(localized: "cloud.button.copy", defaultValue: "Copy", table: "Cloud", bundle: .module) }
-    public static var teamPickerTitle: String { String(localized: "cloud.prompt.teamPicker", defaultValue: "Choose a Team", table: "Cloud", bundle: .module) }
     public static var statusTitle: String { String(localized: "cloud.result.statusTitle", defaultValue: "Machine Status", table: "Cloud", bundle: .module) }
     public static var portsTitle: String { String(localized: "cloud.result.portsTitle", defaultValue: "Listening Ports", table: "Cloud", bundle: .module) }
     public static var toolsTitle: String { String(localized: "cloud.result.toolsTitle", defaultValue: "Machine Tools", table: "Cloud", bundle: .module) }

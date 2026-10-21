@@ -30,13 +30,13 @@ enum ChiefMoveHandlers {
                 return try start(target, cli: cli, interactive: interactive, registry: registry, context: context)
             }
             guard interactive else { throw ActionFailure.invalidTarget(ChiefMoveStrings.targetRequired) }
-            let choices = targets.map { CmuxDialogOption(label: label($0), value: $0.machineID, isEnabled: $0.disabledReason == nil) }
-            CloudPresenter.choose(ChiefMoveStrings.title, options: choices, selected: nil, in: CloudHandlers.window(context)) { picked in
-                guard let picked, let target = targets.first(where: { $0.machineID == picked }) else { return }
-                do { try start(target, cli: cli, interactive: true, registry: registry, context: context) } catch {
-                    CloudPresenter.failure(error, in: CloudHandlers.window(context))
-                }
-            }
+            // The machines as a Cmd-Shift-P step; Return runs this again with the picked one.
+            registry.ask(actionID, invocation, ActionArgumentAsk(argument: "target"))
+        }
+        let otherSuggestions = registry.argumentSuggestions
+        registry.argumentSuggestions = { source in
+            guard source == ActionSuggestions.chiefMoveTargets else { return otherSuggestions?(source) ?? [] }
+            return targets(context).map { ActionEnumCase(value: $0.machineID, title: label($0)) }
         }
     }
 
