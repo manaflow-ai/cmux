@@ -16,8 +16,8 @@ for what a person must do: an OAuth sign-in, a secret, a macOS switch.
 | acpmux peers, host updates | none in the app | `cmux acp host ls/update --json` | yes | yes |
 | Cloud machine | GUI (New Cloud Machine sheet) | `cmux cloud new-machine` opens the sheet; `cmux-vm create` (operator) | sheet no; cmux-vm yes | cmux-vm yes (idempotency keys) |
 | Tailscale, mesh | CLI only | `cmux host enable/status --json`; needs Tailscale signed in | yes | yes |
-| MCP servers | docs only | `cmux agents doctor --json` checks cmux-cua; `claude mcp add cmux -- cmux mcp serve` | doctor yes | yes |
-| Computer Use | GUI (Computer Use Setup) | `cmux agent computer-use-setup`; grants are switches in System Settings | doctor yes | yes |
+| MCP servers | docs only; chats cmux starts get them (acpmux `agent_tools`) | `cmux setup mcp [claude\|codex ...]`; `cmux agents doctor --json` checks cmux-cua | yes | yes |
+| Computer Use | GUI (Computer Use Setup) | `cmux setup computer-use`; the person allows it on the app's sheet, and grants are switches in System Settings | yes | yes |
 | Browser import | GUI (Import from Browser...) | `cmux bookmark import-from-browser`, `cmux browser import-cookies` (consent panel); history and passwords person-only | partly | bookmarks/history merge |
 | Keyboard shortcuts | GUI (Keyboard Shortcuts) | `cmux keybinding list/resolve --json`; edits only over the raw socket or keybindings.json | reads yes | yes |
 | Notifications | GUI (Settings) | `cmux settings get/set notifications.*`; macOS permission asked on first use | yes | set yes; toggle-workspace-mute no |
@@ -84,7 +84,15 @@ The Chief loads the `cmux-setup` skill (shipped in optchat-chief's
    evidence (`auth.check`, the agent's login files) leaves unknown is asked
    of an ACP harness itself, as `cmux harness login ID --status` does
    (`initialize` and `session/new`); `cmux harness doctor` runs a prompt
-   turn and stays the deep check. Outdated compares the installed version
+   turn and stays the deep check. Setup never reads the login keychain
+   itself, as the health check does not (cx-hh0vu), and does not start a
+   harness whose sign-in may be there: one whose profile env names a
+   Keychain item, Codex keeping its login in the keychain
+   (`cli_auth_credentials_store` `keyring` or `auto`), or a Claude Code
+   adapter. What any other harness reads when it starts is its own. One
+   whose unknown the check already explained (a provider key that is not
+   set) is not asked either; both keep `signed_in: null` with the reason
+   in `auth_detail`. Outdated compares the installed version
    with the newest one the daemon last read (`harness-health.json`), so
    setup asks no registry. A named id that is not configured is checked
    with the profile acpmux ships for it (`configured: false`). The result
@@ -93,7 +101,7 @@ The Chief loads the `cmux-setup` skill (shipped in optchat-chief's
    ```json
    {"schema_version": 1, "task": "harness", "state": "needs_user", "dry_run": false,
     "harnesses": [{"id": "gemini", "name": "gemini", "state": "needs_user",
-      "configured": true, "installed": true, "program": "/usr/local/bin/gemini",
+      "configured": true, "installed": true, "program": "gemini",
       "path": "/usr/local/bin/gemini", "version": "0.1.0", "signed_in": false,
       "auth_detail": "session/new failed (-32000): ...", "outdated": false,
       "latest": "0.1.0", "update": null, "problem": null,
@@ -104,8 +112,9 @@ The Chief loads the `cmux-setup` skill (shipped in optchat-chief's
    A harness is `ok` when it is installed and nothing says it is signed
    out (`signed_in` is `null` when cmux cannot see the sign-in, such as
    Claude Code's keychain login; its first chat asks if it must). Signed
-   out is `needs_user` with kind `oauth` and `cmux harness login ID`; a
-   missing CLI is `needs_user` with kind `install` and the profile's docs
+   out is `needs_user` with kind `oauth` and `cmux harness login ID`, or
+   the profile's own login command (`codex login`) for a harness not
+   configured yet; a missing CLI is `needs_user` with kind `install` and the profile's docs
    as `url`. The task state is `needs_user` when any harness is, and its
    `user_action` is the first one. It writes nothing: install and sign-in
    are the person's, and an update has no undo, so an outdated harness
@@ -150,3 +159,57 @@ The Chief loads the `cmux-setup` skill (shipped in optchat-chief's
    `cmux setup status` adds a `machine` check: every peer with
    `connected`, `outdated` and, when it needs one, the `cmux setup machine`
    command that fixes it.
+4. `mcp [claude|codex ...]`: gives Claude Code and Codex the cmux MCP
+   server (`cmux mcp serve`) when they run outside cmux, in a terminal or
+   another app (default: each one installed). Chats cmux starts already get
+   it, and cmux-cua, from acpmux (`agent_tools`); cmux-cua needs the app's
+   per-session socket token, so no user config can hold it. Each
+   harness's own CLI writes its own config, so the file keeps its one
+   writer: `claude mcp add --scope user cmux -- <this cmux> mcp serve` and
+   `codex mcp add cmux -- <this cmux> mcp serve`; `undo` is `claude mcp
+   remove --scope user cmux && codex mcp remove cmux` for what changed.
+   Setup only reads the user-scope config (`~/.claude.json` or
+   `$CLAUDE_CONFIG_DIR/.claude.json`, `$CODEX_HOME/config.toml`):
+   - an entry that runs `cmux mcp serve` from a command that still runs:
+     `ok`, no CLI runs;
+   - none: add it, `changed`;
+   - one named `cmux` whose command is gone (an app that moved): remove
+     and add it, `undo` puts the old one back;
+   - one named `cmux` that runs something else: the person's, left as it
+     is, `needs_user` (`kind` `conflict`) with the `mcp remove` that frees
+     the name;
+   - a named harness that is not installed: `needs_user` (`kind`
+     `install`, `cmux setup harness ID`); one not named is
+     `not_applicable`.
+
+   `cmux mcp serve` answers a client outside a cmux chat only when the
+   settings file says `"mcp": {"enabled": true}`, the person's opt-in. It
+   is not a key in the app's settings schema, so agents cannot set it, and
+   the settings file has one writer (the config owner); until it is on,
+   setup writes nothing: changes are `planned` and the task is
+   `needs_user` (`kind` `setting`) naming the file and the key. The result
+   adds `server` (`{name, command, args}`), `settings`, `enabled` and
+   `clients` (`{id, name, state, installed, config, entry, undo,
+   user_action, error}`). `cmux setup status` adds an `mcp` check.
+5. `computer-use`: lets agents use the Mac through cmux Computer Use. The
+   state is the app's `computer_use.status` (`{phase, accessibility,
+   screen_recording, helper}`, the model behind Computer Use Setup and
+   `cmux agents doctor`). Phase `off`: setup sends `settings.set
+   computerUse.enabled true` with `confirm: true`; the key is the
+   person's, so the app asks them on its native sheet and setup waits for
+   that one click. Allowed is `changed` with `undo` `cmux settings set
+   computerUse.enabled false --confirm` (the same sheet), or `needs_user`
+   with that `undo` while a grant is still missing or the phase has not
+   caught up (`kind` `wait`). A rerun reads `settings.get
+   computerUse.enabled` first, so a lagging phase never shows a second
+   sheet. Not allowed is `needs_user` (`kind` `declined`: the person
+   declined, or cmux had no window for the sheet), and the agent asks
+   before trying again. Once on, each missing grant is `needs_user`
+   (`kind` `grant`) whose `command` opens its System Settings pane (`open
+   'x-apple.systempreferences:...'`), Accessibility first. Managed
+   settings that turn it off (`kind` `policy`), a helper that is starting
+   (`kind` `wait`) or not ready (`kind` `app`, `cmux action run
+   palette.computerUse.setup`) and no running app (`kind` `app`) are named
+   and left. Capture consent is not reported by the app yet. Off macOS,
+   with no app socket named, it is `not_applicable`. `cmux setup status`
+   adds a `computer_use` check.

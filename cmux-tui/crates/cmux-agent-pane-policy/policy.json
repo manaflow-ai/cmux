@@ -4,7 +4,7 @@
   "initialize": "initialize",
   "requests": [
     "session/new", "session/prompt", "session/set_model", "session/set_mode", "session/set_config_option",
-    "_acpmux/watch", "_acpmux/sessions", "_acpmux/events", "_acpmux/attach", "_acpmux/detach", "_acpmux/view", "_acpmux/warm",
+    "_acpmux/watch", "_acpmux/sessions", "_acpmux/events", "_acpmux/attachment", "_acpmux/attach", "_acpmux/detach", "_acpmux/view", "_acpmux/warm",
     "_acpmux/kill", "_acpmux/prewarm", "_acpmux/harnesses", "_acpmux/models", "_acpmux/permission_respond",
     "_acpmux/status", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/btw", "_acpmux/queue_remove", "_acpmux/queue_edit",
     "_acpmux/handoff_prepare", "_acpmux/handoff_get", "_acpmux/handoff_draft", "_acpmux/handoff_start",
@@ -13,7 +13,7 @@
     "acp.session.fork", "acp.trust.get", "acp.trust.set", "_acpmux/harness_enable",
     "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread",
     "_acpmux/harness/health", "_acpmux/side", "_acpmux/offer_respond", "_acpmux/start_mode",
-    "_acpmux/subagent_stop", "_acpmux/agent_pair_resume"
+    "_acpmux/subagent_stop", "_acpmux/agent_pair_resume", "_acpmux/watch_take_over"
   ],
   "notifications": ["session/cancel"],
   "maximum_frame_bytes": 33554432,
@@ -23,7 +23,7 @@
     "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
     "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/btw", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
     "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side",
-    "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/agent_pair_resume"
+    "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/agent_pair_resume", "_acpmux/watch_take_over"
   ],
   "optionally_session_scoped": ["acp.trust.get", "acp.trust.set"],
   "scoped_session_params": {"_acpmux/side": ["chat"]},
@@ -55,6 +55,7 @@
     "_acpmux/watch": {"params": ["enabled", "limit"], "acpmux": []},
     "_acpmux/sessions": {"params": ["limit", "cursor"], "acpmux": []},
     "_acpmux/events": {"params": ["sessionId", "afterSeq", "beforeSeq", "limit", "maxBytes", "kinds"], "acpmux": []},
+    "_acpmux/attachment": {"params": ["sessionId", "id"], "acpmux": []},
     "_acpmux/attach": {"params": ["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible"], "acpmux": []},
     "_acpmux/detach": {"params": ["sessionId"], "acpmux": []},
     "_acpmux/view": {"params": ["sessionId", "visible"], "acpmux": []},
@@ -71,7 +72,7 @@
     "_acpmux/bookmark_set": {"params": ["sessionId", "seq", "bookmarked"], "acpmux": []},
     "_acpmux/btw": {"params": ["sessionId", "question", "model"], "acpmux": []},
     "_acpmux/queue_remove": {"params": ["sessionId", "promptId"], "acpmux": []},
-    "_acpmux/queue_edit": {"params": ["sessionId", "promptId", "op", "text", "index"], "acpmux": []},
+    "_acpmux/queue_edit": {"params": ["sessionId", "promptId", "op", "text", "images", "index"], "acpmux": []},
     "_acpmux/permission_respond": {"params": ["sessionId", "permissionId", "optionId", "answers", "_meta"], "acpmux": []},
     "_acpmux/handoff_prepare": {"params": ["sessionId", "harness", "handoffKey"], "acpmux": []},
     "_acpmux/handoff_get": {"params": ["sessionId", "handoffId"], "acpmux": []},
@@ -89,6 +90,7 @@
     "_acpmux/offer_respond": {"params": ["sessionId", "offerId", "outcome", "childSessionId"], "acpmux": []},
     "_acpmux/subagent_stop": {"params": ["sessionId", "subagentSessionId"], "acpmux": []},
     "_acpmux/agent_pair_resume": {"params": ["sessionId", "peerSessionId"], "acpmux": []},
+    "_acpmux/watch_take_over": {"params": ["sessionId", "ifLive"], "acpmux": []},
     "acp.session.fork": {"params": ["sessionId", "throughSeq"], "acpmux": []},
     "acp.trust.get": {"params": ["cwd", "sessionId"], "acpmux": []},
     "acp.trust.set": {"params": ["cwd", "level", "sessionId"], "acpmux": []},
