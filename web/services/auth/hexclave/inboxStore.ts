@@ -265,10 +265,11 @@ async function mutateOwnedClaims(
     if (claims.length !== svixIds.length) return false;
     const entityKeys = [...new Set(claims.map((claim) => `hexclave:inbox:${claim.kind}:${claim.id}`))].sort();
     for (const key of entityKeys) {
-      const [lock] = await tx
-        .select({ acquired: sql<boolean>`pg_try_advisory_xact_lock(hashtextextended(${key}, 0))` })
-        .from(sql`(select 1) as lock_probe`);
-      if (!lock?.acquired) return false;
+      // claimDue never waits for this lock. A mutation does: a competing
+      // claim may hold it briefly only to recheck and discover this live
+      // lease. After that transaction commits, the exact token below tells
+      // whether this worker still owns the rows or actually lost them.
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${key}, 0))`);
     }
     const owned = await tx
       .select({ svixId: inbox.svixId })
