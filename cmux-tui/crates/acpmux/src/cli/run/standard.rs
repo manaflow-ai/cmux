@@ -347,6 +347,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             if let Some((w, _)) = &launch.worktree {
                 meta["worktree"] = w.clone();
             }
+            if let Some(tools) = launch.disallowed_tools() {
+                meta["disallowedTools"] = tools;
+            }
             // A session of this name already running is the one asked for:
             // found before the create, or after losing the create to another
             // launcher with the same name.

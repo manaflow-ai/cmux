@@ -19,8 +19,8 @@
 /* The hint stays one line (the empty field keeps its one-line row); only the draft wraps. */
 .nt-field::placeholder{color:var(--acpmux-composer-placeholder);opacity:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .nt-hint{flex:none;color:var(--acpmux-composer-dim);font-size:12px;white-space:nowrap}
-/* The suggestions' popover (Leo 2026-10-12): the shared Popover under the composer box, as wide as it, the opaque popup surface every pane popup paints (ui/popupSurface.css; Leo 10-13: the page background is see-through on a wallpaper theme, and the rows under it showed through; 10-14: no composer tint over it, so it reads as the pane's other menus); it never moves the page or grows its scroll. The list inside scrolls. */
-.nt-popover{box-sizing:border-box;width:var(--anchor-width);padding:0;border-radius:var(--ui-popup-radius,8px);background:var(--surface-popup);color:var(--agent-text);font-family:system-ui;-webkit-font-smoothing:antialiased;-webkit-backdrop-filter:none;backdrop-filter:none;box-shadow:var(--acpmux-popup-elevation)}
+/* The suggestions' popover (Leo 2026-10-12): the shared Popover under the composer box, as wide as it, the liquid-glass popup surface every pane popup paints (ui/popupSurface.css, .ui-glass: frosted so the rows under it never read through; only Reduce Transparency makes it the opaque popup; 10-14: no composer tint over it, so it reads as the pane's other menus); it never moves the page or grows its scroll. The list inside scrolls. */
+.nt-popover{box-sizing:border-box;width:var(--anchor-width);padding:0;border-radius:var(--ui-popup-radius,8px);color:var(--agent-text);font-family:system-ui;-webkit-font-smoothing:antialiased;}
 /* The suggestions belong to the field: a menu the composer opens (model, reasoning, access: the dropdown layer) covers them, whichever opened last, as Codex desktop's composer menus do (Leo 10-15: the model menu opened under them). A dialog's scrim, on the same layer and portaled later, still dims them. */
 .ui-positioner:has(>.nt-popover){z-index:var(--layer-overlay)}
 .nt-popover .nt-rows{--popup-scroll-cap:360px;box-sizing:border-box;padding:var(--ui-popup-padding);max-height:min(48vh,360px);overflow:auto;overscroll-behavior:contain}
@@ -687,8 +687,9 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
   flex: none;
   width: 100%;
 }
-/* A chat row's hover card (Leo 2026-10-19): a solid floating card offset from the row (Tooltip's
-   gap), clamped to the window by the positioner, with the tooltip's short fade. */
+/* A chat row's hover card (Leo 2026-10-19): a floating glass hover card (desktop.css
+   .ui-card.ui-glass) offset from the row (Tooltip's gap), clamped to the window by the positioner,
+   with the tooltip's short fade. */
 .nt-hovercard {
   max-width: min(320px, calc(100vw - 24px));
   padding: 8px 10px;

@@ -386,6 +386,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             let client = connect(true).await?;
             let v = match cmd {
                 PeerCmd::Add { name, url, token } => {
+                    let url = url.unwrap_or_else(|| format!("ssh://{name}"));
                     let mut p = json!({"name": name, "url": url});
                     if let Some(t) = token {
                         p["token"] = json!(t);
@@ -442,14 +443,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             let peers = v.get("peers").and_then(Value::as_array).cloned().unwrap_or_default();
             if peers.is_empty() {
-                println!("no peers (add one: acpmux peer add sandbox-a ws://host:47811 --token T)");
+                println!("no peers (add one: acpmux host add HOST)");
             }
             for p in peers {
                 let state = crate::peer_link::state_label(&p, crate::store::now_ms());
                 let build = p.get("remoteBuild").and_then(Value::as_str).unwrap_or("");
                 let outdated = p.get("outdated").and_then(Value::as_bool).unwrap_or(false);
                 println!(
-                    "{:<16} {:<10} {:>3} sessions  {:<24} {}{}{}",
+                    "{:<16} {:<10} {:>3} sessions  {:<24} {}{}{}{}",
                     p.get("name").and_then(Value::as_str).unwrap_or(""),
                     state,
                     p.get("sessions").and_then(Value::as_u64).unwrap_or(0),
@@ -463,6 +464,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     p.get("error")
                         .and_then(Value::as_str)
                         .map(|e| format!("  ({e})"))
+                        .unwrap_or_default(),
+                    // A user or port: another account's or another daemon on that machine.
+                    p.get("canonicalEndpoint")
+                        .and_then(Value::as_str)
+                        .map(|c| format!("  (not the canonical endpoint {c})"))
                         .unwrap_or_default(),
                 );
             }

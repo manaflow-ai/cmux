@@ -19,7 +19,9 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Command {
     /// Create a session and optionally send a first prompt. `run` is the
-    /// same with --quiet: it prints only the final reply.
+    /// same with --quiet: it prints only the final reply. With --worktree,
+    /// --prompt-file, --report-to and --group it starts an agent on a task
+    /// in one step; running it again reuses everything and sends nothing.
     #[command(alias = "new-session", alias = "run", alias = "exec")]
     New(NewArgs),
     /// Block until a session resolves: its turn ends or it needs a permission
@@ -781,7 +783,8 @@ pub enum PeerCmd {
     /// as NAME/session.
     Add {
         name: String,
-        url: String,
+        /// Default: ssh://NAME, the machine's one daemon as your ssh config reaches it.
+        url: Option<String>,
         #[arg(long)]
         token: Option<String>,
     },
