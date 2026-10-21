@@ -37,6 +37,10 @@ public protocol PageChromiumPage: AnyObject {
     /// Receives the page's raw DevTools protocol events and its load and crash events. Set it
     /// before the first ``devTools(_:params:)`` call.
     var onEvent: ((PageChromiumEvent) -> Void)? { get set }
+    /// Answers the page's requests for its dynamic paths (``PageDescriptor/dynamicPrefixes``):
+    /// Chromium asks it for every request under one, and a nil answerer is a 404. The host sets it
+    /// before the first ``load(_:)``.
+    var resources: (@MainActor (URL) async -> PageChromiumResponse)? { get set }
     /// Runs a DevTools protocol method and returns its JSON result.
     ///
     /// - Parameters:

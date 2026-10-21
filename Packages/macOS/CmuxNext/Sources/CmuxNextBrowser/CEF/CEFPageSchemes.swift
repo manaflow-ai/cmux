@@ -14,9 +14,14 @@ public struct CEFPageSchemes {
     public struct Entry: Equatable, Sendable {
         public var root: URL
         public var csp: String
-        public init(root: URL, csp: String) {
+        /// First path components the page host answers (the page's dynamic prefixes, `__patch`):
+        /// Chromium asks the tab's ``CEFTab/pageResources`` for every request under one and never
+        /// serves a file there.
+        public var dynamicPrefixes: [String]
+        public init(root: URL, csp: String, dynamicPrefixes: [String] = []) {
             self.root = root
             self.csp = csp
+            self.dynamicPrefixes = dynamicPrefixes
         }
     }
 
