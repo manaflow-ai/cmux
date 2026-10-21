@@ -60,6 +60,8 @@ mod offers;
 mod secrets;
 mod seen;
 mod session;
+mod session_order;
+use session_order::newest_first;
 pub(crate) mod session_pages;
 mod settings_watch;
 pub use session::{Session, live_tags};
@@ -367,6 +369,8 @@ pub struct Hub {
     pub(super) trust_waits: trust_wait::Waits,
     /// Agent message pairs and their runaway guard (`agent_pairs.rs`).
     pub(super) agent_pairs: agent_pairs::AgentPairs,
+    /// Pairing tickets and paired machines (`crate::pairing`).
+    pub pairing: Arc<crate::pairing::Pairing>,
 }
 
 impl Hub {
@@ -450,6 +454,7 @@ impl Hub {
             secrets: Default::default(),
             trust_waits: Default::default(),
             agent_pairs: Default::default(),
+            pairing: Default::default(),
         });
         if let Ok(c) = hub.config.try_read() {
             hub.refresh_web_modes(&c);
@@ -1109,23 +1114,6 @@ impl Hub {
     pub fn session_dir(&self, id: &str) -> Option<PathBuf> {
         self.store.session_dir(id)
     }
-}
-
-/// `sessions` newest first. Each session's `updated_at` is read once: other
-/// tasks move it at any time (every logged event), and a key that is read
-/// again on each comparison is not a total order, which makes Rust's sort
-/// panic (the Chief daemon, 2026-10-14). Ties keep the session id order, so
-/// the list is the same for the same values.
-fn newest_first(sessions: Vec<Arc<Session>>) -> Vec<Arc<Session>> {
-    let mut keyed: Vec<_> = sessions
-        .into_iter()
-        .map(|s| {
-            let at = s.meta.lock().unwrap_or_else(|e| e.into_inner()).updated_at;
-            (at, s)
-        })
-        .collect();
-    keyed.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.id.cmp(&b.1.id)));
-    keyed.into_iter().map(|(_, s)| s).collect()
 }
 
 /// Add `fields` under `_meta.acpmux` of an object, keeping any `_meta` the
