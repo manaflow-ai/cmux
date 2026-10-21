@@ -14,23 +14,26 @@ export type RunInBackground = (toolCallId?: string) => void;
 
 export const RunInBackgroundContext = createContext<RunInBackground | undefined>(undefined);
 
-/// Whether acpmux moves this chat's work: Claude Code's chats only (acpmux refuses the others;
-/// Codex moves a long command to the background itself).
-export function backgroundsWork(summary: { harness?: string; family?: string } | undefined): boolean {
-  const harness = summary?.harness;
-  return summary?.family === "claude" || harness === "claude" || Boolean(harness?.startsWith("claude-"));
+/// Whether acpmux moves this chat's work: a local Claude Code chat only. acpmux refuses the other
+/// harnesses (Codex moves a long command to the background itself), and a peer's or a Cloud chat's
+/// processes are not this acpmux's to move.
+export function backgroundsWork(
+  summary: { harness?: string; peer?: string; hostKind?: "local" | "cloud" } | undefined,
+): boolean {
+  return summary?.harness === "claude" && !summary.peer && summary.hostKind !== "cloud";
 }
 
 /// The calls of the running turn that hold it up: a running command or subagent (what Claude
-/// Code's Ctrl-B moves). Read from the end back to the turn's prompt.
+/// Code's Ctrl-B moves). A call still waiting for permission is not running yet. Read from the end
+/// back to the turn's prompt; a prompt steered into the turn does not start a new one.
 export function foregroundCalls(rows: readonly AcpmuxRow[]): string[] {
   const calls: string[] = [];
   for (let index = rows.length - 1; index >= 0; index -= 1) {
     const row = rows[index]!;
-    if (row.kind === "user") break;
+    if (row.kind === "user" && !row.steer) break;
     for (const item of row.items ?? []) {
       const tool = item.tool;
-      if (!tool || (tool.status !== "pending" && tool.status !== "in_progress")) continue;
+      if (tool?.status !== "in_progress") continue;
       if (tool.kind === "execute" || tool.kind === "think") calls.push(tool.id);
     }
   }
@@ -44,7 +47,7 @@ export function isBackgroundKey(
   return event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "b";
 }
 
-/// Takes Ctrl-B on the whole page while `active` (a foreground call runs), before the composer's
+/// Takes Ctrl-B on the whole page while `active` (a foreground call or subagent runs), before the composer's
 /// caret back. A held key moves the work once.
 export function useBackgroundKey(active: boolean, onBackground: () => void): void {
   const latest = useRef(onBackground);

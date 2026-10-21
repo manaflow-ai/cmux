@@ -3,7 +3,7 @@
 // (conversation/runInBackground.ts): a running command's row says "⌃B to run in background", and
 // Ctrl-B, with the composer focused too, asks acpmux `_acpmux/process/background`. A chat whose
 // turn holds no running call keeps Ctrl-B for the composer's caret, and a Codex chat never shows
-// the hint. The page is the pane's dev entry with its browser host, talking JSON-RPC to a
+// the hint. A running subagent draws no tool row, and takes Ctrl-B by itself. The page is the pane's dev entry with its browser host, talking JSON-RPC to a
 // stand-in acpmux daemon.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -28,11 +28,12 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
   const CLAUDE = "0190a000-0000-7000-8000-0000000000b1";
   const CODEX = "0190a000-0000-7000-8000-0000000000b2";
   const IDLE = "0190a000-0000-7000-8000-0000000000b3";
+  const SUBAGENT = "0190a000-0000-7000-8000-0000000000b4";
   const START = Date.UTC(2026, 9, 20, 9, 0, 0);
   type Step = [dir: string, kind: string, msg: Record<string, unknown>];
-  const update = (update: Record<string, unknown>) => ({
+  const update = (update: Record<string, unknown>, meta?: Record<string, unknown>) => ({
     method: "session/update",
-    params: { sessionId: "agent-1", update },
+    params: { sessionId: "agent-1", update, ...(meta ? { _meta: { acpmux: meta } } : {}) },
   });
   /// A Bash call still running in the foreground: no result yet.
   const running = (id: string, command: string): Step => [
@@ -70,6 +71,22 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
         ["mux", "turn_started", {}],
         say("Running the suite."),
         running("fg2", "cargo test --workspace"),
+      ],
+    },
+    [SUBAGENT]: {
+      harness: "claude",
+      steps: [
+        ["mux", "user_message", { text: "Explore the uploader" }],
+        ["mux", "turn_started", {}],
+        say("Running the suite."),
+        [
+          "in",
+          "subagent_spawned",
+          update(
+            { sessionUpdate: "subagent_spawned" },
+            { subagents: [{ id: "sub1", parent: null, name: "Explore", state: "running" }] },
+          ),
+        ],
       ],
     },
     [IDLE]: {
@@ -184,6 +201,20 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
     return page;
   };
   const composer = (page: Page) => page.locator("[contenteditable=true]").first();
+  /// Records whether the page took each Ctrl-B, read after it reached the window's bubble phase.
+  const watchCtrlB = (page: Page) =>
+    page.evaluate(() => {
+      const taken: boolean[] = [];
+      (window as unknown as { ctrlB: boolean[] }).ctrlB = taken;
+      window.addEventListener("keydown", (event) => {
+        if (event.ctrlKey && event.key.toLowerCase() === "b") taken.push(event.defaultPrevented);
+      });
+    });
+  const ctrlBTaken = (page: Page) => page.evaluate(() => (window as unknown as { ctrlB: boolean[] }).ctrlB);
+  const requested = async () => {
+    for (let wait = 0; wait < 50 && backgrounded.length === 0; wait++) await Bun.sleep(50);
+    return backgrounded;
+  };
 
   test("a running command's row says Ctrl-B runs it in the background", async () => {
     const page = await open(CLAUDE);
@@ -197,19 +228,29 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
     await page.getByText("⌃B to run in background").waitFor({ timeout: 5_000 });
     await composer(page).click();
     await page.keyboard.press("Control+b");
-    await page.waitForFunction(() => true);
-    for (let wait = 0; wait < 50 && backgrounded.length === 0; wait++) await Bun.sleep(50);
-    expect(backgrounded).toEqual([{ sessionId: CLAUDE }]);
+    expect(await requested()).toEqual([{ sessionId: CLAUDE }]);
+    await page.close();
+  });
+
+  test("Ctrl-B moves a running subagent, which draws no tool row", async () => {
+    backgrounded.length = 0;
+    const page = await open(SUBAGENT);
+    await composer(page).click();
+    await page.keyboard.press("Control+b");
+    expect(await requested()).toEqual([{ sessionId: SUBAGENT }]);
     await page.close();
   });
 
   test("with no running call, Ctrl-B stays the composer's and asks nothing", async () => {
     backgrounded.length = 0;
     const page = await open(IDLE);
+    await watchCtrlB(page);
     await composer(page).click();
     await page.keyboard.type("ab");
     await page.keyboard.press("Control+b");
     await page.keyboard.type("X");
+    expect(await ctrlBTaken(page)).toEqual([false]);
+    expect(await composer(page).innerText()).toContain("X");
     await Bun.sleep(300);
     expect(backgrounded).toEqual([]);
     expect(await page.getByText("⌃B to run in background").count()).toBe(0);
@@ -220,8 +261,10 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
     backgrounded.length = 0;
     const page = await open(CODEX);
     await page.getByText("cargo test --workspace").first().waitFor();
+    await watchCtrlB(page);
     await composer(page).click();
     await page.keyboard.press("Control+b");
+    expect(await ctrlBTaken(page)).toEqual([false]);
     await Bun.sleep(300);
     expect(backgrounded).toEqual([]);
     expect(await page.getByText("⌃B to run in background").count()).toBe(0);

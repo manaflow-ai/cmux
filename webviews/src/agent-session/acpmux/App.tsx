@@ -4231,7 +4231,6 @@ function AcpmuxPane() {
     () => (canBackground && snapshot.isWorking ? foregroundCalls(snapshot.rows) : []),
     [canBackground, snapshot.isWorking, snapshot.rows],
   );
-  useBackgroundKey(!quick && foreground.length > 0, runInBackground);
   const backgroundHint = !quick && canBackground && snapshot.isWorking ? runInBackground : undefined;
   /// Shows subagent `id`: in a pane of its own right of the chat (focused with `focus`), or in
   /// this pane when this is a subagent's pane or the host opens none.
@@ -4263,6 +4262,11 @@ function AcpmuxPane() {
     .join("\u0001");
   // eslint-disable-next-line react-hooks/exhaustive-deps -- a new list only when an agent changes
   const chatAgents = useMemo(() => freshAgents, [agentsKey]);
+  // A subagent draws no tool row (subagents/subagentFold.ts swallows the call that started it), so
+  // a running foreground subagent holds Ctrl-B by itself.
+  const foregroundAgent =
+    canBackground && snapshot.isWorking && freshAgents.some((agent) => running(agent) && !agent.background);
+  useBackgroundKey(!quick && (foreground.length > 0 || foregroundAgent), runInBackground);
   const chatTones = useMemo(() => (chatAgents.length > 0 ? agentTones(chatAgents) : undefined), [chatAgents]);
   const freshWaiting = useMemo(
     () => (chatAgents.some(running) ? waitingSubagents(askedToolCalls, snapshot.subagentViews) : new Set<string>()),
