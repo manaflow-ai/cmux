@@ -15,6 +15,7 @@ use crate::resource::{
 };
 use crate::workspace_registry::registry_connection::JournalWriterCommitScope;
 
+mod coalesce;
 mod completion;
 pub(crate) mod contention;
 mod effect_intents;
@@ -1381,9 +1382,10 @@ fn receive_batch(receivers: &JournalIngressReceivers) -> Option<Vec<QueuedJourna
             Vec::with_capacity(JOURNAL_TERMINAL_BATCH_CHUNKS + JOURNAL_DURABLE_QUEUE_CAPACITY);
         let terminal_drained =
             drain_lane(&receivers.terminal, &mut batch, JOURNAL_TERMINAL_BATCH_CHUNKS, usize::MAX);
+        let mut durable = Vec::new();
         let durable_drained = drain_lane(
             &receivers.durable,
-            &mut batch,
+            &mut durable,
             JOURNAL_DURABLE_QUEUE_CAPACITY,
             JOURNAL_DURABLE_BATCH_BYTES,
         );
@@ -1392,6 +1394,11 @@ fn receive_batch(receivers: &JournalIngressReceivers) -> Option<Vec<QueuedJourna
         if terminal_drained + durable_drained != 0 {
             receivers.state.publish_queue_space();
         }
+        // Plain terminal output waits a bounded window for more output, so
+        // a redrawing TUI costs one record and one commit per window instead
+        // of one per PTY read (coalesce.rs).
+        coalesce::hold_terminal_output(receivers, &mut batch, &mut durable, terminal_drained);
+        batch.append(&mut durable);
         if !batch.is_empty() {
             return Some(batch);
         }
@@ -1419,13 +1426,7 @@ fn drain_lane(
         };
         drained += 1;
         drained_bytes = drained_bytes.saturating_add(next.event.estimated_bytes());
-        if let Some(last) = batch.last_mut() {
-            if let Some(next) = last.merge_output(next) {
-                batch.push(next);
-            }
-        } else {
-            batch.push(next);
-        }
+        coalesce::push_coalesced(batch, next);
     }
     drained
 }
