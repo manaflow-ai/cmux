@@ -53,4 +53,102 @@ struct CloudCLITargetTests {
         let f = Self.fixture()
         #expect(try CloudHandlers.machine(ActionInvocation(origin: .user), f.context) === f.session)
     }
+
+    @Test func newCloudWorkspaceKeepsTheFallbackForAnyCaller() throws {
+        let f = Self.fixture()
+        #expect(try CloudHandlers.machine(ActionInvocation(origin: .cli), f.context, fallsBack: true) === f.session)
+    }
+
+    // MARK: Results for non-person runs
+
+    @Test func aCLIAnswerComesBackAsTheRunsResult() async throws {
+        let f = Self.fixture()
+        let run = f.services.registry.capturingRun {
+            CloudHandlers.answer("test answer", ActionInvocation(origin: .cli), f.context) {
+                CloudAnswer(title: "Title", text: "hello", fields: ["count": .int(2)])
+            }
+        }
+        let task = try #require(run.results.first)
+        guard case .success(let fields) = await task.value else {
+            Issue.record("the answer failed")
+            return
+        }
+        #expect(fields["text"] == .string("hello"))
+        #expect(fields["count"] == .int(2))
+    }
+
+    @Test func aRefusalInTheWorkReachesTheCallerAsOne() async throws {
+        let f = Self.fixture()
+        let run = f.services.registry.capturingRun {
+            CloudHandlers.result("test refusal", f.context) { throw ActionFailure(message: CloudStrings.notConnected) }
+        }
+        let task = try #require(run.results.first)
+        guard case .failure(let failure) = await task.value else {
+            Issue.record("the refusal succeeded")
+            return
+        }
+        #expect(failure.refusal == .unavailable)
+        #expect(failure.message == CloudStrings.notConnected)
+    }
+
+    @Test func newMachineAnswersWithTheMachineOnceTheServerReturnsIt() async throws {
+        let f = Self.fixture()
+        let creations = f.services.cloud.creations
+        let creation = creations.begin(window: nil)
+        let run = f.services.registry.capturingRun { CloudHandlers.reportCreatedMachine(creation, f.context) }
+        let task = try #require(run.results.first)
+        creation.attach(f.session)
+        guard case .success(let fields) = await task.value else {
+            Issue.record("the create failed")
+            return
+        }
+        #expect(fields["machine_id"] == .string(f.session.machineID))
+        #expect(fields["target"] == .string("machine:\(f.session.machineID)"))
+        #expect(fields["pending"] == nil)
+        creations.remove(creation)
+    }
+
+    @Test func aSlowCreateAnswersPendingInsteadOfTimingOut() async throws {
+        let f = Self.fixture()
+        let creations = f.services.cloud.creations
+        let creation = creations.begin(window: nil)
+        let run = f.services.registry.capturingRun { CloudHandlers.reportCreatedMachine(creation, f.context, wait: .milliseconds(50)) }
+        let task = try #require(run.results.first)
+        guard case .success(let fields) = await task.value else {
+            Issue.record("a slow create failed")
+            return
+        }
+        #expect(fields["pending"] == .bool(true))
+        #expect(fields["creation_id"] == .string(creation.id.uuidString.lowercased()))
+        creations.remove(creation)
+    }
+
+    @Test func aDeclinedCreateIsRefused() async throws {
+        let f = Self.fixture()
+        let creations = f.services.cloud.creations
+        let creation = creations.begin(window: nil)
+        let run = f.services.registry.capturingRun { CloudHandlers.reportCreatedMachine(creation, f.context) }
+        let task = try #require(run.results.first)
+        creations.remove(creation)
+        guard case .failure(let failure) = await task.value else {
+            Issue.record("a declined create succeeded")
+            return
+        }
+        #expect(failure.message == CloudStrings.createDeclined)
+    }
+
+    @Test func aFailedCreateSaysWhy() async throws {
+        let f = Self.fixture()
+        let creations = f.services.cloud.creations
+        let creation = creations.begin(window: nil)
+        let run = f.services.registry.capturingRun { CloudHandlers.reportCreatedMachine(creation, f.context) }
+        let task = try #require(run.results.first)
+        creation.fail(ActionFailure(message: "quota"))
+        guard case .failure(let failure) = await task.value else {
+            Issue.record("a failed create succeeded")
+            return
+        }
+        #expect(failure.message.contains("quota"))
+        creations.remove(creation)
+    }
 }

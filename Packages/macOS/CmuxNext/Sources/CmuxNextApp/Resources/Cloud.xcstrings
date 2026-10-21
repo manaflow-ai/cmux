@@ -12840,6 +12840,137 @@
           }
         }
       }
+    },
+    "cloud.cli.createDeclined": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Cloud machine was created: the person declined or dismissed it in cmux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم إنشاء أي جهاز سحابي: رفض الشخص ذلك أو تجاهله في cmux."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Es wurde keine Cloud-Maschine erstellt: Die Person hat in cmux abgelehnt oder abgebrochen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se creó ninguna máquina en la nube: la persona la rechazó o la descartó en cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune machine Cloud n’a été créée : la personne a refusé ou annulé dans cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud マシンは作成されませんでした。cmux で相手が拒否したか閉じました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 머신이 생성되지 않았습니다. 사용자가 cmux에서 거절하거나 닫았습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未创建任何云端机器：对方已在 cmux 中拒绝或关闭。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未建立任何雲端機器：對方已在 cmux 中拒絕或關閉。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nijedna Cloud mašina nije kreirana: osoba je odbila ili zatvorila zahtjev u cmuxu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen Cloud-maskine blev oprettet: personen afviste eller lukkede den i cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessuna macchina Cloud è stata creata: la persona l’ha rifiutata o chiusa in cmux."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនបានបង្កើតម៉ាស៊ីន Cloud ទេ៖ បុគ្គលនោះបានបដិសេធ ឬបិទវានៅក្នុង cmux។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen Cloud-maskin ble opprettet: personen avslo eller lukket den i cmux."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie utworzono maszyny Cloud: osoba odrzuciła lub zamknęła prośbę w cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhuma máquina na nuvem foi criada: a pessoa recusou ou descartou no cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Облачная машина не создана: пользователь отклонил или закрыл запрос в cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่ได้สร้างเครื่อง Cloud: ผู้ใช้ปฏิเสธหรือปิดคำขอใน cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud makinesi oluşturulmadı: kişi cmux’ta reddetti veya kapattı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хмарну машину не створено: користувач відхилив або закрив запит у cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không có máy Cloud nào được tạo: người dùng đã từ chối hoặc đóng yêu cầu trong cmux."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

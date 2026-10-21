@@ -10,10 +10,13 @@ extension CloudHandlers {
         bind("newCloudMachine", registry, reason: reason) { invocation in
             // The new machine's progress shows in the window at once; its
             // first workspace opens there when its daemon is ready.
-            creationFlow(context, startedByPerson: invocation.origin == .user).start(in: invocation.allowsViewChange ? context.services.windows.active?.state : nil, existing: nil)
+            let creation = creationFlow(context, startedByPerson: invocation.origin == .user).start(in: invocation.allowsViewChange ? context.services.windows.active?.state : nil, existing: nil)
+            reportCreatedMachine(creation, context)
         }
         bind("newCloudWorkspace", registry, reason: reason) { invocation in
-            let target = try? machine(invocation, context)
+            // Keeps the active-window fallback for any caller: it only opens a workspace,
+            // and with no machine a CLI run would start a new one instead.
+            let target = try? machine(invocation, context, fallsBack: true)
             let window = invocation.allowsViewChange ? context.services.windows.active?.state : nil
             guard let session = target, session.daemon.connection != nil else {
                 // A new machine, or one still on its way: show its progress
