@@ -40,7 +40,12 @@ pub fn link_noindex(root: &Path) -> io::Result<()> {
             if std::fs::symlink_metadata(&real).is_ok() {
                 return Ok(());
             }
-            std::fs::rename(root, &real)?;
+            if let Err(error) = std::fs::rename(root, &real) {
+                // Another process migrated it between our check and the rename.
+                let linked =
+                    std::fs::symlink_metadata(root).is_ok_and(|m| m.file_type().is_symlink());
+                return if linked { Ok(()) } else { Err(error) };
+            }
         }
         Ok(_) => return Ok(()),
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
