@@ -31,6 +31,9 @@ extension HomeTableCardTests {
                                   space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         else { return nil }
         ctx.scaleBy(x: scale, y: scale)
+        // The view's layers are y-down (a flipped NSView); a bitmap context is y-up.
+        ctx.translateBy(x: 0, y: size.height)
+        ctx.scaleBy(x: 1, y: -1)
         layer.render(in: ctx)
         return ctx.makeImage()
     }
