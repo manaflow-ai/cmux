@@ -115,7 +115,10 @@ struct AgentLanesTests {
         #expect(AgentActivityLane.of(summary: summary)?.title == "op-busy")
     }
 
-    @Test func theLanesItemShowsOnlyWhileLabsPreviewFeaturesAreOn() async throws {
+    /// Leo 2026-10-20: "I'm not sure which ones are actually running... Isn't there an expanded
+    /// view of things?" The lanes view is that view, so the sidebar's Lanes item shows by default,
+    /// not only while Labs preview features are on, and stays with Labs off.
+    @Test func theLanesItemShowsWithoutLabsPreviewFeatures() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cnc-lanes-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appending(path: "cmux.json")
@@ -131,18 +134,17 @@ struct AgentLanesTests {
         defer { feed.cancel() }
         let lanesItem = { model.transientTopItems.first { $0.item.id == SidebarTransientItem.lanesID } }
 
-        try await Task.sleep(for: .milliseconds(200))
-        #expect(lanesItem() == nil, "off by default: no Lanes item")
-
-        try Data(#"{"labs": {"previewFeatures": true}}"#.utf8).write(to: url)
-        await settings.reload()
         try await until { lanesItem() != nil }
-        #expect(lanesItem()?.info.badge == 1)
+        #expect(lanesItem()?.info.badge == 1, "on by default: the failed session counts")
 
-        try Data("{}".utf8).write(to: url)
+        try Data(#"{"labs": {"previewFeatures": false}}"#.utf8).write(to: url)
         await settings.reload()
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(lanesItem() != nil, "Labs off keeps the Lanes item")
+
+        lanes.lanes = [:]
         try await until { lanesItem() == nil }
-        #expect(lanesItem() == nil)
+        #expect(lanesItem() == nil, "no lane: no Lanes item")
     }
 
     /// Leo 2026-10-15: the Lanes item counts his own sessions on this Mac, not every acpmux peer's
