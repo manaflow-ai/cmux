@@ -121,7 +121,7 @@ export function SessionSidebar({
   return (
     <OpenSessions.Provider value={openIds}>
       <nav className="acpmux-sidebar" id="acpmux-sidebar" data-list-keyboard aria-label={t("sidebar.label")}>
-        <div className="acpmux-rail" data-list-keyboard>
+        <div className="acpmux-sidebar-rail" data-list-keyboard>
           <RailButton label={t("picker.newChat")} title={t("picker.newChat")} onClick={onNewChat} icon="home" />
 
           <RailButton

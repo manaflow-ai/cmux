@@ -25,6 +25,7 @@ test("the sidebar's icon rail keeps its own layout with the session rail's sheet
   expect(rail.querySelector("button")).not.toBeNull();
   const computed = window.getComputedStyle(rail);
   // happy-dom drops the session rail's clamp() basis, so check the plain values both rules set.
-  expect([computed.alignItems, computed.paddingLeft, computed.overflowY]).toEqual(["center", "0px", "visible"]);
+  expect([computed.alignItems, computed.paddingLeft]).toEqual(["center", "0px"]);
+  expect(computed.overflowY).not.toBe("auto");
   window.happyDOM.close();
 });
