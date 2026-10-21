@@ -49,17 +49,33 @@ impl Hub {
                 {
                     turn_id = rec.msg.get("turnId").and_then(Value::as_str).map(str::to_owned);
                 }
+                // Read on: a failed turn of agent messages may put it back (`requeued` below).
                 ("turn_result", Some(id))
                     if rec.msg.get("turnId").and_then(Value::as_str) == Some(id) =>
                 {
                     ended = Some(rec.msg);
-                    return false;
+                }
+                // Put back after the turn it joined failed (`digest.rs` `requeue_joined`): it
+                // waits again under its own turn id.
+                ("queued", Some(_))
+                    if rec.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id)
+                        && rec.msg.get("requeued") == Some(&Value::Bool(true)) =>
+                {
+                    turn_id = rec.msg.get("turnId").and_then(Value::as_str).map(str::to_owned);
+                    ended = None;
                 }
                 ("queue_removed", Some(id))
                     if rec.msg.get("turnId").and_then(Value::as_str) == Some(id) =>
                 {
                     ended = Some(json!({"stopReason": "cancelled", "status": "withdrawn"}));
                     return false;
+                }
+                // It went in with an earlier agent message's turn (`digest.rs`): that turn's.
+                ("dequeued", Some(id))
+                    if rec.msg.get("turnId").and_then(Value::as_str) == Some(id)
+                        && rec.msg.get("joinedTurnId").is_some_and(Value::is_string) =>
+                {
+                    turn_id = rec.msg["joinedTurnId"].as_str().map(str::to_owned);
                 }
                 _ => {}
             }

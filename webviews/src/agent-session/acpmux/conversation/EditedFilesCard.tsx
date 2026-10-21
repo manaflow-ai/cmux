@@ -1,6 +1,8 @@
 // The card that closes a turn which edited files: a small diff glyph, "Edited 2 files" with the
 // totals, then Undo and View changes; under it one row per file in monospace (the dimmed folder,
-// the name, its counts). The data is turnChanges/model.ts; this file is only its view.
+// the name, its counts). A card for one file has no rows: its title or chevron opens that file's
+// diff in the card (EditDiff, the transcript's edit view), built from the tool calls, so a new file
+// or one outside any repository shows too. The data is turnChanges/model.ts; this file is only its view.
 //
 // Undo is a host revert (`turn.undo`): the host puts a file back only while it still holds the
 // turn's last bytes, and moves a file the turn created to the Trash. The Undo click asks the host
@@ -22,6 +24,7 @@ import { SessionEditsContext } from "../turnChanges/sessionRows";
 import { useEditedFilesSettings } from "../turnChanges/settings";
 import { applyUndo, cancelUndo, checkUndo, useUndoState, type UndoState } from "../turnChanges/undoStore";
 import { setCardOpen, useCardOpen } from "../turnChanges/openStore";
+import { EditDiff } from "./EditDiff";
 import { Undo } from "./icons";
 import { ToolRows } from "./TurnRows";
 
@@ -63,6 +66,10 @@ function Card({
   const userOpened = useCardOpen(row.id);
   const open = settings.show !== "collapsed" || userOpened;
   const setOpen = (value: boolean) => setCardOpen(row.id, value);
+  // A one-file card's diff, open or not, kept by row like the rows' open state.
+  const diffKey = `${row.id}\u0000diff`;
+  const diffOpen = useCardOpen(diffKey);
+  const toggleDiff = () => setCardOpen(diffKey, !diffOpen);
   const edits = rows.flatMap((one) =>
     (one.items ?? []).filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange"),
   );
@@ -102,7 +109,12 @@ function Card({
         <span className="acpmux-edited-icon">
           <PlusMinus />
         </span>
-        <div className="acpmux-edited-title">
+        {/* The title is a wider mouse target for the chevron's toggle; the chevron is the keyboard and screen reader control. */}
+        {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+        <div
+          className={single ? "acpmux-edited-title acpmux-edited-title--toggle" : "acpmux-edited-title"}
+          onClick={single ? toggleDiff : undefined}
+        >
           <div>{title}</div>
           <div className="acpmux-edited-sub">
             {files.length > 0 && <Counts additions={counts.additions} deletions={counts.deletions} />}
@@ -117,6 +129,17 @@ function Card({
             onClick={(event) => onOpenDiff(row.id, single?.path, event.currentTarget)}
           >
             {t("edited.view")}
+          </button>
+        )}
+        {single && (
+          <button
+            type="button"
+            className="acpmux-edited-toggle"
+            aria-expanded={diffOpen}
+            aria-label={diffOpen ? t("changes.collapseFile") : t("changes.expandFile")}
+            onClick={toggleDiff}
+          >
+            <ChevronDown width={14} height={14} style={diffOpen ? { transform: "rotate(180deg)" } : undefined} />
           </button>
         )}
         {!single && total > 0 && settings.show === "collapsed" && (
@@ -141,6 +164,11 @@ function Card({
       )}
       {single && undoState.phase === "done" && (
         <FileStatus status={status(single.path)} path={single.path} rowId={row.id} onOpenDiff={onOpenDiff} t={t} />
+      )}
+      {single && diffOpen && (
+        <div className="acpmux-edited-diff">
+          <EditDiff file={single} />
+        </div>
       )}
       {shown.map((entry) => {
         if (!entry.file) {
