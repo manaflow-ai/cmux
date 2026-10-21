@@ -120,6 +120,10 @@ function widthAt(element: HTMLElement, then: Forms): number {
     const taken = part.getBoundingClientRect().width + (parent ? px(getComputedStyle(parent).columnGap) : 0);
     width += before ? -taken : taken;
   }
+  // A face that ellipsizes when the row is full (`data-fit-natural`, the Options chip) counts at its
+  // whole width, so the row takes its steps before that face gives up any text.
+  for (const face of element.querySelectorAll<HTMLElement>("[data-fit-natural]"))
+    width += Math.max(0, face.scrollWidth - face.clientWidth);
   return width;
 }
 

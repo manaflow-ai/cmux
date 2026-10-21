@@ -38,7 +38,9 @@ export function AgentOptionsMenu({
           aria-haspopup="menu"
           data-menu="options"
         >
-          <span className="acpmux-options-text">{face}</span>
+          <span className="acpmux-options-text" data-fit-natural>
+            {face}
+          </span>
           <ChevronIcon />
         </MenuButton>
         <MenuPopup side="top" align="start" className="acpmux-access-menu acpmux-options-menu">

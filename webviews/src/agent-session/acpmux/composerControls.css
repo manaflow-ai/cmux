@@ -250,8 +250,9 @@
 .acpmux-chip-pending .acpmux-picker-button:hover { background: none; }
 /* The Options chip (AgentOptionsMenu): the harness's other settings, a quiet pill like the access
    chip, its face one option's name and choice or "Options". It gives way only when its row is
-   full: the chip shrinks with the row and its face ellipsizes there, never at a fixed width while
-   the row has room (chip-fixed-width.test.ts). */
+   full: the row takes its steps first (composerRowFit.ts counts the face's whole width), then the
+   chip shrinks, down to the New Tab model chip's floor, and its face ellipsizes; never at a fixed
+   width while the row has room (chip-fixed-width.test.ts). */
 :is(.acpmux-composer-bar, .nt-pickers) .acpmux-options .acpmux-picker-button {
   height: 28px;
   min-width: 0;
@@ -261,7 +262,7 @@
   border-radius: 999px;
   color: var(--agent-muted);
 }
-:is(.acpmux-composer-bar, .nt-pickers) .acpmux-chips > .acpmux-options { flex: 0 1 auto; min-width: 0; }
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-chips > .acpmux-options { flex: 0 1 auto; min-width: 56px; }
 .acpmux-options .acpmux-picker-button[aria-expanded="true"],
 .acpmux-options .acpmux-picker-button:hover { color: var(--agent-text); }
 .acpmux-options-text,
