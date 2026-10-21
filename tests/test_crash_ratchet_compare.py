@@ -4,6 +4,7 @@ A fake ratchet stands in for scripts/cmux-next/crash_ratchet.py: it prints the t
 <repo>/ratchet.out and exits with the code in <repo>/ratchet.rc, so each case states exactly what
 the real ratchet would print for the head and for the base.
 """
+import json
 import os
 import subprocess
 import sys
@@ -83,6 +84,91 @@ class CrashRatchetCompare(unittest.TestCase):
         self.assertEqual(rc, 1, out)
         self.assertIn("did not run on the base", out)
         self.assertIn("refused, not a checkout", out)
+
+
+RATCHET = os.path.join(HERE, "..", "scripts", "cmux-next", "crash_ratchet.py")
+GRANDFATHERED = "Packages/macOS/CmuxNext/Sources/M/A.swift"
+
+
+class RealRatchetAgainstBase(unittest.TestCase):
+    """The real crash_ratchet.py on a fixture, compared the way the PR job compares it.
+
+    After a stale absolute baseline is refreshed, the base is green with grandfathered hits: a
+    banned class allowed at its current count in crash-allowlist.json, and a ratchet class in the
+    baseline. A pull request that adds one more hit of either kind must still be red.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(lambda: subprocess.run(["rm", "-rf", self.tmp]))
+        self.head = os.path.join(self.tmp, "head")
+        self.base = os.path.join(self.tmp, "base")
+        scripts = os.path.join(self.head, "scripts", "cmux-next")
+        os.makedirs(scripts)
+        os.makedirs(os.path.join(self.head, "cmux-tui", "crates", "x", "src"))
+        self.write("cmux-tui/crates/x/src/lib.rs", "pub fn f() {}\n")
+        with open(RATCHET) as src, open(os.path.join(scripts, "crash_ratchet.py"), "w") as dst:
+            dst.write(src.read())
+        self.write(GRANDFATHERED, "final class A {\n    unowned let owner: Owner\n"
+                                  "    let s = NSSelectorFromString(\"run\")\n}\n")
+        self.write("scripts/cmux-next/crash-allowlist.json", json.dumps({
+            "banned": ["swift.unowned"],
+            "allow": [{"path": GRANDFATHERED, "class": "swift.unowned", "count": 1,
+                       "reason": "grandfathered", "reviewer": "fixture"}]}))
+        self.git("init", "-q")
+        self.git("add", ".")
+        subprocess.run([sys.executable, os.path.join(scripts, "crash_ratchet.py"), "--repo", self.head,
+                        "--update-baseline"], check=True, capture_output=True)
+        with open(os.path.join(scripts, "crash-safety-baseline.json")) as f:
+            self.assertEqual(json.load(f)["swift"]["dynamic_dispatch"], {"M": 1})
+        self.git("add", ".")
+        self.git("commit", "-qm", "base")
+        # The base as the job builds it: an exported tree of tracked files (git archive).
+        archive = subprocess.run(["git", "-C", self.head, "archive", "--format=tar", "HEAD"],
+                                 check=True, capture_output=True).stdout
+        os.makedirs(self.base)
+        subprocess.run(["tar", "-x", "-C", self.base], input=archive, check=True)
+
+    def write(self, rel, text):
+        path = os.path.join(self.head, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            f.write(text)
+
+    def git(self, *args):
+        subprocess.run(["git", "-C", self.head, "-c", "user.name=t", "-c", "user.email=t@t",
+                        "-c", "commit.gpgsign=false", *args], check=True, capture_output=True)
+
+    def compare(self):
+        self.git("add", ".")
+        out = subprocess.run([sys.executable, COMPARE, "--script",
+                              os.path.join(self.head, "scripts", "cmux-next", "crash_ratchet.py"),
+                              "--head", self.head, "--base", self.base], capture_output=True, text=True)
+        return out.returncode, out.stdout + out.stderr
+
+    def test_grandfathered_base_is_green(self):
+        rc, out = self.compare()
+        self.assertEqual(rc, 0, out)
+        self.assertIn("crash-ratchet: ok on the head", out)
+
+    def test_extra_banned_hit_in_grandfathered_file_fails(self):
+        self.write(GRANDFATHERED, "final class A {\n    unowned let owner: Owner\n    unowned let other: Owner\n"
+                                  "    let s = NSSelectorFromString(\"run\")\n}\n")
+        rc, out = self.compare()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("swift M: unowned: head 2, base ok", out)
+
+    def test_banned_hit_in_new_file_fails(self):
+        self.write("Packages/macOS/CmuxNext/Sources/M/B.swift", "final class B {\n    unowned let owner: Owner\n}\n")
+        rc, out = self.compare()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("turns the crash ratchet red", out)
+
+    def test_extra_ratchet_class_hit_over_refreshed_baseline_fails(self):
+        self.write("Packages/macOS/CmuxNext/Sources/M/B.swift", "let t = NSSelectorFromString(\"stop\")\n")
+        rc, out = self.compare()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("swift M: dynamic_dispatch: head 2, base ok", out)
 
 
 if __name__ == "__main__":

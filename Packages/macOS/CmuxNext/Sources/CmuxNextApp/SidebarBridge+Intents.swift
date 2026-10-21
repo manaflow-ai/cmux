@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextSettings
 import CmuxNextSidebar
 
 // Sidebar intents -> daemon commands, applied optimistically to the
@@ -12,6 +13,14 @@ import CmuxNextSidebar
 extension SidebarBridge {
     func handle(_ intent: SidebarIntent) {
         guard let state else { return }
+        // A group's fold is view state: this window shows it now, on that group's rows only, then tells the
+        // document (its owner of record) the value. No round trip and no rebuild (state-ownership-DESIGN.md).
+        if case let .toggleCollapse(.group(group)) = intent, SidebarDocWiring.isActive, let doc = SidebarDocStore.current,
+           let shown = model.group(group)?.isCollapsed {
+            rows.foldShown(group, collapsed: !shown)
+            doc.setGroupCollapsed(group.rawValue, !shown) { [weak self] in self?.rows.dropFold(group) }
+            return
+        }
         if CloudCreationRows.handle(intent, bridge: self, state: state) || SidebarDocWiring.handle(intent, bridge: self) { return }
         // A section's collapse is window view state (sidebar snapshot), never a daemon command.
         if case .toggleCollapse(.section) = intent {
@@ -53,9 +62,8 @@ extension SidebarBridge {
             // transaction path of its own.
             resync()
         case .reorder(let ids, let position):
-            let before = model.sections
-            model.apply(intent)
-            SidebarDaemonReorder.reorder(ids, to: position, in: before, bridge: self)
+            // A pending edit, as on the personal path: each command's echo shows no step between.
+            SidebarDaemonReorder.reorder(ids, to: position, in: model.sections, edit: rows.add(intent), bridge: self)
         case .rename(let id, let name):
             model.apply(intent)
             guard let (workspace, daemon) = services.machines.workspace(id: id.rawValue), let key = workspace.key else { return }
@@ -105,9 +113,15 @@ extension SidebarBridge {
             sendPinned(ids, pinned)
         case .activateItem(let id, let opensWorkspace):
             activateLayoutItem(id, opensWorkspace: opensWorkspace)
-        case .installUpdate, .setAutomaticUpdates, .openUpdateLink, .openUpdateChanges, .noticeAction, .dismissNotice, .openWhatsNew, .dismissUpdated:
+        case .installUpdate, .setAutomaticUpdates, .openUpdateLink, .openUpdateChanges, .noticeAction, .dismissNotice, .openWhatsNew, .dismissUpdated,
+             .hideNowPlayingCard, .addItems:
             SidebarCardFeed.handle(intent, services: services)
         case .nowPlaying(let command): services.cache.pageRequests.sidebarSources.perform(command)
+        case .toggleWorkspaceAudio(let id):
+            // The row's speaker runs the workspace menu's, palette's and CLI's action, on its row alone.
+            var invocation = ActionInvocation(target: ActionTargetRef(kind: .workspace, id: id.rawValue), origin: .user)
+            invocation.closesRowOnly = true
+            _ = services.registry.perform(BrowserTabAudio.workspaceToggleActionID, invocation: invocation)
         case .layout(let op):
             applyLayoutOp(op)
         case .dropOnLayoutSection(let ids, let section, let index):
@@ -161,6 +175,8 @@ extension SidebarBridge {
         var sections = Self.sections(services.machines, members: services.windows.registry.members(of: state.id), profile: state.profileID,
                                      hidesHome: Self.hidesHome(services.sidebarLayout.document), selection: state.selection,
                                      newTabPages: Self.newTabPages(services.agentTabs, in: services.machines.local.store), muted: services.notifications.preferences.mutedWorkspaces)
+        sections = WorkspaceGroupConfigLook(config: services.settings?.snapshot.workspaceGroups ?? WorkspaceGroupConfig(), machines: services.machines)
+            .applying(to: sections)
         // A connecting SSH machine keeps its pending row through a resync (cx-gaq9).
         if !model.groupsByComputer { sections = SSHConnectingRows.adding(services.machines, to: sections) }
         rows.show(sections)

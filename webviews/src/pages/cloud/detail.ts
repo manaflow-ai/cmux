@@ -155,6 +155,8 @@ export class DetailReader {
     this.host.set({ ...latest, browser: route, browserRefused: undefined });
     const args: BrowserTabOpenArgs = {
       url: route.url,
+      incarnation: route.incarnation,
+      generation: route.generation,
       machineStore: { machine: route.machine, machineName, proxy: route.proxy },
       engine: "cef",
     };

@@ -42,15 +42,28 @@ final class PressHold {
 
 /// The dim under the tapback picker (measured: every colour x0.46-0.51,
 /// reached in about 0.17 s, ease-out); a click on it closes the picker.
+///
+/// The pressed bubble stays bright (real Messages lifts it): the dim has a hole in the
+/// bubble's shape, so the real row shows through, upright and in its place. (A bitmap
+/// copy of the row laid over the dim drew upside down in a cmux-next pane: its
+/// orientation followed the flips of the views above it. Lawrence 2026-10-20.)
 final class PickerDimView: NSView {
     static let opacity: Float = 0.52
     var onClick: (() -> Void)?
+    /// The pressed bubble's outline in this view's coordinates (the host's: the dim covers its bounds).
+    private let hole: CGPath?
+    private let shade = CAShapeLayer()
 
-    override init(frame: NSRect) {
+    init(frame: NSRect, hole: CGPath? = nil) {
+        self.hole = hole
         super.init(frame: frame)
         autoresizingMask = [.width, .height]
         wantsLayer = true
-        layer?.backgroundColor = NSColor.black.cgColor
+        shade.fillColor = NSColor.black.cgColor
+        shade.fillRule = .evenOdd
+        shade.actions = ["path": NSNull(), "bounds": NSNull(), "position": NSNull()]
+        layer?.addSublayer(shade)
+        placeShade()
         layer?.opacity = Self.opacity
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = 0
@@ -61,6 +74,23 @@ final class PickerDimView: NSView {
     }
 
     required init?(coder: NSCoder) { nil }
+
+    /// Flipped as the host is, so the hole's host coordinates are this layer's (as MenuHighlight's
+    /// path in the host's layer).
+    override var isFlipped: Bool { true }
+
+    override func layout() {
+        super.layout()
+        placeShade()
+    }
+
+    private func placeShade() {
+        let path = CGMutablePath()
+        path.addRect(bounds)
+        if let hole { path.addPath(hole) }
+        shade.frame = bounds
+        shade.path = path
+    }
 
     override func mouseDown(with event: NSEvent) { onClick?() }
 }

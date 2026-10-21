@@ -50,24 +50,31 @@ use std::process::Command;
 pub struct Process {
     agents: Agents,
     keep: &'static [&'static str],
+    inject: &'static [(&'static str, &'static str)],
 }
 
 impl Process {
     /// No agent starts in this process or in a daemon it starts without a
     /// choice of its own.
     pub const fn deny() -> Self {
-        Self { agents: Agents::Deny, keep: &[] }
+        Self { agents: Agents::Deny, keep: &[], inject: &[] }
     }
 
     /// The process starts its own stand-in agents (a hub run in process).
     pub const fn stand_in() -> Self {
-        Self { agents: Agents::StandIn, keep: &[] }
+        Self { agents: Agents::StandIn, keep: &[], inject: &[] }
     }
 
     /// Host variables this process truly needs, kept as they are (each one
     /// named with its reason where the constant is defined).
     pub const fn keep(self, keep: &'static [&'static str]) -> Self {
         Self { keep, ..self }
+    }
+
+    /// Synthetic, non-secret variables the hermetic process starts with.
+    /// Tests use these instead of copying credential-bearing host values.
+    pub const fn with_env(self, inject: &'static [(&'static str, &'static str)]) -> Self {
+        Self { inject, ..self }
     }
 }
 
@@ -161,6 +168,10 @@ pub fn enter(process: Process, args: Vec<std::ffi::OsString>) {
             env.push(((*key).to_owned(), value));
         }
     }
+    for (key, value) in process.inject {
+        env.retain(|(k, _)| k != key);
+        env.push(((*key).to_owned(), (*value).to_owned()));
+    }
     env.push((ENTERED.into(), "1".into()));
     // The interpreter found now, so the hermetic process does not look again.
     env.push((PYTHON.into(), host_tool("python3").display().to_string()));
@@ -227,6 +238,13 @@ pub fn apply<'c>(
 /// The hermetic environment as pairs (for an agent host's `SpawnSpec.env`).
 pub fn vars(scratch: &Path, agents: Agents, tools: &[&str]) -> Vec<(String, String)> {
     let mut env = platform_vars(&home(scratch), tools);
+    // The sessions' own temporary folders (`agent/session_tmp.rs`): in the
+    // scratch directory, never the user's `/tmp/acpmux-<uid>` (a debug build reads it).
+    #[cfg(unix)]
+    env.push((
+        "ACPMUX_TEST_SESSION_TMP_BASE".into(),
+        scratch.join("session-tmp").display().to_string(),
+    ));
     if agents == Agents::Deny {
         env.push(("ACPMUX_AGENT_LAUNCH".into(), "deny".into()));
     }

@@ -11,6 +11,7 @@
 // its network rules and plays a checked copy.
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Dialog } from "../../../ui/Dialog";
+import { keyedIconProps } from "../../../ui/DialogButton";
 import { useT } from "../i18n";
 import { Close, Expand } from "../conversation/icons";
 import { callChipHost } from "./host";
@@ -165,7 +166,6 @@ function MediaPlayer({
         type="button"
         className="cv-media__expand"
         aria-label={t("media.expand")}
-        title={t("media.expand")}
         onClick={() => setExpanded(true)}
       >
         <Expand size={14} />
@@ -188,8 +188,7 @@ function MediaPlayer({
                 type="button"
                 className="acpmux-image-viewer-action"
                 ref={close}
-                aria-label={t("image.close")}
-                title={t("image.close")}
+                {...keyedIconProps(t("image.close"), "escape")}
                 onClick={() => setExpanded(false)}
               >
                 <Close />

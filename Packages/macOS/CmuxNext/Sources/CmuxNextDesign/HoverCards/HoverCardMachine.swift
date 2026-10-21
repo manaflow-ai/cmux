@@ -48,6 +48,8 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
     public var aimWindow: Duration
     /// The pointer rests on the shown card (the coordinator says so before each deadline).
     public private(set) var pointerOnCard = false
+    /// A card its owner shows has the one card window (`HoverCardEvent.owned`).
+    public private(set) var ownedCardShown = false
     /// The last deadline found the pointer on the card: when it leaves, the full grace starts then.
     private var wasOnCard = false
     /// How long a target with no delay waits when it arrives under a still
@@ -106,13 +108,17 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
                 return []
             case .leaving(let shown, let armed) where armed == token:
                 // The pointer rests on the card: it stays, and looks again
-                // after the grace. Just off it: the full grace starts now.
-                // A card that hides on leave takes no pointer: resting on it keeps nothing.
-                if !shown.leave.hidesAtOnce, pointerOnCard || wasOnCard {
+                // after the grace. Just off it: the full grace starts now. A
+                // card that hides on leave stays only while the pointer is on
+                // it (it touches its tab, Lawrence 2026-10-19), and looks again
+                // after its reshow window.
+                let hides = shown.leave.hidesAtOnce
+                if pointerOnCard || (!hides && wasOnCard) {
                     wasOnCard = pointerOnCard
                     let again = takeToken()
                     phase = .leaving(shown, token: again)
-                    return [.schedule(token: again, after: leaveWindow)]
+                    let after = if case .hides(let reshow) = shown.leave { reshow } else { leaveWindow }
+                    return [.schedule(token: again, after: after)]
                 }
                 // The pointer stopped aiming on another target: it takes the card over.
                 if suppressions.isEmpty, let target = lastHit, target.id != shown.id {
@@ -153,6 +159,15 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
             if lastHit?.id == id { lastHit = nil }
             guard activeTarget?.id == id else { return [] }
             return end() + resume()
+        case .owned(let shown):
+            ownedCardShown = shown
+            guard shown else { return [] }
+            // The owner's card takes the window: no card of a target is pending or shown, and
+            // nothing hides (the window morphs to the owner's content).
+            quiet = false
+            let hadTimer = armedToken != nil
+            phase = .idle
+            return hadTimer ? [.cancelTimer] : []
         case .pin(let target):
             // No card during a drag or scroll, pinned or not.
             guard suppressions.isEmpty else { return [] }
@@ -185,6 +200,11 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
         switch phase {
         case .idle:
             guard let target else { return [] }
+            // The owner's card shows: the next target takes the one card at once (it morphs).
+            if ownedCardShown {
+                phase = .shown(target)
+                return [.show(target, sliding: true)]
+            }
             return arm(target, moved: moved)
         case .pending(let pending, _):
             guard let target else { return end() }
@@ -234,8 +254,8 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
         case .leaving(let shown, _):
             if case .hides(let reshow) = shown.leave {
                 guard let target else {
-                    // Still between targets: the window runs on. Off them (or onto
-                    // the card): it hides now.
+                    // Still between targets or on the card: the window runs on.
+                    // Off them and off the card: it hides now.
                     if bridging { return [] }
                     let grace = takeToken()
                     phase = .grace(token: grace)

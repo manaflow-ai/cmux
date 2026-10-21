@@ -17,6 +17,9 @@ final class AgentPanePageSettings {
     private(set) var sidebarPreviewVariant = AgentPaneSidebarPreviewVariant.card
     /// Diff Colors (`diff.colors`), for the Changes view's added and removed lines.
     private(set) var diffColors = "theme"
+    /// The chat's look (`agentPane.display.*` and the Markdown viewer keys it follows).
+    private(set) var display = AgentPaneDisplaySetting.fallback
+    private var displayObservation: Task<Void, Never>?
     private var previewObservation: Task<Void, Never>?
     private var editedFilesObservation: Task<Void, Never>?
     private var zoomObservation: Task<Void, Never>?
@@ -29,32 +32,13 @@ final class AgentPanePageSettings {
 
     /// Follows both keys in `settings`; `push` runs after each change, to reach the open views.
     func follow(_ settings: SettingsController, push: @escaping () -> Void) {
-        for task in [previewObservation, editedFilesObservation, zoomObservation, composerObservation, reasoningSliderObservation, sidebarPreviewVariantObservation, diffColorsObservation] { task?.cancel() }  // a new controller replaces, never adds
+        for task in [previewObservation, editedFilesObservation, zoomObservation, composerObservation, reasoningSliderObservation, sidebarPreviewVariantObservation, diffColorsObservation, displayObservation] { task?.cancel() }  // a new controller replaces, never adds
         self.settings = settings
-        // task-owner: lives as long as the tabs; event-driven (Observation)
-        previewObservation = Task { [weak self] in
-            for await on in ObservationStream({ settings.snapshot.previewFeatures }) {
-                guard let self else { return }
-                previewFeatures = on
-                push()
-            }
-        }
-        // task-owner: lives as long as the tabs; event-driven (Observation)
-        editedFilesObservation = Task { [weak self] in
-            for await value in ObservationStream({ settings.snapshot.agentPaneEditedFiles }) {
-                guard let self else { return }
-                editedFiles = value
-                push()
-            }
-        }
-        // task-owner: lives as long as the tabs; event-driven (Observation)
-        zoomObservation = Task { [weak self] in
-            for await value in ObservationStream({ settings.snapshot.agentPaneZoom }) {
-                guard let self else { return }
-                zoom = value
-                push()
-            }
-        }
+        // `sessions.promptSuggestions`: the pages, and the next acpmux daemon this app starts.
+        AgentPaneSuggestedTasks.shared.setting = { [weak settings] in settings?.snapshot.sessions.promptSuggestions ?? false }
+        previewObservation = observe({ settings.snapshot.previewFeatures }, push: push) { $0.previewFeatures = $1 }
+        editedFilesObservation = observe({ settings.snapshot.agentPaneEditedFiles }, push: push) { $0.editedFiles = $1 }
+        zoomObservation = observe({ settings.snapshot.agentPaneZoom }, push: push) { $0.zoom = $1 }
         composerObservation = Task { [weak self] in
             for await value in ObservationStream({ settings.snapshot.agentPaneComposer }) {
                 guard let self else { return }
@@ -67,8 +51,7 @@ final class AgentPanePageSettings {
         reasoningSliderObservation = Task { [weak self] in
             for await on in ObservationStream({ (AgentPaneTunables.reasoningSlider.value, AgentPaneTunables.reasoningSliderStyle.value) }) {
                 guard let self else { return }
-                composer.reasoningSlider = on.0
-                composer.reasoningSliderStyle = on.1.rawValue
+                (composer.reasoningSlider, composer.reasoningSliderStyle) = (on.0, on.1.rawValue)
                 push()
             }
         }
@@ -89,6 +72,38 @@ final class AgentPanePageSettings {
                 push()
             }
         }
+        followDisplay(settings, push: push)
+    }
+
+    /// Follows the chat's look; split from ``follow(_:push:)``, which is at its size limit.
+    private func followDisplay(_ settings: SettingsController, push: @escaping () -> Void) {
+        // task-owner: lives as long as the tabs; event-driven (Observation)
+        displayObservation = Task { [weak self] in
+            for await value in ObservationStream({ AgentPaneDisplaySetting(fileRoot: settings.fileRoot) }) {
+                guard let self, value != display else { continue }
+                display = value
+                push()
+            }
+        }
+    }
+
+    /// The Text & Width popover's write: one `agentPane.display.*` key at `path`, nil removes it.
+    /// The observation above then pushes the new look to every page.
+    func setDisplay(_ path: [String], _ value: JSONValue?) async throws {
+        try await settings?.setSetting(at: path, to: value, by: .caller("page"))
+    }
+
+    /// One cmux.json value, followed: each change is stored by `store`, then `push` reaches the open views.
+    private func observe<Value: Sendable>(_ read: @escaping @MainActor @Sendable () -> Value, push: @escaping () -> Void,
+                                          store: @escaping (AgentPanePageSettings, Value) -> Void) -> Task<Void, Never> {
+        // task-owner: lives as long as the tabs; event-driven (Observation)
+        Task { [weak self] in
+            for await value in ObservationStream(read) {
+                guard let self else { return }
+                store(self, value)
+                push()
+            }
+        }
     }
 
     /// The composer's Hide or Show Context Usage and Hide dictation button: writes the flag at
@@ -106,5 +121,8 @@ final class AgentPanePageSettings {
         sidebarPreviewVariant.push(to: view)
         composer.push(to: view)
         view.pushDiffColors(diffColors)
+        // `sessions.allowFullAccess`, read per frame by the transport: a change applies at the next mode switch.
+        view.model.transport.allowsFullAccess = { [weak self] in self?.settings?.snapshot.sessions.allowsFullAccess ?? true }
+        view.pushDisplay(display)
     }
 }

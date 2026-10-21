@@ -1,0 +1,200 @@
+[
+ {
+  "bar_top": 442.0,
+  "bar_bottom": 458.0,
+  "bar_h": 16.0,
+  "bg": [
+   0,
+   0,
+   0
+  ],
+  "below": 458.0,
+  "below_rgb": [
+   33,
+   33,
+   33
+  ],
+  "gap_px": 0,
+  "gap_pt": 0.0,
+  "name": "n3-pin-a-1line-kbup",
+  "field_h": 36,
+  "field_top": 464,
+  "kb": true
+ },
+ {
+  "bar_top": 342.0,
+  "bar_bottom": 358.0,
+  "bar_h": 16.0,
+  "bg": [
+   0,
+   0,
+   0
+  ],
+  "below": 358.0,
+  "below_rgb": [
+   30,
+   30,
+   30
+  ],
+  "gap_px": 0,
+  "gap_pt": 0.0,
+  "name": "n3-pin-a-6lines-kbup",
+  "field_h": 136,
+  "field_top": 364,
+  "kb": true
+ },
+ {
+  "bar_top": 620.0,
+  "bar_bottom": 636.0,
+  "bar_h": 16.0,
+  "bg": [
+   0,
+   0,
+   0
+  ],
+  "below": 636.0,
+  "below_rgb": [
+   30,
+   30,
+   30
+  ],
+  "gap_px": 0,
+  "gap_pt": 0.0,
+  "name": "n3-pin-a-6lines-kbdown",
+  "field_h": 136,
+  "field_top": 642,
+  "kb": false
+ },
+ {
+  "bar_top": 342.0,
+  "bar_bottom": 358.0,
+  "bar_h": 16.0,
+  "bg": [
+   0,
+   0,
+   0
+  ],
+  "below": 358.0,
+  "below_rgb": [
+   30,
+   30,
+   30
+  ],
+  "gap_px": 0,
+  "gap_pt": 0.0,
+  "name": "n3-pin-a-shrunk3-kbup",
+  "field_h": 136,
+  "field_top": 364,
+  "kb": true
+ },
+ {
+  "bar_top": 620.0,
+  "bar_bottom": 636.0,
+  "bar_h": 16.0,
+  "bg": [
+   0,
+   0,
+   0
+  ],
+  "below": 636.0,
+  "below_rgb": [
+   30,
+   30,
+   30
+  ],
+  "gap_px": 0,
+  "gap_pt": 0.0,
+  "name": "n3-pin-a-shrunk3-kbdown",
+  "field_h": 136,
+  "field_top": 642,
+  "kb": false
+ },
+ {
+  "bar_top": 620.0,
+  "bar_bottom": 636.0,
+  "bar_h": 16.0,
+  "bg": [
+   0,
+   0,
+   0
+  ],
+  "below": 636.0,
+  "below_rgb": [
+   30,
+   30,
+   30
+  ],
+  "gap_px": 0,
+  "gap_pt": 0.0,
+  "name": "n3-pin-a-shrunk3-kbdown-5s",
+  "field_h": 136,
+  "field_top": 642,
+  "kb": false
+ },
+ {
+  "bar_top": 342.0,
+  "bar_bottom": 358.0,
+  "bar_h": 16.0,
+  "bg": [
+   0,
+   0,
+   0
+  ],
+  "below": 358.0,
+  "below_rgb": [
+   30,
+   30,
+   30
+  ],
+  "gap_px": 0,
+  "gap_pt": 0.0,
+  "name": "n3-pin-a-shrunk1-kbup",
+  "field_h": 136,
+  "field_top": 364,
+  "kb": true
+ },
+ {
+  "bar_top": 620.0,
+  "bar_bottom": 636.0,
+  "bar_h": 16.0,
+  "bg": [
+   0,
+   0,
+   0
+  ],
+  "below": 636.0,
+  "below_rgb": [
+   30,
+   30,
+   30
+  ],
+  "gap_px": 0,
+  "gap_pt": 0.0,
+  "name": "n3-pin-a-shrunk1-kbdown",
+  "field_h": 136,
+  "field_top": 642,
+  "kb": false
+ },
+ {
+  "bar_top": 620.0,
+  "bar_bottom": 636.0,
+  "bar_h": 16.0,
+  "bg": [
+   0,
+   0,
+   0
+  ],
+  "below": 636.0,
+  "below_rgb": [
+   30,
+   30,
+   30
+  ],
+  "gap_px": 0,
+  "gap_pt": 0.0,
+  "name": "n3-pin-a-shrunk1-kbdown-5s",
+  "field_h": 136,
+  "field_top": 642,
+  "kb": false
+ }
+]

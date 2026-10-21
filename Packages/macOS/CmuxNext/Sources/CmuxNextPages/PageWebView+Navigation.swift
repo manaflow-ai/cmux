@@ -3,6 +3,15 @@ public import WebKit
 @MainActor
 extension PageWebView {
     public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation?) {
+        documentCommitted()
+    }
+
+    public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
+        documentFinished()
+    }
+
+    /// A new main-frame document committed (either engine).
+    func documentCommitted() {
         // A new document: the old one's subscriptions and host calls end with it, and it has not
         // painted yet.
         router.reset()
@@ -14,7 +23,8 @@ extension PageWebView {
         router.send = { envelope in scripts.send(envelope) }
     }
 
-    public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
+    /// The document finished loading (either engine).
+    func documentFinished() {
         loaded = true
         applyUIScale()
         applyTheme(force: true)

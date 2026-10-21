@@ -11,6 +11,10 @@ import { FakeFiles, FreestyleFiles } from "./team-vm-driver-files.ts"
  * starts a paused VM and reports the observed state.
  */
 export interface TeamVmDriver {
+  /** Test-only prefix override remains available through an owner router. */
+  slugPrefix?(): string | null
+  /** API transports verify the signed real instance against the allocation's canonical fingerprint. */
+  instanceMatches?(id: string, signedInstance: string): Promise<boolean>
   ensureVm(slug: string, team: string, epoch: number): Promise<{ readonly id: string; readonly state: ProviderState }>
   ensureRunning(id: string): Promise<{ readonly state: ProviderState }>
   /** Reads the VM with this EXACT name (slug): its id and team tag, or null when the provider has none. Never lists. */

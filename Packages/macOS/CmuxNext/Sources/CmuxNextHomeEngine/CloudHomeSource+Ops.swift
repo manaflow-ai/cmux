@@ -12,12 +12,12 @@ nonisolated extension CloudHomeSource {
             let request = CloudConversationOpRequest(conversation: conversation?.rawValue, idempotencyKey: key, origin: "user", op: op)
             return try await reply(for: identity) { try await commands.op(request) }
         }
-        func edit(_ op: CloudConversationOp, in conversation: ConversationID) async throws -> HomeOpResult {
+        func edit(_ op: CloudConversationOp, in conversation: ConversationID, key opKey: String = key) async throws -> HomeOpResult {
             beginEdit(conversation, generation: generation)
             let result: CloudConversationOpResult
             do {
                 try requireEditable(conversation, commands: commands, generation: generation)
-                result = try await send(op, in: conversation)
+                result = try await send(op, in: conversation, key: opKey)
             } catch {
                 // A resend follows a transient failure and needs the socket
                 // live; one refused for good waits for nothing.
@@ -56,8 +56,34 @@ nonisolated extension CloudHomeSource {
         case .setTyping(let conversation, _):
             // Answered by `submit` before binding; nothing to send.
             return HomeOpResult(rev: 0, conversation: conversation)
-        case .setPinned, .setMuted, .createChief, .answerQuestion:
-            // inbox.pin, inbox.mute, chief.create and question.answer are not cloud-conversation-op kinds yet
+        case .renameConversation(let conversation, let title):
+            return try await edit(.setTitle(title.trimmingCharacters(in: .whitespacesAndNewlines)), in: conversation)
+        case .setChiefReplies(let conversation, let policy):
+            return try await edit(.setSettings(wakePolicy: policy.rawValue), in: conversation)
+        case .addParticipants(let conversation, let ids):
+            let records = state.withLock { state in
+                ids.filter { $0 != identity.localID }.map { state.participantRecord($0, identity: identity) }
+            }
+            guard !records.isEmpty else { throw HomeRejection.invalid("invalid_participant") }
+            // One participants.add per person; a single add keeps the intent's key, several derive
+            // theirs from it, so a resend replays each one that committed.
+            var last = HomeOpResult(rev: 0, conversation: conversation)
+            for (index, record) in records.enumerated() {
+                last = try await edit(.addParticipant(record), in: conversation,
+                                      key: records.count == 1 ? key : "\(key):add:\(index)")
+            }
+            return last
+        case .removeParticipant(let conversation, let participant):
+            return try await edit(.removeParticipant(identity.toCloud(participant)), in: conversation)
+        case .setPinned(let conversation, let rank):
+            // The person's own inbox (UserDO), not the conversation's owner: `cloud-inbox-op`.
+            // A rank is the pin's position; nil unpins.
+            let op = ConversationInboxOpRequest.Op.pin(rank != nil, position: rank.map { UInt64(max(0, $0)) })
+            return try await inboxOp(op, in: conversation, key: key, identity: identity, commands: commands)
+        case .setMuted(let conversation, let muted):
+            return try await inboxOp(.mute(muted), in: conversation, key: key, identity: identity, commands: commands)
+        case .createChief, .answerQuestion:
+            // chief.create and question.answer are not cloud-conversation-op kinds yet
             // (home-cloud-proxy.md section 8); refused here exactly as the daemon would.
             throw HomeRejection.invalid("unsupported_op")
         case .createGroup(let title, let ids):
@@ -90,6 +116,13 @@ nonisolated extension CloudHomeSource {
             return HomeOpResult(rev: 0, replayed: result.replayed, conversation: created,
                                 invite: InviteReceipt(contact: first, channel: first.isEmail ? .email : .sms, alreadyMember: false))
         }
+    }
+
+    /// One op on the person's inbox entry of `conversation`; the change comes back as `cloud-inbox-changed`.
+    private func inboxOp(_ op: ConversationInboxOpRequest.Op, in conversation: ConversationID, key: String, identity: CloudIdentity,
+                         commands: any CloudConversationCommands) async throws -> HomeOpResult {
+        try await reply(for: identity) { try await commands.inboxOp(conversation.rawValue, idempotencyKey: key, op: op) }
+        return HomeOpResult(rev: 0, conversation: conversation)
     }
 
     private func openDM(with contact: ContactAddress, firstMessage: [MessagePart], key: String, identity: CloudIdentity,

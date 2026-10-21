@@ -21,15 +21,43 @@ import Foundation
         return store.screen(containing: pane.handle)?.layout.paneIDs.contains(pane.handle) == true
     }
 
+    /// Whether the split's daemon pane reached the records and left them before any layout
+    /// placed it (its tab moved out and the pane closed, or a terminal split's pane closed): the
+    /// daemon made the split and undid it, so the split shows nothing and waits for nothing.
+    /// The pane must be gone when this is read, so a close and re-add in one batch is no close.
+    /// A close and a re-add in two batches does not happen: the pane's public id is minted for
+    /// this one split and sent once, and the daemon takes a client pane id only from that split's
+    /// reservation (`pane_id_exists` refuses one in use); every other pane it makes gets a fresh
+    /// id, and a restart's panes come back in a new connection's snapshot, not as events.
+    static func paneGone(_ intent: PendingIntent, in store: DaemonStore) -> Bool {
+        guard intent.daemonPaneSeen, case .splitPane(_, _, _, let provisional) = intent.kind else { return false }
+        return daemonPane(provisional, in: store) == nil
+    }
+
+    /// A snapshot that holds a pending split's daemon pane counts as its `pane-added`: a split not
+    /// replied to yet can see its pane only through a resync snapshot, and must still settle when
+    /// an event closes that pane later (``paneGone(_:in:)``).
+    static func noteDaemonPanes(in store: DaemonStore) {
+        guard !store.intentLog.isEmpty else { return }
+        for entry in store.intentLog.entries {
+            guard case .splitPane(_, _, _, let provisional) = entry.kind, daemonPane(provisional, in: store) != nil else { continue }
+            store.intentLog.noteDaemonPane(provisional.paneID)
+        }
+    }
+
     /// A split stays until the daemon's layout places its pane (cx-ry0y): `pane-added` and the
     /// `layout-changed` that places it can land after the reply's settle sequence, and undoing
-    /// the split before them showed the pane unsplit for one turn. A cancelled creation stays
-    /// while the records hold what it made (``CancelledCreation``).
+    /// the split before them showed the pane unsplit for one turn. One whose pane is gone again
+    /// (``paneGone(_:in:)``) settles at once: waiting for a snapshot left it applying, and its
+    /// provisional pane came back. A cancelled creation stays while the records hold what it
+    /// made (``CancelledCreation``).
     static func awaitsRecords(_ intent: PendingIntent, in store: DaemonStore) -> Bool {
         if intent.closeWhenCreated { return CancelledCreation.daemonHolds(intent, in: store) }
         switch intent.kind {
         case .splitPane(_, _, _, let provisional):
-            return !daemonPlaces(provisional, in: store)
+            return !daemonPlaces(provisional, in: store) && !paneGone(intent, in: store)
+        case .closeTabs(let surfaces):
+            return TabCloseOverlay(store: store).daemonHolds(surfaces)
         case .createWorkspace(let provisional, _):
             // Cmd-N's workspace settles only once the daemon's workspace holds a tab: before
             // that, undoing the overlay would show the window an empty workspace for a turn.
@@ -40,7 +68,8 @@ import Foundation
         }
     }
 
-    private static func daemonPane(_ provisional: ProvisionalPane, in store: DaemonStore) -> PaneModel? {
+    /// The daemon's pane under the split's public pane id, once its records hold it.
+    static func daemonPane(_ provisional: ProvisionalPane, in store: DaemonStore) -> PaneModel? {
         store.index.panesByResource[ResourceID(rawValue: provisional.paneID)].flatMap { $0.handle != provisional.handle ? $0 : nil }
     }
 

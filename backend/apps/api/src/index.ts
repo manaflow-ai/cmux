@@ -35,6 +35,7 @@ export { OpencodeBrainDO } from "./chief-brain-opencode/brain-do.ts"
 import { CHIEF_BRAIN_PATH, handleChiefBrain } from "./chief-brain/routes.ts"
 import { GATEWAY_PATH, handleModelGateway } from "./model-gateway/http.ts"
 import { FAULT_PATH, handleFault } from "./chief-fault.ts"
+import { CC_NOTES_PATH, handleCcNotes } from "./chief-brain-cc/routes.ts"
 import { handleBrainImpl, handleOpencodeHost, handleOpencodeRuns, OPENCODE_HOST_PATH, OPENCODE_IMPL_PATH, opencodeOn } from "./chief-brain-opencode/routes.ts"
 export { DomainDO } from "./domain-do.ts"
 export { PairingDO } from "./pairing-do.ts"
@@ -50,6 +51,7 @@ import { BILLING_LEVELS_PATH, BILLING_SYNC_PATH, handleBillingLevels, handleBill
 import { BILLING_TEAM_MODE_PATH, handleBillingTeamMode } from "./billing-team-mode.ts"
 import { CREDITS_ADMIN_PATH, handleCreditsAdmin } from "./credits-admin.ts"
 import { CREDITS_PATH, CREDITS_WEBHOOK_PATH, handleCredits, handleCreditsWebhook } from "./credits-routes.ts"
+import { HOME_HEALTH_CRON, runHomeHealth, sentryFetch } from "./home-health.ts"
 export { AutomationRunWorkflow } from "./automation-workflow.ts"
 export { AutomationTail } from "./automation-tail.ts"
 export { AutomationEgress } from "./automation-egress.ts"
@@ -220,6 +222,9 @@ export default {
     if (brainImpl) return handleBrainImpl(request, env, brainImpl[1]!)
     const opencodeHost = url.pathname.match(OPENCODE_HOST_PATH)
     if (opencodeHost) return handleOpencodeHost(request, env, opencodeHost[1]!)
+    // The Claude Code route's turn machines stream their turn back here (chief-brain-cc/turn.ts; a per-turn token).
+    const ccNotes = url.pathname.match(CC_NOTES_PATH)
+    if (ccNotes) return handleCcNotes(request, env, ccNotes[1]!, ccNotes[2]!)
     // Home invite links: anonymous; the card answers only for open invites, the preview only with the secret.
     const card = url.pathname.match(/^\/v1\/invites\/card\/([dg][0-9A-HJKMNP-TV-Z]{26})$/)
     if (card && request.method === "GET") return handleInviteCard(env, card[1]!)
@@ -271,10 +276,15 @@ export default {
     if (providerHook) return handleProviderHook(request, env, providerHook[1] as "github" | "slack" | "linear")
     return apiHandler(request)
   },
-  // Cron (wrangler triggers): the feed text sweep (feed-sweep.ts), and every 15 minutes the
+  // Cron (wrangler triggers): every 5 minutes the Cloud Home health probe (home-health.ts), the feed text sweep (feed-sweep.ts), and every 15 minutes the
   // Postgres/MySQL projection compare while the MySQL shadow runs (projection-compare-cron.ts).
   // Awaited, not waitUntil: the run gets the cron limit, and a throw shows as a failed run.
   async scheduled(controller: ScheduledController, env: Env): Promise<void> {
+    // Cloud Home health (home-health.ts): a probe round trip and a Sentry Cron check-in; it never throws.
+    if (controller.cron === HOME_HEALTH_CRON) {
+      await runHomeHealth(env, { fetcher: sentryFetch })
+      return
+    }
     if (controller.cron === PROJECTION_COMPARE_CRON) {
       // The usage sync (cx-y79zh S4) runs beside the projection compare; a failure of one does not stop the other.
       const [compare, usage] = await Promise.allSettled([(async () => (await import("./projection-compare-cron.ts")).compareFromEnv(env))(), env.STRIPE_USAGE_KEY ? (async () => (await import("./billing-usage-sync.ts")).syncUsage(env))() : Promise.resolve(null)])

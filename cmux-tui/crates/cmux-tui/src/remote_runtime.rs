@@ -2197,10 +2197,10 @@ async fn run_daemon(
                         daemon.clone(),
                         address,
                         MAX_CARRIER_FRAME_BYTES,
-                        DirectWebSocketOptions {
-                            allow_insecure_non_loopback: options.allow_insecure_non_loopback,
-                            trusted_carrier: options.trusted_carrier_websocket,
-                        },
+                        DirectWebSocketOptions::new(
+                            options.allow_insecure_non_loopback,
+                            options.trusted_carrier_websocket,
+                        ),
                     )
                     .await?,
                 ),

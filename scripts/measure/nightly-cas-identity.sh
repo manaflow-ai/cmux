@@ -67,7 +67,11 @@ echo "==> free disk ${free_gb} GB"
 (( free_gb >= 80 )) || { echo "nightly-cas-identity.sh: needs 80 GB free (seven Release DerivedData trees and four caches); ${free_gb} GB free" >&2; exit 1; }
 
 for c in "$base" "$head"; do
-  git cat-file -e "$c^{commit}" 2>/dev/null || git fetch --quiet --no-tags origin "$c" || { echo "nightly-cas-identity.sh: cannot fetch $c" >&2; exit 1; }
+  # A cmux-ci step checkout may have no origin remote; a commit on a pushed side
+  # branch is then fetched from the public repository by its SHA.
+  git cat-file -e "$c^{commit}" 2>/dev/null || git fetch --quiet --no-tags origin "$c" 2>/dev/null \
+    || git fetch --quiet --no-tags https://github.com/manaflow-ai/cmux.git "$c" \
+    || { echo "nightly-cas-identity.sh: cannot fetch $c" >&2; exit 1; }
 done
 git worktree add --quiet --detach "$src" "$head"
 
@@ -87,6 +91,12 @@ at() {   # SHA: put the source tree at SHA (same path for every leg)
   git -C "$src" checkout --quiet --force --detach "$1"
   git -C "$src" clean -qfdx
   mkdir -p "$work/app-exe/Sources/cmux-next-exe"
+  # The app target's extra linker flags at this commit (cmux-next in
+  # cmux.xcodeproj), so the proxy links the way the shipped app does.
+  extra_ldflags=""
+  if grep -q '"-objc_stubs_small",' "$src/cmux.xcodeproj/project.pbxproj"; then
+    extra_ldflags=' "-Xlinker", "-objc_stubs_small",'
+  fi
   cp "$src/App/main.swift" "$work/app-exe/Sources/cmux-next-exe/main.swift"
   cat >"$work/app-exe/Package.swift" <<EOF
 // swift-tools-version: 6.2
@@ -103,7 +113,7 @@ let package = Package(
             path: "Sources/cmux-next-exe",
             linkerSettings: [.unsafeFlags([
                 "-lc++", "-framework", "Metal", "-framework", "QuartzCore", "-framework", "IOSurface",
-                "-framework", "UniformTypeIdentifiers", "-framework", "Carbon",
+                "-framework", "UniformTypeIdentifiers", "-framework", "Carbon",$extra_ldflags
             ])]
         ),
     ]
@@ -166,9 +176,10 @@ fails=0
 hits=0
 compare() {   # LABEL REQUIRED(yes|no): the build in $D against ref-clean1
   local rc=0
-  python3 -I - "$work/ref-clean1/Build/Products/Release" "$D/Build/Products/Release" "$1" "$2" <<'PY' || rc=$?
-import hashlib, os, sys
-ref, other, label, required = sys.argv[1:5]
+  python3 -I - "$work/ref-clean1" "$D" "$1" "$2" "$work/clean1.log" "$work/$1.log" <<'PY' || rc=$?
+import glob, hashlib, os, re, struct, sys
+ref_dd, other_dd, label, required, ref_log, other_log = sys.argv[1:7]
+ref = os.path.join(ref_dd, "Build/Products/Release"); other = os.path.join(other_dd, "Build/Products/Release")
 def walk(top):
     out = {}
     for d, dirs, files in os.walk(top):
@@ -184,6 +195,64 @@ def walk(top):
                         h.update(chunk)
                 out[rel] = h.hexdigest()
     return out
+
+LC = {0x19: "SEGMENT_64", 0x1B: "UUID", 0x32: "BUILD_VERSION", 0x1D: "CODE_SIGNATURE", 0x2: "SYMTAB",
+      0xB: "DYSYMTAB", 0x26: "FUNCTION_STARTS", 0x29: "DATA_IN_CODE", 0x80000033: "DYLD_EXPORTS_TRIE",
+      0x80000034: "DYLD_CHAINED_FIXUPS", 0xC: "LOAD_DYLIB", 0x8000001C: "RPATH", 0x2A: "SOURCE_VERSION"}
+def regions(data):
+    """(name, offset, size) of each section and each linkedit blob of a thin 64-bit Mach-O."""
+    if len(data) < 32 or struct.unpack_from("<I", data, 0)[0] != 0xFEEDFACF:
+        return None
+    ncmds, sizeofcmds = struct.unpack_from("<II", data, 16)
+    out = [("mach header + load commands", 0, 32 + sizeofcmds)]
+    off = 32
+    for _ in range(ncmds):
+        cmd, size = struct.unpack_from("<II", data, off)
+        if cmd == 0x19:
+            segname = data[off + 8:off + 24].rstrip(b"\0").decode()
+            fileoff, filesize = struct.unpack_from("<QQ", data, off + 40)
+            nsects = struct.unpack_from("<I", data, off + 64)[0]
+            if segname == "__LINKEDIT":
+                out.append(("__LINKEDIT", fileoff, filesize))
+            for i in range(nsects):
+                so = off + 72 + i * 80
+                sect = data[so:so + 16].rstrip(b"\0").decode()
+                saddr, ssize, sfoff = struct.unpack_from("<QQI", data, so + 32)
+                if sfoff:
+                    out.append((f"{segname},{sect}", sfoff, ssize))
+        elif cmd in (0x2, 0x1D, 0x26, 0x29, 0x80000033, 0x80000034):
+            if cmd == 0x2:
+                symoff, nsyms, stroff, strsize = struct.unpack_from("<IIII", data, off + 8)
+                out.append(("LINKEDIT symtab", symoff, nsyms * 16)); out.append(("LINKEDIT strtab", stroff, strsize))
+            else:
+                doff, dsize = struct.unpack_from("<II", data, off + 8)
+                out.append((f"LINKEDIT {LC.get(cmd, hex(cmd))}", doff, dsize))
+        off += size
+    return out
+
+def explain(rel):
+    a = open(os.path.join(ref, rel), "rb").read(); b = open(os.path.join(other, rel), "rb").read()
+    print(f"    sizes {len(a)} / {len(b)}")
+    ra, rb = regions(a), regions(b)
+    if ra is None or rb is None:
+        n = sum(1 for x, y in zip(a, b) if x != y)
+        first = next((i for i, (x, y) in enumerate(zip(a, b)) if x != y), None)
+        print(f"    not a thin 64-bit Mach-O; {n} differing bytes, first at {first}")
+        return
+    if [r[0] for r in ra] != [r[0] for r in rb]:
+        print("    different region lists")
+    for (name, o1, n1), (_, o2, n2) in zip(ra, rb):
+        x, y = a[o1:o1 + n1], b[o2:o2 + n2]
+        if x != y:
+            nd = sum(1 for i, j in zip(x, y) if i != j) + abs(len(x) - len(y))
+            print(f"    region {name}: {nd} bytes differ (sizes {n1}/{n2})")
+
+def ld_block(log):
+    """The link command of cmux-next-exe from an xcodebuild log, its paths kept."""
+    text = open(log, errors="replace").read()
+    m = re.search(r"^Ld \S*cmux-next-exe normal.*?\n\n", text, re.S | re.M)
+    return m.group(0) if m else ""
+
 a, b = walk(ref), walk(other)
 only_ref = sorted(set(a) - set(b)); only_other = sorted(set(b) - set(a))
 diff = sorted(k for k in set(a) & set(b) if a[k] != b[k])
@@ -192,10 +261,44 @@ exe = "cmux-next-exe"
 print(f"RESULT compare {label}: files={len(a)} equal={same} different={len(diff)} only_clean1={len(only_ref)} only_{label}={len(only_other)} executable={'equal' if a.get(exe) == b.get(exe) and exe in a else 'DIFFERENT'}")
 for k in diff[:40]:
     print(f"  differs: {k}")
+    if not k.endswith(".dSYM/Contents/Resources/DWARF/" + exe):
+        try:
+            explain(k)
+        except Exception as e:
+            print(f"    explain failed: {e}")
 for k in only_ref[:10]:
     print(f"  only clean1: {k}")
 for k in only_other[:10]:
     print(f"  only {label}: {k}")
+if exe in diff:
+    la, lb = ld_block(ref_log), ld_block(other_log)
+    print(f"  link command: {'same' if la == lb else 'DIFFERENT'} ({len(la)} / {len(lb)} chars)")
+    if la != lb:
+        ta, tb = la.split(), lb.split()
+        for i, (x, y) in enumerate(zip(ta, tb)):
+            if x != y:
+                print(f"    first differing argument {i}: {x[:160]} | {y[:160]}"); break
+    fa = sorted(glob.glob(os.path.join(ref_dd, "Build/Intermediates.noindex/**/cmux-next-exe.LinkFileList"), recursive=True))
+    fb = sorted(glob.glob(os.path.join(other_dd, "Build/Intermediates.noindex/**/cmux-next-exe.LinkFileList"), recursive=True))
+    if fa and fb:
+        xa, xb = open(fa[0]).read().split("\n"), open(fb[0]).read().split("\n")
+        print(f"  LinkFileList: {'same' if xa == xb else 'DIFFERENT'} ({len(xa)} / {len(xb)} lines; same set: {sorted(xa) == sorted(xb)})")
+        if xa != xb:
+            for i, (x, y) in enumerate(zip(xa, xb)):
+                if x != y:
+                    print(f"    first differing line {i}: {x} | {y}"); break
+    # Which linked object differs: hash each object the link list names, in both trees.
+    if fa and fb:
+        diffs = 0
+        for pa, pb in zip(open(fa[0]).read().split(), open(fb[0]).read().split()):
+            # clean1 was built at the same DerivedData path and then moved aside.
+            if pa.startswith(other_dd + "/"):
+                pa = ref_dd + pa[len(other_dd):]
+            if os.path.exists(pa) and os.path.exists(pb) and open(pa, "rb").read() != open(pb, "rb").read():
+                diffs += 1
+                if diffs <= 10:
+                    print(f"    linked object differs: {os.path.relpath(pa, ref_dd)}")
+        print(f"  linked objects that differ: {diffs}")
 if not a or exe not in a:
     print(f"RESULT compare {label}: clean1 has no {exe}; nothing was compared")
 sys.exit(0 if a and exe in a and a.get(exe) == b.get(exe) and not (diff or only_ref or only_other) else 1)

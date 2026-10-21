@@ -2,7 +2,7 @@ public import AppKit
 public import CmuxHomeCore
 public import CmuxHomeRender
 public import CmuxNextDesign
-import MessagesLabHome
+public import MessagesLabHome
 
 /// The Home transcript (plans/cmux-next/home-mac.md): MessagesLabAppKitNative's
 /// own code and motion (`MessagesLabHome`, vendored at the MessagesLab
@@ -28,6 +28,11 @@ public final class HomeNativeTranscriptView: NSView {
     /// the background, an op that may not have gone through).
     let noticeLabel = ChromeLabel(wrappingLabelWithString: "")
     private(set) var notice: String?
+    /// The notice's one action under it (Open System Settings for a denied microphone).
+    let noticeButton = NSButton(title: "", target: nil, action: nil)
+    private(set) var noticeAction: HomeNoticeAction?
+    /// The message box's mic (Debug Settings > Home > Mic button in the message box).
+    let voice = HomeVoiceDictation()
     /// Prepares dropped, pasted and picked files (the data side; the store
     /// by default, a recorder in tests). Nil: the composer takes none.
     public var attachmentPreparer: (any HomeAttachmentPreparing)?
@@ -37,6 +42,8 @@ public final class HomeNativeTranscriptView: NSView {
     /// The chain of attachment preparations, in the order they arrived.
     // task-owner: replaced by the next intake; awaited by attachmentsReady
     var intake: Task<Void, Never>?
+    /// The pane's drop target state: its highlight, the current drag's answer, drops on their way.
+    let drop = HomeDropState()
     private var stopped = false
     /// The composer rect toasts last moved clear of (posted on change).
     private var lastToastAvoidance = NSRect.zero
@@ -54,17 +61,38 @@ public final class HomeNativeTranscriptView: NSView {
         get { transcript.onAppLink }
         set { transcript.onAppLink = newValue }
     }
+    /// Forward… on a bubble: the host routes its text to another chat (nil: no Forward…).
+    public var onForward: ((String) -> Void)? {
+        get { transcript.onForward }
+        set { transcript.onForward = newValue }
+    }
     /// A click on any other link in the transcript (`otherTarget`: Shift-Command held).
     public var onOpenLink: (_ url: URL, _ otherTarget: Bool) -> Void {
         get { transcript.onOpenLink }
         set { transcript.onOpenLink = newValue }
     }
+    /// A press on a link that moved past the drag slop (the pointer's screen point): true when the
+    /// host took it as a link drag (a split or pane drop zone opens it). Nil: the press selects text.
+    public var onDragLink: ((_ url: URL, _ screenPoint: CGPoint) -> Bool)? {
+        get { transcript.onDragLink }
+        set { transcript.onDragLink = newValue }
+    }
+
+    /// Where an attachment opens and what its right-click menu offers (held weakly; the host
+    /// keeps it). Nil: the system opens it.
+    public var fileHost: HomeFileHost? {
+        get { transcript.fileHost }
+        set { transcript.fileHost = newValue }
+    }
     /// The host's shared stop action.
     public var onStop: () -> Void = {} {
         didSet { transcript.onStop = { [weak self] in self?.onStop() } }
     }
-    /// A chosen sent-bubble colour (opt in); nil keeps iMessage blue on every theme.
+    /// A chosen sent-bubble colour (opt in); nil keeps the style's (iMessage blue, or the theme's accent).
     public var accentOverride: NSColor? { didSet { applyTheme() } }
+    /// The bubbles' look: iMessage's (the default) or the theme's colours; follows
+    /// `home.chiefBubbleStyle` (`DesignSettings.homeChiefBubblesThemed`, `followBubbleStyle`).
+    public var bubbleStyle: HomePalette.BubbleStyle = .iMessage { didSet { if bubbleStyle != oldValue { applyTheme() } } }
     /// The first-run panel's open-a-terminal or start-an-agent row was
     /// picked (the host runs the matching registry action).
     public var onFirstRunAction: (HomeFirstRunAction) -> Void = { _ in }
@@ -89,10 +117,15 @@ public final class HomeNativeTranscriptView: NSView {
     /// The window's typing hold for the compose field's cursor rects (HomeCursorRectHold).
     private var cursorHold: HomeCursorRectHold?
 
-    public init(store: HomeStore, conversation: ConversationID, me: ParticipantID) {
+    /// - Parameter diagrams: draws Mermaid fences as diagrams (the app's ``OndineMermaidRenderer``); nil keeps them as text.
+    public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, diagrams: (any HomeDiagramRendering)? = nil) {
         HomeReduceMotion.install()
         self.me = me
-        transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: HomeDemandWake())
+        // Debug Settings > Home > Rich tables, before the transcript maps its first messages.
+        MessagesLabHomeView.richTables = HomeTunables.richTables.value
+        transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: HomeDemandWake(), diagrams: diagrams)
+        // The running indicator's look (Debug Settings > Home), read at each of its ticks.
+        transcript.turnProgressStyle = { HomeTunables.turnProgress.value.style }
         // One binding per shown conversation; it opens the conversation on
         // the store now and `stop()` closes exactly that open, once.
         binding = HomeStoreBinding(store: store, conversation: conversation)
@@ -107,7 +140,14 @@ public final class HomeNativeTranscriptView: NSView {
         noticeLabel.maximumNumberOfLines = 2
         noticeLabel.isSelectable = false
         addSubview(noticeLabel)
+        noticeButton.isBordered = false
+        noticeButton.font = Typography.caption
+        noticeButton.isHidden = true
+        noticeButton.target = self
+        noticeButton.action = #selector(noticeButtonClicked)
+        addSubview(noticeButton)
         connectAttachments()
+        connectVoice()
         firstRun.isHidden = true
         firstRun.onAction = { [weak self] action in self?.onFirstRunAction(action) }
         firstRun.onAgent = { [weak self] id in self?.onFirstRunAgent(id) }
@@ -120,6 +160,9 @@ public final class HomeNativeTranscriptView: NSView {
         transcript.onSummaryChange = { [weak self] _ in self?.updateFirstRun() }
         transcript.onRowsChange = { [weak self] in self?.updateFirstRun() }
         followTextSize()
+        followBubbleStyle()
+        followHeroTunable()
+        followChiefPet()
         applyTheme()
         updateFirstRun()
     }
@@ -134,11 +177,27 @@ public final class HomeNativeTranscriptView: NSView {
         }
     }
 
+    /// The hover cards of link chips (``enableLinkPreviews(coordinator:previewer:)``), nil until the host enables them.
+    private(set) var linkPreviews: HomeLinkChipHoverSource?
+
+    /// Link chips get hover cards from the app's one `coordinator`, filled by `previewer`
+    /// (plans/cmux-next/home-link-chips-DESIGN.md). Call once; the source registers while the
+    /// transcript is in a window.
+    public func enableLinkPreviews(coordinator: HoverCardCoordinator, previewer: any HomeLinkPreviewing) {
+        guard linkPreviews == nil else { return }
+        let source = HomeLinkChipHoverSource(transcript: transcript, coordinator: coordinator, previewer: previewer)
+        linkPreviews = source
+        transcript.onPointerMoved = { [weak coordinator] point in coordinator?.pointerMoved(to: point) }
+        if window != nil { coordinator.register(source) }
+    }
+
     /// Stops forwarding (the conversation closed). Once.
     public func stop() {
         guard !stopped else { return }
         stopped = true
+        if let linkPreviews { linkPreviews.coordinator.unregister(linkPreviews) }
         intake?.cancel()
+        voice.close()
         transcript.stop()
         binding.stop()
     }
@@ -155,11 +214,16 @@ public final class HomeNativeTranscriptView: NSView {
     public func debugClickFirstRunAgent(_ index: Int, pointer: Bool) -> String? { firstRun.debugClickAgent(index, pointer: pointer) }
     #endif
 
-    /// A click on the header's name pill (the Chief's settings sidebar).
+    /// A click on the header's name pill (the Chief's settings popover).
     public var onNamePill: () -> Void {
         get { transcript.onNamePill }
         set { transcript.onNamePill = newValue }
     }
+
+    /// The header's name pill, which the Chief's settings popover opens under.
+    public var namePill: NSView { transcript.namePill }
+    /// The header views that run ``onNamePill`` (the pill and the avatar).
+    public var namePillToggles: [NSView] { transcript.namePillToggles }
 
     /// The header avatar's text; nil shows the conversation's initials.
     public var avatarText: String? {
@@ -173,8 +237,22 @@ public final class HomeNativeTranscriptView: NSView {
         set { transcript.avatarPicture = newValue }
     }
 
+    /// Each Chief's avatar by participant id (``HomeChiefAvatar/bubbleAvatars(for:own:fallback:)``),
+    /// beside a group's bubbles; a new value redraws them.
+    public func setChiefBubbleAvatars(_ avatars: [String: HomeChiefAvatar]) {
+        transcript.setSenderAvatars(avatars.mapValues {
+            switch $0 {
+            case .picture(let url): .picture(url)
+            case .text(let text): .text(text)
+            }
+        })
+    }
+
     /// The name pill's VoiceOver help.
     public func setNamePillHelp(_ help: String) { transcript.setNamePillHelp(help) }
+
+    /// The header band's height (avatar and name pill), from the top: a control placed under it never covers the name.
+    public var headerHeight: CGFloat { transcript.headerHeight }
 
     /// The primary input (spec/app-screens.md section 3): the message box's
     /// text view. Hosts focus this view, not the transcript.
@@ -183,6 +261,13 @@ public final class HomeNativeTranscriptView: NSView {
     public override func becomeFirstResponder() -> Bool {
         window?.makeFirstResponder(primaryInput) ?? false
     }
+
+    /// The person opened this conversation: the message box takes the keyboard now, or once the
+    /// first page installs it if nothing else took the keyboard in between.
+    public func takeKeyboardOnOpen() { transcript.takeKeyboardOnOpen() }
+    /// Shows `text` in the message box (Send Message… from elsewhere already wrote it to the
+    /// store's draft; an open view takes it here, a new one restores it from the store).
+    public func showDraft(_ text: String) { transcript.setDraft(text) }
 
     /// Whether Home getting focus should move the keyboard from `responder`
     /// to ``primaryInput``: yes, unless a text view or field has it, the
@@ -195,6 +280,28 @@ public final class HomeNativeTranscriptView: NSView {
             return false
         }
         return transcript.primaryInputShouldTakeKeyboard(from: responder)
+    }
+
+    /// Whether a plain Up or Down from `responder` recalls sent messages in
+    /// the message box: no while the person moves through the first-run
+    /// panel's rows, a text input has the keyboard, or the transcript holds a
+    /// text selection.
+    /// - Parameter responder: The window's first responder now.
+    /// - Returns: True when the host should call ``recallPrimaryInputHistory(older:)``.
+    public func primaryInputHistoryTakesArrowKeys(from responder: NSResponder?) -> Bool {
+        if let view = responder as? NSView, view.isDescendant(of: firstRun), !firstRun.isHiddenOrHasHiddenAncestor {
+            return false
+        }
+        return transcript.primaryInputHistoryTakesArrowKeys(from: responder)
+    }
+
+    /// Up (`older`) or Down from outside the message box: the box takes the
+    /// keyboard and recalls a sent message (the draft is kept for Down).
+    /// - Parameter older: True for Up, false for Down.
+    /// - Returns: True when the box took the key.
+    @discardableResult
+    public func recallPrimaryInputHistory(older: Bool) -> Bool {
+        transcript.recallPrimaryInputHistory(older: older)
     }
 
     /// Cmd+V from the first-run panel (the transcript's own pane handles it
@@ -211,6 +318,15 @@ public final class HomeNativeTranscriptView: NSView {
             applyTextScale(Typography.userScale)
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in self?.followTextSize() }
+        }
+    }
+
+    /// Settings > Chief > Chief Chat > Bubble Style: iMessage's colours or the theme's, live.
+    private func followBubbleStyle() {
+        withObservationTracking {
+            bubbleStyle = DesignSettings.shared.homeChiefBubblesThemed ? .theme : .iMessage
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in self?.followBubbleStyle() }
         }
     }
 
@@ -233,8 +349,9 @@ public final class HomeNativeTranscriptView: NSView {
             if resized { transcript.layoutSubtreeIfNeeded() }
         }
         // Every pass: the field can grow (a multi-line draft) without a size
-        // change, and the first-run panel fits its agent rows above it.
-        let top = transcript.headerHeight
+        // change, and the first-run panel fits its agent rows above it, under any overlay over
+        // the column's top (Home's import cards).
+        let top = max(transcript.headerHeight, ColumnTopOverlays.shared.reach(over: self).map { $0 + 8 } ?? 0)
         let panel = CGRect(x: 0, y: top, width: bounds.width, height: max(0, transcript.fieldTop - top))
         if firstRun.frame != panel { firstRun.frame = panel }
         layoutNotice()
@@ -246,7 +363,12 @@ public final class HomeNativeTranscriptView: NSView {
         let width = max(0, bounds.width - 32)
         noticeLabel.preferredMaxLayoutWidth = width
         let height = ceil(noticeLabel.intrinsicContentSize.height)
-        noticeLabel.frame = CGRect(x: 16, y: transcript.fieldTop - height - 8, width: width, height: height)
+        let action: CGFloat = noticeAction == nil ? 0 : ceil(noticeButton.intrinsicContentSize.height)
+        noticeLabel.frame = CGRect(x: 16, y: transcript.fieldTop - height - action - 8, width: width, height: height)
+        if noticeAction != nil {
+            let w = min(width, ceil(noticeButton.intrinsicContentSize.width))
+            noticeButton.frame = CGRect(x: (bounds.width - w) / 2, y: noticeLabel.frame.maxY, width: w, height: action)
+        }
         let avoided = toastAvoidanceRect
         if avoided != lastToastAvoidance {
             lastToastAvoidance = avoided
@@ -254,19 +376,21 @@ public final class HomeNativeTranscriptView: NSView {
         }
     }
 
-    /// A notice about the conversation itself (Home's merge notice): a row of
-    /// the transcript, under the newest message; nil removes it.
-    public func showConversationNotice(_ text: String?) {
-        guard transcript.notice != text else { return }
-        transcript.notice = text
-        if let text {
-            NSAccessibility.post(element: transcript, notification: .announcementRequested, userInfo: [.announcement: text])
-        }
-    }
-
     /// Shows (or with nil clears) the notice; VoiceOver hears it.
-    public func showNotice(_ text: String?) {
-        guard text != notice else { return }
+    public func showNotice(_ text: String?) { showNotice(text, action: nil) }
+
+    /// Shows the notice with one action under it (a link-styled button).
+    func showNotice(_ text: String?, action: HomeNoticeAction?) {
+        let hadAction = noticeAction != nil
+        noticeAction = text == nil ? nil : action
+        noticeButton.isHidden = noticeAction == nil
+        if let noticeAction {
+            noticeButton.attributedTitle = NSAttributedString(string: noticeAction.title, attributes: [
+                .font: Typography.caption, .foregroundColor: performWithTheme { Palette.accent }, .underlineStyle: NSUnderlineStyle.single.rawValue,
+            ])
+            noticeButton.setAccessibilityLabel(noticeAction.title)
+        }
+        guard text != notice || hadAction != (noticeAction != nil) else { return }
         notice = text
         noticeLabel.stringValue = text ?? ""
         noticeLabel.isHidden = text == nil
@@ -275,19 +399,6 @@ public final class HomeNativeTranscriptView: NSView {
             NSAccessibility.post(element: noticeLabel, notification: .announcementRequested, userInfo: [.announcement: text])
         }
         layoutNotice()
-    }
-
-    /// The first-run rows' shortcuts and the Switching card's keys, as the
-    /// live binding table has them; nil hides one (nil `switching`: no card).
-    public func setFirstRunShortcuts(terminal: String?, agent: String?, switching: HomeSwitchKeys?) {
-        firstRun.setShortcuts(terminal: terminal, agent: agent, switching: switching)
-    }
-
-    /// The user's agents for the first-run panel's glance (the host maps
-    /// them from the tab status the strip and the sidebar draw); empty lists
-    /// none.
-    public func setFirstRunAgents(_ agents: [HomeAgentGlance]) {
-        firstRun.setAgents(agents)
     }
 
     /// The first-run panel shows only in an empty Chief conversation.
@@ -308,7 +419,11 @@ public final class HomeNativeTranscriptView: NSView {
         observers = []
         cursorHold = window.flatMap(HomeCursorRectHold.hold(for:))
         cursorHold?.add(self)
+        if let linkPreviews {
+            if window == nil || stopped { linkPreviews.coordinator.unregister(linkPreviews) } else { linkPreviews.coordinator.register(linkPreviews) }
+        }
         guard let window else { return }
+        if attachmentPreparer != nil { HomeAttachmentPanel.warmWhenIdle() }  // the "+" opens without making a panel
         let nc = NotificationCenter.default
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
                      NSWindow.didChangeOcclusionStateNotification] {
@@ -316,6 +431,9 @@ public final class HomeNativeTranscriptView: NSView {
                 MainActor.assumeIsolated { self?.windowStateChanged() } // main-proof: observer on queue: .main
             })
         }
+        observers.append(nc.addObserver(forName: .cmuxColumnTopOverlayDidChange, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.needsLayout = true } // main-proof: observer on queue: .main
+        })
         windowStateChanged()
         // A theme change while the tab was hidden (equal palettes return early).
         applyTheme()
@@ -326,35 +444,23 @@ public final class HomeNativeTranscriptView: NSView {
         applyTheme()
     }
 
-    private func windowStateChanged() {
-        transcript.isVisibleToUser = window.map { $0.isKeyWindow && $0.occlusionState.contains(.visible) } ?? false
-    }
-
-    /// The header band's fade in or out, in seconds. Reduce Motion keeps it, at the crossfade length
-    /// (motion.md rule 7): turned off there, the band appeared and left in one frame.
-    static func headerFadeDuration(shown: Bool) -> TimeInterval {
-        Motion.duration(shown ? .fadeIn : .fadeOut)
-    }
-
-    /// The theme's palettes (key and non-key window) for the MessagesLab
+    /// The theme's palette (the key window's, for every window) for the MessagesLab
     /// Fixture colours, and the first-run panel's colours.
     private func applyTheme() {
-        let accent = accentOverride
-        let active = performWithTheme { HomeThemePalette.resolveInScope(active: true, accentOverride: accent) }
-        let inactive = performWithTheme { HomeThemePalette.resolveInScope(active: false, accentOverride: accent) }
-        let measured = performWithTheme { HomeThemePalette.usesMessagesBlueInScope(accentOverride: accent) }
-        transcript.applyTheme(active: active, inactive: inactive, measuredAccent: measured)
-        // The header's band: a light fade of the window background, shown only
-        // near the top; the design system's fades.
-        let (fade, maxAlpha) = performWithTheme { (Palette.surfaceBackground.withAlphaComponent(1), Palette.legibilityScrimOpacity) }
-        transcript.setHeaderPillBacking(performWithTheme { Palette.capsuleScrim })
-        transcript.setHeaderFade(color: fade, maxAlpha: maxAlpha) { shown in Self.headerFadeDuration(shown: shown) }
+        let accent = accentOverride, style = bubbleStyle
+        let active = performWithTheme { HomeThemePalette.resolveInScope(active: true, style: style, accentOverride: accent) }
+        let measured = performWithTheme { HomeThemePalette.usesMessagesBlueInScope(style: style, accentOverride: accent) }
+        transcript.applyTheme(active: active, measuredAccent: measured)
+        // The header: a thin glass band over the transcript and a glass name pill, as
+        // Messages on macOS 26 (HeaderGlass.swift).
+        transcript.setHeaderGlass()
         performWithTheme {
-            firstRun.applyColors(primary: Palette.textPrimary, tertiary: Palette.textTertiary, fill: Palette.elevatedBackground,
+            firstRun.applyColors(primary: Palette.textPrimary, secondary: Palette.textSecondary, tertiary: Palette.textTertiary, fill: Palette.elevatedBackground,
                                  hover: Palette.hoverFill, border: Palette.separator, attention: Palette.attention,
                                  danger: Palette.danger, done: Palette.highlight)
             noticeLabel.textColor = Palette.textSecondary
         }
+        drop.highlight.applyTheme()
     }
 }
 

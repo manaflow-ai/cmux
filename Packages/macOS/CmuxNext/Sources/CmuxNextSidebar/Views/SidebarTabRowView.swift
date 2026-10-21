@@ -9,7 +9,7 @@ import CmuxNextIcons
 /// 2026-10-14, cx-im75u). An unread tab shows a small muted unread dot
 /// at its trailing edge; its title keeps the primary color and regular weight.
 final class SidebarTabRowView: SidebarRowView {
-    private let icon = NSImageView()
+    private let icon = DecorativeImageView() // the row's label names the tab
     private let title = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     /// The unread dot: a workspace row's dot (`UnreadBadgeView`, same shape and size) in the quiet, muted look.
     private let unreadDot = UnreadBadgeView()
@@ -50,7 +50,8 @@ final class SidebarTabRowView: SidebarRowView {
         setAccessibilityRole(.row)
         let workspaceIdentifier = row.workspace?.rawValue ?? "unknown"
         setAccessibilityIdentifier("cmux.sidebar.tab.\(workspaceIdentifier).\(tab.id.rawValue)")
-        setAccessibilityLabel(tab.title)
+        // The dot is drawn only: the label says it ("zsh, Unread").
+        setAccessibilityLabel(tab.isUnread ? tab.title + ", " + Strings.unreadDot : tab.title)
         needsLayout = true
         needsDisplay = true
     }

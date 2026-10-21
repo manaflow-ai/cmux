@@ -47,9 +47,17 @@ public enum CloudConversationOp: Encodable, Sendable, Hashable {
     case removeReaction(messageID: String, partIndex: Int, kind: ConversationReactionKind)
     case setReadCursor(seq: UInt64)
     case setTitle(String)
+    /// `conversation.settings.set`: when the group's Chiefs answer (`auto`, `mentions`, `all`).
+    case setSettings(wakePolicy: String)
     case createInvite(address: CloudAddress, displayName: String, locale: String?)
     /// `thread.update` (conversation-thread-objects-v1), as on the local owner.
     case updateThread(root: String, title: String?, status: String?, owner: String?)
+    /// `invite.accept_verified`: the user accepts a message request (an invite to their verified
+    /// email) without its link (home-messaging-invites DESIGN 2.3).
+    case acceptRequest
+    /// `request.dismiss`: hides a message request; `block` also hides the sender's later ones.
+    /// The sender is not told.
+    case dismissRequest(block: Bool)
 
     public var kindName: String {
         switch self {
@@ -64,8 +72,11 @@ public enum CloudConversationOp: Encodable, Sendable, Hashable {
         case .removeReaction: "reaction.remove"
         case .setReadCursor: "read_cursor.set"
         case .setTitle: "title.set"
+        case .setSettings: "conversation.settings.set"
         case .createInvite: "invite.create"
         case .updateThread: "thread.update"
+        case .acceptRequest: "invite.accept_verified"
+        case .dismissRequest: "request.dismiss"
         }
     }
 
@@ -100,6 +111,8 @@ public enum CloudConversationOp: Encodable, Sendable, Hashable {
             try c.encode(seq, forKey: DynamicKey("seq"))
         case .setTitle(let title):
             try c.encode(title, forKey: DynamicKey("title"))
+        case .setSettings(let wakePolicy):
+            try c.encode(wakePolicy, forKey: DynamicKey("wake_policy"))
         case .updateThread(let root, let title, let status, let owner):
             try c.encode(root, forKey: DynamicKey("root"))
             try c.encodeIfPresent(title, forKey: DynamicKey("title"))
@@ -109,6 +122,10 @@ public enum CloudConversationOp: Encodable, Sendable, Hashable {
             try c.encode(address, forKey: DynamicKey("address"))
             try c.encode(displayName, forKey: DynamicKey("display_name"))
             try c.encodeIfPresent(locale, forKey: DynamicKey("locale"))
+        case .acceptRequest:
+            break
+        case .dismissRequest(let block):
+            try c.encode(block, forKey: DynamicKey("block"))
         }
     }
 }

@@ -59,6 +59,14 @@ pub(crate) struct AgentsDoctorMessages {
     pub capture_consent_not_reported: &'static str,
     pub allow_capture_prompt: &'static str,
     pub not_macos: &'static str,
+    pub status_outdated: &'static str,
+    pub check_cli_shadow: &'static str,
+    /// No `cmux` on PATH older than this CLI.
+    pub no_older_cli: &'static str,
+    /// `{list}`: `<path> (<version>)` entries; `{own}`: this CLI's version.
+    pub older_cli_on_path: &'static str,
+    /// `{paths}`: the older CLIs.
+    pub remove_older_cli: &'static str,
 }
 
 pub(super) const ENGLISH: AgentsDoctorMessages = AgentsDoctorMessages {
@@ -107,6 +115,11 @@ pub(super) const ENGLISH: AgentsDoctorMessages = AgentsDoctorMessages {
     capture_consent_not_reported: "cmux does not report this yet; macOS asks once after Screen Recording is on",
     allow_capture_prompt: "allow the macOS capture prompt for cmux Computer Use when it appears",
     not_macos: "macOS only",
+    status_outdated: "older cmux on PATH",
+    check_cli_shadow: "Older cmux on PATH",
+    no_older_cli: "no cmux on PATH is older than this one",
+    older_cli_on_path: "{list} is older than this cmux ({own}); a login shell that lists it first (agents run commands in one) loses this cmux's commands",
+    remove_older_cli: "remove {paths} (a PyPI install: uv tool uninstall cmux, or pip uninstall cmux); agents that cmux starts already put this cmux first",
 };
 
 pub(super) const JAPANESE: AgentsDoctorMessages = AgentsDoctorMessages {
@@ -155,4 +168,9 @@ pub(super) const JAPANESE: AgentsDoctorMessages = AgentsDoctorMessages {
     capture_consent_not_reported: "cmux はまだこれを報告しません。画面収録をオンにした後、macOS が一度確認します",
     allow_capture_prompt: "macOS のキャプチャ確認が表示されたら、cmux Computer Use を許可してください",
     not_macos: "macOS のみ",
+    status_outdated: "古い cmux が PATH にあります",
+    check_cli_shadow: "PATH 上の古い cmux",
+    no_older_cli: "この cmux より古い cmux は PATH にありません",
+    older_cli_on_path: "{list} はこの cmux ({own}) より古いバージョンです。これを先に見つけるログインシェル (エージェントはコマンドをその中で実行します) では、この cmux のコマンドが使えません",
+    remove_older_cli: "{paths} を削除してください (PyPI 版: uv tool uninstall cmux または pip uninstall cmux)。cmux が起動するエージェントはすでにこの cmux を先に使います",
 };

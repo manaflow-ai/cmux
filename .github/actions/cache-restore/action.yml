@@ -21,6 +21,9 @@ outputs:
   cache-hit:
     description: "`true` when the exact key was restored."
     value: ${{ steps.github.outputs.cache-hit || steps.warp.outputs.cache-hit || steps.r2.outputs.cache-hit }}
+  cache-matched-key:
+    description: The key of the entry restored, exact or by prefix; empty on a miss.
+    value: ${{ steps.github.outputs.cache-matched-key || steps.warp.outputs.cache-matched-key || steps.r2.outputs.cache-matched-key }}
 
 runs:
   using: composite

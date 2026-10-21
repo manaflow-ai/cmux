@@ -17,9 +17,15 @@ public final class CEFEngine: BrowserEngine {
         .devTools, .downloads, .snapshots, .findMatchCount,
     ]
 
-    let layout: CEFRuntimeLayout?
+    /// Where the runtime comes from: the app bundle, or a downloaded pack
+    /// (``CEFRuntimeSource``). Read on every use, so a pack installed while
+    /// the app runs serves the next tab.
+    public let runtimeSource: CEFRuntimeSource
     let lifecycleTrace: BrowserLifecycleTrace
     let contextMenus: BrowserContextMenuBuilder
+
+    /// The runtime to start, nil while none is available.
+    var layout: CEFRuntimeLayout? { runtimeSource.layout }
 
     /// Creates an engine with its lifecycle reporting and menu presenter.
     ///
@@ -27,10 +33,22 @@ public final class CEFEngine: BrowserEngine {
     ///   - layout: The embedded runtime, or the directory named by `CMUX_NEXT_CEF_RUNTIME`.
     ///   - lifecycleTrace: Receives content lifecycle events; disabled by default.
     ///   - contextMenus: Presents menus when no tab delegate handles the request.
-    public init(layout: CEFRuntimeLayout? = CEFRuntimeLayout.locate(),
+    public convenience init(layout: CEFRuntimeLayout? = CEFRuntimeLayout.locate(),
+                            lifecycleTrace: BrowserLifecycleTrace = .shared,
+                            contextMenus: BrowserContextMenuBuilder = .shared) {
+        self.init(source: CEFRuntimeSource(layout: layout), lifecycleTrace: lifecycleTrace, contextMenus: contextMenus)
+    }
+
+    /// Creates an engine whose runtime may arrive later (Chromium on demand).
+    ///
+    /// - Parameters:
+    ///   - source: The runtime source the App updates as the pack downloads.
+    ///   - lifecycleTrace: Receives content lifecycle events; disabled by default.
+    ///   - contextMenus: Presents menus when no tab delegate handles the request.
+    public init(source: CEFRuntimeSource,
                 lifecycleTrace: BrowserLifecycleTrace = .shared,
                 contextMenus: BrowserContextMenuBuilder = .shared) {
-        self.layout = layout
+        runtimeSource = source
         self.lifecycleTrace = lifecycleTrace
         self.contextMenus = contextMenus
     }
@@ -44,7 +62,7 @@ public final class CEFEngine: BrowserEngine {
     /// Why Chromium cannot open a tab now, nil when it can (or may still
     /// start: idle or loading).
     public var unavailableReason: CEFUnavailableReason? {
-        guard layout != nil else { return .notBundled }
+        if let pending = runtimeSource.unavailableReason { return pending }
         switch CEFRuntime.shared.state {
         case .failed(let message): return .startFailed(message)
         case .shutDown: return .shutDown
@@ -91,6 +109,16 @@ public final class CEFEngine: BrowserEngine {
     public func usedRecently(within window: TimeInterval) async -> Bool {
         let record = useRecord
         return await Task.detached(priority: .utility) { record.usedRecently(within: window) }.value
+    }
+
+    /// A user's page made now when Chromium already runs (its chrome shows in
+    /// the turn that asked for it), nil while Chromium has not started. Like
+    /// `makeUserTab`, it counts toward the launch warm start (`noteTabOpened`).
+    public func makeTabIfRunning(_ configuration: BrowserTabConfiguration) -> (any BrowserTab)? {
+        guard isRunning else { return nil }
+        let tab = makeReadyTab(configuration)
+        noteTabOpened(configuration)
+        return tab
     }
 
     /// Maps the Chromium framework on a background thread without starting
@@ -144,11 +172,16 @@ public final class CEFEngine: BrowserEngine {
     public var startMarks: [CEFStartMark] { CEFStartSteps.shared.marks }
 
 
-    /// The framework read before CefInitialize (`CEFFrameworkPrefetch`):
-    /// bytes, files and milliseconds; nil before one ran.
-    public var frameworkPrefetch: (bytes: Int, files: Int, milliseconds: Double, servicesMilliseconds: Double)? {
+    /// The framework read before CefInitialize (`CEFFrameworkPrefetch`), `debug.cef`'s
+    /// `prefetch` fields: bytes, files and milliseconds; nil before one ran. `map_ms` is the time
+    /// inside `cef_load_library`, which holds dyld's loader lock (every main-thread dlopen/dladdr
+    /// waits on it); `binary_ms` is the read of the binary before it.
+    public var frameworkPrefetchFields: [String: Double]? {
         let ms: (Duration) -> Double = { Double($0.components.attoseconds) / 1e15 + Double($0.components.seconds) * 1000 }
-        return CEFFrameworkPrefetch.last.map { ($0.bytes, $0.files, ms($0.duration), ms($0.services)) }
+        return CEFFrameworkPrefetch.last.map {
+            ["bytes": Double($0.bytes), "files": Double($0.files), "ms": ms($0.duration), "services_ms": ms($0.services),
+             "binary_ms": ms($0.binary), "map_ms": ms($0.map)]
+        }
     }
 
     /// `none`, `creating`, `live`, `taken` or `closed` (`debug.cef`).
@@ -178,10 +211,11 @@ public final class CEFEngine: BrowserEngine {
     public var crashLog: BrowserCrashLog { CEFRuntime.shared.crashLog }
 
     /// Runs once CEF is initialized in this process (process-wide), after the
-    /// person's password settings reach Chromium (`setPasswordPolicy`).
+    /// person's password settings (`setPasswordPolicy`) and search engine
+    /// (`setDefaultSearch`) reach Chromium.
     public var onReady: (() -> Void)? {
         get { CEFRuntime.shared.onReady }
-        set { CEFRuntime.shared.onReady = { CEFPasswordPolicy.apply(); newValue?() } }
+        set { CEFRuntime.shared.onReady = { CEFPasswordPolicy.apply(); CEFDefaultSearch.apply(); newValue?() } }
     }
 
     /// Runs when starting CEF fails in this process (process-wide). A failed
@@ -212,6 +246,13 @@ public final class CEFEngine: BrowserEngine {
     public var builtInAdBlocker: @MainActor () -> Bool {
         get { CEFRuntime.shared.builtInAdBlockerSetting }
         set { CEFRuntime.shared.builtInAdBlockerSetting = newValue }
+    }
+
+    /// The managed preference domain Chromium reads Chrome enterprise policies
+    /// from (`com.google.Chrome`), asked once when Chromium starts; nil reads none.
+    public var chromePolicyID: @MainActor () -> String? {
+        get { CEFRuntime.shared.chromePolicyIDSetting }
+        set { CEFRuntime.shared.chromePolicyIDSetting = newValue }
     }
 
     /// What modified link clicks do (cmux.json `browser.links.*`;

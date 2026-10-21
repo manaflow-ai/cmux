@@ -80,4 +80,13 @@ echo '// two' >> "$src/cmux-tui/crates/acpmux/Cargo.toml"; git_q -C "$src" commi
 run CMUX_FLEET_BUILD_TAG=x "$src/scripts/cmux-next/build-acpmux.sh" >/dev/null 2>&1 || fail "a fleet build did not build acpmux"
 dirs=$(grep -c . "$TMP/cargo.log"); first=$(sed -n 1p "$TMP/cargo.log"); last=$(sed -n '$p' "$TMP/cargo.log")
 [[ "$first" == "$last" && "$first" == "$src/"* ]] || fail "acpmux did not build in one persistent target dir in the tree:" "$(cat "$TMP/cargo.log")"
+
+# A CI job whose checkout is cleaned (or recreated) every run keeps optchat-chief
+# warm in a target dir outside the checkout: the media tour rebuilt it from
+# scratch in ~100 s for each of its two apps (cmux-next-media.yml).
+echo '// three' >> "$src/Native/OptChat/optchat-chief/Cargo.toml"; git_q -C "$src" commit -am three
+run CI=1 CMUX_NEXT_OPTCHAT_CHIEF_TARGET_DIR="$TMP/chief-target" "$src/scripts/cmux-next/build-optchat-chief.sh" >/dev/null 2>"$TMP/err" ||
+  fail "a CI build with a target dir did not build optchat-chief: $(cat "$TMP/err")"
+[[ "$(sed -n '$p' "$TMP/cargo.log")" == "$TMP/chief-target" ]] ||
+  fail "optchat-chief did not build in CMUX_NEXT_OPTCHAT_CHIEF_TARGET_DIR:" "$(cat "$TMP/cargo.log")"
 echo "rust-daemon-miss-builds: ok ($dirs builds)"

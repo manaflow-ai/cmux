@@ -2,96 +2,55 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
 
-/// Glass find-in-page capsule. Enter finds the next match, Shift-Enter the
-/// previous one, Escape closes.
+/// Find in page: the shared ``FindPillView`` (the same Liquid Glass capsule as
+/// the terminal's and the web pages' find) over the engine's find. Enter finds
+/// the next match, Shift-Enter the previous one, Escape closes; the Aa toggle
+/// matches case. The chrome view shows and hides this container.
 final class FindBarView: NSView {
     var onClose: (() -> Void)?
     weak var tab: (any BrowserTab)?
 
-    private let field = ChromeTextField()
-    private let countLabel = ChromeLabel(labelWithString: "")
+    let pill: FindPillView
     private var findTask: Task<Void, Never>?
-    private let density = DensityBinding()
-    private let icon = NSImageView()
-    /// The bar's material: glass, or opaque under Reduce Transparency.
-    private(set) var glass: OverlaySurfaceView?
+
+    /// The pill's material: glass, or opaque under Reduce Transparency.
+    var glass: OverlaySurfaceView? { pill.surface }
 
     override init(frame: NSRect) {
+        let size = Metrics.smallIconSize - 1
+        let icons = FindPillIcons(search: .icon(.browserOmniboxSearch, size: size), previous: .icon(.browserFindPrevious, size: size),
+                                  next: .icon(.browserFindNext, size: size), close: .icon(.actionClose, size: size))
+        let labels = FindPillLabels(placeholder: Strings.findPlaceholder, previous: Strings.findPrevious, next: Strings.findNext,
+                                    close: Strings.findDone, matchCase: Strings.findMatchCase)
+        pill = FindPillView(labels: labels, icons: icons, accessibilityPrefix: "cmux.browser.find")
         super.init(frame: frame)
         translatesAutoresizingMaskIntoConstraints = false
-
-
-        field.setPlaceholder(Strings.findPlaceholder)
-        field.delegate = self
-        field.setAccessibilityLabel(Strings.findPlaceholder)
-
-        countLabel.alignment = .right
-        countLabel.setContentHuggingPriority(.required, for: .horizontal)
-
-        let previous = ChromeIconButton(icon: .navPreviousMatch, label: Strings.findPrevious, action: #selector(findPrevious), target: self)
-        let next = ChromeIconButton(icon: .disclosureExpanded, label: Strings.findNext, action: #selector(findNext), target: self)
-        let done = ChromeIconButton(icon: .actionClose, label: Strings.findDone, action: #selector(close), target: self)
-
-        let stack = NSStackView(views: [icon, field, countLabel, previous, next, done])
-        stack.translatesAutoresizingMaskIntoConstraints = false
-
-        let content = OverlayBackingView()
-        content.addSubview(stack)
-        let glass = Glass.makeOverlayPanel(content: content, cornerRadius: BrowserMetrics.overlayCornerRadius)
-        addSubview(glass)
-        self.glass = glass
+        addSubview(pill)
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            stack.centerYAnchor.constraint(equalTo: content.centerYAnchor),
-            glass.leadingAnchor.constraint(equalTo: leadingAnchor),
-            glass.trailingAnchor.constraint(equalTo: trailingAnchor),
-            glass.topAnchor.constraint(equalTo: topAnchor),
-            glass.bottomAnchor.constraint(equalTo: bottomAnchor),
-            density.bind(heightAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.findBarHeight },
-            // Preferred width: a narrow pane narrows the field.
-            density.bind(field.widthAnchor.constraint(equalToConstant: 0).prioritized(.init(450))) { BrowserMetrics.findFieldWidth },
-            density.bind(countLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 0).prioritized(.init(450))) {
-                BrowserMetrics.findCountWidth
-            },
+            pill.leadingAnchor.constraint(equalTo: leadingAnchor),
+            pill.trailingAnchor.constraint(equalTo: trailingAnchor),
+            pill.topAnchor.constraint(equalTo: topAnchor),
+            pill.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
-        density.update { [countLabel, icon] in
-            icon.image = NSImage.icon(.search, size: .iconRowSize(forLabelPointSize: BrowserMetrics.symbolPointSize - 1))
-            countLabel.font = BrowserMetrics.countFont
-            stack.spacing = BrowserMetrics.buttonSpacing
-            stack.edgeInsets = NSEdgeInsets(top: 0, left: BrowserMetrics.overlayPadding, bottom: 0, right: BrowserMetrics.buttonSpacing)
-            stack.setCustomSpacing(BrowserMetrics.itemSpacing, after: icon)
-            stack.setCustomSpacing(BrowserMetrics.itemSpacing, after: countLabel)
-            glass.cornerRadius = BrowserMetrics.overlayCornerRadius
+        // This container fades in and out (BrowserChromeView); the pill stays shown inside it.
+        pill.setPresented(true)
+        pill.onQueryChange = { [weak self] _ in self?.run(.forward) }
+        pill.onMatchCaseChange = { [weak self] _ in self?.run(.forward) }
+        pill.onCommand = { [weak self] command in
+            switch command {
+            case .next: self?.findNext()
+            case .previous: self?.findPrevious()
+            case .close: self?.close()
+            }
         }
-        density.start()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        applyColors()
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        applyColors()
-    }
-
-    private func applyColors() {
-        performWithTheme {
-            icon.contentTintColor = Palette.textSecondary
-            countLabel.textColor = Palette.textSecondary
-            glass?.applyTheme()
-        }
-    }
-
     func focus() {
-        window?.makeFirstResponder(field)
-        field.currentEditor()?.selectAll(nil)
-        if !field.stringValue.isEmpty { run(.forward) }
+        pill.focusField()
+        if !pill.query.isEmpty { run(.forward) }
     }
 
     @objc func findNext() { run(.forward) }
@@ -106,9 +65,10 @@ final class FindBarView: NSView {
     private func run(_ direction: BrowserFindDirection) {
         findTask?.cancel()
         guard let tab else { return }
-        let text = field.stringValue
+        let text = pill.query
+        let caseSensitive = pill.matchCase
         findTask = Task { [weak self] in
-            let result = await tab.find(text, direction: direction, caseSensitive: false)
+            let result = await tab.find(text, direction: direction, caseSensitive: caseSensitive)
             guard !Task.isCancelled else { return }
             self?.show(result, for: text)
         }
@@ -116,34 +76,15 @@ final class FindBarView: NSView {
 
     private func show(_ result: BrowserFindResult, for text: String) {
         if text.isEmpty {
-            countLabel.stringValue = ""
+            pill.showCount("", noMatches: false)
         } else if !result.matchFound {
-            countLabel.stringValue = Strings.findNoMatches
+            pill.showCount(Strings.findNoMatches, noMatches: true)
         } else if let index = result.currentIndex, let count = result.matchCount {
-            countLabel.stringValue = Strings.findPosition(index, of: count)
+            pill.showCount(Strings.findPosition(index, of: count), noMatches: false)
         } else if let count = result.matchCount {
-            countLabel.stringValue = Strings.findCount(count)
+            pill.showCount(Strings.findCount(count), noMatches: false)
         } else {
-            countLabel.stringValue = ""
-        }
-    }
-}
-
-extension FindBarView: NSTextFieldDelegate {
-    func controlTextDidChange(_ notification: Notification) {
-        run(.forward)
-    }
-
-    func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
-        switch selector {
-        case #selector(NSResponder.insertNewline(_:)):
-            if NSApp.currentEvent?.modifierFlags.contains(.shift) == true { findPrevious() } else { findNext() }
-            return true
-        case #selector(NSResponder.cancelOperation(_:)):
-            close()
-            return true
-        default:
-            return false
+            pill.showCount("", noMatches: false, canStep: true)
         }
     }
 }

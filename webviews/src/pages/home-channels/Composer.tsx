@@ -9,6 +9,7 @@
 // (POLISH.md right-click contract): Cut, Copy, Paste, Paste as Plain Text, Attach Files… and
 // Insert Mention; the edits run in the app (composerEdit.ts).
 import { useContext, useEffect, useRef, useState, type RefObject } from "react";
+import { pasteIsOnlyFileNames } from "../../agent-session/acpmux/attachments";
 import { PromptEditor, type PromptEditorHandle } from "../../agent-session/acpmux/composer/PromptEditor";
 import type { MarkdownFormat } from "../../agent-session/acpmux/markdownFormat";
 import type { EmojiTable } from "../../icon-picker/emojiData";
@@ -118,7 +119,7 @@ export function Composer({
       const refused = refusal(file);
       const item: PendingAttachment = { id, file, progress: { sent: 0, total: file.size } };
       if (refused) {
-        added.push({ ...item, error: t(refused === "type" ? "attach.typeRefused" : "attach.tooLarge") });
+        added.push({ ...item, error: t("attach.tooLarge") });
         continue;
       }
       added.push(item);
@@ -316,11 +317,7 @@ export function Composer({
         // Pasted files (a screenshot, files copied in a file manager) attach; text still pastes as text.
         if (!attachments || event.clipboardData.files.length === 0) return;
         // A file copied in a file manager also carries its name (or path) as text: drop that text.
-        const text = event.clipboardData.getData("text/plain");
-        const names = [...event.clipboardData.files].map((file) => file.name);
-        const onlyNames =
-          !text || event.clipboardData.types.includes("text/uri-list") || names.some((name) => text.includes(name));
-        if (onlyNames) event.preventDefault();
+        if (pasteIsOnlyFileNames(event.clipboardData)) event.preventDefault();
         addFiles(event.clipboardData.files);
       }}
     >
@@ -394,6 +391,7 @@ export function Composer({
         </ToolbarButton>
         <ToolbarButton
           label={t("emoji.title")}
+          tooltip={false}
           className="hc-tool"
           disabled={disabled}
           keepsFocus
@@ -406,6 +404,7 @@ export function Composer({
         {attachments && !editing && (
           <ToolbarButton
             label={t("attach.add")}
+            tooltip={false}
             className="hc-tool"
             disabled={disabled || files.length >= MAX_ATTACHMENTS}
             onPress={() => picker.current?.click()}
@@ -430,6 +429,7 @@ export function Composer({
         {people.length > 0 && (
           <ToolbarButton
             label={t("mention.title")}
+            tooltip={false}
             className="hc-tool"
             disabled={disabled}
             keepsFocus
@@ -459,6 +459,7 @@ export function Composer({
         ) : (
           <ToolbarButton
             label={t("composer.send")}
+            tooltip={false}
             className={`hc-send${empty || disabled || uploading ? "" : " ready"}`}
             disabled={empty || disabled || uploading}
             onPress={() => submit(editor.current?.value() ?? value)}

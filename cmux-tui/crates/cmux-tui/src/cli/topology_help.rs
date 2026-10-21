@@ -4,17 +4,19 @@
 pub(super) const WORKSPACE_HELP: &str = "\
 USAGE
   cmux workspace list [--order session|personal]
-  cmux workspace create [--name <value>] [--empty] [--ephemeral] [--correlation-key <value>]
+  cmux workspace create [--name <value>] [--empty] [--ephemeral] [--focus] [--correlation-key <value>]
     [--expected-revision <revision>] [--cwd <path>] [--shell <script> | -- <argv...>]
   cmux workspace <selector> show|focus|close
+  cmux workspace <selector> close [--report-closed-ids]
   cmux workspace <selector> close --others|--to-right|--to-left|--all [--end-terminals]
   cmux workspace <selector> rename <name>|--name <name>
   cmux workspace <selector> rename --release-to-auto
   cmux workspace <selector> move --index <n>
   cmux workspace <selector> update [--title <value>|--clear-title] [--color <value>|--clear-color]
-    [--icon <value>|--clear-icon]
-  cmux workspace <selector> run [--on-exit <close|keep>] [--correlation-key <value>] -- <argv...>
-  cmux workspace <selector> run [--on-exit <close|keep>] [--correlation-key <value>] shell <script>
+    [--icon <value>|--clear-icon] [--description <text>|--clear-description]
+    [--task-status todo|working|needs-attention|review|done|--clear-task-status]
+  cmux workspace <selector> run [--on-exit <close|keep|shell>] [--correlation-key <value>] -- <argv...>
+  cmux workspace <selector> run [--on-exit <close|keep|shell>] [--correlation-key <value>] shell <script>
   cmux workspace <selector> layout apply [OPTIONS]
   cmux workspace [<selector>] open-url --url <http(s) URL>
   cmux workspace <selector> screen ...
@@ -27,6 +29,11 @@ USAGE
   cmux workspace [<selector>] log append <text> [--level <level>] [--source <value>]
   cmux workspace [<selector>] log list [--limit <1..200>]
   cmux workspace [<selector>] log clear
+  cmux workspace [<selector>] checklist list
+  cmux workspace [<selector>] checklist add <text> [--state todo|in_progress|done] [--origin user|agent] [--index <n>]
+  cmux workspace [<selector>] checklist update <item> [--text <text>] [--state todo|in_progress|done]
+    [--index <n>] [--attachments-json <json-array>]
+  cmux workspace [<selector>] checklist remove <item>
   cmux workspace placement list
   cmux workspace group list [--room <room>]
   cmux workspace group create --name <value> [--color <value>] [--room <room>] [--index <n>] [--collapse]
@@ -55,8 +62,10 @@ its id or exact name. list --order session gives the session's workspace
 order: creation order unless a workspace was moved. list --order personal
 gives the cmux app's sidebar order: loose workspaces, and each group's
 workspaces where the group shows. Without --order, list gives the sidebar
-order in the app's context (an app terminal or Chief addressing the app's
-own daemon), else the session order. The app's
+order to every caller when the session has the sidebar document; without
+the document it gives the sidebar order in the app's context (an app
+terminal or Chief addressing the app's own daemon), else the session
+order. The app's
 snapshot.get windows[].workspaces lists the order each window shows. --top-index
 puts a group right before the workspace at that placement index;
 --clear-top-index puts it after every loose workspace. --icon sets a group's
@@ -71,13 +80,15 @@ SELECTORS
 
 pub(super) const PANE_HELP: &str = "\
 USAGE
-  cmux pane list
-  cmux pane create [--correlation-key <value>]
+  cmux pane list [--workspace <selector>] [--screen <selector>]
+  cmux pane create [--cwd <path>] [--correlation-key <value>]
+    [--shell <script> | -- <argv...>]
   cmux pane <selector> show|focus|close
   cmux pane <selector> close --others|--all
   cmux pane <selector> rename <name>|--name <name>
   cmux pane <selector> split [--right|--down] [--ratio <value>]
-    [--viewport-width <fraction>] [--correlation-key <value>]
+    [--viewport-width <fraction>] [--focus] [--correlation-key <value>]
+    [--shell <script> | -- <argv...>]
   cmux pane <selector> focus direction <left|right|up|down>
   cmux pane <selector> neighbor <left|right|up|down>
   cmux pane <selector> swap --other-workspace <selector>
@@ -85,8 +96,14 @@ USAGE
   cmux pane <selector> zoom [--enabled <bool>]
   cmux pane <selector> split ratio set --split <id> --ratio <value>
   cmux pane <selector> viewport width set --columns <value>
-  cmux pane <selector> run [--on-exit <close|keep>] [--correlation-key <value>] -- <argv...>
+  cmux pane <selector> run [--on-exit <close|keep|shell>] [--correlation-key <value>] -- <argv...>
   cmux pane <selector> tab ...
+
+split keeps the focus where it is unless --focus is given. With --shell or
+-- argv the new pane (of split or create) runs that command instead of a
+shell. To add a terminal
+to a pane that already exists, use `cmux tab create terminal --pane <selector>`
+instead of splitting again.
 
 SELECTORS
   <selector> is an id (ws_…, pane_…, tab_…, term_…), current, or an exact
@@ -95,7 +112,7 @@ SELECTORS
 
 pub(super) const TAB_HELP: &str = "\
 USAGE
-  cmux tab list
+  cmux tab list [--workspace <selector>] [--screen <selector>] [--pane <selector>]
   cmux tab <selector> show|focus|close
   cmux tab <selector> close --others|--to-right|--to-left|--all [--include-pinned]
   cmux tab <selector> rename <name>|--name <name>
@@ -105,9 +122,13 @@ USAGE
   cmux tab <tab_…> restart
   cmux tab <selector> zoom <0.25..5>|reset|in|out
   cmux tab <selector> update --zoom <0.25..5>|--clear-zoom
-  cmux tab <selector> update --icon <value>|--clear-icon
-  cmux tab create terminal [--correlation-key <value>] [OPTIONS]
-  cmux tab create browser --url <value> [--correlation-key <value>] [OPTIONS]
+  cmux tab <selector> update [--icon <value>|--clear-icon] [--marked-unread <bool>]
+  cmux tab create terminal [--cwd <path>] [--name <value>] [--cols <n> --rows <n>]
+    [--workspace <selector>] [--screen <selector>] [--pane <selector>]
+    [--correlation-key <value>] [--shell <script> | -- <argv...>]
+  cmux tab create browser --url <value> [--name <value>] [--width-px <n> --height-px <n>]
+    [--workspace <selector>] [--screen <selector>] [--pane <selector>]
+    [--correlation-key <value>]
   cmux tab <selector> terminal|browser ...
   cmux tab group list [--pane <pane_…>]
   cmux tab group create --tabs <tab_…,...> [--name <value>] [--color <color>]
@@ -139,7 +160,8 @@ SELECTORS
 
 pub(super) const TERMINAL_HELP: &str = "\
 USAGE
-  cmux terminal list
+  cmux terminal list [--workspace <selector>] [--screen <selector>] [--pane <selector>]
+    [--tab <selector>]
   cmux terminal <selector> show
   cmux terminal <selector> status
   cmux terminal <selector> write [--text <value>|--bytes-base64 <base64>]

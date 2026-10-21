@@ -250,8 +250,27 @@ extension DaemonConnection {
 
     // Input and sizing on the control connection (views use TerminalAttachment)
 
-    public func send(_ surface: SurfaceID, text: String? = nil, bytes: Data? = nil, paste: Bool = false) async throws {
-        _ = try await request(SendInputRequest(surface: surface, text: text, bytes: bytes, paste: paste ? true : nil))
+    /// - Parameter expectForeground: write only while this executable is still the terminal's
+    ///   foreground (`send-expect-foreground-v1`); an older daemon ignores it.
+    public func send(_ surface: SurfaceID, text: String? = nil, bytes: Data? = nil, paste: Bool = false,
+                     expectForeground: String? = nil) async throws {
+        _ = try await request(SendInputRequest(surface: surface, text: text, bytes: bytes, paste: paste ? true : nil,
+                                               expectForeground: expectForeground))
+    }
+
+    /// Pastes `text`, then Return, into `surface` only while a program other than its shell runs in the
+    /// foreground. The check and both writes go over this connection back to back, and each write names
+    /// the program the check saw, so a daemon with `send-expect-foreground-v1` refuses it once that
+    /// program has exited. A bare shell fails with ``DaemonError/command(cmd:message:code:details:retryable:)``
+    /// code `foreground.shell` and nothing is written.
+    public func typeToForegroundProgram(_ surface: SurfaceID, text: String) async throws {
+        let process = try await request(TerminalProcessInfoRequest(surface: surface), timeout: .seconds(1))
+        guard process.runningProgram != nil, let program = process.foregroundExecutable else {
+            throw DaemonError.command(cmd: SendInputRequest.command, message: "only a shell runs in the foreground",
+                                      code: "foreground.shell")
+        }
+        try await send(surface, text: text, paste: true, expectForeground: program)
+        try await send(surface, text: "\r", expectForeground: program)
     }
 
     /// Input by host terminal id, also for a terminal still being created

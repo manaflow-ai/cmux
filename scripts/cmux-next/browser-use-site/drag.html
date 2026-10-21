@@ -1,0 +1,7 @@
+<!doctype html><meta charset=utf-8><title>bu-drag</title>
+<style>body{font:16px -apple-system;margin:60px}.col{display:inline-block;vertical-align:top;width:220px;min-height:260px;margin:10px;padding:10px;background:#eef;border-radius:10px}
+.card{padding:14px;margin:8px 0;background:#fff;border-radius:8px;box-shadow:0 1px 4px #0003;cursor:grab}</style>
+<h2>Board</h2><div class=col id=todo><b>To do</b><div class=card draggable=true id=c1>Write tests</div><div class=card draggable=true id=c2>Ship it</div></div>
+<div class=col id=done><b>Done</b></div><div id=out></div>
+<script>let dragged;document.querySelectorAll('.card').forEach(c=>c.ondragstart=e=>{dragged=c;e.dataTransfer.setData('text',c.id)});
+document.querySelectorAll('.col').forEach(col=>{col.ondragover=e=>e.preventDefault();col.ondrop=e=>{e.preventDefault();const c=dragged||document.getElementById(e.dataTransfer.getData('text'));col.appendChild(c);out.textContent=c.id+' -> '+col.id}});</script>

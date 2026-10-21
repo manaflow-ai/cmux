@@ -291,3 +291,45 @@ async fn stop_right_after_the_continuation_fires_still_prevents_it() {
     tokio::time::sleep(Duration::from_millis(1500)).await;
     assert_eq!(user_messages(&hub, &id).len(), 1, "{:?}", kinds(&hub, &id));
 }
+
+/// A prompt queued behind the cut turn runs once a later attempt goes through. The attempt that
+/// failed holds nothing new (the cut turn already holds the prompt), so the prompt waits on the
+/// cut turn, not on the attempt before the one that went through.
+#[tokio::test]
+async fn a_prompt_held_by_the_cut_turn_runs_when_a_later_attempt_goes_through() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![50, 50]);
+    let id = new_session(&mut c, "flaky").await;
+    c.send(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "net-flaky: build it"}], "_meta": {"acpmux": {"promptId": "p-cut"}}}),
+    )
+    .await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "flaky ").await;
+    c.send(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "then test it"}], "_meta": {"acpmux": {"promptId": "p-q1"}}}),
+    )
+    .await;
+    c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-q1" && p["queued"] == true)
+        .await;
+
+    let ids = || -> Vec<Value> {
+        user_messages(&hub, &id).into_iter().map(|m| m["promptId"].clone()).collect()
+    };
+    for _ in 0..400 {
+        if ids().contains(&json!("p-q1")) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(
+        ids(),
+        [json!("p-cut"), json!("p-cut~resume-1"), json!("p-cut~resume-2"), json!("p-q1")],
+        "{:?}",
+        kinds(&hub, &id)
+    );
+    let k = until(&hub, &id, |k| k.iter().filter(|k| *k == "turn_result").count() == 4).await;
+    let summary = hub.session_summary(&hub.resolve(&id).unwrap());
+    assert_eq!(summary["lastTurn"]["status"], "completed", "{summary} {k:?}");
+}

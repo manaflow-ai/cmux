@@ -11,8 +11,10 @@
 // Filter (cx-htpk0, Claude desktop parity) narrows the list to the live chats that are working or
 // wait on the user, or to the finished ones: live chats at rest, then every indexed chat.
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { subscribeDeviceChats } from "./deviceChats";
+import { devicePushCount, subscribeDeviceChats } from "./deviceChats";
+import { chatsChangedSinceSettled, rememberChats, settledChats } from "./settledCache";
 import { ContextMenu } from "../../../ui/ContextMenu";
+import { pressToOpen } from "../../../ui/pressToOpen";
 import { VirtualList } from "../../../ui/VirtualList";
 import { useT } from "../i18n";
 import { AgentMark, ageLabel } from "../NewTabPage";
@@ -85,6 +87,21 @@ const initial: State = {
   design: "age",
 };
 
+/// The list a page starts with: the first page the last page read (settledCache.ts), drawn on the
+/// first frame, else empty until its read lands.
+function initialState(): State {
+  const settled = settledChats();
+  if (!settled) return initial;
+  return {
+    ...initial,
+    rows: settled.rows,
+    ...(settled.nextCursor ? { nextCursor: settled.nextCursor } : {}),
+    loaded: true,
+    ready: settled.ready,
+    design: settled.design ?? initial.design,
+  };
+}
+
 function design(value: unknown): AllChatsDesign | undefined {
   return value === "quiet" || value === "age" || value === "project" ? value : undefined;
 }
@@ -143,7 +160,15 @@ function listEntries(rows: AllChatsRow[], view: "chats" | "projects", folded: Re
 /// dropped (latest wins). `load` may change identity on every parent render: the list keeps the
 /// latest one in a ref, so a parent render never restarts the list.
 function useChatPages(load: LoadChatsPage) {
-  const [state, setState] = useState<State>(initial);
+  const [state, setState] = useState<State>(initialState);
+  // Rows from the settled first page: the mount reads only a change pushed since (see below).
+  const [seeded] = useState(() => state.loaded);
+  // A list drawn from a saved first page that mounts to a changed index takes that first read
+  // whole: a chat deleted or archived since must not stay listed (merging keeps every row the
+  // fresh page does not name). Pages read past the saved one meanwhile stay; only saved rows go.
+  const replaceSaved = useRef(false);
+  const [savedKeys] = useState(() => new Set(state.rows.map((row) => row.key)));
+  const pagedPastSaved = useRef(false);
   const latestLoad = useRef(load);
   latestLoad.current = load;
   const generation = useRef(0);
@@ -153,6 +178,7 @@ function useChatPages(load: LoadChatsPage) {
     const marker = `${ticket}:${cursor ?? ""}`;
     if (inFlight.current === marker) return;
     inFlight.current = marker;
+    const atPush = devicePushCount();
     setState((s) => (cursor ? { ...s, loading: true } : { ...s, query, nextCursor: undefined, loading: true }));
     void latestLoad
       .current({ ...(query ? { query } : {}), ...(cursor ? { cursor } : {}), limit: PAGE })
@@ -172,12 +198,25 @@ function useChatPages(load: LoadChatsPage) {
                 : { failed: true, rows: s.rowsQuery === query ? s.rows : [], nextCursor: undefined }),
             };
           const fresh = rowsOf(page);
+          const nextCursor = page.nextCursor && fresh.length > 0 ? page.nextCursor : undefined;
+          if (!cursor && !query)
+            rememberChats(
+              {
+                rows: fresh,
+                ready: page.ready !== false,
+                ...(nextCursor ? { nextCursor } : {}),
+                ...(design(page.design) ? { design: design(page.design) } : {}),
+              },
+              atPush,
+            );
+          if (cursor) pagedPastSaved.current = true;
+          else replaceSaved.current = false;
           const known = new Set(s.rows.map((row) => row.key));
           const rows = cursor ? [...s.rows, ...fresh.filter((row) => !known.has(row.key))] : fresh;
           return {
             ...s,
             rows,
-            nextCursor: page.nextCursor && fresh.length > 0 ? page.nextCursor : undefined,
+            nextCursor,
             loading: false,
             loaded: true,
             ready: page.ready !== false,
@@ -188,10 +227,6 @@ function useChatPages(load: LoadChatsPage) {
         });
       });
   }, []);
-  // The first page when the list mounts (the page is a fresh view each time it shows).
-  useEffect(() => {
-    fetchPage("", undefined);
-  }, [fetchPage]);
   // A loaded list reads its first page again when the index pushes a change and puts it on top of
   // its rows, keeping the later pages and the cursor (cx-heu). One read at a time: a push during
   // one reads once more after it. A query's list, or a new query meanwhile, is left alone.
@@ -203,14 +238,39 @@ function useChatPages(load: LoadChatsPage) {
     }
     refreshing.current = "busy";
     const ticket = generation.current;
+    const atPush = devicePushCount();
     void latestLoad
       .current({ limit: PAGE })
       .catch(() => undefined)
       .then((page) => {
+        if (page) {
+          const fresh = rowsOf(page);
+          const nextCursor = page.nextCursor && fresh.length > 0 ? page.nextCursor : undefined;
+          rememberChats(
+            {
+              rows: fresh,
+              ready: page.ready !== false,
+              ...(nextCursor ? { nextCursor } : {}),
+              ...(design(page.design) ? { design: design(page.design) } : {}),
+            },
+            atPush,
+          );
+        }
         if (page && ticket === generation.current) {
+          const replace = replaceSaved.current;
+          replaceSaved.current = false;
           setState((s) => {
             if (s.query) return s;
-            const rows = mergeFirstPage(rowsOf(page), s.rows);
+            const fresh = rowsOf(page);
+            if (replace && !pagedPastSaved.current) {
+              const nextCursor = page.nextCursor && fresh.length > 0 ? page.nextCursor : undefined;
+              return { ...s, rows: fresh, nextCursor, ready: page.ready !== false };
+            }
+            const named = new Set(fresh.map((row) => row.key));
+            const rows = mergeFirstPage(
+              fresh,
+              replace ? s.rows.filter((row) => !savedKeys.has(row.key) || named.has(row.key)) : s.rows,
+            );
             // Most pushes change nothing on the first page: the list keeps its rows (no re-render).
             const same =
               rows.length === s.rows.length &&
@@ -229,7 +289,17 @@ function useChatPages(load: LoadChatsPage) {
         refreshing.current = "idle";
         if (again) refreshFirstPage();
       });
-  }, []);
+  }, [savedKeys]);
+  // The first page when the list mounts. A list that drew the settled first page (a workspace
+  // closed or opened and its page mounted again) reads it only for a change the chat index pushed
+  // since; a later push reads it as on any loaded list (Leo 2026-10-18: the list emptied and refilled).
+  useEffect(() => {
+    if (!seeded) fetchPage("", undefined);
+    else if (chatsChangedSinceSettled()) {
+      replaceSaved.current = true;
+      refreshFirstPage();
+    }
+  }, [seeded, fetchPage, refreshFirstPage]);
   // A page opened before the chat index finished its first scan (`ready: false`, or no rows yet)
   // reads its first page from the start when the host pushes the index's chats (cx-ztlw: the first
   // Cmd-T page stayed empty for good); a loaded one refreshes it. A search is left alone.
@@ -279,9 +349,17 @@ function useSelection(rows: AllChatsRow[], query: string) {
     setSelected([]);
     return false;
   };
+  /// A plain open of `key`: the selection collapses and `key` anchors the next Shift-click.
+  const collapse = (key: string) => {
+    anchor.current = key;
+    setSelected([]);
+  };
   const clear = useCallback(() => setSelected([]), []);
-  return { selected, click, clear };
+  return { selected, click, collapse, clear };
 }
+
+/// A chat acpmux can show without running it: Claude Code and Codex (acpmux `hub/watch.rs`).
+export const watchable = (key: string) => /^(claude-code|codex):./.test(key);
 
 export function AllChatsList({
   load,
@@ -289,6 +367,7 @@ export function AllChatsList({
   active = [],
   onOpenActive,
   onOpenInTerminal,
+  onViewOnly,
   onBring,
   now: fixedNow,
 }: {
@@ -297,6 +376,9 @@ export function AllChatsList({
   active?: ActiveChat[];
   onOpenActive?(id: string): void;
   onOpenInTerminal?(key: string): void;
+  /// View Only: a Claude Code or Codex chat in a tab that shows it and follows the app that runs
+  /// it, without running it, until Take Over (`chats.watch`, the same opener as `cmux agent view`).
+  onViewOnly?(key: string): void;
   /// Rows select, and the menu's Bring into Active Sessions opens the selection (cx-zlnl).
   onBring?(keys: string[]): void;
   now?: number;
@@ -427,10 +509,21 @@ export function AllChatsList({
           data-focus-ring="row"
           data-untitled={row.title ? undefined : true}
           data-selected={selection.selected.includes(row.key) ? true : undefined}
-          onClick={(event) => {
-            if (onBring && selection.click(event, row.key)) return;
-            onOpen(row.key);
-          }}
+          // A plain press opens at once; a Cmd/Shift-click selects on the release, and a press on a row
+          // of a multi-selection waits for the release (the Finder rule).
+          {...pressToOpen(
+            () => {
+              selection.collapse(row.key);
+              onOpen(row.key);
+            },
+            {
+              deferPress: () => !!onBring && selection.selected.length > 1 && selection.selected.includes(row.key),
+              onClick: (event) => {
+                if (onBring && selection.click(event, row.key)) return;
+                onOpen(row.key);
+              },
+            },
+          )}
         >
           <span className="nt-all-glyph">
             <AgentMark harness={row.harness} />
@@ -463,6 +556,16 @@ export function AllChatsList({
             label: t("shell.openInTerminal"),
             disabled: !menuTarget,
             onSelect: () => menuTarget && onOpenInTerminal(menuTarget),
+          },
+        ]
+      : []),
+    ...(onViewOnly
+      ? [
+          {
+            id: "viewOnly",
+            label: nt("viewOnly"),
+            disabled: !menuTarget || !watchable(menuTarget),
+            onSelect: () => menuTarget && watchable(menuTarget) && onViewOnly(menuTarget),
           },
         ]
       : []),
@@ -519,7 +622,7 @@ export function AllChatsList({
                   className="nt-all-row"
                   data-focus-ring="row"
                   data-state={chat.state}
-                  onClick={() => onOpenActive?.(chat.id)}
+                  {...pressToOpen(() => onOpenActive?.(chat.id))}
                 >
                   <span className="nt-all-glyph">
                     <AgentMark harness={chat.harness} />

@@ -97,6 +97,8 @@ mod agent_message_pump {
         assert_eq!(prompt["sessionId"], "b");
         let meta = &prompt["_meta"]["acpmux"];
         assert_eq!(meta["promptId"], message["id"], "the message id is the prompt id");
+        // It reaches a running turn at once when the agent steers, else it queues.
+        assert_eq!(meta["steer"], true, "a message steers by default: {meta}");
         assert_eq!(meta["provenance"]["msgId"], message["id"]);
         assert_eq!(meta["provenance"]["from"], "acp:a");
         assert_eq!(meta["provenance"]["to"], "acp:b");
@@ -449,6 +451,55 @@ mod agent_message_pump {
         assert!(last_first < first_second, "the second went out before the first: {order:?}");
     }
 
+    /// The pump hands a message over while acpmux still reads its chat logs
+    /// after a restart: naming the recipient (`_acpmux/info`) does not wait
+    /// for them (`waitLogs: false`), as a large log store outlasts its 2 s.
+    #[test]
+    fn a_message_is_delivered_while_acpmux_reads_its_chat_logs() {
+        let daemon = Daemon::start_owner_with_acpmux("pump-logs");
+        let (_, alpha) = daemon.workspace("alpha");
+        daemon.place_session("b", &alpha);
+        daemon.reading_chat_logs();
+        let message = id(&daemon.sent(None, to("acp:b", "while the logs load")));
+        daemon.wait_for(&message, "the delivery", |m| state(m, "acp:b") == "delivered");
+        assert_eq!(daemon.prompts().len(), 1, "{:?}", daemon.prompts());
+    }
+
+    /// A hand-over acpmux is slow to take (it still reads its chat logs, so
+    /// its `session/prompt` waits for them) holds up no other session's
+    /// message, and still goes out once when acpmux takes it.
+    #[test]
+    fn a_slow_hand_over_holds_up_no_other_delivery_while_acpmux_reads_its_chat_logs() {
+        let daemon = Daemon::start_owner_with_acpmux("pump-slow-logs");
+        let (_, alpha) = daemon.workspace("alpha");
+        daemon.place_session("slow", &alpha);
+        daemon.place_session("b", &alpha);
+        daemon.reading_chat_logs();
+        // `slow`'s prompt waits, unanswered, until the test opens its gate.
+        daemon.gate("slow");
+        let slow = id(&daemon.sent(None, to("acp:slow", "first, slow")));
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while prompts_of(&daemon, &slow) == 0 {
+            assert!(Instant::now() < deadline, "the slow hand-over never reached acpmux");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let other = id(&daemon.sent(None, to("acp:b", "second, to another session")));
+        daemon.wait_for(&other, "the other delivery", |m| state(m, "acp:b") == "delivered");
+        // The slow hand-over is still out: the pump neither gave up on it nor
+        // made the other delivery wait for it.
+        let waiting = daemon.wait_for(&slow, "the slow message", |_| true);
+        assert_eq!(state(&waiting, "acp:slow"), "queued", "{waiting}");
+        assert_eq!(
+            delivery(&waiting, "acp:slow")["attempts"],
+            "0",
+            "the other delivery waited for the slow hand-over to time out: {waiting}"
+        );
+        daemon.open_gate("slow");
+        daemon.wait_for(&slow, "the slow delivery", |m| state(m, "acp:slow") == "delivered");
+        assert_eq!(prompts_of(&daemon, &slow), 1, "handed over twice: {:?}", daemon.prompts());
+        assert_eq!(prompts_of(&daemon, &other), 1, "handed over twice: {:?}", daemon.prompts());
+    }
+
     #[test]
     fn a_long_acpmux_refusal_fits_the_unsend_result() {
         let (daemon, a) = two_agents("unsend-long-reason");
@@ -488,5 +539,87 @@ mod agent_message_pump {
         run(1, "failed");
         daemon.withdraw_answers("b", "too_late");
         run(0, "too_late");
+    }
+
+    #[test]
+    fn an_unsettled_delivery_to_a_deleted_session_is_unsent() {
+        let (daemon, a, (_, alpha)) = two_agents_in("unsend-deleted");
+        daemon.place_session("slow", &alpha);
+        daemon.silent("slow", 1000);
+        let message = id(&daemon.sent(Some(&a), to("acp:slow", "are you there")));
+        let waited = daemon.wait_for(&message, "a noted attempt", |m| {
+            delivery(m, "acp:slow")["attempts"] != "0" || state(m, "acp:slow") != "queued"
+        });
+        assert_eq!(state(&waited, "acp:slow"), "queued", "{waited}");
+        // The session is deleted; the pump finds no such session and keeps trying.
+        daemon.delete_session("slow");
+        let before = daemon.lookups_of("slow");
+        let deadline = Instant::now() + Duration::from_secs(40);
+        while daemon.lookups_of("slow") == before {
+            assert!(Instant::now() < deadline, "the pump never looked for the deleted session");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        // No running session can take a late prompt: it never reached the agent.
+        let reply = unsend(&daemon, Some(&a), &message);
+        assert_eq!(outcome(&reply, "acp:slow"), "unsent", "{reply}");
+        assert_eq!(reply["result"]["value"]["outcome"], "unsent", "{reply}");
+        assert_eq!(state(&reply["result"]["value"]["message"], "acp:slow"), "unsent", "{reply}");
+        assert!(!daemon.withdrawals().is_empty(), "acpmux was never asked");
+        // A later pass (a send wakes the pump) no longer looks for it.
+        let after = daemon.lookups_of("slow");
+        delivered_to_b(&daemon, &a, "after the unsend");
+        assert_eq!(daemon.lookups_of("slow"), after, "the pump still retries an unsent delivery");
+    }
+
+    #[test]
+    fn a_blank_acpmux_refusal_reason_reads_withdraw_refused() {
+        let (daemon, a) = two_agents("unsend-blank-reason");
+        let message = id(&delivered_to_b(&daemon, &a, "blank"));
+        daemon.withdraw_answers("b", "refuse:   ");
+        let reply = unsend(&daemon, Some(&a), &message);
+        let refused = entry(&reply, "acp:b");
+        assert_eq!(refused["outcome"], "failed", "{reply}");
+        assert_eq!(refused["error"]["reason"], "withdraw_refused", "{reply}");
+        assert_eq!(refused["error"]["acpmux_reason"], "withdraw.refused", "{reply}");
+    }
+
+    #[test]
+    fn an_unsettled_delivery_to_a_peer_session_is_never_called_unsent() {
+        let (daemon, a, (_, alpha)) = two_agents_in("unsend-peer");
+        // A peer daemon runs `far`: acpmux forwards its prompts there, but a
+        // withdraw is answered here, where no session matches.
+        daemon.place_peer_session("far", &alpha);
+        daemon.silent("far", 1000);
+        let message = id(&daemon.sent(Some(&a), to("acp:far", "over there")));
+        let waited = daemon.wait_for(&message, "a noted attempt", |m| {
+            delivery(m, "acp:far")["attempts"] != "0" || state(m, "acp:far") != "queued"
+        });
+        assert_eq!(state(&waited, "acp:far"), "queued", "{waited}");
+        // The peer's session may still run the hand-over: not unsent.
+        let reply = unsend(&daemon, Some(&a), &message);
+        let pending = entry(&reply, "acp:far");
+        assert_eq!(pending["outcome"], "failed", "{reply}");
+        assert_eq!(pending["error"]["reason"], "acpmux_unavailable", "{reply}");
+        assert_eq!(state(&reply["result"]["value"]["message"], "acp:far"), "queued", "{reply}");
+        assert!(!daemon.withdrawals().is_empty(), "acpmux was never asked");
+    }
+
+    #[test]
+    fn an_unsettled_delivery_to_an_unreachable_peer_is_never_called_unsent() {
+        let (daemon, a, (_, alpha)) = two_agents_in("unsend-peer-down");
+        // A peer daemon runs `far` and stops answering once the prompt went
+        // out: acpmux cannot say whether the peer holds it.
+        daemon.place_unreachable_peer_session("far", &alpha);
+        daemon.silent("far", 1000);
+        let message = id(&daemon.sent(Some(&a), to("acp:far", "over there")));
+        let waited = daemon.wait_for(&message, "a noted attempt", |m| {
+            delivery(m, "acp:far")["attempts"] != "0" || state(m, "acp:far") != "queued"
+        });
+        assert_eq!(state(&waited, "acp:far"), "queued", "{waited}");
+        let reply = unsend(&daemon, Some(&a), &message);
+        let pending = entry(&reply, "acp:far");
+        assert_eq!(pending["outcome"], "failed", "{reply}");
+        assert_eq!(pending["error"]["reason"], "acpmux_unavailable", "{reply}");
+        assert_eq!(state(&reply["result"]["value"]["message"], "acp:far"), "queued", "{reply}");
     }
 }

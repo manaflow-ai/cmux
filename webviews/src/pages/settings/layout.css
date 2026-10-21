@@ -17,19 +17,22 @@
   --on-accent: var(--cmux-on-accent, var(--cmux-app-window, var(--cmux-surface-solid, Canvas)));
   --accent-text: var(--text);
   --column: 720px;
+  /* The one width of a row's popup (menus, the theme pickers, the accent), so a popup's left edge
+     lines up with the rows around it and its selected label never resizes it. */
+  --row-popup-width: 200px;
   --row-pad-y: calc(3px * var(--settings-scale));
   --row-pad-x: calc(12px * var(--settings-scale));
   --row-min: calc(28px * var(--settings-scale));
   --card-radius: 10px;
   --sidebar-width: 208px;
-  /* Motion: the app's MotionTunables (hover 80 ms, focus 100 ms, fade in 120 ms, fade out 80 ms),
-     overridable by the host (--cmux-motion-*). Only opacity, transform and a collapsing row's
-     own height animate, so nothing else on the page moves. */
-  --motion-hover: var(--cmux-motion-hover, 80ms);
-  --motion-focus: var(--cmux-motion-focus, 100ms);
-  --motion-in: var(--cmux-motion-in, 120ms);
-  --motion-out: var(--cmux-motion-out, 80ms);
-  --motion-ease: cubic-bezier(0.2, 0, 0, 1);
+  /* Motion: the one motion scale (--cmux-motion-*, pages/shared/desktop.css): hover, focus and
+     anything leaving quick, anything arriving micro, easing out. Only opacity, transform and a
+     collapsing row's own height animate, so nothing else on the page moves. */
+  --motion-hover: var(--cmux-motion-quick, 80ms);
+  --motion-focus: var(--cmux-motion-quick, 80ms);
+  --motion-in: var(--cmux-motion-micro, 120ms);
+  --motion-out: var(--cmux-motion-quick, 80ms);
+  --motion-ease: var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1));
   font-size: calc(12.5px * var(--settings-scale));
 }
 
@@ -44,7 +47,8 @@
 }
 
 .content {
-  padding: calc(26px * var(--settings-scale)) var(--page-edge) calc(56px * var(--settings-scale));
+  --content-pad-end: calc(56px * var(--settings-scale));
+  padding: calc(26px * var(--settings-scale)) var(--page-edge) var(--content-pad-end);
 }
 
 .column {
@@ -183,6 +187,20 @@
   border-bottom-right-radius: var(--card-radius);
 }
 
+/* Search wraps each row in `.collapse > .collapse-body` (SearchResults), so the first and last
+   shown rows take the card's edges here. The last one's divider drew a second line under the
+   card's rounded edge. */
+.rows > .collapse[data-open]:not(.collapse[data-open] ~ .collapse) .row {
+  border-top-left-radius: var(--card-radius);
+  border-top-right-radius: var(--card-radius);
+}
+
+.rows > .collapse[data-open]:not(:has(~ .collapse[data-open])) .row {
+  box-shadow: none;
+  border-bottom-left-radius: var(--card-radius);
+  border-bottom-right-radius: var(--card-radius);
+}
+
 
 
 .row-main {
@@ -289,7 +307,8 @@
   white-space: normal;
 }
 
-.link-button {
+.link-button,
+.channel-link {
   color: var(--accent-text);
 }
 
@@ -534,15 +553,22 @@
   color: var(--accent-text);
 }
 
+/* Every theme and accent popup on the Theme page has one width, so neither the chosen name nor a
+   row's Reset moves it; a long name ellipsizes. */
 .theme-button {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  max-width: 280px;
+  box-sizing: border-box;
+  width: var(--row-popup-width);
+  max-width: 100%;
   padding: 2px 6px 2px 3px;
 }
 
 .theme-button-name {
+  flex: 1;
+  min-width: 0;
+  text-align: start;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -753,7 +779,161 @@
   }
 
   .content {
-    padding: 14px var(--page-edge) 40px;
+    --content-pad-end: 40px;
+    padding: 14px var(--page-edge) var(--content-pad-end);
     --content-fade-top: 12px;
   }
+}
+
+/* Chief Pet (ChiefPetCard): the pet's own page, after ChatGPT's Mini & Pets. */
+.chief-pet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 2px 12px;
+}
+
+.chief-pet-lede {
+  margin: 0;
+  color: var(--muted-text);
+  font-size: var(--text-detail);
+}
+
+.chief-pet-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 160px;
+  margin-bottom: 26px;
+  border: 1px solid var(--border);
+  border-radius: var(--card-radius);
+}
+
+.chief-pet-preview[data-enabled="false"] .chief-pet-art {
+  opacity: 0.45;
+}
+
+.chief-pet-art,
+.chief-pet-choice-art img {
+  image-rendering: pixelated;
+  object-fit: contain;
+}
+
+.chief-pet-art {
+  width: 88px;
+  height: 80px;
+}
+
+.chief-pet-rail {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--text);
+}
+
+.chief-pet-rail i {
+  height: 14px;
+  border-left: 1px solid var(--border-strong);
+}
+
+.chief-pet-up {
+  transform: rotate(180deg);
+}
+
+
+.chief-pet-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
+  gap: 12px;
+}
+
+.chief-pet-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 18px 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--card-radius);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  position: relative;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color var(--motion-hover) var(--motion-ease);
+}
+
+.chief-pet-choice:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+
+.chief-pet-choice[aria-pressed="true"] {
+  border-color: var(--text);
+}
+
+/* The chosen character's check, top right (ChatGPT's picker marks its pick the same way). */
+.chief-pet-choice[aria-pressed="true"]::after {
+  content: "✓";
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  color: var(--text);
+  font-size: var(--text-body);
+  font-weight: 600;
+}
+
+.chief-pet-choice-art {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 76px;
+}
+
+.chief-pet-choice-art img {
+  width: 72px;
+  height: 66px;
+}
+
+.chief-pet-choice strong {
+  font-size: var(--text-body);
+  font-weight: 600;
+}
+
+.chief-pet-choice-help {
+  color: var(--muted-text);
+  font-size: var(--text-caption);
+  line-height: 1.35;
+}
+
+/* An accent's swatch: the color it gives the app theme (AccentPicker draws it, and Art Color's hue
+   wheel, inline). */
+.accent-swatch {
+  flex-shrink: 0;
+  box-sizing: border-box;
+  width: 14px;
+  height: 14px;
+  margin: 1px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 18%, transparent);
+}
+
+.accent-popover .theme-list {
+  outline: none;
+}
+
+.accent-popover .theme-option {
+  cursor: default;
+}
+
+.accent-popover .theme-option[aria-selected="true"] {
+  background: var(--row-focus);
+  box-shadow: inset var(--cmux-row-focus-bar, 0px) 0 0 var(--cmux-accent, currentColor);
 }

@@ -95,10 +95,10 @@ public nonisolated enum LayoutTunables {
         "drop.edgeFraction", .tabDrag, "Edge zone share", help: "Share of a pane's extent that counts as an edge (split) drop zone.",
         default: 0.25, range: 0.05...0.5, step: 0.01, unit: .fraction, code: "LayoutTunables.dropEdgeFraction")
     public static let dropEdgeMinimum = Tunable<CGFloat>.number(
-        "drop.edgeMinimum", .tabDrag, "Edge zone minimum", help: "The edge band is at least this wide (classic: 80).", default: 40, range: 4...200, step: 1,
+        "drop.edgeMinimum", .tabDrag, "Edge zone minimum", help: "The edge band is at least this wide (classic: 80).", default: 48, range: 4...200, step: 1,
         unit: .points, code: "LayoutTunables.dropEdgeMinimum")
     public static let dropEdgeMaximum = Tunable<CGFloat>.number(
-        "drop.edgeMaximum", .tabDrag, "Edge zone maximum", help: "The edge band is at most this wide; 0 sets no maximum (classic).", default: 120, range: 0...600, step: 1,
+        "drop.edgeMaximum", .tabDrag, "Edge zone maximum", help: "The edge band is at most this wide; 0 sets no maximum (classic, the default).", default: 0, range: 0...600, step: 1,
         unit: .points, code: "LayoutTunables.dropEdgeMaximum")
     public static let dropZoneHysteresis = Tunable<CGFloat>.number(
         "drop.zoneHysteresis", .tabDrag, "Zone hysteresis", help: "How far past a zone line the pointer goes before the preview changes zone (classic: 0).",
@@ -107,7 +107,7 @@ public nonisolated enum LayoutTunables {
         "drop.newColumnWidth", .tabDrag, "New column zone width", help: "Width of the new-column drop zone centered on each column gap.",
         default: 36, range: 8...160, step: 1, unit: .points, code: "LayoutTunables.newColumnDropWidth")
     public static let inactivePaneDimming = Tunable<CGFloat>.number(
-        "panes.inactiveDimming", .panes, "Inactive pane dim", help: "Dim of unfocused panes when dimming is on.", default: 0.14, range: 0...0.8, step: 0.01,
+        "panes.inactiveDimming", .panes, "Inactive pane dim", help: "Dim of unfocused panes when dimming is on (theme token ThemeTokens.inactivePaneDim).", default: 0.10, range: 0...0.8, step: 0.01,
         unit: .fraction, code: "LayoutTunables.inactivePaneDimming")
     public static let minimumContentWidth = Tunable<CGFloat>.number(
         "panes.minimumContentWidth", .panes, "Minimum pane width", help: "Smallest content width a pane keeps (about 25 columns).", default: 200,
@@ -132,8 +132,14 @@ public nonisolated enum LayoutTunables {
     /// Opt-in motion prototypes; this changes presentation only and requires pane animations to be enabled.
     public static let paneMotionVariant = Tunable<PaneMotionVariant>.choice(
         "motion.pane.variant", .springs, "Pane close and expand",
-        help: "Compare current pane close/expand movement with a faster crisp preset or a small soft landing bump. Enable Pane Animations first. Content keeps its final size; Reduce Motion still snaps.",
+        help: "Compare current pane close/expand movement with a faster crisp preset or a small soft landing bump. Enable Pane Animations first. Content keeps the larger of its starting and final size until the spring lands (Hold content size in pane motion); Reduce Motion still snaps.",
         default: .standard, code: "LayoutTunables.paneMotionVariant")
+    // @intent no reflow per frame (Leo 2026-10-20): a panel opening beside a chat lagged while the chat
+    // laid out again on every frame of the split spring. On by default; off restores live resizing.
+    public static let holdsContentInMotion = Tunable<Bool>.toggle(
+        "motion.pane.holdContent", .springs, "Hold content size in pane motion",
+        help: "While a split, close or zoom springs, each pane's page or terminal keeps the larger of its starting and final size, clipped, and lays out once when the spring lands. Off: content resizes on every frame.",
+        default: true, code: "LayoutTunables.holdsContentInMotion")
     public static let prototypeDockEdge = Tunable<LayoutPrototypeDockEdge>.choice(
         "layout.prototype.dockEdge", .panes, "Prototype dock edge", help: "Frame prototype: the edge the right docked column sits on.",
         default: .bottom, code: "LayoutTunables.prototypeDockEdge")
@@ -150,7 +156,7 @@ public nonisolated enum LayoutTunables {
 
     public static var all: [TunableDescriptor] {
         [prototypeModel.descriptor, prototypeDockEdge.descriptor, prototypeOrientation.descriptor, prototypeDockMode.descriptor,
-         paneMotionVariant.descriptor] + DropOverlayTunables.all + [dropEdgeFraction, dropEdgeMinimum, dropEdgeMaximum, dropZoneHysteresis, newColumnDropWidth, inactivePaneDimming,
+         paneMotionVariant.descriptor, holdsContentInMotion.descriptor] + MainPaneLayout.all + DropOverlayTunables.all + [dropEdgeFraction, dropEdgeMinimum, dropEdgeMaximum, dropZoneHysteresis, newColumnDropWidth, inactivePaneDimming,
                                    minimumContentWidth, minimumContentHeight, focusRingAlpha, focusGlowAlpha, focusGlowRadiusFactor].map(\.descriptor)
     }
 }

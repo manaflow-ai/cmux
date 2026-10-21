@@ -1,3 +1,5 @@
+import CmuxNextFocus
+
 /// Keys typed into a page surface before its document can take them (spec
 /// app-screens.md section 3, R59): one surface's printable text, in order,
 /// at most 256 characters and 2 s old. The key router owns one and drops it

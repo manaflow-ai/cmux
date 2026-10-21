@@ -40,6 +40,7 @@ from typing import Any, Callable
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import base_red_excuse  # noqa: E402
 import merge_main_resolver as mmr  # noqa: E402
+import next_batch_groups as groups  # noqa: E402
 
 TOOLS_ROOT = Path(__file__).resolve().parents[2]
 BASE = "feat-cmux-next"
@@ -47,6 +48,10 @@ BRANCH_PREFIX = "next-batch/"
 WORKFLOW = "cmux-next-batch.yml"
 HEAVY_WORKFLOW = "cmux-next.yml"
 TUI_WORKFLOW = "cmux-tui-artifacts.yml"
+# A group's extra lanes (docs/ci/cmux-next-batch.md#groups), dispatched on its branch.
+WEB_WORKFLOW = "cmux-next-web.yml"
+MEDIA_WORKFLOW = "cmux-next-media.yml"
+TOUR_JOB = "Tour the app"
 STICKY_MARKER = "<!-- cmux-next-batch-queue -->"
 COMMENT_MARKER = "<!-- cmux-next-batch:{kind}:{sha} -->"
 
@@ -55,6 +60,14 @@ HARD_MAX_SECONDS = 600
 STALE_DAYS = 5
 MAX_PRS = 12
 MAX_CULPRITS = 3
+# Group heads validated recently, and when: a cycle with the same heads learns
+# nothing new, so a group that did not land waits for a push or the hour.
+GROUP_TRIED: dict[tuple[tuple[int, str], ...], float] = {}
+GROUP_RETRY_SECONDS = 60 * 60
+# A group outcome that says the next cycle should validate it again, the hour notwithstanding.
+REVALIDATE = "revalidate next cycle"
+# GitHub refuses a merge right after another lands ("Base branch was modified").
+MERGE_RETRIES = 3
 POLL_SECONDS = 90
 SERVE_POLL_SECONDS = 60
 CLOSE_BURST = 3
@@ -124,6 +137,7 @@ SWIFT_GENERATED = (
     "docs/mdm/com.manaflow.cmux.plist",
     "docs/mdm/com.manaflow.cmux.intune.plist",
     "docs/mdm/managed-preferences.md",
+    "schemas/settings-export/settings-schema.sources.sha256",
     "Packages/macOS/CmuxNext/ci-target-graph.json",
 )
 # cmux-tui/bindings/codegen/generate.py output.
@@ -323,8 +337,8 @@ CONTEXTS = """contexts(first: 100{after}) {{
   pageInfo {{ hasNextPage endCursor }}
   nodes {{
     __typename
-    ... on CheckRun {{ name status conclusion }}
-    ... on StatusContext {{ context state }}
+    ... on CheckRun {{ name status conclusion startedAt checkSuite {{ workflowRun {{ workflow {{ name }} }} }} }}
+    ... on StatusContext {{ context state createdAt }}
   }}
 }}"""
 GRAPHQL_TOKEN = re.compile(r"^[A-Za-z0-9_=+/-]+$")
@@ -349,15 +363,44 @@ def detail_query(items: list[tuple[str, bool, str | None]]) -> str:
     return "query {\n" + "\n".join(parts) + "\n}"
 
 
-def parse_contexts(rollup: list[dict]) -> list[tuple[str, str, str]]:
+def parse_contexts(rollup: list[dict]) -> list[tuple[str, str, str, str, str]]:
+    """(key, name, status, conclusion, started) per context; newest_checks reduces them.
+    A check run's key is its workflow and name, so same-named jobs of two workflows stay apart."""
     checks = []
     for item in rollup:
         if item["__typename"] == "CheckRun":
-            checks.append((item["name"], (item["status"] or "").lower(), (item["conclusion"] or "").lower()))
+            workflow = ((((item.get("checkSuite") or {}).get("workflowRun") or {}).get("workflow") or {}).get("name") or "")
+            checks.append((f"{workflow}\0{item['name']}", item["name"], (item["status"] or "").lower(),
+                           (item["conclusion"] or "").lower(), item.get("startedAt") or ""))
         else:
             state = (item["state"] or "").lower()
             status = "completed" if state not in {"pending", "expected"} else "in_progress"
-            checks.append((item["context"], status, state))
+            checks.append(("\0" + item["context"], item["context"], status, state, item.get("createdAt") or ""))
+    return checks
+
+
+def newest_checks(runs: list[tuple[str, str, str, str, str]]) -> list[tuple[str, str, str]]:
+    """One (name, status, conclusion) per check: its newest run, by start time.
+
+    A head keeps every run of a check (a rerun, a second workflow event, a
+    concurrency-cancelled one), and an old red would otherwise hold the PR after
+    a later run passed. A run not started yet counts as the newest. A cancelled
+    newest run says nothing about the code, so the newest run of the same check
+    that finished otherwise stands instead (a superseded run cancelled late);
+    with none, the cancelled run counts."""
+    by_key: dict[str, list[tuple[str, str, str, str, str]]] = {}
+    for run in runs:
+        by_key.setdefault(run[0], []).append(run)
+    checks = []
+    for items in by_key.values():
+        # Stable sort: among runs with the same start time, the later one in the rollup wins.
+        ordered = sorted(items, key=lambda run: run[4] or "\uffff")
+        newest = ordered[-1]
+        if newest[2] == "completed" and newest[3] == "cancelled":
+            finished = [run for run in ordered if run[2] == "completed" and run[3] != "cancelled"]
+            if finished:
+                newest = finished[-1]
+        checks.append((newest[1], newest[2], newest[3]))
     return checks
 
 
@@ -387,7 +430,7 @@ def fetch_details(gh: GitHub, wanted: list[tuple[str, bool, bool]]) -> dict[str,
                 del todo[node_id]
             else:
                 todo[node_id] = (False, following)
-    return {node_id: (files[node_id], checks[node_id]) for node_id, _, _ in wanted}
+    return {node_id: (files[node_id], newest_checks(checks[node_id])) for node_id, _, _ in wanted}
 
 
 def rollup_failing(rollup: dict) -> bool:
@@ -463,6 +506,17 @@ def red_fast_checks(pr: PullRequest) -> list[str]:
     fixable = FORMAT_CHECKS if touches_webviews(pr) else frozenset()
     return sorted({name for name, status, conclusion in pr.checks
                    if status == "completed" and conclusion in RED and name not in HEAVY_CHECKS | fixable})
+
+
+def group_hold(pr: PullRequest) -> str | None:
+    """Why a group member can't land with the rest: any failed check of its own,
+    heavy tier and trusted `queue: known base red` included. A policy, stricter
+    than a single PR's bar (merge_one doesn't judge checks): a group lands as
+    one, so it waits until every member is clean, a red the base shares
+    included, rather than land members whose own CI is red. Each check counts by its newest run
+    (newest_checks), so a rerun that passed clears it."""
+    red = sorted({name for name, status, conclusion in pr.checks if status == "completed" and conclusion in RED})
+    return "red check " + ", ".join(red) if red else None
 
 
 # Never waived by an override label: risk evidence judges the PR's own description and merge freeze its
@@ -594,13 +648,14 @@ def reviewed(pr: PullRequest, gh: "GitHub | None" = None) -> bool:
 
 
 def ineligible_reason(pr: PullRequest, at: dt.datetime, stale_days: int = STALE_DAYS,
-                      authors: frozenset[str] | None = None) -> str | None:
+                      authors: frozenset[str] | None = None, own_checks: bool = True) -> str | None:
     """Why this PR stays out of the batch, or None when it is eligible.
 
     Eligible: ready for review, a same-repository member branch by a batch
     author (or labeled OPT_IN), no hold label, a head commit from the last
     `stale_days` days, and no failed check outside the heavy tier (pending
-    is fine).
+    is fine). A group member (`own_checks=False`) skips the last rule: its
+    group's combined run stands in for its own CI.
     """
     authors = batch_authors() if authors is None else authors
     if pr.draft:
@@ -628,7 +683,7 @@ def ineligible_reason(pr: PullRequest, at: dt.datetime, stale_days: int = STALE_
         return f"head commit older than {stale_days} days"
     if pr.number in coordinator_prs():
         return "coord-2 lands it (listed in its merge-ready file)"
-    red = red_fast_checks(pr)
+    red = red_fast_checks(pr) if own_checks else []
     never = sorted(name for name in red if name.lower() in NEVER_WAIVED)
     if never:
         return "red check " + ", ".join(never)
@@ -644,6 +699,12 @@ def select(prs: list[PullRequest], at: dt.datetime, only: set[int] | None = None
     eligible, skipped = [], {}
     for pr in sorted(prs, key=lambda item: item.number):
         if only is not None and pr.number not in only:
+            continue
+        if clash := groups.conflicting_groups(pr.labels):
+            skipped[pr.number] = "two group labels: " + ", ".join(clash) + " (keep one)"
+            continue
+        if name := groups.group_of(pr.labels):
+            skipped[pr.number] = f"in group {groups.GROUP_PREFIX}{name}; lands with its group"
             continue
         reason = ineligible_reason(pr, at)
         if reason:
@@ -913,6 +974,7 @@ class Stack:
     regen: set[str] = field(default_factory=set)
     regenerated: list[str] = field(default_factory=list)
     error: str = ""
+    heads: dict[int, str] = field(default_factory=dict)  # the stack commit right after each PR merged
 
     def summary(self) -> dict:
         return {
@@ -1042,6 +1104,7 @@ def build_stack(worktree: Path, base_sha: str, prs: list[PullRequest], tools_roo
         merged = merge_pr(repo, pr, tools_root)
         if merged.ok:
             stack.included.append(pr)
+            stack.heads[pr.number] = repo.text("rev-parse", "HEAD")
             stack.resolved += [{"pr": f"#{pr.number}", **item} for item in merged.resolved]
             stack.regen |= merged.regen
             log(f"merged #{pr.number}" + (f" ({len(merged.resolved)} resolved)" if merged.resolved else ""))
@@ -1090,16 +1153,27 @@ class Validation:
     rerun: bool = False
     build: dict = field(default_factory=dict)
     seconds: int = 0
+    # A group's extra lanes ("web", "tour") -> "passed", "failed: ..." or "did not run: ...".
+    group: str | None = None
+    lanes: dict[str, str] = field(default_factory=dict)
+    plan: Any = None
 
     @property
     def green(self) -> bool:
-        return not self.stack.error and not self.heavy_failed and bool(self.build.get("ok"))
+        return (not self.stack.error and not self.heavy_failed and bool(self.build.get("ok"))
+                and all(result == "passed" for result in self.lanes.values()))
+
+    @property
+    def lane_failed(self) -> bool:
+        """A lane ran and failed (a PR's fault); one that did not run blames nobody."""
+        return any(result.startswith("failed") for result in self.lanes.values())
 
     def failures(self) -> list[str]:
         out = []
         if self.stack.error:
             out.append(self.stack.error)
         out += [f"`{job}`" for job in self.heavy_failed]
+        out += [f"{lane}: {result}" for lane, result in sorted(self.lanes.items()) if result != "passed"]
         if not self.build.get("ok"):
             out.append("fleet build: " + str(self.build.get("error") or "did not complete"))
         return out
@@ -1286,23 +1360,33 @@ class Controller:
 
     def start_base_probe(self) -> None:
         if self.base_probe is None:
-            self.base_probe = threading.Thread(target=self.probe_base, name="base-probe", daemon=True)
+            # The batch's first base keeps the plain -base branch; a later one (reset_base) gets its own.
+            self.first_base = getattr(self, "first_base", "") or self.base_sha
+            # The probe keeps its own base, result and stop: reset_base swaps
+            # the controller's while an old probe may still be finishing.
+            self.base_probe = threading.Thread(
+                target=self.probe_base, args=(self.base_sha, self.base_probe_result, self.base_probe_stop),
+                name="base-probe", daemon=True)
             self.base_probe.start()
 
-    def probe_base(self) -> None:
+    def probe_base(self, sha: str | None = None, result: dict | None = None,
+                   stop: threading.Event | None = None) -> None:
         """Run every cmux-next tier on the base head, the way a stack runs them,
         with one rerun of failed jobs. Its failures are the batch's inherited reds."""
-        branch = f"{BRANCH_PREFIX}{self.batch_id}-base"
+        sha = sha or self.base_sha
+        result = self.base_probe_result if result is None else result
+        stop = self.base_probe_stop if stop is None else stop
+        branch = f"{BRANCH_PREFIX}{self.batch_id}-base" + ("" if sha == getattr(self, "first_base", sha) else f"-{sha[:12]}")
         try:
-            self.push(self.base_sha, branch)
-            self.base_probe_result["branch"] = branch
+            self.push(sha, branch)
+            result["branch"] = branch
             dispatched = now()
             self.gh.dispatch(HEAVY_WORKFLOW, branch)
-            heavy = self.find_run(HEAVY_WORKFLOW, branch, lambda item: item["head_sha"] == self.base_sha, dispatched)
-            self.base_probe_result["url"] = heavy["html_url"]
-            self.base_probe_result["run"] = heavy["id"]
+            heavy = self.find_run(HEAVY_WORKFLOW, branch, lambda item: item["head_sha"] == sha, dispatched)
+            result["url"] = heavy["html_url"]
+            result["run"] = heavy["id"]
             log(f"base probe: {heavy['html_url']}")
-            if self.base_probe_stop.is_set():
+            if stop.is_set():
                 # The batch ended while this looked for its run: stop_base_probe had no run to cancel.
                 self.gh.gh("run", "cancel", str(heavy["id"]), "-R", self.args.repo, check=False)
                 if not getattr(self.args, "keep_branches", False):
@@ -1312,7 +1396,7 @@ class Controller:
             if run["status"] != "completed":
                 raise RuntimeError("the base probe did not finish")
             failed = self.failed_jobs(heavy["id"], detail=True)
-            if self.base_probe_stop.is_set() or run.get("conclusion") == "cancelled":
+            if stop.is_set() or run.get("conclusion") == "cancelled":
                 return  # the batch ended and cancelled it: no rerun, no result
             if failed:
                 self.gh.gh("run", "rerun", str(heavy["id"]), "--failed", "-R", self.args.repo, check=False)
@@ -1322,7 +1406,9 @@ class Controller:
                     log("base probe: its rerun did not finish; no result")
                     return
                 failed = self.failed_jobs(heavy["id"], detail=True)
-            self.base_probe_result["failed"] = set(failed)
+            if stop.is_set():
+                return  # the base was dropped meanwhile: its reds are no one's now
+            result["failed"] = set(failed)
             log("base probe: " + (", ".join(failed) or "green"))
         except Exception as error:  # the base runs' own record is the fallback
             log(f"base probe: {type(error).__name__}: {error}")
@@ -1480,7 +1566,7 @@ class Controller:
         return {"ok": True, "job_id": job, "tag": tag, "link": f"{link} (job {job}, tag {tag})",
                 "seconds": int(time.monotonic() - started)}
 
-    def validate(self, prs: list[PullRequest], name: str) -> Validation:
+    def validate(self, prs: list[PullRequest], name: str, group: str | None = None) -> Validation:
         """Stack `prs` on the batch's base and run every tier plus the fleet build.
 
         The base is fixed at the batch's first fetch, so bisect probes and
@@ -1491,7 +1577,7 @@ class Controller:
         self.base_sha = self.base_sha or fetched
         base_sha = self.base_sha
         stack = build_stack(self.worktree, base_sha, prs, regen=False)
-        validation = Validation(name=name, stack=stack)
+        validation = Validation(name=name, stack=stack, group=group)
         self.validations.append(validation)
         if not stack.included or stack.error:
             validation.seconds = int(time.monotonic() - started)
@@ -1519,6 +1605,7 @@ class Controller:
         heavy = self.find_run(HEAVY_WORKFLOW, branch, lambda item: item["head_sha"] == sha, dispatched)
         validation.heavy_url = heavy["html_url"]
         log(f"{name}: heavy tier {heavy['html_url']}")
+        lane_runs = self.start_group_lanes(validation, branch, base_sha, sha) if group else {}
         validation.build = self.fleet_build(branch, sha, f"nb-{self.batch_id}-{len(self.validations)}")
         log(f"{name}: fleet build " + ("ok" if validation.build.get("ok") else f"failed: {validation.build.get('error')}"))
         run = self.wait_run(heavy["id"], timeout=180 * 60)
@@ -1535,11 +1622,105 @@ class Controller:
         validation.heavy_failed = sorted(set(failed) - inherited)
         if run["status"] == "completed":
             validation.heavy_passed = self.passed_heavy_jobs(heavy["id"])
+        if lane_runs:
+            self.finish_group_lanes(validation, lane_runs)
         if pin:
             self.delete_branch(pin)
         validation.seconds = int(time.monotonic() - started)
         log(f"{name}: {'green' if validation.green else 'red'} in {validation.seconds}s")
         return validation
+
+    # -- a group's extra lanes (docs/ci/cmux-next-batch.md#groups)
+    def start_group_lanes(self, validation: Validation, branch: str, base_sha: str, sha: str) -> dict[str, dict]:
+        """Dispatch the lanes the members' paths route to beyond the heavy tier
+        (which a dispatch runs whole, a superset of every member's tiers): the
+        web checks, and the media tour with the union of the members' tours
+        (it maps the combined diff from `base_sha`)."""
+        plan = groups.check_plan(TOOLS_ROOT, {pr.number: self.member_files(pr, base_sha)
+                                              for pr in validation.stack.included},
+                                 {pr.number: pr.labels for pr in validation.stack.included})
+        validation.plan = plan
+        runs: dict[str, dict] = {}
+        for lane in plan.lanes():
+            workflow, inputs = (WEB_WORKFLOW, None) if lane == "web" else (MEDIA_WORKFLOW, {"base_sha": base_sha})
+            since = now()
+            try:
+                self.gh.dispatch(workflow, branch, inputs)
+                runs[lane] = self.find_run(workflow, branch, lambda item: item["head_sha"] == sha, since)
+                log(f"{validation.name}: {lane} {runs[lane]['html_url']}")
+            except RuntimeError as error:
+                validation.lanes[lane] = f"did not run: {error}"
+        return runs
+
+    def member_files(self, pr: PullRequest, base_sha: str) -> list[str]:
+        """Every file the member changes since the stack's base. `pr.files`
+        stops at 100, which could drop a lane a large member routes to."""
+        return self.git("diff", "--name-only", f"{base_sha}...{pr.sha}", cwd=self.worktree).splitlines()
+
+    def finish_group_lanes(self, validation: Validation, runs: dict[str, dict]) -> None:
+        for lane, started in runs.items():
+            try:
+                run = self.wait_run(started["id"], timeout=150 * 60)
+            except RuntimeError as error:
+                validation.lanes[lane] = f"did not run: {error}"
+                continue
+            if run["status"] != "completed":
+                validation.lanes[lane] = "did not run: timed out waiting"
+            elif lane == "web":
+                validation.lanes[lane] = self.judge_web(run, validation.stack.base)
+            else:
+                jobs = self.gh.api(f"repos/{self.args.repo}/actions/runs/{run['id']}/jobs?per_page=100&filter=latest")["jobs"]
+                tour = next((job.get("conclusion") or "" for job in jobs if job["name"] == TOUR_JOB), "skipped")
+                validation.lanes[lane] = self.judge_tour(run, self.capture_receipt(run["id"]), tour)
+
+    def judge_web(self, run: dict, base_sha: str) -> str:
+        """Web jobs red on the combined head and not on the base's own web run
+        (at `base_sha`, else the newest one on an ancestor of it). A run that
+        failed with no failed job (cancelled, startup failure) blames nobody."""
+        if run.get("conclusion") == "success":
+            return "passed"
+        failed = set(self.failed_jobs(run["id"], detail=True))
+        if not failed:
+            return f"did not run: web run {run.get('conclusion')}"
+
+        def finished(items: list[dict]) -> list[dict]:
+            return [item for item in items if item.get("head_branch") == BASE and item.get("status") == "completed"]
+
+        base = finished(self.gh.runs(WEB_WORKFLOW, f"head_sha={base_sha}&per_page=20"))
+        if not base:
+            base = [item for item in finished(self.gh.runs(WEB_WORKFLOW, f"branch={BASE}&per_page=20"))
+                    if self.is_ancestor(item["head_sha"], base_sha)][:1]
+        inherited = set(self.failed_jobs(base[0]["id"], detail=True)) if base else set()
+        new = sorted(failed - inherited)
+        return "passed" if not new else "failed: " + ", ".join(new)
+
+    def judge_tour(self, run: dict, receipt: dict | None, tour_job: str) -> str:
+        """The tour's verdict lives in its capture receipt: capture is
+        continue-on-error, so the job stays green when the recorder fails. A
+        tour job that failed before the recorder did (the base app's build,
+        setup, a timeout) says nothing about the members."""
+        if tour_job == "skipped":
+            return "did not run: no owned gui runner took the tour"
+        status = (receipt or {}).get("status")
+        if status == "recorder-failed":
+            return "failed: recorder-failed"
+        if tour_job != "success" or run.get("conclusion") not in ("success", None):
+            return f"did not run: tour job {tour_job or run.get('conclusion')} before a capture verdict"
+        if receipt is None:
+            return "failed: no capture receipt"
+        return "passed" if status in ("ok", "no-ui-paths") else f"failed: {status}"
+
+    def capture_receipt(self, run_id: int) -> dict | None:
+        with tempfile.TemporaryDirectory() as tmp:
+            got = self.gh.gh("run", "download", str(run_id), "-R", self.args.repo, "-n", "cmux-next-media",
+                             "-D", tmp, check=False)
+            path = Path(tmp) / "capture-receipt.json"
+            if got.returncode != 0 or not path.is_file():
+                return None
+            try:
+                return json.loads(path.read_text())
+            except ValueError:
+                return None
 
     # -- bisect
     def bisect(self, red: Validation) -> PullRequest:
@@ -1548,7 +1729,8 @@ class Controller:
         low, high = 0, len(prs)  # prefix[:low] green (the base), prefix[:high] red
         while high - low > 1:
             middle = (low + high) // 2
-            probe = self.validate(prs[:middle], f"bisect {middle}/{len(prs)}")
+            extra = {"group": red.group} if red.group else {}
+            probe = self.validate(prs[:middle], f"bisect {middle}/{len(prs)}", **extra)
             if probe.green:
                 low = middle
             else:
@@ -1667,6 +1849,17 @@ class Controller:
                 f"{heavy}. Validated this PR at `{pr.sha[:12]}`.\n\n"
                 "Next: land it yourself on this receipt (`gh pr merge --squash --match-head-commit`).")
 
+    def risk_evidence(self, pr: PullRequest) -> str:
+        """Why the head's `risk evidence` doesn't let it land ("" when every run of it passed)."""
+        try:
+            runs = self.gh.api(f"repos/{self.args.repo}/commits/{pr.sha}/check-runs?check_name=risk%20evidence&per_page=100") or {}
+        except RuntimeError as error:
+            return f"risk evidence unreadable ({str(error)[-120:]})"
+        for run in runs.get("check_runs", []):
+            if run.get("status") != "completed" or (run.get("conclusion") or "") not in PASS:
+                return "risk evidence has not passed on this head"
+        return ""
+
     def merge_one(self, pr: PullRequest, validation: Validation) -> str:
         """Squash-merge the exact head this batch validated through GitHub's merge API.
 
@@ -1677,13 +1870,8 @@ class Controller:
         transient error (5xx, network, "Base branch was modified") is retried once, after checking whether
         GitHub merged anyway; it never marks the PR refused. A real refusal (the head moved, a conflict)
         does, and the PR waits for a push."""
-        try:
-            runs = self.gh.api(f"repos/{self.args.repo}/commits/{pr.sha}/check-runs?check_name=risk%20evidence&per_page=100") or {}
-        except RuntimeError as error:
-            return f"not landed: risk evidence unreadable ({str(error)[-120:]}); the next batch tries again"
-        for run in runs.get("check_runs", []):
-            if run.get("status") != "completed" or (run.get("conclusion") or "") not in PASS:
-                return "not landed: risk evidence has not passed on this head; the next batch tries again"
+        if problem := self.risk_evidence(pr):
+            return f"not landed: {problem}; the next batch tries again"
         code, detail = freeze_check(self.args.repo, pr.number, getattr(self.gh, "env", None) or dict(os.environ))
         if code == 1:
             return f"not landed: frozen ({detail})"
@@ -1789,6 +1977,206 @@ class Controller:
         except RuntimeError as error:
             log(f"could not update the sticky issue: {error}")
 
+    # -- groups (docs/ci/cmux-next-batch.md#groups)
+    GROUP_QUERY = """pr{n}: pullRequest(number: {n}) {{
+      timelineItems(last: 50, itemTypes: [LABELED_EVENT]) {{ nodes {{ ... on LabeledEvent {{ createdAt label {{ name }} }} }} }}
+    }}"""
+
+    def group_meta(self, prs: list[PullRequest]) -> dict[int, dict]:
+        """Per member: when each label was last put on."""
+        owner, name = self.args.repo.split("/")
+        body = "\n".join(self.GROUP_QUERY.format(n=int(pr.number)) for pr in prs)
+        data = self.gh.graphql(f'query {{ repository(owner: "{owner}", name: "{name}") {{ {body} }} }}')["repository"]
+        meta = {}
+        for pr in prs:
+            node = data.get(f"pr{pr.number}") or {}
+            labeled: dict[str, str] = {}
+            for event in (node.get("timelineItems") or {}).get("nodes") or []:
+                if event and event.get("label"):
+                    labeled[event["label"]["name"]] = event["createdAt"]  # the latest application wins
+            meta[pr.number] = {"labeled": labeled}
+        return meta
+
+    def group_reviews(self, prs: list[PullRequest]) -> dict[int, bool]:
+        """The batch's own gate (reviewed()): an independent review of this exact head."""
+        return {pr.number: reviewed(pr, self.gh) for pr in prs}
+
+    def frozen(self, pr: PullRequest) -> str:
+        """Why a merge freeze holds this PR ("" when none does); unreadable counts as frozen.
+        Every member is checked before any lands, so a freeze never splits a group."""
+        completed = subprocess.run([sys.executable, "-I", str(TOOLS_ROOT / "scripts/ci/merge_freeze.py"), "check",
+                                    "--repo", self.args.repo, "--pr", str(pr.number), "--base", BASE],
+                                   capture_output=True, text=True, env=self.gh.env)
+        if completed.returncode == 0:
+            return ""
+        return "frozen: " + ((completed.stdout + completed.stderr).strip().splitlines() or ["freeze state unknown"])[-1]
+
+    def is_ancestor(self, older: str, newer: str) -> bool:
+        try:
+            self.git("merge-base", "--is-ancestor", older, newer, cwd=self.worktree)
+            return True
+        except RuntimeError:
+            return False
+
+    def current_base(self) -> str:
+        return self.fetch([])
+
+    def base_moved_onto(self, old: str, new: str, files: set[str]) -> bool:
+        """Whether the base commits since validation touch any file the group changes."""
+        changed = set(self.git("diff", "--name-only", old, new, cwd=self.worktree).splitlines())
+        return bool(changed & files)
+
+    def fresh_members(self, prs: list[PullRequest]) -> dict[int, PullRequest]:
+        return {pr.number: pr for pr in open_prs(self.gh, fresh=True)}
+
+    def run_group(self, name: str, members: list[PullRequest]) -> list[tuple[PullRequest, str]]:
+        """Validate the group as one stack; land it in order when green, or
+        bisect it, name the culprit, and validate the rest again."""
+        reviews = self.group_reviews(members)
+        missing = [pr for pr in members if not reviews.get(pr.number)]
+        if missing:
+            wait = "waiting: no review pass on " + " ".join(f"#{pr.number}" for pr in missing)
+            log(f"group {name}: {wait}")
+            return [(pr, wait) for pr in members]
+        outcome: list[tuple[PullRequest, str]] = []
+        culprits: list[PullRequest] = []
+        candidates = list(members)
+        while candidates:
+            validation = self.validate(candidates, f"group {name}" + (f" rerun {len(culprits)}" if culprits else ""),
+                                       group=name)
+            for pr, blocking in validation.stack.dropped:
+                self.report_drop(pr, blocking)
+                outcome.append((pr, "dropped: conflict"))
+            included = validation.stack.included
+            if not included:
+                break
+            if validation.green:
+                outcome += self.land_group(name, validation)
+                break
+            if not validation.heavy_failed and not validation.stack.error and not validation.lane_failed:
+                # The fleet build failed or a lane never ran: nothing to blame on a PR.
+                why = "; ".join(validation.failures())
+                outcome += [(pr, f"not landed: {why}") for pr in included]
+                break
+            if len(culprits) >= MAX_CULPRITS:
+                outcome += [(pr, "not landed: too many culprits in one group") for pr in included]
+                break
+            culprit = included[0] if len(included) == 1 else self.bisect(validation)
+            prefix = next((item for item in reversed(self.validations) if item.stack.included
+                           and item.stack.included[-1].number == culprit.number and not item.green), None)
+            self.report_culprit(culprit, validation, prefix)
+            culprits.append(culprit)
+            outcome.append((culprit, "culprit"))
+            log(f"group {name}: culprit #{culprit.number}")
+            candidates = [pr for pr in included if pr.number != culprit.number]
+        return outcome
+
+    def land_group(self, name: str, validation: Validation) -> list[tuple[PullRequest, str]]:
+        """Merge the members in stack order, each through GitHub's merge API at
+        the validated head (merge_one). Stops at the first member that cannot land, so a later member
+        never lands without what it was tested on."""
+        included = validation.stack.included
+        if self.args.dry_run or self.args.no_land:
+            return [(pr, "validated; landing disabled for this run") for pr in included]
+        if refusal := landing_refusal():
+            return [(pr, f"not landed: {refusal}") for pr in included]
+        # Every member clears the freeze check before any lands: a freeze never splits a group.
+        # Nor does risk evidence merge_one would refuse (an edited description regrades it).
+        held = {pr.number: why for pr in included if (why := self.frozen(pr) or self.risk_evidence(pr))}
+        if held:
+            why = "; ".join(f"#{number} {text}" for number, text in held.items())
+            return [(pr, f"not landed: {why}") for pr in included]
+        files = {path for pr in included for path in self.member_files(pr, validation.stack.base)}
+        base = self.current_base()
+        if base != validation.stack.base and self.base_moved_onto(validation.stack.base, base, files):
+            return [(pr, f"not landed: {BASE} changed the group's files since validation; {REVALIDATE}")
+                    for pr in included]
+        fresh = self.fresh_members(included)
+        # Validation takes hours: a check pending at selection may be red by now.
+        late = {pr.number: why for pr in included if (current := fresh.get(pr.number)) is not None
+                and (why := ineligible_reason(current, now()) or group_hold(current))}
+        if late:
+            why = "; ".join(f"#{number} {text}" for number, text in late.items())
+            return [(pr, f"not landed: {why}") for pr in included]
+        outcome: list[tuple[PullRequest, str]] = []
+        for index, pr in enumerate(included):
+            current = fresh.get(pr.number)
+            problem = ("closed meanwhile" if current is None else
+                       "pushed after validation" if current.sha != pr.sha else "")
+            if problem:
+                outcome.append((pr, f"not landed: {problem}"))
+                outcome += [(rest, f"not landed: #{pr.number} {problem}") for rest in included[index + 1:]]
+                break
+            if not getattr(self.args, "land", True):
+                self.comment_once(pr, "receipt", self.receipt(validation, pr) + (
+                    f"\n\nGroup `{groups.GROUP_PREFIX}{name}`: land the members in this order: "
+                    + " ".join(f"#{item.number}" for item in included) + "."))
+                outcome.append((pr, "receipt posted; owner lands"))
+                continue
+            self.comment_once(pr, "landing", (
+                f"Batch queue: landing group `{groups.GROUP_PREFIX}{name}` ({index + 1}/{len(included)}). "
+                f"[Batch]({self.run_url}), stack `{validation.stack.head[:12]}` on `{validation.stack.base[:12]}`, "
+                f"[heavy tier]({validation.heavy_url}), lanes: "
+                + (", ".join(f"{lane} {result}" for lane, result in sorted(validation.lanes.items())) or "none")
+                + "."))
+            # Through GitHub's merge API at the validated head, like every batch merge.
+            for attempt in range(MERGE_RETRIES + 1):
+                text = self.merge_one(pr, validation)
+                # Right after the previous member lands GitHub can still see the old
+                # base; the head is pinned, so trying again merges the same commit.
+                if text.startswith("landed") or "Base branch was modified" not in text or attempt == MERGE_RETRIES:
+                    break
+                time.sleep(5 * (attempt + 1))
+            if not text.startswith("landed"):
+                outcome.append((pr, text))
+                outcome += [(rest, f"not landed: #{pr.number} did not land") for rest in included[index + 1:]]
+                break
+            outcome.append((pr, "landed"))
+            log(f"group {name}: #{pr.number} {text}")
+        return outcome
+
+    def run_groups(self, prs: list[PullRequest], only: set[int] | None,
+                   skipped: dict[int, str]) -> list[tuple[PullRequest, str]]:
+        outcome: list[tuple[PullRequest, str]] = []
+        for name, members in sorted(groups.assemble(prs).items()):
+            if only is not None and not any(pr.number in only for pr in members):
+                continue
+            members = [pr for pr in members if not self.reported(pr, ("culprit", "conflict", "refused"))]
+            # Own checks count: a red one found only at landing would strand the members before it.
+            reasons = {pr.number: ineligible_reason(pr, now()) or group_hold(pr) for pr in members}
+            if not members or any(reasons.values()):
+                why = "; ".join(f"#{number} {reason}" for number, reason in reasons.items() if reason) or "no member left"
+                log(f"group {name}: waiting ({why})")
+                for pr in members:
+                    skipped[pr.number] = f"group {groups.GROUP_PREFIX}{name} waits: {why}"
+                continue
+            heads = tuple(sorted((pr.number, pr.sha) for pr in members))
+            if time.time() - GROUP_TRIED.get(heads, float("-inf")) < GROUP_RETRY_SECONDS:
+                log(f"group {name}: tried at these heads within the hour; waiting for a push")
+                for pr in members:
+                    skipped[pr.number] = f"group {groups.GROUP_PREFIX}{name}: tried at these heads; waiting for a push"
+                continue
+            self.base_sha = self.base_sha or self.fetch(members)
+            self.fetch(members)
+            meta = self.group_meta(members)
+            label = f"{groups.GROUP_PREFIX}{name}"
+            ordered = groups.order(members, {pr.number: meta[pr.number]["labeled"].get(label, "") for pr in members},
+                                   self.is_ancestor)
+            log(f"group {name}: " + " ".join(f"#{pr.number}" for pr in ordered))
+            result = self.run_group(name, ordered)
+            outcome += result
+            if not all(text.startswith("waiting") or text.endswith(REVALIDATE) for _, text in result):
+                GROUP_TRIED[heads] = time.time()
+            if any(text == "landed" for _, text in result):
+                # The base moved: the next group is validated next cycle, on top of this one.
+                break
+        return outcome
+
+    def group_report(self, outcome: list[tuple[PullRequest, str]]) -> str:
+        lines = [f"### cmux-next groups [{self.batch_id}]({self.run_url})", ""]
+        lines += [f"- #{pr.number}: {text}" for pr, text in outcome]
+        return "\n".join(lines) + "\n\n"
+
     # -- the whole batch
     def cleanup(self) -> None:
         """Delete the batch's branches and stop its base probe."""
@@ -1799,9 +2187,40 @@ class Controller:
         if self.base_probe_result.get("branch") and not self.args.keep_branches:
             self.delete_branch(self.base_probe_result["branch"])
 
+    def reset_base(self) -> None:
+        """Forget the groups' base so the ordinary batch stacks on the current
+        feat-cmux-next: stop the old base's probe and delete its branch."""
+        self.stop_base_probe()
+        if self.base_probe_result.get("branch") and not self.args.keep_branches:
+            self.delete_branch(self.base_probe_result["branch"])
+        self.base_sha = ""
+        self.base_failures = None
+        self.base_tree_waited = False
+        self.base_probe = None
+        self.base_probe_result = {}
+        self.base_probe_stop = threading.Event()
+
     def run(self) -> int:
+        try:
+            return self.run_cycle()
+        finally:
+            # Every exit, also a raise (a 502 GitHub never retried): under serve the
+            # process lives on, and a leaked probe would keep its heavy run going.
+            self.cleanup()
+
+    def run_cycle(self) -> int:
         only = {int(item) for item in re.split(r"[\s,#]+", self.args.prs) if item} if self.args.prs else None
-        eligible, skipped = select(open_prs(self.gh), now(), only)
+        prs = open_prs(self.gh)
+        eligible, skipped = select(prs, now(), only)
+        group_outcome = self.run_groups(prs, only, skipped)
+        if self.validations and not any(text == "landed" for _, text in group_outcome) \
+                and self.current_base() != self.base_sha:
+            self.reset_base()  # the groups took long enough for feat-cmux-next to move
+        if any(text == "landed" for _, text in group_outcome):
+            # The base moved under the ordinary batch: it runs next cycle on the new base.
+            self.after_landing()
+            skipped.update({pr.number: "next cycle (a group landed)" for pr in eligible})
+            eligible = []
         # A PR this queue already dropped at its current head waits for a push.
         for pr in list(eligible):
             if kind := self.reported(pr, ("culprit", "conflict", "refused")):
@@ -1812,8 +2231,11 @@ class Controller:
                 skipped[pr.number] = "green receipt at this head; owner lands"
         log("eligible: " + (" ".join(f"#{pr.number}" for pr in eligible) or "none"))
         if not eligible:
-            write_summary("No eligible pull requests.\n\n" + "\n".join(
-                f"- #{number}: {reason}" for number, reason in sorted(skipped.items())))
+            text = ("No eligible pull requests.\n\n" if not group_outcome else self.group_report(group_outcome)) + \
+                "\n".join(f"- #{number}: {reason}" for number, reason in sorted(skipped.items()))
+            write_summary(text)
+            if group_outcome:
+                self.post_sticky(text)
             return 0
         landing = (getattr(self.args, "land", True) and not self.args.dry_run and not self.args.no_land
                    and not landing_refusal())
@@ -1824,8 +2246,11 @@ class Controller:
             waiting.update(frozen)
         skipped.update(waiting)
         if not eligible:
-            write_summary("Nothing reviewed to land.\n\n" + "\n".join(
-                f"- #{number}: {reason}" for number, reason in sorted(skipped.items())))
+            text = (self.group_report(group_outcome) if group_outcome else "") + "Nothing reviewed to land.\n\n" + \
+                "\n".join(f"- #{number}: {reason}" for number, reason in sorted(skipped.items()))
+            write_summary(text)
+            if group_outcome:
+                self.post_sticky(text)
             return 0
         tried = {pr.number for pr in eligible if self.reported(pr, ("alone",))}
         candidates = land_alone_first(eligible, tried)
@@ -1836,39 +2261,36 @@ class Controller:
             self.comment_once(candidates[0], "alone", "Batch queue: validating this PR on its own (`queue: land alone`).")
         culprits: list[PullRequest] = []
         landed: list[tuple[PullRequest, str]] = []
-        try:
-            while candidates:
-                validation = self.validate(candidates, "batch" if not culprits else f"rerun {len(culprits)}")
-                for pr, blocking in validation.stack.dropped:
-                    self.report_drop(pr, blocking)
-                if not validation.stack.included:
-                    break
-                if validation.green:
-                    landed = self.land(validation)
-                    if any(text.startswith("landed") for _, text in landed):
-                        self.after_landing()
-                    break
-                if not validation.heavy_failed and not validation.stack.error:
-                    # Every tier passed and only the fleet build failed: the
-                    # compiles already ran, so blame the fleet, not a PR.
-                    log("fleet build failed on a green stack; not bisecting, not landing")
-                    break
-                if len(culprits) >= MAX_CULPRITS:
-                    log("too many culprits in one batch; stopping")
-                    break
-                included = validation.stack.included
-                culprit = included[0] if len(included) == 1 else self.bisect(validation)
-                prefix = next((v for v in reversed(self.validations)
-                               if v.stack.included and v.stack.included[-1].number == culprit.number and not v.green), None)
-                self.report_culprit(culprit, validation, prefix)
-                culprits.append(culprit)
-                log(f"culprit #{culprit.number}")
-                candidates = [pr for pr in included if pr.number != culprit.number]
-        finally:
-            # Also when a batch raises (a 502 GitHub never retried): under serve the
-            # process lives on, and a leaked probe would keep its heavy run going.
-            self.cleanup()
+        while candidates:
+            validation = self.validate(candidates, "batch" if not culprits else f"rerun {len(culprits)}")
+            for pr, blocking in validation.stack.dropped:
+                self.report_drop(pr, blocking)
+            if not validation.stack.included:
+                break
+            if validation.green:
+                landed = self.land(validation)
+                if any(text.startswith("landed") for _, text in landed):
+                    self.after_landing()
+                break
+            if not validation.heavy_failed and not validation.stack.error:
+                # Every tier passed and only the fleet build failed: the
+                # compiles already ran, so blame the fleet, not a PR.
+                log("fleet build failed on a green stack; not bisecting, not landing")
+                break
+            if len(culprits) >= MAX_CULPRITS:
+                log("too many culprits in one batch; stopping")
+                break
+            included = validation.stack.included
+            culprit = included[0] if len(included) == 1 else self.bisect(validation)
+            prefix = next((v for v in reversed(self.validations)
+                           if v.stack.included and v.stack.included[-1].number == culprit.number and not v.green), None)
+            self.report_culprit(culprit, validation, prefix)
+            culprits.append(culprit)
+            log(f"culprit #{culprit.number}")
+            candidates = [pr for pr in included if pr.number != culprit.number]
         text = self.report(eligible, skipped, landed, culprits)
+        if group_outcome:
+            text = self.group_report(group_outcome) + text
         write_summary(text)
         self.post_sticky(text)
         print(text)
@@ -1964,7 +2386,10 @@ def cmd_serve(args: argparse.Namespace) -> int:
             seen = snapshot
             try:
                 eligible, _ = select(snapshot[0], snapshot[1])
-                heads = tuple((pr.number, pr.sha) for pr in eligible)
+                # Group members wait in select(); their heads and labels still start a cycle.
+                grouped = [pr for pr in snapshot[0] if groups.group_of(pr.labels)]
+                heads = tuple(sorted({(pr.number, pr.sha) for pr in eligible}
+                                     | {(pr.number, pr.sha + ":" + (groups.group_of(pr.labels) or "")) for pr in grouped}))
                 if debouncer.observe(heads, snapshot[1]):
                     debouncer.ran(heads)
                     log("batch for " + " ".join(f"#{number}" for number, _ in heads))

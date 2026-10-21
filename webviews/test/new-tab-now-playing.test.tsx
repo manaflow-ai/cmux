@@ -1,7 +1,8 @@
 // The New Tab page's Now Playing player: what plays (the host's `nowPlaying` push: cmux's player, a
 // browser tab, Spotify, Music) shows large under the create actions with its artwork, title and
 // artist; Play or Pause follows the track; the controls ask the host (`nowPlaying.command`); and
-// nothing shows once the host clears it (nothing plays, or sidebar.nowPlaying.enabled is off).
+// nothing shows once the host clears it (nothing plays, or tabs.newTabNowPlaying is off). Its right-click menu (Shift-F10 too) runs the controls, opens the
+// app that plays, hides the player with an Undo, and opens its setting.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -23,6 +24,8 @@ const keys = [
   "localStorage",
   "customElements",
   "MutationObserver",
+  "MouseEvent",
+  "KeyboardEvent",
 ] as const;
 const added: string[] = [];
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
@@ -53,6 +56,8 @@ beforeAll(() => {
     localStorage: window.localStorage,
     customElements: window.customElements,
     MutationObserver: window.MutationObserver,
+    MouseEvent: window.MouseEvent,
+    KeyboardEvent: window.KeyboardEvent,
   });
   // Pierre's registered elements (App's diff view) read their own DOM constructors at import time.
   for (const key of Object.getOwnPropertyNames(window))
@@ -153,13 +158,177 @@ test("the player shows what plays, and its controls reach the host", async () =>
   }
 });
 
+async function mount(calls: { method: string; params?: Record<string, unknown> }[]) {
+  const { createRoot } = await import("react-dom/client");
+  const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+  const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
+  const { newTabScreenActions } = await import("../src/agent-session/acpmux/newtab/screenActions");
+  const actions = newTabScreenActions({
+    callNative: async (method, params) => void calls.push({ method, params }),
+    cwd: "/Users/you/src/app",
+    leave: noop,
+    selectSession: noop,
+    showAllChats: noop,
+    runShell: noop,
+  });
+  const root: Root = createRoot(host);
+  await act(async () =>
+    root.render(
+      <QueryClientProvider client={new QueryClient()}>
+        <NewTabScreen snapshot={noChat()} lastAgent="claude" cwd="/Users/you/src/app" {...actions} />
+      </QueryClientProvider>,
+    ),
+  );
+  return root;
+}
+
+const menu = () => window.document.querySelector<HTMLElement>('.ui-context-menu[role="menu"]');
+const menuItems = () =>
+  [...window.document.querySelectorAll<HTMLButtonElement>('.ui-context-menu [role="menuitem"]')].map((item) => ({
+    label: item.textContent,
+    disabled: item.disabled,
+  }));
+const pick = async (label: string) => {
+  const item = [...window.document.querySelectorAll<HTMLButtonElement>('.ui-context-menu [role="menuitem"]')].find(
+    (candidate) => candidate.textContent === label,
+  );
+  expect(item, `no "${label}" in the menu`).toBeTruthy();
+  await act(async () => item!.click());
+};
+const rightClick = async (target: Element) =>
+  act(async () => {
+    target.dispatchEvent(
+      new window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 40 }),
+    );
+  });
+const commands = (calls: { method: string; params?: Record<string, unknown> }[]) =>
+  calls.filter((call) => call.method === "nowPlaying.command").map((call) => call.params?.command);
+
+test("the player's right-click menu runs the controls, opens the app that plays and its setting", async () => {
+  const { applyHostEvent } = await import("../src/agent-session/acpmux/pageHost");
+  const { setNowPlaying } = await import("../src/agent-session/acpmux/newtab/nowPlaying");
+  const calls: { method: string; params?: Record<string, unknown> }[] = [];
+  applyHostEvent({ kind: "nowPlaying", value: { ...track(true), source: "Spotify" } });
+  const root = await mount(calls);
+  try {
+    await rightClick(host.querySelector(".nt-player-title")!);
+    expect(menu(), "a right-click on the card opens no menu").toBeTruthy();
+    expect(menuItems()).toEqual([
+      { label: "Pause", disabled: false },
+      { label: "Next Track", disabled: true },
+      { label: "Previous Track", disabled: false },
+      { label: "Open in Spotify", disabled: false },
+      { label: "Hide Now Playing", disabled: false },
+      { label: "Now Playing Settings…", disabled: false },
+    ]);
+    // One separator, before Hide: the page's own items after the transport.
+    const separators = [...window.document.querySelectorAll(".ui-context-menu .ui-separator")];
+    expect(separators.length).toBe(1);
+    expect(separators[0]!.parentElement?.textContent).toBe("Hide Now Playing");
+    await pick("Pause");
+    expect(menu(), "the menu stays open after an item").toBeNull();
+    await rightClick(host.querySelector(".nt-player-art")!);
+    await pick("Previous Track");
+    await rightClick(host.querySelector(".nt-player")!);
+    await pick("Open in Spotify");
+    await rightClick(host.querySelector(".nt-player")!);
+    await pick("Now Playing Settings…");
+    expect(commands(calls)).toEqual(["playPause", "previous", "open", "settings"]);
+
+    // Keyboard: Shift-F10 on a focused control opens the same menu; Escape closes it.
+    const play = host.querySelector<HTMLButtonElement>('.nt-player [data-command="playPause"]')!;
+    play.focus();
+    await act(async () => {
+      play.dispatchEvent(
+        new window.KeyboardEvent("keydown", { key: "F10", shiftKey: true, bubbles: true, cancelable: true }),
+      );
+    });
+    expect(menu(), "Shift-F10 opens no menu").toBeTruthy();
+    await act(async () => {
+      menu()!.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    });
+    expect(menu()).toBeNull();
+
+    // cmux's own player and tabs name no app: no Open in item; paused, the first item is Play.
+    await act(async () => applyHostEvent({ kind: "nowPlaying", value: { ...track(false), canNext: true } }));
+    await rightClick(host.querySelector(".nt-player")!);
+    expect(menuItems().map((item) => item.label)).toEqual([
+      "Play",
+      "Next Track",
+      "Previous Track",
+      "Hide Now Playing",
+      "Now Playing Settings…",
+    ]);
+    expect(menuItems().every((item) => !item.disabled)).toBe(true);
+    await pick("Next Track");
+    expect(commands(calls).at(-1)).toBe("next");
+  } finally {
+    act(() => root.unmount());
+    setNowPlaying(null);
+  }
+});
+
+test("Hide Now Playing turns the setting off and leaves an Undo in its place", async () => {
+  const { applyHostEvent } = await import("../src/agent-session/acpmux/pageHost");
+  const { setNowPlaying } = await import("../src/agent-session/acpmux/newtab/nowPlaying");
+  const calls: { method: string; params?: Record<string, unknown> }[] = [];
+  applyHostEvent({ kind: "nowPlaying", value: track(true) });
+  const root = await mount(calls);
+  try {
+    await rightClick(host.querySelector(".nt-player")!);
+    await pick("Hide Now Playing");
+    expect(commands(calls)).toEqual(["hide"]);
+    expect(host.querySelector(".nt-player"), "the card stays after Hide").toBeNull();
+    const note = host.querySelector<HTMLElement>(".nt-player-note");
+    // An <output>: the status role is its own (a live region).
+    expect(note?.tagName).toBe("OUTPUT");
+    expect(note?.textContent).toContain("You can show it again in Settings.");
+    // The host clears the track once the setting is off; the note stays until Undo.
+    await act(async () => applyHostEvent({ kind: "nowPlaying", value: null }));
+    expect(host.querySelector(".nt-player-note")).toBeTruthy();
+    await act(async () => host.querySelector<HTMLButtonElement>(".nt-player-undo")!.click());
+    expect(commands(calls)).toEqual(["hide", "show"]);
+    expect(host.querySelector(".nt-player-note")).toBeNull();
+    await act(async () => applyHostEvent({ kind: "nowPlaying", value: track(true) }));
+    expect(host.querySelector(".nt-player"), "the card is back after Undo").toBeTruthy();
+  } finally {
+    act(() => root.unmount());
+    setNowPlaying(null);
+  }
+});
+
+test("with the setting off the page draws no player and keeps no space for it", async () => {
+  const { applyHostEvent } = await import("../src/agent-session/acpmux/pageHost");
+  const calls: { method: string; params?: Record<string, unknown> }[] = [];
+  // The host pushes null at load and handshake while tabs.newTabNowPlaying is off.
+  applyHostEvent({ kind: "nowPlaying", value: null });
+  // Generated ids (useId) differ from one mount to the next; nothing else may.
+  const markup = () => host.innerHTML.replace(/ (id|aria-controls|aria-labelledby|aria-describedby|for)="[^"]*"/g, "");
+  const off = await mount(calls);
+  const offMarkup = markup();
+  expect(host.querySelector(".nt-player, .nt-player-host, .nt-player-note")).toBeNull();
+  act(() => off.unmount());
+  // Byte for byte the page with nothing playing at all: no placeholder, no reserved box.
+  const { setNowPlaying } = await import("../src/agent-session/acpmux/newtab/nowPlaying");
+  setNowPlaying(undefined);
+  const never = await mount(calls);
+  try {
+    expect(markup()).toBe(offMarkup);
+  } finally {
+    act(() => never.unmount());
+  }
+});
+
 test("a malformed push shows no player and keeps only image data URLs", async () => {
   const { setNowPlaying, nowPlaying } = await import("../src/agent-session/acpmux/newtab/nowPlaying");
   setNowPlaying({ artist: "no title" });
   expect(nowPlaying()).toBeNull();
-  setNowPlaying({ ...track(true), artwork: "https://example.com/art.png", duration: -1, rate: "fast" });
+  setNowPlaying({ ...track(true), artwork: "https://example.com/art.png", duration: -1, rate: "fast", source: 7 });
   const shown = nowPlaying();
   expect(shown?.artwork).toBeUndefined();
+  expect(shown?.source).toBeUndefined();
+  setNowPlaying({ ...track(true), source: "  Music  " });
+  expect(nowPlaying()?.source).toBe("Music");
   expect(shown?.duration).toBeUndefined();
   expect(shown?.rate).toBe(1);
   setNowPlaying(null);

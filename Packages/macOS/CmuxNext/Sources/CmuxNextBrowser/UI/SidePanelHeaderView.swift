@@ -11,12 +11,12 @@ final class SidePanelHeaderView: NSView {
 
     private let icon = NSImageView()
     private let title = ChromeLabel(labelWithString: "")
-    private lazy var pin = ChromeIconButton(icon: .actionPin, label: Strings.sidePanelPin, action: #selector(pressPin), target: self)
-    private lazy var openInNewTab = ChromeIconButton(icon: .linkOpenNewtab, label: Strings.sidePanelOpenInNewTab,
+    private lazy var pin = ChromeIconButton(icon: .browserToolbarPin, label: Strings.sidePanelPin, action: #selector(pressPin), target: self)
+    private lazy var openInNewTab = ChromeIconButton(icon: .browserToolbarOpennewtab, label: Strings.sidePanelOpenInNewTab,
                                                      action: #selector(pressOpenInNewTab), target: self)
-    private lazy var moreInfo = ChromeIconButton(icon: .actionMore, label: Strings.sidePanelMoreInfo,
+    private lazy var moreInfo = ChromeIconButton(icon: .browserToolbarMore, label: Strings.sidePanelMoreInfo,
                                                  action: #selector(pressMoreInfo), target: self)
-    private lazy var close = ChromeIconButton(icon: .actionClose, label: Strings.sidePanelClose, action: #selector(pressClose), target: self)
+    private lazy var close = ChromeIconButton(icon: .browserToolbarClose, label: Strings.sidePanelClose, action: #selector(pressClose), target: self)
     private let stack = NSStackView()
 
     override init(frame: NSRect) {
@@ -57,7 +57,7 @@ final class SidePanelHeaderView: NSView {
         icon.image = state.icon.flatMap(NSImage.init(data:))
         icon.isHidden = icon.image == nil
         pin.isHidden = !state.showsPin
-        pin.setIcon(state.isPinned ? .statePinned : .actionPin, label: state.isPinned ? Strings.sidePanelUnpin : Strings.sidePanelPin)
+        pin.setIcon(state.isPinned ? .browserToolbarUnpin : .browserToolbarPin, label: state.isPinned ? Strings.sidePanelUnpin : Strings.sidePanelPin)
         openInNewTab.isHidden = !state.showsOpenInNewTab
         moreInfo.isHidden = !state.showsMoreInfo
     }

@@ -35,11 +35,12 @@ public nonisolated enum ChromeTunables {
         "chrome.tabs.compact", .tabs, "Compact tabs",
         help: "A tighter tab strip at compact density: 26 pt strip, 22 pt tabs, the icon 6 pt in and 4 pt from its title. Off: 28, 24, 8 and 6.",
         default: false, code: "ChromeTunables.compactTabs")
-    // @intent no top bar (Leo 2026-10-14): a chat's header tools in its pane's tab row is opt-in, off by default.
+    // @intent no top bar (Leo 2026-10-14; on by default 2026-10-20, "I thought we moved that all the way up
+    // to the top right"): a chat's header tools sit in its pane's tab row, not a second row under it.
     public static let tabRowTools = Tunable<Bool>.toggle(
         "chrome.tabs.rowTools", .tabs, "Chat tools in the tab row",
         help: "A chat's header tools sit at the right end of its pane's tab row instead of a row of their own; the tabs make room. Off: the chat header is its own row under the tabs.",
-        default: false, code: "ChromeTunables.tabRowTools")
+        default: true, code: "ChromeTunables.tabRowTools")
     // @intent opt-in looks live in Debug Settings, off by default, until promoted (Lawrence via Leo, 2026-10-15).
     public static let interfaceSize = Tunable<Bool>.toggle(
         "chrome.interfaceSize", .shape, "Interface size",
@@ -61,6 +62,9 @@ public nonisolated enum ChromeTunables {
     public static let glassOverlayTintStrength = Tunable<Double>.number(
         "glass.overlayTintStrength", .glass, "Overlay tint strength", help: "Multiplier on the theme glass tint's alpha for overlay surfaces (palette, hover cards, browser bars, drop overlay).",
         default: 1.25, range: 0...3, step: 0.05, unit: .multiplier, code: "ChromeTunables.glassOverlayTintStrength")
+    public static let cardOpacity = Tunable<Double>.number(
+        "glass.cardOpacity", .glass, "Card opacity", help: "Least opacity of the solid fill every floating card (popovers, palette, find and prompt bars; hover cards stay bare glass) lays on its glass; text keeps 4.5:1 over any backdrop above it.",
+        default: CardMaterial.defaultMinimumOpacity, range: 0.5...1, step: 0.01, unit: .fraction, code: "ChromeTunables.cardOpacity")
 
     // MARK: Scroll fade
 
@@ -72,7 +76,7 @@ public nonisolated enum ChromeTunables {
         [space1, space2, space3, space4, space5, space6, trafficLightInset, sidebarMinWidth, sidebarMaxWidth, tabBackgroundInset,
          tabContentLeadingInset, dividerThickness, dividerHitWidth].map(\.descriptor)
             + [compactTabs.descriptor, compactTabContentLeadingInset.descriptor, tabRowTools.descriptor, interfaceSize.descriptor]
-            + [panePadding.descriptor, opaqueOverlayLift.descriptor, glassOverlayTintStrength.descriptor, scrollFadeMaxFraction.descriptor]
+            + [panePadding.descriptor, opaqueOverlayLift.descriptor, glassOverlayTintStrength.descriptor, cardOpacity.descriptor, scrollFadeMaxFraction.descriptor]
     }
 }
 
@@ -81,7 +85,7 @@ public nonisolated enum ChromeTunables {
 public nonisolated enum DesignTunables {
     public static var all: [TunableDescriptor] {
         MotionTunables.all + MetricTunables.metrics.map(\.descriptor) + ChromeTunables.fixed + [Borders.tunable.descriptor] + FocusIndicatorTunables.all
-            + StatusIndicatorTunables.all + [LaunchMarkStyle.tunable.descriptor, AttentionHighlightLook.tunable.descriptor] + MotionTunables.launchDelays.map(\.descriptor)
+            + StatusIndicatorTunables.all + [LaunchMarkStyle.tunable.descriptor, AttentionHighlightLook.tunable.descriptor, GlassLensMode.tunable.descriptor] + MotionTunables.launchDelays.map(\.descriptor)
             + ChromeTunables.mainPane
     }
 }

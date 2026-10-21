@@ -13,7 +13,6 @@ extension SidebarLayoutMetrics {
             bottomPadding: Metrics.space6,
             sectionHeaderHeight: SidebarDensityTokens.headerHeight,
             sectionSpacing: SidebarDensityTokens.sectionSpacing,
-            groupHeaderHeight: row,
             rowHeight: row,
             rowHeightWithSubtitle: SidebarDensityTokens.rowHeightWithSubtitle,
             tabRowHeight: row,

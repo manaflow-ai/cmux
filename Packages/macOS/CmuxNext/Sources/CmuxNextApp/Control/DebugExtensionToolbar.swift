@@ -14,11 +14,12 @@ import CmuxNextSettings
 ///   button, or runs it from the Extensions menu when it has no button;
 ///   `{button: "extensions"}` opens the Extensions menu;
 ///   `{extension, menu: true}` opens the extension's menu (right click).
-/// - `debug.extensions.menu`: the open Extensions or extension menu's items;
-///   `{choose: <operation>, extension}` does what that row control does
-///   (`run`, `pin`, `unpin`, `more`) or chooses a footer item
-///   (`manage`, `webStore`, `loadUnpacked`) or an extension menu item by
-///   operation; `{dismiss: true}` closes it.
+/// - `debug.extensions.menu`: the open Extensions bubble's or extension menu's
+///   items; `{choose: <operation>, extension}` does what that row control does
+///   (`run`, `pin`, `unpin`, `more`), chooses `manage` or `close`, or an
+///   extension menu item by operation (`options`, `remove`, `siteAccess`,
+///   `homePage`, `manageExtension`, `webPermissions`); `{dismiss: true}`
+///   closes the extension menu, else the bubble.
 /// - `debug.extensions.popup {hide: true}`: closes the open action popup.
 @MainActor
 enum DebugExtensionToolbar {
@@ -38,7 +39,7 @@ enum DebugExtensionToolbar {
             "visible_actions": .array(report.visibleActions.map { .string($0) }),
             "overflow_actions": .array(report.overflowActions.map { .string($0) }),
             "frames": .object(report.frames.mapValues(rect)), "toolbar": rect(report.toolbarBounds),
-            "fits": .bool(report.fits), "menu_open": .bool(chrome.presentedExtensionsMenu != nil),
+            "fits": .bool(report.fits), "menu_open": .bool(chrome.isExtensionsMenuShown),
         ]
         if let popup = report.openPopup { object["open_popup"] = .string(popup) }
         if let anchor = report.popupAnchor { object["popup_anchor"] = rect(anchor) }
@@ -62,21 +63,21 @@ enum DebugExtensionToolbar {
 
     static func menu(_ params: [String: JSONValue], _ services: AppServices) -> JSONValue {
         guard let chrome = chrome(params, services) else { return failure("no browser chrome") }
-        guard let menu = chrome.presentedExtensionsMenu else { return .object(["open": .bool(false)]) }
-        let items: [JSONValue] = menu.items.map { item in
-            if item.isSeparatorItem { return .string("-") }
-            var object: [String: JSONValue] = ["title": .string(item.title), "enabled": .bool(item.isEnabled)]
-            if let id = item.identifier?.rawValue { object["identifier"] = .string(id) }
-            if let extensionID = item.representedObject as? String { object["extension"] = .string(extensionID) }
+        guard let entries = chrome.extensionsMenuItems else { return .object(["open": .bool(false)]) }
+        let items: [JSONValue] = entries.map { entry in
+            if entry.title == "-" && entry.identifier == nil { return .string("-") }
+            var object: [String: JSONValue] = ["title": .string(entry.title), "enabled": .bool(entry.enabled)]
+            if let id = entry.identifier { object["identifier"] = .string(id) }
+            if let extensionID = entry.extensionID { object["extension"] = .string(extensionID) }
             return .object(object)
         }
         if params["dismiss"]?.boolValue == true {
-            menu.cancelTracking()
+            chrome.dismissExtensionsMenu()
             return .object(["open": .bool(true), "items": .array(items), "dismissed": .bool(true)])
         }
         guard let choose = params["choose"]?.stringValue else { return .object(["open": .bool(true), "items": .array(items)]) }
         let extensionID = params["extension"]?.stringValue
-        guard ExtensionMenuDriver().choose(choose, extension: extensionID, in: menu) else {
+        guard chrome.chooseInExtensionsMenu(choose, extension: extensionID) else {
             return failure("no \(choose) item\(extensionID.map { " for \($0)" } ?? "")")
         }
         return .object(["open": .bool(true), "items": .array(items), "chose": .string(choose)])

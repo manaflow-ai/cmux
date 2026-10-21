@@ -18,6 +18,8 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 
 use cmux_transport::PathId;
+
+use crate::pacing::Priority;
 use tokio::io::ReadBuf;
 use tokio::net::UdpSocket;
 use tokio::time::{Instant, Sleep};
@@ -95,6 +97,13 @@ pub struct DueProbes {
 pub trait Underlay: Send + 'static {
     /// Send one datagram toward the peer.
     fn send(&mut self, datagram: &[u8]);
+
+    /// Send one data datagram the pacer let leave in class `priority`. A
+    /// carrier that queues by class (a relay over a shared socket) uses
+    /// it; the default sends as [`send`](Underlay::send).
+    fn send_classified(&mut self, datagram: &[u8], _priority: Priority) {
+        self.send(datagram);
+    }
 
     /// Send one datagram on `path` only (a probe or its answer). A
     /// single-path carrier has one path.

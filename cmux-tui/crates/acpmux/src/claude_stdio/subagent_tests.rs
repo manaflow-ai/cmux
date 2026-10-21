@@ -138,7 +138,11 @@ fn ended(out: &[(String, Value)]) -> Vec<(String, String)> {
 #[tokio::test]
 async fn a_background_subagent_outlives_its_launch_result() {
     let t = Translator::new("acp-1".into(), "default", "haiku", "default");
-    t.inbound(&background_spawn_line("toolu_1")).await;
+    let out = updates(&t.inbound(&background_spawn_line("toolu_1")).await);
+    // Its spawn says it runs in the background, so a client keeps it running
+    // past a stopped turn.
+    assert_eq!(out[0].1["sessionUpdate"], "subagent_spawned");
+    assert_eq!(out[0].1["background"], true, "{out:?}");
     // The launch result returns at once; the subagent keeps running.
     assert_eq!(ended(&updates(&t.inbound(&tool_result("toolu_1")).await)), vec![]);
     let text = json!({"type": "stream_event", "parent_tool_use_id": "toolu_1", "event": {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "still going"}}});
@@ -158,10 +162,60 @@ async fn a_subagent_moved_to_the_background_ends_by_its_task() {
     let started = json!({"type": "system", "subtype": "task_started", "task_id": "t1", "tool_use_id": "toolu_1", "description": "Branch A", "is_backgrounded": false});
     t.inbound(&started).await;
     let moved = json!({"type": "system", "subtype": "task_updated", "task_id": "t1", "patch": {"is_backgrounded": true}});
-    t.inbound(&moved).await;
+    // Moved to the background, it says so.
+    let out = updates(&t.inbound(&moved).await);
+    assert_eq!(
+        out.iter().map(|(_, u)| u.clone()).collect::<Vec<_>>(),
+        vec![
+            json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "acp-1/toolu_1", "background": true})
+        ]
+    );
     assert_eq!(ended(&updates(&t.inbound(&tool_result("toolu_1")).await)), vec![]);
     // A stopped task (by task id alone) is a cancelled subagent.
     let stopped = json!({"type": "system", "subtype": "task_notification", "task_id": "t1", "status": "stopped", "output_file": "", "summary": ""});
     let out = updates(&t.inbound(&stopped).await);
     assert_eq!(ended(&out), vec![("acp-1/toolu_1".to_owned(), "cancelled".to_owned())]);
+}
+
+/// A subagent's text and tool call, as Claude writes them under its Agent call's id.
+fn late_lines(parent: &str) -> [Value; 2] {
+    [
+        json!({"type": "stream_event", "parent_tool_use_id": parent, "event": {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "one more thing"}}}),
+        json!({"type": "assistant", "parent_tool_use_id": parent, "message": {"content": [{"type": "tool_use", "id": "toolu_late", "name": "Read", "input": {"file_path": "/a/b.rs"}}]}}),
+    ]
+}
+
+#[tokio::test]
+async fn a_background_subagents_late_line_stays_its_own() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    t.inbound(&background_spawn_line("toolu_1")).await;
+    t.inbound(&tool_result("toolu_1")).await;
+    let done = json!({"type": "system", "subtype": "task_notification", "task_id": "t1", "tool_use_id": "toolu_1", "status": "completed", "output_file": "", "summary": "done"});
+    t.inbound(&done).await;
+    // A line it writes after its task notification is still its own, never the main agent's.
+    for line in late_lines("toolu_1") {
+        let out = updates(&t.inbound(&line).await);
+        assert_eq!(out.len(), 1, "{out:?}");
+        assert_eq!(out[0].0, "acp-1/toolu_1", "{out:?}");
+    }
+}
+
+#[tokio::test]
+async fn a_cancelled_subagents_late_line_stays_its_own() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    t.outbound(&Message::request(
+        1,
+        method::SESSION_PROMPT,
+        json!({"prompt": [{"type": "text", "text": "go"}]}),
+    ))
+    .await;
+    t.inbound(&spawn_line("toolu_1", None)).await;
+    t.outbound(&Message::notification(method::SESSION_CANCEL, json!({}))).await;
+    t.inbound(&json!({"type": "result", "subtype": "error_during_execution", "is_error": true, "result": null})).await;
+    // A line it writes after the stopped turn ended it is still its own.
+    for line in late_lines("toolu_1") {
+        let out = updates(&t.inbound(&line).await);
+        assert_eq!(out.len(), 1, "{out:?}");
+        assert_eq!(out[0].0, "acp-1/toolu_1", "{out:?}");
+    }
 }

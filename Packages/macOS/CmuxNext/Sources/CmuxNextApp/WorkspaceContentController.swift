@@ -5,6 +5,7 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
+import CmuxNextPages
 import CmuxNextWorkspaceRepair
 import Observation
 
@@ -33,19 +34,17 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     private var connectionObservation: Task<Void, Never>?
     private var attentionObservation: Task<Void, Never>?
     private var settlingObservation: Task<Void, Never>?
+    /// Republishes `canvasLayout` when this workspace's active screen goes into or out of a canvas.
+    private var canvasObservation: Task<Void, Never>?
     /// True while `apply` mounts panes: it sends the topology once at its end,
     /// so a mount inside it does not rebuild the O(N) topology per pane (O(N^2)).
     private(set) var isApplying = false
     private var appliedTree = LayoutAppliedTree()
-    /// Daemon `transaction` for each layout gesture (undo coalescing).
-    var gestureTransactions: [LayoutTransactionID: UInt64] = [:]
     /// The window's focus state machine (`WindowState.focus`,
     /// plans/cmux-next/focus.md). Every focus change in this content goes
     /// through it.
     let focus: FocusCoordinator
     var nextGestureTransaction: UInt64 = UInt64(Date().timeIntervalSince1970 * 1000) << 8
-    /// A divider or column drag's daemon commands, one in flight per gesture (only the newest value waits).
-    lazy var gestureCommands = GestureCommandCoalescer { [daemon] label, body in await daemon.run(label, body) }
     /// Kept mounted off screen by its window (a workspace it showed): its panes report hidden, so
     /// their surfaces pause and only the warm set's LRU may destroy one; it sends no focus events,
     /// because the window's focus follows the shown workspace.
@@ -68,20 +67,35 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         observeAttention()
     }
 
+    /// Parked but on screen beside the shown workspace (`sidebar.multiView`): its attention rings draw, so it follows them.
+    func followAttention() { observeAttention() }
+
     /// Installed: one topology (the coordinator restores its pane), whose ring draws in this frame.
     func didShow() {
         sendTopology()
         layoutView.syncWithModel()
     }
 
-    init(workspace: WorkspaceModel, daemon: DaemonService, services: AppServices, state: WindowState) {
+    /// `parked`: mounted beside the shown workspace (`sidebar.multiView`), so its first apply sends the window no topology.
+    init(workspace: WorkspaceModel, daemon: DaemonService, services: AppServices, state: WindowState, parked: Bool = false) {
         self.workspace = workspace
+        isParked = parked
         self.daemon = daemon
         self.services = services
         self.state = state
         focus = state.focus
         layoutModel.intentHandler = { [weak self] intent in self?.handle(intent) }
         _ = layoutView  // built here, then the bar and the content view, as before
+        // A pane close's neighbours resize their PTYs once, at rest (close-animation DESIGN.md).
+        layoutView.onTerminalGridHold = { [weak layoutView] held in
+            if let layoutView { ResizeCoordinator.shared.setHeld(held, by: layoutView) }
+        }
+        // A link dragged in from another app or a page: the drop zones a dragged tab has (LinkDropPlan).
+        layoutView.linkDropHandler = { [weak self] url, target, perform in
+            guard let self, let item = LinkDragItem(url, browserEnabled: LinkRouter.shared.routing().browserEnabled),
+                  let plan = LinkDropPlan(target, takesTabs: { self.panes[$0]?.stripModel.showsNewTabButton == true }) else { return false }
+            return !perform || self.services.linkOpener.drop(item, plan: plan, in: self)
+        }
         _ = screenBar
         _ = contentView
         let fallbackCreate = emptyWorkspaceRepair.create
@@ -98,7 +112,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         )
         themeScope.root(contentView)
         contentView.backgroundMenu = { [weak services, weak self] in
-            services?.registry.makeContextMenu(for: .windowBackground, target: self.map { ActionTargetRef(kind: .workspace, id: $0.workspace.id) })
+            self.flatMap { services?.registry.makeContextMenu(for: .windowBackground, target: ActionTargetRef(kind: .workspace, id: $0.workspace.id)).themeRows(in: $0.themeScope.fullStrength) }
         }
         contentView.showsBar = screenBar.isVisible
         screenBar.onVisibilityChange = { [weak self] visible in self?.contentView.showsBar = visible }
@@ -107,10 +121,12 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     }
 
     func teardown() {
+        ResizeCoordinator.shared.setHeld(false, by: layoutView)
         observation?.cancel()
         connectionObservation?.cancel()
         attentionObservation?.cancel()
         settlingObservation?.cancel()
+        canvasObservation?.cancel()
         screenBar.teardown()
         for controller in panes.values { controller.teardown() }
         panes.removeAll()
@@ -145,18 +161,29 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
             }
         }
         observeAttention()
+        let layoutModel = layoutModel
+        canvasObservation = Task { [weak self] in
+            for await _ in ObservationStream({ layoutModel.isCanvasActive }) { self?.services.canvasContextDidChange() }
+        }
     }
 
-    /// Panes with an unread notification draw the attention ring.
+    /// Panes whose shown tab holds an unread notification draw the attention
+    /// ring; this window's tab selection decides which tab a pane shows.
     private func observeAttention() {
         let notifications = services.notifications, workspace = workspace
-        let marks = notifications.attentionMarks(for: workspace)
+        let shownTab: @MainActor @Sendable (PaneModel) -> String? = { [weak self] pane in self?.panes[LayoutPaneID(pane.id)]?.stripModel.selectedID?.rawValue }
+        let marks = notifications.attentionMarks(for: workspace, shownTab: shownTab)
         if layoutModel.attention != marks { layoutModel.attention = marks }
         attentionObservation?.cancel()
         attentionObservation = Task { [weak self] in
-            for await marks in ObservationStream({ notifications.attentionMarks(for: workspace) }) {
+            for await marks in ObservationStream({ notifications.attentionMarks(for: workspace, shownTab: shownTab) }) {
                 guard let self else { return }
-                if self.layoutModel.attention != marks { self.layoutModel.attention = marks }
+                guard self.layoutModel.attention != marks else { continue }
+                // A ring read by going into its pane blinks out (classic's dismiss flash); one
+                // cleared any other way fades. Set first, so the change that removes it sees it.
+                let removed = Set(self.layoutModel.attention.keys).subtracting(marks.keys)
+                self.layoutModel.attentionReadByEntry = notifications.takeEntryReads(removed: removed, in: workspace)
+                self.layoutModel.attention = marks
             }
         }
     }
@@ -292,6 +319,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         controller.view.toolbar = PaneToolbar(pane: controller) // the tab bar's hover "…" and pinned buttons
         controller.view.swapDrag = PaneSwapDrag(pane: controller)
         panes[pane] = controller
+        services.themes.applyPaneBackground(controller) // its own background and tint, before the first frame
         services.paneMounts.changed()
         sendTopology()
         // Settings… asked before any window had a pane waits for the first one (R82). It opens

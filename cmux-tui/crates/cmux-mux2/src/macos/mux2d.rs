@@ -542,7 +542,10 @@ impl Server {
                 if (cols, rows) != (term.cols, term.rows) {
                     // Pixel sizes are unknown to the server; size reports
                     // in pixels answer 0, as with an unknown cell size.
-                    let _ = term.vt().resize(cols, rows, 0, 0);
+                    // The grid and the PTY change together or not at all.
+                    if term.vt().resize(cols, rows, 0, 0).is_err() {
+                        return self.err(id, "resize failed");
+                    }
                     (term.cols, term.rows) = (cols, rows);
                     set_winsize(term.master, cols, rows);
                     // The resize may emit an in-band size report (mode 2048).

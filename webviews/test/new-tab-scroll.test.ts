@@ -9,8 +9,8 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("new-tab-scroll.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -27,7 +27,7 @@ await requireBrowserLane("new-tab-scroll.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
   const url = (variant: string) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=agent-pane.new-tab&variant=${variant}`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame("agent-pane.new-tab", { variant })}`;
 
   async function ready(page: Page) {
     for (;;) {
@@ -47,13 +47,8 @@ await requireBrowserLane("new-tab-scroll.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
-    // The first load can run Vite's dependency optimizer and reload mid-compile.
-    const warm = await browser.newPage({ viewport: { width: 900, height: 600 } });
-    await warm.goto(url("empty"));
-    await ready(warm);
-    await warm.close();
+    await warmGalleryFrame(vite, "agent-pane.new-tab", { browser, params: { variant: "empty" } });
   });
   afterAll(async () => {
     await browser?.close();
@@ -93,7 +88,9 @@ await requireBrowserLane("new-tab-scroll.test.ts", async () => {
   }
 
   test("with All chats, the list is the page's only scroller and its edges fade", async () => {
-    expect(await look("many-chats")).toMatchObject({
+    // 400 px: Claude Code's split adds the quiet row (28 px and its 4 px gap) under the box, so at
+    // 360 the list is already down to its two-row floor, where the page scrolls by design (below).
+    expect(await look("many-chats", 400)).toMatchObject({
       documentScrolls: false,
       scrollers: ["nt-all-list"],
       fades: [true],

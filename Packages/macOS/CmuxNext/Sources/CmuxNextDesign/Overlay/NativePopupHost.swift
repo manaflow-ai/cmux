@@ -7,7 +7,8 @@ public import AppKit
 /// and moves with the window. The host owns what every popup shares:
 ///
 /// - placement: below the anchor or above it on the screen (``PopupPlacement``);
-/// - motion: grows out of the anchor and shrinks back toward it (``NSWindow/openPopup(pivot:)``);
+/// - motion: grows out of the anchor and shrinks back toward it on the card's layer
+///   (``NSWindow/openPopup(pivot:)``, the `popover` spring);
 /// - dismiss rules: a click outside the popup (``keepsOpen`` lists the clicks that do not count),
 ///   Escape in the popup, the app going inactive, the window moving, resizing, closing or
 ///   minimizing, and for a ``NativePopupPanel`` the popup losing the keys.
@@ -68,9 +69,10 @@ public final class NativePopupHost {
         let (frame, side) = PopupPlacement.frame(anchor: anchor, size: size, preferred: preferred, trailing: trailing,
                                                  screen: screen.visibleFrame)
         generation += 1
+        // A fresh open, or a reopen during the close (whose fade runs on the card, not the alpha).
+        let opening = !panel.isVisible || isClosing
         isClosing = false
         self.anchor = anchor
-        let opening = !panel.isVisible || panel.alphaValue < 1
         panel.setFrame(PopupStyle.standard.windowFrame(forCard: frame), display: true)
         if panel.parent !== window {
             panel.parent?.removeChildWindow(panel)

@@ -10,6 +10,7 @@ import { L } from "./strings";
 import type { MarkdownReadOnlyReason } from "./host";
 import type { MarkdownMode, MarkdownStore } from "./store";
 import type { ReadingSettingsActions } from "./ReadingSettings";
+import { toolbarFileLabel } from "./toolbarFile";
 
 /** The note that says why a file is read only. */
 const READ_ONLY_NOTE: Record<MarkdownReadOnlyReason, string> = {
@@ -39,10 +40,6 @@ export interface MarkdownPageProps {
   onForward?(): void;
   /** The Reading Settings popover's writes (no popover button without them). */
   reading?: ReadingSettingsActions;
-}
-
-function fileName(path: string): string {
-  return path.split("/").filter(Boolean).pop() ?? path;
 }
 
 export function MarkdownPage({
@@ -84,7 +81,11 @@ export function MarkdownPage({
         : t({ saved: L.saved, edited: L.edited, saving: L.saving, failed: L.statusFailed }[state.status]);
   const readOnlyNote = state.readOnlyReason ? t(READ_ONLY_NOTE[state.readOnlyReason]) : undefined;
   const modes: MarkdownMode[] = ["rich", "source"];
-  const path = state.config?.path ?? "";
+  const fileLabel = toolbarFileLabel(
+    state.config,
+    { loading: state.phase === "loading", navigating: state.navigating },
+    t(L.loading),
+  );
 
   return (
     <div
@@ -96,14 +97,22 @@ export function MarkdownPage({
     >
       <header className="md-toolbar-host">
         <Toolbar className="md-toolbar" label={t(L.toolbarLabel)}>
-          {state.canBack || state.canForward ? (
+          {/* The native omnibar's Back and Forward stand in for these when it is above the page. */}
+          {!state.config?.omnibar && (state.canBack || state.canForward) ? (
             <ToolbarGroup>
-              <ToolbarButton className="md-history-button" label={t(L.back)} disabled={!state.canBack} onPress={onBack}>
+              <ToolbarButton
+                className="md-history-button"
+                label={t(L.back)}
+                tooltip={false}
+                disabled={!state.canBack}
+                onPress={onBack}
+              >
                 ‹
               </ToolbarButton>
               <ToolbarButton
                 className="md-history-button"
                 label={t(L.forward)}
+                tooltip={false}
                 disabled={!state.canForward}
                 onPress={onForward}
               >
@@ -111,9 +120,8 @@ export function MarkdownPage({
               </ToolbarButton>
             </ToolbarGroup>
           ) : null}
-          <span className="md-file">
-            {state.phase === "loading" ? t(L.loading) : fileName(state.navigating ?? path)}
-          </span>
+          {/* The span stays as the flexible gap that keeps status, mode and Aa on the right. */}
+          <span className="md-file">{fileLabel ?? ""}</span>
           <span
             className={`md-status md-status-${state.readOnly ? "read-only" : state.status}`}
             // tooltip-allow: why the file is read-only or failed to save

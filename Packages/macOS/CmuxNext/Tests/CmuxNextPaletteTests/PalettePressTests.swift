@@ -2,8 +2,9 @@ import AppKit
 @testable import CmuxNextPalette
 import Testing
 
-/// Palette rows act like menu rows: press, drag and release runs the row the release lands on,
-/// and a release off every row runs nothing (cx-bopcl).
+/// Lawrence 2026-10-19: "mouse down to immediately open", Cmd+P rows included. A press on a
+/// visible row runs it at once; the drag and release that follow run nothing more. A press off
+/// every visible row runs nothing.
 @MainActor
 struct PalettePressTests {
     private final class Rows: NSObject, NSTableViewDataSource {
@@ -36,25 +37,26 @@ struct PalettePressTests {
                                   clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1)!
     }
 
-    /// Hands the press `events` in order, as the window's queue would during a drag.
-    private func feed(_ table: PaletteTableView, _ events: [NSEvent]) {
-        var queue = events
-        table.pressEvents = { queue.isEmpty ? nil : queue.removeFirst() }
-    }
-
-    @Test func releaseRunsTheRowThePressEndsOn() {
+    @Test func pressRunsTheRowUnderThePointerAtOnce() {
         let (window, table) = table()
         var ran: [Int] = []
         table.onClick = { ran.append($0) }
-        feed(table, [event(.leftMouseDragged, row: 1, in: table, window: window),
-                     event(.leftMouseUp, row: 1, in: table, window: window)])
-        table.mouseDown(with: event(.leftMouseDown, row: 0, in: table, window: window))
+        table.mouseDown(with: event(.leftMouseDown, row: 1, in: table, window: window))
         #expect(ran == [1])
     }
 
-    /// A release over the search bar or footer lands on a row scrolled out of view, which the
-    /// reader never saw: it runs nothing.
-    @Test func releaseOnARowScrolledOutOfViewRunsNothing() {
+    @Test func dragAndReleaseAfterThePressRunNothingMore() {
+        let (window, table) = table()
+        var ran: [Int] = []
+        table.onClick = { ran.append($0) }
+        table.mouseDown(with: event(.leftMouseDown, row: 0, in: table, window: window))
+        table.mouseDragged(with: event(.leftMouseDragged, row: 2, in: table, window: window))
+        table.mouseUp(with: event(.leftMouseUp, row: 2, in: table, window: window))
+        #expect(ran == [0])
+    }
+
+    /// A press on a row scrolled out of view (under the search bar or footer) runs nothing.
+    @Test func pressOnARowScrolledOutOfViewRunsNothing() {
         let (window, table) = table()
         // A 30 pt list over a 90 pt table, scrolled to row 1: rows 0 and 2 are out of view.
         let scroll = NSScrollView(frame: NSRect(x: 0, y: 30, width: 200, height: 30))
@@ -67,20 +69,16 @@ struct PalettePressTests {
         scroll.reflectScrolledClipView(scroll.contentView)
         var ran: [Int] = []
         table.onClick = { ran.append($0) }
-        feed(table, [event(.leftMouseDragged, row: 2, in: table, window: window),
-                     event(.leftMouseUp, row: 2, in: table, window: window)])
-        table.mouseDown(with: event(.leftMouseDown, row: 1, in: table, window: window))
+        table.mouseDown(with: event(.leftMouseDown, row: 2, in: table, window: window))
         #expect(!table.visibleRect.contains(table.rect(ofRow: 2)))
         #expect(ran.isEmpty)
     }
 
-    @Test func releaseOffEveryRowRunsNothing() {
+    @Test func pressOffEveryRowRunsNothing() {
         let (window, table) = table()
         var ran: [Int] = []
         table.onClick = { ran.append($0) }
-        feed(table, [event(.leftMouseDragged, row: -1, in: table, window: window),
-                     event(.leftMouseUp, row: -1, in: table, window: window)])
-        table.mouseDown(with: event(.leftMouseDown, row: 0, in: table, window: window))
+        table.mouseDown(with: event(.leftMouseDown, row: -1, in: table, window: window))
         #expect(ran.isEmpty)
     }
 }

@@ -172,3 +172,41 @@ fn malformed_conversation_tab_splits_are_refused() {
     }
     mux.shutdown();
 }
+
+/// `pinned-dock-alone-v1`: a split right of Home's pinned dock with nothing
+/// beside it opens a new column right of the dock, as wide as a link Home
+/// opens there; the dock keeps its pin, width and only tab.
+#[test]
+fn a_split_right_of_a_lone_pinned_dock_is_a_new_column_beside_it() {
+    let mux = Mux::new_for_test("conversation-tab-split-lone", crate::SurfaceOptions::default());
+    let home = mux.new_workspace(None, Some((80, 22))).unwrap().id;
+    let dock = mux.with_state(|state| state.pane_of(home)).unwrap();
+    let right = mux.new_pane_right(dock, 0.5, Some((38, 22))).unwrap().id;
+    run(
+        &mux,
+        json!({"cmd":"set-column-dock","pane":dock,"dock":true,"edge":"left",
+                     "role":"agent_chat","pinned":true}),
+    )
+    .unwrap();
+    run(&mux, json!({"cmd":"close-surface","surface":right})).unwrap();
+    let width = mux.with_state(|state| {
+        let columns = &state.workspaces[0].screens[0].layout_columns;
+        assert_eq!(columns.len(), 1, "the dock is alone");
+        columns[0].width
+    });
+    let created =
+        run(&mux, split_request(dock, "right", "pane_0123456789abcdef0123456789abcdef")).unwrap();
+    let surface = created["surface"].as_u64().unwrap();
+    let columns = mux.with_state(|state| {
+        let screen = &state.workspaces[0].screens[0];
+        screen
+            .layout_columns
+            .iter()
+            .map(|column| (column.width, column.dock.is_some_and(|d| d.pinned)))
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(columns, vec![(width, true), (crate::mux::LONE_DOCK_NEIGHBOR_WIDTH, false)]);
+    assert_eq!(pane_tabs(&mux, dock), vec![home], "the dock keeps only its tab");
+    let beside = mux.with_state(|state| state.pane_of(surface)).unwrap();
+    assert_ne!(beside, dock);
+}

@@ -31,7 +31,7 @@ extension TabSearchSource {
     public func favicon(for entry: TabSearchEntry) -> CGImage? { nil }
 }
 
-/// The Search Tabs page (Cmd-Shift-A, action `tab.search`): every tab with
+/// The Search Tabs page (action `tab.search`, from Cmd-Shift-P): every tab with
 /// recently closed tabs below. Return focuses and reveals the row's tab or
 /// reopens a closed one; Cmd-W closes the row's tab, or removes a closed
 /// one from the list, and keeps the page open.

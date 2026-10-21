@@ -11,6 +11,7 @@
 
 pub mod auto;
 pub mod channel;
+mod codex_provider;
 pub(crate) mod inventory;
 pub(crate) mod inventory_feed;
 mod inventory_refresh;
@@ -98,6 +99,29 @@ pub struct Subject {
     pub probe_error: Option<String>,
 }
 
+impl Subject {
+    /// The harness `id` as `profile` and its profile file's `[auth]` describe
+    /// it, without a probe error. None for an empty command line.
+    pub fn of(
+        id: &str,
+        profile: &crate::config::HarnessProfile,
+        auth: Option<&crate::config::profiles::AuthNotes>,
+    ) -> Option<Self> {
+        let (resolved, unresolved): (Vec<_>, Vec<_>) =
+            profile.env.iter().partition(|(_, v)| !v.contains("${"));
+        Some(Self {
+            id: id.to_owned(),
+            program: profile.argv.first()?.clone(),
+            family: crate::config::derive_family(id, profile),
+            check: auth.map(|a| a.check.clone()).unwrap_or_default(),
+            env: resolved.into_iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            login: auth.and_then(|a| a.login.clone()),
+            unresolved: unresolved.into_iter().map(|(k, _)| k.clone()).collect(),
+            probe_error: None,
+        })
+    }
+}
+
 /// Where the service asks and keeps its copy.
 #[derive(Clone, Debug, Default)]
 pub struct Settings {
@@ -140,22 +164,31 @@ fn builtin_login(family: &str) -> Option<&'static str> {
         "claude" => "claude auth login",
         "gemini" => "gemini",
         "opencode" => "opencode auth login",
+        "unii" => "unii login",
         _ => return None,
     })
 }
 
 /// Sign-in evidence for a harness with no `auth.check` (one acpmux found on
 /// PATH), when its program is the agent itself (not a wrapper that runs it
-/// elsewhere) and its home is the one named here: Codex answers
-/// `codex login status` (also behind codex-acp) when it keeps its login in
-/// a file; Claude's sign-in sources (`claude_auth`) only ever prove a
-/// sign-in, so none found stays unknown, never a guess from a missing file.
+/// elsewhere) and its home is the one named here. Read in the environment
+/// the agent gets (`login_env::effective_for`: the login shell's
+/// `CODEX_HOME`, `CLAUDE_CONFIG_DIR` and tokens count, hq#2569 #2).
+///
+/// Codex: a model provider that does not use the OpenAI sign-in (sr, a
+/// router with `env_key`, a local server; `codex_provider`) decides by its
+/// own credential, since `codex login status` says "Not logged in" there
+/// while Codex works. Otherwise `codex login status` answers (also behind
+/// codex-acp) when Codex keeps its login in a file. Claude's sign-in
+/// sources (`claude_auth`) only ever prove a sign-in, so none found stays
+/// unknown, never a guess from a missing file.
 ///
 /// Never the login keychain (cx-hh0vu): this check runs on its own (daemon
 /// start, every few hours), and acpmux never asks the keychain on its own.
-/// Claude's keychain item is not read, and `codex login status` does not run
-/// when Codex keeps its login in the keychain (`cli_auth_credentials_store`
-/// `keyring` or `auto`): the sign-in stays unknown.
+/// Claude's keychain item is not read (so `claude auth status` does not run
+/// here), and `codex login status` does not run when Codex keeps its login
+/// in the keychain (`cli_auth_credentials_store` `keyring` or `auto`): the
+/// sign-in stays unknown. Nothing here writes a credential or starts a login.
 fn builtin_auth(s: &Subject) -> Option<(Auth, Option<String>)> {
     // No credential read (Keychain, `codex login status`) while agent
     // launches are off (cx-9ettq): the sign-in stays unknown.
@@ -166,7 +199,17 @@ fn builtin_auth(s: &Subject) -> Option<(Auth, Option<String>)> {
     let home_named = |key: &str| !s.unresolved.iter().any(|k| k == key);
     match s.family.as_str() {
         "codex" if program.contains("codex") && home_named("CODEX_HOME") => {
-            if !codex_login_in_file(&s.env) {
+            let env = crate::login_env::effective_for(Some("codex"), &s.env);
+            match codex_provider::provider_auth(&env) {
+                codex_provider::ProviderAuth::Configured(detail) => {
+                    return Some((Auth::SignedIn, Some(detail)));
+                }
+                codex_provider::ProviderAuth::Missing(detail) => {
+                    return Some((Auth::Unknown, Some(detail)));
+                }
+                codex_provider::ProviderAuth::OpenAiLogin => {}
+            }
+            if !codex_login_in_file(&env) {
                 return None;
             }
             match probe::codex_login_status(&s.env)? {
@@ -177,8 +220,29 @@ fn builtin_auth(s: &Subject) -> Option<(Auth, Option<String>)> {
             }
         }
         "claude" if program.contains("claude") && home_named("CLAUDE_CONFIG_DIR") => {
-            let found = crate::claude_auth::find(&s.env);
+            let env = crate::login_env::effective_for(Some("claude"), &s.env);
+            let found = crate::claude_auth::find(&env);
             found.signed_in().then(|| (Auth::SignedIn, Some(found.sources.join(", "))))
+        }
+        // UniiChat (the bundled `uniichat-agent`): the token `unii login`
+        // keeps for the server the harness env names (UNII_URL, UNII_HOME).
+        "unii" => {
+            use crate::cli::uniichat_agent::{Endpoint, Options};
+            let env = |key: &str| s.env.get(key).filter(|v| !v.is_empty()).cloned();
+            let endpoint = Endpoint::resolve(
+                &Options::default(),
+                env("UNII_URL"),
+                env("UNII_HOME"),
+                env("HOME").map(PathBuf::from).or_else(dirs::home_dir),
+            )
+            .ok()?;
+            Some(match endpoint.token() {
+                Ok(_) => (
+                    Auth::SignedIn,
+                    Some(format!("{} holds a sign-in", endpoint.token_file.display())),
+                ),
+                Err(why) => (Auth::SignedOut, Some(why)),
+            })
         }
         _ => None,
     }
@@ -189,16 +253,7 @@ fn builtin_auth(s: &Subject) -> Option<(Auth, Option<String>)> {
 /// `cli_auth_credentials_store` is unset or `file` (Codex's default). A
 /// config that does not parse, `keyring`, `auto` or another value: false.
 fn codex_login_in_file(env: &BTreeMap<String, String>) -> bool {
-    let home = match env.get("CODEX_HOME").filter(|h| !h.is_empty()) {
-        Some(home) => PathBuf::from(home),
-        None => match env.get("HOME").filter(|h| !h.is_empty()) {
-            Some(home) => PathBuf::from(home).join(".codex"),
-            None => match dirs::home_dir() {
-                Some(home) => home.join(".codex"),
-                None => return false,
-            },
-        },
-    };
+    let Some(home) = codex_provider::codex_home(env) else { return false };
     let text = match std::fs::read_to_string(home.join("config.toml")) {
         Ok(text) => text,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return true,
@@ -209,6 +264,33 @@ fn codex_login_in_file(env: &BTreeMap<String, String>) -> bool {
         None => true,
         Some(value) => value.as_str() == Some("file"),
     }
+}
+
+/// Why starting harness `id` may read the login keychain, or None. A
+/// caller that starts a harness to ask its sign-in (`cmux setup harness`)
+/// skips it then, as this check does (cx-hh0vu): its profile env names a
+/// Keychain item, it is Claude Code (whose login may be its keychain item;
+/// `claude_auth` reads every other source), or it is Codex and Codex may
+/// keep its login there (not `codex_login_in_file`, or a Codex home set by
+/// a reference).
+pub fn keychain_sign_in(id: &str, profile: &crate::config::HarnessProfile) -> Option<&'static str> {
+    if crate::config::profiles::has_keychain_refs(&profile.env) {
+        return Some("its profile's env names a Keychain item");
+    }
+    let s = Subject::of(id, profile, None)?;
+    match s.family.as_str() {
+        family if family.starts_with("claude") => {
+            return Some("Claude Code may keep its login in its keychain item");
+        }
+        "codex" => {}
+        _ => return None,
+    }
+    if s.unresolved.iter().any(|k| k == "CODEX_HOME") {
+        return Some("its Codex home is not known until it starts");
+    }
+    let env = crate::login_env::effective_for(Some("codex"), &s.env);
+    (!codex_login_in_file(&env))
+        .then_some("Codex's `cli_auth_credentials_store` does not keep its login in a file")
 }
 
 static SIGN_IN: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
@@ -242,6 +324,13 @@ impl HealthService {
                 if row.channel == channel::Channel::Npm
                     && row.update.as_ref().is_some_and(|plan| {
                         !channel::npm_update_matches(plan, row.package.as_deref())
+                    })
+                {
+                    row.update = None;
+                }
+                if row.channel == channel::Channel::Bun
+                    && row.update.as_ref().is_some_and(|plan| {
+                        !channel::bun::matches(plan, row.package.as_deref(), row.path.as_deref())
                     })
                 {
                     row.update = None;
@@ -344,7 +433,7 @@ fn save(path: &Path, rows: &[HarnessHealth]) {
 /// The part of a check that runs here: where the program is, how it was
 /// installed, its version, its sign-in, and its update and login commands.
 fn local(s: Subject, home: &Path) -> HarnessHealth {
-    let found = if Path::new(&s.program).is_absolute() {
+    let mut found = if Path::new(&s.program).is_absolute() {
         Path::new(&s.program).is_file().then(|| s.program.clone())
     } else {
         crate::config::which(&s.program)
@@ -362,8 +451,15 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
     };
     let update =
         channel::update_plan(&install, found.as_deref().map(Path::new), real.as_deref(), home);
-    // Without a profile check, the agent's own answer; a sign-in it proves
-    // outranks an older probe's sign-in error.
+    if install.channel == Channel::Bun
+        && let (Some(plan), Some(path)) = (&update, &found)
+    {
+        found = channel::bun::recorded_path(plan, Path::new(path))
+            .and_then(|path| path.to_str().map(str::to_owned));
+    }
+    // Without a profile check, the agent's own answer; a sign-in it proves,
+    // or a provider that `codex login` cannot fix, outranks an older probe's
+    // sign-in error.
     let builtin = (s.check.is_empty() && found.is_some()).then(|| builtin_auth(&s)).flatten();
     let (auth, auth_detail) = match &s.probe_error {
         _ if !s.check.is_empty() && found.is_some() => {
@@ -373,7 +469,7 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
                 Err(e) => (Auth::Unknown, Some(e)),
             }
         }
-        _ if matches!(builtin, Some((Auth::SignedIn, _))) => {
+        _ if builtin.as_ref().is_some_and(|(auth, _)| *auth != Auth::SignedOut) => {
             builtin.unwrap_or((Auth::Unknown, None))
         }
         Some(e) if SIGN_IN.is_match(e) => (Auth::SignedOut, Some(e.clone())),
@@ -403,6 +499,7 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
 #[cfg(test)]
 mod tests {
     use super::codex_login_in_file;
+    use serde_json::json;
     use std::collections::BTreeMap;
 
     fn home_with(n: usize, config: Option<&str>) -> (std::path::PathBuf, BTreeMap<String, String>) {
@@ -436,5 +533,29 @@ mod tests {
             assert_eq!(codex_login_in_file(&env), file, "{config:?}");
             let _ = std::fs::remove_dir_all(dir);
         }
+    }
+
+    /// A harness whose start may read the keychain is named, so a caller
+    /// that asks a harness its sign-in does not start it (cx-hh0vu).
+    #[test]
+    fn keychain_sign_in_names_keychain_references_and_a_codex_keychain_login() {
+        let (keyring, keyring_env) =
+            home_with(10, Some("cli_auth_credentials_store = \"keyring\"\n"));
+        let (file, file_env) = home_with(11, None);
+        for (argv, env, keychain) in [
+            ("gemini", json!({"API_KEY": "${keychain:cmux-harness/gemini/API_KEY}"}), true),
+            ("gemini", json!({"API_KEY": "${env:API_KEY}"}), false),
+            ("claude-agent-acp", json!({}), true),
+            ("codex-acp", json!({"CODEX_HOME": keyring_env["CODEX_HOME"]}), true),
+            ("codex-acp", json!({"CODEX_HOME": file_env["CODEX_HOME"]}), false),
+            ("codex-acp", json!({"CODEX_HOME": "${env:SOME_CODEX_HOME}"}), true),
+        ] {
+            let profile: crate::config::HarnessProfile =
+                serde_json::from_value(json!({"argv": [argv], "env": env})).unwrap();
+            let why = super::keychain_sign_in(argv, &profile);
+            assert_eq!(why.is_some(), keychain, "{argv} {env}: {why:?}");
+        }
+        let _ = std::fs::remove_dir_all(keyring);
+        let _ = std::fs::remove_dir_all(file);
     }
 }

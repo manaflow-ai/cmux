@@ -2,4 +2,5 @@
 webviews/src/agent-session/acpmux/ProjectBadge.tsx	1
 webviews/src/agent-session/acpmux/mockFixture.ts	4
 webviews/src/agent-session/acpmux/summary/summary.css	1
+webviews/src/agent-session/shared/styles.css	2
 webviews/src/styles.css	2

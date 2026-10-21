@@ -4,6 +4,8 @@
 #import <AppKit/AppKit.h>
 
 #include "include/cef_devtools_message_observer.h"
+#include "include/cef_drag_handler.h"
+#include "include/cef_jsdialog_handler.h"
 #include "include/cef_parser.h"
 #include "include/cef_resource_request_handler.h"
 #include "command_line_switches.h"
@@ -111,6 +113,8 @@ class Client : public CefClient,
                public CefRequestHandler,
                public CefCommandHandler,
                public CefFocusHandler,
+               public CefJSDialogHandler,
+               public CefDragHandler,
                public CefDevToolsMessageObserver {
  public:
   explicit Client(int request) : request_(request) {}
@@ -124,6 +128,9 @@ class Client : public CefClient,
   CefRefPtr<CefRequestHandler> GetRequestHandler() override { return this; }
   CefRefPtr<CefCommandHandler> GetCommandHandler() override { return this; }
   CefRefPtr<CefFocusHandler> GetFocusHandler() override { return this; }
+  // beforeunload only; alert, confirm and prompt keep Chromium's dialogs.
+  CefRefPtr<CefJSDialogHandler> GetJSDialogHandler() override { return this; }
+  CefRefPtr<CefDragHandler> GetDragHandler() override { return this; }
   // Every download waits for the host's path (shim_downloads.mm).
   CefRefPtr<CefDownloadHandler> GetDownloadHandler() override { return DownloadHandler(); }
   // Location requests ask in the host's prompt bar (shim_permissions.mm).
@@ -148,6 +155,48 @@ class Client : public CefClient,
   // focus to its omnibar.
   void OnTakeFocus(CefRefPtr<CefBrowser> browser, bool next) override {
     Emit(CMUX_SHIM_TAKE_FOCUS, browser->GetIdentifier(), 0, next ? 1 : 0);
+  }
+
+  // MARK: Drags
+
+  // A drag of files from outside entered the page: the host learns their
+  // paths (a page sees only File objects), so a cmux page can hand a drop
+  // to the host the way its WebKit view does (PAGE_DRAG_ENTER). The page
+  // still gets the drag.
+  bool OnDragEnter(CefRefPtr<CefBrowser> browser, CefRefPtr<CefDragData> drag, DragOperationsMask) override {
+    if (!drag || !drag->IsFile()) return false;
+    std::vector<CefString> names;
+    if (!drag->GetFilePaths(names) || names.empty()) return false;
+    CefRefPtr<CefListValue> list = CefListValue::Create();
+    for (size_t i = 0; i < names.size(); ++i) list->SetString(i, names[i]);
+    CefRefPtr<CefValue> value = CefValue::Create();
+    value->SetList(list);
+    Emit(CMUX_SHIM_PAGE_DRAG_ENTER, browser->GetIdentifier(), 0, 0, 0, CefWriteJSON(value, JSON_WRITER_DEFAULT).ToString());
+    return false;
+  }
+
+  // MARK: beforeunload
+
+  // Chromium's own beforeunload dialog is app-modal (AppModalDialogManager)
+  // and its Stay button sends -cancelTerminate: to NSApp, which only
+  // Chrome's application class answers (the 2026-10-20 nightly crash). The
+  // host asks in the tab instead (BEFORE_UNLOAD_DIALOG) and answers with
+  // cmux_shim_before_unload_reply. A host close never asks: it leaves.
+  bool OnBeforeUnloadDialog(CefRefPtr<CefBrowser> browser, const CefString&, bool is_reload,
+                            CefRefPtr<CefJSDialogCallback> callback) override {
+    const int id = browser->GetIdentifier();
+    if (IsHostClose(id)) {
+      callback->Continue(true, CefString());
+      return true;
+    }
+    Emit(CMUX_SHIM_BEFORE_UNLOAD_DIALOG, id, StoreBeforeUnloadCallback(id, callback), is_reload ? 1 : 0);
+    return true;
+  }
+
+  // Chromium dropped the page's dialogs (a crash, a navigation, the close):
+  // a question still waiting goes away unanswered.
+  void OnResetDialogState(CefRefPtr<CefBrowser> browser) override {
+    if (DropBeforeUnload(browser->GetIdentifier())) Emit(CMUX_SHIM_BEFORE_UNLOAD_DISMISSED, browser->GetIdentifier());
   }
 
   // MARK: Chromium commands
@@ -253,6 +302,8 @@ class Client : public CefClient,
                                  const CefString& error_string) override {
     int id = browser->GetIdentifier();
     TakeUnresponsiveCallback(id);
+    // A crash cancels dialogs without OnResetDialogState: the question goes too.
+    if (DropBeforeUnload(id)) Emit(CMUX_SHIM_BEFORE_UNLOAD_DISMISSED, id);
     Emit(CMUX_SHIM_RENDER_TERMINATED, id, 0, status, error_code, error_string.ToString());
   }
 
@@ -339,6 +390,9 @@ class Client : public CefClient,
       item->SetString("label", model->GetLabelAt(i));
       item->SetBool("enabled", model->IsEnabledAt(i));
       item->SetBool("checked", model->IsCheckedAt(i));
+      // Chromium keeps hidden rows in the model (an extension item with
+      // visible: false); the host drops them as Chrome's menu does.
+      item->SetBool("visible", model->IsVisibleAt(i));
       switch (model->GetTypeAt(i)) {
         case MENUITEMTYPE_SEPARATOR: item->SetString("type", "separator"); break;
         case MENUITEMTYPE_CHECK: item->SetString("type", "check"); break;
@@ -415,6 +469,8 @@ class Client : public CefClient,
   void OnBeforeClose(CefRefPtr<CefBrowser> browser) override {
     int id = browser->GetIdentifier();
     TakeUnresponsiveCallback(id);
+    DropBeforeUnload(id);
+    TakeHostClose(id);
     ForgetNavigationGuard(id);
     ForgetCertificateState(id);
     registrations_.erase(id);

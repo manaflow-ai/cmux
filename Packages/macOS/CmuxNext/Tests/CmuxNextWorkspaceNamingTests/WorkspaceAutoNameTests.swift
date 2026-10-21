@@ -20,6 +20,24 @@ struct WorkspaceAutoNameTests {
         #expect(Self.live.label(name: "workspace-3", title: nil, front: front) == "Pull requests · cmux")
     }
 
+    @Test func browserSplitBesideAChatKeepsTheChatsName() {
+        let page = WorkspaceAutoName.Front.browser(title: "browser.md: Widevine and H.264/AAC ship", offTheRecord: false)
+        let chat = WorkspaceAutoName.Front.chat(userName: nil, title: "Fix image paste")
+        #expect(Self.live.label(name: "workspace-3", title: nil, front: page, anchor: chat) == "Fix image paste")
+        #expect(Self.live.label(name: "workspace-3", title: nil, front: page, anchor: Self.terminal(title: "zsh", cwd: "/tmp/api")) == "api")
+    }
+
+    @Test func browserSplitBesideAnUntitledChatShowsNoPageTitle() {
+        let page = WorkspaceAutoName.Front.browser(title: "Pull requests · cmux", offTheRecord: false)
+        #expect(Self.live.label(name: "workspace-3", title: nil, front: page, anchor: .chat(userName: nil, title: nil)) == nil)
+    }
+
+    @Test func browserSplitNeverRenamesAUserNamedWorkspace() {
+        let page = WorkspaceAutoName.Front.browser(title: "Pull requests · cmux", offTheRecord: false)
+        #expect(Self.live.label(name: "#20367: CI red", title: nil, front: page, anchor: nil) == nil)
+        #expect(Self.live.label(name: "workspace-3", title: "Mine", front: page, anchor: nil) == nil)
+    }
+
     @Test func titledChatShowsItsChatTitle() {
         let front = WorkspaceAutoName.Front.chat(userName: nil, title: "Fix the sidebar drag")
         #expect(Self.live.label(name: "workspace-3", title: nil, front: front) == "Fix the sidebar drag")
@@ -33,6 +51,15 @@ struct WorkspaceAutoNameTests {
     @Test func untitledChatIsSkipped() {
         #expect(Self.live.label(name: "workspace-3", title: nil, front: .chat(userName: nil, title: nil)) == nil)
         #expect(Self.live.label(name: "workspace-3", title: nil, front: .chat(userName: "  ", title: "\n")) == nil)
+    }
+
+    /// An agent's spinner frames (`⠐ Fix the login bug`) name the workspace by their words only
+    /// (plans/cmux-next/osc-titles.md), so the row does not change on every frame.
+    @Test func terminalTitleLosesItsStatusGlyphs() {
+        for raw in ["⠂ Fix the login bug", "⠐ Fix the login bug", "✳ Fix the login bug"] {
+            #expect(Self.live.label(name: "workspace-3", title: nil, front: Self.terminal(title: raw)) == "Fix the login bug")
+        }
+        #expect(Self.live.label(name: "Release", title: nil, front: Self.terminal(title: "⠂ Fix the login bug")) == nil)
     }
 
     @Test func terminalShowsItsLiveTitle() {

@@ -62,6 +62,10 @@ pub struct HostState {
     /// The turn whose messages are logged but whose reply is not posted yet.
     #[serde(default)]
     pub turn: Option<PendingTurn>,
+    /// The turn session kept for the next turn (`Settings::keep_turn_session`):
+    /// a host that restarts ends it (it knows nothing of its history).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kept_session: Option<String>,
     /// E22: what the last turn answered (message ids): a spawn made after
     /// that turn's end still belongs to it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -89,6 +93,11 @@ pub struct HostState {
     /// env's (`OPTCHAT_MAX_LIVE_SUBAGENTS`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub live_cap: Option<usize>,
+    /// `control cloud PEER|off`: the acpmux peer subagents run on by
+    /// default, set at run time (empty: off, local); None: the env's
+    /// (`OPTCHAT_SUBAGENT_PEER`). plans/cmux-next/cloud-subagents-DESIGN.md.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cloud_peer: Option<String>,
     /// The number of the next subagent id (`a<N>`), unique for this home.
     #[serde(default)]
     pub next_subagent: u64,
@@ -124,6 +133,61 @@ pub struct HostState {
     /// retracts it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compactor_notice: Option<PostedNotice>,
+    /// The thread root of each user message of the Chief conversation that
+    /// is itself a thread reply, by message id (a top-level message is its
+    /// own root and has no entry): a reply to it, even a subagent's report
+    /// after a restart, goes into that thread. At most
+    /// [`MESSAGE_ROOTS_KEPT`], oldest dropped first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub message_roots: Vec<(String, String)>,
+    /// Wakes the Chief asked for with `sleep` (brain/wakes.rs), soonest
+    /// first. At most [`WAKES_KEPT`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub wakes: Vec<Wake>,
+}
+
+/// How many pending wakes `HostState::wakes` keeps.
+pub const WAKES_KEPT: usize = 8;
+
+/// One wake the Chief asked for with `sleep`: at `at_ms` (wall clock, ms
+/// since the epoch) a note with `note` starts a turn.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Wake {
+    /// When it is due (ms since the epoch).
+    pub at_ms: u64,
+    /// When the Chief asked for it (ms since the epoch).
+    pub asked_ms: u64,
+    /// Why: the Chief's own words, shown in the wake note.
+    #[serde(default)]
+    pub note: String,
+    /// `until: event`: a turn for a user message or a report that starts
+    /// first drops this wake.
+    #[serde(default)]
+    pub until_event: bool,
+}
+
+/// How many thread roots `HostState::message_roots` keeps.
+pub const MESSAGE_ROOTS_KEPT: usize = 512;
+
+impl HostState {
+    /// Records that user message `id` is a reply in the thread of `root`.
+    pub fn note_root(&mut self, id: &str, root: &str) {
+        if id == root || self.message_roots.iter().any(|(m, _)| m == id) {
+            return;
+        }
+        self.message_roots.push((id.to_owned(), root.to_owned()));
+        let extra = self.message_roots.len().saturating_sub(MESSAGE_ROOTS_KEPT);
+        self.message_roots.drain(..extra);
+    }
+
+    /// The thread root of user message `id`: its recorded root, else itself.
+    pub fn root_of(&self, id: &str) -> String {
+        self.message_roots
+            .iter()
+            .find(|(m, _)| m == id)
+            .map(|(_, r)| r.clone())
+            .unwrap_or_else(|| id.to_owned())
+    }
 }
 
 /// A notice the host posted and may take back.
@@ -191,12 +255,33 @@ pub struct SpawnRecord {
     pub answers: Vec<String>,
 }
 
+impl SubRecord {
+    /// Starting or running and not cancelled: a cancelled one whose session
+    /// never ends its turn is not at work (#7).
+    pub fn at_work(&self) -> bool {
+        matches!(self.status, SubStatus::Starting | SubStatus::Running) && !self.cancelled
+    }
+}
+
 impl SpawnRecord {
     /// A subagent still works or has a report waiting that starts a turn.
     pub fn working(&self) -> bool {
         self.subs
             .iter()
             .any(|s| s.status != SubStatus::Reported && !(s.status == SubStatus::Done && s.stopped))
+    }
+
+    /// A subagent still works for user message `id`: its own `answers` (a
+    /// tell) name it, or it has none and the spawn's do.
+    pub fn working_for(&self, id: &str) -> bool {
+        self.subs.iter().any(|s| {
+            let for_it = if s.answers.is_empty() {
+                self.answers.iter().any(|a| a == id)
+            } else {
+                s.answers.iter().any(|a| a == id)
+            };
+            for_it && s.status != SubStatus::Reported && !(s.status == SubStatus::Done && s.stopped)
+        })
     }
 }
 
@@ -228,6 +313,10 @@ pub struct SubRecord {
     /// Its cmux workspace, once created.
     #[serde(default)]
     pub workspace: Option<String>,
+    /// The acpmux peer (a cloud VM) it runs on; None: this machine. Only
+    /// local subagents count against the live cap.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer: Option<String>,
     pub status: SubStatus,
     /// The report waiting for the log.
     #[serde(default)]
@@ -244,8 +333,9 @@ pub struct SubRecord {
     /// The task's first characters (the workspace title).
     #[serde(default)]
     pub title: String,
-    /// `ask` when it was spawned under the spawn floor (a remote-origin turn
-    /// or a live ask child): a person answers its permission requests.
+    /// `ask` when it was spawned under the spawn floor (a turn another
+    /// person started, or a live ask child): the host refuses its local
+    /// effects.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy: Option<String>,
     /// A queued subagent's launch, saved so a restarted host still starts it.
@@ -255,6 +345,14 @@ pub struct SubRecord {
     /// 0 again after a run that ends with a real report.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub resume_attempts: u32,
+    /// The harness it moves to (its account hit a usage limit) once the
+    /// brain takes the move; saved, so a restart still moves it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moving: Option<String>,
+    /// It was moved off a harness whose account hit a usage limit, and has
+    /// not ended a run with a real report since: it is not moved again.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub moved: bool,
     /// Messages the Chief sent it that it has not got yet (queued or
     /// starting, or held while paused), oldest first. Saved, so a restart
     /// never drops one.
@@ -280,12 +378,26 @@ pub struct SubRecord {
     /// Its pending permission request.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permission: Option<PendingPermission>,
+    /// The user messages the turn that last told it answered (`tell` during
+    /// a turn): its next report answers them, and goes into their thread.
+    /// Empty: the spawn's own (`SpawnRecord::answers`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub answers: Vec<String>,
     /// When its session last changed (ms since the epoch): stuck detection.
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub active_ms: u64,
     /// The stuck note of this run was sent.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub stuck_noted: bool,
+    /// Its task as spawned (the start, for `control status`).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub task: String,
+    /// Automatic continues of a silent run (sub_watch.rs) in this run.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub auto_continues: u32,
+    /// When the last automatic continue was sent (ms since the epoch).
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub continued_ms: u64,
     /// Its session exists but its first prompt (view and task) is not sent
     /// yet: tells wait in the inbox so they never arrive before the task.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -334,6 +446,10 @@ pub struct QueuedLaunch {
     pub effort: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub floor: Option<String>,
+    /// The harness it starts on (a subagent moved off a harness whose
+    /// account hit a usage limit); None: the engine of now.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub harness: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -415,6 +531,8 @@ impl PendingTurn {
             .iter()
             .map(|seq| Item {
                 seq: *seq,
+                // This pre-provenance format names no other person: the
+                // owner's (the Chief never asks, 2026-10-20).
                 ..Item::default()
             })
             .collect()
@@ -424,6 +542,12 @@ impl PendingTurn {
 /// One logged item's source, so a restart can finish its bookkeeping: a
 /// human message moves the read cursor, a child's report marks the child
 /// reported (else reconcile would queue the same report again).
+/// `requires_approval` (another person's text: its turn's local effects
+/// are refused) is stored as `other_person`. Records of older builds stored
+/// `requires_approval`, true also for the owner's own turns that only had
+/// unknown provenance; a resume carried it forward, so one old record gated
+/// every turn after each restart (2026-10-20). Their key is ignored: they
+/// read as the owner's.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Item {
     /// The conversation seq of a human message.
@@ -448,6 +572,14 @@ pub struct Item {
     /// A paired device sent the message (or the resume note of such a turn).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub remote: bool,
+    /// The message came from someone other than the Chief's owner, or the
+    /// resumed turn otherwise required approval for effects.
+    #[serde(
+        default,
+        rename = "other_person",
+        skip_serializing_if = "std::ops::Not::not"
+    )]
+    pub requires_approval: bool,
     /// The resume note of a cut turn: a cut resume turn resumes again.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub resume: bool,
@@ -467,6 +599,14 @@ pub struct Resume {
     /// every local effect, as that turn did.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub remote: bool,
+    /// The cut turn carried another person's text: the resume turn refuses
+    /// its local effects too.
+    #[serde(
+        default,
+        rename = "other_person",
+        skip_serializing_if = "std::ops::Not::not"
+    )]
+    pub requires_approval: bool,
     /// The full text of the cut turn's human messages, in log order: the
     /// resume turn's new messages carry them after the note (they are in
     /// the log already and are not logged again).
@@ -479,6 +619,14 @@ pub struct SpawnRef {
     pub spawn: String,
     /// (subagent id, its floor once this report is logged).
     pub subs: Vec<(String, u64)>,
+    /// The report came from a subagent spawned under the spawn floor
+    /// (another person's turn): the turn that reads it refuses local effects.
+    #[serde(
+        default,
+        rename = "other_person",
+        skip_serializing_if = "std::ops::Not::not"
+    )]
+    pub requires_approval: bool,
     /// The user stopped the subagent: its report is logged with the next
     /// turn and starts none (the reference client's stopped report).
     #[serde(default)]
@@ -501,6 +649,28 @@ impl HostState {
                 }
             }
         }
+    }
+
+    /// Subagents whose automatic continue (auto_resume.rs) was planned but
+    /// not sent, with the planned attempt: the run ended, `resume_attempts`
+    /// is set, and the Chief has not paused or cancelled it. The plan's
+    /// backoff or network wait is a thread that dies with the host, so a
+    /// restarted host re-arms these.
+    pub fn pending_auto_resumes(&self) -> Vec<(String, u32)> {
+        let mut pending: Vec<(String, u32)> = self
+            .spawns
+            .values()
+            .flat_map(|r| &r.subs)
+            .filter(|s| {
+                s.resume_attempts > 0
+                    && matches!(s.status, SubStatus::Done | SubStatus::Reported)
+                    && !s.paused
+                    && !s.cancelled
+            })
+            .map(|s| (s.id.clone(), s.resume_attempts))
+            .collect();
+        pending.sort();
+        pending
     }
 
     /// The subagent `id` and its spawn id.
@@ -597,6 +767,15 @@ fn fields(state: &HostState) -> BTreeMap<String, String> {
 }
 
 impl StateFile {
+    /// Where a turn's attached files are saved (`brain::files`): the
+    /// `attachments` folder beside the state, in the Chief's home.
+    pub fn attachments_dir(&self) -> PathBuf {
+        self.path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("attachments")
+    }
+
     pub fn new(path: &Path) -> StateFile {
         StateFile {
             path: path.to_owned(),
@@ -858,5 +1037,99 @@ impl FrozenRecord {
             cuts: self.cuts.clone(),
             starts: self.starts.clone(),
         })
+    }
+}
+
+#[cfg(test)]
+mod auto_resume_tests {
+    use super::{HostState, SpawnRecord, SubRecord, SubStatus};
+
+    fn sub(id: &str, status: SubStatus, attempts: u32) -> SubRecord {
+        SubRecord {
+            id: id.to_owned(),
+            status,
+            resume_attempts: attempts,
+            ..SubRecord::default()
+        }
+    }
+
+    #[test]
+    fn a_planned_continue_survives_a_host_restart() {
+        let mut state = HostState::default();
+        let mut paused = sub("a5", SubStatus::Done, 1);
+        paused.paused = true;
+        let mut cancelled = sub("a6", SubStatus::Reported, 1);
+        cancelled.cancelled = true;
+        state.spawns.insert(
+            "spawn-1".to_owned(),
+            SpawnRecord {
+                subs: vec![
+                    sub("a1", SubStatus::Done, 2),
+                    sub("a2", SubStatus::Reported, 1),
+                    sub("a3", SubStatus::Running, 1),
+                    sub("a4", SubStatus::Done, 0),
+                    paused,
+                    cancelled,
+                ],
+                ..SpawnRecord::default()
+            },
+        );
+        let saved = serde_json::to_vec(&state).unwrap();
+        let restarted: HostState = serde_json::from_slice(&saved).unwrap();
+        assert_eq!(
+            restarted.pending_auto_resumes(),
+            vec![("a1".to_owned(), 2), ("a2".to_owned(), 1)]
+        );
+    }
+}
+
+#[cfg(test)]
+mod security_tests {
+    use super::{Item, PendingTurn, Resume, SpawnRef};
+
+    #[test]
+    fn old_approval_flags_are_dropped_and_another_person_round_trips() {
+        // Records of older builds: an explicit old flag and a missing one.
+        let old_item: Item = serde_json::from_str(r#"{"seq":1,"requires_approval":true}"#).unwrap();
+        let old_resume: Resume =
+            serde_json::from_str(r#"{"messages":["continue"],"requires_approval":true}"#).unwrap();
+        let old_spawn: SpawnRef =
+            serde_json::from_str(r#"{"spawn":"spawn-1","subs":[],"quiet":false}"#).unwrap();
+        assert!(!old_item.requires_approval);
+        assert!(!old_resume.requires_approval);
+        assert!(!old_spawn.requires_approval);
+        let legacy_turn = PendingTurn {
+            seqs: vec![Some(7), None],
+            ..PendingTurn::default()
+        };
+        assert!(
+            legacy_turn
+                .opening()
+                .iter()
+                .all(|item| !item.requires_approval)
+        );
+
+        let item = Item {
+            requires_approval: true,
+            ..Item::default()
+        };
+        let resume = Resume {
+            requires_approval: true,
+            ..Resume::default()
+        };
+        let spawn = SpawnRef {
+            spawn: "spawn-1".to_owned(),
+            subs: Vec::new(),
+            requires_approval: true,
+            quiet: false,
+        };
+        let item_again: Item = serde_json::from_slice(&serde_json::to_vec(&item).unwrap()).unwrap();
+        let resume_again: Resume =
+            serde_json::from_slice(&serde_json::to_vec(&resume).unwrap()).unwrap();
+        let spawn_again: SpawnRef =
+            serde_json::from_slice(&serde_json::to_vec(&spawn).unwrap()).unwrap();
+        assert!(item_again.requires_approval);
+        assert!(resume_again.requires_approval);
+        assert!(spawn_again.requires_approval);
     }
 }

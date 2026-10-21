@@ -20,6 +20,8 @@ export interface IconLayer {
   join?: "miter" | "round" | "bevel";
   /// Drawn in the theme accent instead of the text color (Cat drawings only).
   accent?: boolean;
+  /// Fill rule of a fill or clearFill layer; absent means nonzero (Chromium icons use evenodd).
+  rule?: "evenodd";
 }
 
 export interface IconDrawing {

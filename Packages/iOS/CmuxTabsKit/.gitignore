@@ -1,0 +1,4 @@
+.build/
+.swiftpm/
+Demo/CmuxTabsKitDemo.xcodeproj/
+Demo/Sources/Info.plist

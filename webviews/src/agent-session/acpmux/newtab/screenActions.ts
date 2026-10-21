@@ -2,6 +2,7 @@
 // row starts the chat in this page; everything else asks the host to replace the tab.
 import type { AllChatsPage } from "./AllChatsList";
 import type { NewTabScreenActions } from "./NewTabScreen";
+import { savedEnvironmentHost } from "../environments";
 
 type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
 
@@ -27,7 +28,8 @@ export function newTabScreenActions(deps: {
   const ignore = (result: Promise<unknown>) => void result.catch(() => undefined);
   const remember = (agent: string) => ignore(callNative("newTab.remember", { agent }));
   return {
-    onAsk(harness, text, picked, model, noProject) {
+    onAsk(harness, text, picked, model, noProject, attachments, saved) {
+      const peer = saved?.peer;
       remember(harness);
       deps.leave();
       // The prompt goes in the same turn as the switch: the switch queues it, and a folder trust
@@ -35,6 +37,21 @@ export function newTabScreenActions(deps: {
       // after `chat.new` settled lost it: the switch had stopped on the refusal with nothing
       // queued ("Not sent").
       const start = (folder?: string) => {
+        // On another machine the prompt waits for its chat: a start that fails there must not
+        // send it to a new chat on this Mac.
+        if (peer) {
+          const send = () =>
+            text || attachments?.length
+              ? callNative("chat.send", { text, ...(attachments?.length ? { attachments } : {}) })
+              : undefined;
+          // `chat.new` resolves to the chat it started; none (a refused or held start): no send.
+          ignore(
+            callNative("chat.new", { harness, ...(folder ? { cwd: folder } : {}), peer }).then((started) =>
+              started ? send() : undefined,
+            ),
+          );
+          return;
+        }
         ignore(
           callNative("chat.new", {
             harness,
@@ -42,18 +59,24 @@ export function newTabScreenActions(deps: {
             ...(model ? { model } : {}),
           }),
         );
-        if (text) ignore(callNative("chat.send", { text }));
+        // Attachments pasted or dropped on the page go with the first prompt, or alone.
+        if (attachments?.length) ignore(callNative("chat.send", { text, attachments }));
+        else if (text) ignore(callNative("chat.send", { text }));
       };
       // The page seeds its project with the inherited folder (`~` in a fresh workspace): that is no
       // pick, so the chat starts in its start folder (the host named it). A real pick goes through
       // the host first (cx-nn3e).
       // Do not work in a project: no folder at all, so the host starts it in its private folder.
+      // A saved SSH environment's folder is the machine's own: this Mac's folder checks don't apply.
+      // A saved local one's folder is checked even when it is the tab's own.
       if (noProject) start();
-      else if (picked && picked !== cwd) {
+      else if (peer) start(picked);
+      else if (picked && (picked !== cwd || saved)) {
         if (deps.requestFolder) deps.requestFolder(picked, start);
         else start(picked);
       } else start(deps.chatCwd);
     },
+    savedEnvironments: savedEnvironmentHost(callNative),
     onOpen: (url) => {
       if (url.startsWith("file://"))
         return ignore(callNative("file.open", { path: decodeURIComponent(new URL(url).pathname), where: "tab" }));
@@ -74,6 +97,7 @@ export function newTabScreenActions(deps: {
     // Tab page instead of turning into an empty chat.
     onOpenChat: (key) => ignore(callNative("chats.open", { key })),
     onOpenChatInTerminal: (key) => ignore(callNative("chats.openInTerminal", { key })),
+    onViewChat: (key) => ignore(callNative("chats.watch", { key })),
     loadChatsPage: (params) => callNative("chats.page", params) as Promise<AllChatsPage | undefined>,
     onShowAll: deps.showAllChats,
     onTouched: () => ignore(callNative("newTab.touched")),

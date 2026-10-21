@@ -155,7 +155,7 @@ describe("code size (user 2026-10-19: code blocks look too big)", () => {
     const scale = Number(MARKDOWN_STYLE_DEFAULTS["--cmux-md-code-scale"]);
     expect(scale).toBeGreaterThanOrEqual(0.85);
     expect(scale).toBeLessThanOrEqual(0.9);
-    expect(MARKDOWN_READING.codeScale.default).toBe(scale);
+    expect(scale).toBe(MARKDOWN_READING.codeScale.default);
     // Relative to the body size, so a smaller body never leaves code bigger than the text.
     expect(MARKDOWN_STYLE_DEFAULTS["--cmux-md-code-block-size"]).toContain("var(--cmux-md-font-size)");
     expect(MARKDOWN_STYLE_DEFAULTS["--cmux-md-code-inline-size"]).toContain("var(--cmux-md-code-scale)");

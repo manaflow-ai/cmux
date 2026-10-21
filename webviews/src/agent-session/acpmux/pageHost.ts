@@ -8,10 +8,12 @@ import { receiveModelCatalog } from "./modelCatalogHost";
 import { setEditedFilesSettings } from "./turnChanges/settings";
 import { setComposerSettings } from "./composerSettings";
 import { setAgentDiffColors } from "./diffColors";
+import { setChatDisplay } from "./chatDisplay";
 import { setDeviceChats } from "./newtab/deviceChats";
 import { setToolCards } from "./toolCards/toolCardStore";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
+import { setImportCards } from "./importCards";
 import { setHeaderState } from "./header/headerState";
 import { setTabRow } from "./header/tabRow";
 import { setFloatingState } from "./floatingState";
@@ -97,6 +99,9 @@ export function applyHostEvent(event: HostEvent): void {
       return setComposerSettings(event.value);
     case "diffColors":
       return setAgentDiffColors(event.value);
+    case "display":
+      // Direct, like composer: a push before the chat mounts is kept (chatDisplay.ts).
+      return setChatDisplay(event.value);
     case "deviceChats":
       // Direct, like editedFiles: a push before the New Tab screen mounts is kept.
       return setDeviceChats(event.value);
@@ -105,6 +110,9 @@ export function applyHostEvent(event: HostEvent): void {
     case "nowPlaying":
       // Direct, like recentlyClosed: a push before the New Tab screen mounts is kept.
       return setNowPlaying(event.value);
+    case "importCards":
+      // Direct, like nowPlaying: a push before the New Tab screen mounts is kept.
+      return setImportCards(event.value);
     case "toolCards":
       // Direct, like deviceChats: a push before the chat mounts is kept.
       return setToolCards(event.value);
@@ -118,6 +126,8 @@ export function applyHostEvent(event: HostEvent): void {
       return setFloatingState(event.value);
     case "dictation":
       return bridge?.dictation?.(value);
+    case "designSelection":
+      return bridge?.designSelection?.(value);
     case "revealTurn":
       return bridge?.revealTurn?.(String(event.value));
     case "command":

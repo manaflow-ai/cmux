@@ -944,6 +944,13 @@ validate_app_bundle() {
   if [[ -x "$SCRIPT_DIR/cmux-next/check-app-bundle.sh" ]]; then
     "$SCRIPT_DIR/cmux-next/check-app-bundle.sh" "$app_path" || return 1
   fi
+  # Every version surface (app, bundled CLIs) says the cmux-next version. A dev
+  # build warns only: a branch may bundle its base tree's cmux-tui (tree
+  # fallback) until its own tree publishes. nightly.yml fails on it.
+  if [[ -x "$SCRIPT_DIR/cmux-next/check-version-surfaces.sh" ]]; then
+    "$SCRIPT_DIR/cmux-next/check-version-surfaces.sh" "$app_path" \
+      || echo "warning: the built app's version surfaces disagree (see above)" >&2
+  fi
 }
 
 # Prints the rm -rf targets that hold a tag's build, each escaped for a shell. A DerivedData
@@ -1306,9 +1313,19 @@ fi
 # sized for the legacy app and many agents at once. A cold cmux-next tagged
 # build (2026-09-29, tag nxpipe) left 5.8 GiB of DerivedData and lowered
 # free space by at most 10.6 GiB while it ran, so cmux-next reloads use their
-# own floor, CMUX_NEXT_MIN_FREE_GIB (default 40 GiB, about 4x that peak), and
-# lift the guard's floor only for this build.
-cmux_next_min_free_gib="${CMUX_NEXT_MIN_FREE_GIB:-40}"
+# own floor, CMUX_NEXT_MIN_FREE_GIB, and lift the guard's floor only for this
+# build. Its default (40 GiB, about 4x that peak) is the one number in
+# cmux-next/tour-requirements.json, so the runners that take tours read the
+# same floor instead of copying it.
+cmux_next_requirements="$SCRIPT_DIR/cmux-next/tour-requirements.json"
+cmux_next_default_min_free_gib="$(python3 -c '
+import json, sys
+value = json.load(open(sys.argv[1]))["min_free_gib"]
+if type(value) is not int or value <= 0:
+    raise SystemExit(1)
+print(value)' "$cmux_next_requirements" 2>/dev/null)" \
+  || { echo "error: $cmux_next_requirements must hold a positive whole number of GiB as min_free_gib" >&2; exit 1; }
+cmux_next_min_free_gib="${CMUX_NEXT_MIN_FREE_GIB:-$cmux_next_default_min_free_gib}"
 [[ "$cmux_next_min_free_gib" =~ ^[0-9]+$ ]] \
   || { echo "error: CMUX_NEXT_MIN_FREE_GIB must be a whole number of GiB" >&2; exit 1; }
 cmux_next_free_gib="$(df -Pk "$HOME" | awk 'NR==2{print int($4/1048576)}')"
@@ -1381,6 +1398,25 @@ if [[ -z "${CMUX_NEXT_OPTCHAT_CHIEF_BIN:-}" && -x "$PWD/scripts/cmux-next/build-
   fi
 fi
 [[ -n "${CMUX_NEXT_OPTCHAT_CHIEF_BIN:-}" ]] && echo "==> cmux-next: bundling optchat-chief from $CMUX_NEXT_OPTCHAT_CHIEF_BIN"
+
+# The cmux mobile iPhone host (cmux-next-ios/rust/crates/cmux-mobile-host), which Settings >
+# Mobile runs. Same rule as optchat-chief: fleet and CI builds
+# compile it on a miss and require it; a local reload bundles a cached build
+# when one exists and otherwise builds an app whose iPhone section says it is
+# unavailable (never Cargo on the developer Mac).
+if [[ "$BUILD_CONFIGURATION" == "Release" ]]; then
+  export CMUX_NEXT_MOBILE_HOST_ARCHS="${CMUX_NEXT_MOBILE_HOST_ARCHS:-arm64 x86_64}"
+fi
+if [[ -z "${CMUX_NEXT_MOBILE_HOST_BIN:-}" && -x "$PWD/scripts/cmux-next/build-mobile-host.sh" ]]; then
+  if cmux_mobile_host_cached="$("$PWD/scripts/cmux-next/build-mobile-host.sh" --cached-only --print-path 2>/dev/null)"; then
+    export CMUX_NEXT_MOBILE_HOST_BIN="$cmux_mobile_host_cached"
+  elif "$PWD/scripts/cmux-next/build-mobile-host.sh" --check-build-allowed; then
+    "$PWD/scripts/cmux-next/build-mobile-host.sh" || exit 1
+    export CMUX_NEXT_MOBILE_HOST_BIN="$("$PWD/scripts/cmux-next/build-mobile-host.sh" --cached-only --print-path)"
+    export CMUX_NEXT_REQUIRE_MOBILE_HOST=1
+  fi
+fi
+[[ -n "${CMUX_NEXT_MOBILE_HOST_BIN:-}" ]] && echo "==> cmux-next: bundling cmux-mobile-host from $CMUX_NEXT_MOBILE_HOST_BIN"
 
 # The web bundles (agent pane, pages, Agent Activity, palette ranker, webviews
 # app) are build output, not committed: they are built from the sources before
@@ -1597,6 +1633,15 @@ if [[ -z "$TAG" ]]; then
   )
 fi
 XCODEBUILD_ARGS+=(PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID")
+# The cmux-next version (cmux-tui/Cargo.toml [workspace.package]) is the app's
+# CFBundleShortVersionString too, so the About window, crash reports and the
+# bundled `cmux --version` agree (check-version-surfaces.sh below). The
+# project's MARKETING_VERSION is classic's, merged from main.
+CMUX_NEXT_VERSION="$(python3 "$SCRIPT_DIR/ci/nightly_version.py" next-base --root "$SCRIPT_DIR/..")" || {
+  echo "error: cannot read the cmux-next version from cmux-tui/Cargo.toml" >&2
+  exit 1
+}
+XCODEBUILD_ARGS+=(MARKETING_VERSION="$CMUX_NEXT_VERSION")
 if [[ "$BUILD_CONFIGURATION" == Release ]]; then
   XCODEBUILD_ARGS+=(CODE_SIGN_ENTITLEMENTS=)
 fi

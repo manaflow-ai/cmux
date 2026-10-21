@@ -45,6 +45,12 @@ extension WebKitTab: WKNavigationDelegate {
         // A local Markdown file shows in cmux's markdown page, not as text (LocalFileHandoff).
         if navigationAction.targetFrame?.isMainFrame ?? true, url.isHandedOff(by: .webkit) { emit(.openLocalFile(url)); return decisionHandler(.cancel, preferences) }
         if cancelsFormResubmission(navigationAction, decisionHandler: { decisionHandler(.cancel, preferences) }) { return }
+        // The organization's URLBlocklist (Chrome policy) holds for every frame; a main frame shows why.
+        if let engine, engine.urlFilter.blocks(url) {
+            decisionHandler(.cancel, preferences)
+            if navigationAction.targetFrame?.isMainFrame ?? true { engine.showBlockedByOrganization(url, in: self) }
+            return
+        }
         applySiteSettings(to: preferences, for: navigationAction)
         guard navigationAction.targetFrame?.isMainFrame ?? true, let engine else { return decisionHandler(.allow, preferences) }
         navigationSourceSite = pageSite
@@ -90,6 +96,7 @@ extension WebKitTab: WKNavigationDelegate {
     public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation?) {
         restored.navigationCommitted(url: webView.url)
         formResubmissionCommitted()
+        pageDidCommit()
         guard let id = navigationID(for: navigation, creating: false) else { return }
         apply(.committed(id, url: webView.url))
         pageInfoActivity.documentCommitted(origin: webView.url.flatMap(PageInfoSite.origin(of:)))
@@ -111,21 +118,42 @@ extension WebKitTab: WKNavigationDelegate {
     }
 
     public func webView(_ webView: WKWebView, didFail navigation: WKNavigation?, withError error: any Error) {
+        let failure = BrowserLoadError(error)
+        // The committed document stopped loading: it keeps the page area, so
+        // WebKit draws its background again (`pageDidCommit`). A cancellation
+        // is a newer navigation taking this one's place, and that one's commit
+        // decides: handing the page area back here would draw white over a
+        // document that has not painted yet. `stop()` settles its own case.
+        if !failure.isBenignInterruption { pageDidFinish() }
         guard let id = navigationID(for: navigation, creating: false) else { return }
         forgetNavigation(navigation)
-        apply(.failed(id, BrowserLoadError(error)))
+        apply(.failed(id, failure))
     }
 
     public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation?, withError error: any Error) {
         restored.navigationCommitted(url: nil)  // a saved entry that failed to load is no longer loading
         formResubmissionFailed()
+        let failure = BrowserLoadError(error)
+        // Nothing is going to commit, so whatever is on screen keeps the page
+        // area; without this a document that committed but never finished
+        // keeps no background for good (`WebKitTab+LoadingBackground`). A
+        // benign interruption is a newer navigation taking this one's place,
+        // and that one's commit decides, as in `didFail`.
+        if !failure.isBenignInterruption { pageDidFinish() }
         guard let id = navigationID(for: navigation, creating: false) else { return }
         forgetNavigation(navigation)
-        apply(.failed(id, BrowserLoadError(error)))
+        apply(.failed(id, failure))
     }
 
     /// WebKit gives no reason; the sad tab says the page crashed.
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        // No commit or finish is coming, so the page area goes back to
+        // WebKit's own background rather than keeping none for good.
+        // Unconditionally, not through `pageDidFinish`: a crash can leave
+        // `webView.url` nil, which that one reads as a blank page and skips,
+        // putting the tab back in the stuck state this is here to prevent.
+        pageBaseHold.cancel()
+        setDrawsPageBackground(true)
         apply(.processExited(BrowserProcessExit(reason: .crashed)))
     }
 

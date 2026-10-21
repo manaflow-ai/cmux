@@ -23,8 +23,8 @@ import Testing
         #expect(window.backdropSelection == nil)
         #expect(app.backdropSelection == Self.work)
 
-        window.pinBackdrop(.selection(.art(.goyaSaturn)))
-        #expect(window.backdropSelection == .art(.goyaSaturn))
+        window.pinBackdrop(.selection(.art(.friedrichForestMoonlight)))
+        #expect(window.backdropSelection == .art(.friedrichForestMoonlight))
 
         window.pinBackdrop(.inherit)
         #expect(window.backdropSelection == Self.work)
@@ -47,13 +47,13 @@ import Testing
         room.show(plain)
         #expect(room.backdropSelection == Self.work)
         room.show(pinned)
-        pinned.pinBackdrop(.selection(.art(.goyaSaturn)))
-        #expect(room.backdropSelection == .art(.goyaSaturn))
+        pinned.pinBackdrop(.selection(.art(.friedrichForestMoonlight)))
+        #expect(room.backdropSelection == .art(.friedrichForestMoonlight))
     }
 
-    /// A workspace's own Opacity over art: its window draws that tint, a top page the work's own,
-    /// and the legibility floor still keeps text readable however low it goes.
-    @Test func aWorkspacesOpacityTintsItsArtAndKeepsTextLegible() {
+    /// A workspace's own Opacity over art: its window draws exactly that tint, however low, and a
+    /// top page the window's.
+    @Test func aWorkspacesOpacityTintsItsArt() {
         let room = ThemeScope(level: .room)
         let workspace = ThemeScope(level: .workspace, parent: room)
         workspace.pinBackdropTint(0.8)
@@ -71,9 +71,9 @@ import Testing
         let own = WindowBackdrop(tokens, selection: Self.work)
         let dense = WindowBackdrop(tokens, selection: Self.work, tintOpacity: 0.9)
         let clear = WindowBackdrop(tokens, selection: Self.work, tintOpacity: 0)
-        #expect(dense.tintOpacity == max(0.9, dense.legibleTintOpacity))
+        #expect(dense.tintOpacity == 0.9)
         #expect(dense.tintOpacity >= own.tintOpacity)
-        #expect(clear.tintOpacity == clear.legibleTintOpacity)
+        #expect(clear.tintOpacity == 0)
         #expect(!WindowBackdrop(tokens, selection: Self.work, tintOpacity: 1).isOpaque)
         // Without art the window's own opacity stands.
         #expect(WindowBackdrop(tokens, tintOpacity: 0.3) == WindowBackdrop(tokens))
@@ -111,6 +111,8 @@ import Testing
         #expect(WorkspaceBackgroundStore.pin("daily", now: now) == .selection(.art(.daily(on: now))))
         #expect(WorkspaceBackgroundStore.pin(Self.work.id, now: now) == .selection(Self.work))
         #expect(WorkspaceBackgroundStore.pin("__gone__", now: now) == .inherit)
+        // A workspace pinned to a work since removed from the set follows the app's background.
+        #expect(WorkspaceBackgroundStore.pin("goya-saturn", now: now) == .inherit)
     }
 
     /// The picker's This Workspace choice: read, preview, end, save, clear; refused without a

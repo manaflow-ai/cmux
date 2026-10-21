@@ -7,13 +7,16 @@ extension SidebarListViewComponents {
     typealias Press = SidebarPress
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func mouseDown(with event: NSEvent) {
+        // A drag or press whose release never came here (the app or window lost focus mid-drag, a menu took the
+        // mouse-up) ends now: its rows come back where they were, and this press starts clean.
+        endPointerGesture()
         hoverCards.dismiss(.click)
         if inlineRename.isActive { inlineRename.end(commit: true) }
         // A click in the list closes the group editor, like a click outside it.
         if groupEditor.isVisible { groupEditor.hide() }
         window?.makeFirstResponder(self)
         let point = convert(event.locationInWindow, from: nil)
-        guard let row = displayed.row(at: point.y) else {
+        guard let row = clickHit(at: point) else {
             press = nil
             // Empty space: a double-click makes a workspace there.
             if event.clickCount == 2, event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty,
@@ -45,6 +48,10 @@ extension SidebarListViewComponents {
                 // Keep the multi-selection so it can be dragged; collapse it
                 // on mouse-up if no drag happens.
                 press.deferredClick = id
+            } else if SidebarTunables.multiView.value {
+                // Multi-view (Leo, item D): a press selects nothing; the release on this row navigates, a drag
+                // moves the row and leaves the shown workspace where it is.
+                press.clickOnRelease = id
             } else {
                 model.click(id)
             }
@@ -53,16 +60,14 @@ extension SidebarListViewComponents {
         case let .group(group):
             // Arrow keys continue from this group; the ring is for keyboard focus only (cx-qno.17).
             SidebarGroupKeys(list: self).setFocus(group, ring: false)
-            // Every click toggles, also fast ones (cx-q5jw): the bar collapses or expands, and the
-            // chip opens its editor or, when this click's mouse-down closed it, leaves it closed.
+            // Every click toggles, also fast ones (cx-q5jw): the bar collapses or expands.
         case let .tab(workspace, tab):
             // Selected at once; the press stays so a drag can take the tab.
             model.send(.selectTab(workspace: workspace, tab: tab))
         case let .item(item):
             SidebarGroupKeys(list: self).setFocus(nil)
-            // An item that only changes the view (Home, the App Store, a pinned workspace, tab or space:
-            // `LayoutItemRef.activatesOnPress`) switches at once, as a workspace row does; the press can still drag
-            // the row. Any other item runs on mouse-up (as a band item), so a press meant as a move never runs it.
+            // An item opens at once, as a workspace row does (`LayoutItemRef.activatesOnPress`); the press can
+            // still drag the row. A new-tab launcher runs on mouse-up, so a press meant as a move makes no tab.
             let id = LayoutItemID(item)
             if model.listedItem(id)?.ref.activatesOnPress == true {
                 press.activatedOnPress = true
@@ -80,7 +85,7 @@ extension SidebarListViewComponents {
         }
         if drag == nil {
             let point = convert(event.locationInWindow, from: nil)
-            guard hypot(point.x - press.point.x, point.y - press.point.y) >= SidebarStyle.dragThreshold,
+            guard SidebarPress.movedPastThreshold(from: press.point, to: point),
                   !model.locksReorder else { return }
             beginDrag(press)
             guard drag != nil else { return }
@@ -93,24 +98,42 @@ extension SidebarListViewComponents {
             finishDrag()
             return
         }
-        guard let press, !press.cancelled else { return }
+        guard let press, !press.cancelled else { return syncRowStates() }
+        // A press on one row of a multi-selection that did not drag is a click on that row, wherever the pointer
+        // came up: a release a few points off, over the next row, left the whole selection filled (and the next
+        // drag lifted every selected row out of its group).
+        if let id = press.deferredClick {
+            let (oldItem, oldSelection) = (model.selectedItem, model.selection)
+            model.click(id)
+            if !patchSelection(from: oldItem, oldSelection: oldSelection) { reload(animated: true) }
+            return syncRowStates()
+        }
         let point = convert(event.locationInWindow, from: nil)
-        guard displayed.row(at: point.y)?.key == press.key else { return }
+        guard clickHit(at: point)?.key == press.key else { return syncRowStates() }
         switch press.key {
+        case let .workspace(id) where press.clickOnRelease == id:
+            let (oldItem, oldSelection) = (model.selectedItem, model.selection)
+            model.click(id)
+            if !patchSelection(from: oldItem, oldSelection: oldSelection) { reload(animated: true) }
+            return syncRowStates()
         case .workspace:
-            if let id = press.deferredClick { model.click(id) }
+            // Mouse-down drew the click on the old and new rows (`patchSelection`) and moved no row: no layout here
+            // (u2455: every click laid the whole list out and configured every row).
+            return syncRowStates()
         case .tab:
             break
         case let .group(group):
             // An empty saved group reopens; any other group toggles.
             if let g = model.group(group), g.isPinned, g.workspaces.isEmpty, g.items.isEmpty {
                 model.send(.openGroup(group))
-            } else if groupEditing.isOnChip(point, group: group) {
-                // The chip opens the group editor (cx-rcby); its chevron and
-                // the rest of the row toggle at once.
-                return groupEditing.open(group)
             } else {
+                // Lawrence 2026-10-20: a plain click anywhere on the header only collapses or
+                // expands it; the more button and a right-click open the editor and the menu.
+                // The fold draws itself (`foldGroup`, the group's rows only): no list reload after it. It is the
+                // user's own change, so it moves on the spring (calm-sidebar-movement).
+                model.noteUserIntent()
                 model.send(.toggleCollapse(.group(group)))
+                return
             }
         case let .section(section):
             model.send(.toggleCollapse(.section(section)))
@@ -134,6 +157,8 @@ extension SidebarListViewComponents {
         if event.keyCode == 120, flags.isEmpty, let active = model.activeWorkspaceID { return inlineRename.begin(.workspace(active)) }
         if event.keyCode == 53 { // Escape
             if drag != nil { return cancelDrag() }
+            // A held press that has not dragged yet: its release clicks nothing (`endPointerGesture`).
+            if press != nil { return endPointerGesture() }
             if !model.filterText.isEmpty {
                 model.filterText = ""
                 reload(animated: true)

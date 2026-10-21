@@ -8,13 +8,15 @@
 //! render it in place.
 //!
 //! Invariant: a screen with columns always keeps at least one scrolling
-//! column. `set-column-dock` refuses a change that would break it, and
-//! `normalize_dock_columns` (model/layout_columns.rs) restores it after a removal.
+//! column, except a lone pinned column (`pinned-dock-alone-v1`: Home's dock
+//! with nothing beside it). `set-column-dock` refuses a change that would
+//! break it, and `normalize_dock_columns` (model/layout_columns.rs) restores
+//! it after a removal.
 
 use super::*;
 use crate::model::{
     ColumnDock, DockEdge, DockMode, DockRole, LayoutColumn, LayoutMutationKey, LayoutResizeOwner,
-    dock_columns_are_consistent, dock_flags_are_consistent,
+    dock_columns_are_consistent, dock_flags_are_consistent, flags_are_lone_pinned,
 };
 
 /// `reason_code` / `error_code` of every refusal that would undock, move,
@@ -214,7 +216,9 @@ pub(crate) fn reduce_column_dock(
         }
     }
     next[index] = dock;
-    if next.iter().all(Option::is_some) {
+    // `pinned-dock-alone-v1`: a lone pinned column (Home with nothing beside it) needs no
+    // scrolling column.
+    if next.iter().all(Option::is_some) && !flags_are_lone_pinned(&next) {
         return Err(ColumnDockError::LastScrollingColumn);
     }
     debug_assert!(dock_flags_are_consistent(&next));
@@ -430,16 +434,29 @@ pub(crate) fn ensure_permanent_columns_kept(
 }
 
 /// The close planner's guard: the projected state of a close, or the
-/// refusal when the close would remove a permanent column. A terminal that
-/// exited still closes, and closing the whole workspace is no removal.
+/// refusal when the close would remove a permanent column or break a pinned
+/// one. A terminal that exited still closes, and closing the whole workspace
+/// (or its last screen) is no removal; a tab or pane close that empties the
+/// workspace still may not take a pinned tab with it.
+///
+/// `operation` is the single close whose rule applies; `name` is the
+/// operation the refusal names. A batch close (`close-tabs`, `layout.bulk`,
+/// a stash) passes the single close it stands for, so every close path keeps
+/// one rule.
 pub(crate) fn close_keeping_permanent(
     operation: ResourceOperation,
+    name: &str,
     before: &State,
     after: State,
 ) -> anyhow::Result<State> {
     if !matches!(operation, ResourceOperation::TerminalClose | ResourceOperation::WorkspaceClose) {
-        ensure_permanent_columns_kept(operation.wire_name(), &permanent_columns(before), &after)?;
-        ensure_pinned_columns_kept(operation.wire_name(), &pinned_columns(before), &after)?;
+        ensure_permanent_columns_kept(name, &permanent_columns(before), &after)?;
+        let pinned = pinned_columns(before);
+        if matches!(operation, ResourceOperation::TabClose | ResourceOperation::PaneClose) {
+            ensure_pinned_tabs_not_closed(name, &pinned, &after)?;
+        } else {
+            ensure_pinned_columns_kept(name, &pinned, &after)?;
+        }
     }
     Ok(after)
 }

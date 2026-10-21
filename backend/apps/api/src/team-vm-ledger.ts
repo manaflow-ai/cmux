@@ -1,4 +1,6 @@
 import type { SqlStore } from "@cmux/ownership"
+import type { CloudTransport } from "./cloud-vm-api-config.ts"
+import type { TeamVmCreateSpec } from "./team-vm-api-config.ts"
 
 /**
  * The team VM ledger (decision TVM-LEDGER by a9, 2026-10-04): one durable row per provider VM this
@@ -14,6 +16,7 @@ import type { SqlStore } from "@cmux/ownership"
 export type LedgerState = "unconfirmed" | "confirmed" | "backfilled" | "absent" | "deleted"
 
 export interface LedgerRow {
+  readonly transport?: CloudTransport
   readonly name: string
   readonly provider_id: string | null
   readonly env: string
@@ -25,13 +28,19 @@ export interface LedgerRow {
   readonly deleted_at: number | null
 }
 
-const COLUMNS = "name, provider_id, env, team, epoch, created_by, created_at, state, deleted_at"
+const COLUMNS = "name, provider_id, env, team, epoch, created_by, created_at, state, deleted_at, transport"
+/** Safely inside the VM API's 24-hour idempotency retention window. */
+const API_RECOVERY_MS = 23 * 60 * 60_000
 
 export class TeamVmLedger {
   constructor(private readonly sql: SqlStore) {
     sql.exec(
       `CREATE TABLE IF NOT EXISTS team_vm_ledger (name TEXT PRIMARY KEY, provider_id TEXT UNIQUE, env TEXT NOT NULL, team TEXT NOT NULL, epoch INTEGER NOT NULL, created_by TEXT NOT NULL, created_at INTEGER NOT NULL, state TEXT NOT NULL, deleted_at INTEGER)`
     )
+    const columns = new Set(sql.exec<{ name: string }>(`PRAGMA table_info(team_vm_ledger)`).map((c) => c.name))
+    for (const [name, definition] of [["transport", "TEXT NOT NULL DEFAULT 'direct'"], ["api_spec", "TEXT"], ["api_sent_key", "TEXT"], ["api_sent_at", "INTEGER"]] as const) {
+      if (!columns.has(name)) sql.exec(`ALTER TABLE team_vm_ledger ADD COLUMN ${name} ${definition}`)
+    }
   }
 
   rows(): LedgerRow[] {
@@ -60,17 +69,35 @@ export class TeamVmLedger {
   }
 
   /** Writes the create intent before the provider call; a name an earlier reconcile found `absent` opens again. */
-  recordIntent(row: { name: string; env: string; team: string; epoch: number; created_by: string; now: number }): void {
+  recordIntent(row: { name: string; env: string; team: string; epoch: number; created_by: string; now: number; transport?: CloudTransport; api_spec?: TeamVmCreateSpec }): void {
     this.sql.exec(
-      `INSERT INTO team_vm_ledger (name, provider_id, env, team, epoch, created_by, created_at, state, deleted_at) VALUES (?, NULL, ?, ?, ?, ?, ?, 'unconfirmed', NULL)
+      `INSERT INTO team_vm_ledger (name, provider_id, env, team, epoch, created_by, created_at, state, deleted_at, transport, api_spec) VALUES (?, NULL, ?, ?, ?, ?, ?, 'unconfirmed', NULL, ?, ?)
        ON CONFLICT (name) DO UPDATE SET state = 'unconfirmed', created_by = excluded.created_by, created_at = excluded.created_at WHERE team_vm_ledger.state = 'absent'`,
       row.name,
       row.env,
       row.team,
       row.epoch,
       row.created_by,
-      row.now
+      row.now,
+      row.transport ?? "direct",
+      row.api_spec ? JSON.stringify(row.api_spec) : null
     )
+  }
+
+  apiCreate(name: string): { api_spec: string | null; api_sent_key: string | null; api_sent_at: number | null } | undefined {
+    return this.sql.exec<{ api_spec: string | null; api_sent_key: string | null; api_sent_at: number | null }>(`SELECT api_spec, api_sent_key, api_sent_at FROM team_vm_ledger WHERE name = ? AND transport = 'vm-api'`, name)[0]
+  }
+
+  /** Commit context and deadline before the POST. Unknown results never reopen a later window. */
+  claimApiSend(name: string, context: string, now: number): boolean {
+    const row = this.byName(name)
+    if (!row || (row.state !== "unconfirmed" && row.state !== "absent")) return false
+    const r = this.apiCreate(name)
+    if (!r || !Number.isSafeInteger(now) || (r.api_sent_key === null) !== (r.api_sent_at === null) ||
+      (r.api_sent_key !== null && r.api_sent_key !== context) || (r.api_sent_at !== null && (!Number.isSafeInteger(r.api_sent_at) || now < r.api_sent_at || now >= r.api_sent_at + API_RECOVERY_MS))) return false
+    this.sql.exec(`UPDATE team_vm_ledger SET api_sent_key = COALESCE(api_sent_key, ?), api_sent_at = COALESCE(api_sent_at, ?) WHERE name = ? AND transport = 'vm-api' AND state IN ('unconfirmed', 'absent')`, context, now, name)
+    const confirmed = this.apiCreate(name)
+    return confirmed?.api_sent_key === context && confirmed.api_sent_at !== null && now < confirmed.api_sent_at + API_RECOVERY_MS
   }
 
   /** The provider answered with the VM's id (the create, or an exact name lookup). */

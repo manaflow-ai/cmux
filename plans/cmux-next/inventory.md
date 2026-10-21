@@ -93,7 +93,7 @@ Registry rule for the new palette: one row below = one registered action with a 
 | splitDown | Split Down | ⇧⌘D | PKMC | KSS:166, CV:8581, GTV:9283 |
 | newPaneAutoLayout | New Pane (Auto Layout) | ⌃⌘N | PKM | KSS:166, ContentView+PaneResizeCommands:21 |
 | toggleSplitZoom | Toggle Pane Zoom | ⇧⌘↩ | PKC | KSS:166, CV:8614, TIV |
-| equalizeSplits | Equalize Splits | ⌃⇧⌘= | PKM | KSS:170 |
+| equalizeSplits | Equalize Splits | ⌃⌘= (next; classic ⌃⇧⌘=) | PKM | KSS:170 |
 | resizePaneLeft/Right/Up/Down | Resize Pane | ⌃⇧H/L/K/J or ⌃⌘←→↑↓ | PKM | KSS:171-174, RSP:117 |
 | focusLeft/Right/Up/Down | Focus Pane | ⌥⌘←→↑↓ or ⌃⌘H/L/K/J | PK | KSS:159-162 |
 | focusPreviousPane / focusNextPane | Focus Previous / Next Pane | — | PK | KSS:163-164 |
@@ -208,7 +208,7 @@ Registry rule for the new palette: one row below = one registered action with a 
 | palette.newAgentChat | New agent chat | ⌘I | P | ContentView+AgentChatCommandPalette:31 |
 | palette.openTerminalChatView | Open terminal as chat | — | P | :37 |
 | palette.launchClaudeTeams / launchCodexTeams | Claude / Codex Teams | — | P | :88 |
-| palette.forkAgentConversation{Right,Left,Top,Bottom,NewTab,NewWorkspace} | Fork Conversation To ▸ | — | PC | CV:8509, GhosttyNSView+ForkConversationContextMenu:288 |
+| palette.forkAgentConversation{Right,Left,Top,Bottom,NewTab,NewWorkspace,NewWindow} | Fork Conversation To ▸ (terminals and agent chats; Right: ⌥⌘Y) | — | PC | CV:8509, GhosttyNSView+ForkConversationContextMenu:288 |
 | palette.computerUse.* | Computer Use Setup / Accessibility / Screen Recording | — | P | ContentView+ComputerUseCommandPalette:5 |
 | (status menu) | Focus Computer Use / Calling Terminal / Stop Using <App> | — | M | ComputerUseMenuBarController:12 |
 

@@ -116,6 +116,7 @@ pub(super) fn set_workspace_metadata(
         title,
         pinned,
         marked_unread,
+        ..Default::default()
     };
     let result = mux.set_workspace_metadata(
         workspace,

@@ -170,14 +170,18 @@ public final class BusyWatchdog: Sendable {
         }
     }
 
-    private func mainCPUNanos() -> UInt64 {
-        guard let thread = mainThread.withLock({ $0 }) else { return 0 }
+    private func mainCPUNanos() -> UInt64 { mainThreadCPUNanos() ?? 0 }
+
+    /// The watched thread's CPU time (user + system), from any thread; nil
+    /// before ``watchCurrentThread()`` or when `thread_info` fails.
+    func mainThreadCPUNanos() -> UInt64? {
+        guard let thread = mainThread.withLock({ $0 }) else { return nil }
         var info = thread_basic_info()
         var count = mach_msg_type_number_t(MemoryLayout<thread_basic_info>.size / MemoryLayout<natural_t>.size)
         let result = withUnsafeMutablePointer(to: &info) {
             $0.withMemoryRebound(to: integer_t.self, capacity: Int(clamping: count)) { thread_info(thread, thread_flavor_t(THREAD_BASIC_INFO), $0, &count) }
         }
-        guard result == KERN_SUCCESS else { return 0 }
+        guard result == KERN_SUCCESS else { return nil }
         let user = UInt64(clamping: info.user_time.seconds) * 1_000_000_000 + UInt64(clamping: info.user_time.microseconds) * 1_000
         let system = UInt64(clamping: info.system_time.seconds) * 1_000_000_000 + UInt64(clamping: info.system_time.microseconds) * 1_000
         return user + system

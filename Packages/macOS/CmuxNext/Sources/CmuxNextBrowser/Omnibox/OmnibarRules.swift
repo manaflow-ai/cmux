@@ -27,6 +27,20 @@ public nonisolated enum OmnibarRules {
         return nil
     }
 
+    /// The Control-Enter URL for `typed`: `www.` and `.com` around a host
+    /// that has no dot (`example`, `google/maps`, `www.example`), nil for
+    /// anything else (a scheme, a port, spaces, a host with a TLD).
+    public static func desiredTLDURL(for typed: String, resolver: BrowserURLResolver) -> URL? {
+        let text = typed.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty, !text.contains(where: \.isWhitespace), !text.contains(":") else { return nil }
+        let hostEnd = text.firstIndex { "/?#".contains($0) } ?? text.endIndex
+        var host = String(text[..<hostEnd]).lowercased()
+        if host.hasPrefix("www.") { host.removeFirst(4) }
+        guard !host.isEmpty, !host.contains("."), !host.contains("@"),
+              host.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" }) else { return nil }
+        return resolver.url(for: "www.\(host).com" + text[hostEnd...])
+    }
+
     /// Pasted text on one line: every line break becomes a space, so UTF-16
     /// offsets (and the caret) stay where they were.
     public static func singleLine(_ text: String) -> String {
@@ -52,6 +66,14 @@ public nonisolated enum OmnibarRules {
         let full = url.absoluteString
         forms.append(full.hasSuffix("/") && url.path() == "/" ? String(full.dropLast()) : full)
         return forms.filter { !$0.isEmpty }
+    }
+
+    /// `url` is the https upgrade of scheme-less typed `text`: the text
+    /// names no scheme and resolves to this https URL by itself.
+    static func isHTTPSUpgrade(of text: String, to url: URL, resolver: BrowserURLResolver) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        guard url.scheme?.lowercased() == "https", !trimmed.contains("://") else { return false }
+        return resolver.url(for: trimmed) == url
     }
 }
 

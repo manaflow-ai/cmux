@@ -3,17 +3,25 @@
 //! and the client verbs that find and dial such hosts.
 //!
 //! `cmux host enable|disable|status|serve|allow|deny|list|dial`, on macOS,
-//! Linux and Windows. `cmux host status` on a cmux Cloud machine (its
+//! Linux and Windows. `cmux host ticket|join` (Unix) are acpmux's pairing
+//! verbs (`cmux acp host ticket|join`, acpmux `src/pairing/`). `cmux host status` on a cmux Cloud machine (its
 //! supervisor status file exists) stays the supervisor's status; pass
 //! `--remote` there for remote hosting.
 
 mod admit;
+mod audit;
 mod client;
 mod config;
+mod grant;
 mod preface;
 mod serve;
 mod service;
-mod tailnet;
+#[cfg(test)]
+mod teammate_tests;
+
+/// The tailnet CLI wrapper lives in acpmux, which `acpmux host candidates`
+/// also uses.
+use acpmux::tailnet;
 
 use std::path::{Path, PathBuf};
 
@@ -24,12 +32,33 @@ const USAGE: &str = "usage: cmux host enable [--owner LOGIN] [--session NAME] [-
        cmux host disable [--json]
        cmux host status [--json] [--remote]
        cmux host allow LOGIN | deny LOGIN
+       cmux host grant LOGIN [--scope status|agents|shell]... [--json]
+       cmux host revoke LOGIN [--json]
+       cmux host grants [--json]
        cmux host list [--json] [--all] [--port N]
        cmux host dial HOST [--port N]
-       cmux host serve [--dir DIR]";
+       cmux host serve [--dir DIR]
+       cmux host ticket new [--role daemon|client|read-only] [--ttl 15m] [--url WSS_URL] [--label TEXT] [--json]
+       cmux host ticket ls [--json] | ticket revoke ID [--json]
+       cmux host join TICKET [--name NAME] [--peer-name NAME] [--advertise WSS_URL] [--serve] [--json]";
 
-const VERBS: &[&str] =
-    &["enable", "disable", "serve", "serve-detached", "allow", "deny", "list", "dial"];
+const VERBS: &[&str] = &[
+    "enable",
+    "disable",
+    "serve",
+    "serve-detached",
+    "allow",
+    "deny",
+    "list",
+    "dial",
+    "grant",
+    "revoke",
+    "grants",
+];
+
+/// Pairing verbs, forwarded to acpmux (`cmux acp host …`), which runs in
+/// this process on Unix only.
+const PAIRING_VERBS: &[&str] = &["ticket", "join"];
 
 /// Whether `cmux host <rest>` is a remote hosting verb (the other `host`
 /// verbs belong to the machine supervisor, crate `cmux-host`).
@@ -40,6 +69,7 @@ pub(crate) fn handles(raw_args: &[String]) -> bool {
     let rest = &raw_args[1..];
     match rest.first().map(String::as_str) {
         Some(verb) if VERBS.contains(&verb) => true,
+        Some(verb) if PAIRING_VERBS.contains(&verb) => cfg!(unix),
         Some("status") => status_is_remote(&rest[1..]),
         _ => false,
     }
@@ -61,7 +91,14 @@ fn status_is_remote(args: &[String]) -> bool {
 pub(crate) fn run(rest: &[String]) -> i32 {
     let verb = rest.first().map(String::as_str).unwrap_or_default();
     let args = &rest[1.min(rest.len())..];
-    let result = match verb {
+    if verb == "dial" {
+        return dial(args);
+    }
+    #[cfg(unix)]
+    if PAIRING_VERBS.contains(&verb) {
+        return pairing(verb, args);
+    }
+    let result = require_safe_host_user(verb).and_then(|()| match verb {
         "enable" => enable(args),
         "disable" => disable(args),
         "status" => status(args),
@@ -73,9 +110,11 @@ pub(crate) fn run(rest: &[String]) -> i32 {
         "allow" => edit_allow(args, true),
         "deny" => edit_allow(args, false),
         "list" => list(args),
-        "dial" => return dial(args),
+        "grant" => grant_access(args),
+        "revoke" => revoke_access(args),
+        "grants" => list_grants(args),
         _ => Err(anyhow!("unknown verb")),
-    };
+    });
     match result {
         Ok(()) => 0,
         Err(e) if e.downcast_ref::<Usage>().is_some() => {
@@ -87,6 +126,57 @@ pub(crate) fn run(rest: &[String]) -> i32 {
             1
         }
     }
+}
+
+/// `cmux host ticket|join …` = `cmux acp host ticket|join …`. `join --serve`
+/// first turns remote hosting on (`cmux host enable`, which needs a signed-in
+/// tailnet and changes nothing in it); its report goes to stderr, so stdout
+/// stays the join's one JSON object, and a failure there never stops the join.
+#[cfg(unix)]
+fn pairing(verb: &str, args: &[String]) -> i32 {
+    let mut rest = args.to_vec();
+    let before = rest.len();
+    rest.retain(|arg| verb != "join" || arg != "--serve");
+    if rest.len() != before {
+        let enabled = self_exe().and_then(|exe| {
+            Ok(std::process::Command::new(exe)
+                .args(["host", "enable"])
+                .stdout(std::process::Stdio::from(std::io::stderr()))
+                .status()?)
+        });
+        match enabled {
+            Ok(status) if status.success() => {}
+            Ok(_) => {
+                eprintln!("cmux host join: remote hosting is not on (see above); joining anyway");
+            }
+            Err(e) => eprintln!("cmux host join: remote hosting is not on ({e:#}); joining anyway"),
+        }
+    }
+    let argv = ["host", verb].into_iter().map(String::from).chain(rest);
+    crate::acp::run_scope("acp", argv.map(std::ffi::OsString::from).collect())
+}
+
+#[cfg(unix)]
+fn require_safe_host_user(verb: &str) -> anyhow::Result<()> {
+    require_safe_host_user_for(verb, cmux_tui_core::platform::effective_uid())
+}
+
+#[cfg(not(unix))]
+fn require_safe_host_user(_verb: &str) -> anyhow::Result<()> {
+    Ok(())
+}
+
+#[cfg(unix)]
+fn require_safe_host_user_for(verb: &str, uid: u32) -> anyhow::Result<()> {
+    // Hosting serves this user's sessions. A privileged listener would hand
+    // root's terminals to the remote owner (for example after `sudo` starts
+    // `serve` directly), so every listener-starting verb shares this guard.
+    if uid == 0 && matches!(verb, "enable" | "serve" | "serve-detached") {
+        bail!(
+            "remote hosting runs as a user, not root: run `cmux host enable` as the user whose sessions to serve"
+        );
+    }
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -224,14 +314,6 @@ fn enable(args: &[String]) -> anyhow::Result<()> {
     if !flags.positional.is_empty() {
         return Err(usage("takes no positional arguments"));
     }
-    // Hosting serves this user's sessions; as root it would hand root's
-    // terminals to the owner (for example after `curl … | sudo sh`).
-    #[cfg(unix)]
-    if cmux_tui_core::platform::effective_uid() == 0 {
-        bail!(
-            "remote hosting runs as a user, not root: run `cmux host enable` as the user whose sessions to serve"
-        );
-    }
     let tailnet = tailnet::Tailnet::locate()?;
     let status = tailnet.status()?;
     if status.backend_state != "Running" {
@@ -353,6 +435,10 @@ fn print_status(
         "dns_name": status.map(|s| s.this.dns_name.clone()),
         "tailnet": status.map(|s| s.backend_state.clone()),
         "addresses": addresses,
+        "teammate_access": config.teammate_access,
+        "grants": config.grants,
+        "teammate_connections": active_guests(),
+        "audit_log": config::dir().ok().map(|d| d.join(audit::FILE).display().to_string()),
         "service": service::describe(),
         "config": config::path().ok().map(|p| p.display().to_string()),
         "log": service::log_path().ok().map(|p| p.display().to_string()),
@@ -384,6 +470,7 @@ fn print_human(value: &Value) {
     if !allow.is_empty() {
         println!("  allowed:  {} (full access)", allow.join(", "));
     }
+    print_teammates(value);
     println!("  session:  {}", text("session"));
     let addrs: Vec<&str> = value["addresses"]
         .as_array()
@@ -447,4 +534,181 @@ fn dial(args: &[String]) -> i32 {
         return 2;
     };
     client::dial(host, port.unwrap_or(config::DEFAULT_PORT))
+}
+
+#[cfg(all(test, unix))]
+mod privilege_tests {
+    #[test]
+    fn root_never_runs_remote_host_listener() {
+        assert!(super::require_safe_host_user_for("enable", 0).is_err());
+        assert!(super::require_safe_host_user_for("serve", 0).is_err());
+        assert!(super::require_safe_host_user_for("serve-detached", 0).is_err());
+        assert!(super::require_safe_host_user_for("status", 0).is_ok());
+        assert!(super::require_safe_host_user_for("serve", 501).is_ok());
+    }
+}
+
+/// Open teammate connections the listener recorded (empty when none or
+/// when the listener is not running).
+fn active_guests() -> Value {
+    if service::running_pid().is_none() {
+        return json!([]);
+    }
+    config::dir()
+        .ok()
+        .and_then(|dir| std::fs::read(dir.join(serve::ACTIVE_FILE)).ok())
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_else(|| json!([]))
+}
+
+fn print_teammates(value: &Value) {
+    let on = value["teammate_access"].as_bool() == Some(true);
+    let grants = value["grants"].as_array().cloned().unwrap_or_default();
+    if !on && grants.is_empty() {
+        return;
+    }
+    println!("  teammate access: {}", if on { "on" } else { "off" });
+    for g in &grants {
+        let scopes: Vec<&str> =
+            g["scopes"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+        let state = if g["revoked_at"].is_string() {
+            "revoked"
+        } else if g["consented_at"].is_string() {
+            "approved"
+        } else {
+            "waiting for approval"
+        };
+        println!("    {} ({}): {state}", g["login"].as_str().unwrap_or("-"), scopes.join(", "));
+    }
+    for c in value["teammate_connections"].as_array().into_iter().flatten() {
+        println!(
+            "  CONNECTED NOW: {} from {} since {} (revoke: cmux host revoke {})",
+            c["login"].as_str().unwrap_or("-"),
+            c["node"].as_str().unwrap_or("-"),
+            c["since"].as_str().unwrap_or("-"),
+            c["login"].as_str().unwrap_or("LOGIN"),
+        );
+    }
+    if let Some(log) = value["audit_log"].as_str() {
+        println!("  audit:    {log}");
+    }
+}
+
+/// `cmux host grant LOGIN [--scope S]...`: a teammate approves scoped
+/// access for an allowlisted login, at a terminal (teammate-access-DESIGN.md 5).
+fn grant_access(args: &[String]) -> anyhow::Result<()> {
+    use std::io::IsTerminal as _;
+    // Scopes repeat, so they are collected before the once-only flag parser.
+    let mut scopes = Vec::new();
+    let mut rest = Vec::new();
+    let mut it = args.iter();
+    while let Some(arg) = it.next() {
+        let value = if arg == "--scope" {
+            Some(it.next().cloned().ok_or_else(|| usage("--scope needs a value"))?)
+        } else {
+            arg.strip_prefix("--scope=").map(str::to_owned)
+        };
+        match value {
+            Some(v) => scopes.push(
+                grant::Scope::parse(&v)
+                    .ok_or_else(|| usage(format!("unknown scope {v} (status, agents, shell)")))?,
+            ),
+            None => rest.push(arg.clone()),
+        }
+    }
+    let flags = Flags::parse(&rest, &[], &["json"])?;
+    let [login] = flags.positional.as_slice() else {
+        return Err(usage("needs exactly one tailnet login"));
+    };
+    let login = login.trim().to_owned();
+    if !grant::on_allowlist(&login) {
+        bail!(
+            "{login} is not on the teammate allowlist ({}); teammate access can only be granted to those logins",
+            grant::TEAMMATE_ALLOWLIST.join(", ")
+        );
+    }
+    if scopes.is_empty() {
+        scopes.push(grant::Scope::Status);
+    }
+    scopes.sort();
+    scopes.dedup();
+    grant::require_interactive(std::io::stdin().is_terminal(), std::io::stderr().is_terminal())?;
+    eprint!("{}\nType yes to allow: ", grant::consent_text(&login, &scopes));
+    let mut answer = String::new();
+    std::io::stdin().read_line(&mut answer)?;
+    if !grant::confirmed(&answer) {
+        bail!("not approved; nothing changed");
+    }
+    let mut config = config::load()?;
+    config.grants.retain(|g| !config::same_login(&g.login, &login));
+    config.grants.push(grant::Grant {
+        login: login.clone(),
+        scopes,
+        consented_at: Some(grant::now_rfc3339()),
+        consented_via: Some("cli-tty".to_owned()),
+        revoked_at: None,
+    });
+    config.teammate_access = true;
+    config::save(&config)?;
+    audit::append(&json!({"decision": "grant", "login": login, "outcome": "approved"}));
+    let mut notes = vec![format!("approved teammate access for {login}")];
+    if !config.enabled {
+        notes.push("remote hosting is off: run `cmux host enable` to start listening".to_owned());
+    }
+    let status = tailnet::Tailnet::locate().and_then(|t| t.status()).ok();
+    print_status(&config, status.as_ref(), flags.has("json"), &notes)
+}
+
+/// `cmux host revoke LOGIN`: ends a teammate grant and closes its open
+/// connections (the listener restarts).
+fn revoke_access(args: &[String]) -> anyhow::Result<()> {
+    let flags = Flags::parse(args, &[], &["json"])?;
+    let [login] = flags.positional.as_slice() else {
+        return Err(usage("needs exactly one tailnet login"));
+    };
+    let login = login.trim();
+    let mut config = config::load()?;
+    let now = grant::now_rfc3339();
+    let mut found = false;
+    for g in config.grants.iter_mut().filter(|g| config::same_login(&g.login, login)) {
+        g.revoked_at.get_or_insert_with(|| now.clone());
+        found = true;
+    }
+    if !found {
+        bail!("{login} has no teammate grant on this machine");
+    }
+    if config.grants.iter().all(|g| g.revoked_at.is_some()) {
+        config.teammate_access = false;
+    }
+    config::save(&config)?;
+    audit::append(&json!({"decision": "revoke", "login": login, "outcome": "revoked"}));
+    let mut notes = vec![format!("revoked teammate access for {login}")];
+    if config.enabled && service::running_pid().is_some() {
+        notes.push(service::restart(&self_exe()?, service::installed())?);
+        notes.push("open connections were closed".to_owned());
+    }
+    let status = tailnet::Tailnet::locate().and_then(|t| t.status()).ok();
+    print_status(&config, status.as_ref(), flags.has("json"), &notes)
+}
+
+fn list_grants(args: &[String]) -> anyhow::Result<()> {
+    let flags = Flags::parse(args, &[], &["json"])?;
+    let config = config::load()?;
+    let value = json!({
+        "teammate_access": config.teammate_access,
+        "grants": config.grants,
+        "teammate_connections": active_guests(),
+        "audit_log": config::dir().ok().map(|d| d.join(audit::FILE).display().to_string()),
+    });
+    if flags.has("json") {
+        println!("{value}");
+    } else if config.grants.is_empty() {
+        println!(
+            "No teammate grants. Teammate access: {}.",
+            if config.teammate_access { "on" } else { "off" }
+        );
+    } else {
+        print_teammates(&value);
+    }
+    Ok(())
 }

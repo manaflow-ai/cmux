@@ -1,15 +1,20 @@
 import AppKit
+import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextAgentActivity
 import CmuxNextAgentPane
 import CmuxNextApps
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextChiefViews
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextFeed
+import CmuxNextFloating
+import CmuxNextHistory
 import CmuxNextHome
 import CmuxNextLayout
+import CmuxNextOnboarding
 import CmuxNextPages
 import CmuxNextPalette
 import CmuxNextServer
@@ -25,10 +30,13 @@ import Foundation
 /// store's validation and the exports agree.
 enum TunableCatalog {
     static var all: [TunableDescriptor] {
+        // The Chief view gallery's toggle (its own line, so the busy list below merges cleanly).
+        ChiefViewsPage.tunables +
         DesignTunables.all + LayoutTunables.all + TabTunables.all + SidebarTunables.all + DragTunables.all
-            + [AgentPaneTunables.sessionRail.descriptor]
+            + [AgentPaneTunables.inspector.descriptor]
             + AgentActivityTunables.all + TasksTunables.all + AppsTunables.all + PageTunables.all + AgentPaneTunables.all + PaletteTunables.all + ServerTunables.all + FeedTunables.all
-            + SettingsPresentation.tunables + NewTabTunables.all + WhatsNewTunables.all + WorkspaceAutoNameTunables.all + QuickComposerTunables.all + HomeTunables.all + [SidebarToggleIcon.tunable.descriptor]
+            + SettingsPresentation.tunables + NewTabTunables.all + WhatsNewTunables.all + WorkspaceAutoNameTunables.all + QuickComposerTunables.all + HomeTunables.all + [SidebarToggleIcon.tunable.descriptor] + BrowserImportTunables.all + NavigationTunables.all + BrowserResizeTunables.all + BrowserPageTunables.all + AccountTunables.all
+            + TitlebarHistoryTunables.all + HibernationTunables.all
     }
 }
 
@@ -70,6 +78,8 @@ final class DebugSettingsService: InternalPageProvider {
                                bundleID: launch.bundleID, build: launch.build)
         fileURL = url
         store.activate(file: url)
+        // CmuxNextCloud does not see tunables; Release keeps CloudAuth's default (automatic).
+        services.cloud.auth.signInWindow = { .init(rawValue: AccountTunables.signInWindow.value.rawValue) ?? .automatic }
     }
 
     /// `~/Library/Application Support/cmux/<tag or channel>/debug-tunables.json`

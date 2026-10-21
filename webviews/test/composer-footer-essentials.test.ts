@@ -1,13 +1,13 @@
 // Leo, 2026-10-13: the composer's footer still "tells too much". The bar and scope row show what a
 // person acts on and drop what is implied: the model without its vendor (its mark says that), the
-// default access mode as its lock alone, no context ring before anything is used, and this Mac's
+// default access mode as its lock alone, no context reading before anything is used, and this Mac's
 // name off the computer control. A mode that is not the default still says what it is, the folder
 // still reads, and every control keeps its full text in its title and its accessible text.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("composer-footer-essentials.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -24,7 +24,7 @@ await requireBrowserLane("composer-footer-essentials.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
   const url = (entry: string, variant: string) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=${entry}&variant=${variant}`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(entry, { variant })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -34,8 +34,8 @@ await requireBrowserLane("composer-footer-essentials.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
+    await warmGalleryFrame(vite, ["agent-pane.composer", "agent-pane.composer-context"], { browser });
   });
 
   afterAll(async () => {
@@ -85,7 +85,14 @@ await requireBrowserLane("composer-footer-essentials.test.ts", async () => {
     // shield); its full text stays in the title and the accessible text.
     expect(access?.title).toContain("Default");
     expect(access?.text).toContain("Default");
-    expect(await page.locator(".acpmux-context").count()).toBe(0);
+    // No usage before anything is used: Claude Code's split keeps the ring's place in the quiet
+    // row from the first frame (hq#1957, the composer holds still), but it draws only its track,
+    // never a share.
+    const rings = await page.$$eval(".acpmux-context-ring", (buttons) =>
+      buttons.map((button) => button.querySelectorAll("svg circle").length),
+    );
+    expect(rings.length).toBeGreaterThan(0);
+    for (const marks of rings) expect(marks).toBe(1);
     await page.close();
   });
 

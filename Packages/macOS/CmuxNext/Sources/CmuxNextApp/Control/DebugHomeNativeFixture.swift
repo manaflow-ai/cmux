@@ -15,6 +15,8 @@ extension InternalPageID {
 @MainActor
 final class DebugHomeNativeFixture: InternalPageProvider {
     private var fixtures: [String: HomeNativeFixture] = [:]
+    /// The open fixture whose transcript is `view`.
+    func fixture(showing view: HomeNativeTranscriptView) -> HomeNativeFixture? { fixtures.values.first { $0.shows(view) } }
     /// The next page shows the attachment fixture (`{"attachments": true}`).
     var nextAttachments = false
 
@@ -153,6 +155,12 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             guard let key = params["key"]?.stringValue else { return .object(["error": .string("engine_set needs key")]) }
             host.debugPickEngine(key, params["value"]?.stringValue)
             ok = true
+        case "stream":
+            // The fixture's Chief streams `text` (its whole reply so far); `done` posts it (home-width-sweep.py).
+            guard let fixture = (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.fixture(showing: view) else {
+                return .object(["error": .string("stream needs the Home fixture (debug.home_native_fixture.open)")])
+            }
+            ok = fixture.debugStream(params["text"]?.stringValue ?? "", done: params["done"]?.boolValue ?? false)
         case "focus": ok = view.window?.makeFirstResponder(view.primaryInput) ?? false
         case "type":
             guard let field = view.primaryInput as? NSTextView else { return .object(["error": .string("no field")]) }
@@ -185,7 +193,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
         case "scroll": view.debugScroll(by: CGFloat(params["dy"]?.doubleValue ?? -400)); ok = true
         default:
             if let out = view.debugTreeDrive(params["action"]?.stringValue ?? "", params.compactMapValues(\.stringValue)) { return .object(out.mapValues { .string($0) }) }
-            return .object(["error": .string("action must be focus, type, send, tapback, video, scroll, menu, geometry, link, texts, typing, nudge, thread, escape, reply, post_escape, thread_state, reply_text, branch or permalink")])
+            return .object(["error": .string("action must be focus, type, send, stream, tapback, video, scroll, menu, geometry, link, texts, typing, nudge, thread, escape, reply, post_escape, thread_state, reply_text, branch or permalink")])
         }
         return .object(["ok": .bool(ok)])
     }

@@ -20,7 +20,14 @@ leave it queued for good. Workflows
 never name an owned label (tests/test_ci_self_hosted_guard.sh), so it reaches
 runs-on only as this script's output.
 
-Rules, in order: a fork head gets nothing (owned Macs run trusted code only);
+With --paths-file (the changed paths, read on Linux by the route job), a change
+the Mac tour would not capture takes no Mac: no UI paths, or only webview code,
+whose look the gallery advisory run checks in Linux Chromium (path_map.py). A
+missing or unreadable file, or a path map that fails to load, leaves the pick
+as it was, so the tour never skips for want of the paths. --force-mac (the
+`media-tour-mac` label) tours on a Mac whatever changed.
+
+Rules, in order: a change with nothing to tour gets nothing; a fork head gets nothing (owned Macs run trusted code only);
 CI_PR_POOL_OWNED must be 1; the first owned pool class whose gui label has
 machines in CI_OWNED_POOL_SLOTS wins, its session label first.
 
@@ -36,6 +43,37 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pr_runner_pool  # noqa: E402
+
+MEDIA = Path(__file__).resolve().parents[1] / "cmux-next" / "media"
+
+
+def scope_reason(paths: list[str] | None) -> str | None:
+    """Why the change needs no Mac tour, or None when it does (or the paths are unknown)."""
+    if paths is None:
+        return None
+    try:
+        sys.path.insert(0, str(MEDIA))
+        import path_map  # noqa: PLC0415 - a broken map must not fail the route
+        mapping = path_map.map_paths(paths)
+    except Exception as error:  # noqa: BLE001
+        print(f"path map unavailable ({error}); picking a Mac", file=sys.stderr)
+        return None
+    if mapping["is_ui"]:
+        return None
+    if mapping["gallery"]:
+        return (f"only webview code changed ({len(mapping['gallery'])} path(s)), which the gallery advisory "
+                "run checks in Linux Chromium on the pull request (its artifact holds any captures); add the "
+                "media-tour-mac label to tour it on a Mac")
+    return "no UI paths changed"
+
+
+def read_paths(path: Path | None) -> list[str] | None:
+    if path is None:
+        return None
+    try:
+        return path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return None
 
 
 def pick(*, same_repo: bool, owned: str | None, owned_slots: str | None,
@@ -62,13 +100,19 @@ def pick(*, same_repo: bool, owned: str | None, owned_slots: str | None,
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--same-repo", required=True, choices=("true", "false"))
+    parser.add_argument("--paths-file", type=Path, help="newline-delimited changed paths, when known")
+    parser.add_argument("--force-mac", action="store_true", help="tour on a Mac whatever changed")
     args = parser.parse_args(argv)
-    label, reason = pick(
-        same_repo=args.same_repo == "true",
-        owned=os.environ.get("POOL_OWNED"),
-        owned_slots=os.environ.get("OWNED_SLOTS"),
-        pr_xcode_app=os.environ.get("PR_XCODE_APP"),
-    )
+    skip = None if args.force_mac else scope_reason(read_paths(args.paths_file))
+    if skip:
+        label, reason = "", skip
+    else:
+        label, reason = pick(
+            same_repo=args.same_repo == "true",
+            owned=os.environ.get("POOL_OWNED"),
+            owned_slots=os.environ.get("OWNED_SLOTS"),
+            pr_xcode_app=os.environ.get("PR_XCODE_APP"),
+        )
     lines = [f"runs_on={label}", f"reason={reason}"]
     print("\n".join(lines))
     output = os.environ.get("GITHUB_OUTPUT")

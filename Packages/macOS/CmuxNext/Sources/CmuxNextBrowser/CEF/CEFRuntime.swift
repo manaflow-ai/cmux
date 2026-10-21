@@ -45,6 +45,8 @@ final class CEFRuntime {
     var placements = CEFPlacementQueue()
     /// Window requests: decisions, their log and link clicks.
     private(set) lazy var windowRequests = CEFWindowRequests(runtime: self)
+    /// Two-finger Back and Forward swipes over pages (`CEFSwipeNavigation`).
+    private(set) lazy var swipeNavigation = CEFSwipeNavigation(runtime: self)
     /// Opens `url` in a new cmux tab when no Chromium window of its profile
     /// exists (the App sets it; the runtime has no panes of its own).
     var openURLWithoutWindow: ((URL, BrowserNewTabDisposition, BrowserProfileID?) -> Void)?
@@ -98,6 +100,9 @@ final class CEFRuntime {
     private(set) var loadsUnpackedExtensions = false
     /// `browser.builtInAdBlocker`, asked at start (the App supplies it).
     var builtInAdBlockerSetting: @MainActor () -> Bool = { true }
+    /// The managed preference domain Chromium reads Chrome enterprise policies
+    /// from, asked at start (the App supplies it); nil reads none.
+    var chromePolicyIDSetting: @MainActor () -> String? = { nil }
     /// True when this Chromium started with the built-in uBlock Origin.
     private(set) var builtInAdBlockerLoaded = false
     private var terminationObserver: (any NSObjectProtocol)?
@@ -118,6 +123,22 @@ final class CEFRuntime {
         // them.
         OffTheRecordProfiles.shared.observeEnd { [weak self] profile in self?.releaseOffTheRecordContexts(of: profile) }
     }
+
+    /// A runtime over `shim` that never loads or starts Chromium, its profiles under `storage`
+    /// (tests drive panes against a spy shim).
+    init(shim: CEFShimLibrary, storage: CEFProfileStorage) {
+        self.shim = shim
+        self.storage = storage
+        state = .ready
+    }
+
+    /// `cef_log_severity_t` LOGSEVERITY_WARNING for cef.log and every helper.
+    /// At Chromium's default (INFO), each console call of a page or an
+    /// extension that no handler takes became an `INFO:CONSOLE` line in
+    /// cef.log (an idle 1Password extension wrote 32 lines a minute, all
+    /// day). DevTools and the automation console read the inspector
+    /// protocol, not this log; warnings, errors and FATAL lines stay.
+    nonisolated static let logSeverity: Int32 = 3
 
     /// Process start, from the kernel (`kinfo_proc.p_starttime`).
     nonisolated static let launchUptime: Double = {
@@ -226,14 +247,24 @@ final class CEFRuntime {
             let started = clock.now
             try CEFStartSteps.shared.initialize { () throws(BootError) in try initialize(library, environment: environment) }
             state = .ready
-            CEFStartSteps.shared.timed("ready_hooks") { startChildMonitor(); windowGuard.start(); onReady?() }
+            CEFStartSteps.shared.timed("ready_hooks") {
+                startChildMonitor(); windowGuard.start(); ChromiumPageWindowMain.install(); onReady?()
+            }
             self.trigger = trigger
             loadDuration = library.loadDuration
             initializeDuration = clock.now - started
             readyAfterLaunch = ProcessInfo.processInfo.systemUptime - Self.launchUptime
-            logger.notice("CEF ready trigger=\(trigger, privacy: .public) shim_abi=\(CEFShimABI.short(library.shimABI), privacy: .public) fork_api=\(library.shim.forkAPIVersion()) load=\(library.loadDuration, privacy: .public) initialize=\(clock.now - started, privacy: .public)")
+            logger.notice("CEF ready trigger=\(trigger, privacy: .public) shim_abi=\(CEFShimABI.short(library.shimABI), privacy: .public) fork_api=\(library.shim.forkAPIVersion()) load=\(library.loadDuration, privacy: .public) map=\(CEFFrameworkPrefetch.last?.map ?? .zero, privacy: .public) initialize=\(clock.now - started, privacy: .public)")
         } catch {
-            let reason = "\(Strings.cefUnavailable) (\(error))"
+            // A trust failure names the rejected item in the log, but the
+            // user-facing refusal stays the existing localized summary.
+            let untrusted: Bool
+            if case .untrusted = error {
+                untrusted = true
+            } else {
+                untrusted = false
+            }
+            let reason = untrusted ? Strings.cefUnavailable : "\(Strings.cefUnavailable) (\(error))"
             logger.error("CEF start failed: \(String(describing: error), privacy: .public)")
             state = .failed(reason)
             onStartFailed?()
@@ -243,6 +274,7 @@ final class CEFRuntime {
 
     enum BootError: Error, CustomStringConvertible {
         case notEmbedded
+        case untrusted(String)
         case shim(CEFShimLibrary.LoadError)
         case framework(String)
         /// NSApp is not a CefAppProtocol NSApplication subclass.
@@ -252,6 +284,7 @@ final class CEFRuntime {
         var description: String {
             switch self {
             case .notEmbedded: "runtime not embedded"
+            case .untrusted(let item): "runtime signature: \(item)"
             case .shim(let error): "shim: \(error)"
             case .framework(let message): message
             case .application: "NSApp does not conform to CefAppProtocol"
@@ -262,18 +295,34 @@ final class CEFRuntime {
 
     /// Maps the shim and the framework (`cef_load_library`, fork API lookup).
     /// Thread-safe: plain `dlopen`/`dlsym`, no Chromium code runs yet.
-    nonisolated static func loadLibrary(_ candidate: CEFRuntimeLayout?) -> Result<CEFLoadedLibrary, BootError> {
+    nonisolated static func loadLibrary(
+        _ candidate: CEFRuntimeLayout?,
+        signatureChecker: (any CEFCodeSignatureChecking)? = nil
+    ) -> Result<CEFLoadedLibrary, BootError> {
         guard let layout = candidate else { return .failure(.notEmbedded) }
+        if case .downloaded(let teamID) = layout.trust {
+            guard let teamID else { return .failure(.untrusted("missing Developer ID team")) }
+            let checker = signatureChecker ?? SecCodeCEFCodeSignatureChecker()
+            if let invalid = checker.invalidItem(in: layout, teamID: teamID) {
+                return .failure(.untrusted(invalid))
+            }
+        }
         let clock = ContinuousClock()
         let started = clock.now
         let shim: CEFShimLibrary
         let shimABI = CEFShimABI.bundledIdentity()
         do { shim = try CEFShimLibrary.open(layout.shim, expected: shimABI) } catch { return .failure(.shim(error)) }
+        // Read the binary before mapping it: `dlopen` holds dyld's loader
+        // lock for the whole map, and every main-thread dlopen/dladdr waits
+        // on that lock (CEFFrameworkPrefetch).
+        CEFFrameworkPrefetch.readBinary(layout)
         var message = [CChar](repeating: 0, count: 512)
+        let mapStarted = clock.now
         guard shim.load(layout.frameworkBinary.path, &message, message.count) == 1 else {
             let text = String(decoding: message.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
             return .failure(.framework(text))
         }
+        CEFFrameworkPrefetch.noteMapped(clock.now - mapStarted)
         CEFFrameworkPrefetch.warm(layout)
         // Lists the framework's locale directories here, off the main thread.
         let locale = CEFLocale.current(frameworkDirectory: layout.frameworkDirectory)
@@ -322,6 +371,11 @@ final class CEFRuntime {
         logger.notice("built-in extensions: \(switchSet.builtInExtensions.count, privacy: .public)")
         loadsUnpackedExtensions = !switchSet.loadExtensions.isEmpty
         shim.setExtensionDeveloperMode(loadsUnpackedExtensions ? 1 : 0)
+        // Chrome enterprise policies (URLBlocklist, ExtensionInstallForcelist, proxy, ...) Chromium enforces itself.
+        if let policyID = chromePolicyIDSetting(), !policyID.isEmpty {
+            policyID.withCString { shim.setChromePolicyID($0) }
+            logger.notice("chrome policy domain: \(policyID, privacy: .public)")
+        }
         // Pages use the theme color, never white or Chromium's #292929
         // (PageBackground); theme changes reach live tabs (fork API 12).
         shim.setBackgroundColor(PageBackground.appThemeARGB)
@@ -331,8 +385,12 @@ final class CEFRuntime {
         // chrome://newtab without an extension override (BrowserNewTabPage).
         shim.setNewTabPageURL(BrowserNewTabPage.blankURL)
         // cmux-page:// first-party pages from their bundled roots (CEFPageSchemes).
-        for (id, entry) in CEFPageSchemes.firstParty where shim.pageSchemeAddFirstParty(id, entry.root.path, entry.csp) != 1 {
-            logger.error("cmux-page \(id, privacy: .public) refused by the shim")
+        for (id, entry) in CEFPageSchemes.firstParty {
+            let added = entry.dynamicPrefixes.isEmpty && entry.entry == "index.html"
+                ? shim.pageSchemeAddFirstParty(id, entry.root.path, entry.csp)
+                : shim.pageSchemeAddFirstPartyDynamic(id, entry.root.path, entry.csp, entry.dynamicPrefixes.joined(separator: "\n"),
+                                                      entry.entry)
+            if added != 1 { logger.error("cmux-page \(id, privacy: .public) refused by the shim") }
         }
         // Google Chrome's native messaging hosts after cmux's own.
         for folder in CEFNativeMessaging.googleChromeFolders(home: FileManager.default.homeDirectoryForCurrentUser) {
@@ -350,7 +408,7 @@ final class CEFRuntime {
             buffer.baseAddress?.withMemoryRebound(to: UnsafePointer<CChar>?.self, capacity: buffer.count) { list in
                 CEFStartSteps.shared.timed("cef_initialize") { shim.initialize(
                     layout.frameworkDirectory.path, layout.mainBundle.path, layout.helperExecutable.path,
-                    storage.root.path, storage.logFile.path, 0, locale.locale, locale.acceptLanguages, list, context,
+                    storage.root.path, storage.logFile.path, Self.logSeverity, locale.locale, locale.acceptLanguages, list, context,
                     cefScheduleCallback, cefEventCallback, cefKeyCallback
                 ) }
             } ?? 0

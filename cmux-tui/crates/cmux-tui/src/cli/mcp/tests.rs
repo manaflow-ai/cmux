@@ -1463,3 +1463,37 @@ fn an_allowlist_lists_only_its_tools_and_refuses_every_other_call() {
     assert_eq!(listed["result"]["tools"], json!([]));
     assert_eq!(allowed_tools(None), None);
 }
+
+/// An agent that asks `cmux_docs` how to show its work to the user gets the
+/// guide that names the tools, although no one tool matches every word.
+#[test]
+fn cmux_docs_answers_a_task_with_its_guide() {
+    let mut server = code_mode_server(Fake::with_actions());
+    let found = call(&mut server, "cmux_docs", json!({"query": "show the user my work"}));
+    let guides = found["structuredContent"]["guides"].as_array().cloned().unwrap_or_default();
+    assert_eq!(guides.len(), 1, "{found}");
+    let text = guides[0]["text"].as_str().unwrap_or_default();
+    assert!(text.contains("app_agent_open") && text.contains("workspace_status_set"), "{text}");
+    let plain = call(&mut server, "cmux_docs", json!({"query": "pane split"}));
+    assert!(plain["structuredContent"].get("guides").is_none(), "{plain}");
+}
+
+/// The tools the acpmux sub-session server's instructions point agents at
+/// (`acpmux::subsession_mcp::CMUX_TOOLS`) stay tools of this server, and the
+/// instructions reach them the way an agent's `cmux mcp serve` does: in
+/// code mode, through a `cmux_exec` script, with `cmux_docs` for arguments.
+#[test]
+fn the_subsession_servers_instructions_name_real_cmux_tools() {
+    let mut server = code_mode_server(Fake::with_actions());
+    let rules = acpmux::subsession_mcp::instructions();
+    assert!(rules.contains("cmux_exec") && rules.contains("cmux_docs"), "{rules}");
+    let names = acpmux::subsession_mcp::CMUX_TOOLS;
+    let found = call(&mut server, "cmux_docs", json!({"names": names}));
+    assert_eq!(found["structuredContent"]["unknown"], json!([]), "{found}");
+    for name in names {
+        assert!(rules.contains(&format!("cmux.{name}(")), "the instructions no longer call {name}");
+    }
+}
+
+#[path = "upstream_tests.rs"]
+mod upstream_tests;

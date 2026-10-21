@@ -181,6 +181,9 @@ impl Mux {
             crate::journal_ingress::JournalIngressSender::new(
                 registry.session_journal_database_path().is_some(),
             );
+        let output_store = crate::output_store::OutputStore::new(
+            registry.session_journal_database_path().as_deref().and_then(Path::parent),
+        );
         Self::rebuild_split_screen_index(&mut state);
         let resource_projection_stats = registry.resource_projection_stats().clone();
         let launch_identity = crate::launch_credential::LaunchIdentity::load(
@@ -323,6 +326,7 @@ impl Mux {
             resource_machine_service: OnceLock::new(),
             journal_kernel,
             journal_ingress,
+            output_store,
             journal_maintenance: Mutex::new(None),
             journal_hook_dispatcher_started: AtomicBool::new(false),
             journal_hook_runtime: Arc::new(crate::journal_hooks::JournalHookRuntime::default()),
@@ -346,6 +350,8 @@ impl Mux {
             agent_cli_job_execution: Mutex::new(()),
             resource_creation_active: AtomicBool::new(false),
             terminal_adoptions: Mutex::new(HashSet::new()),
+            restored_tab_names: Mutex::new(HashMap::new()),
+            startup_adoptions_released: AtomicBool::new(false),
             pending_terminals: Mutex::new(HashMap::new()),
             terminal_ends: Mutex::new(HashMap::new()),
             terminal_loss_causes: Mutex::new(loss_causes::LossCauses::default()),
@@ -409,15 +415,23 @@ impl Mux {
             mux.record_journal_plugin_exit(plugin_id, generation);
         })));
         crate::journal_ingress::start(&mux, journal_ingress_receiver)?;
+        mux.output_store.start(&mux)?;
         mux.materialize_interrupted_resource_workspaces()?;
         mux.materialize_restored_browsers(&contents)?;
+        // Set before adoption: a host that adopts on its own thread names its
+        // surfaces from here (finish_terminal_adoption).
+        mux.restored_tab_names.lock().unwrap_or_else(PoisonError::into_inner).extend(
+            contents.iter().filter_map(|content| Some((content.slot, content.name.clone()?))),
+        );
         #[cfg(any(unix, windows))]
         mux.adopt_terminal_hosts()?;
         {
             let mut state = mux.state.lock().unwrap();
             state.rebuild_resource_indexes();
+            let mut names = mux.restored_tab_names.lock().unwrap_or_else(PoisonError::into_inner);
             for content in &contents {
                 if let Some(surface) = state.surfaces.get(&content.slot) {
+                    names.remove(&content.slot);
                     surface.set_name(content.name.clone());
                 }
             }
@@ -433,6 +447,9 @@ impl Mux {
         }
         let recovery_deadline = Instant::now() + Duration::from_secs(15);
         while mux.reconcile_interrupted_resource_creations()? {
+            // Its terminal may be adopting on a thread that waits for ready,
+            // which comes only after this start returns.
+            mux.startup_adoptions_released.store(true, Ordering::Release);
             if Instant::now() >= recovery_deadline {
                 mux.shutdown();
                 anyhow::bail!("interrupted resource creation did not settle during startup");

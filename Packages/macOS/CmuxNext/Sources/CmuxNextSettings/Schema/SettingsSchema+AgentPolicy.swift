@@ -28,7 +28,8 @@ extension SettingsSchema {
         .union(WorkspaceRowSetting.keys)
         // The diff page's display keys (looks only, diff-host S4).
         .union(DiffViewerSettingsSchema.keys)
-        .union(MarkdownViewerSettingsSchema.keys) // the markdown viewer's text size (looks only)
+        .union(MarkdownViewerSettingsSchema.agentSettableKeys) // the markdown viewer's looks only
+        .union(AgentPaneDisplaySettingsSchema.keys) // the agent chat's fonts, sizes and width (looks only)
         // The code editor's looks and editing behavior (diff-host S7); `editor.importFrom` is the person's.
         .union(EditorSettingsSchema.agentSettableKeys)
         .union(PanePlacementSettingsSchema.agentSettableKeys) // where new panes open (layout choices, like layout.dockColumnMode)
@@ -41,15 +42,17 @@ extension SettingsSchema {
         .union(AgentPaneEditedFilesSettingsSchema.agentSettableKeys)
 .union(["agentPane.zoom"]) // display-only agent surface zoom
         .union(AgentPaneComposerSettingsSchema.agentSettableKeys) // the composer's context ring and mic (looks only)
+        .union(HomeSettingsSchema.agentSettableKeys) // the Chief chat's bubble style (looks only)
 
     private static let agentSettableTable: Set<String> = [
         "window.titlebar",
         "shortcuts.showModifierHoldHints",
         "window.titlebarButtons",
         "tabs.plusButton",
-        "tabs.barPosition", "tabs.barOrder", "tabs.toolbarButtons",
+        "tabs.barPosition", "tabs.barOrder", "tabs.toolbarButtons", "browser.toolbarPosition",
         "navigation.historyScope", "navigation.history.scope",
-        "sidebar.minimalMode", "sidebar.minimal", "sidebar.density", "sidebar.detailedStatusIcons",
+        "sidebar.minimalMode", "sidebar.minimal", "sidebar.density", "sidebar.detailedStatusIcons", "sidebar.showTimestamps",
+        "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount",
         "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps",
         "sidebar.side",
         "sidebar.spacesPosition", "sidebar.spacesVisibility",
@@ -57,6 +60,8 @@ extension SettingsSchema {
         "tabs.newTabPosition",
         "newTerminal.opensWorkspace",
         "tabs.cmdWClosesPinnedTabs",
+        "tabs.terminalFirst",
+        "app.hideDockIconWithoutWindows", // Dock icon and Cmd-Tab entry with no window open; ends no work
         "tabs.overflow",
         "tabs.swapCmdTAndCmdN",
         "palette.scopes.tabs.prefix",
@@ -75,6 +80,8 @@ extension SettingsSchema {
         "layout.dockColumnMode",
         "layout.frameOrientation",
         "layout.rows",
+        "layout.focusFollowsMouse",
+        "layout.scrollAreas",
         "layout.minimumPaneWidth",
         "layout.minimumPaneHeight",
         "appearance.theme",
@@ -84,13 +91,18 @@ extension SettingsSchema {
         "appearance.backdropArt",
         "appearance.backgroundOpacity",
         "appearance.backgroundBlur",
+        "appearance.inactiveWindowDim",
         "appearance.background",
+        "appearance.backgroundRotation",
+        "appearance.paneBackgrounds",
         "appearance.experimentalControls",
         "app.uiScale",
         "appearance.glassTransparency",
         "appearance.hue",
         "appearance.saturation",
         "appearance.density",
+        "appearance.customDensity",
+        "appearance.customDensities",
         "appearance.metrics.chromeFontSize",
         "appearance.interfaceScale",
         "appearance.borders",
@@ -102,7 +114,19 @@ extension SettingsSchema {
         "ui.animations.newTab",
         "ui.animations.newWorkspace",
         "ui.animations.bounce",
+        "ui.animations.enabled",
+        "ui.animations.sidebar",
+        "ui.animations.tabs",
+        "ui.animations.panes",
+        "ui.animations.overlays",
+        "ui.animations.hoverCards",
+        "ui.animations.home",
+        "ui.animations.cursor",
+        "ui.animations.indicators",
+        "ui.animations.feedback",
+        "ui.animations.web",
         "ui.paneAnimations",
+        "ui.calm",
         "appearance.colorTransition.enabled",
         "appearance.colorTransition.duration",
         "appearance.colorTransition.curve",
@@ -143,15 +167,25 @@ extension SettingsSchema {
         "sidebar.sectionLook",
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
-        "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.showChats",
-        "sidebar.cards.tips", "sidebar.hoverCards.enabled", "sidebar.hoverCards.delay", "sidebar.nowPlaying.enabled", "sidebar.showProjects", "sidebar.showSpaces", "sidebar.showProfileControl", "sidebar.groupBy",
+        "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.showChats", "sidebar.sessionTree",
+        "sidebar.cards.tips", "sidebar.hoverCards.enabled", "sidebar.hoverCards.delay", "sidebar.hoverCards.layout", "sidebar.hoverCards.maxRows",
+        "sidebar.hoverCards.sections.timings", "sidebar.hoverCards.sections.prompts", "sidebar.hoverCards.sections.waiting",
+        "sidebar.hoverCards.sections.git", "sidebar.hoverCards.sections.ports", "sidebar.hoverCards.groups.workspaceGroups", "sidebar.hoverCards.groups.tabGroups",
+        "sidebar.hoverCards.groups.delay", "sidebar.hoverCards.groups.order", "sidebar.hoverCards.groups.maxMembers",
+        "sidebar.hoverCards.groups.sections.status", "sidebar.hoverCards.groups.sections.members",
+        "sidebar.hoverCards.groups.sections.activity", "sidebar.hoverCards.groups.sections.git",
+        "sidebar.hoverCards.groups.sections.ports", "sidebar.nowPlaying.enabled", "tabs.newTabNowPlaying", "sidebar.showProjects", "sidebar.showSpaces", "sidebar.showProfileControl", "sidebar.showSearchButton", "sidebar.groupBy",
+        "sidebar.priorityView.enabled", "sidebar.priorityView.shown",
         "browser.defaultEngine",
+        "browser.siteEngines",
         "browser.newTabPage",
         "browser.showBookmarksBar",
         "browser.toolbarButtons",
         "browser.hibernation",
         "browser.hibernationExclusions",
         "browser.hibernatePinnedTabs",
+        "browser.freezeHiddenTabs",
+        "browser.keepNeighborTabsAwake",
         "notifications.dismissal",
         "notifications.timeoutSeconds",
         "notifications.sources.agent.dismissal",
@@ -170,6 +204,8 @@ extension SettingsSchema {
         "notifications.attention.blinkCount",
         "notifications.attention.duration",
         "notifications.attention.persist",
+        "notifications.attention.flash",
+        "notifications.attention.flashOnTyping",
         "notifications.attention.showOnTab",
         "notifications.attention.showOnSidebar",
         "notifications.attention.moveToTop",
@@ -179,6 +215,10 @@ extension SettingsSchema {
         "labs.classicHome",
         // Which Home entries the sidebar shows (looks only; `cmux home enable-channels` runs as an agent writer).
         "home.channelsEnabled",
+        // The floating Chief pet and its character: a display the person can hide again; its reply
+        // box types only what the person writes.
+        "home.chiefPetEnabled",
+        "home.chiefPetMascot",
         "updates.notify",
         "updates.showWhatsNew",
         "announcements.enabled",
@@ -188,6 +228,7 @@ extension SettingsSchema {
     public static let agentRefusedKeys: [String: AgentRefusal] = Dictionary(uniqueKeysWithValues: OmnibarSettingsSchema.privacyKeys.map { ($0, AgentRefusal.privacy) })
         .merging(refusedTable) { first, _ in first }
         .merging(BrowserPasswordsSettingsSchema.refusedKeys) { first, _ in first }
+        .merging(BrowserVerificationAutofillSettingsSchema.refusedKeys) { first, _ in first }
 
     private static let refusedTable: [String: AgentRefusal] = [
         // What leaves the machine: a device proof to the Cloud service (cx-ds09i).
@@ -196,6 +237,8 @@ extension SettingsSchema {
         "agents.chats.discovery": .privacy,
         "agents.chats.enabled": .privacy,
         "picker.pinned": .userOnly,
+        // Which of the person's folders the Screenshots page reads.
+        "screenshots.findTools": .privacy, "screenshots.folders": .privacy,
         // A pin leads the empty palette and an alias wins its word: an agent could put Close Window
         // under the user's Return.
         "palette.aliases": .userOnly, "palette.pins": .userOnly,
@@ -212,10 +255,17 @@ extension SettingsSchema {
         "browser.remoteLocalhost": .network,
         // Off, Chromium tabs load ads and trackers again.
         "browser.builtInAdBlocker": .privacy,
+        // On, merely opening attacker-authored Markdown contacts its web image hosts.
+        "markdown.remoteImages": .privacy,
         // Off, a person no longer sees what an agent clicks and types: an agent must not hide itself.
         "browser.showAgentCursor": .userOnly,
+        // How agents move the pointer is the person's choice: an agent must not make itself faster or slower.
+        "browser.agentMouse.motion": .userOnly,
+        "browser.agentMouse.maxMoveMs": .userOnly,
         // Links the person sends to their default browser (a bank, SSO) must not move into a browser agents drive.
         "browser.openLinksInCmuxBrowser": .privacy,
+        // Off, the person's links leave cmux and no page opens: an agent must not turn the browser it drives off or on.
+        "browser.enabled": .userOnly,
         "browser.openTerminalLinksInCmuxBrowser": .privacy,
         // The app that opens your files from a menu: an agent must not pick what runs them.
         "files.textEditor": .userOnly,
@@ -225,6 +275,8 @@ extension SettingsSchema {
         "browser.urlsToAlwaysOpenExternally": .privacy,
         // Whether attached photos and videos send their location.
         "home.attachments.keepLocation": .privacy,
+        // Where the person's direct messages and group chats go: an agent must not move them to another server.
+        "home.server": .privacy,
         // A reply's file link outside the project, and a reply's web image (D4, D5).
         "agentPane.links.outsideRoots": .privacy,
         "agentPane.images.remote": .network,
@@ -241,6 +293,11 @@ extension SettingsSchema {
         "updates.checkIntervalSeconds": .network,
         "updates.downloadAutomatically": .network,
         "updates.meteredNetwork": .network,
+        // Which builds this Mac installs (a faster ring runs less-tested code): the person's call.
+        "updates.channel": .userOnly,
+        // How long a nightly waits before it restarts into an update: the person's call.
+        "updates.idleInstallMaxWaitSeconds": .userOnly,
+        "updates.idleInstallQuietSeconds": .userOnly,
         "announcements.fetch": .network,
         // On, cmux starts a helper that sees and controls other apps; only the person turns it on.
         // What a new chat may do without asking: an agent must not widen its own approvals.
@@ -249,19 +306,36 @@ extension SettingsSchema {
         "computerUse.driver": .userOnly,
         // How hard cmux pulls the person back from another app: theirs to pick, not an agent's.
         "notifications.dockBounce": .userOnly,
+        // Privacy: whether banners show what agents said is the person's call.
+        "notifications.showPreviews": .userOnly,
         // Battery and sleep are the person's call: an agent must not keep the Mac up for itself.
         "sessions.keepAwake": .userOnly,
+        // Whether agents start again by themselves after a restart is the person's call.
+        "sessions.resumeAgents": .userOnly,
+        // An agent must not let itself, or another agent, skip the person's approvals.
+        "sessions.allowFullAccess": .destructive,
+        // On, every agent gets tools that start child chats: the person turns that on.
+        "sessions.promptSuggestions": .userOnly,
         // How many agent sessions an agent may start, and how deep, is the person's call: an agent
         // must not raise its own limits.
         "agents.subsessions.enabled": .userOnly,
+        // Who answers a sub-session's questions is the person's call too.
+        "agents.subsessions.answerQuestions": .userOnly,
         "agents.subsessions.maxChildren": .userOnly,
         "agents.subsessions.maxDepth": .userOnly,
+        // Which folders an agent may open without asking is the person's call: an agent must not
+        // widen what it may open without asking.
+        "agents.trust.autoTrust": .userOnly,
+        "agents.trust.projectRoots": .userOnly,
+        "agents.trust.ownOrgs": .userOnly,
         // What reaches this Mac from outside and what leaves it: only the person opens phone access.
         "phone.allowConnections": .network,
         "phone.startSessions": .network,
         "phone.keepAwake": .userOnly,
         // Workspace names leave this Mac for the Cloud service: only the person turns it on.
         "phone.cloudReplica": .privacy,
+        // On, a phone signed in to the same account can open this Mac's terminals and agents.
+        "mobile.allowIPhoneConnections": .userOnly,
         "updates.installOnQuit": .destructive,
         "updates.keepPreviousVersions": .destructive,
     ]

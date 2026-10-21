@@ -89,6 +89,8 @@ final class InputVerificationService {
         controller.focus.settledObserver = { [weak services, weak controller] state in
             services?.keyRouter.focusDidSettle(state, in: controller?.window)
             guard let controller else { return }
+            // Chips shown for a held modifier follow the new focus (pane navigation while held).
+            controller.shortcutHints?.focusDidSettle()
             services?.windows.recordSaver.focusDidSettle(controller.state, pane: state.pane)
             let key = state.settleKey
             if key != notified {

@@ -204,15 +204,14 @@ pub fn home_inbox(summaries: &[Summary], input: &HomeInboxInput<'_>) -> Vec<Home
                 .and_then(|id| input.chief_names.get(id).filter(|name| !name.is_empty()).cloned())
                 .or_else(|| (!summary.title.is_empty()).then(|| summary.title.clone()))
                 .unwrap_or_else(|| {
+                    // A participant with no name is left out: an id is never a name.
                     others
                         .iter()
-                        .map(|id| {
+                        .filter_map(|id| {
                             participant(summary, id)
                                 .map(|p| p.display_name.clone())
                                 .filter(|name| !name.is_empty())
-                                .unwrap_or_else(|| {
-                                    if chief == Some(*id) { CHIEF_NAME } else { *id }.to_string()
-                                })
+                                .or_else(|| (chief == Some(*id)).then(|| CHIEF_NAME.to_string()))
                         })
                         .collect::<Vec<_>>()
                         .join(", ")
@@ -299,8 +298,10 @@ pub struct CloudInboxEntry {
 
 /// A Cloud inbox entry as a Home row; none for a removed or archived entry.
 /// The Cloud owner's kind (`dm` is `direct`; a `group` is a `channel` when it
-/// has a title); the name is the title, else the direct peer's id; a Cloud
-/// Chief's live state is not known here (no `chief_state`).
+/// has a title); the name is the title, else "Chief" for a Chief, else empty
+/// (the entry has no names, and an id is never a name: the page fills it from
+/// the people once it reads the head); a Cloud Chief's live state is not
+/// known here (no `chief_state`).
 pub fn cloud_row(entry: &CloudInboxEntry, now_ms: u64) -> Option<HomeRow> {
     if entry.removed || entry.archived {
         return None;
@@ -316,7 +317,7 @@ pub fn cloud_row(entry: &CloudInboxEntry, now_ms: u64) -> Option<HomeRow> {
     } else if kind == HomeKind::Chief {
         CHIEF_NAME.to_string()
     } else {
-        entry.dm_peer.clone().unwrap_or_default()
+        String::new()
     };
     Some(HomeRow {
         id: entry.conversation.clone(),

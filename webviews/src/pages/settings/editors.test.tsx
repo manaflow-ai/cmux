@@ -1,6 +1,7 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { mockManagedKey } from "./mockProvider";
 import { categories } from "./categories";
+import { DENSITY_ROWS } from "./density";
 import type { SchemaRow } from "./schema";
 import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
@@ -30,11 +31,14 @@ function editorProblem(row: SchemaRow, control: Element): string | null {
       return has("select") && has("option", choices + (row.default === null ? 1 : 0)) ? null : "no menu";
     case "choice_or_number":
       return has('option[value="__custom__"]') ? null : "no Custom… choice";
+    case "choice_or_url":
+      return has('option[value="__address__"]') ? null : "no Self-Hosted Server… choice";
     case "number":
       return has('input[type="range"]') && has("input.number") ? null : "no slider + field";
     case "color":
       return has('input[type="color"]') && has("input.hex") ? null : "no swatch + hex field";
     case "theme":
+      return has("[data-theme-picker]") ? null : "no theme picker";
     case "font_family":
       return has("button.domain-button") ? null : "no searchable list";
     case "sound":
@@ -57,15 +61,19 @@ function editorProblem(row: SchemaRow, control: Element): string | null {
           ? null
           : "no token field";
     case "number_list":
+      return has("input.token-input") ? null : "no number token field";
     case "string_map":
-      return "a kind the cmux-next page never renders";
+      return has("[data-string-map]") && has("input[data-map-new-key]") ? null : "no key and value list";
   }
 }
 
 describe("editors", () => {
-  test("every schema row renders the editor for its kind", async () => {
-    const failures: string[] = [];
-    for (const category of categories) {
+  // One test per Settings page, so each renders one page well inside the default timeout: one
+  // test over every page went past 5 s on a loaded CI runner, and its act() left running failed
+  // every test after it.
+  for (const category of categories)
+    test(`every schema row renders the editor for its kind: ${category.id}`, async () => {
+      const failures: string[] = [];
       page = await renderPage({ path: `/settings/${category.id}` });
       for (const row of category.groups.flatMap((group) => group.rows)) {
         // The Theme section draws appearance.theme as its theme picker.
@@ -73,10 +81,27 @@ describe("editors", () => {
           if (!page.container.querySelector("[data-theme-picker]")) failures.push(`${row.key}: no theme picker`);
           continue;
         }
+        // The Theme section draws appearance.accent as its swatch popup.
+        if (row.key === "appearance.accent") {
+          if (!page.container.querySelector('[data-card="theme"] [data-accent-picker]'))
+            failures.push(`${row.key}: no accent picker`);
+          continue;
+        }
         // Change Background…'s art picker draws appearance.background as its tiles.
         if (row.key === "appearance.background") {
           if (!page.container.querySelector('[data-card="backdrop"] .backdrop-tile'))
             failures.push(`${row.key}: no art picker`);
+          continue;
+        }
+        // The Chief Pet card draws home.chiefPetEnabled (Show/Hide Pet) and home.chiefPetMascot (its grid).
+        if (row.key === "home.chiefPetEnabled" || row.key === "home.chiefPetMascot") {
+          if (!page.container.querySelector('[data-card="chief-pet"] .chief-pet-choice[data-pet="orb"]'))
+            failures.push(`${row.key}: no Chief Pet card`);
+          continue;
+        }
+        // The density card draws appearance.density and the custom density keys (SectionView).
+        if (DENSITY_ROWS.has(row.key)) {
+          if (!page.container.querySelector('[data-card="density"]')) failures.push(`${row.key}: no density card`);
           continue;
         }
         // appearance.themeEdits is the pickers' "(custom)" themes, edited in the Theme section, not a row.
@@ -90,9 +115,8 @@ describe("editors", () => {
       }
       page.unmount();
       page = null;
-    }
-    expect(failures).toEqual([]);
-  });
+      expect(failures).toEqual([]);
+    });
 
   test("the window material is a material choice, never a radius slider", async () => {
     page = await renderPage({ path: "/settings/appearance" });
@@ -161,6 +185,20 @@ describe("editors", () => {
     await changeValue(field, "500");
     await fire(field, "keydown", { key: "Enter" });
     expect(ops(page.provider, "cmux.settings.set")).toEqual([{ key: "terminal.fontSize", value: 96 }]);
+  });
+
+  test("a number list adds a number in range on Return and refuses one outside it", async () => {
+    page = await renderPage({ path: "/settings/editor" });
+    const row = () => rowElement(page!.container, "editor.rulers");
+    const field = () => row().querySelector<HTMLInputElement>("input.token-input")!;
+    await changeValue(field(), "5000");
+    await fire(field(), "keydown", { key: "Enter" });
+    expect(ops(page.provider, "cmux.settings.set")).toEqual([]);
+    expect(row().querySelector("[role=alert]")).not.toBeNull();
+    await changeValue(field(), "80");
+    await fire(field(), "keydown", { key: "Enter" });
+    expect(ops(page.provider, "cmux.settings.set")).toEqual([{ key: "editor.rulers", value: [80] }]);
+    expect(row().querySelector("[role=alert]")).toBeNull();
   });
 
   test("a managed row shows its value, a disabled control and a localized lock line", async () => {
@@ -283,6 +321,19 @@ describe("editors", () => {
     const theme = rowElement(page.container, "appearance.theme");
     expect(theme.querySelector("button.domain-button")).toBeNull();
     expect(theme.querySelector("input.text")).not.toBeNull();
+  });
+
+  test("the font list opens on a click in the first moments after the page loads", async () => {
+    page = await renderPage({ path: "/settings/appearance" });
+    const now = performance.now;
+    performance.now = () => 50;
+    try {
+      const button = rowElement(page.container, "terminal.fontFamily").querySelector("button.domain-button")!;
+      await click(button);
+      expect(button.getAttribute("aria-expanded")).toBe("true");
+    } finally {
+      performance.now = now;
+    }
   });
 
   test("a diagnostic shows an inline notice and a warning badge", async () => {

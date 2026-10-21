@@ -17,7 +17,8 @@
               "window.titlebar",
               "window.titlebarButtons",
               "app.globalHotKey",
-              "app.startAgentGlobalHotKey"
+              "app.startAgentGlobalHotKey",
+              "app.hideDockIconWithoutWindows"
             ],
             "title" : {
               "key" : "settings.group.window",
@@ -28,9 +29,11 @@
             "key" : "settings.group.tabs",
             "rows" : [
               "tabs.newTabTemplate",
+              "tabs.terminalFirst",
               "tabs.newTabPosition",
               "tabs.plusButton",
               "tabs.barPosition",
+              "browser.toolbarPosition",
               "tabs.barOrder",
               "tabs.overflow",
               "appearance.metrics.tabMaxWidth",
@@ -38,7 +41,9 @@
               "appearance.metrics.tabMinInactiveWidth",
               "appearance.metrics.tabPinnedWidth",
               "tabs.cmdWClosesPinnedTabs",
-              "tabs.swapCmdTAndCmdN"
+              "tabs.swapCmdTAndCmdN",
+              "tabs.newTabNowPlaying",
+              "sidebar.showChats"
             ],
             "title" : {
               "key" : "settings.group.tabs",
@@ -58,10 +63,14 @@
               "layout.dockColumnMode",
               "layout.frameOrientation",
               "layout.rows",
+              "layout.focusFollowsMouse",
+              "layout.scrollAreas",
               "layout.minimumPaneWidth",
               "layout.minimumPaneHeight",
               "layout.newPanePlacement",
-              "layout.tileBrowsers"
+              "layout.tileBrowsers",
+              "layout.linkPlacement",
+              "layout.mainPane"
             ],
             "title" : {
               "key" : "settings.group.columns",
@@ -132,13 +141,15 @@
           {
             "key" : "settings.group.markdownViewer",
             "rows" : [
+              "markdown.remoteImages",
               "markdown.layout.width",
               "markdown.layout.fullWidth",
               "markdown.font.size",
               "markdown.font.preset",
               "markdown.font.lineHeight",
               "markdown.spacing.paragraph",
-              "markdown.code.blockSize",
+              "markdown.code.scale",
+              "markdown.code.family",
               "markdown.tables",
               "markdown.theme"
             ],
@@ -158,20 +169,14 @@
             }
           },
           {
-            "key" : "settings.group.updates",
+            "key" : "settings.group.screenshots",
             "rows" : [
-              "updates.checkAutomatically",
-              "updates.checkIntervalSeconds",
-              "updates.downloadAutomatically",
-              "updates.meteredNetwork",
-              "updates.installOnQuit",
-              "updates.notify",
-              "updates.keepPreviousVersions",
-              "updates.showWhatsNew"
+              "screenshots.findTools",
+              "screenshots.folders"
             ],
             "title" : {
-              "key" : "settings.group.updates",
-              "text" : "Updates"
+              "key" : "settings.group.screenshots",
+              "text" : "Screenshots"
             }
           },
           {
@@ -208,6 +213,57 @@
         },
         "trail" : [
           "spaces"
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.updates",
+            "rows" : [
+              "updates.channel",
+              "updates.checkAutomatically",
+              "updates.checkIntervalSeconds",
+              "updates.downloadAutomatically",
+              "updates.meteredNetwork",
+              "updates.installOnQuit",
+              "updates.notify",
+              "updates.keepPreviousVersions",
+              "updates.showWhatsNew"
+            ],
+            "title" : {
+              "key" : "settings.group.updates",
+              "text" : "Updates"
+            }
+          },
+          {
+            "key" : "updates.1",
+            "rows" : [
+              "updates.idleInstallMaxWaitSeconds",
+              "updates.idleInstallQuietSeconds"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.updatesAdvanced",
+              "text" : "Updates: Advanced"
+            }
+          }
+        ],
+        "id" : "updates",
+        "lead" : [
+
+        ],
+        "symbol" : "icloud.and.arrow.down",
+        "title" : {
+          "key" : "settings.category.updates",
+          "text" : "Updates"
+        },
+        "trail" : [
+          "channels"
         ]
       },
       {
@@ -268,6 +324,8 @@
             "key" : "settings.group.densityMotion",
             "rows" : [
               "appearance.density",
+              "appearance.customDensity",
+              "appearance.customDensities",
               "app.uiScale",
               "appearance.metrics.chromeFontSize",
               "appearance.metrics.sidebarWidth",
@@ -285,6 +343,27 @@
             "title" : {
               "key" : "settings.group.densityMotion",
               "text" : "Density and Motion"
+            }
+          },
+          {
+            "key" : "settings.group.motion",
+            "rows" : [
+              "ui.calm",
+              "ui.animations.enabled",
+              "ui.animations.sidebar",
+              "ui.animations.tabs",
+              "ui.animations.panes",
+              "ui.animations.overlays",
+              "ui.animations.hoverCards",
+              "ui.animations.home",
+              "ui.animations.cursor",
+              "ui.animations.indicators",
+              "ui.animations.feedback",
+              "ui.animations.web"
+            ],
+            "title" : {
+              "key" : "settings.group.motion",
+              "text" : "Motion"
             }
           },
           {
@@ -310,10 +389,12 @@
           {
             "key" : "settings.group.windowBackground",
             "rows" : [
-              "appearance.backdropArt",
               "appearance.background",
+              "appearance.backgroundRotation",
+              "appearance.paneBackgrounds",
               "appearance.backgroundOpacity",
-              "appearance.backgroundBlur"
+              "appearance.backgroundBlur",
+              "appearance.inactiveWindowDim"
             ],
             "title" : {
               "key" : "settings.group.windowBackground",
@@ -365,21 +446,44 @@
               "sidebar.bottomBandMaxShare",
               "sidebar.pinnedBandsScroll",
               "sidebar.showWorkspaceTabs",
-              "sidebar.showChats",
+              "sidebar.sessionTree",
               "sidebar.showProjects",
               "sidebar.groupBy",
               "sidebar.showSpaces",
               "sidebar.showProfileControl",
+              "sidebar.showSearchButton",
               "sidebar.minimal",
               "sidebar.density",
               "sidebar.detailedStatusIcons",
+              "sidebar.showTimestamps",
+              "sidebar.groupHeader.memberCount",
+              "sidebar.groupHeader.unreadCount",
               "sidebar.minimalMode",
               "sidebar.cards.tips",
+              "sidebar.priorityView.enabled",
+              "sidebar.priorityView.shown",
               "sidebar.side",
               "sidebar.spacesPosition",
               "sidebar.spacesVisibility",
               "sidebar.hoverCards.enabled",
               "sidebar.hoverCards.delay",
+              "sidebar.hoverCards.layout",
+              "sidebar.hoverCards.sections.timings",
+              "sidebar.hoverCards.sections.prompts",
+              "sidebar.hoverCards.sections.waiting",
+              "sidebar.hoverCards.sections.git",
+              "sidebar.hoverCards.sections.ports",
+              "sidebar.hoverCards.maxRows",
+              "sidebar.hoverCards.groups.workspaceGroups",
+              "sidebar.hoverCards.groups.tabGroups",
+              "sidebar.hoverCards.groups.delay",
+              "sidebar.hoverCards.groups.order",
+              "sidebar.hoverCards.groups.maxMembers",
+              "sidebar.hoverCards.groups.sections.status",
+              "sidebar.hoverCards.groups.sections.members",
+              "sidebar.hoverCards.groups.sections.activity",
+              "sidebar.hoverCards.groups.sections.git",
+              "sidebar.hoverCards.groups.sections.ports",
               "sidebar.nowPlaying.enabled",
               "home.channelsEnabled"
             ],
@@ -470,7 +574,8 @@
         ],
         "id" : "appearance",
         "lead" : [
-          "backdrops"
+          "backdrops",
+          "density"
         ],
         "symbol" : "paintbrush",
         "title" : {
@@ -629,24 +734,6 @@
               "key" : "settings.group.editorSaving",
               "text" : "Saving"
             }
-          },
-          {
-            "key" : "settings.group.markdownViewer",
-            "rows" : [
-              "markdown.layout.width",
-              "markdown.layout.fullWidth",
-              "markdown.font.size",
-              "markdown.font.preset",
-              "markdown.font.lineHeight",
-              "markdown.spacing.paragraph",
-              "markdown.code.blockSize",
-              "markdown.tables",
-              "markdown.theme"
-            ],
-            "title" : {
-              "key" : "settings.group.markdownViewer",
-              "text" : "Markdown Viewer"
-            }
           }
         ],
         "id" : "editor",
@@ -673,6 +760,14 @@
           {
             "key" : "settings.group.agentChat",
             "rows" : [
+              "agentPane.display.width",
+              "agentPane.display.fullWidth",
+              "agentPane.display.font.preset",
+              "agentPane.display.font.size",
+              "agentPane.display.font.lineHeight",
+              "agentPane.display.code.family",
+              "agentPane.display.code.scale",
+              "agentPane.display.inspector.placement",
               "agentPane.links.outsideRoots",
               "agentPane.images.remote",
               "agentPane.editedFiles.show",
@@ -713,7 +808,10 @@
           {
             "key" : "settings.group.sessions",
             "rows" : [
-              "sessions.keepAwake"
+              "sessions.keepAwake",
+              "sessions.resumeAgents",
+              "sessions.allowFullAccess",
+              "sessions.promptSuggestions"
             ],
             "title" : {
               "key" : "settings.group.sessions",
@@ -724,12 +822,25 @@
             "key" : "settings.group.subsessions",
             "rows" : [
               "agents.subsessions.enabled",
+              "agents.subsessions.answerQuestions",
               "agents.subsessions.maxChildren",
               "agents.subsessions.maxDepth"
             ],
             "title" : {
               "key" : "settings.group.subsessions",
               "text" : "Sub-sessions"
+            }
+          },
+          {
+            "key" : "settings.group.folderTrust",
+            "rows" : [
+              "agents.trust.autoTrust",
+              "agents.trust.projectRoots",
+              "agents.trust.ownOrgs"
+            ],
+            "title" : {
+              "key" : "settings.group.folderTrust",
+              "text" : "Folder Trust"
             }
           }
         ],
@@ -745,7 +856,52 @@
         "trail" : [
           "harnesses",
           "agentHarnesses",
-          "computerUse"
+          "computerUse",
+          "agentIntegrations"
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.chiefChat",
+            "rows" : [
+              "home.chiefBubbleStyle"
+            ],
+            "title" : {
+              "key" : "settings.group.chiefChat",
+              "text" : "Chief Chat"
+            }
+          },
+          {
+            "key" : "settings.group.chiefPet",
+            "rows" : [
+              "home.chiefPetEnabled",
+              "home.chiefPetMascot"
+            ],
+            "title" : {
+              "key" : "settings.group.chiefPet",
+              "text" : "Chief Pet"
+            }
+          }
+        ],
+        "id" : "chief",
+        "lead" : [
+          "chiefs",
+          "chiefPet"
+        ],
+        "symbol" : "crown",
+        "title" : {
+          "key" : "settings.category.chief",
+          "text" : "Chief"
+        },
+        "trail" : [
+
         ]
       },
       {
@@ -766,7 +922,8 @@
               "status.runNotifyMinimumSeconds",
               "status.runNotifyWhenVisible",
               "notifications.dockBadge",
-              "notifications.dockBounce"
+              "notifications.dockBounce",
+              "notifications.showPreviews"
             ],
             "title" : {
               "key" : "settings.group.banners",
@@ -796,6 +953,8 @@
               "notifications.attention.blinkCount",
               "notifications.attention.duration",
               "notifications.attention.persist",
+              "notifications.attention.flash",
+              "notifications.attention.flashOnTyping",
               "notifications.attention.showOnTab",
               "notifications.attention.showOnSidebar",
               "notifications.attention.moveToTop"
@@ -854,6 +1013,7 @@
             "key" : "settings.group.engine",
             "rows" : [
               "browser.defaultEngine",
+              "browser.siteEngines",
               "browser.newTabPage"
             ],
             "title" : {
@@ -870,6 +1030,7 @@
               "browser.omnibar.inlineAutocomplete",
               "browser.omnibar.maxRows",
               "browser.omnibar.calculator",
+              "browser.omnibar.showFullURLs",
               "browser.omnibar.glass",
               "browser.omnibar.glassTint",
               "browser.omnibar.glassTintStrength",
@@ -903,6 +1064,18 @@
             }
           },
           {
+            "key" : "settings.group.agentInput",
+            "rows" : [
+              "browser.showAgentCursor",
+              "browser.agentMouse.motion",
+              "browser.agentMouse.maxMoveMs"
+            ],
+            "title" : {
+              "key" : "settings.group.agentInput",
+              "text" : "Agent Input"
+            }
+          },
+          {
             "key" : "settings.group.extensions",
             "rows" : [
               "browser.builtInAdBlocker"
@@ -929,6 +1102,7 @@
           {
             "key" : "settings.group.openingLinks",
             "rows" : [
+              "browser.enabled",
               "browser.openLinksInCmuxBrowser",
               "browser.hostsToOpenInEmbeddedBrowser",
               "browser.urlsToAlwaysOpenExternally"
@@ -943,7 +1117,8 @@
             "rows" : [
               "browser.passwords.offerToSave",
               "browser.passwords.generate",
-              "browser.passwords.allowExport"
+              "browser.passwords.allowExport",
+              "browser.verificationAutofill.enabled"
             ],
             "title" : {
               "key" : "settings.group.passwords",
@@ -955,7 +1130,9 @@
             "rows" : [
               "browser.hibernation",
               "browser.hibernationExclusions",
-              "browser.hibernatePinnedTabs"
+              "browser.hibernatePinnedTabs",
+              "browser.freezeHiddenTabs",
+              "browser.keepNeighborTabsAwake"
             ],
             "title" : {
               "key" : "settings.group.memory",
@@ -984,6 +1161,29 @@
         },
         "trail" : [
           "browserProfiles"
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+
+        ],
+        "id" : "import",
+        "lead" : [
+          "importSuggestions"
+        ],
+        "symbol" : "square.and.arrow.down",
+        "title" : {
+          "key" : "settings.category.import",
+          "text" : "Import"
+        },
+        "trail" : [
+
         ]
       },
       {
@@ -1111,6 +1311,16 @@
               "key" : "settings.group.phone",
               "text" : "Phone Access"
             }
+          },
+          {
+            "key" : "settings.group.messagesServer",
+            "rows" : [
+              "home.server"
+            ],
+            "title" : {
+              "key" : "settings.group.messagesServer",
+              "text" : "Messages Server"
+            }
           }
         ],
         "id" : "accounts",
@@ -1125,6 +1335,38 @@
         },
         "trail" : [
 
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.mobile",
+            "rows" : [
+              "mobile.allowIPhoneConnections"
+            ],
+            "title" : {
+              "key" : "settings.group.mobile",
+              "text" : "iPhone"
+            }
+          }
+        ],
+        "id" : "mobile",
+        "lead" : [
+
+        ],
+        "symbol" : "iphone",
+        "title" : {
+          "key" : "settings.category.mobile",
+          "text" : "Mobile"
+        },
+        "trail" : [
+          "mobile"
         ]
       },
       {
@@ -1173,7 +1415,6 @@
           {
             "key" : "settings.group.appearanceTuning",
             "rows" : [
-              "appearance.glassTransparency",
               "appearance.hue",
               "appearance.saturation"
             ],
@@ -1805,6 +2046,58 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.window",
+        "text" : "Window"
+      },
+      "help" : {
+        "key" : "settings.app.hideDockIconWithoutWindows.help",
+        "text" : "cmux keeps running in the menu bar, out of the Dock and the app switcher, until a window opens."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "app.hideDockIconWithoutWindows",
+      "keywords" : [
+        "dock",
+        "icon",
+        "menu bar",
+        "background",
+        "app switcher",
+        "command tab",
+        "accessory",
+        "windows"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "app",
+        "hideDockIconWithoutWindows"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.app.hideDockIconWithoutWindows",
+        "text" : "Hide Dock Icon When No Windows Are Open"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "cards",
         "default",
         "composer",
         "threads",
@@ -1815,6 +2108,13 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.newTabTemplateCards",
+            "text" : "Cards"
+          },
+          "value" : "cards"
+        },
         {
           "title" : {
             "key" : "settings.choice.newTabTemplateDefault",
@@ -1861,7 +2161,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "default",
+      "default" : "cards",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.tabs",
@@ -1882,7 +2182,10 @@
         "classic",
         "composer",
         "threads",
-        "console"
+        "console",
+        "cards",
+        "search",
+        "ask"
       ],
       "kind" : "choice",
       "page_hidden" : false,
@@ -1905,12 +2208,71 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.terminalFirst.help",
+        "text" : "When on, Cmd-T, Cmd-D and Cmd-Shift-D open a terminal, as in cmux classic, instead of the New Tab page."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.terminalFirst",
+      "keywords" : [
+        "terminal",
+        "classic",
+        "new tab",
+        "split",
+        "cmd-t",
+        "cmd-d",
+        "new tab page",
+        "default"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "terminalFirst"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.terminalFirst",
+        "text" : "New Tabs and Splits Open a Terminal"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "afterCurrent",
         "end",
-        "afterCurrent"
+        "start"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.newTabPositionAfterCurrent",
+            "text" : "After the Current Tab"
+          },
+          "value" : "afterCurrent"
+        },
         {
           "title" : {
             "key" : "settings.choice.newTabPositionEnd",
@@ -1920,16 +2282,16 @@
         },
         {
           "title" : {
-            "key" : "settings.choice.newTabPositionAfterCurrent",
-            "text" : "After the Current Tab"
+            "key" : "settings.choice.newTabPositionStart",
+            "text" : "At the Start"
           },
-          "value" : "afterCurrent"
+          "value" : "start"
         }
       ],
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "end",
+      "default" : "afterCurrent",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.tabs",
@@ -1949,6 +2311,9 @@
         "right",
         "end",
         "after",
+        "start",
+        "first",
+        "beginning",
         "insert"
       ],
       "kind" : "choice",
@@ -2104,6 +2469,75 @@
     },
     {
       "accepts" : [
+        "top",
+        "bottom"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.top",
+            "text" : "Top"
+          },
+          "value" : "top"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.bottom",
+            "text" : "Bottom"
+          },
+          "value" : "bottom"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "top",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.browser.toolbarPosition.help",
+        "text" : "Where the address bar row of browser and Markdown panes sits. At the bottom, its suggestions and menus open upward."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.toolbarPosition",
+      "keywords" : [
+        "omnibar",
+        "address bar",
+        "toolbar",
+        "url bar",
+        "browser",
+        "markdown",
+        "top",
+        "bottom",
+        "position",
+        "layout"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "toolbarPosition"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.toolbarPosition",
+        "text" : "Browser Toolbar Position"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "aboveToolbar",
         "belowToolbar"
       ],
@@ -2136,7 +2570,7 @@
       },
       "help" : {
         "key" : "settings.tabs.barOrder.help",
-        "text" : "In a browser pane with the tab bar at the top: the tab bar above the address bar, or below it."
+        "text" : "In a browser pane with the tab bar and the address bar on the same edge: the tab bar above the address bar, or below it."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.barOrder",
@@ -2520,7 +2954,7 @@
       "range" : {
         "max" : 320,
         "min" : 16,
-        "placeholder" : 32,
+        "placeholder" : 48,
         "step" : 1,
         "unit" : "points"
       },
@@ -2655,7 +3089,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.tabs",
@@ -3236,6 +3670,90 @@
     },
     {
       "accepts" : [
+        "stable",
+        "nightly",
+        "canary",
+        "dev"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.updatesChannelStable",
+            "text" : "Stable"
+          },
+          "value" : "stable"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.updatesChannelNightly",
+            "text" : "Nightly"
+          },
+          "value" : "nightly"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.updatesChannelCanary",
+            "text" : "Canary"
+          },
+          "value" : "canary"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.updatesChannelDev",
+            "text" : "Dev"
+          },
+          "value" : "dev"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "nightly",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.updates",
+        "text" : "Updates"
+      },
+      "help" : {
+        "key" : "settings.updates.channel.help",
+        "text" : "Canary and Dev get builds before they reach Nightly. Stable gets only builds that have run a week without problems, so switching to it may mean no updates for a while."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "updates.channel",
+      "keywords" : [
+        "update",
+        "channel",
+        "ring",
+        "release",
+        "stable",
+        "nightly",
+        "canary",
+        "beta",
+        "dev"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "updates",
+        "channel"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.updates.channel",
+        "text" : "Update Channel"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -3661,6 +4179,120 @@
     },
     {
       "accepts" : [
+        60,
+        7200,
+        3630
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 900,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.updates",
+        "text" : "Updates"
+      },
+      "help" : {
+        "key" : "settings.updates.idleInstallMaxWait.help",
+        "text" : "A downloaded nightly installs by itself once agents and commands finish and you stop typing, and never waits longer than this. Terminals and agents carry on after the restart."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "updates.idleInstallMaxWaitSeconds",
+      "keywords" : [
+        "update",
+        "install",
+        "idle",
+        "wait",
+        "automatic",
+        "nightly"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "updates",
+        "idleInstallMaxWaitSeconds"
+      ],
+      "range" : {
+        "max" : 7200,
+        "min" : 60,
+        "placeholder" : 60,
+        "step" : 60,
+        "unit" : "seconds"
+      },
+      "refuses" : [
+        -7080,
+        14340,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.updates.idleInstallMaxWait",
+        "text" : "Install Within"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        5,
+        600,
+        302.5
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 60,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.updates",
+        "text" : "Updates"
+      },
+      "help" : {
+        "key" : "settings.updates.idleInstallQuiet.help",
+        "text" : "How long the keyboard and mouse must be idle before a downloaded nightly installs by itself."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "updates.idleInstallQuietSeconds",
+      "keywords" : [
+        "update",
+        "install",
+        "idle",
+        "quiet",
+        "typing",
+        "nightly"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "updates",
+        "idleInstallQuietSeconds"
+      ],
+      "range" : {
+        "max" : 600,
+        "min" : 5,
+        "placeholder" : 5,
+        "step" : 5,
+        "unit" : "seconds"
+      },
+      "refuses" : [
+        -590,
+        1195,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.updates.idleInstallQuiet",
+        "text" : "Quiet Time Before Installing"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -4003,6 +4635,156 @@
         true,
         false
       ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sessions",
+        "text" : "Agent Sessions"
+      },
+      "help" : {
+        "key" : "settings.sessions.resumeAgents.help",
+        "text" : "Terminal agents reopen their session after a crash or restart."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sessions.resumeAgents",
+      "keywords" : [
+        "resume",
+        "restore",
+        "restart",
+        "reboot",
+        "crash",
+        "claude",
+        "codex",
+        "agents"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sessions",
+        "resumeAgents"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sessions.resumeAgents",
+        "text" : "Resume Agents After Restart"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "destructive",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sessions",
+        "text" : "Agent Sessions"
+      },
+      "help" : {
+        "key" : "settings.sessions.allowFullAccess.help",
+        "text" : "Off, cmux won't switch an agent into a mode that skips approvals."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sessions.allowFullAccess",
+      "keywords" : [
+        "bypass",
+        "permissions",
+        "yolo",
+        "full access",
+        "dangerous",
+        "approve",
+        "safety"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sessions",
+        "allowFullAccess"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sessions.allowFullAccess",
+        "text" : "Allow Full-Access Modes"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sessions",
+        "text" : "Agent Sessions"
+      },
+      "help" : {
+        "key" : "settings.sessions.promptSuggestions.help",
+        "text" : "Agents can suggest next tasks, which you start as child chats beside the current one. Agents started after the change get it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sessions.promptSuggestions",
+      "keywords" : [
+        "suggestions",
+        "prompt",
+        "follow-up",
+        "tasks",
+        "child chats",
+        "subagents"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sessions",
+        "promptSuggestions"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sessions.promptSuggestions",
+        "text" : "Suggest Follow-Up Tasks"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "network",
       "agent_settable" : false,
       "consumers" : [
@@ -4273,6 +5055,56 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.subsessions",
+        "text" : "Sub-sessions"
+      },
+      "help" : {
+        "key" : "settings.agents.subsessions.answerQuestions.help",
+        "text" : "When an agent in a sub-session asks a question, the session that started it can answer, and the answer shows who gave it. Permission requests always wait for you. Off: only you answer."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.subsessions.answerQuestions",
+      "keywords" : [
+        "subagent",
+        "sub-session",
+        "question",
+        "answer",
+        "coordinator",
+        "agents"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "subsessions",
+        "answerQuestions"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agents.subsessions.answerQuestions",
+        "text" : "Let Sessions Answer Their Sub-sessions' Questions"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         1,
         1000,
         500.5
@@ -4384,6 +5216,230 @@
       "title" : {
         "key" : "settings.agents.subsessions.maxDepth",
         "text" : "Deepest Nesting"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.folderTrust",
+        "text" : "Folder Trust"
+      },
+      "help" : {
+        "key" : "settings.agents.trust.autoTrust.help",
+        "text" : "Agents start in folders under your project roots, and in repositories owned by your organizations, without asking. Other folders ask first."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.trust.autoTrust",
+      "keywords" : [
+        "trust",
+        "folder",
+        "repository",
+        "prompt",
+        "agents"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "trust",
+        "autoTrust"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agents.trust.autoTrust",
+        "text" : "Trust My Own Folders Without Asking"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "/Users/ada/src",
+          "~/notes"
+        ]
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.folderTrust",
+        "text" : "Folder Trust"
+      },
+      "help" : {
+        "key" : "settings.agents.trust.projectRoots.help",
+        "text" : "Everything inside these folders is trusted. Use full paths or ~/ paths."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.trust.projectRoots",
+      "keywords" : [
+        "trust",
+        "project",
+        "roots",
+        "folders",
+        "workspace"
+      ],
+      "kind" : "folder_list",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "trust",
+        "projectRoots"
+      ],
+      "refuses" : [
+        "/Users/ada/src",
+        [
+          "relative/path"
+        ],
+        [
+          1
+        ]
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agents.trust.projectRoots",
+        "text" : "Trusted Project Roots"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "ws-1",
+          "2B7F0C3A-workspace"
+        ]
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.folderTrust",
+        "text" : "Folder Trust"
+      },
+      "help" : {
+        "key" : "settings.agents.trust.ownOrgs.help",
+        "text" : "A repository is trusted when all of its GitHub remotes belong to these users or organizations."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.trust.ownOrgs",
+      "keywords" : [
+        "trust",
+        "github",
+        "organization",
+        "owner",
+        "remote",
+        "repository"
+      ],
+      "kind" : "string_list",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "trust",
+        "ownOrgs"
+      ],
+      "refuses" : [
+        "ws-1",
+        [
+          1
+        ],
+        [
+          ""
+        ],
+        {
+
+        }
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agents.trust.ownOrgs",
+        "text" : "Trusted GitHub Owners"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.mobile",
+        "text" : "iPhone"
+      },
+      "help" : {
+        "key" : "settings.mobile.allowIPhoneConnections.help",
+        "text" : "Lets the cmux app on your iPhone open this Mac's workspaces, terminals and agent chats while you are signed in with the same account."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "mobile.allowIPhoneConnections",
+      "keywords" : [
+        "iphone",
+        "phone",
+        "mobile",
+        "remote",
+        "connect"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "mobile",
+        "allowIPhoneConnections"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "accounts",
+      "summary" : {
+        "key" : "settings.mobile.allowIPhoneConnections.summary",
+        "text" : "Lets your iPhone reach this Mac"
+      },
+      "title" : {
+        "key" : "settings.mobile.allowIPhoneConnections",
+        "text" : "Allow iPhone Connections"
       },
       "validation" : "portable"
     },
@@ -4769,6 +5825,113 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.columns",
+        "text" : "Columns"
+      },
+      "help" : {
+        "key" : "settings.layout.focusFollowsMouse.help",
+        "text" : "Moving the pointer onto a pane or scrolling over it focuses that pane. Off keeps focus where you type until you click. Momentum and the first second after typing never move focus."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "layout.focusFollowsMouse",
+      "keywords" : [
+        "focus",
+        "scroll",
+        "wheel",
+        "trackpad",
+        "pane",
+        "follows mouse",
+        "hover",
+        "pointer"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "layout",
+        "focusFollowsMouse"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.layout.focusFollowsMouse.summary",
+        "text" : "Hovering or scrolling a pane focuses it"
+      },
+      "title" : {
+        "key" : "settings.layout.focusFollowsMouse",
+        "text" : "Focus Follows Mouse"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.columns",
+        "text" : "Columns"
+      },
+      "help" : {
+        "key" : "settings.layout.scrollAreas.help",
+        "text" : "Side-by-side panes that do not fit scroll sideways instead of shrinking, also in docked columns."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "layout.scrollAreas",
+      "keywords" : [
+        "scroll",
+        "area",
+        "split",
+        "squash",
+        "dock",
+        "horizontal",
+        "overflow"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "layout",
+        "scrollAreas"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.layout.scrollAreas.summary",
+        "text" : "Splits scroll instead of squashing"
+      },
+      "title" : {
+        "key" : "settings.layout.scrollAreas",
+        "text" : "Scroll Areas"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         80,
         800,
         440
@@ -4981,6 +6144,152 @@
       "title" : {
         "key" : "settings.layout.tileBrowsers",
         "text" : "Split for Browsers Too"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "split-right",
+        "new-column",
+        "same-pane"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.linkPlacementSplitRight",
+            "text" : "Split Right"
+          },
+          "value" : "split-right"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.linkPlacementNewColumn",
+            "text" : "New Column on the Right"
+          },
+          "value" : "new-column"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.linkPlacementSamePane",
+            "text" : "Tab in the Same Pane"
+          },
+          "value" : "same-pane"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "split-right",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.columns",
+        "text" : "Columns"
+      },
+      "help" : {
+        "key" : "settings.layout.linkPlacement.help",
+        "text" : "Where a link or file you Command-click in a terminal or a browser page appears. Split Right uses the pane on the right, or makes one. What you open from an agent chat, Home or another page opens as a tab in its own pane."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "layout.linkPlacement",
+      "keywords" : [
+        "link",
+        "url",
+        "path",
+        "file",
+        "open",
+        "split",
+        "right",
+        "column",
+        "pane",
+        "tab"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "layout",
+        "linkPlacement"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.layout.linkPlacement",
+        "text" : "Open Links and Files"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "agent-chats",
+        "off"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.mainPaneAgentChats",
+            "text" : "Agent Chats"
+          },
+          "value" : "agent-chats"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.mainPaneOff",
+            "text" : "Off"
+          },
+          "value" : "off"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "agent-chats",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.columns",
+        "text" : "Columns"
+      },
+      "help" : {
+        "key" : "settings.layout.mainPane.help",
+        "text" : "Agent Chats keeps an agent chat as the main pane: links, files, subagents and side chats it opens appear as tabs in a column on its right, and closing that column gives the chat its full width back."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "layout.mainPane",
+      "keywords" : [
+        "main",
+        "pane",
+        "chat",
+        "agent",
+        "right",
+        "column",
+        "side",
+        "link",
+        "subagent",
+        "tab"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "layout",
+        "mainPane"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.layout.mainPane",
+        "text" : "Main Pane"
       },
       "validation" : "portable"
     },
@@ -6516,6 +7825,114 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.screenshots",
+        "text" : "Screenshots"
+      },
+      "help" : {
+        "key" : "settings.screenshots.findTools.help",
+        "text" : "The Screenshots pane also shows the folders of screenshot apps it finds, such as CleanShot X, Shottr and Kap."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "screenshots.findTools",
+      "keywords" : [
+        "screenshots",
+        "screen recording",
+        "cleanshot",
+        "shottr",
+        "kap",
+        "capture"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "screenshots",
+        "findTools"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.screenshots.findTools",
+        "text" : "Find Screenshot Apps"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "/Users/ada/src",
+          "~/notes"
+        ]
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.screenshots",
+        "text" : "Screenshots"
+      },
+      "help" : {
+        "key" : "settings.screenshots.folders.help",
+        "text" : "The Screenshots pane also shows the pictures and videos in these folders. Use full paths or ~/ paths."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "screenshots.folders",
+      "keywords" : [
+        "screenshots",
+        "folders",
+        "pictures",
+        "videos",
+        "recordings"
+      ],
+      "kind" : "folder_list",
+      "page_hidden" : false,
+      "path" : [
+        "screenshots",
+        "folders"
+      ],
+      "refuses" : [
+        "/Users/ada/src",
+        [
+          "relative/path"
+        ],
+        [
+          1
+        ]
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.screenshots.folders",
+        "text" : "More Screenshot Folders"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "list",
         "board",
         "inbox"
@@ -6894,66 +8311,40 @@
       "accepts" : [
         "none",
         "david-death-of-marat",
-        "goya-saturn",
         "velde-small-ship-storm",
-        "bosch-garden-right",
         "bosch-ascent-blessed",
         "goya-witches-flight",
-        "bocklin-self-portrait-death",
-        "caravaggio-medusa",
         "martin-pandemonium",
         "moran-burning-philadelphia",
         "goya-burial-sardine",
         "arbo-wild-hunt",
-        "caravaggio-david-goliath",
-        "van-gogh-skeleton-cigarette",
         "altdorfer-battle-of-issus",
-        "gentileschi-judith",
         "munch-madonna",
-        "bocklin-isle-of-the-dead",
         "klee-fish-magic",
         "friedrich-forest-moonlight",
-        "goya-witches-sabbath",
         "bosch-garden-left",
         "rembrandt-storm-galilee",
         "cole-voyage-manhood",
-        "fuseli-nightmare-2",
-        "hiremy-hirschl-souls-of-acheron",
         "munch-scream",
-        "klimt-judith",
-        "repin-ivan",
-        "millais-ophelia",
         "bruegel-fall-rebel-angels",
-        "fuseli-nightmare",
-        "bundy-death-general",
         "wright-vesuvius",
         "gerome-botsaris",
-        "durer-knight-death-devil",
         "martin-joshua",
         "velde-gale",
         "hogai-nio",
-        "klimt-death-and-life",
-        "klimt-medicine",
         "bosch-garden-central",
         "martin-great-day-wrath",
         "bonheur-wounded-eagle",
-        "gerome-pollice-verso",
         "cole-voyage-old-age",
         "friedrich-abbey-oakwood",
         "goya-sleep-of-reason",
         "bosch-garden-fragment",
-        "bruegel-triumph-death",
         "spilliaert-vertigo",
         "rothaug-melpomene",
-        "schiele-death-and-the-maiden",
         "aivazovsky-ship-stormy-seas",
-        "vereshchagin-apotheosis-war",
-        "ensor-skeleton-painter",
         "cabanel-fallen-angel",
         "spilliaert-woman-shoreline",
         "el-greco-view-of-toledo",
-        "gericault-raft-of-the-medusa",
-        "moreau-apparition",
         "rembrandt-prodigal-son",
         "velazquez-las-meninas",
         "matejko-stanczyk",
@@ -6963,7 +8354,6 @@
         "rembrandt-night-watch",
         "vigee-lebrun-madame-grand",
         "waterhouse-lady-shalott",
-        "draper-lament-icarus",
         "fragonard-swing",
         "rubens-st-francis-xavier",
         "vermeer-pearl-earring",
@@ -7060,7 +8450,6 @@
         "hokusai-umezawa",
         "whistler-falling-rocket",
         "dore-fall-of-satan",
-        "dore-flood",
         "dore-wolves-sheep",
         "dore-leviathan",
         "dore-paradise-lost-book-vi",
@@ -7088,23 +8477,9 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Saturn Devouring His Son — Francisco Goya"
-          },
-          "value" : "goya-saturn"
-        },
-        {
-          "title" : {
-            "key" : null,
             "text" : "A Small Dutch Ship Riding Out a Storm — Willem van de Velde the Younger"
           },
           "value" : "velde-small-ship-storm"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "The Garden of Earthly Delights: Hell — Hieronymus Bosch"
-          },
-          "value" : "bosch-garden-right"
         },
         {
           "title" : {
@@ -7119,20 +8494,6 @@
             "text" : "Witches' Flight — Francisco Goya"
           },
           "value" : "goya-witches-flight"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Self-Portrait with Death Playing the Fiddle — Arnold Böcklin"
-          },
-          "value" : "bocklin-self-portrait-death"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Medusa — Caravaggio"
-          },
-          "value" : "caravaggio-medusa"
         },
         {
           "title" : {
@@ -7165,20 +8526,6 @@
         {
           "title" : {
             "key" : null,
-            "text" : "David with the Head of Goliath — Caravaggio"
-          },
-          "value" : "caravaggio-david-goliath"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Skeleton with a Burning Cigarette — Vincent van Gogh"
-          },
-          "value" : "van-gogh-skeleton-cigarette"
-        },
-        {
-          "title" : {
-            "key" : null,
             "text" : "The Battle of Alexander at Issus — Albrecht Altdorfer"
           },
           "value" : "altdorfer-battle-of-issus"
@@ -7186,23 +8533,9 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Judith Slaying Holofernes — Artemisia Gentileschi"
-          },
-          "value" : "gentileschi-judith"
-        },
-        {
-          "title" : {
-            "key" : null,
             "text" : "Madonna — Edvard Munch"
           },
           "value" : "munch-madonna"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Isle of the Dead — Arnold Böcklin"
-          },
-          "value" : "bocklin-isle-of-the-dead"
         },
         {
           "title" : {
@@ -7217,13 +8550,6 @@
             "text" : "Forest Interior by Moonlight — Caspar David Friedrich"
           },
           "value" : "friedrich-forest-moonlight"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Witches' Sabbath — Francisco Goya"
-          },
-          "value" : "goya-witches-sabbath"
         },
         {
           "title" : {
@@ -7249,20 +8575,6 @@
         {
           "title" : {
             "key" : null,
-            "text" : "The Nightmare (1791) — Henry Fuseli"
-          },
-          "value" : "fuseli-nightmare-2"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "The Souls of Acheron — Adolf Hirémy-Hirschl"
-          },
-          "value" : "hiremy-hirschl-souls-of-acheron"
-        },
-        {
-          "title" : {
-            "key" : null,
             "text" : "The Scream — Edvard Munch"
           },
           "value" : "munch-scream"
@@ -7270,44 +8582,9 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Judith I — Gustav Klimt"
-          },
-          "value" : "klimt-judith"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Ivan the Terrible and His Son Ivan — Ilya Repin"
-          },
-          "value" : "repin-ivan"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Ophelia — John Everett Millais"
-          },
-          "value" : "millais-ophelia"
-        },
-        {
-          "title" : {
-            "key" : null,
             "text" : "The Fall of the Rebel Angels — Pieter Bruegel the Elder"
           },
           "value" : "bruegel-fall-rebel-angels"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "The Nightmare — Henry Fuseli"
-          },
-          "value" : "fuseli-nightmare"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Death as General — Edgar Bundy"
-          },
-          "value" : "bundy-death-general"
         },
         {
           "title" : {
@@ -7322,13 +8599,6 @@
             "text" : "Markos Botsaris — Jean-Léon Gérôme"
           },
           "value" : "gerome-botsaris"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Knight, Death and the Devil — Albrecht Dürer"
-          },
-          "value" : "durer-knight-death-devil"
         },
         {
           "title" : {
@@ -7354,20 +8624,6 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Death and Life — Gustav Klimt"
-          },
-          "value" : "klimt-death-and-life"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Medicine — Gustav Klimt"
-          },
-          "value" : "klimt-medicine"
-        },
-        {
-          "title" : {
-            "key" : null,
             "text" : "The Garden of Earthly Delights — Hieronymus Bosch"
           },
           "value" : "bosch-garden-central"
@@ -7385,13 +8641,6 @@
             "text" : "The Wounded Eagle — Rosa Bonheur"
           },
           "value" : "bonheur-wounded-eagle"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Pollice Verso — Jean-Léon Gérôme"
-          },
-          "value" : "gerome-pollice-verso"
         },
         {
           "title" : {
@@ -7424,13 +8673,6 @@
         {
           "title" : {
             "key" : null,
-            "text" : "The Triumph of Death — Pieter Bruegel the Elder"
-          },
-          "value" : "bruegel-triumph-death"
-        },
-        {
-          "title" : {
-            "key" : null,
             "text" : "Vertigo — Léon Spilliaert"
           },
           "value" : "spilliaert-vertigo"
@@ -7445,30 +8687,9 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Death and the Maiden — Egon Schiele"
-          },
-          "value" : "schiele-death-and-the-maiden"
-        },
-        {
-          "title" : {
-            "key" : null,
             "text" : "Ship on Stormy Seas — Ivan Aivazovsky"
           },
           "value" : "aivazovsky-ship-stormy-seas"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "The Apotheosis of War — Vasily Vereshchagin"
-          },
-          "value" : "vereshchagin-apotheosis-war"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "The Skeleton Painter — James Ensor"
-          },
-          "value" : "ensor-skeleton-painter"
         },
         {
           "title" : {
@@ -7490,20 +8711,6 @@
             "text" : "View of Toledo — El Greco"
           },
           "value" : "el-greco-view-of-toledo"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "The Raft of the Medusa — Théodore Géricault"
-          },
-          "value" : "gericault-raft-of-the-medusa"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "The Apparition — Gustave Moreau"
-          },
-          "value" : "moreau-apparition"
         },
         {
           "title" : {
@@ -7567,13 +8774,6 @@
             "text" : "The Lady of Shalott — John William Waterhouse"
           },
           "value" : "waterhouse-lady-shalott"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "The Lament for Icarus — Herbert James Draper"
-          },
-          "value" : "draper-lament-icarus"
         },
         {
           "title" : {
@@ -8246,13 +9446,6 @@
             "text" : "The Fall of Satan — Gustave Doré"
           },
           "value" : "dore-fall-of-satan"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "The Deluge — Gustave Doré"
-          },
-          "value" : "dore-flood"
         },
         {
           "title" : {
@@ -8321,7 +9514,7 @@
         "legacy"
       ],
       "kind" : "choice",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "appearance",
         "backdropArt"
@@ -8348,66 +9541,40 @@
         "daily",
         "desktop",
         "david-death-of-marat",
-        "goya-saturn",
         "velde-small-ship-storm",
-        "bosch-garden-right",
         "bosch-ascent-blessed",
         "goya-witches-flight",
-        "bocklin-self-portrait-death",
-        "caravaggio-medusa",
         "martin-pandemonium",
         "moran-burning-philadelphia",
         "goya-burial-sardine",
         "arbo-wild-hunt",
-        "caravaggio-david-goliath",
-        "van-gogh-skeleton-cigarette",
         "altdorfer-battle-of-issus",
-        "gentileschi-judith",
         "munch-madonna",
-        "bocklin-isle-of-the-dead",
         "klee-fish-magic",
         "friedrich-forest-moonlight",
-        "goya-witches-sabbath",
         "bosch-garden-left",
         "rembrandt-storm-galilee",
         "cole-voyage-manhood",
-        "fuseli-nightmare-2",
-        "hiremy-hirschl-souls-of-acheron",
         "munch-scream",
-        "klimt-judith",
-        "repin-ivan",
-        "millais-ophelia",
         "bruegel-fall-rebel-angels",
-        "fuseli-nightmare",
-        "bundy-death-general",
         "wright-vesuvius",
         "gerome-botsaris",
-        "durer-knight-death-devil",
         "martin-joshua",
         "velde-gale",
         "hogai-nio",
-        "klimt-death-and-life",
-        "klimt-medicine",
         "bosch-garden-central",
         "martin-great-day-wrath",
         "bonheur-wounded-eagle",
-        "gerome-pollice-verso",
         "cole-voyage-old-age",
         "friedrich-abbey-oakwood",
         "goya-sleep-of-reason",
         "bosch-garden-fragment",
-        "bruegel-triumph-death",
         "spilliaert-vertigo",
         "rothaug-melpomene",
-        "schiele-death-and-the-maiden",
         "aivazovsky-ship-stormy-seas",
-        "vereshchagin-apotheosis-war",
-        "ensor-skeleton-painter",
         "cabanel-fallen-angel",
         "spilliaert-woman-shoreline",
         "el-greco-view-of-toledo",
-        "gericault-raft-of-the-medusa",
-        "moreau-apparition",
         "rembrandt-prodigal-son",
         "velazquez-las-meninas",
         "matejko-stanczyk",
@@ -8417,7 +9584,6 @@
         "rembrandt-night-watch",
         "vigee-lebrun-madame-grand",
         "waterhouse-lady-shalott",
-        "draper-lament-icarus",
         "fragonard-swing",
         "rubens-st-francis-xavier",
         "vermeer-pearl-earring",
@@ -8514,7 +9680,6 @@
         "hokusai-umezawa",
         "whistler-falling-rocket",
         "dore-fall-of-satan",
-        "dore-flood",
         "dore-wolves-sheep",
         "dore-leviathan",
         "dore-paradise-lost-book-vi",
@@ -8522,7 +9687,8 @@
         "dore-empyrean",
         "dore-raven",
         "system:/System/Library/Desktop Pictures/Solid Colors/Blue.heic",
-        "file:/Users/Shared/Harbor.png"
+        "file:/Users/Shared/Harbor.png",
+        "folder:/Users/Shared/Wallpapers"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -8536,8 +9702,8 @@
         },
         {
           "title" : {
-            "key" : "settings.choice.shuffleDaily",
-            "text" : "Shuffle Daily"
+            "key" : "settings.choice.shufflePaintings",
+            "text" : "Shuffle Paintings"
           },
           "value" : "daily"
         },
@@ -8551,23 +9717,9 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Saturn Devouring His Son — Francisco Goya"
-          },
-          "value" : "goya-saturn"
-        },
-        {
-          "title" : {
-            "key" : null,
             "text" : "A Small Dutch Ship Riding Out a Storm — Willem van de Velde the Younger"
           },
           "value" : "velde-small-ship-storm"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "The Garden of Earthly Delights: Hell — Hieronymus Bosch"
-          },
-          "value" : "bosch-garden-right"
         },
         {
           "title" : {
@@ -8582,20 +9734,6 @@
             "text" : "Witches' Flight — Francisco Goya"
           },
           "value" : "goya-witches-flight"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Self-Portrait with Death Playing the Fiddle — Arnold Böcklin"
-          },
-          "value" : "bocklin-self-portrait-death"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Medusa — Caravaggio"
-          },
-          "value" : "caravaggio-medusa"
         },
         {
           "title" : {
@@ -8628,20 +9766,6 @@
         {
           "title" : {
             "key" : null,
-            "text" : "David with the Head of Goliath — Caravaggio"
-          },
-          "value" : "caravaggio-david-goliath"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Skeleton with a Burning Cigarette — Vincent van Gogh"
-          },
-          "value" : "van-gogh-skeleton-cigarette"
-        },
-        {
-          "title" : {
-            "key" : null,
             "text" : "The Battle of Alexander at Issus — Albrecht Altdorfer"
           },
           "value" : "altdorfer-battle-of-issus"
@@ -8649,23 +9773,9 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Judith Slaying Holofernes — Artemisia Gentileschi"
-          },
-          "value" : "gentileschi-judith"
-        },
-        {
-          "title" : {
-            "key" : null,
             "text" : "Madonna — Edvard Munch"
           },
           "value" : "munch-madonna"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Isle of the Dead — Arnold Böcklin"
-          },
-          "value" : "bocklin-isle-of-the-dead"
         },
         {
           "title" : {
@@ -8680,13 +9790,6 @@
             "text" : "Forest Interior by Moonlight — Caspar David Friedrich"
           },
           "value" : "friedrich-forest-moonlight"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Witches' Sabbath — Francisco Goya"
-          },
-          "value" : "goya-witches-sabbath"
         },
         {
           "title" : {
@@ -8712,20 +9815,6 @@
         {
           "title" : {
             "key" : null,
-            "text" : "The Nightmare (1791) — Henry Fuseli"
-          },
-          "value" : "fuseli-nightmare-2"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "The Souls of Acheron — Adolf Hirémy-Hirschl"
-          },
-          "value" : "hiremy-hirschl-souls-of-acheron"
-        },
-        {
-          "title" : {
-            "key" : null,
             "text" : "The Scream — Edvard Munch"
           },
           "value" : "munch-scream"
@@ -8733,44 +9822,9 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Judith I — Gustav Klimt"
-          },
-          "value" : "klimt-judith"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Ivan the Terrible and His Son Ivan — Ilya Repin"
-          },
-          "value" : "repin-ivan"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Ophelia — John Everett Millais"
-          },
-          "value" : "millais-ophelia"
-        },
-        {
-          "title" : {
-            "key" : null,
             "text" : "The Fall of the Rebel Angels — Pieter Bruegel the Elder"
           },
           "value" : "bruegel-fall-rebel-angels"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "The Nightmare — Henry Fuseli"
-          },
-          "value" : "fuseli-nightmare"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Death as General — Edgar Bundy"
-          },
-          "value" : "bundy-death-general"
         },
         {
           "title" : {
@@ -8785,13 +9839,6 @@
             "text" : "Markos Botsaris — Jean-Léon Gérôme"
           },
           "value" : "gerome-botsaris"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Knight, Death and the Devil — Albrecht Dürer"
-          },
-          "value" : "durer-knight-death-devil"
         },
         {
           "title" : {
@@ -8817,20 +9864,6 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Death and Life — Gustav Klimt"
-          },
-          "value" : "klimt-death-and-life"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Medicine — Gustav Klimt"
-          },
-          "value" : "klimt-medicine"
-        },
-        {
-          "title" : {
-            "key" : null,
             "text" : "The Garden of Earthly Delights — Hieronymus Bosch"
           },
           "value" : "bosch-garden-central"
@@ -8848,13 +9881,6 @@
             "text" : "The Wounded Eagle — Rosa Bonheur"
           },
           "value" : "bonheur-wounded-eagle"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Pollice Verso — Jean-Léon Gérôme"
-          },
-          "value" : "gerome-pollice-verso"
         },
         {
           "title" : {
@@ -8887,13 +9913,6 @@
         {
           "title" : {
             "key" : null,
-            "text" : "The Triumph of Death — Pieter Bruegel the Elder"
-          },
-          "value" : "bruegel-triumph-death"
-        },
-        {
-          "title" : {
-            "key" : null,
             "text" : "Vertigo — Léon Spilliaert"
           },
           "value" : "spilliaert-vertigo"
@@ -8908,30 +9927,9 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Death and the Maiden — Egon Schiele"
-          },
-          "value" : "schiele-death-and-the-maiden"
-        },
-        {
-          "title" : {
-            "key" : null,
             "text" : "Ship on Stormy Seas — Ivan Aivazovsky"
           },
           "value" : "aivazovsky-ship-stormy-seas"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "The Apotheosis of War — Vasily Vereshchagin"
-          },
-          "value" : "vereshchagin-apotheosis-war"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "The Skeleton Painter — James Ensor"
-          },
-          "value" : "ensor-skeleton-painter"
         },
         {
           "title" : {
@@ -8953,20 +9951,6 @@
             "text" : "View of Toledo — El Greco"
           },
           "value" : "el-greco-view-of-toledo"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "The Raft of the Medusa — Théodore Géricault"
-          },
-          "value" : "gericault-raft-of-the-medusa"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "The Apparition — Gustave Moreau"
-          },
-          "value" : "moreau-apparition"
         },
         {
           "title" : {
@@ -9030,13 +10014,6 @@
             "text" : "The Lady of Shalott — John William Waterhouse"
           },
           "value" : "waterhouse-lady-shalott"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "The Lament for Icarus — Herbert James Draper"
-          },
-          "value" : "draper-lament-icarus"
         },
         {
           "title" : {
@@ -9709,13 +10686,6 @@
             "text" : "The Fall of Satan — Gustave Doré"
           },
           "value" : "dore-fall-of-satan"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "The Deluge — Gustave Doré"
-          },
-          "value" : "dore-flood"
         },
         {
           "title" : {
@@ -9791,7 +10761,9 @@
         "attribution",
         "museum",
         "dark",
-        "doré"
+        "doré",
+        "shuffle",
+        "folder"
       ],
       "kind" : "choice",
       "page_hidden" : false,
@@ -9804,6 +10776,8 @@
         "system:",
         "file:relative.png",
         "file:",
+        "folder:relative",
+        "folder:",
         "__not_a_backdrop__",
         1,
         true
@@ -9818,6 +10792,153 @@
         "text" : "Background"
       },
       "validation" : "domain:backdrop_selection"
+    },
+    {
+      "accepts" : [
+        "15m",
+        "hourly",
+        "daily"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.every15Minutes",
+            "text" : "Every 15 Minutes"
+          },
+          "value" : "15m"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.everyHour",
+            "text" : "Every Hour"
+          },
+          "value" : "hourly"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.everyDay",
+            "text" : "Every Day"
+          },
+          "value" : "daily"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "daily",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.backgroundRotation.help",
+        "text" : "How often a shuffled background turns to its next picture."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.backgroundRotation",
+      "keywords" : [
+        "shuffle",
+        "rotate",
+        "rotating",
+        "wallpaper",
+        "interval",
+        "change picture",
+        "background"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "backgroundRotation"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.appearance.backgroundRotation.summary",
+        "text" : "How often Shuffle changes the picture"
+      },
+      "title" : {
+        "key" : "settings.appearance.backgroundRotation",
+        "text" : "Change Picture"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "shared",
+        "perPane"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.paneBackgrounds.shared",
+            "text" : "One for the Window"
+          },
+          "value" : "shared"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.paneBackgrounds.perPane",
+            "text" : "One per Pane"
+          },
+          "value" : "perPane"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "shared",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.paneBackgrounds.help",
+        "text" : "One background behind the whole window, or a copy in each pane. A pane's own background (right-click a pane) shows either way."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.paneBackgrounds",
+      "keywords" : [
+        "background",
+        "wallpaper",
+        "pane",
+        "split",
+        "per pane",
+        "each pane",
+        "backdrop",
+        "art"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "paneBackgrounds"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.appearance.paneBackgrounds.summary",
+        "text" : "One background or one per pane"
+      },
+      "title" : {
+        "key" : "settings.appearance.paneBackgrounds",
+        "text" : "Pane Backgrounds"
+      },
+      "validation" : "portable"
     },
     {
       "accepts" : [
@@ -9837,14 +10958,14 @@
       },
       "help" : {
         "key" : "settings.appearance.experimentalControls.help",
-        "text" : "Show the wallpaper grid and live appearance tuner while they are being integrated."
+        "text" : "Applies Hue and Saturation to the window's tint. Off, they have no effect."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.experimentalControls",
       "keywords" : [
         "experimental",
-        "wallpaper",
-        "tuner",
+        "tuning",
+        "tint",
         "transparency",
         "hue",
         "saturation",
@@ -10008,10 +11129,71 @@
         true
       ],
       "section" : "appearance",
-      "summary" : null,
+      "summary" : {
+        "key" : "settings.appearance.backgroundBlur.summary",
+        "text" : "Clear Glass shows the desktop through the wallpaper"
+      },
       "title" : {
         "key" : "settings.appearance.backgroundBlur",
         "text" : "Material"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        1,
+        0.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 0,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.inactiveWindowDim.help",
+        "text" : "How much more theme color covers a window while another one is in front. 0 keeps the same look."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.inactiveWindowDim",
+      "keywords" : [
+        "inactive",
+        "unfocused",
+        "focus",
+        "dim",
+        "opacity",
+        "transparency",
+        "background"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "inactiveWindowDim"
+      ],
+      "range" : {
+        "max" : 1,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -1,
+        2,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.inactiveWindowDim",
+        "text" : "Dim Inactive Windows"
       },
       "validation" : "portable"
     },
@@ -10045,7 +11227,7 @@
         "clear"
       ],
       "kind" : "number",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "appearance",
         "glassTransparency"
@@ -10181,12 +11363,22 @@
     },
     {
       "accepts" : [
+        "ultraCompact",
         "compact",
-        "comfortable"
+        "cozy",
+        "comfortable",
+        "spacious"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.ultraCompact",
+            "text" : "Ultra-compact"
+          },
+          "value" : "ultraCompact"
+        },
         {
           "title" : {
             "key" : "settings.choice.compact",
@@ -10196,10 +11388,24 @@
         },
         {
           "title" : {
+            "key" : "settings.choice.cozy",
+            "text" : "Cozy"
+          },
+          "value" : "cozy"
+        },
+        {
+          "title" : {
             "key" : "settings.choice.comfortable",
             "text" : "Comfortable"
           },
           "value" : "comfortable"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.spacious",
+            "text" : "Spacious"
+          },
+          "value" : "spacious"
         }
       ],
       "consumers" : [
@@ -10211,12 +11417,21 @@
         "key" : "settings.group.densityMotion",
         "text" : "Density and Motion"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.appearance.density.help",
+        "text" : "Row height, padding, corners, icons and text size together. Compact is the default."
+      },
       "kept_on_reset_all" : false,
       "key" : "appearance.density",
       "keywords" : [
         "size",
-        "spacing"
+        "spacing",
+        "compact",
+        "comfortable",
+        "cozy",
+        "spacious",
+        "dense",
+        "font"
       ],
       "kind" : "choice",
       "page_hidden" : false,
@@ -10236,6 +11451,119 @@
         "text" : "Density"
       },
       "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "appearance.customDensity",
+      "keywords" : [
+        "density",
+        "custom"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "customDensity"
+      ],
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.customDensity",
+        "text" : "Custom Density"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          {
+            "fontSize" : 11.5,
+            "id" : "my-tight",
+            "level" : -0.25,
+            "name" : "My Tight",
+            "tokens" : {
+              "sidebarRowHeight" : 22
+            }
+          }
+        ]
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "appearance.customDensities",
+      "keywords" : [
+        "density",
+        "custom"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "customDensities"
+      ],
+      "refuses" : [
+        "my-tight",
+        [
+          {
+
+          }
+        ],
+        [
+          {
+            "id" : "Bad Id",
+            "name" : "x"
+          }
+        ],
+        [
+          {
+            "id" : "a",
+            "level" : "1",
+            "name" : "A"
+          }
+        ]
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.customDensities",
+        "text" : "Custom Densities"
+      },
+      "validation" : "domain:custom_densities"
     },
     {
       "accepts" : [
@@ -10777,7 +12105,7 @@
       },
       "help" : {
         "key" : "settings.focus.inactiveTabStyle.help",
-        "text" : "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet drops the selected pill."
+        "text" : "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet keeps only a faint selected pill."
       },
       "kept_on_reset_all" : false,
       "key" : "focus.inactiveTabStyle",
@@ -11879,6 +13207,652 @@
       "title" : {
         "key" : "settings.focusRing.showWhenSinglePane",
         "text" : "Show With One Pane"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "off",
+        "calm",
+        "still"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.calm",
+            "text" : "Calm"
+          },
+          "value" : "calm"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.still",
+            "text" : "Still"
+          },
+          "value" : "still"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "off",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.calm.help",
+        "text" : "Calm: nothing slides, springs or spins, hover cards stay closed and the pointer leaves no highlight on tabs, rows and buttons. Still: Calm, and every animation is instant. Your other motion and hover card settings come back when it is off."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.calm",
+      "keywords" : [
+        "calm",
+        "quiet",
+        "focus",
+        "zen",
+        "reduce motion",
+        "reduced motion",
+        "hover",
+        "no hover",
+        "highlight",
+        "distraction",
+        "busy",
+        "noise",
+        "minimal",
+        "still"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "calm"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.calm",
+        "text" : "Calm Mode"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.enabled.help",
+        "text" : "Off turns every animation in cmux off: rows, tabs, panes, menus, cards, the agent cursor, spinners and cmux web pages change at once. On, the switches below choose area by area."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.enabled",
+      "keywords" : [
+        "motion",
+        "animation",
+        "animations",
+        "no animations",
+        "disable animations",
+        "reduce motion",
+        "instant"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.enabled",
+        "text" : "Play Animations"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.sidebar.help",
+        "text" : "Rows and groups slide when they reorder, open, close, pin or move to the top, and the sidebar slides when it shows or hides. Off: they change at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.sidebar",
+      "keywords" : [
+        "motion",
+        "animation",
+        "sidebar",
+        "row",
+        "group",
+        "reorder",
+        "pin",
+        "move to top"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "sidebar"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.sidebar",
+        "text" : "Animate the Sidebar"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.tabs.help",
+        "text" : "Tabs grow, shrink and slide when they open, close, reorder or collapse into a group. Off: the tab bar changes at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.tabs",
+      "keywords" : [
+        "motion",
+        "animation",
+        "tab",
+        "tab bar",
+        "reorder",
+        "group"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "tabs"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.tabs",
+        "text" : "Animate Tabs"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.panes.help",
+        "text" : "Splits, closes, zooms, dividers, focus rings, drop zones and windows open, close and move with motion. Off: they change at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.panes",
+      "keywords" : [
+        "motion",
+        "animation",
+        "pane",
+        "split",
+        "zoom",
+        "window",
+        "divider",
+        "focus ring"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "panes"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.panes",
+        "text" : "Animate Panes and Windows"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.overlays.help",
+        "text" : "Menus, popovers, the command palette, sheets, toasts, notices, find bars and cards fade and slide in and out. Off: they show and hide at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.overlays",
+      "keywords" : [
+        "motion",
+        "animation",
+        "menu",
+        "popover",
+        "palette",
+        "toast",
+        "card",
+        "sheet",
+        "find bar"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "overlays"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.overlays",
+        "text" : "Animate Menus and Cards"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.hoverCards.help",
+        "text" : "Hover cards and tooltips fade and slide in. Off: they show and hide at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.hoverCards",
+      "keywords" : [
+        "motion",
+        "animation",
+        "hover card",
+        "tooltip",
+        "preview"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "hoverCards"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.hoverCards",
+        "text" : "Animate Hover Cards"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.home.help",
+        "text" : "The Chief chat, its bubbles, the composer and the Home list move and fade. Off: they change at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.home",
+      "keywords" : [
+        "motion",
+        "animation",
+        "home",
+        "chief",
+        "chat",
+        "bubble",
+        "messages"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "home"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.home",
+        "text" : "Animate Home and Chats"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.cursor.help",
+        "text" : "The agent cursor glides between points and shows click ripples. Off: it jumps and shows no ripple."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.cursor",
+      "keywords" : [
+        "motion",
+        "animation",
+        "cursor",
+        "agent",
+        "computer use",
+        "ripple"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "cursor"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.cursor",
+        "text" : "Animate the Agent Cursor"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.indicators.help",
+        "text" : "Spinners turn, status dots pulse and attention flashes blink. Off: they show a still glyph."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.indicators",
+      "keywords" : [
+        "motion",
+        "animation",
+        "spinner",
+        "progress",
+        "pulse",
+        "flash",
+        "loading",
+        "status"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "indicators"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.indicators",
+        "text" : "Animate Spinners and Progress"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.feedback.help",
+        "text" : "Hover and press highlights, focus fades and theme color changes ease in. Off: they change at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.feedback",
+      "keywords" : [
+        "motion",
+        "animation",
+        "hover",
+        "highlight",
+        "focus",
+        "color",
+        "theme",
+        "transition"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "feedback"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.feedback",
+        "text" : "Animate Highlights and Colors"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.web.help",
+        "text" : "Transitions and animations in cmux's own pages, such as agent chats, New Tab and Markdown. Off: they end at once. Websites are not changed."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.web",
+      "keywords" : [
+        "motion",
+        "animation",
+        "web",
+        "page",
+        "css",
+        "transition",
+        "new tab",
+        "markdown",
+        "agent chat"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "web"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.web",
+        "text" : "Animate cmux Web Pages"
       },
       "validation" : "portable"
     },
@@ -14263,7 +16237,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.diffViewer",
@@ -14428,9 +16402,61 @@
     },
     {
       "accepts" : [
-        40,
-        160,
-        100
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.markdownViewer",
+        "text" : "Markdown Viewer"
+      },
+      "help" : {
+        "key" : "settings.markdown.remoteImages.help",
+        "text" : "Web image sites can see your address and when you open a document. When off, each document asks before loading its web images."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "markdown.remoteImages",
+      "keywords" : [
+        "markdown",
+        "viewer",
+        "reading",
+        "image",
+        "web",
+        "remote",
+        "privacy",
+        "tracking",
+        "automatic"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "markdown",
+        "remoteImages"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.markdown.remoteImages",
+        "text" : "Load Web Images Automatically"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        30,
+        1000,
+        515
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -14445,7 +16471,7 @@
       },
       "help" : {
         "key" : "settings.markdown.width.help",
-        "text" : "The widest a line of text gets, in characters. Wide tables and code scroll sideways in their own box."
+        "text" : "The widest a line of text gets, in characters (30 to 1000). On a wider window the text stays centered with margins. Wide tables and code scroll sideways in their own box."
       },
       "kept_on_reset_all" : false,
       "key" : "markdown.layout.width",
@@ -14457,7 +16483,10 @@
         "max width",
         "column",
         "measure",
-        "line length"
+        "line length",
+        "wide",
+        "ultrawide",
+        "monitor"
       ],
       "kind" : "number",
       "page_hidden" : false,
@@ -14467,15 +16496,15 @@
         "width"
       ],
       "range" : {
-        "max" : 160,
-        "min" : 40,
+        "max" : 1000,
+        "min" : 30,
         "placeholder" : 72,
-        "step" : 2,
+        "step" : 1,
         "unit" : "count"
       },
       "refuses" : [
-        -80,
-        280,
+        -940,
+        1970,
         "1"
       ],
       "section" : "appearance",
@@ -14784,6 +16813,116 @@
     },
     {
       "accepts" : [
+        0.6,
+        1.25,
+        0.925
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 0.875,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.markdownViewer",
+        "text" : "Markdown Viewer"
+      },
+      "help" : {
+        "key" : "settings.markdown.codeScale.help",
+        "text" : "Code as a share of the text size. A monospaced font looks bigger than the text font at the same size, so code is a little smaller by default."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "markdown.code.scale",
+      "keywords" : [
+        "markdown",
+        "viewer",
+        "reading",
+        "code",
+        "font",
+        "size",
+        "monospace",
+        "scale"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "markdown",
+        "code",
+        "scale"
+      ],
+      "range" : {
+        "max" : 1.25,
+        "min" : 0.6,
+        "placeholder" : 0.875,
+        "step" : 0.025,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -0.4,
+        2.25,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.markdown.codeSize",
+        "text" : "Code Font Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.markdownViewer",
+        "text" : "Markdown Viewer"
+      },
+      "help" : {
+        "key" : "settings.markdown.codeFont.help",
+        "text" : "The font of code blocks and inline code. Empty uses the terminal font. The agent chat uses it too unless it has its own."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "markdown.code.family",
+      "keywords" : [
+        "markdown",
+        "viewer",
+        "reading",
+        "code",
+        "font",
+        "family",
+        "monospace"
+      ],
+      "kind" : "font_family",
+      "page_hidden" : false,
+      "path" : [
+        "markdown",
+        "code",
+        "family"
+      ],
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.markdown.codeFont",
+        "text" : "Code Font"
+      },
+      "validation" : "domain:font_family"
+    },
+    {
+      "accepts" : [
         8,
         32,
         20
@@ -14793,7 +16932,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 14,
+      "default" : null,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.markdownViewer",
@@ -14812,7 +16951,7 @@
         "monospace"
       ],
       "kind" : "number",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "markdown",
         "code",
@@ -14833,8 +16972,8 @@
       "section" : "appearance",
       "summary" : null,
       "title" : {
-        "key" : "settings.markdown.codeSize",
-        "text" : "Code Font Size"
+        "key" : "settings.markdown.codeBlockSize",
+        "text" : "Code Block Size"
       },
       "validation" : "portable"
     },
@@ -14970,6 +17109,509 @@
       "title" : {
         "key" : "settings.markdown.theme",
         "text" : "Page Theme"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        480,
+        4000,
+        2240
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 800,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.width.help",
+        "text" : "The widest the chat's column gets. On a wider pane the chat stays centered."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.width",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "width",
+        "max width",
+        "column",
+        "measure",
+        "wide"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "width"
+      ],
+      "range" : {
+        "max" : 4000,
+        "min" : 480,
+        "placeholder" : 800,
+        "step" : 10,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -3040,
+        7520,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.display.width",
+        "text" : "Chat Text Width"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.fullWidth.help",
+        "text" : "The chat fills the whole pane instead of the text width."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.fullWidth",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "full",
+        "width",
+        "wide"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "fullWidth"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.display.fullWidth",
+        "text" : "Chat Full Width"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "markdown",
+        "system",
+        "serif",
+        "mono"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatFontMarkdown",
+            "text" : "Same as Markdown Viewer"
+          },
+          "value" : "markdown"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.markdownFontSystem",
+            "text" : "System"
+          },
+          "value" : "system"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.markdownFontSerif",
+            "text" : "Serif"
+          },
+          "value" : "serif"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.markdownFontMono",
+            "text" : "Monospaced"
+          },
+          "value" : "mono"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "markdown",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.font.preset",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "font",
+        "family",
+        "serif",
+        "monospace",
+        "typeface"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "font",
+        "preset"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.display.font",
+        "text" : "Chat Font"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        10,
+        28,
+        19
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 14,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.font.size",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "font",
+        "size",
+        "text"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "font",
+        "size"
+      ],
+      "range" : {
+        "max" : 28,
+        "min" : 10,
+        "placeholder" : 14,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -8,
+        46,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.display.fontSize",
+        "text" : "Chat Font Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        1.2,
+        2.4,
+        1.7999999999999998
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 1.625,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.font.lineHeight",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "line height",
+        "leading",
+        "line spacing"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "font",
+        "lineHeight"
+      ],
+      "range" : {
+        "max" : 2.4,
+        "min" : 1.2,
+        "placeholder" : 1.625,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        0,
+        3.5999999999999996,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.display.lineHeight",
+        "text" : "Chat Line Height"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.codeFont.help",
+        "text" : "The font of code in the chat. Empty uses the Markdown viewer's code font, then the terminal font."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.code.family",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "code",
+        "font",
+        "monospace",
+        "family"
+      ],
+      "kind" : "font_family",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "code",
+        "family"
+      ],
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.display.codeFont",
+        "text" : "Chat Code Font"
+      },
+      "validation" : "domain:font_family"
+    },
+    {
+      "accepts" : [
+        0.6,
+        1.25,
+        0.925
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.codeSize.help",
+        "text" : "Code as a share of the chat's text size. Empty uses the Markdown viewer's."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.code.scale",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "code",
+        "font",
+        "size",
+        "monospace",
+        "scale"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "code",
+        "scale"
+      ],
+      "range" : {
+        "max" : 1.25,
+        "min" : 0.6,
+        "placeholder" : 0.875,
+        "step" : 0.025,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -0.4,
+        2.25,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.display.codeSize",
+        "text" : "Chat Code Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "push",
+        "overlay"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatInspectorPush",
+            "text" : "Push"
+          },
+          "value" : "push"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatInspectorOverlay",
+            "text" : "Overlay"
+          },
+          "value" : "overlay"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "overlay",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.inspector.help",
+        "text" : "Where the Inspector opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.inspector.placement",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "inspector",
+        "panel",
+        "side",
+        "right",
+        "overlay",
+        "push",
+        "details"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "inspector",
+        "placement"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.display.inspector",
+        "text" : "Inspector"
       },
       "validation" : "portable"
     },
@@ -18248,17 +20890,19 @@
       },
       "help" : {
         "key" : "settings.sidebar.showChats.help",
-        "text" : "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar."
+        "text" : "On the New Tab page, the Threads and Console styles list every coding agent chat on this computer, newest first. Off, they show the recent chats only."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.showChats",
       "keywords" : [
-        "sidebar",
+        "new tab",
         "chats",
         "all chats",
         "agents",
         "conversations",
-        "history"
+        "history",
+        "threads",
+        "console"
       ],
       "kind" : "toggle",
       "page_hidden" : false,
@@ -18275,7 +20919,58 @@
       "summary" : null,
       "title" : {
         "key" : "settings.sidebar.showChats",
-        "text" : "Show All Chats"
+        "text" : "Show All Chats on New Tab"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.sessionTree.help",
+        "text" : "Lists a workspace that another workspace's agent started under it, and shows each row's pull requests and the first rows' Command-number keys."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.sessionTree",
+      "keywords" : [
+        "sidebar",
+        "tree",
+        "nested",
+        "parent",
+        "child",
+        "pull request",
+        "keycap",
+        "sessions"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "sessionTree"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.sessionTree",
+        "text" : "Session Tree"
       },
       "validation" : "portable"
     },
@@ -18491,6 +21186,57 @@
       "consumers" : [
         "cmux-next"
       ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.showSearchButton.help",
+        "text" : "A magnifying glass after the profile button searches workspaces, tabs, history, agent chats, settings and commands. Off, Search stays in the command palette."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.showSearchButton",
+      "keywords" : [
+        "sidebar",
+        "search",
+        "find",
+        "magnifying glass",
+        "everything",
+        "footer",
+        "hide",
+        "show"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "showSearchButton"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.showSearchButton",
+        "text" : "Show Search Button"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : false,
       "default_label" : null,
       "group" : {
@@ -18668,6 +21414,164 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.showTimestamps.help",
+        "text" : "Workspace rows show when they last changed: a time today, else an age such as 3d. Off, rows show no times; the hover card still does."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.showTimestamps",
+      "keywords" : [
+        "sidebar",
+        "timestamps",
+        "time",
+        "times",
+        "age",
+        "ago",
+        "elapsed",
+        "duration",
+        "last activity",
+        "clock",
+        "rows"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "showTimestamps"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.showTimestamps",
+        "text" : "Show Timestamps"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.groupHeader.memberCount.help",
+        "text" : "A collapsed group shows how many workspaces it holds after its name. Off, it shows only its loading spinner."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.groupHeader.memberCount",
+      "keywords" : [
+        "sidebar",
+        "group",
+        "groups",
+        "count",
+        "members",
+        "workspaces",
+        "number",
+        "header"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "groupHeader",
+        "memberCount"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.groupHeader.memberCount",
+        "text" : "Show Group Member Count"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.groupHeader.unreadCount.help",
+        "text" : "A collapsed group shows how many unread notifications its workspaces have. Off, it shows only its loading spinner."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.groupHeader.unreadCount",
+      "keywords" : [
+        "sidebar",
+        "group",
+        "groups",
+        "unread",
+        "badge",
+        "notifications",
+        "count",
+        "header"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "groupHeader",
+        "unreadCount"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.groupHeader.unreadCount",
+        "text" : "Show Group Unread Count"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "off",
         "bottom",
         "top",
@@ -18797,6 +21701,112 @@
       "title" : {
         "key" : "settings.sidebar.cards.tips",
         "text" : "Show Tips"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.priorityView.enabled.help",
+        "text" : "A bell at the top of the sidebar shows every agent chat on every machine, the ones waiting on you first, then finished, failed, working and idle."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.priorityView.enabled",
+      "keywords" : [
+        "sidebar",
+        "priority",
+        "attention",
+        "agents",
+        "chats",
+        "needs you",
+        "activity",
+        "bell",
+        "inbox"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "priorityView",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.sidebar.priorityView.enabled.summary",
+        "text" : "Agent chats that need you, at the top of the sidebar"
+      },
+      "title" : {
+        "key" : "settings.sidebar.priorityView.enabled",
+        "text" : "Priority View"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.priorityView.shown.help",
+        "text" : "The sidebar bell's state while the Priority view is on. Off, the sidebar is unchanged."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.priorityView.shown",
+      "keywords" : [
+        "sidebar",
+        "priority",
+        "activity",
+        "bell",
+        "show",
+        "hide"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "priorityView",
+        "shown"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.priorityView.shown",
+        "text" : "Show Priority View"
       },
       "validation" : "portable"
     },
@@ -19357,6 +22367,960 @@
     },
     {
       "accepts" : [
+        "timeline",
+        "compact",
+        "log",
+        "classic",
+        "minimal"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.hoverCardTimeline",
+            "text" : "Stats and History"
+          },
+          "value" : "timeline"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.hoverCardCompact",
+            "text" : "Compact"
+          },
+          "value" : "compact"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.hoverCardLog",
+            "text" : "Full History"
+          },
+          "value" : "log"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.hoverCardClassic",
+            "text" : "Details Only"
+          },
+          "value" : "classic"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.hoverCardMinimal",
+            "text" : "Minimal"
+          },
+          "value" : "minimal"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "timeline",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.layout.help",
+        "text" : "What a workspace's hover card shows: its history of prompts and waits, its details, or both."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.layout",
+      "keywords" : [
+        "hover",
+        "card",
+        "workspace",
+        "layout",
+        "history",
+        "timeline",
+        "prompts"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "layout"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.layout",
+        "text" : "Workspace Card Layout"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.sections.timings.help",
+        "text" : "How long the workspace has worked or waited, and how long its command has run."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.sections.timings",
+      "keywords" : [
+        "hover",
+        "card",
+        "workspace",
+        "timings",
+        "elapsed",
+        "duration"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "sections",
+        "timings"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.sections.timings",
+        "text" : "Show Running Times in Workspace Cards"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.sections.prompts.help",
+        "text" : "Each prompt you sent and when, in the card's history."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.sections.prompts",
+      "keywords" : [
+        "hover",
+        "card",
+        "workspace",
+        "prompts",
+        "history"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "sections",
+        "prompts"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.sections.prompts",
+        "text" : "Show Prompts in Workspace Cards"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.sections.waiting.help",
+        "text" : "When an agent waited for your input or finished its turn, in the card's history."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.sections.waiting",
+      "keywords" : [
+        "hover",
+        "card",
+        "workspace",
+        "waiting",
+        "input",
+        "finished",
+        "done"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "sections",
+        "waiting"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.sections.waiting",
+        "text" : "Show Waits in Workspace Cards"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.sections.git.help",
+        "text" : "The workspace's branch and pull request."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.sections.git",
+      "keywords" : [
+        "hover",
+        "card",
+        "workspace",
+        "git",
+        "branch",
+        "pull request"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "sections",
+        "git"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.sections.git",
+        "text" : "Show Branch in Workspace Cards"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.sections.ports.help",
+        "text" : "The ports the workspace listens on."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.sections.ports",
+      "keywords" : [
+        "hover",
+        "card",
+        "workspace",
+        "ports",
+        "server",
+        "listening"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "sections",
+        "ports"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.sections.ports",
+        "text" : "Show Ports in Workspace Cards"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        1,
+        100,
+        50.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 20,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.maxRows.help",
+        "text" : "The most prompts, waits and finished turns a workspace's card lists. The list scrolls."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.maxRows",
+      "keywords" : [
+        "hover",
+        "card",
+        "history",
+        "rows",
+        "lines",
+        "limit"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "maxRows"
+      ],
+      "range" : {
+        "max" : 100,
+        "min" : 1,
+        "placeholder" : 1,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -98,
+        199,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.maxRows",
+        "text" : "Workspace Card History Lines"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.groups.workspaceGroups.help",
+        "text" : "A summary card opens when the pointer rests on a workspace group's header."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.groups.workspaceGroups",
+      "keywords" : [
+        "hover",
+        "card",
+        "group",
+        "workspace",
+        "summary"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "groups",
+        "workspaceGroups"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.groups.workspaceGroups",
+        "text" : "Cards on Workspace Groups"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.groups.tabGroups.help",
+        "text" : "A summary card opens when the pointer rests on a tab group's chip."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.groups.tabGroups",
+      "keywords" : [
+        "hover",
+        "card",
+        "group",
+        "tab",
+        "summary"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "groups",
+        "tabGroups"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.groups.tabGroups",
+        "text" : "Cards on Tab Groups"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        5000,
+        2500
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 600,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.groups.delay.help",
+        "text" : "How long the pointer rests on a group before its summary card opens."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.groups.delay",
+      "keywords" : [
+        "hover",
+        "card",
+        "group",
+        "delay",
+        "milliseconds"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "groups",
+        "delay"
+      ],
+      "range" : {
+        "max" : 5000,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 100,
+        "unit" : "milliseconds"
+      },
+      "refuses" : [
+        -5000,
+        10000,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.groups.delay",
+        "text" : "Group Card Delay"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "status",
+        "members",
+        "activity"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.groupCardStatus",
+            "text" : "Status"
+          },
+          "value" : "status"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupCardMembers",
+            "text" : "Members"
+          },
+          "value" : "members"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupCardActivity",
+            "text" : "Latest Activity"
+          },
+          "value" : "activity"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "status",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.groups.order.help",
+        "text" : "Which part of a group's card comes first."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.groups.order",
+      "keywords" : [
+        "hover",
+        "card",
+        "group",
+        "order",
+        "first"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "groups",
+        "order"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.groups.order",
+        "text" : "Group Card Leads With"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        1,
+        50,
+        25.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 8,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.groups.maxMembers.help",
+        "text" : "The most members a group's card lists by name."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.groups.maxMembers",
+      "keywords" : [
+        "hover",
+        "card",
+        "group",
+        "members",
+        "count"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "groups",
+        "maxMembers"
+      ],
+      "range" : {
+        "max" : 50,
+        "min" : 1,
+        "placeholder" : 1,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -48,
+        99,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.groups.maxMembers",
+        "text" : "Group Card Members"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.groups.sections.status.help",
+        "text" : "Show how many members work, wait, failed or have unread items."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.groups.sections.status",
+      "keywords" : [
+        "hover",
+        "card",
+        "group",
+        "status",
+        "working",
+        "waiting",
+        "unread"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "groups",
+        "sections",
+        "status"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.groups.sections.status",
+        "text" : "Group Card: Status"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.groups.sections.members.help",
+        "text" : "Show the member count and the members' names."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.groups.sections.members",
+      "keywords" : [
+        "hover",
+        "card",
+        "group",
+        "members",
+        "workspaces",
+        "tabs",
+        "names"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "groups",
+        "sections",
+        "members"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.groups.sections.members",
+        "text" : "Group Card: Members"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.groups.sections.activity.help",
+        "text" : "Show the member that changed last, and when."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.groups.sections.activity",
+      "keywords" : [
+        "hover",
+        "card",
+        "group",
+        "activity",
+        "latest",
+        "recent"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "groups",
+        "sections",
+        "activity"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.groups.sections.activity",
+        "text" : "Group Card: Latest Activity"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.groups.sections.git.help",
+        "text" : "Show the members' git branches."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.groups.sections.git",
+      "keywords" : [
+        "hover",
+        "card",
+        "group",
+        "git",
+        "branch"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "groups",
+        "sections",
+        "git"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.groups.sections.git",
+        "text" : "Group Card: Branches"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.groups.sections.ports.help",
+        "text" : "Show the members' listening ports."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.groups.sections.ports",
+      "keywords" : [
+        "hover",
+        "card",
+        "group",
+        "ports",
+        "server"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "groups",
+        "sections",
+        "ports"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.groups.sections.ports",
+        "text" : "Group Card: Ports"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -19373,7 +23337,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.nowPlaying.enabled.help",
-        "text" : "A player for what is playing, at the bottom of the sidebar and on the new chat page."
+        "text" : "A player for what is playing, at the bottom of the sidebar."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.nowPlaying.enabled",
@@ -19403,6 +23367,57 @@
       "title" : {
         "key" : "settings.sidebar.nowPlaying.enabled",
         "text" : "Show Now Playing"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.newTabNowPlaying.help",
+        "text" : "A player for what is playing, on the New Tab page."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.newTabNowPlaying",
+      "keywords" : [
+        "music",
+        "now playing",
+        "player",
+        "media",
+        "spotify",
+        "song",
+        "new tab",
+        "new chat"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "newTabNowPlaying"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.newTabNowPlaying",
+        "text" : "Show Now Playing on New Tab"
       },
       "validation" : "portable"
     },
@@ -24044,7 +28059,7 @@
       },
       "help" : {
         "key" : "settings.browser.defaultEngine.help",
-        "text" : "New browser tabs open in this engine."
+        "text" : "Browser tabs and cmux pages, such as History and Apps, open in this engine."
       },
       "kept_on_reset_all" : false,
       "key" : "browser.defaultEngine",
@@ -24068,7 +28083,76 @@
       "summary" : null,
       "title" : {
         "key" : "settings.browser.defaultEngine",
-        "text" : "Default Engine"
+        "text" : "Browser Engine"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        {
+
+        },
+        {
+          "*" : "★",
+          "Work" : ""
+        }
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : {
+        "amazon.com/gp/video" : "webkit",
+        "disneyplus.com" : "webkit",
+        "hulu.com" : "webkit",
+        "max.com" : "webkit",
+        "music.apple.com" : "webkit",
+        "netflix.com" : "webkit",
+        "primevideo.com" : "webkit",
+        "spotify.com" : "webkit",
+        "tv.apple.com" : "webkit"
+      },
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.engine",
+        "text" : "Engine"
+      },
+      "help" : {
+        "key" : "settings.browser.siteEngines.help",
+        "text" : "Sites that always open in one engine: a site, such as spotify.com, and chromium or webkit. Spotify, Netflix and other protected media sites open in WebKit, because their media does not play in Chromium."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.siteEngines",
+      "keywords" : [
+        "drm",
+        "widevine",
+        "spotify",
+        "netflix",
+        "site",
+        "webkit",
+        "chromium"
+      ],
+      "kind" : "string_map",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "siteEngines"
+      ],
+      "refuses" : [
+        "★",
+        [
+
+        ],
+        {
+          "Work" : 1
+        }
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.siteEngines",
+        "text" : "Site Engines"
       },
       "validation" : "portable"
     },
@@ -24214,6 +28298,130 @@
       "title" : {
         "key" : "settings.browser.showAgentCursor",
         "text" : "Show Agent Cursor"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "human",
+        "instant"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.agentMouseHuman",
+            "text" : "Human"
+          },
+          "value" : "human"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentMouseInstant",
+            "text" : "Instant"
+          },
+          "value" : "instant"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "human",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentInput",
+        "text" : "Agent Input"
+      },
+      "help" : {
+        "key" : "settings.browser.agentMouseMotion.help",
+        "text" : "How an agent moves the pointer in browser tabs. Human moves along a curved path and rests before each click, as a person does, so pages see hover and timing like a person's. Instant jumps to the target and clicks at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.agentMouse.motion",
+      "keywords" : [
+        "agent",
+        "mouse",
+        "pointer",
+        "cursor",
+        "human",
+        "motion",
+        "automation"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "agentMouse",
+        "motion"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.agentMouseMotion",
+        "text" : "Agent Pointer Motion"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        60,
+        1000,
+        530
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 350,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentInput",
+        "text" : "Agent Input"
+      },
+      "help" : {
+        "key" : "settings.browser.agentMouseMaxMove.help",
+        "text" : "The longest time one agent pointer move takes with human motion. Short moves take less."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.agentMouse.maxMoveMs",
+      "keywords" : [
+        "agent",
+        "mouse",
+        "pointer",
+        "speed",
+        "duration"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "agentMouse",
+        "maxMoveMs"
+      ],
+      "range" : {
+        "max" : 1000,
+        "min" : 60,
+        "placeholder" : 60,
+        "step" : 10,
+        "unit" : "milliseconds"
+      },
+      "refuses" : [
+        -880,
+        1940,
+        "1"
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.agentMouseMaxMove",
+        "text" : "Longest Agent Pointer Move"
       },
       "validation" : "portable"
     },
@@ -24440,6 +28648,133 @@
       "title" : {
         "key" : "settings.browser.hibernatePinnedTabs",
         "text" : "Hibernate Pinned Tabs"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "off",
+        5,
+        3600,
+        1802.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.never",
+            "text" : "Never"
+          },
+          "value" : "off"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 30,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.memory",
+        "text" : "Memory"
+      },
+      "help" : {
+        "key" : "settings.browser.freezeHiddenTabs.help",
+        "text" : "Saves power: a hidden Chromium tab stops running until you show it. Pinned tabs and Never Hibernate hosts stay awake."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.freezeHiddenTabs",
+      "keywords" : [
+        "power",
+        "battery",
+        "energy",
+        "sleep",
+        "suspend"
+      ],
+      "kind" : "choice_or_number",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "freezeHiddenTabs"
+      ],
+      "range" : {
+        "max" : 3600,
+        "min" : 5,
+        "placeholder" : 30,
+        "step" : 5,
+        "unit" : "seconds"
+      },
+      "refuses" : [
+        "__not_a_choice__",
+        true,
+        -3590,
+        7195,
+        "1"
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.freezeHiddenTabs",
+        "text" : "Freeze Hidden Tabs"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        3,
+        1.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 1,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.memory",
+        "text" : "Memory"
+      },
+      "help" : {
+        "key" : "settings.browser.keepNeighborTabsAwake.help",
+        "text" : "Tabs on each side of the shown tab stay loaded and running, so switching to them is instant. 0 turns it off. Memory pressure and Low Power Mode turn it off."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.keepNeighborTabsAwake",
+      "keywords" : [
+        "neighbor",
+        "adjacent",
+        "preload",
+        "warm",
+        "instant",
+        "switch",
+        "hibernation",
+        "freeze"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "keepNeighborTabsAwake"
+      ],
+      "range" : {
+        "max" : 3,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -3,
+        6,
+        "1"
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.keepNeighborTabsAwake",
+        "text" : "Keep Neighbor Tabs Awake"
       },
       "validation" : "portable"
     },
@@ -24881,6 +29216,56 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.addressBar",
+        "text" : "Address Bar"
+      },
+      "help" : {
+        "key" : "settings.browser.omnibar.showFullURLs.help",
+        "text" : "Shows the whole address, with https:// and www., when you are not editing it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.omnibar.showFullURLs",
+      "keywords" : [
+        "url",
+        "address",
+        "https",
+        "www",
+        "full",
+        "omnibox"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "omnibar",
+        "showFullURLs"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.omnibar.showFullURLs",
+        "text" : "Always Show Full URLs"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "transparent",
         "regular",
         "clear",
@@ -25272,6 +29657,7 @@
     },
     {
       "accepts" : [
+        "linkPlacement",
         "backgroundTab",
         "foregroundTab",
         "newWindow",
@@ -25281,6 +29667,13 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.link.linkPlacement",
+            "text" : "Same as Open Links and Files"
+          },
+          "value" : "linkPlacement"
+        },
         {
           "title" : {
             "key" : "settings.choice.link.backgroundTab",
@@ -25320,7 +29713,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "backgroundTab",
+      "default" : "linkPlacement",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.links",
@@ -25359,6 +29752,7 @@
     },
     {
       "accepts" : [
+        "linkPlacement",
         "backgroundTab",
         "foregroundTab",
         "newWindow",
@@ -25368,6 +29762,13 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.link.linkPlacement",
+            "text" : "Same as Open Links and Files"
+          },
+          "value" : "linkPlacement"
+        },
         {
           "title" : {
             "key" : "settings.choice.link.backgroundTab",
@@ -25446,6 +29847,7 @@
     },
     {
       "accepts" : [
+        "linkPlacement",
         "backgroundTab",
         "foregroundTab",
         "newWindow",
@@ -25455,6 +29857,13 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.link.linkPlacement",
+            "text" : "Same as Open Links and Files"
+          },
+          "value" : "linkPlacement"
+        },
         {
           "title" : {
             "key" : "settings.choice.link.backgroundTab",
@@ -25532,6 +29941,7 @@
     },
     {
       "accepts" : [
+        "linkPlacement",
         "backgroundTab",
         "foregroundTab",
         "newWindow",
@@ -25541,6 +29951,13 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.link.linkPlacement",
+            "text" : "Same as Open Links and Files"
+          },
+          "value" : "linkPlacement"
+        },
         {
           "title" : {
             "key" : "settings.choice.link.backgroundTab",
@@ -25619,6 +30036,7 @@
     },
     {
       "accepts" : [
+        "linkPlacement",
         "backgroundTab",
         "foregroundTab",
         "newWindow",
@@ -25628,6 +30046,13 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.link.linkPlacement",
+            "text" : "Same as Open Links and Files"
+          },
+          "value" : "linkPlacement"
+        },
         {
           "title" : {
             "key" : "settings.choice.link.backgroundTab",
@@ -25701,6 +30126,54 @@
       "title" : {
         "key" : "settings.browser.links.middleClick",
         "text" : "Middle-Click"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.openingLinks",
+        "text" : "Opening Links"
+      },
+      "help" : {
+        "key" : "settings.browser.enabled.help",
+        "text" : "When off, cmux opens no browser tabs for web pages and every link opens in your default browser."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.enabled",
+      "keywords" : [
+        "browser",
+        "disable",
+        "turn off",
+        "default browser",
+        "web"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.enabled",
+        "text" : "Enable cmux Browser"
       },
       "validation" : "portable"
     },
@@ -26126,6 +30599,213 @@
       "default" : false,
       "default_label" : null,
       "group" : {
+        "key" : "settings.group.passwords",
+        "text" : "Passwords"
+      },
+      "help" : {
+        "key" : "settings.browser.verificationAutofill.enabled.help",
+        "text" : "When a site emails you a code or link, its tab offers it. Only on the sender's own site, never filled without your click, and never stored."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.verificationAutofill.enabled",
+      "keywords" : [
+        "email",
+        "verification",
+        "code",
+        "one-time",
+        "otp",
+        "2fa",
+        "autofill",
+        "magic link"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "verificationAutofill",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.verificationAutofill.enabled",
+        "text" : "Fill Codes from Verification Emails"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "hosted",
+        {
+          "selfHosted" : "http://mini.tail1234.ts.net:7320"
+        },
+        {
+          "selfHosted" : "https://100.101.102.103/"
+        }
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.homeServer.hosted",
+            "text" : "cmux Cloud"
+          },
+          "value" : "hosted"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "hosted",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.messagesServer",
+        "text" : "Messages Server"
+      },
+      "help" : {
+        "key" : "settings.home.server.help",
+        "text" : "Direct messages and group chats use cmux Cloud by default. A self-hosted server is reached over Tailscale by its MagicDNS name, for example http://mini.tail1234.ts.net:7320. No password is sent: the server knows you by your Tailscale login."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "home.server",
+      "keywords" : [
+        "server",
+        "self-hosted",
+        "tailscale",
+        "messages",
+        "chat",
+        "cloud",
+        "home"
+      ],
+      "kind" : "choice_or_url",
+      "page_hidden" : false,
+      "path" : [
+        "home",
+        "server"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        "selfHosted",
+        1,
+        {
+          "selfHosted" : "ftp://mini.tail1234.ts.net"
+        },
+        {
+          "selfHosted" : "http://mini.tail1234.ts.net/path"
+        },
+        {
+          "selfHosted" : "http://mini.tail1234.ts.net?x=1"
+        },
+        {
+          "selfHosted" : "not a url"
+        },
+        {
+          "selfHosted" : 7320
+        },
+        {
+          "__other__" : "http://mini.tail1234.ts.net"
+        },
+        {
+          "__extra__" : "x",
+          "selfHosted" : "http://mini.tail1234.ts.net"
+        }
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.home.server",
+        "text" : "Server"
+      },
+      "url_key" : "selfHosted",
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "imessage",
+        "theme"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : null,
+            "text" : "iMessage"
+          },
+          "value" : "imessage"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefBubbleStyle.theme",
+            "text" : "Theme"
+          },
+          "value" : "theme"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "imessage",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chiefChat",
+        "text" : "Chief Chat"
+      },
+      "help" : {
+        "key" : "settings.home.chiefBubbleStyle.help",
+        "text" : "iMessage shows your messages in blue and the Chief's in gray. Theme uses your theme's accent and surface colors."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "home.chiefBubbleStyle",
+      "keywords" : [
+        "chief",
+        "imessage",
+        "messages",
+        "bubbles",
+        "blue",
+        "chat",
+        "theme",
+        "colors",
+        "home"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "home",
+        "chiefBubbleStyle"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.home.chiefBubbleStyle",
+        "text" : "Bubble Style"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
         "key" : "settings.group.attachments",
         "text" : "Attachments"
       },
@@ -26215,6 +30895,174 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chiefPet",
+        "text" : "Chief Pet"
+      },
+      "help" : {
+        "key" : "settings.home.chiefPetEnabled.help",
+        "text" : "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session. While it shows, ⌃⌥⌘C opens its reply box from any app."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "home.chiefPetEnabled",
+      "keywords" : [
+        "chief",
+        "pet",
+        "mascot",
+        "floating",
+        "notifications",
+        "reply",
+        "dock"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "home",
+        "chiefPetEnabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.home.chiefPetEnabled",
+        "text" : "Show Chief Pet"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "orb",
+        "orb-spark",
+        "orb-hood",
+        "machine",
+        "machine-cyan",
+        "machine-blue",
+        "moon",
+        "moon-blue",
+        "fox"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.orb",
+            "text" : "Orb"
+          },
+          "value" : "orb"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.orb-spark",
+            "text" : "Orb Spark"
+          },
+          "value" : "orb-spark"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.orb-hood",
+            "text" : "Hooded Orb"
+          },
+          "value" : "orb-hood"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.machine",
+            "text" : "Machine"
+          },
+          "value" : "machine"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.machine-cyan",
+            "text" : "Cyan Machine"
+          },
+          "value" : "machine-cyan"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.machine-blue",
+            "text" : "Blue Machine"
+          },
+          "value" : "machine-blue"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.moon",
+            "text" : "Moon"
+          },
+          "value" : "moon"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.moon-blue",
+            "text" : "Blue Moon"
+          },
+          "value" : "moon-blue"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.fox",
+            "text" : "Fox"
+          },
+          "value" : "fox"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "orb",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chiefPet",
+        "text" : "Chief Pet"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "home.chiefPetMascot",
+      "keywords" : [
+        "chief",
+        "pet",
+        "mascot",
+        "character",
+        "avatar",
+        "pixel"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "home",
+        "chiefPetMascot"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.home.chiefPetMascot",
+        "text" : "Character"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "keystroke",
         "click",
         "focus",
@@ -26271,7 +31119,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "keystroke",
+      "default" : "click",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.dismissal",
@@ -27069,6 +31917,78 @@
     },
     {
       "accepts" : [
+        "always",
+        "whenUnlocked",
+        "never"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.previewsAlways",
+            "text" : "Always"
+          },
+          "value" : "always"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.previewsWhenUnlocked",
+            "text" : "When Unlocked"
+          },
+          "value" : "whenUnlocked"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.previewsNever",
+            "text" : "Never"
+          },
+          "value" : "never"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "whenUnlocked",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.banners",
+        "text" : "Banners and Sound"
+      },
+      "help" : {
+        "key" : "settings.notifications.showPreviews.help",
+        "text" : "Whether a banner shows what the agent said, or only where and what state."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "notifications.showPreviews",
+      "keywords" : [
+        "preview",
+        "privacy",
+        "message",
+        "lock screen",
+        "banner"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "showPreviews"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.notifications.showPreviews",
+        "text" : "Show Message in Banners"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -27279,7 +32199,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "blink",
+      "default" : "steady",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.attention",
@@ -27325,8 +32245,8 @@
       ],
       "default" : null,
       "default_label" : {
-        "key" : "settings.default.theme",
-        "text" : "Theme"
+        "key" : "settings.default.notificationBlue",
+        "text" : "Notification Blue"
       },
       "group" : {
         "key" : "settings.group.attention",
@@ -27568,6 +32488,99 @@
         "key" : "settings.group.attention",
         "text" : "Attention Ring"
       },
+      "help" : {
+        "key" : "settings.attention.flash.help",
+        "text" : "Clicking an unread pane, typing in it or jumping to it flashes its ring as it goes."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "notifications.attention.flash",
+      "keywords" : [
+        "ring",
+        "flash",
+        "blink",
+        "unread"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "attention",
+        "flash"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.attention.flash",
+        "text" : "Flash the Pane When Read"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.attention",
+        "text" : "Attention Ring"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "notifications.attention.flashOnTyping",
+      "keywords" : [
+        "ring",
+        "flash",
+        "keystroke",
+        "unread"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "attention",
+        "flashOnTyping"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.attention.flashOnTyping",
+        "text" : "Flash When Typing Reads It"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.attention",
+        "text" : "Attention Ring"
+      },
       "help" : null,
       "kept_on_reset_all" : false,
       "key" : "notifications.attention.showOnTab",
@@ -27646,7 +32659,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.attention",
@@ -29318,7 +34331,6 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "fee1aece774f1965b7810bda14e49892b4c5ef264db779369fe79bbad89fdfd8",
   "sections" : [
     {
       "id" : "general",

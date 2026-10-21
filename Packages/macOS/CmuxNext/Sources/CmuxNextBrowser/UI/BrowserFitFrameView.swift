@@ -47,7 +47,7 @@ public final class BrowserFitFrameView: NSView {
             field.font = .systemFont(ofSize: TypeScale.caption)
             field.lineBreakMode = .byTruncatingTail
         }
-        label.toolTip = Strings.explain
+        label.themedToolTip = Strings.explain
         for button in [choose, off] {
             button.isBordered = false
             button.target = self
@@ -55,6 +55,7 @@ public final class BrowserFitFrameView: NSView {
         }
         choose.action = #selector(showChoices)
         choose.imagePosition = .imageTrailing
+        // chrome-icons: allow the device-frame picker's pop-up chevron, not browser chrome
         choose.image = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: 8, weight: .semibold))
         off.action = #selector(turnOff)

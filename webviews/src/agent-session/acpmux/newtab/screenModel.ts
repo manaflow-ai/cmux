@@ -4,8 +4,9 @@
 import type { AcpmuxSnapshot } from "../model";
 import { ageLabel, recentSessions } from "../NewTabPage";
 import { EMPTY_OMNIBAR, omnibarRows, type OmnibarContext, type OmnibarRow } from "../omnibar";
-import { listed, normalizedSessionEntry, sessionMark, type AcpmuxSessionEntry } from "../sessionList";
+import { activityTime, listed, normalizedSessionEntry, sessionMark, type AcpmuxSessionEntry } from "../sessionList";
 import { classifyNewTabInput, TERMINAL_PREFIX } from "../newTabIntent";
+import { omniboxAction } from "../omniboxAction";
 import { type Translate, translate } from "../i18n";
 import type { DeviceChat } from "./deviceChats";
 import { TOP_SITES } from "./topSites";
@@ -62,12 +63,19 @@ export function defaultHarness(agents: readonly ScreenAgent[], lastAgent?: strin
 /// The popover's rows (Leo 10-13: Chrome's and Arc's order). Empty text and `!`: none. An address,
 /// or a word that completes one: the top hit (the address, else its best completion), then the
 /// matching open tabs, workspaces and visited pages, a web search (none for a local file) and Ask.
-/// Other text: Ask first, a web search, then the matches. One row per page: a page an open tab
+/// Other text: what it reads as first (omniboxAction, Leo 2026-10-20: no Search | Ask switch), Ask
+/// for a question or an instruction, else the web search, then the other one and the matches. One
+/// row per page: a page an open tab
 /// shows is that tab ("Switch to tab"), and addresses compare without their tracking parameters.
 /// The `create` actions end every list (Leo 2026-10-18), outside the cap.
 export function screenRows(
   text: string,
-  context: { omnibar: OmnibarContext; home?: string; ask?: ScreenAsk; create?: readonly CreateKind[] },
+  context: {
+    omnibar: OmnibarContext;
+    home?: string;
+    ask?: ScreenAsk;
+    create?: readonly CreateKind[];
+  },
 ): ScreenRow[] {
   const rows = navigationRows(text, context);
   if (!rows.length) return rows;
@@ -91,13 +99,15 @@ function navigationRows(
     const [top, ...rest] = found;
     return [...(top ? [top] : []), ...ranked(rest).slice(0, MAX_SUGGESTIONS - 1 - tail.length), ...tail];
   }
-  return [...ask, search, ...ranked(found).slice(0, Math.min(MAX_MATCH_ROWS, MAX_SUGGESTIONS - 1 - ask.length))];
+  const asks = omniboxAction(query, context.home ? { home: context.home } : {}).kind === "ask";
+  const lead = asks ? [...ask, search] : [search, ...ask];
+  return [...lead, ...ranked(found).slice(0, Math.min(MAX_MATCH_ROWS, MAX_SUGGESTIONS - 1 - ask.length))];
 }
 
-/// The row Return takes before Down or Ctrl-N: the top one, unless it is only a web search for a
-/// prompt (no agent to ask: Return says so instead of searching).
+/// The row Return takes before Down or Ctrl-N: the top one, what the text reads as. A question
+/// with no agent to ask has the web search on top, and Return takes it.
 export function defaultSelection(rows: readonly ScreenRow[]): number {
-  return rows[0] && rows[0].type !== "search" ? 0 : -1;
+  return rows[0] ? 0 : -1;
 }
 
 /// The inline address completion accepted by Right or End. Only a top row that is an address and
@@ -380,6 +390,29 @@ export function recentChatCards(
   return cards.map((card) => withChildren(card, children));
 }
 
+/// The stage layout's needs-you rows (NewTabScreen's suggestions card).
+export const MAX_NEEDS_YOU = 3;
+
+/// The chats waiting on the user (asking for input, or hit an error or lost their agent), newest
+/// first, picked from every chat before the cap: an older one is never hidden behind newer idle
+/// chats, as `recentChatCards`' trimmed list would hide it.
+export function needsYouCards(
+  sessions: AcpmuxSnapshot["sessions"],
+  now: number,
+  t: Translate,
+  count = MAX_NEEDS_YOU,
+): ChatCard[] {
+  // One pass keeps the waiting chats (sessionCard's state, read without building a card); only
+  // those few are sorted and carded, never the whole list (greptile on #22119).
+  const waiting = sessions.filter((raw) => {
+    const session = normalizedSessionEntry(raw as Parameters<typeof normalizedSessionEntry>[0]);
+    if (session.indicator === "failed") return true;
+    const mark = sessionMark(session, false);
+    return mark === "input" || mark === "error";
+  });
+  return liveChatCards(waiting, now, t, count, false);
+}
+
 function liveChatCards(
   sessions: AcpmuxSnapshot["sessions"],
   now: number,
@@ -396,7 +429,7 @@ function sessionCard(session: AcpmuxSessionEntry, now: number, t: Translate): Ch
     title: session.displayTitle ?? session.sessionId,
     ...(session.agentSessionId ? { chatId: session.agentSessionId } : {}),
     ...(session.harness ? { harness: session.harness } : {}),
-    age: ageLabel(session.updatedAt, now, t),
+    age: ageLabel(activityTime(session), now, t),
     ...(session.preview ? { message: session.preview } : {}),
     state: session.indicator === "failed" ? "failed" : (sessionMark(session, false) ?? "idle"),
   };
@@ -415,7 +448,7 @@ function indexChildren(
   for (const raw of sessions) {
     const session = normalizedSessionEntry(raw as Parameters<typeof normalizedSessionEntry>[0]);
     if (!session.spawnedBy || !listed(session) || sessionMark(session, false) === "input") continue;
-    const child = { parent: session.spawnedBy, at: session.updatedAt ?? 0, card: sessionCard(session, now, t) };
+    const child = { parent: session.spawnedBy, at: activityTime(session) ?? 0, card: sessionCard(session, now, t) };
     indexed.set(session.spawnedBy, [...(indexed.get(session.spawnedBy) ?? []), child]);
   }
   for (const chat of device) {

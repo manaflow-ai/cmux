@@ -7,6 +7,7 @@ extension PageWebView {
         _ = claimState.end()
         router.close()
         bridge.uninstall()
+        endChromium()
         webView.configuration.userContentController.removeScriptMessageHandler(forName: PagePaintProbe.handlerName, contentWorld: .page)
         resumeLoadWaiters()
     }
@@ -37,11 +38,16 @@ extension PageWebView {
     }
 
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        contentProcessTerminated()
+    }
+
+    /// The page's web content process ended (either engine): reload unless it keeps crashing.
+    func contentProcessTerminated() {
         loaded = false
         router.reset()
         let reloading = crashReloads.shouldReload(at: now())
         if reloading {
-            webView.reload()
+            reloadPage()
         } else {
             logger.error("page \(self.descriptor.id, privacy: .public) keeps crashing; not reloaded")
         }
@@ -52,6 +58,6 @@ extension PageWebView {
     /// notice's Reload button).
     public func reloadAfterCrashes() {
         crashReloads = PageCrashReloads()
-        webView.reload()
+        reloadPage()
     }
 }

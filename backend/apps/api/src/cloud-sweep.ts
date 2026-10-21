@@ -1,5 +1,6 @@
 import type { SqlStore, StoredRow } from "@cmux/ownership"
 import type { GuardedCloudDriver } from "./cloud-driver.ts"
+import { transportOf, type CloudTransport } from "./cloud-vm-api-config.ts"
 import { TABLE_LEDGER, TABLE_MACHINE, TABLE_TOMBSTONE, type LedgerRow, type MachineRow } from "./domains/cloud.ts"
 
 /** The orphan report runs at most once per hour per CloudDO, only while the team has rows. */
@@ -27,8 +28,8 @@ export interface ReportRows {
  * or its machine is live (not deleting or failed). The reason says what CloudDO knows of the name.
  * Report only: nothing here deletes.
  */
-export const collectSuspects = async (driver: GuardedCloudDriver, team: string, rows: ReportRows): Promise<Array<Suspect>> => {
-  const ledger = rows.range<LedgerRow>(TABLE_LEDGER, { limit: 1000 }).map((r) => r.row)
+export const collectSuspects = async (driver: GuardedCloudDriver, team: string, rows: ReportRows, transport?: CloudTransport): Promise<Array<Suspect>> => {
+  const ledger = rows.range<LedgerRow>(TABLE_LEDGER, { limit: 1000 }).map((r) => r.row).filter((row) => transport === undefined || transportOf(row) === transport)
   const byName = new Map<string, Array<LedgerRow>>()
   for (const l of ledger) byName.set(l.provider_name, [...(byName.get(l.provider_name) ?? []), l])
   const found = new Map<string, string>()
@@ -44,6 +45,7 @@ export const collectSuspects = async (driver: GuardedCloudDriver, team: string, 
     if (named.some((l) => l.state === "pending")) continue
     const machineId = named[0]?.machine ?? `vm_${name.slice(-20)}`
     const machine = rows.get<MachineRow>(TABLE_MACHINE, machineId)?.row
+    if (machine && transport !== undefined && transportOf(machine) !== transport) continue
     if (machine && machine.status !== "deleting" && machine.status !== "failed") continue
     const abandoned = named.find((l) => l.state === "abandoned")
     const reason: SuspectReason = abandoned

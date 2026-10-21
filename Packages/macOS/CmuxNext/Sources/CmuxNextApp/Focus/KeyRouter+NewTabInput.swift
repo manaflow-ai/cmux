@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextAgentPane
 
 /// Owns the short interval between Cmd-T (or Cmd-N's new workspace) and the New Tab field's
@@ -99,13 +100,29 @@ final class NewTabInputCoordinator {
         guard let router, let window = pane.view.window else { return nil }
         // One opening at a time per window: an earlier one ends here and its keys go on first.
         release(in: window)
+        // The pane focus had at the opening, when the opening may move focus (a person's, not a script's).
+        var focusedAtOpening = ActionRunScope.viewChangeAllowed() ? pane.services.windowController(showing: pane)?.focus.state.pane : nil
         let buffer = NewTabInputBuffer(began: now(), focusField: { [weak pane, weak window] in
-            guard let pane, let window, let key = pane.currentTabKey,
-                  pane.services.agentTabs.isNewTabPage(key),
+            guard let pane, let window, let key = pane.currentTabKey, pane.services.agentTabs.isNewTabPage(key),
                   let view = pane.services.agentTabs.existingView(key), view.window === window,
                   !view.isHiddenOrHasHiddenAncestor else { return false }
             // A Chromium page window may be key: the shell takes it back, so later keys follow.
             if !window.isKeyWindow, NSApp.isActive { window.makeKey() }
+            // The window refuses a page's web view outside an input event and the focus model's own
+            // moves while the model names another pane (AgentPaneView.refusesSelfFocus), and the
+            // readiness is neither. A page opened cold in a pane focus had not reached (another
+            // pane's +: no spare, so no `focusPane`) never drained: its keys waited for the limit and
+            // went to the old pane. The model moves first, as the responder change would tell it: once,
+            // and only while focus is still where the opening left it (a click elsewhere since then wins).
+            if let focus = pane.services.windowController(showing: pane)?.focus, let from = focusedAtOpening, from != pane.paneKey, focus.state.pane == from {
+                focusedAtOpening = nil
+                focus.send(.focusPane(pane.paneKey, source: .programmatic))
+            }
+            // A Chromium page takes the keys in its own window (a child of this one).
+            if view.chromiumPage != nil {
+                view.focusChat()
+                return true
+            }
             return window.makeFirstResponder(view.webView)
         }, deliver: deliver(in: window))
         let entry = Entry(buffer: buffer, limit: holdLimit, opened: pane.currentTabKey, pane: pane, window: window)
@@ -133,6 +150,10 @@ final class NewTabInputCoordinator {
             // A Chromium page window or the old window may be key: the page's window takes it.
             if !shown.isKeyWindow, NSApp.isActive { shown.makeKey() }
             target.pageWindow = shown
+            if view.chromiumPage != nil {
+                view.focusChat()
+                return true
+            }
             return shown.makeFirstResponder(view.webView)
         }, deliver: { [weak router, weak window] event in
             // Ready: the page's window. Not ready (the limit, a failed creation): the key window.
@@ -206,11 +227,40 @@ final class NewTabInputCoordinator {
     static func replay(_ event: NSEvent, held: NSEvent, in window: NSWindow, router: KeyRouter) {
         router.dispatchingSynthetic(event) {
             guard !router.interceptKeyDown(event, in: window) else { return }
+            // A page in Chromium has the keys in its own window, a child of this one: the key window,
+            // or (the app not active yet) the shown agent page's window.
+            if let page = Self.chromiumPageWindow(in: window) {
+                Self.chromiumAgentPane(under: page, in: window)?.judge(held, eventWindow: page)
+                return page.sendEvent(event)
+            }
             var view = window.firstResponder as? NSView
             while let current = view, !(current is AgentPaneView) { view = current.superview }
             (view as? AgentPaneView)?.judge(held, eventWindow: window)
             window.sendEvent(event)
         }
+    }
+
+    /// The Chromium page window (a child of `window`) that takes `window`'s held keys: the key window
+    /// when it is one, else the window of a shown agent page in Chromium whose view has the
+    /// keyboard in its own window (it was focused while the app was not active).
+    private static func chromiumPageWindow(in window: NSWindow) -> NSWindow? {
+        if let key = NSApp.keyWindow, key !== window, key.parent === window { return key }
+        guard window.firstResponder === window || window.firstResponder == nil else { return nil }
+        return window.childWindows?.first { child in
+            child.isVisible && chromiumAgentPane(under: child, in: window).map { !$0.isHiddenOrHasHiddenAncestor } == true
+        }
+    }
+
+    /// The agent pane in `window` whose Chromium page shows in `page` (its child window).
+    private static func chromiumAgentPane(under page: NSWindow, in window: NSWindow) -> AgentPaneView? {
+        let center = CGPoint(x: page.frame.midX, y: page.frame.midY)
+        var stack: [NSView] = window.contentView.map { [$0] } ?? []
+        while let view = stack.popLast() {
+            if let pane = view as? AgentPaneView, let content = pane.chromiumPage?.contentView, let host = content.window,
+               host.convertToScreen(content.convert(content.bounds, to: nil)).contains(center) { return pane }
+            stack.append(contentsOf: view.subviews)
+        }
+        return nil
     }
 
     private func install(_ entry: Entry, in window: NSWindow) {
@@ -224,19 +274,13 @@ final class NewTabInputCoordinator {
     }
 
     /// The open put the page's tab on screen: leaving it now ends the hold at once.
-    func didShow(in window: NSWindow?) {
-        guard let window else { return }
-        buffers[window.windowNumber]?.shown = true
-    }
+    func didShow(in window: NSWindow?) { if let window { buffers[window.windowNumber]?.shown = true } }
 
     /// The New Tab page `tab` this hold opened closed before the daemon made it: its held keys go with it.
     func drop(tab: String, in window: NSWindow?) { if let window, let entry = entry(for: window), entry.pane?.currentTabKey == tab { entry.buffer.discard(); release(entry, why: "closed before created") } }
 
     /// The opening failed: its keys go on to whatever has focus.
-    func cancel(in window: NSWindow?) {
-        guard let window else { return }
-        release(in: window, why: "open failed")
-    }
+    func cancel(in window: NSWindow?) { if let window { release(in: window, why: "open failed") } }
 
     func capture(_ event: NSEvent, in keyWindow: NSWindow?) -> Bool {
         // A Chromium page window is a child of the shell, whose number keys the hold.

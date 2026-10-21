@@ -64,7 +64,7 @@ enum AgentPaneHandshakeReply {
             // Only a fresh page reads it; a reconnect keeps it for the page's own ready.
             if request == .ready {
                 handshake.wake = model.pendingWake
-                model.pendingWake = nil
+                (model.handedWake, model.pendingWake) = (model.pendingWake, nil)
             }
             model.hasHandshake = true
             // A filled-in folder stays the workspace's, no root of its own (cx-9aps).
@@ -74,6 +74,7 @@ enum AgentPaneHandshakeReply {
             // The connection stays here; the reply never encodes it.
             model.pendingConnection = handshake.connection
             model.transport.acpmuxSocket = handshake.connection?.remote == nil ? handshake.connection?.socketPath : nil
+            model.transport.acpmuxExecutable = handshake.connection?.remote == nil ? handshake.connection?.executable : nil
             handshake.connection = nil
             return AgentPaneReply.handshake(handshake)
         } catch {

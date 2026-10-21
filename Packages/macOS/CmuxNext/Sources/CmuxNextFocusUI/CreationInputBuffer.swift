@@ -16,12 +16,16 @@ public final class CreationInputBuffer {
     private var nextID = 0
     /// When the hold began.
     public let began: ContinuousClock.Instant
+    /// When the last pending creation got its reply: the hold's limit counts from here.
+    private var repliedAt: ContinuousClock.Instant?
 
     public init(began: ContinuousClock.Instant) { self.began = began }
 
     public var isResolved: Bool { pending.isEmpty }
     /// A creation opened in this hold: only its reply (or the request timeout) ends it.
     public var holdsCreation: Bool { nextID > 0 }
+    /// A creation of this hold still waits for its reply: until then its keys never expire.
+    public var hasPendingCreation: Bool { !pending.isEmpty }
     public var isEmpty: Bool { events.isEmpty }
 
     /// `earlyTab`: the tab of the new terminal's view when that view takes keys before the reply
@@ -60,6 +64,7 @@ public final class CreationInputBuffer {
         earlyTabs[ticket.id] = nil
         tabs[ticket.id] = nil
         guard let generation = pending.removeValue(forKey: ticket.id) else { return }
+        if pending.isEmpty { repliedAt = ContinuousClock.now }
         if awaitsFocus { awaited.insert(generation) }
     }
 
@@ -74,23 +79,34 @@ public final class CreationInputBuffer {
         return events
     }
 
-    /// Calls `expired` after `limit` unless this hold holds a creation by then (its reply ends it).
+    /// Calls `expired` after `limit` unless a creation of this hold still waits for its reply then
+    /// (its reply arms the bound again: the coordinator calls this from `resolve`).
     public func expire(after limit: Duration, _ expired: @escaping @MainActor (CreationInputBuffer) -> Void) {
         // task-owner: one-shot bound on this hold; a hold that ended first makes it a no-op
         Task { @MainActor [weak self] in
             // wakeup-allow: one-shot bound on a key hold, so a hold whose terminal never shows ends
             try? await Task.sleep(for: limit)
-            guard let self, !holdsCreation else { return }
+            guard let self, !hasPendingCreation else { return }
             expired(self)
         }
     }
 
-    /// Whether this hold keeps `event`. A creation's hold keeps every key until its reply; one that
-    /// only waits for a selected terminal's surface ends after `limit` (`expiring`), and lets a
-    /// chord through while it holds nothing (held Ctrl-Tab makes no surface for a tab it passed).
-    public func holds(_ event: NSEvent, limit: Duration, expiring: Bool) -> Bool {
-        guard !holdsCreation else { return true }
-        if expiring, ContinuousClock.now - began >= limit { return false }
+    /// Whether this hold keeps `event`.
+    ///
+    /// - A close key (`closes`: its binding is a close action, Cmd-W) never waits: it acts at once on
+    ///   what it closes, a pending creation included (TabLifecycle cancels it). Held, it ran later
+    ///   with the other held keys and closed the next tab, then the window (macOS 15 tester,
+    ///   2026-10-19: Cmd-D then Cmd-W from Settings).
+    /// - A creation waiting for its reply keeps every other key.
+    /// - After the reply the hold ends `limit` later (`expiring`), even when the focus it asked for
+    ///   never lands (a split from a page tab shows a New Tab page, not a terminal).
+    /// - A hold that only waits for a selected terminal's surface ends `limit` after it began, and
+    ///   lets a chord through while it holds nothing (held Ctrl-Tab makes no surface for a tab it passed).
+    public func holds(_ event: NSEvent, limit: Duration, expiring: Bool, closes: Bool = false) -> Bool {
+        if closes { return false }
+        guard !hasPendingCreation else { return true }
+        if expiring, ContinuousClock.now - (repliedAt ?? began) >= limit { return false }
+        if holdsCreation { return true }
         return !(isEmpty && !event.modifierFlags.intersection([.command, .control]).isEmpty)
     }
 }

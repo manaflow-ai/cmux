@@ -11,6 +11,7 @@
 #include "include/cef_browser.h"
 #include "include/cef_client.h"
 #include "include/cef_context_menu_handler.h"
+#include "include/cef_jsdialog_handler.h"
 #include "include/cef_request_context.h"
 #include "include/cef_resource_request_handler.h"
 #include "include/cef_unresponsive_process_callback.h"
@@ -117,6 +118,10 @@ ForkApi& fork_api();
 void InstallForkObserver();
 Host& host();
 
+// True once quit began to stop Chromium (cmux_shim_close_all): no browser is
+// made after, as CEF aborts creating one once its shutdown began.
+bool& stopping();
+
 // Emits one event to Swift (main thread only).
 void Emit(int kind,
           int browser_id,
@@ -158,8 +163,18 @@ void RegisterPageSchemes(CefRefPtr<CefRequestContext> context);
 void InstallPageSchemes();
 
 // Browsers the host asked to close (so DoClose can tell window.close apart).
+// A host close never asks: its beforeunload is answered Leave at once.
 void MarkHostClose(int browser_id);
 bool TakeHostClose(int browser_id);
+bool IsHostClose(int browser_id);
+
+// beforeunload questions the host answers (UI thread only; shim_process.mm).
+// Store returns the token of BEFORE_UNLOAD_DIALOG; Answer continues every
+// waiting question of the browser (accept = Leave) and Drop forgets them
+// unanswered (Chromium ended them). Both return true when one was waiting.
+int StoreBeforeUnloadCallback(int browser_id, CefRefPtr<CefJSDialogCallback> callback);
+bool AnswerBeforeUnload(int browser_id, bool accept);
+bool DropBeforeUnload(int browser_id);
 
 // Unanswered renderer hangs by browser (UI thread only). Storing replaces an
 // older callback of the same browser; Take removes it.

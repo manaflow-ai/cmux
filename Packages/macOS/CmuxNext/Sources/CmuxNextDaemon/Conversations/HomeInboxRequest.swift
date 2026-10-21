@@ -76,6 +76,9 @@ public struct ConversationInboxOpRequest: DaemonRequest {
         public var pinned: Bool?
         public var position: UInt64?
         public var unread: Bool?
+        public var muted: Bool?
+        /// Unix ms the mute ends; nil mutes until unmuted.
+        public var until: UInt64?
 
         /// `inbox.pin`; a pin without `position` goes after the caller's last pin.
         public static func pin(_ pinned: Bool, position: UInt64? = nil) -> Op {
@@ -84,6 +87,11 @@ public struct ConversationInboxOpRequest: DaemonRequest {
 
         /// `inbox.mark_unread`.
         public static func markUnread(_ unread: Bool) -> Op { Op(kind: "inbox.mark_unread", pinned: nil, position: nil, unread: unread) }
+
+        /// `inbox.mute` (Cloud rows only: `cloud-inbox-op`): Hide Alerts, until `until` when set.
+        public static func mute(_ muted: Bool, until: UInt64? = nil) -> Op {
+            Op(kind: "inbox.mute", pinned: nil, position: nil, unread: nil, muted: muted, until: muted ? until : nil)
+        }
     }
     public struct Response: Decodable, Sendable, Equatable {
         public var conversation: String

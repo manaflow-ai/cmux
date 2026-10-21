@@ -11,13 +11,11 @@
 // The engines come from `playwright install chromium webkit`. Where one is not installed, its
 // cases are skipped and say so.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
-import { spawn, type ChildProcess } from "node:child_process";
-import net from "node:net";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
-import { stopDevServer } from "./support/devServer";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmDevServer } from "./support/warmDevServer";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("settings-scroll.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -35,39 +33,25 @@ await requireBrowserLane("settings-scroll.test.ts", async () => {
     }
   }
 
-  let server: ChildProcess | null = null;
+  const { createServer } = await import("vite");
+  let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let base = "";
 
   beforeAll(async () => {
     if (engines.length === 0) return;
-    const port = await new Promise<number>((resolve) => {
-      const probe = net.createServer().listen(0, "127.0.0.1", () => {
-        const { port } = probe.address() as net.AddressInfo;
-        probe.close(() => resolve(port));
-      });
+    // The settings dev server, in this process: `listen()` resolves once it takes requests.
+    vite = await createServer({
+      configFile: path.join(webviews, "vite.config.settings-page.mjs"),
+      server: { port: 0, host: "127.0.0.1", strictPort: false },
+      logLevel: "error",
     });
-    server = spawn(
-      path.join(webviews, "node_modules/.bin/vp"),
-      ["dev", "--config", "vite.config.settings-page.mjs", "--port", String(port), "--strictPort"],
-      { cwd: webviews, stdio: ["ignore", "ignore", "ignore"] },
-    );
-    base = `http://127.0.0.1:${port}`;
-    const deadline = Date.now() + 60_000;
-    let listening = false;
-    while (!listening && Date.now() < deadline) {
-      try {
-        listening = (await fetch(`${base}/`)).ok;
-      } catch {
-        // Not listening yet.
-      }
-      if (!listening) await new Promise((resolve) => setTimeout(resolve, 250));
-    }
-    if (!listening) throw new Error("settings dev server did not start");
-    await warmDevServer(base, "/");
+    await vite.listen();
+    base = `http://127.0.0.1:${(vite.httpServer!.address() as { port: number }).port}`;
+    await warmViteServer(vite, "/");
   }, 180_000);
 
-  afterAll(() => {
-    stopDevServer(server);
+  afterAll(async () => {
+    await vite?.close();
   });
 
   /** The page's scroll state: the document's, and every element that scrolls a row. */
@@ -124,9 +108,58 @@ await requireBrowserLane("settings-scroll.test.ts", async () => {
   const open = async (page: Page, section: string) => {
     await page.goto(`${base}/?mock#/settings/${section}`);
     await page.waitForSelector(".content [data-row-key]");
-    // The mock answers at once; a frame more for the cards that render from its answers.
-    await page.waitForTimeout(500);
+    // The mock answers at once and the cards render from its answers: open once three painted
+    // frames in a row show the same rows at the same places.
+    await page.evaluate(async () => {
+      await document.fonts.ready;
+      const state = window as unknown as { wheels: number };
+      state.wheels = 0;
+      addEventListener("wheel", () => (state.wheels += 1), { capture: true, passive: true });
+      const layout = () =>
+        [...document.querySelectorAll<HTMLElement>("[data-row-key]")].map((row) => row.offsetTop).join() +
+        ` ${document.querySelector(".content")!.scrollHeight}`;
+      await new Promise<void>((resolve) => {
+        let last = "";
+        let same = 0;
+        window.cmuxAfterPaint(() => {
+          const now = layout();
+          same = now === last ? same + 1 : 0;
+          last = now;
+          if (same < 2) return true;
+          resolve();
+          return false;
+        });
+      });
+    });
     await page.mouse.move(640, 350);
+  };
+
+  /** Turns the wheel `times` times by `delta` and waits until the page has taken every turn and its
+   *  scroll, and any pop-up, stay put through three painted frames: a wheel's scroll can glide over
+   *  several frames. */
+  const wheel = async (page: Page, delta: number, times = 1) => {
+    const before = await page.evaluate(() => (window as unknown as { wheels: number }).wheels);
+    for (let turn = 0; turn < times; turn += 1) await page.mouse.wheel(0, delta);
+    await page.waitForFunction((count) => (window as unknown as { wheels: number }).wheels >= count, before + times);
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) => {
+          const place = () => {
+            const popup = document.querySelector(".ui-select-popup")?.getBoundingClientRect();
+            return `${document.scrollingElement!.scrollTop} ${document.querySelector(".content")!.scrollTop} ${popup?.top} ${popup?.left}`;
+          };
+          let last = "";
+          let same = 0;
+          window.cmuxAfterPaint(() => {
+            const now = place();
+            same = now === last ? same + 1 : 0;
+            last = now;
+            if (same < 2) return true;
+            resolve();
+            return false;
+          });
+        }),
+    );
   };
 
   for (const [name, engine] of engines) {
@@ -137,6 +170,7 @@ await requireBrowserLane("settings-scroll.test.ts", async () => {
       beforeAll(async () => {
         browser = await engine.launch({ headless: true });
         page = await browser.newPage({ viewport: { width: 1000, height: 700 } });
+        await installPaintedFrames(page);
       });
 
       afterAll(async () => {
@@ -147,19 +181,20 @@ await requireBrowserLane("settings-scroll.test.ts", async () => {
         await open(page, "appearance");
         expect(await watchRows(page)).toBeGreaterThan(40);
         const steps: string[] = [];
-        for (let step = 0; step < 80; step += 1) {
+        // The loop stops at the end; the cap only bounds a page that never gets there. WebKit moves
+        // about 110px per 120px wheel step, so 80 steps stopped 4px short once the regenerated schema
+        // (12286201804) made Appearance 8839px tall.
+        for (let step = 0; step < 200; step += 1) {
           const state = await scrollState(page);
           if (state.documentScrolls || state.scrollers.length !== 1) steps.push(`${step}: ${JSON.stringify(state)}`);
           if (state.contentTop >= state.contentEnd && step > 0) {
             // Past the end the wheel goes nowhere: never on to the document.
-            for (let extra = 0; extra < 5; extra += 1) await page.mouse.wheel(0, 240);
-            await page.waitForTimeout(100);
+            await wheel(page, 240, 5);
             const after = await scrollState(page);
             if (after.documentScrolls) steps.push(`past the end: ${JSON.stringify(after)}`);
             break;
           }
-          await page.mouse.wheel(0, 120);
-          await page.waitForTimeout(16);
+          await wheel(page, 120);
         }
         const end = await scrollState(page);
         expect(steps).toEqual([]);
@@ -181,8 +216,7 @@ await requireBrowserLane("settings-scroll.test.ts", async () => {
         const problems: string[] = [];
         for (const delta of [200, 200, 200, -200, -200, -200, -200, -200, -200]) {
           await page.mouse.move(640, 100);
-          await page.mouse.wheel(0, delta);
-          await page.waitForTimeout(120);
+          await wheel(page, delta);
           const state = await scrollState(page);
           const place = await page.evaluate((selector) => {
             const popup = document.querySelector(".ui-select-popup");

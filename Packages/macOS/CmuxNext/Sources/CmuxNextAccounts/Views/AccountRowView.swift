@@ -139,9 +139,9 @@ struct ConnectConfirmation: View {
             Text(AccountsStrings.codexRefreshNote).font(palette.caption).foregroundStyle(palette.text)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: Metrics.space3) {
-                Button(AccountsStrings.confirmConnect) { model.connect(provider, confirmed: true) }
+                CmuxDialogActionButton(AccountsStrings.confirmConnect, hint: .return) { model.connect(provider, confirmed: true) }
                     .accessibilityIdentifier("cmux.accounts.confirm.\(provider.rawValue)")
-                Button(AccountsStrings.cancel) { model.confirmTarget = nil }
+                CmuxDialogActionButton(AccountsStrings.cancel, hint: .escape) { model.confirmTarget = nil }
             }
             .buttonStyle(AccountsButtonStyle(palette: palette))
         }

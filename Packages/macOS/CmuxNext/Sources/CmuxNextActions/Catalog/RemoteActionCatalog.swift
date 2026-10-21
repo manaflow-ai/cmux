@@ -26,6 +26,43 @@ nonisolated enum RemoteActionCatalog: ActionCatalogGroup {
                             CatalogArgument.stateDirString],
                 cliName: "remote connect", mainMenu: .file
             ),
+            // One click from a host name to a working agent machine (plans/cmux-next/add-machine-DESIGN.md):
+            // the Add Machine card runs `cmux-tui acp host enroll`; a destination only fills it (Add starts it).
+            ActionDescriptor(
+                id: "machine.add",
+                title: String(localized: "action.machine.add", defaultValue: "Add Machine…", table: "RemoteActions", bundle: .module),
+                keywords: ["ssh", "remote", "host", "machine", "tailscale", "tailnet", "enroll", "agent", "peer", "acpmux"],
+                category: .remote, symbol: "plus.rectangle.on.rectangle", surfaces: [.palette, .contextMenu],
+                arguments: [CatalogArgument.optionalDestination, CatalogArgument.optionalMachineName],
+                cliName: "machine add"
+            ),
+            // The same card's checklist for one SSH machine (`host doctor`), with Fix (`--fix`).
+            ActionDescriptor(
+                id: "machine.doctor",
+                title: String(localized: "action.machine.doctor", defaultValue: "Check Machine", table: "RemoteActions", bundle: .module),
+                keywords: ["ssh", "remote", "host", "machine", "doctor", "health", "check", "fix", "agent", "peer", "acpmux"],
+                category: .remote, symbol: "stethoscope", surfaces: [.palette, .contextMenu], targets: [.machine],
+                cliName: "machine doctor"
+            ),
+            ActionDescriptor(
+                id: "remote.newGroup",
+                title: String(localized: "action.remote.newGroup", defaultValue: "New Remote Group…", table: "RemoteActions", bundle: .module),
+                keywords: ["ssh", "remote", "host", "server", "group", "mac mini", "linux", "vm"], category: .remote, symbol: "rectangle.stack.badge.plus",
+                surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.destinationString],
+                cliName: "remote new-group"
+            ),
+            ActionDescriptor(
+                id: "remote.removeGroup",
+                title: String(localized: "action.remote.removeGroup", defaultValue: "Remove Remote Group", table: "RemoteActions", bundle: .module),
+                keywords: ["remote", "host", "group", "header", "list"], category: .remote, symbol: "rectangle.stack.badge.minus",
+                surfaces: [.palette, .contextMenu], targets: [.machine], cliName: "remote remove-group"
+            ),
+            ActionDescriptor(
+                id: "machine.reconnect",
+                title: String(localized: "action.machine.reconnect", defaultValue: "Reconnect", table: "RemoteActions", bundle: .module),
+                keywords: ["remote", "host", "server", "cloud", "connect", "retry", "offline"], category: .remote, symbol: "arrow.clockwise",
+                surfaces: [.palette, .contextMenu], targets: [.machine], cliName: "machine reconnect"
+            ),
             ActionDescriptor(
                 id: "remote.newWorkspace",
                 title: String(localized: "action.remote.newWorkspace", defaultValue: "New Workspace on Machine", table: "RemoteActions", bundle: .module),
@@ -81,7 +118,7 @@ nonisolated enum RemoteActionCatalog: ActionCatalogGroup {
             // tab shows the host's refusal (cx-erey).
             ActionDescriptor(
                 id: "remote.openBrowserTab",
-                title: String(localized: "action.remote.openBrowserTab", defaultValue: "Open Remote Browser Tab", table: "RemoteActions", bundle: .module),
+                title: String(localized: "action.remote.openBrowserTab", defaultValue: "Open Remote Browser Tab…", table: "RemoteActions", bundle: .module),
                 keywords: ["remote", "browser", "tab", "rb", "stream", "chromium", "host"], category: .remote, symbol: "globe",
                 surfaces: [.palette],
                 arguments: [
@@ -116,6 +153,17 @@ nonisolated enum RemoteActionCatalog: ActionCatalogGroup {
 }
 
 nonisolated extension CatalogArgument {
+    /// Add Machine's host: the card opens on the field without it.
+    static var optionalDestination: ActionArgument {
+        ActionArgument(name: "destination", title: String(localized: "argument.destination", defaultValue: "SSH Destination", table: "RemoteActions", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
+    /// Add Machine's name for the machine; the short host without it.
+    static var optionalMachineName: ActionArgument {
+        ActionArgument(name: "name", title: String(localized: "argument.name", defaultValue: "Name", bundle: .module), kind: .string, isRequired: false)
+    }
+
     /// `machine` (the workspace's machine), `thisMac`, or `setting`
     /// (follow `browser.remoteLocalhost`).
     static var remoteLocalhostChoice: ActionArgument {

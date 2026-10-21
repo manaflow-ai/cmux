@@ -221,6 +221,7 @@ export function markdownAsset(
 
 /// The diagram libraries the editor loads (`<libBase><name>.js`): the classic viewer's bundles.
 export const PAGE_LIBS: Record<string, string[]> = {
+  ondine: ["ondine.min.js"],
   mermaid: ["mermaid.min.js"],
   vega: ["vega.min.js", "vega-lite.min.js"],
 };

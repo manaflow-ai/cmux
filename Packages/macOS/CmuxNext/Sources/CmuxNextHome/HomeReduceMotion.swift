@@ -16,6 +16,10 @@ final class HomeReduceMotion {
 
     private init() {
         Self.mirror()
+        // The list's pin drag reads the gate when a movement starts (speed off, Reduce Motion, settings).
+        CmuxSidebarView.movementGate = { Motion.sidebar.animatesMovement }
+        // The message box's dictation waveform follows the input level only while Home's loops run.
+        MessagesLabHomeView.voiceMotionGate = { Motion.home.animatesLoops }
         observer = NotificationCenter.default.addObserver(forName: Motion.reduceMotionDidChange, object: nil, queue: nil) { _ in
             MainDelivery().run { HomeReduceMotion.mirror() }
         }

@@ -22,6 +22,18 @@ extension LayoutStyle {
         max(dividerHitThickness, panePadding * 2 + dividerThickness)
     }
 
+    /// Thickness of the line a column or dock edge draws on hover and drag:
+    /// at least 2 pt, so the edge of a whole column reads as one.
+    public nonisolated var columnEdgeLineThickness: CGFloat {
+        Self.columnEdgeLineThickness(dividerThickness: dividerThickness)
+    }
+
+    /// ``columnEdgeLineThickness`` for a divider thickness: the one rule the
+    /// geometry (`DividerBand`) and `DividerHandleView` both draw by.
+    public nonisolated static func columnEdgeLineThickness(dividerThickness: CGFloat) -> CGFloat {
+        max(dividerThickness, 2)
+    }
+
     /// Width of a column edge's drag area centered on the column gap.
     public nonisolated var columnEdgeHitThickness: CGFloat {
         max(stripGap + panePadding * 2, dividerHitThickness)

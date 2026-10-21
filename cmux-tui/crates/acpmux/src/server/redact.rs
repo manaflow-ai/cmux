@@ -23,6 +23,11 @@ pub(super) fn redact_for_remote(method: &str, reply: &mut Value) {
         _ if method == "_acpmux/presets" => hide_preset_contents(reply),
         _ => {}
     }
+    // `_acpmux/harnesses` already hides its env above; `_acpmux/defaults`
+    // says only whether a family's spawn defaults carry an env.
+    if method == "_acpmux/defaults" {
+        hide_defaults_view(reply);
+    }
     if let Some(peers) = reply.get_mut("peers").and_then(Value::as_array_mut) {
         for peer in peers {
             if let Some(url) = peer.get("url").and_then(Value::as_str) {
@@ -108,6 +113,54 @@ fn hide_preset_contents(preset: &mut Value) {
     p.insert("hasSystemPrompt".into(), Value::Bool(has_prompt));
 }
 
+/// A defaults view without the environment that will be passed to a harness.
+/// Keep an explicit marker so remote clients can distinguish an empty env from
+/// an env intentionally withheld by the daemon.
+fn hide_defaults_view(reply: &mut Value) {
+    let Some(map) = reply.as_object_mut() else {
+        return;
+    };
+    if let Some(families) = map.get_mut("families") {
+        hide_defaults_map(families);
+    }
+    if let Some(defaults) = map.get_mut("defaults") {
+        hide_defaults_map(defaults);
+    }
+    if !map.contains_key("families") && !map.contains_key("defaults") {
+        hide_default_entry(reply);
+    }
+}
+
+fn hide_defaults_map(defaults: &mut Value) {
+    let Some(map) = defaults.as_object_mut() else {
+        return;
+    };
+    for value in map.values_mut() {
+        hide_default_entry(value);
+    }
+}
+
+fn hide_default_entry(defaults: &mut Value) {
+    let Some(map) = defaults.as_object_mut() else {
+        return;
+    };
+    hide_env_field(map);
+}
+
+fn hide_env_field(map: &mut serde_json::Map<String, Value>) {
+    let has_env = map.remove("env").is_some_and(|env| has_content(&env));
+    map.insert("hasEnv".into(), Value::Bool(has_env));
+}
+
+fn has_content(value: &Value) -> bool {
+    match value {
+        Value::Null => false,
+        Value::Array(values) => !values.is_empty(),
+        Value::Object(values) => !values.is_empty(),
+        _ => true,
+    }
+}
+
 /// `scheme://user:secret@host/path?q#f` -> `scheme://host/path`.
 fn url_without_secrets(url: &str) -> String {
     let bare = url.split(['?', '#']).next().unwrap_or_default();
@@ -143,5 +196,68 @@ mod tests {
         assert_eq!(profile["hasSessions"], true);
         assert_eq!(profile["unavailable"], "unavailable");
         assert_eq!(profile["probeError"], "unavailable");
+    }
+
+    #[test]
+    fn remote_defaults_hide_env_for_one_family() {
+        let mut reply = json!({
+            "kind": "family",
+            "model": "claude-opus",
+            "env": {"ANTHROPIC_API_KEY": "canary"},
+        });
+
+        redact_for_remote("_acpmux/defaults", &mut reply);
+
+        assert_eq!(reply["model"], "claude-opus");
+        assert_eq!(reply["hasEnv"], true);
+        assert!(reply.get("env").is_none());
+        assert!(!reply.to_string().contains("canary"));
+    }
+
+    #[test]
+    fn remote_defaults_hide_env_in_all_families() {
+        let mut reply = json!({
+            "families": {
+                "claude": {"env": {"ROUTER_KEY": "canary"}},
+                "codex": {"model": "gpt-6.1-sol", "env": {}},
+                "env": {"model": "gpt-6.1-sol", "env": {"FAMILY_KEY": "canary"}},
+            },
+            "defaults": {
+                "claude": {"env": {"OPENAI_API_KEY": "canary"}},
+                "env": {"env": {"OTHER_KEY": "canary"}},
+            },
+        });
+
+        redact_for_remote("_acpmux/defaults", &mut reply);
+
+        assert_eq!(reply["families"]["claude"]["hasEnv"], true);
+        assert_eq!(reply["families"]["codex"]["hasEnv"], false);
+        assert_eq!(reply["families"]["env"]["hasEnv"], true);
+        assert_eq!(reply["defaults"]["claude"]["hasEnv"], true);
+        assert_eq!(reply["defaults"]["env"]["hasEnv"], true);
+        assert!(!reply.to_string().contains("canary"));
+        assert!(!reply.to_string().contains("API_KEY"));
+    }
+
+    #[test]
+    fn remote_harnesses_hide_profile_and_inline_defaults_env() {
+        let mut reply = json!({
+            "harnesses": {
+                "fake": {
+                    "env": {"PROFILE_KEY": "canary"},
+                    "defaults": {"env": {"DEFAULT_KEY": "canary"}},
+                },
+            },
+            "defaults": {
+                "fake": {"env": {"TOP_LEVEL_KEY": "canary"}},
+            },
+        });
+
+        redact_for_remote("_acpmux/harnesses", &mut reply);
+
+        assert_eq!(reply["harnesses"]["fake"]["hasEnv"], true);
+        assert_eq!(reply["harnesses"]["fake"]["defaults"]["hasEnv"], true);
+        assert_eq!(reply["defaults"]["fake"]["hasEnv"], true);
+        assert!(!reply.to_string().contains("canary"));
     }
 }

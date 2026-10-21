@@ -6,9 +6,23 @@ struct SidebarPress {
     var key: SidebarRowKey
     var point: NSPoint
     var deferredClick: WorkspaceID?
+    /// A plain press on a workspace row with `sidebar.multiView` on: it navigates only if the button comes up on
+    /// the same row without a drag.
+    var clickOnRelease: WorkspaceID?
     var cancelled = false
     /// An item row that switched on mouse-down (`LayoutItemRef.activatesOnPress`): its release does not run it again.
     var activatedOnPress = false
+
+    /// How far a press moves before it drags (Leo 2026-10-20: a plain click must never start a drag). A click's
+    /// jitter on a trackpad reaches 4-5 pt; at the old 4 pt (`Metrics.space2`) such clicks lifted the row, or a
+    /// group header with all its members. Points, not a density token: it is about the hand, not the layout.
+    /// Debug Settings `sidebar.drag.threshold` (default 6).
+    static var dragThreshold: CGFloat { SidebarTunables.dragThreshold.value }
+
+    /// The pointer at `point` has moved from `start` far enough to start a drag.
+    static func movedPastThreshold(from start: NSPoint, to point: NSPoint) -> Bool {
+        hypot(point.x - start.x, point.y - start.y) >= dragThreshold
+    }
 }
 
 /// MIDDLE-CLICK-CLOSES-WORKSPACE: a middle click on a sidebar workspace row
@@ -37,13 +51,13 @@ final class SidebarMiddleClick {
     /// A middle press went down at `point` (list coordinates).
     func pressDown(at point: NSPoint, in list: SidebarListView) {
         list.hoverCards.dismiss(.click)
-        pressKey = list.displayed.row(at: point.y)?.key
+        pressKey = list.clickHit(at: point)?.key
     }
 
     /// A middle press came up at `point` (list coordinates).
     func pressUp(at point: NSPoint, in list: SidebarListView) {
         defer { pressKey = nil }
-        guard case let .workspace(id)? = list.displayed.row(at: point.y)?.key, pressKey == .workspace(id),
+        guard case let .workspace(id)? = list.clickHit(at: point)?.key, pressKey == .workspace(id),
               !list.model.isPlaceholder(id) else { return }
         list.model.send(.close([id]))
     }

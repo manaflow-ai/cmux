@@ -8,7 +8,15 @@ import CmuxNextSettings
 enum PaletteSourcesBridge {
     static func make(services: AppServices) -> PaletteSources {
         var sources = makeBase(services: services)
-        // A typed path or web address: Open it, or Ask Agent about it (Cmd-P and Cmd-Shift-P).
+        // Search (Cmd-Shift-A and the sidebar's Search button, plans/cmux-next/sidebar-search.md): history by
+        // kind and the agent chats join the palette's own sources. Cmd-P lists only the open items. Agent chats
+        // and agent sessions also make up the Chats & agents scope.
+        sources.searchContributions = HistoryPalettePages.searchContributions(services) + [
+            PaletteSearchContribution(id: "agentChats", title: AgentChatsPaletteStrings.title, order: 30, searchesChats: true) { [weak services] in
+                services.map { AgentChatsPalettePage(services: $0).page() }
+            },
+        ]
+        // A typed path or web address: Open it, or Ask Agent about it (Cmd-P, Cmd-Shift-P and Search).
         sources.goTo = AppPaletteGoToSource(services: services)
         // cmux.json `palette.scopes.<id>.prefix`, read on every open.
         sources.scopePrefixes = { [weak services] in
@@ -47,13 +55,17 @@ enum PaletteSourcesBridge {
     }
 
     /// Target lists for the palette's argument pages, each kind from its
-    /// owner; rename prompts also start from the titles listed here.
+    /// owner; rename prompts also start from the titles listed here. Tab
+    /// groups come first: their source narrows the list for the saved-group
+    /// actions (`targets(of:for:)`).
     static func targetSource(_ services: AppServices) -> any PaletteTargetSource {
         let windows = WindowTargetSource(services: services)
         let profiles = BrowserProfileTargetSource(services: services, next: windows)
         let screens = ScreenTargetSource(services: services, next: profiles)
-        let tabs = TabAndGroupTargetSource(services: services, next: screens)
-        return SidebarSectionTargetSource(services: services, next: tabs)
+        let spaces = SpaceAndPaneTargetSource(services: services, next: screens)
+        let sections = SidebarSectionTargetSource(services: services, next: spaces)
+        let chats = PriorityChatTargetSource(chats: .app, next: sections)
+        return TabAndGroupTargetSource(services: services, next: chats)
     }
 
     /// The active window's focused objects when the palette opens: the
@@ -99,7 +111,11 @@ enum PaletteSourcesBridge {
         }
 
         func selectWorkspace(id: String) {
-            guard let state = services.windows.active?.state else { return }
+            // No active window (all closed, CLI run): show it in its own window, else a new one.
+            guard let state = services.windows.active?.state else {
+                services.windows.reveal(workspaceID: id)
+                return
+            }
             services.windows.show(workspaceID: id, in: state)
         }
 
@@ -131,12 +147,12 @@ enum PaletteSourcesBridge {
             }
         }
 
+        /// Switch to tab: `tab.focus`, the one reveal that shows the tab's workspace and screen,
+        /// selects the tab and focuses its pane. Selecting through the pane alone missed a tab in
+        /// another workspace: the window swaps that workspace's content in on a later turn, so
+        /// its pane was not there yet and the jump landed on the workspace (Leo 2026-10-19).
         func selectTab(id: String) {
-            guard let (_, pane) = services.locateTab(id),
-                  let workspace = services.machines.allWorkspaces.map(\.0).first(where: { $0.screens.contains { $0.panes.contains { $0 === pane } } }),
-                  let window = services.windows.reveal(workspaceID: workspace.id) else { return }
-            window.state.selection.select(id, in: pane.id)
-            services.paneController(for: pane)?.select(StripTabID(id))
+            _ = services.registry.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: id), origin: .user))
         }
 
         func renameTab(id: String, to title: String) {

@@ -14,7 +14,6 @@ import { JSDOM } from "jsdom";
 import type { AcpmuxActivity } from "../model";
 import {
   THOUGHT_FOLD_MIN_PX,
-  THOUGHT_FOLD_MS,
   THOUGHT_LIVE_PX,
   ThoughtRow,
   thoughtDuration,
@@ -23,6 +22,7 @@ import {
   type ThoughtFoldThreshold,
   type ThoughtHeader,
 } from "./ThoughtRow";
+import { foldMotion } from "./fold";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -30,6 +30,9 @@ let container: HTMLElement;
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
 const layout = { ...thoughtLayout };
+const motion = { ...foldMotion };
+/// The fold's duration token as the page resolves it (conversation.css `--cv-fold-duration`).
+const FOLD_MS = 190;
 /// The thought's drawn height, the transcript viewport's, the Debug toggle and Reduce Motion.
 let height = 0;
 let viewport = 600;
@@ -72,6 +75,7 @@ beforeEach(() => {
   header = "duration";
   live = true;
   content = 0;
+  // The tests below this file's "every finished thought" block check the older Debug choices.
   threshold = "viewport";
   animations = [];
   thoughtLayout.threshold = () => threshold;
@@ -81,7 +85,9 @@ beforeEach(() => {
   thoughtLayout.height = () => height;
   thoughtLayout.viewport = () => viewport;
   thoughtLayout.enabled = () => enabled;
-  thoughtLayout.reducedMotion = () => reduce;
+  foldMotion.reducedMotion = () => reduce;
+  foldMotion.duration = () => FOLD_MS;
+  foldMotion.easing = () => "ease-out";
   container = dom.window.document.getElementById("root")!;
 });
 
@@ -89,6 +95,7 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
   Object.assign(thoughtLayout, layout);
+  Object.assign(foldMotion, motion);
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -289,16 +296,17 @@ test("a thought the reader opened stays open as new content arrives and after it
   expect(body()?.textContent).toBe(LONG);
 });
 
-test("the reader's toggle animates the height over 200 ms, closing after the text slides away", () => {
+test("the reader's toggle plays the shared fold, height and opacity, closing after the text slides away", () => {
   height = 900;
   render(thought(), false, "animated:0");
   click();
   expect(animations.length).toBe(1);
-  expect(animations[0]!.options.duration).toBe(THOUGHT_FOLD_MS);
-  expect(animations[0]!.keyframes[0]).toEqual({ height: "0px" });
+  expect(animations[0]!.options.duration).toBe(FOLD_MS);
+  expect(animations[0]!.keyframes[0]).toEqual({ height: "0px", opacity: 0 });
+  expect(animations[0]!.keyframes.at(-1)!.opacity).toBe(1);
   click();
   expect(animations.length).toBe(2);
-  expect(animations[1]!.keyframes.at(-1)).toEqual({ height: "0px" });
+  expect(animations[1]!.keyframes.at(-1)).toEqual({ height: "0px", opacity: 0 });
   // The text stays drawn while it closes, then goes.
   expect(body()).not.toBeNull();
   animations[1]!.finish();
@@ -317,7 +325,69 @@ test("with Reduce Motion the toggle opens and closes at once", () => {
   expect(animations).toEqual([]);
 });
 
+test("with explicit animation off the toggle does not schedule a Web Animation", () => {
+  document.documentElement.dataset.agentMotion = "off";
+  height = 900;
+  render(thought(), false, "off-motion:0");
+  click();
+  expect(body()?.textContent).toBe(LONG);
+  expect(animations).toEqual([]);
+});
+
 test("the folded line reads the first line without heading marks", () => {
   expect(thoughtPreview("**Planning the retry fix**\n\nMore detail.")).toBe("Planning the retry fix");
   expect(thoughtPreview("## Check errors\nnext")).toBe("Check errors");
+});
+
+// Every finished thought folds to one quiet "Thought for 12s" with no text inline, as Claude Desktop
+// and Codex draw it (Leo 2026-10-20: "Thought I am here" read weird); a quiet one draws nothing.
+const SUMMARY = "I am here: the retry helper swallows the status, so check how it parses errors.";
+
+test("by default a short finished thought folds to Thought for 12s with no text inline, and opens to it", () => {
+  threshold = "every";
+  height = 20;
+  render({ ...thought(SUMMARY), startedAt: 1_000, endedAt: 13_400 }, false, "every:0");
+  expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
+  expect(toggle()?.textContent).toBe("Thought for 12s");
+  expect(container.textContent).not.toContain("I am here");
+  expect(body()).toBeNull();
+  click();
+  expect(body()?.textContent).toBe(SUMMARY);
+});
+
+test("by default a finished thought that took under a second reads Thought, folded", () => {
+  threshold = "every";
+  height = 20;
+  render({ ...thought(SUMMARY), startedAt: 1_000, endedAt: 1_400 }, false, "every-quick:0");
+  expect(toggle()?.textContent).toBe("Thought");
+  expect(body()).toBeNull();
+});
+
+test("an empty, blank or very short quick thought draws no row once done", () => {
+  threshold = "every";
+  for (const [index, item] of [
+    thought(""),
+    thought("  \n "),
+    { ...thought("I am here"), startedAt: 1_000, endedAt: 1_500 },
+    thought("Done."),
+  ].entries()) {
+    render(item, false, `quiet-${index}:0`);
+    expect(container.textContent).toBe("");
+    act(() => root!.unmount());
+    root = undefined;
+  }
+  // A short thought the agent spent seconds on still says so.
+  render({ ...thought("I am here"), startedAt: 1_000, endedAt: 4_000 }, false, "quiet-long:0");
+  expect(toggle()?.textContent).toBe("Thought for 3s");
+});
+
+test("a short thought still streaming draws, and folds once done", () => {
+  threshold = "every";
+  height = 20;
+  render({ ...thought(SUMMARY), startedAt: 1_000, endedAt: 1_200 }, true, "every-live:0");
+  expect(toggle()).toBeNull();
+  expect(container.querySelector(".cv-thought__text")?.textContent).toBe(SUMMARY);
+  render({ ...thought(SUMMARY), startedAt: 1_000, endedAt: 6_000 }, false, "every-live:0");
+  expect(toggle()?.textContent).toBe("Thought for 5s");
+  expect(body()).toBeNull();
 });

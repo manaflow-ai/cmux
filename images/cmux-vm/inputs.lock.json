@@ -5,9 +5,9 @@
     "snapshot": "freestyle/ubuntu-sm",
     "fingerprint": {
       "kernelRelease": "6.1.102",
-      "dpkgListSha256": "d29cfb5c28434693d06beef123652d3655a22ee25fde49d5172c6404b8f0c3a8",
-      "dpkgPackageCount": 415,
-      "recordedAt": "2026-10-03T02:49:30Z"
+      "dpkgListSha256": "2fd3f30960da22ba41487d43cc79add2f5f74131c8e805320b97a369a7a36243",
+      "dpkgPackageCount": 416,
+      "recordedAt": "2026-10-21T20:06:51Z"
     },
     "runtimes": {
       "node": "v24.21.0",
@@ -353,27 +353,27 @@
   "programs": [
     {
       "name": "cmux-tui",
-      "version": "bb1999443c165ce16144b01bd6609497c3974601",
-      "url": "https://files.cmux.com/cmux-tui/bb1999443c165ce16144b01bd6609497c3974601/cmux-tui-x86_64-unknown-linux-musl",
-      "sha256": "0b8458302755ffacdc8010eacd431f8b2f240e94c718035e2b86f0901192c99c",
-      "size": 88300832,
+      "version": "c2bab662bc80c9d6f22e6d629712d6694a899bd9",
+      "url": "https://files.cmux.com/cmux-tui/c2bab662bc80c9d6f22e6d629712d6694a899bd9/cmux-tui-x86_64-unknown-linux-musl",
+      "sha256": "9cd4df31ebd41145df08b0e63d8d2022cd5d3bd8245523fa9615767c1bc3e5de",
+      "size": 88893792,
       "format": "raw",
       "fileName": "cmux-tui",
-      "bin": { "cmux": "cmux-tui", "cmux-tui": "cmux-tui" },
+      "bin": { "acpmux": "cmux-tui", "cmux": "cmux-tui", "cmux-tui": "cmux-tui" },
       "versionArgs": ["--version"],
-      "source": "https://files.cmux.com/cmux-tui/bb1999443c165ce16144b01bd6609497c3974601/manifest.json (cmux-tui-artifacts run 38193946642, feat-cmux-next push bb1999443c16; contains 287ee287a708 cmux-host writes /etc/cmux/vm-kind and 90c6df25d73f acpmux daemon start --person-key-fd; bead cx-w6u84 hostrun8)"
+      "source": "https://files.cmux.com/cmux-tui/c2bab662bc80c9d6f22e6d629712d6694a899bd9/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/39658385784; pinned by images/cmux-vm/pin-cmux-tui.ts)"
     },
     {
       "name": "cmux-tui-hook",
-      "version": "bb1999443c165ce16144b01bd6609497c3974601",
-      "url": "https://files.cmux.com/cmux-tui/bb1999443c165ce16144b01bd6609497c3974601/cmux-tui-hook-x86_64-unknown-linux-musl",
-      "sha256": "c423180cfe0ad45afbfbacc6e0b415135e6aad57e674b0873fd4bd3f7bd9757d",
-      "size": 3840344,
+      "version": "c2bab662bc80c9d6f22e6d629712d6694a899bd9",
+      "url": "https://files.cmux.com/cmux-tui/c2bab662bc80c9d6f22e6d629712d6694a899bd9/cmux-tui-hook-x86_64-unknown-linux-musl",
+      "sha256": "61c9b123466787953c90b2b963ff76e1c429fdc057bd6f686e9e3f4e06d4a747",
+      "size": 4030336,
       "format": "raw",
       "fileName": "cmux-tui-hook",
       "bin": { "cmux-tui-hook": "cmux-tui-hook" },
       "versionArgs": [],
-      "source": "https://files.cmux.com/cmux-tui/bb1999443c165ce16144b01bd6609497c3974601/manifest.json (cmux-tui-artifacts run 38193946642, feat-cmux-next push bb1999443c16; contains 287ee287a708 cmux-host writes /etc/cmux/vm-kind and 90c6df25d73f acpmux daemon start --person-key-fd; bead cx-w6u84 hostrun8)"
+      "source": "https://files.cmux.com/cmux-tui/c2bab662bc80c9d6f22e6d629712d6694a899bd9/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/39658385784; pinned by images/cmux-vm/pin-cmux-tui.ts)"
     },
     {
       "name": "coderouter",

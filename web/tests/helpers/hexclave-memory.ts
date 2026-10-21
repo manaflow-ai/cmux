@@ -199,6 +199,7 @@ export class MemoryMirror implements HexclaveMirrorStore {
   };
 
   applySnapshotUser: HexclaveMirrorStore["applySnapshotUser"] = async (state, since) => {
+    if ([...this.pendingRevocations].some((key) => key.endsWith(`:${state.user.id}`))) return false;
     if ((this.writtenAt.get(`user:${state.user.id}`) ?? -Infinity) >= since.getTime()) return false;
     if (this.tombstones.has(`user:${state.user.id}`)) return false;
     this.applyUser(state.user.id, state, []);
@@ -283,8 +284,14 @@ export class MemoryInbox implements HexclaveInboxStore {
   }
 
   async claimDue(now: Date, entityLimit: number, leaseUntil: Date): Promise<HexclaveInboxEntry[]> {
+    const activeEntities = new Set([...this.rows.values()]
+      .filter((row) => !row.deadLetteredAt && row.claimedUntil && row.claimedUntil > now)
+      .map((row) => `${row.target.kind}:${row.target.id}`));
     const due = [...this.rows.values()]
-      .filter((row) => !row.deadLetteredAt && row.nextAttemptAt <= now && (!row.claimedUntil || row.claimedUntil <= now))
+      .filter((row) => !row.deadLetteredAt
+        && row.nextAttemptAt <= now
+        && (!row.claimedUntil || row.claimedUntil <= now)
+        && !activeEntities.has(`${row.target.kind}:${row.target.id}`))
       .sort((a, b) => a.receivedOrder - b.receivedOrder);
     const entities: string[] = [];
     for (const row of due) {
@@ -295,36 +302,50 @@ export class MemoryInbox implements HexclaveInboxStore {
     for (const row of claimed) row.claimedUntil = leaseUntil;
     return claimed
       .sort((a, b) => a.svixId.localeCompare(b.svixId))
-      .map((row) => ({ svixId: row.svixId, eventType: row.eventType, target: row.target, attempts: row.attempts }));
+      .map((row) => ({ svixId: row.svixId, eventType: row.eventType, target: row.target, attempts: row.attempts, claimUntil: row.claimedUntil! }));
   }
 
-  async complete(svixIds: readonly string[]): Promise<void> {
+  async renewClaims(svixIds: readonly string[], expectedUntil: Date, nextUntil: Date): Promise<boolean> {
+    const rows = svixIds.map((id) => this.rows.get(id));
+    if (rows.some((row) => !row?.claimedUntil || row.claimedUntil.getTime() !== expectedUntil.getTime())) return false;
+    for (const row of rows) row!.claimedUntil = nextUntil;
+    return true;
+  }
+
+  async complete(svixIds: readonly string[], expectedUntil: Date): Promise<boolean> {
+    if (!this.owns(svixIds, expectedUntil)) return false;
     for (const id of svixIds) this.rows.delete(id);
+    return true;
   }
 
-  async recordFailure(svixIds: readonly string[], input: { now: Date; nextAttemptAt: Date; error: string; maxAttempts: number }): Promise<void> {
+  async recordFailure(svixIds: readonly string[], expectedUntil: Date, input: {
+    now: Date;
+    nextAttemptAt: Date;
+    error: string;
+    maxAttempts: number;
+    throttleUntil?: Date;
+  }): Promise<boolean> {
+    if (!this.owns(svixIds, expectedUntil)) return false;
     for (const id of svixIds) {
-      const row = this.rows.get(id);
-      if (!row) continue;
+      const row = this.rows.get(id)!;
       row.attempts += 1;
       row.nextAttemptAt = input.nextAttemptAt;
       row.claimedUntil = null;
       row.lastError = input.error;
       row.deadLetteredAt = row.attempts >= input.maxAttempts ? input.now : null;
     }
+    if (input.throttleUntil && input.throttleUntil > this.throttledUntil) this.throttledUntil = input.throttleUntil;
+    return true;
   }
 
-  async defer(svixIds: readonly string[], nextAttemptAt: Date): Promise<void> {
+  async defer(svixIds: readonly string[], expectedUntil: Date, nextAttemptAt: Date): Promise<boolean> {
+    if (!this.owns(svixIds, expectedUntil)) return false;
     for (const id of svixIds) {
-      const row = this.rows.get(id);
-      if (!row) continue;
+      const row = this.rows.get(id)!;
       row.nextAttemptAt = nextAttemptAt;
       row.claimedUntil = null;
     }
-  }
-
-  async purgeEntity(target: { kind: string; id: string }): Promise<void> {
-    for (const [id, row] of this.rows) if (row.target.kind === target.kind && row.target.id === target.id) this.rows.delete(id);
+    return true;
   }
 
   async health(attempts: number): Promise<{ stuck: number; deadLettered: number }> {
@@ -349,5 +370,9 @@ export class MemoryInbox implements HexclaveInboxStore {
 
   async purgeProcessedEvents(): Promise<number> {
     return 0;
+  }
+
+  private owns(svixIds: readonly string[], expectedUntil: Date): boolean {
+    return svixIds.every((id) => this.rows.get(id)?.claimedUntil?.getTime() === expectedUntil.getTime());
   }
 }

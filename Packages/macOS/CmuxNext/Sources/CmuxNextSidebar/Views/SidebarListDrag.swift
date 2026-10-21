@@ -20,6 +20,8 @@ final class SidebarListDrag {
     var headHeight: CGFloat?
     /// A dragged group's header height: on the document path its header, not the tall card's centre, decides the drop.
     var groupHeadHeight: CGFloat?
+    /// A dragged group's drop blocks (`SidebarGroupReorder.blocks`) in the list without it, built with `docGeometry`.
+    var groupBlocks: [ClosedRange<CGFloat>] = []
     /// The card as drops see it: the head row of a workspace card.
     var probeCard: CGRect {
         var card = lift.frame
@@ -52,7 +54,11 @@ final class SidebarListDrag {
     var docGeometry: (SidebarDragGeometry, [String: SidebarRow])?
     /// The list structure (`SidebarModel.sectionsRevision`) `docGeometry` was built for.
     var geometryRevision: UInt64 = 0
-    var docTarget: SidebarDocTarget?
+    var docTarget: SidebarDocTarget? {
+        didSet { if docTarget != oldValue { docTargetChangedUp = movingUp } }
+    }
+    /// Whether the drag was moving up when `docTarget` last changed: a move the other way turns back (`SidebarDragGeometry.edgeY`).
+    private(set) var docTargetChangedUp: Bool?
     /// A drag of an item a list block draws (a Pinned or custom tile or row): its section and item.
     var tileSource: (section: String, item: LayoutItemID)?
     /// The region whose tile holds the press (it keeps the view until the release).

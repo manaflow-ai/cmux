@@ -12,6 +12,9 @@ import GhosttyNextKit
 // (ghostty.h:1571, :1586, :1656).
 extension TerminalSurfaceView {
     public override func keyDown(with event: NSEvent) {
+        if TerminalClipboardRequests.isPasteChord(event), !clipboardRequests.userPasteInProgress {
+            return clipboardRequests.asUserPaste { keyDown(with: event) }
+        }
         guard let surface else {
             interpretKeyEvents([event])
             return
@@ -92,7 +95,8 @@ extension TerminalSurfaceView {
     /// Key equivalents reach the view before the main menu
     /// (`TerminalKeyEquivalent`).
     public override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        TerminalKeyEquivalent(view: self).perform(event)
+        guard TerminalClipboardRequests.isPasteChord(event) else { return TerminalKeyEquivalent(view: self).perform(event) }
+        return clipboardRequests.asUserPaste { TerminalKeyEquivalent(view: self).perform(event) }
     }
 
     /// Swallows unhandled selectors so AppKit does not beep, and re-sends a
@@ -121,10 +125,10 @@ extension TerminalSurfaceView {
         if let text, !text.isEmpty, !GhosttyInput.startsWithControlCharacter(text) {
             text.withCString { pointer in
                 keyEvent.text = pointer
-                _ = ghostty_surface_key(surface, keyEvent)
+                _ = clipboardRequests.asUserClipboardWrite { ghostty_surface_key(surface, keyEvent) }
             }
         } else {
-            _ = ghostty_surface_key(surface, keyEvent)
+            _ = clipboardRequests.asUserClipboardWrite { ghostty_surface_key(surface, keyEvent) }
         }
     }
 
@@ -139,7 +143,7 @@ extension TerminalSurfaceView {
         keyEvent.consumed_mods = GHOSTTY_MODS_NONE
         text.withCString { pointer in
             keyEvent.text = pointer
-            _ = ghostty_surface_key(surface, keyEvent)
+            _ = clipboardRequests.asUserClipboardWrite { ghostty_surface_key(surface, keyEvent) }
         }
     }
 

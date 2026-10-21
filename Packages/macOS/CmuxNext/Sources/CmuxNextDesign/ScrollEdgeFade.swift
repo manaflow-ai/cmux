@@ -159,7 +159,7 @@ public final class ScrollEdgeFadeView: NSView {
         let fade = Self.fadeFraction(height: layer.bounds.height)
         maskedSize = layer.bounds.size
         maskedFraction = fade
-        Motion.transaction(nil) {
+        Motion.feedback.transaction(nil) {
             if layer.mask !== fadeMask { layer.mask = fadeMask }
             fadeMask.frame = layer.bounds
             // Gradient location 0 is the list's top on screen.
@@ -189,7 +189,7 @@ public final class ScrollEdgeFadeView: NSView {
         guard next != edges else { return }
         edges = next
         // The band's opacity fades; geometry above never animates.
-        Motion.transaction(animated ? .hover : nil) { fadeMask.colors = Self.colors(for: next) }
+        Motion.feedback.transaction(animated ? .hover : nil) { fadeMask.colors = Self.colors(for: next) }
     }
 
     private func observeDocument(_ document: NSView?) {

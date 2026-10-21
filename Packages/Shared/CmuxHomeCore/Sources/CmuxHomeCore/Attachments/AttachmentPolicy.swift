@@ -22,11 +22,18 @@ public struct HomeAttachmentPolicy {
     public static let previewMaxBytes = 512_000
     public static let previewMaxPixel = 1024
 
-    /// The allow list: mime type -> inbox preview kind. SVG, HTML and XML are never on it.
+    /// The type of a file with no type of its own on the list: any bytes
+    /// that do not read as UTF-8 text (a database, a binary, an archive).
+    public static let genericFileType = "application/octet-stream"
+
+    /// The owner's types: mime type -> inbox preview kind. Any file attaches:
+    /// bytes that read as UTF-8 go as `text/plain` (HTML, source code,
+    /// dotfiles, logs), other bytes as ``genericFileType``. SVG, HTML and
+    /// XML are never sent as their own type, so no download renders them.
     public static let allowedTypes: [String: AttachmentPreview.Kind] = [
         "image/jpeg": .photo, "image/png": .photo, "image/gif": .photo, "image/webp": .photo, "image/heic": .photo,
         "application/pdf": .file, "text/plain": .file, "text/markdown": .file, "text/csv": .file,
-        "application/json": .file, "application/zip": .file,
+        "application/json": .file, "application/zip": .file, genericFileType: .file,
         "video/mp4": .video, "video/quicktime": .video,
         "audio/mp4": .audio, "audio/mpeg": .audio, "audio/aac": .audio, "audio/wav": .audio,
     ]
@@ -56,9 +63,10 @@ public struct HomeAttachmentPolicy {
     /// Valid `duration_ms` of a part (24 hours); other values are left out.
     public static let durationRange = 0...86_400_000
 
-    /// Extensions the owner refuses whatever the declared type (executables,
-    /// installers, scripts, active documents).
-    static let deniedExtensions: Set<String> = [
+    /// Extensions of files that run or render when opened (executables,
+    /// installers, scripts, active documents). They attach like any file, but
+    /// opening one shows it in Finder (``revealsInsteadOfOpening(name:)``).
+    static let activeExtensions: Set<String> = [
         "exe", "dll", "msi", "msp", "msix", "appx", "bat", "cmd", "com", "scr", "pif", "cpl", "msc", "hta", "gadget", "lnk",
         "reg", "inf", "ps1", "psm1", "vbs", "vbe", "js", "jse", "mjs", "cjs", "wsf", "wsh", "jar", "class",
         "app", "dmg", "pkg", "mpkg", "command", "workflow", "action", "scpt", "applescript", "terminal", "tool", "kext", "dylib",
@@ -92,10 +100,34 @@ public struct HomeAttachmentPolicy {
             && !name.unicodeScalars.allSatisfy(jsTrimmed.contains) && name != "." && name != ".."
     }
 
-    /// True when the owner refuses the name's extension.
-    public static func isDeniedName(_ name: String) -> Bool {
+    /// True when opening a received file with this name could run or render
+    /// it (a script, an installer, HTML): the client shows it in Finder
+    /// instead of opening it.
+    public static func revealsInsteadOfOpening(name: String) -> Bool {
         guard let dot = name.lastIndex(of: ".") else { return false }
-        return deniedExtensions.contains(name[name.index(after: dot)...].lowercased())
+        return activeExtensions.contains(name[name.index(after: dot)...].lowercased())
+    }
+
+    /// How many leading bytes the text check reads.
+    static let sniffBytes = 64 * 1024
+
+    /// True when `bytes` read as UTF-8 text: no NUL byte, valid UTF-8 (a
+    /// character cut at the end counts when `complete` is false, the bytes
+    /// being a prefix), and almost no control characters besides tab, line
+    /// breaks, form feed and escape (ANSI colors in a log).
+    public static func looksLikeText(_ bytes: Data, complete: Bool) -> Bool {
+        if bytes.contains(0) { return false }
+        var controls = 0
+        for byte in bytes where byte < 0x20 && ![0x09, 0x0A, 0x0C, 0x0D, 0x1B].contains(byte) { controls += 1 }
+        if controls * 100 > max(bytes.count, 1) { return false }
+        let cuts = complete ? 0...0 : 0...min(3, bytes.count)
+        return cuts.contains { cut in String(data: bytes.dropLast(cut), encoding: .utf8) != nil }
+    }
+
+    /// The owner type of bytes with no listed type of their own: `text/plain`
+    /// when they read as text, else ``genericFileType``.
+    static func sniffedMimeType(_ prefix: Data, complete: Bool) -> String {
+        looksLikeText(prefix, complete: complete) ? "text/plain" : genericFileType
     }
 
     /// A file's own name made valid: forbidden characters become `_`, a
@@ -134,33 +166,33 @@ public struct HomeAttachmentPolicy {
         case send(mimeType: String)
         /// An image the owner refuses but ImageIO reads: converted to PNG or JPEG.
         case convert
-        case refuse
+        /// No listed type: `text/plain` when the bytes read as text, else
+        /// ``genericFileType`` (``sniffedMimeType(_:complete:)``).
+        case sniff
     }
 
     /// The decision for in-memory input of `type`
     /// (`prepareAttachment(data:typeIdentifier:)`): the type's own mime
-    /// type when the owner allows it (an M4A type may prefer the .mp4
+    /// type when it is one of the owner's (an M4A type may prefer the .mp4
     /// extension), else its extension's; an image type ImageIO reads (by
-    /// conformance) is converted; a denied extension is refused.
+    /// conformance) is converted; anything else is sniffed.
     static func decision(for type: UTType) -> InputDecision {
         let fileExtension = type.preferredFilenameExtension ?? ""
-        if !fileExtension.isEmpty, isDeniedName("attachment.\(fileExtension)") { return .refuse }
-        let typeMime = canonicalMimeType(type.preferredMIMEType ?? "application/octet-stream")
+        let typeMime = canonicalMimeType(type.preferredMIMEType ?? genericFileType)
         let mime = allowedTypes[typeMime] != nil || fileExtension.isEmpty
             ? typeMime
             : AttachmentMedia.mimeType(forExtension: fileExtension)
-        if allowedTypes[mime] != nil { return .send(mimeType: mime) }
+        if allowedTypes[mime] != nil, mime != genericFileType { return .send(mimeType: mime) }
         if type.conforms(to: .image), convertibleImageTypes.contains(where: { type.conforms(to: $0) }) { return .convert }
-        return .refuse
+        return .sniff
     }
 
     /// The decision for a file (`prepareAttachment(fileURL:)`): the
     /// extension's owner mime type, else the decision for its UTType.
     static func decision(forFileExtension fileExtension: String) -> InputDecision {
         let ext = fileExtension.lowercased()
-        if isDeniedName("attachment.\(ext)") { return .refuse }
         if let known = extensionTypes[ext] { return .send(mimeType: known) }
-        guard !ext.isEmpty, let type = UTType(filenameExtension: ext) else { return .refuse }
+        guard !ext.isEmpty, let type = UTType(filenameExtension: ext) else { return .sniff }
         return decision(for: type)
     }
 
@@ -172,35 +204,34 @@ public struct HomeAttachmentPolicy {
             guard type.conforms(to: .image) else { return false }
             let mime = canonicalMimeType(type.preferredMIMEType ?? "")
             let ext = type.preferredFilenameExtension ?? ""
-            return allowedTypes[mime] == nil && (ext.isEmpty || !isDeniedName("attachment.\(ext)"))
+            return allowedTypes[mime] == nil && (ext.isEmpty || !revealsInsteadOfOpening(name: "attachment.\(ext)"))
         }
     }()
 
-    /// UTType identifiers `prepareAttachment` takes after conversion: the
-    /// allow list's types and the image types it converts. A composer
-    /// checks drops and pastes with `accepts(typeIdentifier:)`, which also
-    /// takes types that conform to a converted image type.
+    /// UTType identifiers `prepareAttachment` sends as their own type or
+    /// converts: the owner's types and the image types it converts. Any
+    /// other type attaches too, sniffed (``accepts(typeIdentifier:)``).
     public static let acceptedInputTypes: Set<String> = {
         var identifiers = Set(convertibleImageTypes.map(\.identifier))
         for ext in extensionTypes.keys {
-            guard let type = UTType(filenameExtension: ext), decision(for: type) != .refuse else { continue }
+            guard let type = UTType(filenameExtension: ext) else { continue }
             identifiers.insert(type.identifier)
         }
         return identifiers
     }()
 
-    /// True exactly when `prepareAttachment(data:typeIdentifier:)` takes
-    /// input of this type (it may still refuse bytes that are not what the
-    /// type says, or a file over the size limit).
-    public static func accepts(typeIdentifier: String) -> Bool {
-        guard let type = UTType(typeIdentifier) else { return false }
-        return decision(for: type) != .refuse
-    }
+    /// True when `prepareAttachment(data:typeIdentifier:)` takes input of
+    /// this type: every type does (unlisted ones go as text or a generic
+    /// file); it may still refuse empty bytes or bytes over the size limit.
+    public static func accepts(typeIdentifier: String) -> Bool { true }
 
-    /// True exactly when `prepareAttachment(fileURL:)` takes a file with
-    /// this URL's extension (same caveats).
-    public static func accepts(fileURL: URL) -> Bool {
-        decision(forFileExtension: fileURL.pathExtension) != .refuse
+    /// True when `prepareAttachment(fileURL:)` takes this file: anything
+    /// but a folder (a package such as an `.app` is one); same caveats.
+    public static func accepts(fileURL: URL) -> Bool { !isFolder(fileURL) }
+
+    /// True when `url` names a folder or a package on disk.
+    static func isFolder(_ url: URL) -> Bool {
+        (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
     }
 
     /// The owner's spelling of a mime type (lowercased, aliases folded).
@@ -212,7 +243,7 @@ public struct HomeAttachmentPolicy {
     /// Throws `HomeAttachmentError` when the owner would refuse the file.
     public static func check(mimeType: String, byteCount: Int, name: String) throws {
         guard isValidName(name) else { throw HomeAttachmentError.invalidName(name: name) }
-        guard allowedTypes[canonicalMimeType(mimeType)] != nil, !isDeniedName(name) else {
+        guard allowedTypes[canonicalMimeType(mimeType)] != nil else {
             throw HomeAttachmentError.typeRefused(mimeType: mimeType, name: name)
         }
         guard byteCount <= maxBytes else { throw HomeAttachmentError.tooLarge(byteCount: byteCount, limit: maxBytes) }
@@ -222,10 +253,13 @@ public struct HomeAttachmentPolicy {
 
 /// Why the client refused an attachment before uploading it.
 public enum HomeAttachmentError: Error, Hashable, Sendable {
-    /// Not on the allow list (images, PDF, plain text, Markdown, CSV, JSON,
-    /// ZIP, MP4, MOV, M4A, MP3, AAC, WAV), or an extension the owner refuses
-    /// (scripts, executables, HTML, SVG).
+    /// A part whose mime type is not one of the owner's (images, PDF, plain
+    /// text, Markdown, CSV, JSON, ZIP, MP4, MOV, M4A, MP3, AAC, WAV, or
+    /// ``HomeAttachmentPolicy/genericFileType``). Prepared files never get
+    /// one; a ref built elsewhere (an `image/svg+xml` part) can.
     case typeRefused(mimeType: String, name: String)
+    /// A folder or a package (an `.app`): only files attach.
+    case folder(name: String)
     /// Over 255 characters, blank, `.` or `..`, or holding a control
     /// character or a path separator.
     case invalidName(name: String)

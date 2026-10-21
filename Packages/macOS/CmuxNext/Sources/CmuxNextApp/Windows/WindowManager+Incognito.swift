@@ -23,7 +23,7 @@ extension WindowManager {
         _ = incognitoProfile()
         let daemon = services.daemon
         let browserTabs = services.cache.browserTabs
-        let choice: BrowserEngineChoice = if case .open(let choice) = browserTabs.resolve(requested: nil) {
+        let choice: BrowserEngineChoice = if case .open(let choice) = browserTabs.resolve(requested: nil, url: url) {
             choice
         } else {
             BrowserEngineChoice(engine: .webkit)
@@ -168,11 +168,12 @@ extension WindowManager {
     /// Shows workspace `key`, just made from content moved out of `origin`,
     /// in a window of the origin's kind: `preferred` (usually the active
     /// window) when it matches, else the origin's window. `newWindow` opens
-    /// a new window of that kind (incognito even before the daemon reports
-    /// the workspace); an open one places it by `workspaces.newPlacement`.
+    /// a new window of that kind beside the origin's (`openMovedWindow`;
+    /// incognito even before the daemon reports the workspace); an open one
+    /// places it by `workspaces.newPlacement`.
     func placeMoved(_ key: String, from origin: MoveOrigin, preferred: WindowState?, newWindow: Bool, select shows: Bool = true) {
         if newWindow {
-            openWindow(workspaces: [key], incognito: origin.incognito, behind: !shows)
+            openMovedWindow([key], from: origin, select: shows)
             return
         }
         let target = preferred.flatMap { isIncognito(window: $0.id) == origin.incognito ? $0 : nil }

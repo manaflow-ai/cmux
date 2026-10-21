@@ -1,6 +1,6 @@
 /* The changes view's Commit and Push (GitActions.tsx), shared with the diff viewer (cx-ueuc8). Colors come
    from the page's theme tokens only: --agent-* and --acpmux-motion-* (the diff viewer maps them). */
-.acpmux-git-tool{display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 10px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);cursor:pointer;transition:background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease),color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
+.acpmux-git-tool{display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 10px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);cursor:pointer;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-git-tool:hover:not(:disabled){background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 10%,transparent));color:var(--agent-text)}
 .acpmux-git-tool:active:not(:disabled){background:var(--acpmux-step-pressed);color:var(--agent-text)}
 .acpmux-git-tool[aria-expanded=true]{background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text)}
@@ -19,7 +19,7 @@
 .acpmux-git-scope-option[data-checked=true]{background:var(--agent-page-bg);color:var(--agent-text)}
 .acpmux-git-scope-option:has(input:focus-visible){outline:1.5px solid var(--agent-muted);outline-offset:1px}
 .acpmux-git-scope-hint{flex:1;min-width:120px;color:var(--agent-muted);font-size:var(--text-detail)}
-.acpmux-git-primary,.acpmux-git-secondary{height:28px;padding:0 12px;border:0;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;font-size:var(--text-detail);cursor:default;transition:background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
+.acpmux-git-primary,.acpmux-git-secondary{height:28px;padding:0 12px;border:0;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;font-size:var(--text-detail);cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-git-primary{background:color-mix(in srgb,var(--agent-text) 85%,var(--agent-page-bg));color:var(--agent-page-bg)}
 .acpmux-git-secondary:hover:not(:disabled){background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg)))}
 .acpmux-git-primary:hover:not(:disabled){background:var(--agent-text)}

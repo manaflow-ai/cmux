@@ -42,7 +42,12 @@ pub static VERBS: &[VerbSpec] = &[
         flags: &[("purge", false), ("no-backup", false), PG_BIN],
         help: "stop and remove the service, shim and store; keep state unless --purge",
     },
-    VerbSpec { path: &["status"], positionals: &[], flags: &[PG_BIN], help: "installed state" },
+    VerbSpec {
+        path: &["status"],
+        positionals: &[],
+        flags: &[PG_BIN, ("binary-only", false)],
+        help: "installed state",
+    },
     VerbSpec {
         path: &["upgrade"],
         positionals: &[],

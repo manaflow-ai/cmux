@@ -1,3 +1,4 @@
+import CmuxNextIcons
 import Foundation
 
 /// The omnibar's leading page-info button, following Chromium's location
@@ -23,7 +24,8 @@ public nonisolated struct PageInfoIndicator: Hashable, Sendable {
         case danger
     }
 
-    /// SF Symbol name.
+    /// The icon: a pack name (`browser.omnibox.pageinfo`, drawn from Chromium's icons) or an SF
+    /// Symbol name, as `NSImage.icon(symbol:size:)` resolves it.
     public var symbol: String
     public var label: Label?
     public var tone: Tone
@@ -39,13 +41,13 @@ public nonisolated struct PageInfoIndicator: Hashable, Sendable {
     }
 
     /// Symbols. Secure pages show the tune icon, not a lock.
-    public static let secureSymbol = "slider.horizontal.3"
-    public static let notSecureSymbol = "exclamationmark.triangle"
-    public static let dangerousSymbol = "exclamationmark.triangle.fill"
+    public static let secureSymbol = IconName.browserOmniboxPageinfo.rawValue
+    public static let notSecureSymbol = IconName.browserOmniboxNotsecure.rawValue
+    public static let dangerousSymbol = IconName.browserOmniboxDangerous.rawValue
     public static let fileSymbol = "doc"
     public static let productSymbol = "terminal"
-    public static let extensionPageSymbol = "puzzlepiece.extension"
-    public static let searchSymbol = "magnifyingglass"
+    public static let extensionPageSymbol = IconName.browserToolbarExtensions.rawValue
+    public static let searchSymbol = IconName.browserOmniboxSearch.rawValue
 
     /// The button for `site`.
     ///
@@ -71,6 +73,7 @@ public nonisolated struct PageInfoIndicator: Hashable, Sendable {
         case .input(let symbol): resolve(site: site, isFocused: true, editingSymbol: symbol)
         case .page(let focused): resolve(site: site, isFocused: focused, editingSymbol: nil)
         case .keyword(let name): PageInfoIndicator(symbol: PageInfoIndicator.extensionPageSymbol, label: .keyword(name), isTriggerable: false)
+        case .engineKeyword(let label): PageInfoIndicator(symbol: PageInfoIndicator.searchSymbol, label: .keyword(label), isTriggerable: false)
         }
     }
 

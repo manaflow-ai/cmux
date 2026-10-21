@@ -163,16 +163,21 @@ export function devHostReply(host: DevHostParams, request: Request): DevHostRepl
           linkScheme: "cmux-dev",
         },
       };
+    case "pane.painted":
+      // When the app would fade the page in over its loading state (frame tests read it).
+      (window as { cmuxDevPaintedAt?: number }).cmuxDevPaintedAt ??= performance.now();
+      return { ok: true, value: null };
     case "session.persist":
     case "chat.persistSession":
-    case "pane.painted":
     case "pane.checkpointAvailability":
     case "pane.renderRate":
     case "pane.tabRowTools":
     case "newTab.remember":
     case "newTab.setTemplate":
     case "nowPlaying.command":
+    case "importCards.act":
     case "newTab.touched":
+    case "newTab.warm":
     case "shortcut.edit":
     case "tab.jump":
     case "tab.open":

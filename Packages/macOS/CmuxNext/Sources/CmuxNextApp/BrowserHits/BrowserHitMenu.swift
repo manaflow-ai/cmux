@@ -56,16 +56,24 @@ enum BrowserHitMenu {
             if !items.isEmpty { items.append(.separator()) }
             items += rows
         }
-        let snippet = snippet(target.selection)
         for item in items {
-            guard let id = ActionRegistry.menuRun(of: item)?.id else { continue }
-            switch id {
-            case "browser.selection.search": item.title = BrowserHitStrings.search(engine: searchEngine, snippet)
-            case "browser.selection.lookUp": item.title = BrowserHitStrings.lookUp(snippet)
-            default: break
-            }
+            guard let id = ActionRegistry.menuRun(of: item)?.id,
+                  let title = title(of: id, for: target, searchEngine: searchEngine) else { continue }
+            item.title = title
         }
         return items
+    }
+
+    /// Pure: the title Chrome gives row `id` for `target` when it differs
+    /// from the action's own: the selection quoted in Search and Look Up,
+    /// Copy Email Address for a `mailto:` link. Nil keeps the action's title.
+    static func title(of id: ActionID, for target: BrowserContextMenuTarget, searchEngine: String) -> String? {
+        switch id {
+        case "browser.selection.search": BrowserHitStrings.search(engine: searchEngine, snippet(target.selection))
+        case "browser.selection.lookUp": BrowserHitStrings.lookUp(snippet(target.selection))
+        case "browser.link.copy" where target.linkURL?.scheme?.lowercased() == "mailto": BrowserHitStrings.copyEmailAddress
+        default: nil
+        }
     }
 
     /// Pure: `text` on one line, at most `limit` characters (Chrome's

@@ -37,17 +37,25 @@ class SidebarItemRowView: NSView {
     /// Option override. Plain activations continue through `onPress`.
     var onPressWithModifiers: ((NSEvent.ModifierFlags) -> Void)?
     var onContextMenu: ((NSEvent, NSView) -> Void)?
-    /// True: the item acts on mouse-down, as workspace rows do (Home, the App
-    /// Store, pinned workspace, tab and space tiles: `LayoutItemRef.activatesOnPress`); false: on release.
+    /// True: the item acts on mouse-down, as workspace rows do (every item but a new-tab
+    /// launcher: `LayoutItemRef.activatesOnPress`); false: on release.
     var activatesOnPress = false
     /// The current press already ran the action on mouse-down; its release does not run it again.
     private var activatedOnPress = false
+    /// The sidebar's edit mode (`SidebarItemRowView+Editing`): the item wiggles and shows its ✕
+    /// (`onRemove`), and a press only drags it.
+    var isEditing = false { didSet { if isEditing != oldValue { editingChanged() } } }
+    var onRemove: (() -> Void)?
+    var removeButton: SidebarIconButton?
+    var wiggleSize: CGSize = .zero
 
     private(set) var info = SidebarItemInfo(title: "", symbol: "circle")
     private(set) var style = Style.builtIn
-    private let pill = CALayer()
+    /// The row's fill (internal so tests can read its frame and radius).
+    let pill = CALayer()
     private let chip = CALayer()
-    let icon = NSImageView()
+    let icon = DecorativeImageView() // the row's label names the item
+    private let pin = DecorativeImageView() // a pinned row's leading pin; Pinned's header names it
     let title = ChromeLabel(labelWithString: "")
     let badge = UnreadBadgeView()
     let avatarView = SidebarAvatarView()
@@ -64,6 +72,16 @@ class SidebarItemRowView: NSView {
     }
     private var pointerHover: PointerHover?
     private var isPressed = false { didSet { if isPressed != oldValue { pointerChanged() } } }
+    /// The profile control's menu is open over it: the pill holds the
+    /// selected step (between hover and pressed) until the menu closes.
+    var showsMenu = false {
+        didSet {
+            guard showsMenu != oldValue else { return }
+            // The menu's tracking takes the release: no mouseUp ends the press.
+            isPressed = false
+            pointerChanged()
+        }
+    }
     /// The next fill change came from the pointer, so it fades.
     private var fadesNextFill = false
 
@@ -79,7 +97,7 @@ class SidebarItemRowView: NSView {
         icon.imageScaling = .scaleProportionallyDown
         title.lineBreakMode = .byTruncatingTail
         title.maximumNumberOfLines = 1
-        [icon, title, badge, avatarView, activity].forEach(addSubview)
+        [pin, icon, title, badge, avatarView, activity].forEach(addSubview)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         // Keyboard focus is the fill's next tonal step (`fill`), never the system's blue ring.
@@ -95,6 +113,8 @@ class SidebarItemRowView: NSView {
     /// A drag from a press (window points): true once the region drags.
     var onDragged: ((NSPoint, NSEvent) -> Bool)?
     var onDragEnded: (() -> Void)?
+    /// Every press, before it acts: a drag an earlier press left held ends (its release went elsewhere).
+    var onPressBegan: (() -> Void)?
     private var pressLocation: NSPoint?
     private var didDrag = false
     /// The press's modifiers, which the release acts with (Option opens a workspace).
@@ -112,6 +132,7 @@ class SidebarItemRowView: NSView {
         self.style = style
         title.stringValue = style == .favorite ? info.caption ?? info.title : info.title
         title.isHidden = style.isIconOnly
+        pin.image = info.leadingPin ? NSImage.icon(.statePinned, size: Metrics.smallIconSize) : nil
         title.alignment = style == .favorite ? .center : .natural
         badge.configure(unreadState)
         activity.configure(info.activity, style: info.activityStyle)
@@ -119,7 +140,8 @@ class SidebarItemRowView: NSView {
         setAccessibilityValue(info.unreadDot ? Strings.unreadDot : info.badge.map { String($0) })
         // An icon names itself (and its shortcut) in its tooltip; a tile's
         // caption can truncate, so it keeps the full title.
-        themedToolTip = style.isIconOnly ? info.toolTip : style == .favorite ? info.title : nil
+        // The profile control draws no name, so its tooltip names who it is.
+        themedToolTip = style.isIconOnly || info.avatar != nil ? info.toolTip : style == .favorite ? info.title : nil
         setAccessibilityLabel(info.title)
         applyAvatar()
         setAccessibilitySelected(info.isActive)
@@ -145,8 +167,9 @@ class SidebarItemRowView: NSView {
             title.textColor = Palette.textPrimary
             // An icon is secondary at rest and full strength under the pointer
             // or keyboard focus (the footer's avatar and gear).
-            let strong = style == .icon && (isHovered || isPressed || showsKeyFocus)
+            let strong = (style == .icon || showsAvatar) && (isHovered || isPressed || showsMenu || showsKeyFocus)
             avatarView.isStrong = strong
+            pin.contentTintColor = Palette.textSecondary
             icon.contentTintColor = wells && info.color != nil ? Palette.textOnPrimary
                 : style == .favorite ? Palette.textPrimary
                 : info.isActive || isRailButton || strong ? Palette.textPrimary : Palette.textSecondary
@@ -155,17 +178,17 @@ class SidebarItemRowView: NSView {
 
     /// The pill's fill: pressed, then keyboard focus, then active, then
     /// hovered, then the tile's resting fill. A tile rests on `hoverFill`, so
-    /// its hover takes the next tonal step (`selectionFill`) and still shows a
-    /// change (R97). Keyboard focus is one step past hover: `selectionFill`,
-    /// or `pressedFill` over a fill that is already that (cx-wqn5).
+    /// its hover takes the next neutral step (`ChromeHover.raisedHoverFill`, never
+    /// the accent selection) and still shows a change (R97). Keyboard focus is one
+    /// step past hover: `selectionFill`, or `pressedFill` over a fill that is
+    /// already that (cx-wqn5).
     var fill: NSColor? {
-        let state = ChromeHover.State(hovering: isHovered, pressed: isPressed, selected: info.isActive)
+        let state = ChromeHover.State(hovering: isHovered, pressed: isPressed, selected: info.isActive || showsMenu)
         return performWithTheme {
             if showsKeyFocus, !isPressed {
                 return info.isActive || style == .tile ? Palette.pressedFill : Palette.selectionFill
             }
             guard style == .tile else { return ChromeHover.fillColor(state) }
-            if state.hovering, !state.pressed, !state.selected { return Palette.selectionFill }
             return ChromeHover.fillColor(state, rest: Palette.hoverFill)
         }
     }
@@ -178,6 +201,7 @@ class SidebarItemRowView: NSView {
     override func layout() {
         super.layout()
         let b = bounds
+        layoutEditing()
         if style == .favorite { return layoutFavorite(b) }
         defer { layoutActivity(in: b) }
         let inset = SidebarStyle.horizontalInset
@@ -187,9 +211,15 @@ class SidebarItemRowView: NSView {
         // A text-only workspace item beside its title draws no glyph (WORKSPACE-ROWS-NO-DEFAULT-ICON).
         let bare = info.textOnly && !style.isIconOnly
         // The glyph lines up with the text of workspace rows (their inset plus the pill inset).
+        // A pinned workspace row's pin leads, and its icon and title follow it.
+        let pinSide = Metrics.smallIconSize
+        let lead = (style == .chip ? Metrics.space2 : inset * 2) + (info.leadingPin ? pinSide + Metrics.space2 : 0)
+            + (style == .chip ? 0 : CGFloat(info.indent) * Metrics.space3)
         let iconFrame = style.isIconOnly
             ? NSRect(x: (b.width - side) / 2, y: (b.height - side) / 2, width: side, height: side)
-            : NSRect(x: style == .chip ? Metrics.space2 : inset * 2, y: (b.height - side) / 2, width: side, height: side)
+            : NSRect(x: lead, y: (b.height - side) / 2, width: side, height: side)
+        pin.isHidden = !info.leadingPin
+        pin.frame = NSRect(x: inset * 2, y: (b.height - pinSide) / 2, width: pinSide, height: pinSide)
         // Icon-only items keep their pill around the glyph (a full-width fill reads
         // as a selected row); the profile avatar's pill and click fill its square.
         let pillFrame = style.isIconOnly ? (showsAvatar ? b : iconFrame)
@@ -296,31 +326,6 @@ class SidebarItemRowView: NSView {
         }
     }
 
-    /// `emoji` drawn as a text glyph filling a `side` square (in color, not a template).
-    static func emojiImage(_ emoji: String, side: CGFloat) -> NSImage {
-        NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
-            let text = NSAttributedString(string: emoji, attributes: [.font: Typography.system(size: side * 0.85)])
-            let size = text.size()
-            text.draw(at: NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2))
-            return true
-        }
-    }
-
-    /// The first letter of `title` as a template glyph filling a `side` square (it takes the
-    /// glyph tint); nil for an empty title.
-    static func initialImage(_ title: String, side: CGFloat) -> NSImage? {
-        guard let first = title.trimmingCharacters(in: .whitespacesAndNewlines).first else { return nil }
-        let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
-            let font = Typography.system(size: side * 0.72, weight: .semibold)
-            let text = NSAttributedString(string: String(first).localizedUppercase, attributes: [.font: font, .foregroundColor: NSColor.black])
-            let size = text.size()
-            text.draw(at: NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2))
-            return true
-        }
-        image.isTemplate = true
-        return image
-    }
-
     /// An icon-only item's glyph (the footer's avatar and gear): drawn so its
     /// ink, not its image box, is `iconInkSize` across and centered in `box`.
     /// Icons leave different margins in their square, so equal image boxes
@@ -367,14 +372,19 @@ class SidebarItemRowView: NSView {
     /// Activates on press, as the sidebar's rows do; the pressed fill shows
     /// until release.
     override func mouseDown(with event: NSEvent) {
+        onPressBegan?()
         let point = convert(event.locationInWindow, from: nil)
         guard pill.frame.contains(point) else { return super.mouseDown(with: event) }
         isPressed = true
         pressLocation = event.locationInWindow
         pressModifiers = event.modifierFlags
         didDrag = false
-        activatedOnPress = activatesOnPress
-        if activatesOnPress { activate(with: pressModifiers) }
+        activatedOnPress = activatesOnPress && !isEditing
+        guard activatedOnPress else { return }
+        activate(with: pressModifiers)
+        // The profile control's menu runs its own tracking loop and takes the release: no mouseUp
+        // follows, so the pressed fill must not stay.
+        if NSEvent.pressedMouseButtons & 1 == 0 { isPressed = false }
     }
 
     /// Past the drag threshold the region reorders in place (R77).
@@ -384,10 +394,9 @@ class SidebarItemRowView: NSView {
         isPressed = false
     }
 
-    /// An item that does not switch on press acts on release, like a button:
-    /// a press that became a drag (or left the item first) never opens it.
-    /// Acting on the press opened launchers or a new workspace under a tile
-    /// the user only meant to move.
+    /// An item that does not open on press (a new-tab launcher) acts on release, like a
+    /// button: a press that became a drag (or left the item first) never runs it. Acting
+    /// on the press made a tab under a launcher the user only meant to move.
     override func mouseUp(with event: NSEvent) {
         let dragged = didDrag
         let activated = activatedOnPress
@@ -397,7 +406,7 @@ class SidebarItemRowView: NSView {
         activatedOnPress = false
         guard isPressed else { return super.mouseUp(with: event) }
         isPressed = false
-        guard !dragged, !activated, pill.frame.contains(convert(event.locationInWindow, from: nil)) else { return }
+        guard !dragged, !activated, !isEditing, pill.frame.contains(convert(event.locationInWindow, from: nil)) else { return }
         activate(with: pressModifiers)
     }
 
@@ -416,6 +425,7 @@ class SidebarItemRowView: NSView {
     }
 
     override func accessibilityPerformPress() -> Bool {
+        if isEditing { return false }
         if let onPressWithModifiers { onPressWithModifiers([]) } else { onPress?() }
         return true
     }
@@ -449,6 +459,7 @@ class SidebarItemRowView: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
+        if editingKeyDown(event) { return }
         guard event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.function).isEmpty,
               [" ", "\r", "\u{3}"].contains(event.charactersIgnoringModifiers ?? "") else { return super.keyDown(with: event) }
         _ = accessibilityPerformPress()

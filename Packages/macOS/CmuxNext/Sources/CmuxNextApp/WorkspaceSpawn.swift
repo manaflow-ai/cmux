@@ -165,7 +165,7 @@ struct WorkspaceSpawner {
                     _ = await daemon.failure("close-workspace") { connection in
                         try await WorkspaceClose.close(WorkspaceKey(rawValue: id), terminals: terminals, on: connection)
                     }
-                }) { try await named.create(key, rule: rule) }
+                }, settle: { await Self.settled(on: daemon) }) { try await named.create(key, rule: rule) }
             } catch {
                 PendingWorkspaceRows.shared.remove(key.rawValue)
                 throw error
@@ -202,9 +202,9 @@ struct WorkspaceSpawner {
                     _ = await daemon.failure("close-workspace") { connection in
                         try await WorkspaceClose.close(WorkspaceKey(rawValue: id), terminals: [], on: connection)
                     }
-                }) {
+                }, settle: { await Self.settled(on: daemon) }) {
                     if let room, let session = daemon.store.registryID, let home = services.machines.local.connection {
-                        try await home.pinWorkspace(session: session, key: key, to: room.id); BenchSpans.mark("cmdN.pinWorkspace.returned")
+                        try await DaemonConnection.retryingLateReplies(PinWorkspaceRequest.command) { try await home.pinWorkspace(session: session, key: key, to: room.id) }; BenchSpans.mark("cmdN.pinWorkspace.returned")
                     }
                     return try await shown.confirm()
                 }
@@ -215,6 +215,14 @@ struct WorkspaceSpawner {
                 throw error
             }
         }
+    }
+
+    /// The check that `daemon`'s store has applied every event before now (a
+    /// create's reply): a write barrier taken without waiting for it.
+    private static func settled(on daemon: DaemonService) async -> @MainActor () -> Bool {
+        guard let barrier = await daemon.connection?.eventSequence() else { return { false } }
+        let store = daemon.store
+        return { store.appliedSequence >= barrier }
     }
 
     /// The profile the workspace is born in: its window's, else the active
@@ -243,7 +251,7 @@ struct WorkspaceSpawner {
         let home = services.machines.local
         let room = home.store.profile(spawn.profile ?? profile)
         if let room, let session = daemon.store.registryID, let homeConnection = home.connection {
-            try await homeConnection.pinWorkspace(session: session, key: key, to: room.id); BenchSpans.mark("cmdN.pinWorkspace.returned")
+            try await DaemonConnection.retryingLateReplies(PinWorkspaceRequest.command) { try await homeConnection.pinWorkspace(session: session, key: key, to: room.id) }; BenchSpans.mark("cmdN.pinWorkspace.returned")
         }
         if let browserProfile = spawn.browserProfile {
             let qualified = BrowserProfileService.QualifiedWorkspace(session: daemon.store.registryID ?? daemon.machineID, key: key.rawValue)

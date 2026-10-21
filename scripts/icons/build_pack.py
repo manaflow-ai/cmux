@@ -16,6 +16,10 @@ A layer is {"d": path, "op": op} plus optional fields:
 - w: stroke width (stroke ops). Caps and joins are round unless "cap" or "join" says otherwise.
 - alpha: 0-1 opacity. dash and dashPhase: dash pattern in grid units (pathLength already resolved).
 - accent: true for Cat-accent layers, drawn in the accent color.
+- rule: "evenodd" for fills drawn with the even-odd rule (SVG fill-rule); nonzero otherwise.
+
+A source icon may also give "sf" (its SF Symbol fallback; it stands for that symbol only when
+"replaces" lists it) and "source" (provenance, "chromium" for scripts/icons/chromium_icons.py's batch).
 
 Also writes the catalog (name, meaning, SF Symbol fallback, dense style, family) and the generated Swift
 IconName members. Run with --check to verify the outputs are up to date.
@@ -298,7 +302,7 @@ def serialize(segs):
 
 # MARK: SVG tree to layers
 
-INHERITED = ("fill", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "class")
+INHERITED = ("fill", "fill-rule", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "class")
 
 
 def color_kind(value):
@@ -384,6 +388,8 @@ def emit(el, tag, style, m, out, in_mask):
         common["accent"] = True
     if fill and not (in_mask and fill == "white"):
         layer = {"d": d, "op": "clearFill" if in_mask else "fill", **common}
+        if style.get("fill-rule") == "evenodd":
+            layer["rule"] = "evenodd"
         a = float(style.get("fill-opacity", 1.0))
         if a < 1 and not in_mask:
             layer["alpha"] = round(a * layer.get("alpha", 1.0), 3)
@@ -426,6 +432,8 @@ def layers(svg):
 
 
 def sf_fallback(icon):
+    if icon.get("sf"):
+        return icon["sf"]
     for value in icon.get("replaces") or []:
         if re.fullmatch(r"[a-z0-9]+(\.[a-z0-9]+)*", value):
             return value
@@ -452,6 +460,13 @@ def build():
             entry = {"name": name, "meaning": icon["meaning"], "sf": sf_fallback(icon), "family": name.rsplit(".", 1)[0]}
             if DENSE_SOLID.search(name):
                 entry["denseStyle"] = "solid"
+            if icon.get("source"):
+                entry["source"] = icon["source"]
+            # An icon whose fallback is not in `replaces` does not stand for that SF Symbol, so
+            # `icon(symbol:)` keeps drawing the symbol's own icon (Chromium icons name a fallback
+            # without claiming it app-wide).
+            if icon.get("sf") and icon["sf"] not in (icon.get("replaces") or []):
+                entry["alias"] = False
             catalog.append(entry)
     pack = {"id": "cmux", "version": 1, "grid": 24, "icons": dict(sorted(icons.items()))}
     catalog.sort(key=lambda e: e["name"])

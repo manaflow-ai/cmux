@@ -1,3 +1,5 @@
+// Bun's types also declare import.meta.hot (with argument-less listeners); these listeners are Vite's.
+import type { ViteHotContext } from "vite/types/hot.d.ts";
 // Dev server only (/markdown, dev-server/plugins.ts): stands in for the Swift host of
 // Resources/markdown-viewer/shell.html (MarkdownWebRenderer.swift on main) so the shell runs in a
 // plain browser against a real markdown file. The server fills the shell's {{placeholders}} the way
@@ -66,14 +68,14 @@ if (!handlers.cmuxLib) {
 }
 
 if (import.meta.hot) {
-  import.meta.hot.on("cmux-markdown:styles", (styles: string[]) => {
+  (import.meta.hot as unknown as ViteHotContext).on("cmux-markdown:styles", (styles: string[]) => {
     document.querySelectorAll<HTMLStyleElement>("style[data-cmux-shell-style]").forEach((element) => {
       const next = styles[Number(element.dataset.cmuxShellStyle)];
       if (typeof next === "string" && element.textContent !== next) element.textContent = next;
     });
     shell.__cmuxApplyTheme?.();
   });
-  import.meta.hot.on("cmux-markdown:content", (changed: { file: string }) => {
+  (import.meta.hot as unknown as ViteHotContext).on("cmux-markdown:content", (changed: { file: string }) => {
     if (changed.file === file) void render();
   });
 }

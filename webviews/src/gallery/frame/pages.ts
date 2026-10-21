@@ -62,6 +62,17 @@ export async function mountMarkdownPage(state: MarkdownPageVariant, context: Sta
       ...(context.env.fontFamily && { family: context.env.fontFamily }),
       ...(context.env.fontSize && { size: context.env.fontSize }),
     };
+  // The app keeps a file's table column widths with the file (`cmux.markdown.setTableWidths`, its
+  // xattr) and sends them back in the config. Here the tab's session storage stands in, so the
+  // widths outlive a reload of the frame as they outlive a reopen in the app.
+  const widthsKey = (path: string) => `cmux.gallery.markdown.tableWidths:${path}`;
+  const tableWidths = (path: string): unknown => {
+    try {
+      return JSON.parse(sessionStorage.getItem(widthsKey(path)) ?? "null");
+    } catch {
+      return null;
+    }
+  };
   const config = (path: string) => {
     const file = files.get(path);
     if (!file) throw new HostError("cmux.markdown.not_found", path);
@@ -69,6 +80,7 @@ export async function mountMarkdownPage(state: MarkdownPageVariant, context: Sta
       path,
       text: file.text,
       hash: file.hash,
+      tableWidths: tableWidths(path),
       readOnly: state.readOnly === true,
       githubRepository: state.githubRepository,
       assetBase: "/__gallery/none/",
@@ -102,7 +114,17 @@ export async function mountMarkdownPage(state: MarkdownPageVariant, context: Sta
         ),
       }),
       "cmux.markdown.listFiles": () => ({ entries: [...files.keys()].map((path) => path.slice(dir.length)) }),
+      "cmux.markdown.loadRemoteImages": () => ({ remoteImageBase: "/__gallery/none/" }),
       "cmux.markdown.openLink": () => null,
+      "cmux.markdown.setTableWidths": (params: { path: string; value: unknown }) => {
+        try {
+          if (params.value) sessionStorage.setItem(widthsKey(params.path), JSON.stringify(params.value));
+          else sessionStorage.removeItem(widthsKey(params.path));
+        } catch {
+          // Refused storage only loses the widths on the next reload.
+        }
+        return null;
+      },
       "cmux.markdown.recents": () => ({
         items: Object.keys(state.files ?? {}).map((path, index) => ({
           path,
@@ -297,6 +319,7 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
   const provider = new MockCloudProvider({ signedIn: state.signedIn ?? true, unsupported: [] });
   provider.machines = JSON.parse(JSON.stringify(state.machines));
   provider.snapshots = JSON.parse(JSON.stringify(state.snapshots));
+  if (state.maxActive !== undefined) provider.account.plan.max_active = state.maxActive;
   const host = installMockHost(
     pageOps(provider, [...Object.values(CloudOps), CLOUD_ACTION_RUN, CLOUD_PAGE_COMMAND], {
       mode: state.mode === "normal" ? undefined : state.mode,
@@ -309,9 +332,11 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
   document.documentElement.dataset.cmuxPage = "cloud";
   document.documentElement.dataset.cmuxWebviewKind = "cloud";
   document.documentElement.dataset.cloudMachinesLayout = state.layout ?? "rows";
+  if (state.hash) location.hash = state.hash;
   await import("../../pages/cloud/main");
   if (state.action === "select-machine") clickLater(".cloud-machine");
   if (state.action === "create") clickLater(".cloud-create-button");
+  if (state.action === "get") clickLater(".cloud-store-get");
 }
 
 export async function mountCodeRouterPage(state: CodeRouterPageVariant, _context: StageContext): Promise<void> {

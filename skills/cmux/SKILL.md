@@ -26,11 +26,19 @@ cmux workspace list
 cmux pane list
 cmux tab list
 cmux workspace create --name api
-cmux pane pane_… split --right
-cmux pane pane_… run -- npm run dev                # new tab running the argv
+cmux pane pane_… split --right -- npm run dev     # new pane running the argv; focus stays
+cmux pane pane_… run -- npm run dev                # new tab in an existing pane
 cmux tab tab_… move --workspace ws_… --screen screen_… --pane pane_… --index 0
 cmux pane flash-focused                            # attention cue (app action)
 ```
+
+## Show UI in a chat reply
+
+Embed screenshots instead of describing a UI change: a cmux chat draws `![alt](/abs/path.png)`, a bare image path, a `file://` URL or an https image address (PR media) as a thumbnail that opens full size on click. Put a before/after pair in one paragraph (`![Before](/tmp/a.png) ![After](/tmp/b.png)`, or `Before: /tmp/a.png` and `After: /tmp/b.png` on two lines) and it draws side by side. `#N`, `owner/repo#N`, `hq#N`, commit SHAs and `path/to/file.ts:42` become links.
+
+## Which `cmux` to run
+
+Inside a cmux terminal, `$CMUX_BUNDLED_CLI_PATH` is the CLI that ships with the running app. A login shell (`zsh -lc`, which Codex and other agents use) can put an older `cmux` first on `PATH`, for example a `uv tool` or `pipx` install of the PyPI `cmux` package. That CLI can lack verbs such as `browser page`. When a verb or flag that this skill documents is missing, run `"$CMUX_BUNDLED_CLI_PATH"` instead, or define `cmux() { "${CMUX_BUNDLED_CLI_PATH:-cmux}" "$@"; }` once per shell. Do not run `cmux daemon stop` to cure a version mismatch: it stops the user's session.
 
 ## Selectors
 
@@ -38,17 +46,45 @@ Every instance selector is a public id (`ws_…`, `pane_…`, `tab_…`, `term_�
 
 ## Running a command in a new terminal
 
-`cmux pane <sel> run -- <argv…>` opens a tab in that pane running the exact argv; `run shell '<script>'` passes a script to the shell. `--on-exit close|keep` controls the tab after the process exits, and `--cwd`/`--name` set its directory and title. `cmux workspace <sel> run` does the same in a workspace. The app action `cmux workspace new --command "…"` types the command into a new workspace's shell.
+`cmux pane <sel> run -- <argv…>` opens a tab in that pane running the exact argv; `run shell '<script>'` passes a script to the shell. `--on-exit close|keep|shell` controls the tab after the process exits (`shell` drops it into a new shell), and `--cwd`/`--name` set its directory and title. `cmux workspace <sel> run` does the same in a workspace. The app action `cmux workspace new --command "…"` types the command into a new workspace's shell.
 
 ## App actions
 
 Every action in the app's registry is also a verb: `cmux action list --noun workspace` lists them and `cmux action describe "<noun> <verb>"` shows arguments. Run one with `cmux <noun> <verb> [--target ID] [--<arg> VALUE]`, for example `cmux workspace set-color --target ws_… --color blue`. The daemon grammar is tried first; words it rejects run as an app action.
 
+## Showing your work to the person
+
+None of these moves the person's focus; `cmux docs search "show the user"` prints the same guide.
+
+```bash
+cmux agent open SESSION_ID [--group G]                # that agent session's chat, in a new workspace (in sidebar group G)
+cmux workspace ws_… status set build "tests passing"   # a status line on the workspace's sidebar row (--state, --ttl…)
+cmux workspace ws_… progress set 0.4 --label "3 of 8"
+cmux notify --title "Review ready" --body "PR #123"    # --desktop false: sidebar marker only
+```
+
+To start another agent on a task and show it, use one command, `acpmux new -n NAME --worktree REPO@BASE --prompt-file BRIEF.md --report-to ME --group G -d` (the `acpmux` skill): it makes the worktree, starts the session, sends the brief and opens its chat in group G; running it again changes nothing.
+
+To open a link, the MCP tool `workspace_open_url` loads it on the workspace's right side, but it navigates a browser tab already there; `cmux browser profile open URL --profile default --background true` (MCP `browser_profile_open` with `activate: false`) adds a tab and keeps the pane's selected tab. `tab focus`, `workspace focus`, `agents tab select` and `focus: true` do move the person's focus: use them only when asked. `current` is the workspace the person looks at, not yours: from a cmux terminal `status set` without a selector targets that terminal's workspace, but an agent chat has no terminal, so name the workspace (`$CMUX_WORKSPACE_ID` when set).
+
+## Screenshots of the app
+
+Agents without Screen Recording permission can still see cmux: these verbs write a PNG of cmux's own windows. They never focus, raise or activate anything, and they work while the window is in the background or covered.
+
+```bash
+cmux window screenshot --out window.png                 # the focused window
+cmux window screenshot --target win_… --out -           # PNG inline as base64
+cmux pane screenshot --target pane_… --out pane.png
+cmux tab screenshot --target tab_… --out tab.png
+```
+
+The reply's `result` holds `path` (or `png_base64` for `--out -`; a PNG over 4 MiB still goes to a file), `width` and `height` in pixels, `scale` (pixels per point) and `method` (`window`, or `page` for a browser tab that is not on screen, which its engine renders in the background). Without `--out` the PNG goes to the temporary directory. A pane or terminal tab that no window shows, or a minimized window, fails with `screenshot.unavailable` and the reason; read a terminal's text with `cmux terminal <id> screen read` instead.
+
 ## Settings
 
-cmux-owned settings live in `~/.config/cmux/cmux.json`. With the app running, `cmux settings get [PATH]`, `cmux settings set PATH VALUE` and `cmux settings unset PATH` read and write it. `cmux settings reload-configuration` reloads it, and `cmux settings open-json` opens it.
+cmux-next settings live in `~/.config/cmux/cmux-next.json`. With the app running, `cmux settings get [PATH]`, `cmux settings set PATH VALUE` and `cmux settings reset PATH` read and write it; `cmux settings validate` checks it without the app. Keys come from `schemas/settings/settings-schema.json`, not classic `cmux.json`; see [cmux-settings](../cmux-settings/SKILL.md) before editing.
 
-Terminal rendering (font, cursor style, theme, scrollback, `background-opacity`, `background-blur`) belongs in Ghostty config, not cmux settings. Everything else (app behavior, sidebar, notifications, browser behavior, automation, workspace colors, cmux-owned shortcuts) is cmux settings. Before editing, copy any existing `cmux.json` to a timestamped `.bak` next to it.
+Terminal rendering (cursor style, scrollback) belongs in Ghostty config; font family, font size and theme default to Ghostty config and can be overridden in cmux settings.
 
 ## Deep-dive references
 
@@ -59,5 +95,5 @@ Terminal rendering (font, cursor style, theme, scrollback, `background-opacity`,
 | [references/panes-surfaces.md](references/panes-surfaces.md) | Splits, tabs, moves, focus |
 | [references/trigger-flash-and-health.md](references/trigger-flash-and-health.md) | Flash cue; surface health was removed |
 | [../cmux-workspace/SKILL.md](../cmux-workspace/SKILL.md) | Current caller workspace rules and non-disruptive automation |
-| [../cmux-settings/SKILL.md](../cmux-settings/SKILL.md) | Safe cmux.json settings edits |
+| [../cmux-settings/SKILL.md](../cmux-settings/SKILL.md) | Safe settings edits |
 | [../cmux-browser/SKILL.md](../cmux-browser/SKILL.md) | Browser tabs |

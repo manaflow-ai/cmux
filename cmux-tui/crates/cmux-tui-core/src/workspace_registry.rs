@@ -32,6 +32,7 @@ use crate::terminal_host_runtime::TerminalHostLiveness;
 pub use open_guard::RegistryQuarantined;
 use open_guard::preflight_unsupported_schema;
 
+pub(crate) mod agent_cli_intents;
 mod compact;
 mod detached_terminals;
 pub(crate) use detached_terminals::DETACHED_TERMINAL_WORKSPACE_KEY;
@@ -77,6 +78,7 @@ mod terminal_exit_store;
 mod terminal_keep_store;
 mod terminal_resource_close_store;
 pub(crate) mod terminal_respawn_store;
+pub(crate) mod terminal_resume_store;
 mod topology_close_store;
 
 pub use crate::state::kept_tab_store::KeptTabRecord;
@@ -415,20 +417,30 @@ impl TerminalLifecycle {
 /// surface, leaving only the durable exit receipt. `Keep` retains the tabs
 /// and the live screen surface next to that receipt while the daemon runs;
 /// after a daemon restart the in-memory VT is gone, so a kept-exited
-/// terminal degrades to the normal detach during reconciliation.
+/// terminal degrades to the normal detach during reconciliation. `Shell`
+/// keeps the tabs like `Keep`, then drops them into a new shell under the
+/// same terminal id (the manual restart's worker, `terminal_respawn/manual.rs`);
+/// that shell's own exit closes them, as `Close` does.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum TerminalOnExit {
     #[default]
     Close,
     Keep,
+    Shell,
 }
+
+/// The `launch_spec_json` key that marks a `shell` policy. The `on_exit`
+/// column stores `keep` for it, which every older build accepts (its CHECK
+/// allows only close and keep), so such a build degrades it to keep.
+const SHELL_ON_EXIT_MARKER: &str = "on_exit";
 
 impl TerminalOnExit {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Close => "close",
             Self::Keep => "keep",
+            Self::Shell => "shell",
         }
     }
 
@@ -436,9 +448,35 @@ impl TerminalOnExit {
         match value {
             "close" => Ok(Self::Close),
             "keep" => Ok(Self::Keep),
+            "shell" => Ok(Self::Shell),
             other => anyhow::bail!("invalid terminal on-exit policy {other:?}"),
         }
     }
+
+    /// The `terminal_hosts.on_exit` column value.
+    pub(crate) fn column(self) -> &'static str {
+        match self {
+            Self::Shell => "keep",
+            policy => policy.as_str(),
+        }
+    }
+
+    /// Whether the tabs stay with the final screen after the process ends.
+    pub(crate) fn keeps_views(self) -> bool {
+        matches!(self, Self::Keep | Self::Shell)
+    }
+}
+
+/// The `launch_spec_json` stored for `terminal`: its launch spec, plus the
+/// `shell` policy marker.
+pub(crate) fn durable_launch_spec(terminal: &RegistryTerminal) -> Value {
+    let mut launch_spec = terminal.launch_spec.clone();
+    if terminal.on_exit == TerminalOnExit::Shell
+        && let Some(object) = launch_spec.as_object_mut()
+    {
+        object.insert(SHELL_ON_EXIT_MARKER.into(), Value::String("shell".into()));
+    }
+    launch_spec
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -3960,6 +3998,7 @@ fn create_terminal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     )?;
     idle_policy_store::create_terminal_idle_policy_schema(transaction)?;
     terminal_keep_store::create_terminal_keep_schema(transaction)?;
+    terminal_resume_store::create_terminal_resume_schema(transaction)?;
     relaunch_store::create_schema(transaction)?;
     Ok(())
 }
@@ -4660,14 +4699,23 @@ type StoredTerminal = (String, String, Option<String>, String, String, Option<St
 
 fn terminal_from_stored(stored: StoredTerminal) -> anyhow::Result<RegistryTerminal> {
     let (terminal_id, workspace_key, incarnation, lifecycle, launch_spec, exit, on_exit) = stored;
+    let mut launch_spec: Value = serde_json::from_str(&launch_spec)?;
+    let marked = launch_spec
+        .as_object_mut()
+        .and_then(|object| object.remove(SHELL_ON_EXIT_MARKER))
+        .is_some_and(|marker| marker == "shell");
+    let on_exit = match TerminalOnExit::parse(&on_exit)? {
+        TerminalOnExit::Keep if marked => TerminalOnExit::Shell,
+        policy => policy,
+    };
     Ok(RegistryTerminal {
         terminal_id,
         workspace_key,
         incarnation,
         lifecycle: TerminalLifecycle::parse(&lifecycle)?,
-        launch_spec: serde_json::from_str(&launch_spec)?,
+        launch_spec,
         exit: exit.map(|value| serde_json::from_str(&value)).transpose()?,
-        on_exit: TerminalOnExit::parse(&on_exit)?,
+        on_exit,
     })
 }
 

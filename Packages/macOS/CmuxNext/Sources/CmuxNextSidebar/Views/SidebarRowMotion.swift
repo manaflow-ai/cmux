@@ -29,7 +29,7 @@ struct RowMotion {
             lines.leaving.forEach { $0.removeFromSuperview() }
             return
         }
-        guard Motion.animatesMovement else {
+        guard Motion.sidebar.animatesMovement else {
             // Reduce Motion: rows take their places in one step, with no crossfade standing in
             // for the motion (DESIGN P6): no movement, and nothing a person must wait out.
             Motion.withoutAnimation {
@@ -48,7 +48,7 @@ struct RowMotion {
         passOver(in: list, from: old, to: layout)
         for (view, end) in leaving { view.closingEnd = end }
         let opens = appearing.map(\.0.opens)
-        Motion.animate(.move, in: list, {
+        Motion.sidebar.animate(.move, in: list, {
             moves()
             lines.changes()
             for (view, target) in appearing {
@@ -84,7 +84,7 @@ struct RowMotion {
         }
         guard !closing.isEmpty else { return }
         // The close's own completion (`run`) still recycles each row.
-        Motion.animate(.move, in: list, {
+        Motion.sidebar.animate(.move, in: list, {
             for view in closing {
                 guard let end = view.closingEnd else { continue }
                 view.animator().alphaValue = 0
@@ -104,7 +104,7 @@ struct RowMotion {
     /// height at its slot instead of showing whole over the rows still making
     /// room (cx-ai79).
     static func place(_ view: SidebarRowView, at target: NSRect, opening: Bool, hidden: Bool, in list: SidebarListView) {
-        guard opening, !hidden, Motion.animatesMovement else {
+        guard opening, !hidden, Motion.sidebar.animatesMovement else {
             view.frame = target
             view.alphaValue = hidden ? 0 : 1
             return
@@ -116,7 +116,7 @@ struct RowMotion {
         }
         view.opens += 1
         let open = view.opens
-        Motion.animate(.move, in: list, {
+        Motion.sidebar.animate(.move, in: list, {
             view.animator().frame = target
             view.animator().alphaValue = 1
         }, settleAtSleep: Self.settle(list), completion: { [view] in
@@ -162,7 +162,7 @@ struct RowMotion {
             }
         }
         for view in passed {
-            guard let hide = Motion.passOverAnimation(.move) else { return }
+            guard let hide = Motion.sidebar.passOverAnimation(.move) else { return }
             view.layer?.add(hide, forKey: "cmux.passOver")
         }
     }

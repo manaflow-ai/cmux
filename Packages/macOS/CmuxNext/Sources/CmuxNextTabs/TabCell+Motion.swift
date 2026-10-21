@@ -11,6 +11,7 @@ extension TabCell {
     func beginClosing() {
         isHovered = false
         isSelected = false
+        isMultiSelected = false
         showsSeparator = false
         isClosing = true
     }

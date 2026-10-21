@@ -1,6 +1,5 @@
 public import CmuxUpdater
 public import Foundation
-import Security
 
 /// What a rollback compares, read off the main actor
 /// (``UpdaterService/rollbackInputs(stateDirectories:)``).
@@ -30,7 +29,7 @@ extension UpdaterService {
     public var keptVersions: KeptVersionStore {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let root = support.appending(path: "cmux-next/\(identity.bundleIdentifier ?? "cmux")/versions", directoryHint: .isDirectory)
-        return KeptVersionStore(root: root, teamID: { Self.signingTeam(of: $0) })
+        return KeptVersionStore(root: root, teamID: { UpdateDropBack.signingTeam(of: $0) })
     }
 
     /// An update staged: keep the running bundle for rollback now, off the
@@ -96,19 +95,7 @@ extension UpdaterService {
     public func rollbackDecision(to build: String?, inputs: RollbackInputs) -> Result<KeptVersion, RollbackRefusal> {
         guard let stored = inputs.stored else { return .failure(.storesUnknown) }
         return RollbackDecision.decide(kept: inputs.kept, build: build, stored: stored,
-                                       teamID: Self.signingTeam(of: Bundle.main.bundleURL))
-    }
-
-    /// The Developer ID team of a valid signed bundle, else nil.
-    nonisolated static func signingTeam(of bundle: URL) -> String? {
-        var code: SecStaticCode?
-        guard SecStaticCodeCreateWithPath(bundle as CFURL, [], &code) == errSecSuccess, let code,
-              SecStaticCodeCheckValidity(code, SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSCheckNestedCode), nil) == errSecSuccess
-        else { return nil }
-        var information: CFDictionary?
-        guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &information) == errSecSuccess
-        else { return nil }
-        return (information as? [String: Any])?[kSecCodeInfoTeamIdentifier as String] as? String
+                                       teamID: UpdateDropBack.signingTeam(of: Bundle.main.bundleURL))
     }
 }
 

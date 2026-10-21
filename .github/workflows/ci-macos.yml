@@ -148,6 +148,7 @@ env:
 
 jobs:
   admission-placement:
+    environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
     # Spread-first admission (vars.CI_OWNED_SPREAD == '1'): a std mini has
     # two root runners and a compile takes either free root, so two compiles
     # can share a mini while another mini's root runners sit idle. Just before
@@ -216,6 +217,7 @@ jobs:
 
   macos-compile-admission:
     name: macOS compile admission
+    environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-build-cache-reader' || '' }}
     # Spend one macOS slot proving that the product compiles before
     # cli-product-tests (the shell regressions) starts. That job downloads
     # this run's build products, so a successful build is not repeated.
@@ -1360,6 +1362,7 @@ jobs:
           PY
 
   late-placement:
+    environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
     # The picker (pr_runner_pool.py) places every job when the run starts, but
     # cli-product-tests starts only after compile admission, often ten minutes
     # later. When the owned pool was full
@@ -2113,9 +2116,14 @@ jobs:
           STEP_XCODE_APP: ${{ contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) || '' }}
         run: |
           set -uo pipefail
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            echo "::error title=Build fleet client missing::$client is not installed on runner $RUNNER_NAME. There is no automatic fallback in phase 1: install the client on that gateway, or clear CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY to run on a runner again."
+            exit 127
+          fi
           status=0
           lane_log="$RUNNER_TEMP/package-lane.log"
-          "${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}" run --class light \
+          "$client" run --class light \
             --script scripts/ci/package-test-lane.sh --ref "$GITHUB_SHA" \
             --arg=run --arg="--event=$EVENT_NAME" --arg="--full-suite=$FULL_SUITE" \
             --env "CMUX_CI_XCODE_APP=$STEP_XCODE_APP" \

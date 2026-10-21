@@ -48,6 +48,11 @@ nonisolated struct CEFPumpSchedule: Equatable, Sendable {
     }
     /// Share of a safety-net interval the system may add to coalesce wakeups.
     static let safetyNetTolerance = 0.1
+    /// Leeway of a delayed request: Chromium's own default for delayed tasks
+    /// (base's `kDefaultLeeway`, 8 ms), so the system can coalesce the wake
+    /// with others (an idle browser asks about 1.7 times a second). Never more
+    /// than a tenth of the delay; a request for "now" stays exact.
+    static let delayedLeeway: TimeInterval = 0.008
 
     /// The next timer fire, in the clock's seconds.
     struct Wake: Equatable, Sendable {
@@ -68,6 +73,8 @@ nonisolated struct CEFPumpSchedule: Equatable, Sendable {
     /// Work that must run on the next run loop pass.
     private var immediate = false
     private var requestedDeadline: TimeInterval?
+    /// Leeway of `requestedDeadline` (`delayedLeeway`, capped by its delay).
+    private var requestedTolerance: TimeInterval = 0
     private var safetyNetDeadline: TimeInterval?
     /// The interval of the pending safety-net wake (nil when none is armed).
     private(set) var armedSafetyNetInterval: TimeInterval?
@@ -91,7 +98,7 @@ nonisolated struct CEFPumpSchedule: Equatable, Sendable {
         case let (requested?, net?) where net < requested:
             return Wake(deadline: net, tolerance: safetyNetTolerance, reason: .fallback)
         case let (requested?, _):
-            return Wake(deadline: requested, tolerance: 0)
+            return Wake(deadline: requested, tolerance: requestedTolerance)
         case let (nil, net?):
             return Wake(deadline: net, tolerance: safetyNetTolerance, reason: .fallback)
         case (nil, nil):
@@ -108,7 +115,9 @@ nonisolated struct CEFPumpSchedule: Equatable, Sendable {
         } else {
             // CEF's earliest delayed task, including those the last pass
             // posted: it replaces the earlier request and the safety net.
-            requestedDeadline = now + TimeInterval(milliseconds) / 1_000
+            let delay = TimeInterval(milliseconds) / 1_000
+            requestedDeadline = now + delay
+            requestedTolerance = min(Self.delayedLeeway, delay / 10)
             safetyNetDeadline = nil
             armedSafetyNetInterval = nil
         }

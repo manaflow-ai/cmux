@@ -349,16 +349,10 @@ def test_cmux_next_pull_request_fetch_waits_for_base_or_own_tree() -> None:
     assert len(fetching) >= 2
     assert all(int(step.get("env", {}).get("CMUX_TUI_TREE_WAIT_SECONDS", "0")) <= 120 for step in fetching)
     probes = [step for step in jobs["path_route"]["steps"] if "pin-cmux-tui.sh probe" in step.get("run", "")]
-    # A pull request's merge tree has no publisher of its own: a same-repository
-    # PR's probe dispatches one; a fork PR's never does. The scheduled DEV run
-    # (a workflow_dispatch with dev_daily) dispatches its cold tree too.
-    dispatch_gate = (
-        "${{ (github.event_name == 'pull_request' && "
-        "github.event.pull_request.head.repo.full_name == github.repository || "
-        "github.event_name == 'workflow_dispatch' && inputs.dev_daily == true) && '1' || '' }}"
-    )
-    assert probes and all(step.get("env", {}).get("CMUX_TUI_TREE_DISPATCH") == dispatch_gate for step in probes)
-    assert "github.event_name == 'pull_request' && '0'" not in next_workflow
+    # Checked-out pull-request and dispatched revisions never acquire a write
+    # token or start the publisher. A cold tree fails closed until trusted
+    # default-branch controls publish it.
+    assert probes and all(step.get("env", {}).get("CMUX_TUI_TREE_DISPATCH") == "" for step in probes)
     pin = (ROOT / "scripts/cmux-next/pin-cmux-tui.sh").read_text()
     assert "pull_request_base_key" in pin
     assert "HEAD^1" in pin
@@ -2245,6 +2239,27 @@ def _evaluate_concurrency_group(template: str, context: dict[str, object]) -> st
     return re.sub(r"\$\{\{(.*?)\}\}", evaluate, template)
 
 
+def test_daemon_gate_tests_only_the_newest_published_feat_tree() -> None:
+    # 2026-10-21: 26 feat-cmux-next daemon-test jobs queued for 2 h, one per
+    # key, and nightly-next did not move. When the job gets a Mac, attempt 1 of
+    # a feat-cmux-next push skips its tests if the branch head has a different
+    # key whose tree is published (the head's run tests that one). A rerun and
+    # any read failure test as before, and the skip reuses the superseded
+    # output, so publish-tree-tested acts on no key.
+    daemon = workflow_job(workflow("cmux-tui-artifacts.yml"), "cmux-next-daemon-tests")
+    assert 'if [[ "$REF" == refs/heads/feat-cmux-next && "$RUN_ATTEMPT" == 1 ]]' in daemon
+    assert "git fetch --quiet --no-tags --depth=1 origin refs/heads/feat-cmux-next" in daemon
+    assert 'scripts/cmux-next/pin-cmux-tui.sh key --rev FETCH_HEAD' in daemon
+    assert '"$head_sha" != "$SHA"' in daemon and '"$head_key" != "$KEY"' in daemon
+    assert "https://files.cmux.com/cmux-tui/tree/$head_key/completion.json" in daemon
+    assert 'echo "stale=true" >> "$GITHUB_OUTPUT"' in daemon
+    assert "superseded: ${{ steps.current.outputs.stale }}" in daemon
+    assert "key: ${{ steps.key.outputs.key }}" in daemon
+    assert "if: steps.current.outputs.stale != 'true'" in daemon
+    # No branch-wide group: an older push arriving late must never replace the head's job.
+    assert "feat-cmux-next-gate" not in daemon
+
+
 def test_cmux_tui_artifacts_never_drops_a_feat_cmux_next_push() -> None:
     # 2026-10-10 (cx-73f2): one group for every feat-cmux-next push let GitHub
     # replace each pending run with the next push, so merge train tips such as
@@ -2311,6 +2326,19 @@ def test_cmux_next_daemon_tests_take_the_owned_side_lane_like_the_build_legs() -
         "github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && "
         "github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || "
     )
+    # 2026-10-21: a cmux-tui-pin-* push takes CI_PIN_DAEMON_POOL, else the
+    # light minis, on every attempt, and never the side lane; a pin pool never
+    # names the promotion's daemon pool (tests/test_ci_tui_routes_avoid_nightly_label.py).
+    promotion_pool = "(vars.CI_NEXT_DAEMON_POOL || vars.CI_NEXT_PROMOTE_POOL)"
+    pin = (
+        "github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && "
+        "startsWith(github.ref, 'refs/heads/cmux-tui-pin-') && ("
+        "vars.CI_PIN_DAEMON_POOL != vars.CI_SIDE_LANE_RUNNER && "
+        f"vars.CI_PIN_DAEMON_POOL != {promotion_pool} && vars.CI_PIN_DAEMON_POOL || "
+        "vars.CI_PR_POOL_OWNED == '1' && vars.CI_LIGHT_LANE_RUNNER != vars.CI_SIDE_LANE_RUNNER && "
+        "vars.CI_LIGHT_LANE_RUNNER || "
+        "'blacksmith-6vcpu-macos-15') || "
+    )
     assert fork_gate in build_route
     side_attempt_one = "github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER"
     assert side_attempt_one in build_route
@@ -2322,7 +2350,7 @@ def test_cmux_next_daemon_tests_take_the_owned_side_lane_like_the_build_legs() -
         "vars.CI_SIDE_LANE_RUNNER",
         1,
     )
-    assert daemon == every_attempt.replace(fork_gate, fork_gate + promote, 1), daemon
+    assert daemon == every_attempt.replace(fork_gate, fork_gate + promote + pin, 1), daemon
     assert "MACOS_RUNNER_PR" not in daemon
     assert retry_route.split("|| ", 1)[1] in daemon  # owned pools off: Blacksmith macOS 15
 

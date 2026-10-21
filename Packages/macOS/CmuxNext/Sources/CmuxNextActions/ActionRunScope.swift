@@ -64,6 +64,7 @@ extension ActionRegistry {
     /// (`TaskLocal.withValueInTask`, cx-bpcj).
     func runScoped(_ action: Action, _ id: ActionID, _ invocation: ActionInvocation) {
         let run = ActionRunScope(invocation, focuses: descriptor(for: id)?.focuses ?? false).nested(in: ActionRunScope.current)
+        for observer in willRunObservers { observer(id, run.origin) }
         ActionRunScope.$current.withValueInTask(run) {
             if let invocationScope {
                 invocationScope(invocation) { action.run(invocation) }

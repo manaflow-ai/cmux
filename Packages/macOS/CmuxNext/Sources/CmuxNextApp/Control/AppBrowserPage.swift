@@ -88,11 +88,19 @@ enum AppBrowserPage {
                 throw ControlError(code: "js_error", message: String(describing: error))
             }
         case .screenshot(let capture):
+            // A Chromium page no pane has shown has no browser yet, so its
+            // capture failed with `snapshotUnavailable` (an agent's tab in a
+            // workspace off screen): create it in the background first.
+            try await ensureBrowser(page)
             return try await screenshot(page, tabID: tabID, capture)
         case .cookies(let request):
             // Chromium's cookie methods go through the page's DevTools.
             try await ensureBrowser(page)
             return try await cookies(page, request)
+        case .input(let input):
+            // Trusted input after the page's first load, as a script acts on the loaded document.
+            _ = await awaitPendingNavigation(page, within: actionWait)
+            return try await services.browserNativeInputs.deliver(input, to: page, key: tabID)
         }
         return [:]
     }

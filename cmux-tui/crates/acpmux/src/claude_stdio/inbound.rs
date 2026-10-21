@@ -5,17 +5,14 @@ use super::*;
 impl Translator {
     /// Translate one line from claude's stdout into ACP messages for the hub.
     pub async fn inbound(&self, line: &Value) -> Vec<Message> {
+        // A Ctrl-B the hub stopped waiting for leaves no mark (`end_background_asks`).
+        let now = std::time::Instant::now();
+        self.end_background_asks(false, |_, deadline| deadline.is_some_and(|d| d <= now)).await;
         let kind = line.get("type").and_then(Value::as_str).unwrap_or("");
         let sub = line.get("subtype").and_then(Value::as_str).unwrap_or("");
-        // A subagent's lines carry its Agent tool call's id and stream under
-        // its own session (ACP draft #1992).
+        // A subagent's lines stream under its own session, ended or not (`subagent_route`).
         let parent = line.get("parent_tool_use_id").and_then(Value::as_str);
-        let mut sid = self.acp_session_id.clone();
-        if let Some(p) = parent
-            && let Some(child) = self.subagents.lock().await.get(p)
-        {
-            sid = child.clone();
-        }
+        let sid = self.line_session(parent);
         let upd = |u: Value| {
             Message::notification(method::SESSION_UPDATE, json!({"sessionId": sid, "update": u}))
         };
@@ -118,6 +115,12 @@ impl Translator {
                             *self.loop_model.lock().await = m.to_owned();
                         }
                     }
+                    // A tool call is named as its block starts (early_calls.rs).
+                    Some("content_block_start") => {
+                        if let Some(call) = self.announce_tool(&ev, &sid, parent).await {
+                            out.push(upd(call));
+                        }
+                    }
                     Some("content_block_delta") => {
                         let d = ev.get("delta").cloned().unwrap_or(Value::Null);
                         match d.get("type").and_then(Value::as_str) {
@@ -154,9 +157,16 @@ impl Translator {
                                 self.context_used.store(used, Ordering::SeqCst);
                             }
                             let size = self.context_window.load(Ordering::SeqCst);
-                            out.push(upd(
-                                json!({"sessionUpdate": "usage_update", "used": used, "size": size}),
-                            ));
+                            // One model call's own usage, marked so a client can add a turn's
+                            // calls up (the pane's running line). The result's resend below is
+                            // the context ring's and is not marked. A subagent's calls are
+                            // marked too: they are the turn's spend.
+                            out.push(upd(json!({
+                                "sessionUpdate": "usage_update",
+                                "used": used,
+                                "size": size,
+                                "_meta": {"acpmux": {"call": true}},
+                            })));
                         }
                     }
                     _ => {}
@@ -201,25 +211,26 @@ impl Translator {
                                     == Some(&Value::Bool(true)),
                                 launched: input.get("run_in_background")
                                     == Some(&Value::Bool(true)),
+                                asked: false,
                                 announced: false,
                                 output: None,
                             };
                             self.background_shells.lock().await.insert(id.to_owned(), shell);
                         }
-                        let mut call = json!({
-                            "sessionUpdate": "tool_call",
-                            "toolCallId": c.get("id"),
-                            "title": tool_title(name, &input),
-                            "kind": tool_kind(name),
-                            "status": "in_progress",
-                            "rawInput": input,
-                            "_meta": {"claude": {"tool": name}}
-                        });
-                        with_edit(&mut call, name, &input);
+                        let mut call = tool_call_fields(name, &input);
+                        call["sessionUpdate"] = json!("tool_call");
+                        call["toolCallId"] = c.get("id").cloned().unwrap_or(Value::Null);
+                        call["status"] = json!("in_progress");
                         if let (Some(diffs), Some(id)) =
                             (call.get("content"), c.get("id").and_then(Value::as_str))
                         {
                             self.edits.lock().await.insert(id.to_owned(), diffs.clone());
+                        }
+                        // Named early (early_calls.rs): the whole call is that call's update.
+                        if let Some(id) = c.get("id").and_then(Value::as_str)
+                            && self.take_announced(id).await
+                        {
+                            call["sessionUpdate"] = json!("tool_call_update");
                         }
                         out.push(upd(call));
                     }
@@ -296,11 +307,27 @@ impl Translator {
                             {
                                 shells.remove(tool);
                             }
+                            // The launch's result names the output file while
+                            // the shell runs; the task notification names it
+                            // only at its end. A shell announced already is
+                            // announced again with it, once.
+                            if let Some(shell) = shells.get_mut(tool).filter(|s| s.output.is_none())
+                                && let Some(file) = launch_output_file(&text)
+                            {
+                                shell.output = Some(file);
+                                if shell.announced && shell.background {
+                                    let mut update = background_task_update(tool, shell, "running");
+                                    update["origin"] = json!(origin(shell));
+                                    out.push(shell_update(shell, update));
+                                }
+                            }
                         }
                         // ACP content replaces the call's content: a finished edit
                         // keeps its diff, and a failed one says why.
                         let content = match self.edits.lock().await.remove(tool) {
-                            Some(diffs) if !is_err => diffs,
+                            Some(diffs) if !is_err => {
+                                settle_write(diffs, &text, line.get("tool_use_result"))
+                            }
                             _ => {
                                 json!([{"type": "content", "content": {"type": "text", "text": text}}])
                             }
@@ -459,6 +486,28 @@ impl Translator {
                     let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
                     self.pending.lock().await.remove(&id.to_string());
                     out.push(super::workflows::stop_reply(acp, ok, &resp));
+                } else if let Some(acp) = rid.strip_prefix("bg-") {
+                    // A background_tasks answer (`BACKGROUND_TASKS`, Ctrl-B). Claude Code's
+                    // SDK reads a missing `backgrounded` as true.
+                    let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
+                    let moved =
+                        ok && inner.get("backgrounded").and_then(Value::as_bool).unwrap_or(true);
+                    // Nothing moved: a shell Claude Code moves later on its own is not the
+                    // person's, unless another Ctrl-B moved it or still waits.
+                    let key = id.to_string();
+                    self.end_background_asks(moved, |k, _| k == key).await;
+                    out.push(if ok {
+                        Message::ok(id, json!({"backgrounded": moved}))
+                    } else {
+                        let why = resp.get("error").and_then(Value::as_str);
+                        let why =
+                            why.unwrap_or("Claude Code did not move its work to the background");
+                        Message::err(id, RpcError::internal(why))
+                    });
+                } else if let Some(acp) = rid.strip_prefix("now-") {
+                    // A step stopped for a steer sent now (`MUX_STEP_NOW`).
+                    let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
+                    out.push(Message::ok(id, json!({"interrupted": ok})));
                 }
                 // "int-*" acks need no reply; the result message ends the turn.
             }
@@ -482,6 +531,8 @@ impl Translator {
                 if startup_noise {
                     return out;
                 }
+                // A call named early whose whole call never came ends with its turn.
+                out.extend(self.end_announced().await);
                 // The window Claude Code reports for the chat's model: the pane's
                 // context ring fills by used over it (cx-ncc.79).
                 if let Some(window) = self.result_context_window(line).await {
@@ -522,6 +573,8 @@ impl Translator {
                 out.extend(self.fail_steers().await);
                 *self.prompt_echo.lock().await = None;
                 self.in_turn.store(false, Ordering::SeqCst);
+                // A Ctrl-B still unanswered leaves no mark past its turn.
+                self.end_background_asks(false, |_, _| true).await;
                 let waiting: Vec<String> = self
                     .pending
                     .lock()
@@ -611,8 +664,11 @@ impl Translator {
                 if let Some(progress) = self.subagent_progress(sub, line).await {
                     out.push(upd(progress));
                 }
-                if let Some(ended) = self.subagent_task(sub, line).await {
-                    out.push(upd(ended));
+                if let Some((update, ended)) = self.subagent_task(sub, line).await {
+                    if let Some(tool) = ended {
+                        out.extend(self.end_announced_of(&tool).await);
+                    }
+                    out.push(upd(update));
                 }
             }
             _ => {}
@@ -669,6 +725,7 @@ impl Translator {
                     task: None,
                     background: false,
                     launched: backgrounded(line.get("is_backgrounded")),
+                    asked: false,
                     announced: false,
                     output: None,
                 });
@@ -713,29 +770,30 @@ impl Translator {
     /// The background shells still running when Claude's stdout closed: they
     /// ended with its process, so each is reported `stopped`, marked
     /// `_meta.acpmux.endedBy: "harness_exit"` for the hub (`hub/processes.rs`
-    /// lists it `lost`); the update itself is what clients show.
+    /// lists it `lost`); the update itself is what clients show. A call named
+    /// early whose input was still streaming ends `failed` with them.
     pub async fn end_background_shells(&self) -> Vec<Message> {
         let mut shells: Vec<_> =
             self.background_shells.lock().await.drain().filter(|(_, s)| s.background).collect();
         shells.sort_by(|a, b| a.0.cmp(&b.0));
-        shells
-            .into_iter()
-            .map(|(tool, shell)| {
-                let update = background_task_update(&tool, &shell, "stopped");
-                Message::notification(
-                    method::SESSION_UPDATE,
-                    json!({"sessionId": shell.sid, "update": update,
+        let mut out = self.end_all_announced().await;
+        out.extend(shells.into_iter().map(|(tool, shell)| {
+            let update = background_task_update(&tool, &shell, "stopped");
+            Message::notification(
+                method::SESSION_UPDATE,
+                json!({"sessionId": shell.sid, "update": update,
                            "_meta": {"acpmux": {"endedBy": "harness_exit"}}}),
-                )
-            })
-            .collect()
+            )
+        }));
+        out
     }
 
     /// Claude's task events for a subagent: `task_started` or `task_updated`
     /// moves it to the background, and `task_notification` ends a background
     /// one (its Agent tool call returned at launch). Returns the subagent's
-    /// `subagent_state_update` when it ended.
-    async fn subagent_task(&self, sub: &str, line: &Value) -> Option<Value> {
+    /// `subagent_progress` marking it background when it moved there, and its
+    /// `subagent_state_update` with its tool id when it ended.
+    async fn subagent_task(&self, sub: &str, line: &Value) -> Option<(Value, Option<String>)> {
         let task = line.get("task_id").and_then(Value::as_str).unwrap_or("");
         let tool = match line.get("tool_use_id").and_then(Value::as_str) {
             Some(tool) => tool.to_owned(),
@@ -753,8 +811,18 @@ impl Translator {
             _ => None,
         };
         if backgrounded == Some(&Value::Bool(true)) {
-            self.background_subagents.lock().await.insert(tool);
-            return None;
+            let child = self.subagents.lock().await.get(&tool)?.clone();
+            if !self.background_subagents.lock().await.insert(tool) {
+                return None;
+            }
+            return Some((
+                json!({
+                    "sessionUpdate": "subagent_progress",
+                    "subagentSessionId": child,
+                    "background": true,
+                }),
+                None,
+            ));
         }
         if sub != "task_notification" || !self.background_subagents.lock().await.remove(&tool) {
             return None;
@@ -767,11 +835,14 @@ impl Translator {
             Some("stopped") => "cancelled",
             _ => "completed",
         };
-        Some(json!({
-            "sessionUpdate": "subagent_state_update",
-            "subagentSessionId": child,
-            "state": state,
-        }))
+        Some((
+            json!({
+                "sessionUpdate": "subagent_state_update",
+                "subagentSessionId": child,
+                "state": state,
+            }),
+            Some(tool),
+        ))
     }
 
     /// Records a new Agent or Workflow tool call as a subagent session and
@@ -779,20 +850,21 @@ impl Translator {
     /// names an agent; a workflow, which always runs in the background, is
     /// named by its saved name until its launch names the run.
     async fn spawn_subagent(&self, tool_use_id: &str, tool: &str, input: &Value) -> Value {
-        let child = format!("{}/{tool_use_id}", self.acp_session_id);
+        let child = self.line_session(Some(tool_use_id));
         self.subagents.lock().await.insert(tool_use_id.to_owned(), child.clone());
         let workflow = tool == "Workflow";
         if workflow {
             self.workflows.lock().await.insert(tool_use_id.to_owned(), None);
         }
-        if workflow || input.get("run_in_background") == Some(&Value::Bool(true)) {
+        let background = workflow || input.get("run_in_background") == Some(&Value::Bool(true));
+        if background {
             self.background_subagents.lock().await.insert(tool_use_id.to_owned());
         }
         let s = |k: &str| input.get(k).and_then(Value::as_str).filter(|v| !v.is_empty());
         let task = s("description").or(s("name")).or(s("subagent_type"));
         let task = task.unwrap_or(if workflow { "Workflow" } else { "Agent" });
         let kind = if workflow { Some(&json!("workflow")) } else { input.get("subagent_type") };
-        json!({
+        let mut update = json!({
             "sessionUpdate": "subagent_spawned",
             "subagentSessionId": child,
             "name": s("name").unwrap_or(task),
@@ -800,17 +872,12 @@ impl Translator {
             "prompt": input.get("prompt"),
             "capabilities": {},
             "_meta": {"claude": {"subagentType": kind, "toolUseId": tool_use_id}}
-        })
-    }
-}
-
-/// Adds a file edit's diff and location to its ACP tool call.
-fn with_edit(call: &mut Value, name: &str, input: &Value) {
-    if let Some(diffs) = edit_diffs(name, input) {
-        call["content"] = diffs;
-        if let Some(locations) = tool_locations(input) {
-            call["locations"] = locations;
+        });
+        // It outlives a stopped turn: a client keeps it running past one.
+        if background {
+            update["background"] = json!(true);
         }
+        update
     }
 }
 
@@ -837,6 +904,8 @@ fn todo_plan(input: &Value) -> Option<Value> {
 
 /// A `compaction` update: a compaction of the chat's context `state`
 /// (`running`, `completed`, `failed`), with what Claude's line says about it.
+/// Claude Code repeats `running` every 30 seconds while it compacts; clients
+/// keep one compaction on one row.
 /// `reason` is set by a wrapper that compacted for its own purpose (the
 /// subrouter relay compacts before moving the chat to another account).
 fn compaction_update(state: &str, line: &Value) -> Value {
@@ -852,6 +921,13 @@ fn compaction_update(state: &str, line: &Value) -> Value {
         if let Some(v) = field(from) {
             update[to] = v;
         }
+    }
+    // Why it failed, in Claude Code's words (2.1.305 `compact_error`).
+    if state == "failed"
+        && let Some(error) = line.get("compact_error").and_then(Value::as_str)
+        && !error.trim().is_empty()
+    {
+        update["error"] = json!(error.trim());
     }
     update
 }
@@ -878,6 +954,15 @@ fn compaction_summary_text(line: &Value) -> Option<String> {
     (!text.trim().is_empty()).then_some(text)
 }
 
+/// The output file a background Bash launch's result names ("… Output is
+/// being written to: PATH"), as Claude Code words it; None for any other text.
+fn launch_output_file(text: &str) -> Option<String> {
+    const MARK: &str = "Output is being written to: ";
+    let rest = &text[text.find(MARK)? + MARK.len()..];
+    let path = rest.lines().next()?.trim();
+    (path.starts_with('/') && path.ends_with(".output")).then(|| path.to_owned())
+}
+
 /// A `background_task_update` for one shell.
 fn background_task_update(tool: &str, shell: &BackgroundShell, state: &str) -> Value {
     json!({
@@ -890,8 +975,7 @@ fn background_task_update(tool: &str, shell: &BackgroundShell, state: &str) -> V
 }
 
 /// The `running` update of a shell Claude runs in the background now, once
-/// per shell, with its `origin` (`background` when it started there,
-/// `auto_backgrounded` when it moved there): the hub lists it as a process
+/// per shell, with its `origin`: the hub lists it as a process
 /// (`hub/processes.rs`) and keeps a chat with one alive (`hub/idle.rs`).
 /// Clients note only how a shell ended.
 fn running(tool: &str, shell: &mut BackgroundShell) -> Option<Message> {
@@ -900,8 +984,19 @@ fn running(tool: &str, shell: &mut BackgroundShell) -> Option<Message> {
     }
     shell.announced = true;
     let mut update = background_task_update(tool, shell, "running");
-    update["origin"] = json!(if shell.launched { "background" } else { "auto_backgrounded" });
+    update["origin"] = json!(origin(shell));
     Some(shell_update(shell, update))
+}
+
+/// How a shell got to the background: `background` when it started there,
+/// `user_backgrounded` when the person moved it (Ctrl-B), else
+/// `auto_backgrounded` (Claude Code moved it).
+fn origin(shell: &BackgroundShell) -> &'static str {
+    match (shell.launched, shell.asked) {
+        (true, _) => "background",
+        (false, true) => "user_backgrounded",
+        (false, false) => "auto_backgrounded",
+    }
 }
 
 /// `update` as a session update in the shell's session, with its output

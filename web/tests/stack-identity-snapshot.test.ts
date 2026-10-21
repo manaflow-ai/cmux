@@ -58,6 +58,7 @@ const user: AuthedUser = {
     { id: "team-b", displayName: null, billingPlanId: null, billingSeats: null },
   ],
   teamIds: ["team-a", "team-b"],
+  completeTeamList: true,
   userBillingPlanId: null,
   billingPlanId: "pro",
   billingSeats: 3,

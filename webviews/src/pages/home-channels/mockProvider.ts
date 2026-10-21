@@ -361,7 +361,50 @@ function rawChief(c: HomeChief): Record<string, unknown> {
     rev: c.rev,
     created_at: c.createdAt,
     avatar: c.avatar ? { sha256: c.avatar, media_type: "image/png", bytes: 0 } : null,
+    ...(c.engine ? { engine: c.engine } : {}),
+    locked: c.locked === true,
   };
+}
+
+/** The sample acpmux harnesses (`cmux.chief.backend.list`). */
+const MOCK_BACKENDS = {
+  harnesses: {
+    defaultHarness: "claude",
+    harnesses: {
+      claude: { displayName: "Claude Code" },
+      codex: { displayName: "Codex" },
+      "claude-sr2": { displayName: "Claude (SR2)" },
+      opencode: { displayName: "OpenCode" },
+      unii: { displayName: "Unii" },
+    },
+  },
+  models: {
+    harnesses: [
+      {
+        harness: "claude",
+        models: [
+          { id: "claude-opus-5-5", name: "Opus 5.5", efforts: ["low", "medium", "high", "max"] },
+          { id: "claude-sonnet-5-5", name: "Sonnet 5.5", efforts: ["low", "medium", "high"] },
+        ],
+      },
+      { harness: "codex", models: [{ id: "gpt-6-astra", name: "GPT-6 Astra", efforts: ["low", "medium", "high"] }] },
+    ],
+  },
+};
+
+/** The backend and lock a create or update names (an empty engine text clears it). */
+function engineFields(params: Record<string, unknown>, old: HomeChief | undefined): Partial<HomeChief> {
+  const out: Partial<HomeChief> = {};
+  const engine: NonNullable<HomeChief["engine"]> = {};
+  for (const key of ["harness", "model", "effort"] as const) {
+    const value = typeof params[key] === "string" ? (params[key] as string) : old?.engine?.[key];
+    if (value && !(key === "harness" && value === "default")) engine[key] = value;
+  }
+  // Cleared fields drop out; no field left is the Chief's usual.
+  out.engine = Object.keys(engine).length > 0 ? engine : undefined;
+  if (typeof params.locked === "boolean") out.locked = params.locked;
+  else if (old?.locked) out.locked = true;
+  return out;
 }
 
 export class MockHomeProvider implements PageClient {
@@ -396,6 +439,20 @@ export class MockHomeProvider implements PageClient {
   private readonly pictures = new Map<string, { mediaType: string; data: string }>();
   /** Also serve the host's `cmux.chief.profile.*` relay (a page in the app). */
   hostGrants = false;
+  /** Every committed record state, by Chief id, oldest first (`chief.profile.history`). */
+  private readonly revisions = new Map<
+    string,
+    { rev: number; at: string; actor: string; operation: string; record: HomeChief }[]
+  >();
+  /** Backends the person brought (`cmux.chief.backend.add`). */
+  private readonly brought: Record<string, { displayName: string }> = {};
+
+  private commit(record: HomeChief, operation: string, actor = ""): void {
+    this.chiefs.set(record.id, record);
+    const list = this.revisions.get(record.id) ?? [];
+    list.push({ rev: record.rev, at: new Date(BASE + list.length * MINUTE).toISOString(), actor, operation, record });
+    this.revisions.set(record.id, list);
+  }
 
   /** Adds a Chief (the host's create; the gallery's second Chief). */
   addChief(name: string, fields: Partial<HomeChief> = {}): HomeChief {
@@ -781,7 +838,9 @@ export class MockHomeProvider implements PageClient {
           instructions: String(params.instructions ?? ""),
           ...(Array.isArray(params.tools) ? { tools: params.tools as string[] } : {}),
           ...(Array.isArray(params.harnesses) ? { harnesses: params.harnesses as string[] } : {}),
+          ...engineFields(params, undefined),
         });
+        this.commit(made, "chief.profile.create");
         return { value: rawChief(made) } as R;
       }
       case "cmux.chief.profile.update": {
@@ -795,11 +854,72 @@ export class MockHomeProvider implements PageClient {
           instructions: text("instructions", old.instructions),
           tools: (params.tools as string[] | undefined) ?? old.tools,
           harnesses: (params.harnesses as string[] | undefined) ?? old.harnesses,
+          ...engineFields(params, old),
           rev: old.rev + 1,
         };
-        this.chiefs.set(changed.id, changed);
+        if (!this.revisions.has(old.id)) this.commit(old, "chief.profile.create");
+        this.commit(changed, "chief.profile.update");
         return { value: rawChief(changed) } as R;
       }
+      case "cmux.chief.profile.history": {
+        if (!this.hostGrants) throw pageError("cmux.protocol.unknown_op", op);
+        const id = String(params.chief);
+        const current = this.chief(id);
+        if (!this.revisions.has(id)) this.commit(current, "chief.profile.create");
+        const list = [...(this.revisions.get(id) ?? [])].reverse();
+        return { chief: id, revisions: list.map((r) => ({ ...r, record: rawChief(r.record) })) } as R;
+      }
+      case "cmux.chief.profile.undo": {
+        if (!this.hostGrants) throw pageError("cmux.protocol.unknown_op", op);
+        const old = this.chief(String(params.chief));
+        const list = this.revisions.get(old.id) ?? [];
+        const target =
+          typeof params.to_rev === "number" ? list.find((r) => r.rev === params.to_rev) : list[list.length - 2];
+        if (!target) throw pageError("cmux.home.not_found", "no earlier revision");
+        const changed = { ...target.record, rev: old.rev + 1 };
+        this.commit(changed, "chief.profile.undo");
+        return { value: rawChief(changed) } as R;
+      }
+      case "cmux.chief.backend.list":
+        if (!this.hostGrants) throw pageError("cmux.protocol.unknown_op", op);
+        return {
+          harnesses: {
+            ...MOCK_BACKENDS.harnesses,
+            harnesses: { ...MOCK_BACKENDS.harnesses.harnesses, ...this.brought },
+          },
+          models: MOCK_BACKENDS.models,
+        } as R;
+      case "cmux.chief.backend.add": {
+        if (!this.hostGrants) throw pageError("cmux.protocol.unknown_op", op);
+        const name = String(params.name ?? "backend");
+        const id =
+          name
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/^-|-$/g, "") || "my-backend";
+        this.brought[id] = { displayName: name };
+        return { id } as R;
+      }
+      case "cmux.chief.backend.doctor":
+        if (!this.hostGrants) throw pageError("cmux.protocol.unknown_op", op);
+        // The sample "broken" backend fails its hello turn, with the fix the doctor names.
+        return (
+          String(params.id).includes("broken")
+            ? {
+                ok: false,
+                steps: [
+                  { name: "launch", ok: true },
+                  { name: "prompt", ok: false, detail: "401 Unauthorized", fix: "Check the API key." },
+                ],
+              }
+            : {
+                ok: true,
+                steps: [
+                  { name: "launch", ok: true },
+                  { name: "prompt", ok: true },
+                ],
+              }
+        ) as R;
       case "cmux.chief.profile.delete":
         if (!this.hostGrants) throw pageError("cmux.protocol.unknown_op", op);
         this.chiefs.delete(String(params.chief));

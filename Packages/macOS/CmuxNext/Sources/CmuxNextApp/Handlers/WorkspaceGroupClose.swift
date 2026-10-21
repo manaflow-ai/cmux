@@ -7,7 +7,7 @@ import CmuxNextSidebar
 import CmuxNextWakeups
 import Foundation
 
-/// Close All Workspaces in Group (RECOVERABLE-BY-DEFAULT, Lawrence
+/// Close Workspaces in Group (RECOVERABLE-BY-DEFAULT, Lawrence
 /// 2026-10-07: closes run at once, no question of their own): the
 /// workspaces close, and a person's gesture gets "Closed the workspaces in
 /// “X”" with Undo in its window. Undo (and Cmd-Z, TOAST-UNDO-KEY) reopens
@@ -22,7 +22,7 @@ enum WorkspaceGroupClose {
     /// The open workspaces the sidebar shows in `group`, with their daemons.
     static func members(of group: WorkspaceGroupModel, _ context: AppActionContext) -> [(WorkspaceModel, DaemonService)] {
         guard let sidebar = try? context.sidebar() else { return [] }
-        let rows = sidebar.model.group(CmuxNextSidebar.GroupID(group.id.rawValue))?.workspaces ?? []
+        let rows = sidebar.model.group(sidebar.model.groupID(personal: group.id.rawValue))?.workspaces ?? []
         return rows.compactMap { context.services.machines.workspace(id: $0.id.rawValue) }
     }
 
@@ -35,7 +35,7 @@ enum WorkspaceGroupClose {
         let closing = members(of: group, context)
         let names = closing.map { $0.0.name }
         let seen = Set(DaemonClosedHistory.entries([.workspace], in: services).map(\.item.id))
-        sidebar.handle(.closeGroup(CmuxNextSidebar.GroupID(group.id.rawValue)))
+        sidebar.handle(.closeGroup(sidebar.model.groupID(personal: group.id.rawValue)))
         guard invocation.origin == .user, !names.isEmpty,
               let window = WorkspaceBulkClose.survivor(closing: closing.map(\.0.id), context) else { return }
         offerUndo(toastID, closedToast(group.name.isEmpty ? ConfirmationStrings.unnamedGroup : group.name), groups: [(group.id.rawValue, names)],

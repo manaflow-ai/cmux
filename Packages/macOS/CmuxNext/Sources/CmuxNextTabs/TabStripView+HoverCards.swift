@@ -39,5 +39,6 @@ extension TabStripView {
         setHoveredChip(nil)
         if let closeHoveredID { cells[closeHoveredID]?.isCloseHovered = false }
         closeHoveredID = nil
+        setAudioHovered(nil)
     }
 }

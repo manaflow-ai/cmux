@@ -13,10 +13,10 @@ enum AppStoreHandlers {
         services.pages.register(services.apps)
         registry.bind("appStore.show", run: { invocation in
             let app = invocation["app"]?.stringValue?.trimmingCharacters(in: .whitespaces)
-            services.apps.showStore(appID: app?.isEmpty == false ? app : nil, focus: invocation.allowsViewChange)
+            services.apps.showStore(appID: app?.isEmpty == false ? app : nil, tab: invocation["tab"]?.stringValue.flatMap(AppStoreModel.Tab.init(argument:)), focus: invocation.allowsViewChange)
         })
         registry.bind("appStore.showInstalled", run: { invocation in
-            services.apps.showStore(installed: true, focus: invocation.allowsViewChange)
+            services.apps.showStore(tab: .installed, focus: invocation.allowsViewChange)
         })
         // Hide and unhide (V9): apps-set hidden on the supervisor with the
         // invocation's origin; the supervisor decides which origins may hide.

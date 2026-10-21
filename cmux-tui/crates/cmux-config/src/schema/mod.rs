@@ -17,7 +17,7 @@ use serde_json::Value;
 pub use accepts::{Accepted, accepts, effective_value, is_hex_color};
 pub use chat_roots::chat_root_is_valid;
 pub use retired::{retired_keys, retired_reason};
-pub use url::new_tab_page_url_is_valid;
+pub use url::{is_http_origin, new_tab_page_url_is_valid};
 
 use crate::value::canonical;
 
@@ -58,6 +58,9 @@ pub enum Kind {
     Toggle,
     Choice(Vec<Choice>),
     ChoiceOrNumber(Vec<Choice>, NumberRange),
+    /// One of the choices, or an object whose only member (the key) is an
+    /// http(s) origin (Swift `choiceOrURL`, `home.server`).
+    ChoiceOrUrl(Vec<Choice>, String),
     Number(NumberRange),
     Color,
     Sound,
@@ -87,6 +90,7 @@ impl Kind {
             Kind::Toggle => "toggle",
             Kind::Choice(_) => "choice",
             Kind::ChoiceOrNumber(..) => "choice_or_number",
+            Kind::ChoiceOrUrl(..) => "choice_or_url",
             Kind::Number(_) => "number",
             Kind::Color => "color",
             Kind::Sound => "sound",
@@ -126,6 +130,9 @@ pub enum DomainKind {
     /// A custom search engine address with a `%s` or `{searchTerms}`
     /// placeholder (Swift `BrowserOmnibarSetting.isSearchTemplate`).
     SearchTemplate,
+    /// `appearance.customDensities`: a list of density objects, each with a
+    /// lowercase id and a name (Swift `CustomDensitiesSetting.accepts`).
+    CustomDensities,
 }
 
 /// One descriptor row.
@@ -161,6 +168,10 @@ pub struct Row {
 #[derive(Debug)]
 pub struct Schema {
     pub version: u64,
+    /// SHA-256 of the rows as compact JSON, lowercase hex: an opaque id a
+    /// client compares to tell it renders the schema the owner validates.
+    /// Computed here, not committed: a committed hash line changed in every
+    /// settings pull request, so no two of them merged (#21946).
     pub schema_hash: String,
     pub sections: Vec<Section>,
     pub rows: Vec<Row>,
@@ -171,7 +182,6 @@ pub struct Schema {
 #[derive(Deserialize)]
 struct Document {
     version: u64,
-    schema_hash: String,
     sections: Vec<Section>,
     rows: Vec<Value>,
 }
@@ -191,6 +201,8 @@ struct RawRow {
     #[serde(default)]
     ordered: bool,
     range: Option<NumberRange>,
+    #[serde(default)]
+    url_key: Option<String>,
     default: Option<Value>,
     default_label: Option<Text>,
     keywords: Vec<String>,
@@ -200,6 +212,13 @@ struct RawRow {
     validation: String,
     accepts: Vec<Value>,
     refuses: Vec<Value>,
+}
+
+/// SHA-256 of `rows` as compact JSON, lowercase hex.
+fn rows_hash(rows: &[Value]) -> Result<String, String> {
+    use sha2::{Digest, Sha256};
+    let bytes = serde_json::to_vec(rows).map_err(|error| error.to_string())?;
+    Ok(Sha256::digest(&bytes).iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
 impl Schema {
@@ -213,6 +232,7 @@ impl Schema {
     /// Parses an export document.
     pub fn parse(text: &str) -> Result<Schema, String> {
         let document: Document = serde_json::from_str(text).map_err(|error| error.to_string())?;
+        let schema_hash = rows_hash(&document.rows)?;
         let mut rows = Vec::with_capacity(document.rows.len());
         for raw in document.rows {
             rows.push(row(raw)?);
@@ -222,7 +242,7 @@ impl Schema {
             rows.iter().enumerate().map(|(index, row)| (row.path.clone(), index)).collect();
         Ok(Schema {
             version: document.version,
-            schema_hash: document.schema_hash,
+            schema_hash,
             sections: document.sections,
             rows,
             by_key,
@@ -253,6 +273,10 @@ fn row(raw: Value) -> Result<Row, String> {
         "toggle" => Kind::Toggle,
         "choice" => Kind::Choice(parsed.choices.clone()),
         "choice_or_number" => Kind::ChoiceOrNumber(parsed.choices.clone(), range()?),
+        "choice_or_url" => Kind::ChoiceOrUrl(
+            parsed.choices.clone(),
+            parsed.url_key.clone().ok_or_else(|| format!("{}: url_key missing", parsed.key))?,
+        ),
         "number" => Kind::Number(range()?),
         "color" => Kind::Color,
         "sound" => Kind::Sound,
@@ -281,6 +305,7 @@ fn row(raw: Value) -> Result<Row, String> {
         "domain:backdrop_selection" => Validation::Domain(DomainKind::BackdropSelection),
         "domain:chat_roots" => Validation::Domain(DomainKind::ChatRoots),
         "domain:search_template" => Validation::Domain(DomainKind::SearchTemplate),
+        "domain:custom_densities" => Validation::Domain(DomainKind::CustomDensities),
         other => return Err(format!("{}: unknown validation {other}", parsed.key)),
     };
     Ok(Row {

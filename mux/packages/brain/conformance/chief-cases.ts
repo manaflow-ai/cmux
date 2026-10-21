@@ -1872,10 +1872,10 @@ function policyCases(): PolicyCase[] {
     if (JSON.stringify(result) !== JSON.stringify(want)) throw new Error(`${name}: want ${JSON.stringify(want)} got ${JSON.stringify(result)}`);
     cases.push({ name, fn, args, result });
   };
-  add("remote.autoApprove defaults to true with no settings", "remote_auto_approve", { settings: null }, true);
-  add("remote.autoApprove defaults to true when the key is missing", "remote_auto_approve", { settings: { remote: {} } }, true);
+  add("remote.autoApprove defaults to false with no settings", "remote_auto_approve", { settings: null }, false);
+  add("remote.autoApprove defaults to false when the key is missing", "remote_auto_approve", { settings: { remote: {} } }, false);
   add("remote.autoApprove false is kept", "remote_auto_approve", { settings: { remote: { autoApprove: false } } }, false);
-  add("remote.autoApprove that is not a bool is the default", "remote_auto_approve", { settings: { remote: { autoApprove: "no" } } }, true);
+  add("remote.autoApprove that is not a bool is the default", "remote_auto_approve", { settings: { remote: { autoApprove: "no" } } }, false);
   add("a local turn runs with the configured policy", "turn_policy", { remote: false, auto_approve: false, configured: "approve-all" }, "approve-all");
   add("a remote turn with remote.autoApprove on runs with the configured policy", "turn_policy", { remote: true, auto_approve: true, configured: "approve-all" }, "approve-all");
   add("a remote turn with remote.autoApprove off asks", "turn_policy", { remote: true, auto_approve: false, configured: "approve-all" }, "ask");
@@ -1884,7 +1884,7 @@ function policyCases(): PolicyCase[] {
   add("an ask turn's children ask", "spawn_floor", { ...floor, turn_ask: true }, "ask");
   add("a live ask child keeps the floor", "spawn_floor", { ...floor, ask_child_live: true }, "ask");
   add("a live ask subagent keeps the floor", "spawn_floor", { ...floor, ask_subagent_live: true }, "ask");
-  add("remote.autoApprove on lifts the floor", "spawn_floor", { auto_approve: true, turn_ask: true, ask_child_live: true, ask_subagent_live: true }, null);
+  add("auto approval never lifts an existing ask floor", "spawn_floor", { auto_approve: true, turn_ask: true, ask_child_live: true, ask_subagent_live: true }, "ask");
 
   const sr = { kind: "claude-stdio", argv: ["/Users/me/bin/sr", "claude", "proxy"], family: "claude" };
   const acp = { kind: "acp", argv: ["/opt/homebrew/bin/claude-code-acp"], family: "claude", description: "imported from ~/.acpx" };

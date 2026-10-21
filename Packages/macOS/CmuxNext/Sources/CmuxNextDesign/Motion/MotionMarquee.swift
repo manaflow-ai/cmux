@@ -43,15 +43,15 @@ extension MotionPolicy {
     }
 }
 
-extension Motion {
+extension MotionGate {
     /// One marquee pass on `keyPath` (a `transform.translation.x`) from 0 to
     /// `-travel` and back, starting `delay` after `now` (Core Animation
     /// holds the start value until then: no timer runs in the app). `sign`
     /// is -1 for the text and +1 for a mask that must stay put on screen
     /// while the text moves under it. Nil when the marquee should not run.
-    public static func marqueeAnimation(keyPath: String, travel: CGFloat, sign: CGFloat, now: CFTimeInterval,
-                                        policy: MotionPolicy = Motion.policy) -> CAAnimation? {
-        guard let timing = policy.marquee(travel: Double(travel)) else { return nil }
+    public func marqueeAnimation(keyPath: String, travel: CGFloat, sign: CGFloat, now: CFTimeInterval,
+                                 policy: MotionPolicy? = nil) -> CAAnimation? {
+        guard let timing = (policy ?? self.policy).marquee(travel: Double(travel)) else { return nil }
         let animation = CAKeyframeAnimation(keyPath: keyPath)
         let end = sign * travel
         animation.values = [CGFloat(0), end, end, CGFloat(0)]

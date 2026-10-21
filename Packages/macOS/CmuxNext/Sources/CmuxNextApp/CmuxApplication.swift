@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextCrashReporting
 import CmuxNextWakeups
 import os
 
@@ -49,6 +50,13 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     private(set) var currentEventIsSynthetic = false
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
+    /// Set once by `AppServices`: a nil-targeted action's target instead of
+    /// the responder chain's (`found`), or nil to keep it. Paste commands
+    /// that no text input of Home takes go to its message box this way
+    /// (`PrimaryInputPasteRoute`), for menus, key equivalents and synthetic
+    /// Cmd+V alike.
+    var actionTargetOverride: ((Selector, AnyObject?) -> AnyObject?)?
+
     @objc(isHandlingSendEvent)
     func isHandlingSendEvent() -> Bool { handlingSendEvent }
 
@@ -62,29 +70,42 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         let previousSynthetic = currentEventIsSynthetic
         currentEventIsSynthetic = !SyntheticInput.isUserInput(event)
         defer { currentEventIsSynthetic = previousSynthetic }
-        inputObserver?(event)
+        BenchSpans.measure("app.inputObserver") { inputObserver?(event) }
         let previous = handlingSendEvent
         handlingSendEvent = true
         defer { handlingSendEvent = previous }
         if event.type == .keyDown {
             // Router-consumed keys never reach AppKit local event monitors.
-            (Self.accessibilityWindow(for: keyWindow ?? event.window)?.windowController as? WindowController)?.hideShortcutHintsForKeyDown()
+            (Self.accessibilityWindow(for: keyWindow ?? event.window)?.windowController as? WindowController)?.hideShortcutHintsForKeyDown(event)
         }
         if event.type == .keyDown, let keyDownInterceptor, keyDownInterceptor(event, keyWindow ?? event.window) { return }
-        super.sendEvent(event)
-        if event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown { mouseDownObserver?(event) }
+        if event.type == .leftMouseDown || event.type == .leftMouseUp {
+            BenchSpans.measure(event.type == .leftMouseDown ? "app.sendEvent.down" : "app.sendEvent.up") { super.sendEvent(event) }
+        } else {
+            super.sendEvent(event)
+        }
+        if event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown { BenchSpans.measure("app.mouseDownObserver") { mouseDownObserver?(event) } }
         // After AppKit handled the move: a browser toolbar under the pointer in a window that is
         // not key sets its cursor last (`ArrowCursorView.pointerDidMove`).
         if event.type == .mouseMoved { ArrowCursorView.pointerDidMove() }
+    }
+
+    override func target(forAction action: Selector, to target: Any?, from sender: Any?) -> Any? {
+        let found = super.target(forAction: action, to: target, from: sender)
+        guard target == nil, let actionTargetOverride else { return found }
+        return actionTargetOverride(action, found as AnyObject?) ?? found
     }
 
     /// An exception AppKit caught on the main thread. With
     /// `NSApplicationCrashOnExceptions` (`CrashOnExceptions`) AppKit traps
     /// here and the uncaught-exception handler never runs, so the record is
     /// written first; the next launch's notice and report then name it.
+    ///
+    /// With crashing on, the crash has begun here: the crash deadline then
+    /// ends the process even if a crash handler after this blocks.
     override func reportException(_ exception: NSException) {
-        UncaughtExceptionRecorder.handle(exception)
-        super.reportException(exception)
+        CrashReporter.reportException(exception, crashes: UserDefaults.standard.bool(forKey: CrashOnExceptions.key),
+                                      record: UncaughtExceptionRecorder.handle) { super.reportException(exception) }
     }
 
     // MARK: Accessibility windows

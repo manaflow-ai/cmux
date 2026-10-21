@@ -4,8 +4,9 @@
 /// Turn user-entered text into a navigable URL, the same way for every
 /// entrypoint (TUI omnibar, `browser-navigate` and `new-browser-tab`
 /// over the control socket, direct [`BrowserSurface::navigate`](super::BrowserSurface::navigate)):
-/// explicit schemes pass through, loopback hosts get `http://`, dotted
-/// hosts get `https://`, and anything else becomes a web search.
+/// explicit schemes pass through, loopback hosts and intranet addresses
+/// (`go/gday`, `devbox:8080`, `nas.local`, private IPs) get `http://`,
+/// dotted hosts get `https://`, and anything else becomes a web search.
 /// Idempotent, so layered callers may each apply it.
 pub fn normalize_url(input: &str) -> String {
     let trimmed = input.trim();
@@ -13,6 +14,10 @@ pub fn normalize_url(input: &str) -> String {
         return trimmed.to_string();
     }
     if is_loopback_address(trimmed) {
+        return format!("http://{trimmed}");
+    }
+    // Before the scheme check: `devbox:8080/api` is a host and port.
+    if is_intranet_address(trimmed) {
         return format!("http://{trimmed}");
     }
     if has_bare_scheme(trimmed) {
@@ -39,6 +44,84 @@ fn has_bare_scheme(input: &str) -> bool {
     };
     first.is_ascii_alphabetic()
         && chars.all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '+' | '-'))
+}
+
+/// A scheme-less address whose host is not globally unique, so it never
+/// has a public certificate (Chromium's `net::IsHostnameNonUnique`, the
+/// cmux-next omnibar's `BrowserURLResolver`). A single label needs a path,
+/// a trailing slash or a port: `go/gday` loads, `go` alone is a search.
+fn is_intranet_address(input: &str) -> bool {
+    if input.chars().any(char::is_whitespace) {
+        return false;
+    }
+    let authority_end = input.find(['/', '?', '#']).unwrap_or(input.len());
+    let authority = &input[..authority_end];
+    if authority.is_empty() || authority.contains('@') {
+        return false;
+    }
+    let lower = authority.to_ascii_lowercase();
+    let (host, has_port) = if let Some(rest) = lower.strip_prefix('[') {
+        let Some((host, after)) = rest.split_once(']') else {
+            return false;
+        };
+        match after.strip_prefix(':') {
+            None if after.is_empty() => (host.to_string(), false),
+            Some(port) if is_port(port) => (host.to_string(), true),
+            _ => return false,
+        }
+    } else {
+        match lower.split_once(':') {
+            None => (lower.clone(), false),
+            Some((host, port)) if is_port(port) => (host.to_string(), true),
+            Some(_) => return false,
+        }
+    };
+    if host.is_empty() || !is_non_unique_host(&host) {
+        return false;
+    }
+    let has_path = input[authority_end..].starts_with('/');
+    host.contains(['.', ':']) || has_port || has_path
+}
+
+fn is_port(text: &str) -> bool {
+    !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit()) && text.parse::<u16>().is_ok()
+}
+
+fn is_non_unique_host(host: &str) -> bool {
+    if host.contains(':') {
+        return ["fc", "fd", "fe8", "fe9", "fea", "feb"]
+            .iter()
+            .any(|prefix| host.starts_with(prefix));
+    }
+    let labels: Vec<&str> = host.split('.').collect();
+    let octets: Vec<u8> = labels.iter().filter_map(|label| label.parse::<u8>().ok()).collect();
+    if labels.len() == 4 && octets.len() == 4 {
+        return matches!(
+            (octets[0], octets[1]),
+            (10, _) | (192, 168) | (169, 254) | (172, 16..=31) | (100, 64..=127)
+        );
+    }
+    if labels.iter().any(|label| label.is_empty()) {
+        return false;
+    }
+    if labels.len() == 1 {
+        return !host.bytes().all(|b| b.is_ascii_digit())
+            && host.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
+    }
+    const SUFFIXES: [&str; 11] = [
+        "local",
+        "lan",
+        "internal",
+        "intranet",
+        "corp",
+        "home",
+        "localdomain",
+        "test",
+        "example",
+        "invalid",
+        "home.arpa",
+    ];
+    SUFFIXES.iter().any(|suffix| host == *suffix || host.ends_with(&format!(".{suffix}")))
 }
 
 fn is_loopback_address(input: &str) -> bool {

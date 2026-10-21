@@ -1,3 +1,5 @@
+import CmuxNextFocus
+
 /// What a cmux window does when a window other than itself becomes key
 /// (`FocusEffectApplier.childWindowDidBecomeKey`), and whether it takes the
 /// keys back from a key Chromium page window (`reclaimKeyFromPageWindow`).

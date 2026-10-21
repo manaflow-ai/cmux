@@ -59,6 +59,9 @@ nonisolated public struct UpdateHighlights: Codable, Equatable, Sendable {
     public var items: [Item]
     /// Changes not in ``items``.
     public var moreCount: Int
+    /// Every change after ``items``, in display order: the update-ready popover scrolls to the
+    /// whole list (2026-10-20). Nil in a record saved before this field existed.
+    public var rest: [Item]?
     public var changelog: Changelog
 
     /// Picks the first source with at least one item: the notes' What's New
@@ -77,6 +80,7 @@ nonisolated public struct UpdateHighlights: Codable, Equatable, Sendable {
         self.language = language
         items = Array(all.prefix(Self.shownItems))
         moreCount = max(0, all.count - Self.shownItems)
+        rest = Array(all.dropFirst(Self.shownItems))
     }
 
     static func pick(notes: ReleaseNotes?, appcast: UpdateChangelog?, languages: [String]) -> (Source, String, [Item]) {

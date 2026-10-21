@@ -21,11 +21,13 @@ enum WorkspaceGroupUndo {
     /// a toast when `toast`, else a step on the window's undo stack only.
     static func remove(_ invocation: ActionInvocation, _ context: AppActionContext, message: (String) -> String,
                        toast: Bool = true) throws {
-        let group = try context.group(invocation)
-        let sidebar = try context.sidebar()
-        let id = CmuxNextSidebar.GroupID(group.id.rawValue)
+        let group = try context.group(invocation), sidebar = try context.sidebar(), prior = ToastUndoStep.latest
+        let id = sidebar.model.groupID(personal: group.id.rawValue)
         let restore = SidebarGroupRestore.capture(id, in: sidebar.model.sections)
         sidebar.handle(.ungroup(id))
+        // On the sidebar document the ungroup puts its own undo step now (the daemon's inverse keeps the pin, icon and
+        // every member): the toast shares that step, and no client restore is added beside it.
+        let onDoc = SidebarDocStore.activeRecords != nil, docStep = onDoc ? ToastUndoStep.latest.flatMap { $0 === prior ? nil : $0 } : nil
         guard invocation.origin == .user, let restore, let window = context.activeWindow?.window else { return }
         let name = group.name.isEmpty ? ConfirmationStrings.unnamedGroup : group.name
         let services = context.services, groupID = group.id.rawValue
@@ -37,11 +39,11 @@ enum WorkspaceGroupUndo {
             }
         }
         guard toast else {
-            ToastUndoStep.attach(title: message(name), filling: nil, undoManager: window.undoManager, handle: nil, undo)
+            if !onDoc { ToastUndoStep.attach(title: message(name), filling: nil, undoManager: window.undoManager, handle: nil, undo) }
             return
         }
         let handle = CmuxToastCenter.shared.show(CmuxToast(id: toastID, message: message(name), action: .undo()), in: window)
-        handle.onAction = undo
+        if let docStep { docStep.share(with: handle) } else if !onDoc { handle.onAction = undo }
     }
 
     /// The title History gives a deleted group's closed-history item.

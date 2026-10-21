@@ -31,7 +31,11 @@
 #     workflow's read-only webviews-fmt job (it installs webviews' packages,
 #     which never run next to the push token); a patch reaching outside
 #     webviews/, or into its package.json or lockfile, is not applied
-#     (with --webviews-fmt-patch PATCH);
+#     (with --webviews-fmt-patch PATCH). The base autofix's job also rebuilds the Chief memory
+#     inspector page (build-optchat-inspector-web.sh, which bundles webviews
+#     sources), so the patch may also carry
+#     Native/OptChat/optchat-chief/inspector/index.html (a stale page left after
+#     #22839 broke every webviews bundle build);
 #   - cmux-tui tree inputs: reports each embed check_cmux_tui_tree_inputs.py
 #     finds missing;
 #   - the app FFI pin: reports a stale pin (Package.swift is frozen; the
@@ -170,7 +174,7 @@ fi
 
 # 1e3. The defaults snapshot, from the action and settings exports
 # (scripts/ci/defaults_guard.py). Rewriting it never passes the defaults guard:
-# a changed default still needs a call owner's approval on the pull request.
+# a changed default still needs a SHIP review receipt or a call owner's approval on the pull request.
 defaults_snapshot=schemas/defaults/cmux-next.json
 if (( unverified_exports || unverified_settings )); then
   waits=()
@@ -219,11 +223,18 @@ if (( cloud_clients )) && [[ -f "$repo/$protocol/scripts/export-rust-client.ts" 
   done <<<"$(sort -u <<<"$changed")"
 fi
 
-# 1h. Webviews formatting, from the read-only job's patch.
+# 1h. Webviews formatting and the inspector page, from the read-only job's patch.
+inspector_page=Native/OptChat/optchat-chief/inspector/index.html
 if [[ -n "$webviews_patch" && -s "$webviews_patch" ]]; then
   outside="" include=()
   while IFS=$'\t' read -r _ _ rel; do
-    if [[ "$rel" != webviews/* || "$rel" == webviews/package.json || "$rel" == webviews/bun.lock || "$rel" == */node_modules/* ]]; then
+    if [[ "$rel" == "$inspector_page" ]]; then
+      if frozen "$rel"; then
+        echo "skipped (frozen): $rel (stale; scripts/cmux-next/build-optchat-inspector-web.sh)"
+      else
+        include+=("--include=$rel")
+      fi
+    elif [[ "$rel" != webviews/* || "$rel" == webviews/package.json || "$rel" == webviews/bun.lock || "$rel" == */node_modules/* ]]; then
       outside+="$rel "
     elif frozen "$rel"; then
       echo "skipped (frozen): $rel (unformatted; vp fmt in webviews)"
@@ -235,7 +246,13 @@ if [[ -n "$webviews_patch" && -s "$webviews_patch" ]]; then
     echo "left: the webviews formatting patch reaches $outside; nothing applied (vp fmt in webviews by hand)"
   elif (( ${#include[@]} )); then
     git -C "$repo" apply "${include[@]}" "$webviews_patch"
-    for arg in "${include[@]}"; do echo "fixed: vp fmt ${arg#--include=}"; done
+    for arg in "${include[@]}"; do
+      if [[ "${arg#--include=}" == "$inspector_page" ]]; then
+        echo "fixed: rebuilt $inspector_page"
+      else
+        echo "fixed: vp fmt ${arg#--include=}"
+      fi
+    done
   fi
 fi
 

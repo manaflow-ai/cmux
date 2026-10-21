@@ -55,11 +55,10 @@
   /* One rim: the hairline in --ui-popup-shadow (ui/popupSurface.css), no border over it. */
   border: 0;
   border-radius: var(--ui-popup-radius);
-  background: var(--surface-popup);
+  /* Its fill, frost, rim and shadow are the liquid glass's (.ui-glass; popupSurface.css). */
   color: var(--ui-fg);
   font-size: var(--text-control);
   line-height: var(--text-control--line-height);
-  box-shadow: var(--ui-popup-shadow);
   outline: none;
   /* Base UI's positioner names the side the popup grows from. */
   transform-origin: var(--transform-origin);
@@ -353,10 +352,25 @@
 /* Sheets only fade, so they fade under Reduce Motion too. Tooltips fade (and rise) with the
    tooltip surface (pages/shared/desktop.css). */
 .ui-sheet {
-  transition: opacity 90ms ease-out;
+  transition: opacity var(--cmux-motion-quick) ease-out;
 }
 
 .ui-sheet[data-starting-style],
 .ui-sheet[data-ending-style] {
   opacity: 0;
+}
+
+/* Dialog buttons show the key that presses them (u2647, ui/DialogButton): a subtle keycap after
+   the title in the secondary color, as macOS menus show their keys. */
+.ui-dialog-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5em;
+}
+.ui-keyhint {
+  font: inherit;
+  font-size: var(--text-caption);
+  line-height: 1;
+  color: var(--ui-fg-2);
+  opacity: 0.9;
 }

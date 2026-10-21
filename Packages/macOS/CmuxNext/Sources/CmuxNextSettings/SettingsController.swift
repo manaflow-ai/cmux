@@ -47,10 +47,13 @@ public final class SettingsController {
     /// opacity write with Material unset names the material it gives, and an opacity reset drops
     /// only that material (`WindowBackgroundSetting.linkedEdits`). Nil reads as no blur.
     @ObservationIgnored public var ghosttyBackgroundBlur: (@MainActor () -> Int)?
+    /// Font families written lately to a font family setting (`setSetting`), newest first.
+    @ObservationIgnored public var recentFonts = RecentFonts()
     /// Device-scoped values of the managing team's policy; set with `setTeamPolicy`.
     public internal(set) var teamPolicy: TeamPolicyLayer = .none
 
     @ObservationIgnored let applier: SettingsApplier
+    @ObservationIgnored private var diagnosticToasts: SettingsDiagnosticToasts?
     @ObservationIgnored private var watcher: ConfigFileWatcher?
     @ObservationIgnored private var reloadTask: Task<Void, Never>?
     @ObservationIgnored private var reloadRequested = false
@@ -95,9 +98,15 @@ public final class SettingsController {
         self.managedWatchFiles = managedWatchFiles
     }
 
-    /// Loads the file now and starts watching it.
-    public func start() {
+    /// Loads the file now and starts watching it. `announcingDiagnostics`: the app also tells the
+    /// person about a value it ignores (`SettingsDiagnosticToasts`); tests leave it off.
+    public func start(announcingDiagnostics: Bool = false) {
         guard watcher == nil else { return }
+        if announcingDiagnostics, diagnosticToasts == nil {
+            let toasts = SettingsDiagnosticToasts(registry: applier.registry)
+            diagnosticToasts = toasts
+            toasts.follow(self)
+        }
         let watcher = ConfigFileWatcher(url: file.url) { [weak self] in
             Task { @MainActor in self?.requestReload() }
         }
@@ -188,6 +197,13 @@ public final class SettingsController {
     /// minutes) through `setSetting`.
     public func setBrowserHibernation(_ mode: BrowserHibernationSetting.Mode) async throws {
         try await setSetting(at: BrowserHibernationSetting.configPath, to: BrowserHibernationSetting(mode: mode).configValue, by: .currentRun())
+    }
+
+    /// Writes `browser.keepNeighborTabsAwake` (0...3) through `setSetting`;
+    /// the default (1) removes the key.
+    public func setKeepNeighborTabsAwake(_ radius: Int) async throws {
+        let value: JSONValue? = radius == BrowserHibernationSetting.defaultNeighborRadius ? nil : .number(Double(radius))
+        try await setSetting(at: BrowserHibernationSetting.neighborRadiusPath, to: value, by: .currentRun())
     }
 
     /// Writes `ui.animationSpeed` through `setSetting`.

@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextLayout
 import CmuxNextTabs
 import Observation
@@ -13,7 +14,7 @@ import Observation
 /// strip intents into `ScreenCommands` / `ScreenGroupCommands`.
 @MainActor
 final class ScreenBarController {
-    let model = TabStripModel(style: .chrome, showsNewTabButton: true)
+    let model = TabStripModel(style: .chrome, showsNewTabButton: true, allowsMultiSelection: false) // screen actions take one screen
     let view: TabStripView
     private unowned let content: WorkspaceContentController
     private let preview: ScreenPreviewSource
@@ -37,6 +38,7 @@ final class ScreenBarController {
         preview = ScreenPreviewSource(content: content)
         view.dragsWindowFromEmptySpace = false
         view.renamesOnDoubleClick = true
+        view.newTabToolTip = nil // the screen bar's + makes a screen, not a tab
         view.previewProvider = preview
         view.setAccessibilityLabel(ScreenStrings.barAccessibility)
         model.intentHandler = { [weak self] intent in self?.handle(intent) }
@@ -147,7 +149,7 @@ final class ScreenBarController {
             view.restoreDetachedGroup(start.groupID)
         case .toggleGroupCollapsed, .moveGroup, .addToGroup, .removeFromGroup, .group, .createGroup:
             handleGroup(intent)
-        case .moveToNewSplit, .moveToNewColumn:
+        case .moveToNewSplit, .moveToNewColumn, .reorderTabs, .toggleAudioMute:
             break
         }
     }
@@ -210,14 +212,16 @@ final class ScreenBarController {
 
     private func contextMenu(for target: TabContextTarget) -> NSMenu? {
         let registry = content.services.registry
-        switch target {
+        let menu = switch target {
         case .tab(let id, _):
-            return registry.makeContextMenu(for: .screen, target: ActionTargetRef(kind: .screen, id: id.rawValue))
+            registry.makeContextMenu(for: .screen, target: ActionTargetRef(kind: .screen, id: id.rawValue))
         case .group(let id), .savedGroup(let id):
-            return registry.makeContextMenu(for: .screenGroup, target: ActionTargetRef(kind: .screenGroup, id: id.rawValue))
+            registry.makeContextMenu(for: .screenGroup, target: ActionTargetRef(kind: .screenGroup, id: id.rawValue))
         case .emptyStrip, .newTabButton:
-            return registry.makeContextMenu(for: .screenBar)
+            registry.makeContextMenu(for: .screenBar)
         }
+        // The bar's rows highlight as the sidebar's and the tab strip's do: a wash of the theme's accent.
+        return menu.themeRows(in: content.themeScope.fullStrength)
     }
 }
 

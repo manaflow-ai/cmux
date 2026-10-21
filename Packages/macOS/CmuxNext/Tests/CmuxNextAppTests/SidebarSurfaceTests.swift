@@ -142,53 +142,70 @@ extension MainPaneGutterSuites {
             #expect(same(sidebarBackground(root), mainPaneBackground(root)))
         }
 
-        /// With `appearance.borders` none no pane outline or edge line parts the sidebar from the
-        /// main pane, so the shared surface keeps a faint tonal step there: darker than the pane,
-        /// lighter than the separate look.
-        @Test func withNoLinesTheSidebarKeepsAFaintStep() async {
+        /// With `appearance.borders` none no line parts the sidebar from the main pane, and the
+        /// shared surface still draws the pane's own color there (Lawrence 2026-10-19: "it should
+        /// just have a border on the sidebar, not a different color"; no faint tonal step).
+        @Test func withNoLinesTheSidebarStillDrawsTheMainPanesSurface() async {
             defer { load(.object([:])) }
             load(appearance(["borders": .string("none")]))
             let (window, root) = openRoot()
             defer { window.close() }
             let pane = root.themeTokens.surfaceBackground.withAlpha(1)
-            func luminance(_ color: ThemeRGB) -> Double { color.relativeLuminance }
-            await settle(root) {
-                let sidebar = luminance(sidebarBackground(root))
-                return sidebar < luminance(pane) && sidebar > luminance(separateSidebar(root))
-            }
-            #expect(luminance(sidebarBackground(root)) < luminance(pane))
-            #expect(luminance(sidebarBackground(root)) > luminance(separateSidebar(root)))
+            await settle(root) { same(sidebarBackground(root), pane) }
+            #expect(same(sidebarBackground(root), pane), "the sidebar is \(sidebarBackground(root)), the pane \(pane)")
             #expect(same(mainPaneBackground(root), pane))
         }
 
-        /// The default inside the curved main pane: panes are flush and divided by one line, with no
-        /// outline beside the sidebar, so the shared surface keeps the faint step there.
-        @Test func byDefaultFlushPanesKeepAFaintStepBesideTheSidebar() async {
+        /// The default inside the curved main pane: the sidebar is the pane's color, parted by its
+        /// hairline edge line.
+        @Test func byDefaultTheSidebarIsThePanesColorWithAnEdgeLine() async {
             load(.object([:]))
             let (window, root) = openRoot()
             defer { window.close() }
             let pane = root.themeTokens.surfaceBackground.withAlpha(1)
-            await settle(root) { sidebarBackground(root).relativeLuminance < pane.relativeLuminance }
-            #expect(sidebarBackground(root).relativeLuminance < pane.relativeLuminance)
-            #expect(sidebarBackground(root).relativeLuminance > separateSidebar(root).relativeLuminance)
+            await settle(root) { same(sidebarBackground(root), pane) }
+            #expect(same(sidebarBackground(root), pane), "the sidebar is \(sidebarBackground(root)), the pane \(pane)")
+            #expect(Metrics.sidebarBorderWidth > 0, "the sidebar shows no edge line")
             #expect(same(mainPaneBackground(root), pane))
         }
 
-        /// Cards (like dividers and none) draw no pane outline, and the sidebar's edge line is off by
-        /// default, so nothing parts the shared surface either: the faint step stays.
-        @Test func withoutPaneOutlinesTheSidebarKeepsAFaintStep() async {
+        /// Cards draw no pane outline; the shared surface still draws the pane's color beside them.
+        @Test func withoutPaneOutlinesTheSidebarStillDrawsThePanesColor() async {
             defer { load(.object([:])) }
             load(.object(["layout": .object(["paneSeparation": .string("cards")])]))
             let (window, root) = openRoot()
             defer { window.close() }
             let pane = root.themeTokens.surfaceBackground.withAlpha(1)
-            await settle(root) {
-                let sidebar = sidebarBackground(root).relativeLuminance
-                return sidebar < pane.relativeLuminance && sidebar > separateSidebar(root).relativeLuminance
-            }
-            #expect(sidebarBackground(root).relativeLuminance < pane.relativeLuminance)
-            #expect(sidebarBackground(root).relativeLuminance > separateSidebar(root).relativeLuminance)
+            await settle(root) { same(sidebarBackground(root), pane) }
+            #expect(same(sidebarBackground(root), pane), "the sidebar is \(sidebarBackground(root)), the pane \(pane)")
             #expect(same(mainPaneBackground(root), pane))
+        }
+
+        /// Every window style on one surface (all but the two shaded ones, `two-tone` and
+        /// `floating`, whose sidebar shares the shaded window chrome) draws the sidebar in the
+        /// window's own color and parts it with a hairline on its edge; `bare` keeps no lines.
+        @Test(arguments: ChromeStyle.allCases)
+        func everyWindowStyleDrawsTheSidebarOnTheWindowsColor(style: ChromeStyle) async {
+            defer { load(.object([:])) }
+            load(appearance(["chromeStyle": .string(style.rawValue)]))
+            let (window, root) = openRoot()
+            defer { window.close() }
+            let surface = root.themeTokens.surfaceBackground.withAlpha(1)
+            if style == .twoTone || style == .floating {
+                // The sidebar is the shaded chrome itself: the color of the window's titlebar band.
+                let titlebar = background(at: CGPoint(x: root.contentHost.frame.midX, y: root.bounds.maxY - 1), in: root)
+                await settle(root) { same(sidebarBackground(root), titlebar) }
+                #expect(same(sidebarBackground(root), titlebar), "\(style): the sidebar is \(sidebarBackground(root)), the titlebar \(titlebar)")
+                return
+            }
+            await settle(root) { same(sidebarBackground(root), surface) }
+            #expect(same(sidebarBackground(root), surface), "\(style): the sidebar is \(sidebarBackground(root)), the window \(surface)")
+            if style == .bare {
+                #expect(Metrics.sidebarBorderWidth == 0, "bare shows a sidebar line")
+            } else {
+                #expect(Metrics.sidebarBorderWidth > 0, "\(style): the sidebar shows no edge line")
+                #expect(Metrics.sidebarBorderWidth <= 1, "\(style): the sidebar line is \(Metrics.sidebarBorderWidth) pt, not a hairline")
+            }
         }
     }
 }

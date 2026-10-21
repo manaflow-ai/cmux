@@ -57,6 +57,8 @@ export interface CloudState {
 }
 
 export interface MachineRow extends Omit<CloudMachineView, "revision"> {
+  /** Private provider route fixed at create; absent on legacy direct machines. */
+  readonly transport?: import("../cloud-vm-api-config.ts").CloudTransport
   readonly revision: string
   readonly provider_name: string
   /** N2: a delete failed for good; the VM may still run, so the machine counts in max_active again. */
@@ -84,6 +86,8 @@ export interface MachineRow extends Omit<CloudMachineView, "revision"> {
 }
 
 export interface LedgerRow {
+  readonly capture_protocol?: 1
+  readonly transport?: import("../cloud-vm-api-config.ts").CloudTransport
   readonly key: string
   readonly op: "create" | "delete" | "pause" | "start" | "resize" | "snapshot" | "snapshot_delete"
   /** snapshot ops: the snapshot id and its recorded provider slug (the only slug ever deleted). */
@@ -130,7 +134,7 @@ const counted = (status: string) => (COUNTED.has(status) ? 1 : 0)
 export const countedRow = (row: MachineRow) => (row.delete_failed ? 1 : counted(row.status))
 
 export const publicMachine = (row: MachineRow): CloudMachineView => {
-  const { provider_name: _p, delete_failed: _f, host_id: _h, epoch: _e, bind: _b, wg_public_key: _w, daemon: _d, keyset_version: _k, vm_install: _v, vm_status: _s, creator_sso_team: _c, last_power_at: _l, from_snapshot: _fs, ...machine } = row
+  const { transport: _t, provider_name: _p, delete_failed: _f, host_id: _h, epoch: _e, bind: _b, wg_public_key: _w, daemon: _d, keyset_version: _k, vm_install: _v, vm_status: _s, creator_sso_team: _c, last_power_at: _l, from_snapshot: _fs, ...machine } = row
   return machine
 }
 
@@ -255,6 +259,7 @@ const create = (config: CloudConfig, state: CloudState, params: unknown, ctx: Re
   if (ctx.rows?.get(TABLE_MACHINE, id) || ctx.rows?.get(TABLE_TOMBSTONE, id)) return reject("idempotency.conflict", "this idempotency key was already used for another machine")
   const name = providerName(config.prefix, id)
   const machine: MachineRow = {
+    transport: from ? from.transport ?? "direct" : config.transport ?? "direct",
     id,
     team: state.team ?? p.team!,
     creator: p.user!,
@@ -278,7 +283,7 @@ const create = (config: CloudConfig, state: CloudState, params: unknown, ctx: Re
     ...(p.sso_team ? { creator_sso_team: p.sso_team } : {})
   }
   const key = ledgerKey(p.identity, ctx.idempotencyKey)
-  const ledger: LedgerRow = { key, op: "create", machine: id, provider_name: name, state: "pending", provider_id: null, attempts: 0, error: null, created_at: ctx.now, updated_at: ctx.now }
+  const ledger: LedgerRow = { transport: machine.transport, key, op: "create", machine: id, provider_name: name, state: "pending", provider_id: null, attempts: 0, error: null, created_at: ctx.now, updated_at: ctx.now }
   const s = next(state, { team: machine.team, active: state.active + 1, pending: { ...state.pending, [key]: { machine: id, due_at: ctx.now + PENDING_SAFETY_MS } } }, { machine: id, removed: false })
   return { ok: true, state: s, value: { machine: publicMachine(machine) }, writes: [upsertMachine(machine, rev), upsertLedger(ledger, rev)] }
 }
@@ -334,7 +339,7 @@ const remove = (config: CloudConfig, state: CloudState, params: unknown, ctx: Re
     pending = { ...pending, [key]: { machine: entry.machine, due_at: ctx.now } }
   }
   const key = ledgerKey(ctx.principal.identity, ctx.idempotencyKey)
-  writes.push(upsertLedger({ key, op: "delete", machine: stored.row.id, provider_name: stored.row.provider_name, state: "pending", provider_id: null, attempts: 0, error: null, created_at: ctx.now, updated_at: ctx.now }, rev))
+  writes.push(upsertLedger({ transport: stored.row.transport ?? "direct", key, op: "delete", machine: stored.row.id, provider_name: stored.row.provider_name, state: "pending", provider_id: null, attempts: 0, error: null, created_at: ctx.now, updated_at: ctx.now }, rev))
   // A new delete takes the machine out of the quota again (a failed delete's count goes with its flag).
   const { delete_failed: _failed, ...base } = stored.row
   const row: MachineRow = { ...base, status: "deleting", revision: String(rev) }
@@ -354,6 +359,13 @@ const driverResult = (state: CloudState, params: unknown, ctx: ReduceContext): R
   const rev = state.rev + 1
   const machine = machineRow(ctx.rows, l.machine)
   const pending = withoutPending(state, r.key)
+  const retainedCapture = l.transport === "vm-api" && !r.ok && (l.op === "snapshot_delete" || (l.op === "snapshot" && r.snapshot_outcome === undefined))
+  if (retainedCapture) {
+    const attempts = l.attempts + 1
+    const error = { code: r.error?.code ?? "cloud.provider.unavailable", message: r.error?.message ?? "snapshot capture is still being confirmed" }
+    return { ok: true, state: next(state, { pending: { ...state.pending, [r.key]: { machine: l.machine, due_at: ctx.now + retryDelayMs(attempts) } } }),
+      value: { applied: true, final: false }, writes: [upsertLedger({ ...l, attempts, error, updated_at: ctx.now }, stored.n)] }
+  }
   if ((l.op === "snapshot" || l.op === "snapshot_delete") && (r.ok || r.final === true || l.attempts + 1 >= MAX_ATTEMPTS)) return snapshotResult(state, stored, r, ctx)
   if ((l.op === "pause" || l.op === "start" || l.op === "resize") && (r.ok || r.final === true || l.attempts + 1 >= MAX_ATTEMPTS)) return powerResult(state, stored, machine, r, ctx)
   if (!r.ok) {

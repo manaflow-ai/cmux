@@ -9,7 +9,9 @@
 //! protocol.
 //!
 //! Every check below must pass, else nothing runs and the caller prints its
-//! own error plus [`fix_command`]:
+//! own error plus the daemon's CLI with the same arguments
+//! ([`run_with_daemon_cli`]; never a daemon stop, which ends the user's
+//! terminals):
 //! - the loop guard [`GUARD_ENV`] is not set (a re-exec'd process never
 //!   re-execs again);
 //! - the daemon is local: the socket peer has this process's uid and is the
@@ -35,7 +37,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use super::GlobalArgs;
-use super::fix_command::restart_daemon as fix_command;
+use super::fix_command::run_with_daemon_cli;
 
 /// Set on the re-exec'd process to the build id it was started for.
 pub(super) const GUARD_ENV: &str = "CMUX_CLI_REEXEC";
@@ -351,7 +353,10 @@ fn reexec_with(
                     .refused
                     .replace("{daemon}", &daemon.build_id)
                     .replace("{why}", &refusal.to_string())
-                    .replace("{fix}", &fix_command(&super::fix_command::this_cli(), &socket)),
+                    .replace(
+                        "{fix}",
+                        &run_with_daemon_cli(&daemon.cli_path, std::env::args_os().skip(1)),
+                    ),
             ));
         }
     };

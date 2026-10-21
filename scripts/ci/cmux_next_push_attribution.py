@@ -74,6 +74,13 @@ def last_green(failed: list[str], earlier: list[tuple[str, dict[str, str]]]) -> 
     return None
 
 
+def never_passed(failed: list[str], earlier: list[tuple[str, dict[str, str]]]) -> list[str]:
+    """Failed jobs with no pass in the scanned runs: red since before the range (or never
+    run on a push before), so no merge in it is the culprit, and they must not hide the
+    range of the jobs that did pass."""
+    return [name for name in failed if not any(jobs.get(name) == "success" for _, jobs in earlier)]
+
+
 def pull_requests(repo: str, base: str, head: str, branch: str) -> list[int]:
     compare = gh_api(f"repos/{repo}/compare/{base}...{head}")
     numbers: list[int] = []
@@ -137,9 +144,12 @@ def main(argv: list[str]) -> int:
         for run in runs
         if run["id"] < args.run_id and run["head_sha"] != args.sha and run.get("status") == "completed"
     ]
-    good = last_green(failed, earlier)
+    long_red = never_passed(failed, earlier)
+    if long_red:
+        report(f"{', '.join(long_red)} did not pass in the last {SCANNED_RUNS} push runs; no culprit range for it.")
+    failed = [name for name in failed if name not in long_red]
+    good = last_green(failed, earlier) if failed else None
     if good is None:
-        report(f"{', '.join(failed)} did not pass in the last {SCANNED_RUNS} push runs; no culprit range.")
         return 0
     numbers = pull_requests(args.repo, good, args.sha, args.branch)
     run_url = f"{args.server_url}/{args.repo}/actions/runs/{args.run_id}"

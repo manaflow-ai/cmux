@@ -34,13 +34,24 @@ extension DaemonService {
         let batch = daemon.supports(DaemonCapabilities.shared.batchClose)
         let reason: CloseReason? = daemon.supports(DaemonCapabilities.shared.closeReason) ? .sessionEnd : nil
         let daemon = daemon
+        let run: DaemonCommandBody = { connection in
+            if batch { _ = try await connection.closeTabs([surface], endTerminals: true, reason: reason) } else { try await connection.closeTab(surface) }
+        }
         // task-owner: one close of a cancelled creation's daemon tab; its failure shows what the daemon kept
         Task {
-            let closed: Void? = await daemon.request("close-tabs (cancelled creation)") { connection in
-                if batch { _ = try await connection.closeTabs([surface], endTerminals: true, reason: reason) } else { try await connection.closeTab(surface) }
+            switch await daemon.runReportingTimeout("close-tabs (cancelled creation)", run) {
+            case .succeeded:
+                break // the intent leaves once the records drop the tab
+            case .failed:
+                // The daemon kept it (or the link dropped): the records show what it has.
+                daemon.store.rejectIntent(transaction)
+            case .unknown:
+                // Under load the close usually still commits: never show the tab for a lost
+                // reply (tab-spam-race). A snapshot ordered after the close says; a tab still
+                // there gets its close again.
+                await daemon.store.refresh()
+                daemon.store.creations.closeTimedOut(transaction)
             }
-            // The daemon kept it (or the link dropped): the records show what it has.
-            if closed == nil { daemon.store.rejectIntent(transaction) }
         }
     }
 }

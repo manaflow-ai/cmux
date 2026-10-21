@@ -24,8 +24,11 @@
 //! that typed end instead of a generic host loss.
 //!
 //! The launch and seed (`terminal_respawn/launch.rs`) and the pre-fill
-//! (`terminal_respawn/prefill.rs`): an agent resume command or the terminal's
-//! command line is typed on the new prompt without a newline. The manual
+//! (`terminal_respawn/prefill.rs`): an agent session's resume runs at the
+//! shell's own empty prompt ("Resume Agents After Restart", on by default)
+//! unless its flags turn approvals off; a resume command a person set, or an
+//! agent resume with approvals off, is typed without Return (#22292); a
+//! command never runs again, and the marker line names it. The manual
 //! restart of a tab this path leaves dead (`terminal_respawn/manual.rs`,
 //! `restart-tab`) runs the same worker.
 
@@ -67,6 +70,10 @@ const RESPAWN_REASONS: &[&str] = &[
     // grace, or a SIGTERM reached it while orphaned (cx-3ryj): a host that
     // died without a daemon, so the next owner respawns it.
     "owner_gone",
+    // A host this owner could not adopt (an earlier build's, after an
+    // update) that died without recording its shell's end (#21088). A host
+    // whose shell ended by itself leaves an exit record and stays ended.
+    "unadoptable_host_ended",
 ];
 
 /// The owner's respawn state.
@@ -557,7 +564,11 @@ impl Mux {
         self.publish_resource_event();
         let _ = self.retry_pending_agent_hooks_for_terminal(&plan.public_id);
         self.reconcile_agent_roster_projections_for_terminal(&plan.public_id);
-        let prefill = self.respawn_prefill(&plan.terminal_id, record.as_ref());
+        let prefill = self.respawn_prefill(
+            &plan.terminal_id,
+            record.as_ref(),
+            crate::user_settings::resume_agents(),
+        );
         Ok(Some((surface, prefill)))
     }
 

@@ -24,6 +24,10 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// frame instead of "This Mac" until the handshake. nil on another machine, whose handshake
     /// names it, or before the read answers.
     public var host: String?
+    /// The newest chats a page on this Mac listed last, as JSON text (`{sessions, device}`, from
+    /// `newTab.warm`): the page lists them on its first frame instead of an empty list until its
+    /// own daemon connection lists them. nil on another machine or before any page listed chats.
+    public var warm: String?
     /// The tab the page opened from, as the location bar shows it (its URL or
     /// folder): in the field and selected, so typing replaces it.
     public var location: String?
@@ -33,7 +37,7 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     public var projects: [String]
     /// The design to show; nil is the page's default (B).
     public var layout: AgentPaneNewTabLayout?
-    /// The template (`tabs.newTabTemplate`: "default", "composer", "threads", "console",
+    /// The template (`tabs.newTabTemplate`: "cards", "default", "composer", "threads", "console",
     /// "classic" or "terminal"); nil follows `layout`. The page validates it.
     public var template: String?
     /// The agent last picked.
@@ -59,6 +63,12 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// true: the page shows the widget view under its composer (Debug Settings `newTab.widgets`,
     /// ``AgentPaneTunables/newTabWidgets``); nil shows none.
     public var widgets: Bool?
+    /// true: the page lists only its own connection's chats, not the store every page shares
+    /// (Debug Settings `newTab.privateChatLists`, ``AgentPaneTunables/newTabPrivateChatLists``).
+    public var privateChatLists: Bool?
+    /// false: Show All Chats on New Tab is off (`sidebar.showChats`): the page lists the recent
+    /// chats only, never All chats; nil lists All chats where the template does.
+    public var allChats: Bool?
 
     public init(kind: AgentPaneTabKind, hotkeys: [AgentPaneTabKind: String] = [:], cwd: String? = nil,
                 location: String? = nil, omnibar: AgentPaneOmnibar = AgentPaneOmnibar(), projects: [String] = [],
@@ -81,15 +91,30 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
         self.inputToken = nil
         // nil follows the Debug Settings toggle, read as each page context is made.
         self.widgets = (widgets ?? AgentPaneTunables.newTabWidgets.value) ? true : nil
+        self.privateChatLists = AgentPaneTunables.newTabPrivateChatLists.value ? true : nil
     }
 }
 
 extension AgentPaneNewTab {
-    /// The page with this Mac's name as its `host` when it runs on this Mac (`local`) and the
-    /// launch's read has answered, so its machine chip names the Mac on the first frame.
-    @MainActor public func namingThisMac(_ local: Bool = true) -> AgentPaneNewTab {
+    /// The newest chats a local page posted (`newTab.warm`), for the next page's ``warm``.
+    @MainActor public internal(set) static var warmed: String?
+    /// The largest `newTab.warm` the host keeps.
+    nonisolated public static let maximumWarmBytes = 512 * 1024
+
+    /// The page as it opens on this Mac (`local`): this Mac's name as its `host` once the launch's
+    /// read has answered, and the newest chats a page listed as its ``warm``, so its first frame
+    /// names the Mac and lists the chats. Every opening (Cmd-T, +, a new workspace, a split, an
+    /// adopted spare) makes its context here, so each decides from the same snapshot.
+    @MainActor public func warmedOnThisMac(_ local: Bool = true) -> AgentPaneNewTab {
         var page = self
-        if local { page.host = AgentPaneModel.localMachineDisplayName }
+        if local {
+            page.host = AgentPaneModel.localMachineDisplayName
+            page.warm = Self.warmed
+        } else {
+            // Another machine's page lists its own chats, never the ones this Mac's pages share
+            // (webviews newtab/chatStore.ts), not even before its handshake names its origin.
+            page.privateChatLists = true
+        }
         return page
     }
 }

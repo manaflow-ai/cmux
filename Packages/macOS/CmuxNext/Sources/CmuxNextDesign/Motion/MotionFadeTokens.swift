@@ -4,18 +4,33 @@ public import Foundation
 public nonisolated enum MotionFade: String, Sendable, CaseIterable {
     /// Hover and pressed fills easing in, and hover-revealed buttons.
     case hover
+    /// A group header's hover buttons (+ and more) fading in and out with the
+    /// pointer (Lawrence 2026-10-19, u2397): opacity only, ease-out. Instant
+    /// under Reduce Motion, as both hover tokens are.
+    case hoverReveal
     /// Hover and pressed fills clearing (`ChromeHover.fade(to:)`). 0, so
     /// instant, by default, as in Edge: a fast sweep down a list leaves no
     /// trail. Under Reduce Motion both hover tokens are instant.
     case hoverOut
-    /// Focus ring and inactive-pane dim.
+    /// Focus ring.
     case focus
+    /// The veil over an unfocused pane easing in and out when focus moves (Leo 2026-10-21: a short
+    /// ease, not a jump; `MotionScale.micro` since Leo 2026-10-20's shorter scale).
+    case paneDim
+    /// The focus ring shown at once on a pane focus moved to without a click, fading out
+    /// (`focus.flashOnMove`, a Debug toggle). Instant, so nothing shows, with no animation.
+    case focusFlash
     /// A view or panel fades in.
     case fadeIn
     /// A view, panel or window fades out. Faster than `fadeIn`.
     case fadeOut
-    /// Content swap in place (hover card image, reduced-motion replacement).
+    /// Content swap in place (hover card image, reduced-motion replacement). Also the Reduce
+    /// Motion ceiling of every fade (`MotionPolicy.duration`): `MotionScale.quick`.
     case crossfade
+    /// A wash over a whole window easing in and out: the inactive-window
+    /// tint that darkens the window under the palette (Leo 2026-10-20: shown
+    /// in one frame it was too jarring). Reduce Motion caps it at `crossfade`.
+    case scrim
     /// Drag lift shadow.
     case lift
     /// A room, workspace or terminal theme switch recoloring in place.
@@ -30,7 +45,8 @@ public nonisolated enum MotionFade: String, Sendable, CaseIterable {
     /// An agent cursor fades out once its agent goes idle (agent-cursor.md).
     case cursorHide
     /// A hibernated tab's favicon shrinking into its dotted ring, and growing
-    /// back when the tab wakes (Chromium `TabIcon` favicon size animation, 250 ms).
+    /// back when the tab wakes (Chromium `TabIcon` favicon size animation,
+    /// 250 ms; here the motion scale's ceiling, 240 ms).
     case hibernateIcon
     /// A hibernated tab's dotted ring fading in (Chromium `TabIcon` discard
     /// animation, 1 s). Reduce Motion caps it at one crossfade.
@@ -38,7 +54,7 @@ public nonisolated enum MotionFade: String, Sendable, CaseIterable {
 
     /// Seconds at `MotionSpeed.fast` (`MotionTunables`; overridable in
     /// Debug Settings).
-    public var baseDuration: TimeInterval { MotionTunables.fades[self]?.value ?? 0.1 }
+    public var baseDuration: TimeInterval { MotionTunables.fades[self]?.value ?? MotionScale.quick }
 }
 
 /// Repeating indicators. These show state, so speed does not scale them;
@@ -50,6 +66,12 @@ public nonisolated enum MotionLoop: String, Sendable, CaseIterable {
     case pulse
     /// Pane attention flash (two blinks).
     case flash
+    /// Unmeasured progress: a segment crosses its track once.
+    case sweep
+    /// Agent work's dot, one breath (bright, dim and back; `StatusWorkingLook.breathe`).
+    case breath
+    /// Edit mode's wiggle (the sidebar's items, as an iPhone's home screen): one turn either way and back.
+    case wiggle
 
     /// Seconds per period, never under `minimumPeriod` (a Debug Settings
     /// override included).
@@ -68,6 +90,10 @@ public nonisolated enum MotionLoop: String, Sendable, CaseIterable {
         case .spinner: 0.1
         case .pulse: Self.shortestFlashCycle
         case .flash: Self.shortestFlashCycle * 2
+        case .sweep: Self.shortestFlashCycle
+        // A breath is calm: never quicker than one a second.
+        case .breath: Self.shortestFlashCycle * 2
+        case .wiggle: 0.1
         }
     }
 }

@@ -41,7 +41,9 @@ extension BrowserDeviceMenu {
                let ratio = (screen["device-pixel-ratio"] as? NSNumber)?.doubleValue {
                 size = (width, height, ratio)
             }
-            return Device(title: title, category: device["category"] as? String ?? "mobile",
+            return Device(title: title, category: device["category"] as? String ?? "mobile", group: device["group"] as? String,
+                          brand: device["brand"] as? String ?? "Other", released: device["released"] as? String ?? "",
+                          rumored: device["rumored"] as? Bool == true,
                           shownByDefault: (device["show-by-default"] as? Bool) != false,
                           isCustom: device["origin"] as? String == "custom", size: size)
         }

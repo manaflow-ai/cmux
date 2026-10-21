@@ -73,6 +73,7 @@ fn receipted_workspace_create_keeps_legacy_workspace_cas_consistent() {
             None,
             &WorkspaceMutation::daemon("bootstrap-create", "chrome-gui").unwrap(),
             Default::default(),
+            true,
         )
         .unwrap();
     assert!(!created.replayed);
@@ -377,7 +378,7 @@ fn identify_advertises_additive_capabilities() {
     let identity = handle_command(
         &mux,
         mux.local_test_client(0),
-        Command::Identify { machine_metadata: false },
+        Command::Identify { machine_metadata: false, revisions: false },
         &test_writer(),
     )
     .unwrap();

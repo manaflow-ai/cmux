@@ -17,6 +17,7 @@ import {
   type OmnibarRow,
 } from "./omnibar";
 import {
+  activityTime,
   folded,
   homePath,
   listed,
@@ -27,6 +28,7 @@ import {
 } from "./sessionList";
 import { type StringKey, type Translate, translate, useT } from "./i18n";
 import { parseNewTabTemplate, type NewTabTemplate } from "./newtab/templates";
+import { seedWarmNewTab } from "./newtab/warmSnapshot";
 
 /// The three things a new tab can become (#16620). Order is the switch's order and Tab's cycle.
 export const TAB_KINDS = ["terminal", "browser", "agent"] as const;
@@ -97,6 +99,12 @@ export type NewTabHost = {
   history?: boolean;
   /// The widget view under the composer (Debug Settings `newTab.widgets`, newtab/WidgetCards.tsx).
   widgets?: boolean;
+  /// The page lists only its own connection's chats, not the store every page shares (Debug
+  /// Settings `newTab.privateChatLists`, newtab/chatStore.ts).
+  privateChatLists?: boolean;
+  /// false: Show All Chats on New Tab is off (`sidebar.showChats`): the page lists the recent chats
+  /// only, never All chats. Unset lists All chats where the template does.
+  allChats?: false;
 };
 
 /// Reads `newTab` from the handshake: `true`, or `{hotkeys, kind, cwd, host}`. Nil for a plain chat.
@@ -106,6 +114,8 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
   const object = (typeof value === "object" ? value : {}) as Record<string, unknown>;
   // The app's copy of the last picks: this page's own storage did not outlive the launch.
   seedLastPicks(object.lastPicks);
+  // The chats a page of this Mac listed last: the Chats list's first frame (newtab/warmSnapshot.ts).
+  seedWarmNewTab(object.warm);
   const keys = (typeof object.hotkeys === "object" && object.hotkeys !== null ? object.hotkeys : {}) as Record<
     string,
     unknown
@@ -141,6 +151,8 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     ...(object.focusesField === false ? { focusesField: false } : {}),
     ...(object.history === true ? { history: true } : {}),
     ...(object.widgets === true ? { widgets: true } : {}),
+    ...(object.privateChatLists === true ? { privateChatLists: true } : {}),
+    ...(object.allChats === false ? { allChats: false as const } : {}),
   };
 }
 
@@ -186,7 +198,9 @@ export function recentSessions(
   // cannot make the rows trade places.
   const ordered = all.sort(
     (a, b) =>
-      urgency(a) - urgency(b) || (b.updatedAt ?? 0) - (a.updatedAt ?? 0) || a.sessionId.localeCompare(b.sessionId),
+      urgency(a) - urgency(b) ||
+      (activityTime(b) ?? 0) - (activityTime(a) ?? 0) ||
+      a.sessionId.localeCompare(b.sessionId),
   );
   if (!fold) return ordered.slice(0, count);
   // A child folds only under a parent this list shows; under one past the cut it lists on its own.

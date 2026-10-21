@@ -90,8 +90,9 @@ profile only with its `profile` tool on its own bound connection.
 shutdown` (`shutdown`), `/model`, `/effort` and Ctrl+C in the chat (a note,
 no call), `cmux raw operation` or `cmux raw command` naming a `chief.*` write
 (`details.refused` the operation), and the app actions `home.newChief`,
-`home.archiveChief` and `home.stopChief` (by id or CLI name; `details.refused`
-the name given) are refused the same way, before any connection.
+`home.archiveChief`, `home.stopChief` and `home.stopAllAgents` (by id or CLI
+name; `details.refused` the name given) are refused the same way, before any
+connection.
 `cmux chief engine` with no change and the `chief.engine.get`,
 `chief.profile.list`, `chief.profile.get` and `chief.profile.avatar.get`
 reads stay open. An action alias other than the id or CLI name is not
@@ -205,8 +206,8 @@ cmux workspace <selector> show|focus|close
 cmux workspace <selector> rename --name <value>
 cmux workspace <selector> update [--title <value>|--clear-title] [--color <value>|--clear-color] [--icon <value>|--clear-icon]
 cmux workspace <selector> move --index <n>
-cmux workspace <selector> run [--on-exit <close|keep>] [--cwd <path>] [--name <value>] -- <argv...>
-cmux workspace <selector> run [--on-exit <close|keep>] shell <script>
+cmux workspace <selector> run [--on-exit <close|keep|shell>] [--cwd <path>] [--name <value>] -- <argv...>
+cmux workspace <selector> run [--on-exit <close|keep|shell>] shell <script>
 cmux workspace <selector> layout apply --layout <json>
 cmux workspace <selector> screen ...
 cmux workspace [<selector>] status list
@@ -256,7 +257,7 @@ two records share is `selector.ambiguous` with their ids.
 
 ```text
 cmux screen list
-cmux screen create [--name <value>] [--correlation-key <value>]
+cmux screen create [--name <value>] [--correlation-key <value>] [--shell <script> | -- <argv...>]
 cmux screen <selector> show|focus|close
 cmux screen <selector> rename --name <value>
 cmux screen <selector> pin|unpin
@@ -280,7 +281,7 @@ Pinned screens sort first and leave their group. Group colors are `grey`,
 
 ```text
 cmux pane list
-cmux pane create [--cwd <path>]
+cmux pane create [--cwd <path>] [--shell <script> | -- <argv...>]
 cmux pane <selector> show|focus|close
 cmux pane <selector> rename --name <value>
 cmux pane <selector> split [--right|--down] [--ratio <value>] [--viewport-width <fraction>] [--cwd <path>]
@@ -290,7 +291,7 @@ cmux pane <selector> swap --other-workspace <sel> --other-screen <sel> --other-p
 cmux pane <selector> zoom [--enabled <bool>]
 cmux pane <selector> split ratio set --split <split_id> --ratio <value>
 cmux pane <selector> viewport width set --columns <value>
-cmux pane <selector> run [--on-exit <close|keep>] [--cwd <path>] [--name <value>] -- <argv...>
+cmux pane <selector> run [--on-exit <close|keep|shell>] [--cwd <path>] [--name <value>] -- <argv...>
 cmux pane <selector> tab ...
 ```
 
@@ -303,7 +304,7 @@ cmux tab list
 cmux tab <selector> show|focus|close
 cmux tab <selector> rename --name <value>
 cmux tab <selector> move --workspace <sel> --screen <sel> --pane <sel> --index <n>
-cmux tab create terminal [--cwd <path>] [--name <value>] [--workspace <sel>] [--screen <sel>] [--pane <sel>]
+cmux tab create terminal [--cwd <path>] [--name <value>] [--workspace <sel>] [--screen <sel>] [--pane <sel>] [--shell <script> | -- <argv...>]
 cmux tab create browser --url <value> [--name <value>] [--workspace <sel>] [--screen <sel>] [--pane <sel>]
 cmux tab <selector> terminal|browser ...
 cmux tab <selector> pin|unpin
@@ -543,6 +544,12 @@ Every action in the app's registry is also a verb under its CLI name:
 `--<argument> <value>` per the action's schema; `--target`, `--wait` and
 `--interactive` work as in `action run`. `cmux action list` lists the names and
 `cmux action describe <id>` shows the arguments and targets.
+
+Move to New Window is `cmux <noun> move-to-new-window --target <id>` for
+`tab`, `tab-group`, `pane`, `screen`, `screen-group`, `workspace` and
+`workspace-group`; `cmux <noun> move-to-window --new --target <id>` is the
+same command. The new window opens beside the old one and takes the focus;
+terminals keep running and pages keep their state.
 
 ## `cmux coderouter`
 

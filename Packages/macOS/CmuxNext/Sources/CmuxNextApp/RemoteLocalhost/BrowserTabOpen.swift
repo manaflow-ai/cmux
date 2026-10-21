@@ -11,7 +11,7 @@ import Foundation
 /// that machine's localhost and never this Mac's.
 ///
 /// Args: `{url, machineStore: {machine, machineName, proxy: {kind: "http",
-/// host: "127.0.0.1", port}}, engine: "cef"}` (the proxy is the answer of
+/// host: "127.0.0.1", port, username, password}}, incarnation, generation, engine: "cef"}` (the proxy is the answer of
 /// `cloud.browser.open`). Every refusal is typed; nothing falls back to
 /// WebKit or to an unproxied tab.
 enum BrowserTabOpen {
@@ -53,7 +53,12 @@ enum BrowserTabOpen {
 
     struct Request: Equatable {
         var url: URL
-        var configuration: BrowserTabConfiguration
+        var machine: String
+        var machineName: String
+        var incarnation: UInt64
+        var generation: UInt64
+        var proxyPort: UInt16
+        var credential: ProxyCredential
     }
 
     static func machineKey(machine: String) -> String {
@@ -69,15 +74,24 @@ enum BrowserTabOpen {
               LoopbackHost(url: url)?.isLoopback == true else { throw .invalidURL }
         guard let store = args["machineStore"], let machine = store["machine"]?.stringValue, !machine.isEmpty,
               let proxy = store["proxy"], proxy["kind"]?.stringValue == "http", proxy["host"]?.stringValue == "127.0.0.1",
-              case .number(let number)? = proxy["port"], number.rounded() == number, number >= 1, number <= 65535
+              case .number(let number)? = proxy["port"], number.rounded() == number, number >= 1, number <= 65535,
+              let username = proxy["username"]?.stringValue, !username.isEmpty, username.utf8.count <= 128,
+              let password = proxy["password"]?.stringValue, password.utf8.count >= 32, password.utf8.count <= 256,
+              case .number(let incarnation)? = args["incarnation"], incarnation.rounded() == incarnation,
+              incarnation >= 1, incarnation <= 9_007_199_254_740_991,
+              case .number(let generation)? = args["generation"], generation.rounded() == generation,
+              generation >= 1, generation <= 9_007_199_254_740_991
         else { throw .proxyInvalid }
         let name = store["machineName"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } ?? machine
-        let configuration = BrowserTabConfiguration(
-            initialURL: url,
-            machineStore: BrowserMachineStore(machineKey: machineKey(machine: machine), machineName: name, proxyPort: UInt16(number)),
-            navigationGuard: .loopbackOnly
+        return Request(
+            url: url,
+            machine: machine,
+            machineName: name,
+            incarnation: UInt64(incarnation),
+            generation: UInt64(generation),
+            proxyPort: UInt16(number),
+            credential: ProxyCredential(username: username, password: password)
         )
-        return Request(url: url, configuration: configuration)
     }
 }
 
@@ -101,13 +115,31 @@ extension BrowserTabOpen {
     static func open(_ request: Request, services: AppServices) async throws(Refusal) {
         guard case let browserTabs = services.cache.browserTabs, browserTabs.cefUnavailable() == nil else { throw .cefUnavailable }
         guard let pane = services.windows.active?.focusedPane else { throw .noWindow }
+        let store: BrowserMachineStore
+        do {
+            store = try await services.remoteLocalhost.cloudBrowserStore(
+                machineKey: machineKey(machine: request.machine),
+                machineName: request.machineName,
+                incarnation: request.incarnation,
+                generation: request.generation,
+                proxyPort: request.proxyPort,
+                proxyUsername: request.credential.username,
+                proxyPassword: request.credential.password
+            )
+        } catch {
+            throw .proxyInvalid
+        }
+        let configuration = BrowserTabConfiguration(
+            initialURL: request.url,
+            machineStore: store,
+            navigationGuard: .loopbackOnly
+        )
         let page: any BrowserTab
         do {
-            page = try await services.cache.makeCEFTab(request.configuration)
+            page = try await services.cache.makeCEFTab(configuration)
         } catch {
             throw .cefUnavailable
         }
-        guard let store = request.configuration.machineStore else { page.close(); throw .proxyInvalid }
         // The daemon tab adopts the page (TabContentCache.install records
         // its tab id). The record starts blank: a page made from the record
         // before the adoption lands must not load the URL unproxied.

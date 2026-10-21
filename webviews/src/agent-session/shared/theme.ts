@@ -13,6 +13,7 @@ const cssVariables: Record<keyof AgentSessionTheme, string | null> = {
   softText: "--agent-soft",
   accent: "--agent-accent",
   accentSoft: "--agent-accent-soft",
+  litGlyph: "--agent-lit-glyph",
   accentText: "--agent-accent-text",
   onAccent: "--agent-on-accent",
   danger: "--agent-danger",
@@ -25,9 +26,12 @@ const cssVariables: Record<keyof AgentSessionTheme, string | null> = {
   borders: null,
   chatWidth: null,
   codexToolRuns: null,
+  liveLineBelow: null,
   turnActionsPlacement: null,
   motion: null,
   statusIndicators: null,
+  workingLook: null,
+  subagentTray: null,
 };
 
 const motionVariables = {
@@ -55,6 +59,9 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
   // Static status indicators (or Reduce Motion): the stylesheets stop their loops under it.
   if (theme.statusIndicators) root.dataset.statusIndicators = theme.statusIndicators;
   else delete root.dataset.statusIndicators;
+  // How agent work shows on running rows (conversation.css WORKING-LOOK).
+  if (theme.workingLook) root.dataset.workingLook = theme.workingLook;
+  else delete root.dataset.workingLook;
   for (const [key, variable] of Object.entries(cssVariables) as Array<[keyof AgentSessionTheme, string | null]>) {
     if (!variable) {
       continue;
@@ -72,6 +79,15 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
     if (typeof seconds === "number" && Number.isFinite(seconds) && seconds >= 0) {
       root.style.setProperty(variable, `${Math.round(seconds * 1000)}ms`);
     } else root.style.removeProperty(variable);
+  }
+  // `ui.animationSpeed: off` reaches the page as an all-zero motion policy. Mark it on the root so
+  // CSS animations and transitions that represent loops or third-party surfaces stop as well as
+  // tokenized fades. Reduce Motion keeps its short crossfade values and therefore does not trip this.
+  const motionValues = theme.motion ? Object.values(theme.motion) : [];
+  if (motionValues.length > 0 && motionValues.every((value) => value === 0)) root.dataset.agentMotion = "off";
+  else delete root.dataset.agentMotion;
+  if (root.dataset.agentMotion === "off") {
+    for (const animation of document.getAnimations?.() ?? []) animation.cancel();
   }
   // `--agent-ansi-0` … `--agent-ansi-15`; a theme without a palette clears them.
   for (let index = 0; index < 16; index += 1) {

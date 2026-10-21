@@ -1,0 +1,15 @@
+id: no-system-dialog
+language: swift
+severity: error
+message: "system dialog cannot show its keys: use CmuxDialogSpec / CmuxDialogActionButton (u2647), or `dialog-keys-exempt: <reason>`"
+note: scripts/cmux-next/check-dialog-key-hints.py
+rule:
+  any:
+    - pattern: NSAlert($$$ARGS)
+    - all:
+        - kind: navigation_suffix
+        - regex: '^\.(alert|confirmationDialog)$'
+        - inside:
+            kind: navigation_expression
+            inside:
+              kind: call_expression

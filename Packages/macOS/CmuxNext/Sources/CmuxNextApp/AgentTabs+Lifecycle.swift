@@ -36,17 +36,20 @@ extension AgentTabStore {
                 : localHost == nil ? RefusalStrings.agentTabCreateFailed : RefusalStrings.agentTabsUnsupported
             throw AgentTabRefusal(message: reason)
         }
-        // A Chief subagent's tab names this app's Chief home (`chief:<home id>`); no other host.
         let record: AgentSessionRef
-        if let host, host != chiefHost {
+        if let refusal = Self.hostRefusal(host, localHost: localHost, chiefHost: chiefHost, daemonIsLocal: daemon.isLocal) {
             if let spare, recycle?(spare) != true { retirer.retire(spare) }
-            throw AgentTabRefusal(message: RefusalStrings.agentTabCreateFailed)
+            throw AgentTabRefusal(message: refusal)
         }
+        // A chat a chat of that machine started there (its daemon listed it, `agent-session-children`):
+        // that machine's own chat, filed under its store, which checks it against its own list.
+        let remoteChild = !daemon.isLocal && host == nil && adopt == nil
+            && session.map { RemoteAgentSessionLinks.shared.parents[$0] != nil } == true
         // A session never leaves its machine (cx-k21v): a pane of another machine never gets a
         // chat of this Mac (its session, an outside chat it resumes, a past chat of this Mac's list;
         // the New Tab page's open-here included). The store binds a `registry:` tab's session only
         // through that machine's agent-session-start (cmux-tui conversation_tabs_wire.rs).
-        if !daemon.isLocal, session != nil || adopt != nil || seed?.namesLocalChat == true {
+        if !daemon.isLocal, !remoteChild, session != nil || adopt != nil || seed?.namesLocalChat == true {
             if let spare, recycle?(spare) != true { retirer.retire(spare) }
             throw AgentTabRefusal(message: RefusalStrings.agentTabMachineMismatch)
         }
@@ -65,9 +68,9 @@ extension AgentTabStore {
             // chat starts on that machine at the first send (``RemoteAcpmuxWire``). A prewarmed
             // spare is connected to this Mac's acpmux, so it is never adopted here.
             if let spare, recycle?(spare) != true { retirer.retire(spare) }
-            seed = seed ?? AgentPaneSeedSource(AgentPaneSeed(cwd: newTab?.page.cwd))
+            seed = remoteChild ? nil : (seed ?? AgentPaneSeedSource(AgentPaneSeed(cwd: newTab?.page.cwd)))
             spare = nil
-            record = AgentSessionRef(host: registry, hostName: remoteMachineName(daemon), session: nil, harness: nil)
+            record = AgentSessionRef(host: registry, hostName: remoteMachineName(daemon), session: remoteChild ? session : nil, harness: nil)
         } else {
             record = AgentSessionRef(host: host ?? localHost, hostName: localHostName, session: session, harness: adopt?.harness)
         }
@@ -117,6 +120,17 @@ extension AgentTabStore {
         return pending
     }
 
+    /// Why a tab cannot open on the session host `host`, nil when it can: none, this Mac's own
+    /// host, or this app's Chief home (`chief:<home id>`, a Chief subagent's tab). Another
+    /// machine's session never opens in a tab of this Mac (cx-k21v), and the refusal says so
+    /// (`app_agent_open` with `host: "cmux16"` said only "see the app log", 2026-10-20). This
+    /// Mac's host never opens in a pane of another machine (`daemonIsLocal` false) either.
+    static func hostRefusal(_ host: String?, localHost: String?, chiefHost: String?, daemonIsLocal: Bool) -> String? {
+        guard let host, host != chiefHost else { return nil }
+        if host == localHost { return daemonIsLocal ? nil : RefusalStrings.agentTabMachineMismatch }
+        return RefusalStrings.agentTabRunsOnHost(host)
+    }
+
     /// ``open(in:of:session:seed:newTab:spare:linked:adopt:idempotencyKey:)`` in `pane`: the tab
     /// shows and is selected now (unless `select` is false); the store's tab keeps the selection
     /// when it replaces it, then `then` gets its id. A refusal is reported through the registry.
@@ -125,8 +139,8 @@ extension AgentTabStore {
     @discardableResult
     func openTab(in pane: PaneController, session: String? = nil, seed: AgentPaneSeedSource? = nil,
                  newTab: (page: AgentPaneNewTab, handler: NewTabPageHandler)? = nil, spare: AgentPaneView? = nil,
-                 linked: Bool = false, select: Bool = true, hidden: Bool = false, split: SplitDirection? = nil,
-                 then: (@MainActor (String) -> Void)? = nil) -> Bool {
+                 linked: Bool = false, select: Bool = true, hidden: Bool = false, split: SplitDirection? = nil, focuses: Bool = true,
+                 then: (@MainActor (String) -> Void)? = nil, failed: (@MainActor () -> Void)? = nil) -> Bool {
         let daemon = pane.daemon
         let pending: AgentTabPending
         do {
@@ -136,8 +150,9 @@ extension AgentTabStore {
             pane.services.registry.refuse((error as? AgentTabRefusal)?.message ?? RefusalStrings.agentTabCreateFailed)
             return false
         }
-        // A split's tab takes focus in its provisional pane now, then in the store's (as a terminal split does).
-        let content = split == nil ? nil : pane.workspace, intent = content?.beginFocusIntent()
+        // A split's tab takes focus in its provisional pane now, then in the store's (as a terminal split does),
+        // unless the caller keeps focus where it is (`focuses` false: a tab dropped on its own pane's edge).
+        let content = split == nil || !focuses ? nil : pane.workspace, intent = content?.beginFocusIntent()
         content?.focus.expect(.tab(pending.key), generation: intent)
         // The selection follows the provisional tab to the created one (`moveSelection`).
         if select { pane.selectWhenReported(surface: pending.surface) }
@@ -160,6 +175,7 @@ extension AgentTabStore {
             } catch {
                 // A chat bound for a dock that never came: the pane stops waiting for it (cx-ihyx2).
                 if hidden { pane.dockFinished(pending.key) }
+                failed?()
                 guard !(error is CancellationError) else { return nil } // the person closed it first
                 daemon.logger.error("new-conversation-tab (agent) failed: \(String(describing: error), privacy: .public)")
                 return "\(RefusalStrings.agentTabCreateFailed)"

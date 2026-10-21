@@ -98,6 +98,8 @@ pub(super) struct AttachedSurface {
     pub(super) lease_by_stream: BTreeMap<u64, String>,
     pub(super) view_sizes: HashMap<String, Option<(u16, u16)>>,
     pub(super) geometry_lease: Option<String>,
+    /// Leases of `terminal.attach read_only` views: they watch and never size.
+    pub(super) read_only_leases: HashSet<String>,
 }
 
 pub(super) struct DetachedSurface {
@@ -669,6 +671,14 @@ impl ClientRegistry {
             record.writer.negotiate_conversation_tabs(record.capabilities.iter());
         }
         Ok((record.name.clone(), record.kind.clone()))
+    }
+
+    /// The client's declared API revision (server/api_revision_wire.rs).
+    pub(super) fn set_api_revision(&self, client: u64, revision: u32) -> anyhow::Result<()> {
+        let state = self.state.lock().unwrap();
+        let record =
+            state.clients.get(&client).ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
+        record.writer.api_revision.declare(revision)
     }
 
     /// Merge identity fields: absent fields keep their previous value.

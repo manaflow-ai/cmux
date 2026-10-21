@@ -1,5 +1,6 @@
 import React, { useRef, useState } from "react";
 import { ContextMenu } from "../../../ui/ContextMenu";
+import { pressToOpen } from "../../../ui/pressToOpen";
 import { useT } from "../i18n";
 import { AgentMark } from "../NewTabPage";
 import { useListMotion } from "./listMotion";
@@ -47,7 +48,7 @@ export function ChatCards({
       data-state={card.state}
       data-child={child ? "" : undefined}
       aria-label={nt("card.open", { title: card.title })}
-      onClick={() => onOpen(card.sessionId)}
+      {...pressToOpen(() => onOpen(card.sessionId))}
     >
       <span className="nt-card-meta">
         <AgentMark harness={card.harness} />

@@ -132,6 +132,14 @@ final class AppResourceSource: ResourceSampleSource {
                 .filter { seen.insert($0.id).inserted }
                 .map { ($0, daemon) }
             resolved.includesAppShare = true
+        case .everything:
+            var seen = Set<String>()
+            entries = services.machines.daemons.flatMap { daemon in
+                daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
+                    .filter { seen.insert($0.id).inserted }
+                    .map { ($0, daemon) }
+            }
+            resolved.includesAppShare = true
         }
         var daemonIndex: [ObjectIdentifier: Int] = [:]
         for (tab, daemon) in entries {

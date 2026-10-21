@@ -23,6 +23,13 @@ allocator). Below macOS 26 the binding now runs inside a task started with the
 runtime's `Task.startOnMainActor` (Swift 5.9, macOS 14). The VM smoke step
 `newtab_burst` reproduces the crash on 15 before the fix.
 
+That task is used only from macOS 15.4 (2026-10-19). On macOS 14 a task started with
+`startOnMainActor` loses its current-task state when its body spins a nested run loop that
+runs other main-actor jobs, and the app aborted in `swift_task_dealloc` ("freed pointer was
+not the last allocation") on New Incognito Window, then Close Window. Below 15.4 no marker is
+pushed, so the plain binding is safe there. Repro: `scripts/fuzz/macos-matrix/vm.sh --majors 14
+--replay scripts/fuzz/macos-matrix/repros/incognito-close-14.jsonl BUILD`.
+
 ## Recommendation
 
 **Floor: macOS 14 Sonoma.** It is the floor of classic cmux, so the move to

@@ -2031,7 +2031,9 @@ fn emit_hook_command(quoted_binary: &str, provider: &str, event: &str) -> String
 }
 
 /// Codex's shared app-server may run hooks without the launching terminal's
-/// environment. Carry that route in the command, using the embedded helper
+/// environment. Carry that route in the command (`CMUX_TUI_HOOK_ROUTE=launch`
+/// marks it as this launch's own, which the helper still trusts below the
+/// daemon), using the embedded helper
 /// so hosts deployed with only the cmux-tui binary work too. Like
 /// `hook_command`, an event that delivers messages lets the helper print the
 /// reply itself and echoes `{}` only when the helper fails.
@@ -2044,7 +2046,7 @@ fn codex_contextual_hook_command(
 ) -> String {
     let reply = if delivers_messages("codex", event) { "||echo {}" } else { "||:;echo {}" };
     format!(
-        "CMUX_TUI_SOCKET={} CMUX_TUI_TERMINAL_ID={} {} {HOOK_MODE_ARG} codex {} 2>/dev/null{reply};#{COMMAND_MARKER}",
+        "CMUX_TUI_HOOK_ROUTE=launch CMUX_TUI_SOCKET={} CMUX_TUI_TERMINAL_ID={} {} {HOOK_MODE_ARG} codex {} 2>/dev/null{reply};#{COMMAND_MARKER}",
         shell_quote(&socket.to_string_lossy()),
         shell_quote(terminal),
         shell_quote(&launcher.to_string_lossy()),
@@ -3701,6 +3703,27 @@ mod tests {
         );
         assert!(state.contains_key(&canonical_key), "{text}");
         assert!(!state.keys().any(|key| key.starts_with(&format!("{}", link.display()))), "{text}");
+    }
+
+    /// Claude Code shows a `SessionStart` hook's `systemMessage` only when it
+    /// waits for the hook: cmux's startup line (how the session compacts)
+    /// needs a synchronous hook whose output the helper writes.
+    #[test]
+    fn claude_session_start_waits_for_the_helper_output() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let install = Plan { action: Action::Install, providers: vec!["claude".into()] };
+        let result = run_with_context(&install, &context);
+        assert!(!result.failed, "{}", result.value);
+
+        let settings: Value =
+            serde_json::from_slice(&fs::read(context.home.join(".claude/settings.json")).unwrap())
+                .unwrap();
+        let hook = &settings["hooks"]["SessionStart"][0]["hooks"][0];
+        assert_eq!(hook.get("async").and_then(Value::as_bool), None, "{hook}");
+        let command = hook["command"].as_str().unwrap();
+        assert!(command.ends_with(&format!("||echo {{}};#{COMMAND_MARKER}")), "{command}");
+        assert!(!command.contains(";echo {};"), "{command}");
     }
 
     #[test]

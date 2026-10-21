@@ -36,6 +36,15 @@ cmux_agent_auth_choice() {
   case "$cmux_aa_value" in team|own) printf '%s' "$cmux_aa_value" ;; esac
 }
 
+# Own provider credentials are safe only on an owner machine: every terminal,
+# exec and file request on a team machine runs as this same Unix user. The
+# root-run vm-kind sync derives this marker from the control plane every
+# minute. Missing or unreadable is shared (fail closed).
+cmux_agent_own_login_allowed() {
+  cmux_aa_kind=$(head -c 64 /etc/cmux/vm-kind 2>/dev/null | tr -d '[:space:]')
+  [ "$cmux_aa_kind" = owner ]
+}
+
 # 0 when <agent> has its own sign-in on this machine.
 #   claude    a /login session in its credentials file, or a long-lived
 #             token from `claude setup-token`
@@ -152,6 +161,11 @@ print(code("claude"), code("codex"), code("opencode"))
 #   team-unknown    no choice or sign-in; the account check got no answer,
 #                   so the long-standing default (team) applies
 cmux_agent_auth_resolve() {
+  if ! cmux_agent_own_login_allowed; then
+    cmux_agent_auth_mode=team
+    cmux_agent_auth_reason=shared-machine
+    return 0
+  fi
   eval "cmux_agent_auth_mode=\${CMUX_$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')_AUTH-}"
   case "$cmux_agent_auth_mode" in
     team|own) cmux_agent_auth_reason=env; return 0 ;;
@@ -202,7 +216,16 @@ cmux_agent_drop_model_plane_env() {
 cmux_claude_apply_auth_mode() {
   cmux_agent_auth_resolve claude
   if [ "$cmux_agent_auth_mode" = team ]; then
-    if [ -z "${ANTHROPIC_BASE_URL-}" ] && [ -z "${ANTHROPIC_API_KEY-}" ] && [ -n "${CMUX_CLAUDE_TEAM_BASE_URL-}" ]; then
+    if [ "$cmux_agent_auth_reason" = shared-machine ]; then
+      unset CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_AUTH_TOKEN ANTHROPIC_CUSTOM_HEADERS \
+        CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_VERTEX CLAUDE_CODE_USE_FOUNDRY
+      CLAUDE_CONFIG_DIR="${HOME:-/root}/.config/cmux/claude-team"
+      mkdir -p "$CLAUDE_CONFIG_DIR" 2>/dev/null || return 1
+      chmod 0700 "$CLAUDE_CONFIG_DIR" 2>/dev/null || return 1
+      ANTHROPIC_BASE_URL=${CMUX_CODEROUTER_URL-}
+      ANTHROPIC_API_KEY=$cmux_aa_placeholder
+      export CLAUDE_CONFIG_DIR ANTHROPIC_BASE_URL ANTHROPIC_API_KEY
+    elif [ -z "${ANTHROPIC_BASE_URL-}" ] && [ -z "${ANTHROPIC_API_KEY-}" ] && [ -n "${CMUX_CLAUDE_TEAM_BASE_URL-}" ]; then
       ANTHROPIC_BASE_URL=$CMUX_CLAUDE_TEAM_BASE_URL
       ANTHROPIC_API_KEY=${CMUX_CLAUDE_TEAM_API_KEY-}
       export ANTHROPIC_BASE_URL ANTHROPIC_API_KEY
@@ -221,6 +244,27 @@ cmux_claude_apply_auth_mode() {
 cmux_codex_apply_auth_mode() {
   cmux_codex_own_provider=0
   cmux_agent_auth_resolve codex
+  if [ "$cmux_agent_auth_reason" = shared-machine ]; then
+    unset CODEX_API_KEY OPENAI_BASE_URL
+    CODEX_HOME="${HOME:-/root}/.config/cmux/codex-team"
+    mkdir -p "$CODEX_HOME" 2>/dev/null || return 1
+    chmod 0700 "$CODEX_HOME" 2>/dev/null || return 1
+    {
+      echo 'model_provider = "cmux"'
+      echo '[model_providers.cmux]'
+      echo 'name = "cmux"'
+      printf 'base_url = "%s/v1"\n' "${CMUX_CODEROUTER_URL%/}"
+      echo 'env_key = "OPENAI_API_KEY"'
+      echo 'wire_api = "responses"'
+      echo 'requires_openai_auth = false'
+      echo 'supports_websockets = false'
+    } > "$CODEX_HOME/config.toml.tmp" 2>/dev/null || return 1
+    chmod 0600 "$CODEX_HOME/config.toml.tmp" 2>/dev/null || return 1
+    mv -f "$CODEX_HOME/config.toml.tmp" "$CODEX_HOME/config.toml" 2>/dev/null || return 1
+    OPENAI_API_KEY=$cmux_aa_placeholder
+    export CODEX_HOME OPENAI_API_KEY
+    return 0
+  fi
   [ "$cmux_agent_auth_mode" = own ] || return 0
   cmux_agent_drop_model_plane_env
   if grep -qx 'model_provider = "cmux"' "${CODEX_HOME:-${HOME:-/root}/.codex}/config.toml" 2>/dev/null; then
@@ -238,7 +282,17 @@ cmux_codex_apply_auth_mode() {
 cmux_opencode_apply_auth_mode() {
   cmux_agent_auth_resolve opencode
   if [ "$cmux_agent_auth_mode" = team ]; then
-    cmux_ao_key=${OPENAI_API_KEY-}
+    if [ "$cmux_agent_auth_reason" = shared-machine ]; then
+      unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL ANTHROPIC_CUSTOM_HEADERS OPENAI_BASE_URL OPENCODE_CONFIG OPENCODE_CONFIG_DIR
+      XDG_DATA_HOME="${HOME:-/root}/.local/share/cmux-team"
+      XDG_CONFIG_HOME="${HOME:-/root}/.config/cmux-team"
+      mkdir -p "$XDG_DATA_HOME" "$XDG_CONFIG_HOME" 2>/dev/null || return 1
+      chmod 0700 "$XDG_DATA_HOME" "$XDG_CONFIG_HOME" 2>/dev/null || return 1
+      export XDG_DATA_HOME XDG_CONFIG_HOME
+      cmux_ao_key=$cmux_aa_placeholder
+    else
+      cmux_ao_key=${OPENAI_API_KEY-}
+    fi
     cmux_agent_drop_model_plane_env
     if [ "$cmux_ao_key" = "$cmux_aa_placeholder" ]; then
       OPENAI_API_KEY=$cmux_ao_key

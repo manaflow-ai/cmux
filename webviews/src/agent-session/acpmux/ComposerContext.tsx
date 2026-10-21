@@ -1,12 +1,15 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { Combobox } from "../../ui/Combobox";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator } from "../../ui/Menu";
 import { Popover } from "../../ui/Popover";
 import type { AcpmuxSnapshot } from "./model";
 import { ChevronIcon } from "./ComposerPickers";
+import { EnvironmentIcon, EnvironmentPicker, type SavedEnvironmentRows } from "./EnvironmentPicker";
+import type { ConnectKind, EnvironmentKind, OffloadKind } from "./environments";
 import { FolderPopover } from "./FolderPopover";
 import type { Project } from "./ProjectChooser";
 import { projectSuffixes } from "./projectSuffix";
+import { belowCheckout, folderRepo, isMainCheckout, worktreeName, type ProjectRepo } from "./projectRepos";
 import { isAgentHome, projectLabel } from "./sessionList";
 import { translate as t } from "./i18n";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
@@ -23,14 +26,19 @@ export const CONTEXT_LABELS = {
   folderSearch: "composer.folderSearch",
   cloud: "composer.cloud",
   connectSSH: "composer.connectSSH",
-  connectCloud: "composer.connectCloud",
+  newCloudMachine: "composer.newCloudMachine",
   newChatHere: "composer.newChatHere",
   noProject: "composer.noProject",
+  environment: "composer.environment",
 } as const;
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 type Session = AcpmuxSnapshot["sessions"][number];
-type Location = { id: string; label: string; detail?: string };
+type Location = { id: string; label: string; detail?: string; repo?: ProjectRepo };
+type Computer = Location & { kind: EnvironmentKind; connected?: boolean };
+const NO_PEER_KINDS: Record<string, "ssh" | "cloud"> = {};
+const NO_PEER_CONNECTED: Record<string, boolean> = {};
+const NO_OFFLOADS: readonly OffloadKind[] = [];
 
 /// The location strip on the composer card's top edge (hq#1957 composer location strip): folder ·
 /// computer, and the branch at the end. New chats can choose a local or Cloud computer and one of
@@ -41,6 +49,9 @@ export function ComposerContext({
   summary,
   sessions = [],
   peers = [],
+  peerKinds = NO_PEER_KINDS,
+  peerConnected = NO_PEER_CONNECTED,
+  environments = false,
   started = false,
   onProject,
   projectChoices,
@@ -52,10 +63,21 @@ export function ComposerContext({
   onNewChat,
   onBrowseFolder,
   onConnect,
+  onOffload,
+  offloads = NO_OFFLOADS,
+  saved,
+  onRefreshMachines,
 }: {
   summary?: Summary;
   sessions?: Session[];
   peers?: string[];
+  /// Each peer's transport (`AcpmuxSnapshot.peerKinds`): its section in the environment picker.
+  peerKinds?: Record<string, "ssh" | "cloud">;
+  /// Whether each peer is connected (`AcpmuxSnapshot.peerConnected`): the picker's status mark.
+  peerConnected?: Record<string, boolean>;
+  /// Preview features on (`labs.previewFeatures`): the computer control is the environment picker
+  /// (EnvironmentPicker.tsx), with Local, SSH and Cloud sections and ⌥⌘1–9.
+  environments?: boolean;
   started?: boolean;
   onProject?(cwd: string, peer?: string): void;
   projectChoices?: Project[];
@@ -72,17 +94,46 @@ export function ComposerContext({
   onNewChat?(cwd: string): void;
   /// A started chat's Choose folder…: the host's folder panel, then a new chat there.
   onBrowseFolder?(): Promise<string | undefined>;
-  /// A new chat's Computer menu ends with SSH… and cmux Cloud…, which open the host's
+  /// A new chat's Computer menu ends with SSH… and New Cloud Machine, which open the host's
   /// connect flows (Lawrence 2026-10-06: "I cannot click on cmux Cloud SSH").
-  onConnect?(kind: "ssh" | "cloud"): void;
+  onConnect?(kind: ConnectKind): void;
+  /// A started chat's one move, in the environment picker: Move to Cloud for a chat on this Mac,
+  /// Bring Back Local for one a move put on a Cloud machine (the tab menu's same actions), as
+  /// `offloads` lists them. None when the host passes none (the floating chat).
+  onOffload?(kind: OffloadKind): void;
+  /// The moves the app offers this chat now (its right-click menu's, `pane.tabState` `moves`): the
+  /// picker offers only these, whatever the machine's kind.
+  offloads?: readonly OffloadKind[];
+  /// The New Tab page's saved environments, in the environment picker. While one is picked it
+  /// alone names where the chat starts: the folder and New Worktree controls step aside.
+  saved?: SavedEnvironmentRows;
+  /// The environment picker opened: read the machines and their status again.
+  onRefreshMachines?(): void;
 }) {
   const computers = useMemo(
-    () => availableComputers(summary, sessions, peers, localName),
-    [summary, sessions, peers, localName],
+    // The peers' transports and status draw only in the environment picker: the plain menu stays
+    // as it was.
+    () =>
+      availableComputers(
+        summary,
+        sessions,
+        peers,
+        environments ? peerKinds : NO_PEER_KINDS,
+        localName,
+        environments ? peerConnected : NO_PEER_CONNECTED,
+      ),
+    [summary, sessions, peers, peerKinds, peerConnected, environments, localName],
   );
   const initialComputer = computerId(summary);
-  const [selectedComputer, setSelectedComputer] = useState(initialComputer);
-  useEffect(() => setSelectedComputer(initialComputer), [summary?.sessionId, initialComputer]);
+  // A pick in the Computer menu holds until the chat or its computer changes; then the new chat's
+  // own computer shows in the render that shows it (it followed in an effect, a frame late: the
+  // wrong computer and no folder for one frame on a local/peer switch). Each change clears the pick,
+  // so a pick on one new chat never carries into the next.
+  const pickKey = `${summary?.sessionId ?? ""}\u0000${initialComputer}`;
+  const [picked, setPicked] = useState<{ key: string; computer?: string }>({ key: pickKey });
+  if (picked.key !== pickKey) setPicked({ key: pickKey });
+  const selectedComputer = picked.key === pickKey && picked.computer ? picked.computer : initialComputer;
+  const setSelectedComputer = (computer: string) => setPicked({ key: pickKey, computer });
   const folders = useMemo(() => {
     const known = availableFolders(summary, sessions, selectedComputer);
     if (selectedComputer !== "local" || !projectChoices) return known;
@@ -90,6 +141,7 @@ export function ComposerContext({
       id: normalizeCwd(project.cwd)!,
       label: project.label,
       detail: project.cwd,
+      ...(project.repo ? { repo: project.repo } : {}),
     }));
     const seen = new Set(projects.map((project) => project.id));
     return [...projects, ...known.filter((folder) => !seen.has(folder.id))];
@@ -108,6 +160,30 @@ export function ComposerContext({
   const readOnly = started || onProject === undefined;
   const newChats = started && onNewChat !== undefined;
   const branch = summary?.branch;
+  // The folder control names the repository (projectRepos.ts), and a worktree's branch while no
+  // branch control follows it: "cmux · issue-22273", not the worktree folder's own name. A folder
+  // inside a checkout always adds its path below it ("cmux · webviews"), branch control or not.
+  const currentLocation = currentFolder
+    ? (folders.find((folder) => folder.id === currentFolder) ?? {
+        id: currentFolder,
+        label: projectLabel(currentFolder),
+      })
+    : undefined;
+  const currentRepo = currentLocation ? folderRepo(currentLocation) : undefined;
+  const place = !currentLocation
+    ? undefined
+    : branch
+      ? belowCheckout(currentLocation)
+      : isMainCheckout(currentLocation)
+        ? undefined
+        : worktreeName(currentLocation);
+  const currentName = currentLocation
+    ? currentRepo
+      ? place && place !== currentRepo.name
+        ? `${currentRepo.name} · ${place}`
+        : currentRepo.name
+      : projectLabel(currentLocation.id)
+    : undefined;
   // A started chat's Choose folder…: the host's folder panel, then a new chat there.
   const browseNewChat = onBrowseFolder
     ? () => {
@@ -116,7 +192,31 @@ export function ComposerContext({
         });
       }
     : undefined;
-  const folderShown = !(readOnly && !newChats && !currentFolder);
+  const pickComputer = (id: string) => {
+    if (!readOnly && id !== selectedComputer) {
+      setSelectedComputer(id);
+      const folder = availableFolders(summary, sessions, id)[0]?.id;
+      if (folder) onProject?.(folder, id === "local" ? undefined : id);
+    }
+  };
+  // A started chat's picker lists only where it runs and its move (EnvironmentPicker `offload`).
+  const offload: OffloadKind | undefined = started && environments && onOffload ? offloads[0] : undefined;
+  const computerDisabled = readOnly && !offload && (started || !onConnect);
+  // Preview (`labs.previewFeatures`): the computer control is the environment picker.
+  const environmentsShown = environments && !computerDisabled;
+  const savedRows = environmentsShown && !readOnly ? saved : undefined;
+  const savedPick = savedRows?.environments.find((environment) => environment.id === savedRows.current);
+  const pickEnvironment = (id: string) => {
+    if (savedRows?.current !== undefined) savedRows.onClear();
+    pickComputer(id);
+  };
+  // Preview: New Worktree is a control of its own beside the folder, as Codex's Worktree and
+  // Claude's chips are (hq#2569 #9), for a new chat on this computer in a folder.
+  const worktree =
+    environmentsShown && !readOnly && !savedPick && selectedComputer === "local" && currentFolder && onNewWorktree
+      ? () => onNewWorktree(currentFolder)
+      : undefined;
+  const folderShown = !savedPick && !(readOnly && !newChats && !currentFolder);
   return (
     <div className="acpmux-composer-strip">
       <div className="acpmux-composer-context" data-readonly={readOnly ? "true" : undefined}>
@@ -129,11 +229,7 @@ export function ComposerContext({
                 <LocationFace
                   icon={<FolderIcon />}
                   value={
-                    currentFolder
-                      ? projectLabel(currentFolder)
-                      : noProject
-                        ? t(CONTEXT_LABELS.noProject)
-                        : t(CONTEXT_LABELS.chooseFolder)
+                    currentName ? currentName : noProject ? t(CONTEXT_LABELS.noProject) : t(CONTEXT_LABELS.chooseFolder)
                   }
                   chevron
                   middle={currentFolder !== undefined}
@@ -145,7 +241,9 @@ export function ComposerContext({
               onBrowse={onBrowseProject}
               onNoProject={onNoProject}
               noProject={noProject && !currentFolder}
-              onNewWorktree={currentFolder && onNewWorktree ? () => onNewWorktree(currentFolder) : undefined}
+              onNewWorktree={
+                !worktree && currentFolder && onNewWorktree ? () => onNewWorktree(currentFolder) : undefined
+              }
               localName={localName}
               peers={peers}
             />
@@ -178,31 +276,54 @@ export function ComposerContext({
               }}
             />
           )}
-          <LocationPicker
-            label={t(CONTEXT_LABELS.computer)}
-            menu="Computer"
-            kind="computer"
-            icon={<ComputerIcon />}
-            value={currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
-            options={computers}
-            selected={selectedComputer}
-            disabled={readOnly && (started || !onConnect)}
-            extras={
-              !started && onConnect
-                ? [
-                    { id: "ssh", label: t(CONTEXT_LABELS.connectSSH), onSelect: () => onConnect("ssh") },
-                    { id: "cloud", label: t(CONTEXT_LABELS.connectCloud), onSelect: () => onConnect("cloud") },
-                  ]
-                : undefined
-            }
-            onPick={(id) => {
-              if (!readOnly && id !== selectedComputer) {
-                setSelectedComputer(id);
-                const folder = availableFolders(summary, sessions, id)[0]?.id;
-                if (folder) onProject?.(folder, id === "local" ? undefined : id);
+          {worktree && (
+            <span className="acpmux-location-picker">
+              <button type="button" className="acpmux-location-button ui-ghost ui-ghost-sm" onClick={worktree}>
+                <LocationFace icon={<BranchIcon />} value={t("worktree.new")} chevron={false} />
+              </button>
+            </span>
+          )}
+          {environmentsShown ? (
+            <EnvironmentPicker
+              label={t(CONTEXT_LABELS.environment)}
+              menu="Computer"
+              value={savedPick?.name ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
+              face={
+                <LocationFace
+                  icon={<EnvironmentIcon kind={savedPick?.kind ?? currentComputer?.kind ?? "local"} />}
+                  value={savedPick?.name ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
+                  chevron
+                />
               }
-            }}
-          />
+              environments={offload && currentComputer ? [currentComputer] : computers}
+              current={selectedComputer}
+              onPick={pickEnvironment}
+              {...(offload && onOffload ? { offload, onOffload } : {})}
+              {...(!started && onConnect ? { onConnect } : {})}
+              {...(savedRows ? { saved: savedRows } : {})}
+              {...(onRefreshMachines ? { onOpen: onRefreshMachines } : {})}
+            />
+          ) : (
+            <LocationPicker
+              label={t(CONTEXT_LABELS.computer)}
+              menu="Computer"
+              kind="computer"
+              icon={<ComputerIcon />}
+              value={currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
+              options={computers}
+              selected={selectedComputer}
+              disabled={computerDisabled}
+              extras={
+                !started && onConnect
+                  ? [
+                      { id: "ssh", label: t(CONTEXT_LABELS.connectSSH), onSelect: () => onConnect("ssh") },
+                      { id: "cloud", label: t(CONTEXT_LABELS.newCloudMachine), onSelect: () => onConnect("cloud") },
+                    ]
+                  : undefined
+              }
+              onPick={pickComputer}
+            />
+          )}
         </div>
         {branch && <BranchPicker branch={branch} />}
       </div>
@@ -261,31 +382,36 @@ function availableComputers(
   summary: Summary | undefined,
   sessions: Session[],
   peers: string[],
-  localName?: string,
-): Location[] {
+  peerKinds: Record<string, "ssh" | "cloud">,
+  localName: string | undefined,
+  peerConnected: Record<string, boolean>,
+): Computer[] {
   const localLabel =
     localName || (summary?.hostKind === "local" && summary.host ? summary.host : t(CONTEXT_LABELS.local));
-  const computers: Location[] = [{ id: "local", label: localLabel }];
+  const computers: Computer[] = [{ id: "local", label: localLabel, kind: "local" }];
   const seen = new Set<string>();
-  for (const peer of peers) {
-    if (seen.has(peer)) continue;
-    seen.add(peer);
-    computers.push({ id: peer, label: peer, detail: t(CONTEXT_LABELS.cloud) });
-  }
+  // A peer's transport names its section: an `ssh://` peer is SSH, any other (or a Cloud chat's
+  // host acpmux no longer lists) is Cloud.
+  const add = (id: string, label: string, cloudHost = false) => {
+    if (seen.has(id)) return;
+    seen.add(id);
+    const kind = !cloudHost && peerKinds[id] === "ssh" ? "ssh" : "cloud";
+    const connected = cloudHost ? undefined : peerConnected[id];
+    computers.push({
+      id,
+      label,
+      kind,
+      detail: t(kind === "ssh" ? "composer.envSSH" : CONTEXT_LABELS.cloud),
+      ...(connected !== undefined ? { connected } : {}),
+    });
+  };
+  for (const peer of peers) add(peer, peer);
   for (const session of sessions) {
     const peer = session.peer ?? (session.hostKind === "cloud" ? session.host : undefined);
-    if (!peer || seen.has(peer)) continue;
-    seen.add(peer);
-    computers.push({ id: peer, label: session.host ?? peer, detail: t(CONTEXT_LABELS.cloud) });
+    if (peer) add(peer, session.host ?? peer, !session.peer);
   }
   const summaryPeer = computerId(summary);
-  if (summaryPeer !== "local" && !seen.has(summaryPeer)) {
-    computers.push({
-      id: summaryPeer,
-      label: summary?.host ?? summaryPeer,
-      detail: t(CONTEXT_LABELS.cloud),
-    });
-  }
+  if (summaryPeer !== "local") add(summaryPeer, summary?.host ?? summaryPeer, !summary?.peer);
   return computers;
 }
 

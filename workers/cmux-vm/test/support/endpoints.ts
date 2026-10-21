@@ -3,7 +3,7 @@
  * request for it. The isolation suite runs each one as another tenant and as a
  * key without the scope, and checks that this table covers openapi.json.
  */
-import type { Scope } from "../../src/domain/scopes.ts";
+import { SCOPES, type Scope } from "../../src/domain/scopes.ts";
 
 export interface VmEndpointCase {
   readonly name: string;
@@ -17,6 +17,12 @@ export interface VmEndpointCase {
 }
 
 export const VM_ENDPOINTS: ReadonlyArray<VmEndpointCase> = [
+  { name: "getVmInstanceIdentity", method: "GET", template: "/v1/vms/{vmId}/identity", path: (id) => `/v1/vms/${id}/identity`, scope: "vm:read" },
+  { name: "statFile", method: "GET", template: "/v1/vms/{vmId}/files/stat", path: (id) => `/v1/vms/${id}/files/stat?path=%2Fsrv%2Fteam`, scope: "vm:files" },
+  { name: "retireVm", method: "POST", template: "/v1/vms/{vmId}/retire", path: (id) => `/v1/vms/${id}/retire`, scope: "vm:write" },
+  { name: "resizeVm", method: "POST", template: "/v1/vms/{vmId}/resize", path: (id) => `/v1/vms/${id}/resize`, scope: "vm:write", json: { resources: { vcpus: 8 } } },
+  { name: "replaceVmHttpsProxy", method: "PUT", template: "/v1/vms/{vmId}/https-proxies/{hostname}",
+    path: (id) => `/v1/vms/${id}/https-proxies/api.example.test`, scope: "vm:network", json: { destination: "https://proxy.example.test" } },
   { name: "getVm", method: "GET", template: "/v1/vms/{vmId}", path: (id) => `/v1/vms/${id}`, scope: "vm:read" },
   { name: "startVm", method: "POST", template: "/v1/vms/{vmId}/start", path: (id) => `/v1/vms/${id}/start`, scope: "vm:write" },
   { name: "stopVm", method: "POST", template: "/v1/vms/{vmId}/stop", path: (id) => `/v1/vms/${id}/stop`, scope: "vm:write" },
@@ -83,14 +89,25 @@ export const VM_ENDPOINTS: ReadonlyArray<VmEndpointCase> = [
 
 /** Endpoints that act on one snapshot (slice S3a); test/workers/snapshots.test.ts runs the isolation cases. */
 export const SNAPSHOT_ENDPOINTS = [
+  { name: "getSnapshotCreation", method: "GET", template: "/v1/snapshot-creations/{snapshotId}", scope: "snapshot:read" },
+  { name: "reconcileSnapshotCreation", method: "POST", template: "/v1/snapshot-creations/{snapshotId}/reconcile", scope: "snapshot:write" },
+  { name: "cancelSnapshotCreation", method: "POST", template: "/v1/snapshot-creations/{snapshotId}/cancel", scope: "snapshot:write" },
   { name: "getSnapshot", method: "GET", template: "/v1/snapshots/{snapshotId}", scope: "snapshot:read" },
   { name: "deleteSnapshot", method: "DELETE", template: "/v1/snapshots/{snapshotId}", scope: "snapshot:write" },
 ] as const;
 
 /** Endpoints that act on the tenant rather than one VM. */
 export const TENANT_ENDPOINTS = [
+  { name: "cancelSnapshotCreationByKey", method: "POST", template: "/v1/snapshot-creations/by-key/cancel", scope: "snapshot:write", json: { expectedSnapshotId: null } },
+  { name: "getSnapshotCreationByKey", method: "GET", template: "/v1/snapshot-creations/by-key", scope: "snapshot:read" },
+  { name: "listSnapshotCreations", method: "GET", template: "/v1/snapshot-creations", scope: "snapshot:read" },
+  { name: "listVmCreations", method: "GET", template: "/v1/vm-creations", scope: "vm:read" },
+  { name: "cancelVmCreation", method: "POST", template: "/v1/vm-creations/by-key/cancel", scope: "vm:write" },
+  { name: "getVmCreation", method: "GET", template: "/v1/vm-creations/by-key", scope: "vm:read" },
+  { name: "reconcileVmCreation", method: "POST", template: "/v1/vm-creations/by-key/reconcile", scope: "vm:write" },
   { name: "createVm", method: "POST", template: "/v1/vms", scope: "vm:write" },
   { name: "listVms", method: "GET", template: "/v1/vms", scope: "vm:read" },
+  { name: "listVmImages", method: "GET", template: "/v1/vm-images", scope: "vm:read" },
   { name: "listSnapshots", method: "GET", template: "/v1/snapshots", scope: "snapshot:read" },
   // API key management (cx-b4h.12); test/workers/api-keys.test.ts runs the isolation cases.
   { name: "createApiKey", method: "POST", template: "/v1/api-keys", scope: "admin" },
@@ -98,25 +115,7 @@ export const TENANT_ENDPOINTS = [
   { name: "revokeApiKey", method: "DELETE", template: "/v1/api-keys/{keyId}", scope: "admin" },
 ] as const;
 
-export const ALL_SCOPES: ReadonlyArray<Scope> = [
-  "vm:read",
-  "vm:write",
-  "vm:exec",
-  "vm:files",
-  "vm:terminal",
-  "snapshot:*",
-  "snapshot:read",
-  "snapshot:write",
-  "domain:*",
-  "deploy:*",
-  "git:*",
-  "mesh:read",
-  "mesh:write",
-  "mesh:join",
-  "acl:read",
-  "acl:write",
-  "admin",
-];
+export const ALL_SCOPES: ReadonlyArray<Scope> = SCOPES;
 
 /**
  * Mesh experiment endpoints (cx-0op); test/workers/mesh.test.ts runs the
@@ -137,6 +136,13 @@ export const MESH_ENDPOINTS = [
   { name: "getDevice", method: "GET", template: "/v1/devices/{deviceId}", scope: "mesh:read", target: "device" },
   { name: "deleteDevice", method: "DELETE", template: "/v1/devices/{deviceId}", scope: "mesh:join", target: "device" },
   { name: "getDevicePeers", method: "GET", template: "/v1/devices/{deviceId}/peers", scope: "mesh:join", target: "device" },
+  { name: "getDeviceOverlayPolicy", method: "GET", template: "/v1/devices/{deviceId}/overlay-policy", scope: "mesh:join", target: "device" },
+  { name: "createOverlayServerCode", method: "POST", template: "/v1/meshes/{meshId}/overlay-server-codes", scope: "mesh:join", target: "mesh" },
+  { name: "enrollOverlayServer", method: "POST", template: "/v1/meshes/{meshId}/overlay-servers", scope: "mesh:join", target: "mesh" },
+  { name: "listOverlayServers", method: "GET", template: "/v1/meshes/{meshId}/overlay-servers", scope: "mesh:read", target: "mesh" },
+  { name: "getOverlayServer", method: "GET", template: "/v1/overlay-servers/{deviceId}", scope: "mesh:join", target: "device" },
+  { name: "getOverlayServerPolicy", method: "GET", template: "/v1/overlay-servers/{deviceId}/policy", scope: "mesh:join", target: "device" },
+  { name: "revokeOverlayServer", method: "DELETE", template: "/v1/overlay-servers/{deviceId}", scope: "mesh:join", target: "device" },
   { name: "getTunnel", method: "GET", template: "/v1/tunnels/{tunnelId}", scope: "mesh:read", target: "tunnel" },
   // M2 (cx-0op.4). The code enrollment route has no bearer; test/workers/mesh-m2.test.ts covers it.
   { name: "createEnrollmentCode", method: "POST", template: "/v1/meshes/{meshId}/enrollment-codes", scope: "mesh:join", target: "mesh" },

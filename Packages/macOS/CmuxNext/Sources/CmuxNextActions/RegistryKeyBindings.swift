@@ -23,9 +23,12 @@ public struct RegistryKeyBindings {
     /// (Cmd-R Reload in a page) comes after a general one (Cmd-R Rename
     /// Tab), and catalog order breaks a tie (the first catalog action wins).
     public var table: KeyBindingTable {
-        if let table = registry.currentShortcutIndex().bindingTable { return table }
+        let workspaceTabKeys = registry.includesWorkspaceTabKeys()
+        let index = registry.currentShortcutIndex()
+        if let table = index.bindingTable, index.bindingTableHasWorkspaceTabKeys == workspaceTabKeys { return table }
         let table = makeTable()
         registry.shortcutIndex?.bindingTable = table
+        registry.shortcutIndex?.bindingTableHasWorkspaceTabKeys = workspaceTabKeys
         return table
     }
 
@@ -64,9 +67,20 @@ public struct RegistryKeyBindings {
             if KeyBindingDefaults.yieldsToTerminal.contains(id) {
                 defaultWhen = WhenClause.and([defaultWhen, KeyBindingDefaults.notTerminal].compactMap { $0 })
             }
+            // An agent chat's or web page's own keys win over these defaults (Cmd-Return steers).
+            if KeyBindingDefaults.yieldsToWebContent.contains(id) {
+                defaultWhen = WhenClause.and([defaultWhen, KeyBindingDefaults.notWebContent].compactMap { $0 })
+            }
             let specificity = requires.rawValue.nonzeroBitCount
+            // A focused text field's own keys win over these defaults (Cmd-Return steers the chat);
+            // an action scoped to a surface (`requires`: the omnibar, the file explorer) keeps them.
+            let yieldsToTextInput = requires.isEmpty
             func add(_ keys: [Shortcut], argument: String?, source: KeyBinding.Source) {
-                let binding = KeyBinding(keys: keys, command: id, argument: argument, when: source == .default ? defaultWhen : when, source: source)
+                var keyWhen = defaultWhen
+                if yieldsToTextInput, keys.count == 1, KeyBindingDefaults.textInputKeys.contains(keys[0]) {
+                    keyWhen = WhenClause.and([keyWhen, KeyBindingDefaults.notTextInput].compactMap { $0 })
+                }
+                let binding = KeyBinding(keys: keys, command: id, argument: argument, when: source == .default ? keyWhen : when, source: source)
                 layers[source, default: []].append((binding, specificity, order))
             }
             let userChord = registry.chordOverrides[id] != nil
@@ -111,6 +125,7 @@ public struct RegistryKeyBindings {
                 entries += extra.ghostty.filter { $0.source == .ghostty && enabled($0) }
                 // The Chrome tab keys win over every focus and the Ghostty config; cmux.json still decides.
                 entries += KeyBindingDefaults.tabSwitching(registry: registry)
+                entries += KeyBindingDefaults.workspacesAsTabs(registry: registry)
             case .user: entries += extra.user.filter(enabled)
             }
         }

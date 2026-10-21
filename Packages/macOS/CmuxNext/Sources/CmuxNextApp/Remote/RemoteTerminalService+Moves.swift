@@ -21,10 +21,6 @@ extension RemoteTerminalService {
     func move(_ tab: TabModel, from source: DaemonService, to workspace: WorkspaceModel, on destination: DaemonService,
               completion: @escaping (Bool) -> Void) {
         let registry = services.registry
-        guard tab.kind != .browser else {
-            registry.refuse(RemoteStrings.moveBrowserAcrossMachines)
-            return completion(false)
-        }
         guard let target = Self.landingPane(in: workspace) else {
             // An empty workspace (no pane yet) cannot hold the tab.
             registry.refuse(RefusalStrings.noPaneID(workspace.displayName))
@@ -34,6 +30,10 @@ extension RemoteTerminalService {
             registry.refuse(WorkspaceVerbStrings.machineNotConnected)
             return completion(false)
         }
+        // A browser, chat or page tab has no process to reference there: it reopens there on the same page.
+        guard tab.kind == .pty || tab.kind == .remoteTerminal else {
+            return reopen(tab, in: target, closingOn: sourceConnection, on: destinationConnection, completion: completion)
+        }
         let targetHandle = target.handle
         let surface = tab.surface
         let title = tab.displayTitle.isEmpty ? nil : tab.displayTitle
@@ -42,7 +42,7 @@ extension RemoteTerminalService {
             guard let path = resourcePath(of: target, in: workspace) else { return completion(false) }
             let known = resource(for: ref, on: destination)
             let index = target.tabs.count
-            let name = tab.name
+            let (name, pinned) = (tab.name, tab.pinned)
             registry.track(Task { [weak self] in
                 do {
                     var resource = known
@@ -51,7 +51,9 @@ extension RemoteTerminalService {
                         completion(false)
                         return ActionWorkFailure(RemoteStrings.machineHasNoTerminal)
                     }
-                    _ = try await destinationConnection.projectTerminal(resource, into: path, index: index, name: name)
+                    let projected = try await destinationConnection.projectTerminal(resource, into: path, index: index, name: name)
+                    // Its pin comes home too (best effort, like the name on the way out).
+                    if pinned { try? await destinationConnection.state.setTabPinned(projected.id, true) }
                     _ = try? await destinationConnection.setTerminalKeep(.terminal(ref.terminalID), keep: false)
                     try await sourceConnection.closeTab(surface)
                     self?.forget(tabID: tab.id)
@@ -82,21 +84,12 @@ extension RemoteTerminalService {
             return completion(false)
         }
         let terminalConnection = tab.kind == .remoteTerminal ? services.machines.daemon(session: ref.sessionID)?.connection : sourceConnection
-        registry.track(Task { [weak self] in
-            do {
-                // Kept first: closing the old tab must never end it.
-                let kept = try? await terminalConnection?.keepTerminal(ref.terminalID)
-                if let known = kept ?? resource { self?.remember(ref, resource: known) }
-                _ = try await destinationConnection.newRemoteTerminalTab(ref, in: targetHandle, title: title)
-                try await sourceConnection.closeTab(surface)
-                self?.forget(tabID: tab.id)
-                completion(true)
-                return nil
-            } catch {
-                completion(false)
-                return ActionWorkFailure("move terminal to another machine", error)
-            }
-        })
+        land(tab, closingOn: sourceConnection, on: destinationConnection, completion: completion) { [weak self] in
+            // Kept first: closing the old tab must never end it.
+            let kept = try? await terminalConnection?.keepTerminal(ref.terminalID)
+            if let known = kept ?? resource { self?.remember(ref, resource: known) }
+            return try await destinationConnection.newRemoteTerminalTab(ref, in: targetHandle, title: title).surface
+        }
     }
 
     /// A new terminal on `machine` shown as a remote-terminal tab in

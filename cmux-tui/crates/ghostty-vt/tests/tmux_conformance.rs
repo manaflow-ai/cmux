@@ -2057,22 +2057,22 @@ fn tmux_tab_cell_background_capture() {
     let bg = |row: usize, col: usize| rows[row][col].bg;
     let text = |row: usize, col: usize| rows[row][col].text.as_str();
     assert_eq!(row_text(&rows[0]).trim_end(), "   X");
-    for col in 0..=3 {
-        assert_eq!(bg(0, col), ColorSpec::Palette(4), "row 0 col {col}: {:?}", rows[0][col]);
+    for (col, cell) in rows[0].iter().enumerate().take(4) {
+        assert_eq!(bg(0, col), ColorSpec::Palette(4), "row 0 col {col}: {cell:?}");
     }
     assert_eq!(row_text(&rows[1]).trim_end(), " X");
     assert_eq!((text(1, 0), bg(1, 0)), ("", ColorSpec::Palette(4)), "{:?}", rows[1][0]);
     assert_eq!((text(1, 1), bg(1, 1)), ("X", ColorSpec::Palette(4)), "{:?}", rows[1][1]);
     assert_eq!(row_text(&rows[2]).trim_end(), "x");
     assert_eq!(bg(2, 0), ColorSpec::Default, "{:?}", rows[2][0]);
-    for col in 1..=2 {
-        assert_eq!(bg(2, col), ColorSpec::Palette(2), "row 2 col {col}: {:?}", rows[2][col]);
+    for (col, cell) in rows[2].iter().enumerate().skip(1).take(2) {
+        assert_eq!(bg(2, col), ColorSpec::Palette(2), "row 2 col {col}: {cell:?}");
     }
-    for col in 3..=15 {
-        assert_eq!(bg(2, col), ColorSpec::Palette(3), "row 2 col {col}: {:?}", rows[2][col]);
+    for (col, cell) in rows[2].iter().enumerate().skip(3).take(13) {
+        assert_eq!(bg(2, col), ColorSpec::Palette(3), "row 2 col {col}: {cell:?}");
     }
-    for col in 16..24 {
-        assert_eq!(bg(2, col), ColorSpec::Default, "row 2 col {col}: {:?}", rows[2][col]);
+    for (col, cell) in rows[2].iter().enumerate().skip(16).take(8) {
+        assert_eq!(bg(2, col), ColorSpec::Default, "row 2 col {col}: {cell:?}");
     }
 }
 

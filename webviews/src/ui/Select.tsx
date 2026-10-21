@@ -22,6 +22,8 @@ export interface SelectProps {
   className?: string;
   buttonClassName?: string;
   popupClassName?: string;
+  /** Close the menu when an option is picked (the shared Menu keeps a radio menu open by default). */
+  closeOnPick?: boolean;
 }
 
 /** A single-choice menu with native keyboard, VoiceOver and press-drag-release behavior. */
@@ -36,6 +38,7 @@ export function Select({
   className,
   buttonClassName,
   popupClassName,
+  closeOnPick,
 }: SelectProps) {
   const selected = options.find((option) => option.value === value);
   return (
@@ -59,6 +62,7 @@ export function Select({
                 value={option.value}
                 disabled={option.disabled}
                 shortcut={option.shortcut}
+                closeOnClick={closeOnPick}
                 className="ui-select-option"
               >
                 {option.label}

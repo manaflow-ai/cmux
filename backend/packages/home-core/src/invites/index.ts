@@ -11,3 +11,4 @@ export { resendRequest, resendMessageId, type ResendConfig, type ProviderRequest
 export { sendblueRequest, sendblueMessageId, type SendblueConfig } from "./providers/sendblue.ts"
 export * from "./vcard.ts"
 export * from "./first-contact.ts"
+export * from "./trust.ts"

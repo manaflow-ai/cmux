@@ -22,8 +22,14 @@ final class WindowTargetSource: PaletteTargetSource {
         }
     }
 
+    /// A workspace's description (Edit Workspace Description… starts from it).
+    func currentDescription(of target: ActionTargetRef) -> String? {
+        guard target.kind == .workspace else { return nil }
+        return services.workspace(id: target.id)?.workspaceDescription
+    }
+
     /// Every workspace in the active window's sidebar order, the shown one
-    /// last (Merge Workspace into…).
+    /// last (Merge Workspace Into…).
     private func workspaces() -> [PaletteTargetOption] {
         let shown = services.windows.active?.state.workspaceID
         let order = services.windows.active?.sidebar.model.allWorkspaces.map(\.id.rawValue) ?? []

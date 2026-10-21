@@ -19,7 +19,7 @@ const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE
 const worker = (exports as unknown as { default: Fetcher }).default
 const inDO = runInDurableObject as unknown as <T>(stub: unknown, fn: (instance: any, state: DurableObjectState) => Promise<T>) => Promise<T>
 const sessionToken = async (sub: string, name: string) =>
-  new SignJWT({ email: `${sub}@example.com`, email_verified: true, name })
+  new SignJWT({ email: `${sub}@${sub}.test`, email_verified: true, name }) // one domain per person (trust_same_domain)
     .setProtectedHeader({ alg: "ES256", kid: "stack-test" })
     .setIssuer(`https://api.stack-auth.com/api/v1/projects/${testEnv.STACK_PROJECT_ID}`)
     .setAudience(testEnv.STACK_PROJECT_ID)
@@ -67,7 +67,7 @@ const waitDm = async (owner: Person, peer: Person, dm: string) => {
 }
 /** `inviter` invites `invitee` (by the invitee's verified email) into a DM, the invitee accepts; the DM id is invite-born, not the pair id. */
 const inviteDm = async (inviter: Person, invitee: Person, sub: string) => {
-  const email = `${sub}@example.com`
+  const email = `${sub}@${sub}.test`
   const opened = await op(inviter.token, "dm.open", { peer: { email } })
   const dm = opened.value.conversation.id as string
   const address = invites.addressId(testEnv.HOME_ADDRESS_KEY, invites.normalizeEmail(email) as invites.Address)

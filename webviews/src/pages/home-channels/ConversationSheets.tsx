@@ -4,6 +4,7 @@
 // picks make a channel. The owner checks every rule; a refusal shows on the page.
 import { useEffect, useState } from "react";
 import type { Strings } from "../shared/i18n";
+import { DialogButton } from "../../ui/DialogButton";
 import { FormDialog } from "./FormDialog";
 import { PeoplePicker } from "./PeoplePicker";
 import type { HomeSheets } from "./sheets";
@@ -49,12 +50,12 @@ export function NewMessageSheet({ sheets, strings }: { sheets: HomeSheets; strin
       busy={busy}
       actions={
         <>
-          <button type="button" className="hc-text-button" onClick={() => sheets.close()}>
+          <DialogButton dialogKey="escape" className="hc-text-button" onClick={() => sheets.close()}>
             {t("edit.cancel")}
-          </button>
-          <button type="submit" className="hc-text-button primary" disabled={!ready}>
+          </DialogButton>
+          <DialogButton dialogKey="return" type="submit" className="hc-text-button primary" disabled={!ready}>
             {t(channel ? "channel.create" : "sheet.open")}
-          </button>
+          </DialogButton>
         </>
       }
     >
@@ -114,12 +115,12 @@ export function InviteSheet({
       busy={busy}
       actions={
         <>
-          <button type="button" className="hc-text-button" onClick={() => sheets.close()}>
+          <DialogButton dialogKey="escape" className="hc-text-button" onClick={() => sheets.close()}>
             {t("edit.cancel")}
-          </button>
-          <button type="submit" className="hc-text-button primary" disabled={!ready}>
+          </DialogButton>
+          <DialogButton dialogKey="return" type="submit" className="hc-text-button primary" disabled={!ready}>
             {t("sheet.invite.add")}
-          </button>
+          </DialogButton>
         </>
       }
     >

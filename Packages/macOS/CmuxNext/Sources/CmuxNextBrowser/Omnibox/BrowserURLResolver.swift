@@ -18,8 +18,9 @@ public import Foundation
 /// 3. `/abs/path`, `~`, and `~/path` are file URLs, spaces allowed.
 /// 4. Remaining text with whitespace is a search.
 /// 5. Scheme-less text: userinfo (`user@host`) is refused, loopback hosts
-///    get `http`, dotted hosts or hosts with a port get `https`, and single
-///    words search.
+///    and non-unique hosts (private IPs, `devbox:8080`, `router/`,
+///    `nas.local`) get `http`, other dotted hosts, IPv6 literals or hosts
+///    with a port get `https`, and single words search.
 public nonisolated struct BrowserURLResolver: Sendable {
     private let homeDirectory: URL
     public var allowsChromiumSchemes: Bool
@@ -143,10 +144,19 @@ public nonisolated struct BrowserURLResolver: Sendable {
         let (host, hasPort) = Self.splitHostAndPort(authority)
         guard !host.isEmpty else { return nil }
 
+        let hasPath = text[authorityEnd...].hasPrefix("/")
         let scheme: String
         if Self.isLoopback(host) {
             scheme = "http"
-        } else if hasPort || Self.isDottedHost(host) {
+        } else if Self.isNonUniqueHost(host) {
+            // Chromium never upgrades IP literals in private ranges or
+            // non-unique (intranet) names to https: a router, NAS or dev
+            // server has no certificate. A single label needs a port or a
+            // path ("devbox:8080", "router/"); alone it is a search
+            // (`AutocompleteInput::Parse`).
+            guard host.contains(where: { $0 == "." || $0 == ":" }) || hasPort || hasPath else { return nil }
+            scheme = "http"
+        } else if hasPort || Self.isDottedHost(host) || host.contains(":") {
             scheme = "https"
         } else {
             return nil
@@ -186,6 +196,32 @@ public nonisolated struct BrowserURLResolver: Sendable {
         }
         let octets = host.split(separator: ".", omittingEmptySubsequences: false)
         return octets.count == 4 && octets[0] == "127" && octets.allSatisfy { UInt8($0) != nil }
+    }
+
+    /// Names and addresses that are not globally unique, so they never get
+    /// a public certificate: private, shared (CGNAT, tailnet) and
+    /// link-local IPv4, unique-local and link-local IPv6, single-label
+    /// hosts, and the reserved or intranet suffixes (RFC 6761, RFC 6762,
+    /// `home.arpa`, `internal`). Chromium's `net::IsHostnameNonUnique`.
+    static func isNonUniqueHost(_ host: String) -> Bool {
+        if host.contains(":") {
+            let lower = host.lowercased()
+            return lower.hasPrefix("fc") || lower.hasPrefix("fd") || lower.hasPrefix("fe8") || lower.hasPrefix("fe9")
+                || lower.hasPrefix("fea") || lower.hasPrefix("feb")
+        }
+        let labels = host.split(separator: ".", omittingEmptySubsequences: false)
+        let octets = labels.compactMap { UInt8($0) }
+        if labels.count == 4, octets.count == 4 {
+            switch (octets[0], octets[1]) {
+            case (10, _), (192, 168), (169, 254): return true
+            case (172, 16...31), (100, 64...127): return true
+            default: return false
+            }
+        }
+        guard labels.allSatisfy({ !$0.isEmpty }) else { return false }
+        if labels.count == 1 { return !host.allSatisfy(\.isNumber) }
+        let suffixes = ["local", "lan", "internal", "intranet", "corp", "home", "localdomain", "test", "example", "invalid", "home.arpa"]
+        return suffixes.contains { host == $0 || host.hasSuffix("." + $0) }
     }
 
     /// A host with at least two labels whose last label looks like a TLD

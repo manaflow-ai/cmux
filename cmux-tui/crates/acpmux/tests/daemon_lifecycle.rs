@@ -385,6 +385,13 @@ async fn an_agent_runs_the_apps_bundled_cmux_and_reaches_the_app() {
     let bundled = dir.join("cmux.app/Contents/Resources/bin");
     std::fs::create_dir_all(&bundled).unwrap();
     write_executable(bundled.join("cmux"), "#!/bin/sh\necho bundled\n");
+    // The app's agent zsh layer (Resources/cmux-cli-path/zsh-agent): the
+    // agent's own `zsh -lc` runs the user's .zprofile, which may put the old
+    // `cmux` first again; the layer moves the bundled one back after it.
+    let agent_zsh = dir.join("cmux.app/Contents/Resources/cmux-cli-path/zsh-agent");
+    std::fs::create_dir_all(&agent_zsh).unwrap();
+    std::fs::write(agent_zsh.join(".zshenv"), "# layer\n").unwrap();
+    let user_zdotdir = dir.join("user-zdotdir");
     let login = dir.join("login-bin");
     std::fs::create_dir_all(&login).unwrap();
     write_executable(login.join("cmux"), "#!/bin/sh\necho stale\n");
@@ -405,6 +412,7 @@ async fn an_agent_runs_the_apps_bundled_cmux_and_reaches_the_app() {
         .env("CMUX_BUNDLED_CLI_PATH", bundled.join("cmux"))
         .env("CMUX_SOCKET_PATH", &app_socket)
         .env("CMUX_BUNDLE_ID", "com.cmuxterm.app.next.debug.cli")
+        .env("ZDOTDIR", &user_zdotdir)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
@@ -430,8 +438,9 @@ async fn an_agent_runs_the_apps_bundled_cmux_and_reaches_the_app() {
         )
         .await;
     let id = s["sessionId"].as_str().unwrap().to_owned();
-    let mut seen = Vec::new();
-    for name in ["PATH", "CMUX_SOCKET_PATH", "CMUX_BUNDLE_ID"] {
+    let mut answers = Vec::new();
+    for name in ["PATH", "CMUX_SOCKET_PATH", "CMUX_BUNDLE_ID", "ZDOTDIR", "CMUX_CLI_AGENT_ZDOTDIR"]
+    {
         rpc.call(
             "session/prompt",
             json!({"sessionId": id, "prompt": [{"type": "text", "text": format!("env: {name}")}]}),
@@ -440,14 +449,16 @@ async fn an_agent_runs_the_apps_bundled_cmux_and_reaches_the_app() {
         let events = rpc
             .call("_acpmux/events", json!({"sessionId": id, "kinds": ["agent_message_chunk"]}))
             .await;
-        seen = events["events"]
+        let seen: Vec<String> = events["events"]
             .as_array()
             .unwrap()
             .iter()
             .filter_map(|e| e.pointer("/msg/params/update/content/text").and_then(Value::as_str))
             .map(str::to_owned)
             .collect();
+        answers.push(seen.last().cloned().unwrap_or_default());
     }
+    let seen = answers;
     let _ = child.kill();
     let _ = child.wait();
     let path = seen[0].strip_prefix("PATH=").unwrap_or_else(|| panic!("{seen:?}"));
@@ -459,5 +470,7 @@ async fn an_agent_runs_the_apps_bundled_cmux_and_reaches_the_app() {
     assert_eq!(first_cmux, bundled.join("cmux"), "the agent's PATH: {path}");
     assert_eq!(seen[1], format!("CMUX_SOCKET_PATH={}", app_socket.display()));
     assert_eq!(seen[2], "CMUX_BUNDLE_ID=com.cmuxterm.app.next.debug.cli");
+    assert_eq!(seen[3], format!("ZDOTDIR={}", agent_zsh.display()), "{seen:?}");
+    assert_eq!(seen[4], format!("CMUX_CLI_AGENT_ZDOTDIR={}", user_zdotdir.display()), "{seen:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }

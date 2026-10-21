@@ -4,6 +4,7 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHome
 import CmuxNextHomeEngine
+import CmuxNextHostedChief
 import Foundation
 import Observation
 import os
@@ -20,6 +21,9 @@ final class HomeService {
     private(set) var conversations: [CmuxNextDaemon.ConversationSummary] = []
     /// Set while older builds' Chiefs block the move into the Chief home.
     var migrationNotice: String?
+    /// The Chief conversation whose settings open once its Home view shows it: Toggle Chief
+    /// Settings with no Home in front brings Home forward there (`HomeChiefActions`).
+    @ObservationIgnored var pendingChiefSettings: ConversationID?
     /// While a Chief turn waits for the compactor (ChiefSettleWatch).
     var settleNotice: String?
     @ObservationIgnored var settleWatch: ChiefSettleWatch?
@@ -32,7 +36,12 @@ final class HomeService {
         home: chief.home, connection: { [weak self] in self?.connection },
         resolveHost: { [weak self] connection in
             guard let self, let socket = await connection.endpoint?.socketPath else { return nil }
-            return HomeBrainHost.resolve(daemonSocket: socket, controlSocket: services.environment.launch.socketPath, home: chief.home)
+            var host = HomeBrainHost.resolve(daemonSocket: socket, controlSocket: services.environment.launch.socketPath, home: chief.home,
+                                             appBuild: services.environment.build)
+            // A Chief on the app's own acpmux waits for it: the local pane host starts it.
+            let local = services.agentTabs.host
+            host?.ensureAppAcpmux = { try? await local.prewarm() }
+            return host
         },
         mint: { connection in try await ConversationClient(connection).agentToken(for: HomeService.mux.id) })
     @ObservationIgnored private(set) var sessions: [String: HomeConversationSession] = [:]
@@ -51,7 +60,7 @@ final class HomeService {
     var homeWorkspaceID: ResourceID?
     /// An `ensure_home` is in flight. A tree snapshot taken meanwhile can
     /// show the new home workspace before its kind row, so launch waits for
-    /// the answer before it decides on a first workspace (`FirstWorkspace`).
+    /// the answer before it decides on a first workspace (`needsFirstWorkspace`).
     var homeEnsureInFlight = false
     /// The latest `ensure_home`; only it clears `homeEnsureInFlight`.
     @ObservationIgnored var homeEnsureGeneration = 0
@@ -61,16 +70,29 @@ final class HomeService {
     /// The chief tab creation's idempotency key (one per creation).
     @ObservationIgnored let chiefTabKey = HomeChiefTabKey()
     @ObservationIgnored let dock = HomeDock() // the Home dock's page tab and links (cx-ebm.59.5, cx-ebm.59.6)
-    /// The signed-in user's chief placed on a paired server (G6), as last
-    /// read on a connect or sign-in; its main conversation is the Chief tab.
-    private(set) var cloudChief: CloudChief?
+    /// The signed-in user's cloud Chiefs (the Hosted Chief and the one
+    /// placed on a paired server), as last read on a connect or sign-in.
+    private(set) var cloudChiefs = HomeCloudChiefs()
+    /// The cloud Chief whose main conversation is the Chief tab, or nil (the local Chief).
+    var cloudChief: CloudChief? { tabChiefs.shown(choice: hostedChief.choice) }
+    /// The cloud Chiefs the Chief tab may show: without the Hosted Chief while
+    /// this Mac's history is still being copied into it (the local Chief stays).
+    var tabChiefs: HomeCloudChiefs { hostedChief.pending ? HomeCloudChiefs(hosted: nil, placed: cloudChiefs.placed) : cloudChiefs }
+    /// The one-time copy of this Mac's Chief into the Hosted Chief and its brain check (HomeService+HostedChief).
+    @ObservationIgnored let hostedChief = HostedChiefMigration()
     @ObservationIgnored private var homeObservation: Task<Void, Never>?
     /// The shared Home core over the local owner (home-mac.md): the native
     /// transcript of every conversation tab reads this one store.
+    /// Mermaid fences in Home chat draw as diagrams with the bundled Ondine
+    /// (`markdown-viewer/ondine.min.js`); one renderer (one JavaScriptCore context) for every pane.
+    /// nil when the bundle lacks the script: fences stay text.
+    @ObservationIgnored private(set) lazy var diagrams: OndineMermaidRenderer? = OndineMermaidRenderer.bundled()
     @ObservationIgnored let homeSource = DaemonHomeSource(me: HomeCoreMapping.participant(HomeService.localUser))
     /// Cloud conversations through the daemon's proxy (home-cloud-proxy.md),
     /// merged with the local ones into the one store.
     @ObservationIgnored let cloudSource = CloudHomeSource(me: HomeCoreMapping.participant(HomeService.localUser))
+    /// Message requests from people the user is not connected to (home-messaging-invites DESIGN 2.3).
+    @ObservationIgnored private(set) lazy var requests = HomeMessageRequests(source: cloudSource)
     @ObservationIgnored private(set) lazy var homeRouter = HomeSourceRouter(local: homeSource, cloud: cloudSource)
     /// The Home list rows (`home-inbox`) the Messages list maps: local from the Chief home, Cloud from the build daemon.
     @ObservationIgnored let homeInbox = HomeInboxSource(owners: ["local"])
@@ -96,6 +118,9 @@ final class HomeService {
             guard let auth = self?.services.cloud.auth, let id = auth.user?.id else { return nil }
             return CloudIdentity.workerUserID(stackProjectID: auth.configuration.stackProjectID, stackUserID: id)
         })
+    /// Hide Alerts for the group actions (`groupActions`): a sidebar source over the same owners
+    /// as every Home list, so a mute from the palette or the CLI reaches the row's owner.
+    @ObservationIgnored private(set) lazy var groupMuting = makeSidebarSource()
     /// A conversation the Home page selects once the inbox lists it (a new
     /// Chief's main conversation, a DM opened from the CLI).
     var pendingSelection: ConversationID?
@@ -112,6 +137,7 @@ final class HomeService {
         // MessagesLab's flight recorder (HomeTunables): DEV on, NIGHTLY opt-in, Release and RC never.
         HomeFlightRecording.install(available: DevTools.isEnabled,
                                     logFolder: Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "cmux")
+        wireHostedChief()
     }
 
     /// Observes the Chief owner: each new connection reloads the list and
@@ -179,9 +205,9 @@ final class HomeService {
     /// The Chief owner's connection, while it serves conversations.
     var connection: DaemonConnection? { isAvailable ? chief.connection : nil }
 
-    /// Records the placed chief the last read found (HomeService+Workspace).
-    func setCloudChief(_ chief: CloudChief?) {
-        if cloudChief != chief { cloudChief = chief }
+    /// Records the cloud Chiefs the last read found (HomeService+Workspace).
+    func setCloudChiefs(_ chiefs: HomeCloudChiefs) {
+        if cloudChiefs != chiefs { cloudChiefs = chiefs }
     }
 
     /// Home opened in a window (or its owner reconnected, not `asked`): start

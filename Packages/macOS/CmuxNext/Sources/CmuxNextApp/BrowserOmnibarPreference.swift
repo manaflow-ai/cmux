@@ -19,7 +19,7 @@ extension OmniboxConfiguration {
         }
         let configuration = OmniboxConfiguration(searchEngine: engine, remoteSuggestions: setting.remoteSuggestions,
                                                  inlineAutocomplete: setting.inlineAutocomplete, maxRows: setting.maxRows,
-                                                 calculator: setting.calculator)
+                                                 calculator: setting.calculator, showFullURLs: setting.showFullURLs)
         return (configuration, invalid)
     }
 }
@@ -50,6 +50,8 @@ enum BrowserOmnibarPreference {
                                                     cornerRadius: setting.cornerRadius, shadow: setting.shadow, backgroundOpacity: setting.backgroundOpacity)
                 cache.omniboxConfiguration = resolved.configuration
                 for engine in cache.suggestionEngines { engine.apply(cache.omniboxConfiguration) }
+                // Chromium's own search (chrome://settings/search, its menu rows) uses the same engine.
+                cache.cef.setDefaultSearch(resolved.configuration.searchEngine)
             }
         }
     }

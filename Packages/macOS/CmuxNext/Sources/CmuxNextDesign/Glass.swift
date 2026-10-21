@@ -31,16 +31,28 @@ public struct Glass {
     /// hover cards, find and prompt bars, page info, popovers) and hosts
     /// `content` edge to edge: Liquid Glass tinted with the theme, with its
     /// own refracting rim, like iOS's menus and folders (Leo, 2026-10-18,
-    /// replacing the solid surface of 2026-10-12); the frosted vibrancy
-    /// material before macOS 26, and the solid popup surface under Reduce
-    /// Transparency. It follows the theme live. Use this for every overlay;
-    /// it takes clicks unless `interactive` is false.
+    /// replacing the solid surface of 2026-10-12), under the ``CardMaterial``
+    /// (theme tone): the popup surface, mostly opaque, and a visible rim, so
+    /// the text reads over any backdrop (Lawrence, 2026-10-20); the frosted
+    /// vibrancy material before macOS 26 under the same card fill, and the
+    /// solid popup surface under Reduce Transparency. It follows the theme
+    /// live. Use this for every overlay; it takes clicks unless `interactive`
+    /// is false. `tone` `.neutral` draws the shared neutral glass with its rim
+    /// (``FloatingGlassStyle``: dialogs, prompts, toasts) instead of the theme
+    /// tint and card fill. `cardFill` false keeps the theme tone's bare glass
+    /// with no ``CardMaterial`` fill: the hover card window (workspace and tab
+    /// cards, the Update Ready highlights), which is glass, never a solid card
+    /// (Leo 2026-10-19 "it's solid gray?", 2026-10-21 "WHY IS THIS SOLID COLOR
+    /// AGAIN"; `FloatingSurfacesStayGlassTests`).
     public static func makeOverlayPanel(
         content: NSView? = nil,
         cornerRadius: CGFloat = Metrics.panelCornerRadius,
-        interactive: Bool = true
+        interactive: Bool = true,
+        tone: OverlayTone = .theme,
+        cardFill: Bool = true
     ) -> OverlaySurfaceView {
-        let surface = OverlaySurfaceView(interactive: interactive, cornerRadius: cornerRadius)
+        let surface = OverlaySurfaceView(interactive: interactive, cornerRadius: cornerRadius,
+                                         card: tone.style == nil && cardFill, tone: tone)
         surface.translatesAutoresizingMaskIntoConstraints = false
         if let content {
             content.translatesAutoresizingMaskIntoConstraints = true

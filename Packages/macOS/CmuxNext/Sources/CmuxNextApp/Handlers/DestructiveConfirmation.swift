@@ -1,7 +1,9 @@
 import AppKit
+import CmuxHomeCore
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextHome
 import CmuxNextSettings
 import os
 
@@ -11,7 +13,7 @@ import os
 ///
 /// Closes never ask for themselves (Lawrence 2026-10-07: they run at once
 /// and an undo toast offers them back; bulk closes, `WorkspaceBulkClose`).
-/// Closing a workspace, a group's workspaces or a space asks only while one of its terminals runs a
+/// Closing a workspace (after the press, WorkspaceCloseFlow), a group's workspaces or a space asks only while one of its terminals runs a
 /// foreground program (`process-info`) and `app.warnBeforeClosingTab` is
 /// on; a tab group follows the tab close rule (`TabCloseGuard`); those
 /// questions have "Don't ask again". Forget Machine has an undo toast and
@@ -25,10 +27,21 @@ enum DestructiveConfirmation {
         var button: String
         /// The toggle "Don't ask again" turns off; nil shows no check box.
         var suppresses: [String]? = nil
+        /// Return presses the button. False for a question that comes after the press
+        /// (WorkspaceCloseFlow): typing on in the next workspace must not confirm it.
+        var returnConfirms = true
     }
 
     static func install(_ services: AppServices) {
         services.registry.confirmationPresenter = { id, invocation, proceed in
+            // Close Workspace runs at the press and asks afterwards, so its row leaves before any
+            // process-info round trip (WorkspaceCloseFlow).
+            if id == "closeWorkspace" {
+                var run = invocation.confirmed()
+                run.asksIfRunning = true
+                services.registry.perform(id, invocation: run)
+                return
+            }
             Task { @MainActor in
                 guard let prompt = await prompt(for: id, invocation, services) else { return proceed() }
                 present(prompt, in: services.windows.active?.window, settings: services.settings) { if $0 { proceed() } }
@@ -71,9 +84,18 @@ enum DestructiveConfirmation {
             // brings the group back, so only work in progress asks.
             guard let (tabs, daemon) = tabGroup(invocation, context) else { return nil }
             return await TabCloseGuard.prompt(closing: tabs, on: daemon, services: services)
-        case "closeWorkspace":
-            guard let workspace = context.scope(invocation).workspace, let daemon = services.machines.daemon(forWorkspace: workspace.id) else { return nil }
-            return await WorkspaceBulkClose.prompt([(workspace, daemon)], warn: warn)
+        case "taskManager.killProcess":
+            // A process Kill Process refuses is not asked about: the handler says why.
+            let key = services.taskManager.process(invocation["process"]?.stringValue)
+            guard let key, services.taskManager.refusal(for: key) == nil else { return nil }
+            let question = services.taskManager.prompt(for: key)
+            return Prompt(title: question.title, body: question.body, button: question.button)
+        case "home.leaveConversation":
+            // The group's name in the question; a conversation not listed is refused by the action.
+            let id = invocation["conversation"]?.stringValue.map { ConversationID($0) } ?? AppActions.shownPage(services)?.shown
+            guard let id, let info = services.home.groupActions.info(id), info.isGroup else { return nil }
+            let prompt = info.leavePrompt
+            return Prompt(title: prompt.title, body: prompt.body, button: prompt.button)
         default:
             return nil
         }
@@ -144,7 +166,7 @@ enum DestructiveConfirmation {
     static func spec(_ prompt: Prompt) -> CmuxDialogSpec {
         CmuxDialogSpec(title: prompt.title, lines: [prompt.body],
                        fields: prompt.suppresses == nil ? [] : [.check(id: suppressID, title: QuitStrings.dontAskAgain, on: false)],
-                       buttons: [.cancel(ConfirmationStrings.cancel), CmuxDialogButton(id: confirmID, title: prompt.button, role: .default)],
+                       buttons: [.cancel(ConfirmationStrings.cancel), CmuxDialogButton(id: confirmID, title: prompt.button, role: prompt.returnConfirms ? .default : .destructive)],
                        identifier: "cmux.dialog.confirmation")
     }
 

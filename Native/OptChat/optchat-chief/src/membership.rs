@@ -36,6 +36,9 @@ pub const NO_REPLY: &str = "NO_REPLY";
 pub struct Membership {
     /// The participant id the host binds as and answers as.
     pub participant: String,
+    /// The human participant allowed to authorize effects (`user_local` on
+    /// the Mac, the `user_...` account id for a placed Cloud brain).
+    pub owner: String,
     /// The group rule for conversations other than the Chief's own.
     pub group_wake: GroupWake,
     /// Whether messages of the owner's other conversations wake the Chief
@@ -47,6 +50,7 @@ impl Default for Membership {
     fn default() -> Membership {
         Membership {
             participant: AGENT_MUX.to_owned(),
+            owner: cmux_chief::rules::USER_LOCAL.to_owned(),
             group_wake: GroupWake::Mention,
             local_side: false,
         }
@@ -102,6 +106,7 @@ impl Membership {
         let local_side = local && side;
         Ok(Membership {
             participant: participant.to_owned(),
+            owner: cmux_chief::rules::USER_LOCAL.to_owned(),
             group_wake: if local_side {
                 group_wake
             } else {
@@ -109,6 +114,17 @@ impl Membership {
             },
             local_side,
         })
+    }
+
+    pub fn with_owner(mut self, owner: Option<&str>) -> Membership {
+        if let Some(owner) = owner.map(str::trim).filter(|owner| !owner.is_empty()) {
+            self.owner = owner.to_owned();
+        }
+        self
+    }
+
+    pub fn is_owner_message(&self, summary: &Summary, message: &Message) -> bool {
+        cmux_chief::rules::is_owner_message_as(summary, message, &self.owner)
     }
 
     pub fn is_default(&self) -> bool {

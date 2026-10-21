@@ -42,6 +42,8 @@ export function fileUndo(diffs: readonly AcpmuxFileDiff[]): FileUndo {
   const last = diffs[diffs.length - 1];
   // The host takes absolute paths only; a path as the agent wrote it (`~/x`, `src/x`) is not one.
   if (!first || !last || !first.path.startsWith("/")) return { kind: "cannot" };
+  // A diff marked as part of its file (a reopened Codex hunk) has no whole-file text to restore.
+  if (diffs.some((diff) => diff.fragment)) return { kind: "cannot" };
   for (let index = 1; index < diffs.length; index++)
     if (diffs[index]!.oldText !== diffs[index - 1]!.newText) return { kind: "cannot" };
   // An empty result could be a replace-all of a fragment: the original is not known.

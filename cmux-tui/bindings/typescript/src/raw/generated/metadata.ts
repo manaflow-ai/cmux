@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2a92c275db7a027c723c340c0ce4726a1392c28e4ff8e8160548cc2669c5ad93. */
+/* cmux-tui mux protocol 12, IR 22526ef27362464ad1798ceadf7ab3b0225cd784acc1dcc13419362378a066bc. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "2a92c275db7a027c723c340c0ce4726a1392c28e4ff8e8160548cc2669c5ad93" as const;
+export const SDK_IR_SHA256 = "22526ef27362464ad1798ceadf7ab3b0225cd784acc1dcc13419362378a066bc" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -340,7 +340,7 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": [
-      "The owner's trusted connection only: a registered Unix client with no link peer record acting as the local user (a local client, or the link's owner_session splice). Link-stamped, relayed, WebSocket, unregistered and agent-bound connections are refused with origin.forbidden before anything is forwarded; the remote relay never admits it. Read-only: one of seven /api paths, GET, forwarded as one line to the brain host's tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET); answers above 5 MiB are refused. Every daemon advertises chief-inspect-v1; one without that socket answers the owner chief.not_configured. See spec/commands.md."
+      "The owner's trusted connection only: a registered Unix client with no link peer record acting as the local user (a local client, or the link's owner_session splice). Link-stamped, relayed, WebSocket, unregistered and agent-bound connections are refused with origin.forbidden before anything is forwarded; the remote relay never admits it. Reads: one of nine /api read paths, GET; the owner's memory changes (/api/memory/edit, /api/memory/delete, /api/memory/undo): POST, which the brain refuses to the Chief's own sessions; the reserved query key chief names a non-default Chief's brain. Forwarded as one line to the brain host's tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET); answers above 5 MiB are refused. Every daemon advertises chief-inspect-v1; one without that socket answers the owner chief.not_configured. See spec/commands.md."
     ]
   },
   "clear-history": {
@@ -750,6 +750,26 @@ export const COMMAND_METADATA = {
       "Trusted local connections only (and the person's authenticated page). Needs cloud-conversations-v1 too. Calls the cloud. See spec/commands.md."
     ]
   },
+  "cloud-requests-list": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. Reads the lease person's open message requests (POST /v1/read home.requests.list); no fields are accepted. Returns {requests} with rows whose conversation is not a conversation id dropped. Calls the cloud; errors carry error_code, reason and retryable. See spec/commands.md."
+    ]
+  },
+  "cloud-selfhost-info": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-selfhost-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. Needs a self-hosted lease (cloud-session-set with auth \"tailscale\"), else cloud_conversation_rejected with reason not_selfhost. Reads GET /v1/selfhost/info without an Authorization header and returns {kind:\"selfhost\", user_id, login?, display_name?, server_name?}; user_id becomes the lease's account (events carry it as account, cloud-session-status as participant). Calls the cloud; errors carry error_code, reason and retryable. See spec/commands.md."
+    ]
+  },
   "cloud-session-clear": {
     "authority": "local-admin",
     "since": 12,
@@ -767,7 +787,7 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": [
-      "Trusted local connections only. Leases the app's cmux Cloud session to the daemon (memory only; never echoed). api_base_url is an https origin (http only for loopback). See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+      "Trusted local connections only. Leases the app's cmux Cloud session to the daemon (memory only; never echoed). api_base_url is an https origin (http only for loopback); access_token and expires_at are required. With auth \"tailscale\" (capability cloud-selfhost-v1) the lease names a self-hosted chat server: an http or https origin on a tailnet host (*.ts.net, 100.64.0.0/10, fd7a:115c:a1e0::/48), no access_token, no expiry, and no Authorization header is sent. See plans/cmux-next/home-cloud-proxy.md, plans/cmux-next/dm-group-chat-DESIGN.md and spec/commands.md."
     ]
   },
   "cloud-session-status": {
@@ -1428,6 +1448,10 @@ export const COMMAND_METADATA = {
       "machine_metadata": {
         "since": 12,
         "capability": "machine-identity-v1"
+      },
+      "revisions": {
+        "since": 12,
+        "capability": null
       }
     },
     "stream": null,
@@ -1652,6 +1676,17 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
+    ]
+  },
+  "move-column": {
+    "authority": "control",
+    "since": 12,
+    "capability": "column-move-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "pane names any pane of the column that moves; the whole column (every pane, split and row) trades places with its neighbor in direction.",
+      "A docked column never moves and is never crossed. See spec/commands.md for the result object and error codes."
     ]
   },
   "move-personal-group": {
@@ -2154,6 +2189,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": []
   },
+  "park-tabs": {
+    "authority": "control",
+    "since": 12,
+    "capability": "tab-park-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
   "paste-image": {
     "authority": "control",
     "since": 12,
@@ -2573,6 +2618,10 @@ export const COMMAND_METADATA = {
     "since": 5,
     "capability": null,
     "fields": {
+      "expect_foreground": {
+        "since": null,
+        "capability": "send-expect-foreground-v1"
+      },
       "paste": {
         "since": 7,
         "capability": null
@@ -2623,6 +2672,10 @@ export const COMMAND_METADATA = {
     "since": 6,
     "capability": null,
     "fields": {
+      "api_revision": {
+        "since": 12,
+        "capability": null
+      },
       "device_id": {
         "since": 12,
         "capability": "shared-sizing-v1"
@@ -2639,9 +2692,17 @@ export const COMMAND_METADATA = {
         "since": 12,
         "capability": "shared-sizing-v1"
       },
+      "install": {
+        "since": 12,
+        "capability": null
+      },
       "user_id": {
         "since": 12,
         "capability": "shared-sizing-v1"
+      },
+      "version": {
+        "since": 12,
+        "capability": null
       }
     },
     "stream": null,
@@ -3217,6 +3278,17 @@ export const COMMAND_METADATA = {
     "constraints": [
       "Omitted or null surfaces means every PTY surface.",
       "Read on request; the daemon keeps no sampler, cache, or timer."
+    ]
+  },
+  "terminal-resume-command": {
+    "authority": "control",
+    "since": 12,
+    "capability": "resume-command",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The resume command is stored durably with the terminal and survives owner restarts.",
+      "When the owner respawns the terminal it types the command on the new prompt without a newline; it never runs on its own."
     ]
   },
   "undo-layout": {
@@ -4280,6 +4352,16 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "string"
         }
       },
+      "agent_session_id": {
+        "description": "The harness's own session id that the agent's hooks reported (`claude`, `codex` session ids), checked to `[A-Za-z0-9._:-]` and at most 256 bytes; null when no hook reported one or it isn't portable (a session-less adapter's local token). Hook reports keep `session` for a human label, so clients find a terminal's agent session by this.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "last_prompt": {
         "description": "The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted.",
         "nullable": true,
@@ -5215,6 +5297,13 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "kind": "scalar",
       "name": "string"
     }
+  },
+  "ColumnMoveDirection": {
+    "kind": "enum",
+    "values": [
+      "left",
+      "right"
+    ]
   },
   "ColumnPin": {
     "additional_properties": false,
@@ -7122,6 +7211,17 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "IdentifyResult": {
     "additional_properties": false,
     "fields": {
+      "api_revision": {
+        "constraints": [
+          "The API revision this daemon reads and writes natively (cmux-tui/spec/api-compat.json). Absent on daemons from before revisions. Only with identify {revisions: true}."
+        ],
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
       "app": {
         "nullable": false,
         "presence": "required",
@@ -7170,6 +7270,17 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "string"
         }
       },
+      "crate_version": {
+        "constraints": [
+          "The cmux-tui crate version; `version` is the npm/PyPI release (equal in app and local builds). Only with identify {revisions: true}."
+        ],
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "daemon_handoff": {
         "nullable": false,
         "presence": "required",
@@ -7189,6 +7300,17 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "ghostty_commit": {
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "install": {
+        "constraints": [
+          "How this daemon's binary was installed: npm, pypi, app or other. Only with identify {revisions: true}."
+        ],
         "nullable": true,
         "presence": "optional",
         "type": {
@@ -7256,6 +7378,17 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "MachinePlatform"
         }
       },
+      "min_api_revision": {
+        "constraints": [
+          "The oldest API revision this daemon translates to and from for a client that declares it with set-client-info. Only with identify {revisions: true}."
+        ],
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
       "pid": {
         "nullable": false,
         "presence": "required",
@@ -7305,6 +7438,17 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint64"
+        }
+      },
+      "update_command": {
+        "constraints": [
+          "The command that updates this daemon's install (npm and PyPI only), for a client's version-skew refusal. Only with identify {revisions: true}."
+        ],
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       },
       "version": {
@@ -12884,6 +13028,28 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "TerminalResumeCommandResult": {
+    "additional_properties": false,
+    "fields": {
+      "command": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "terminal_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "Tree": {
     "additional_properties": false,
     "fields": {
@@ -15866,6 +16032,28 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "JsonValue"
     }
   },
+  "cloud-requests-list": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "cloud-selfhost-info": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "cloud-session-clear": {
     "request": {
       "additional_properties": false,
@@ -15883,7 +16071,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "fields": {
         "access_token": {
           "nullable": false,
-          "presence": "required",
+          "presence": "optional",
           "type": {
             "kind": "scalar",
             "name": "string"
@@ -15892,6 +16080,14 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         "api_base_url": {
           "nullable": false,
           "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "auth": {
+          "nullable": true,
+          "presence": "optional",
           "type": {
             "kind": "scalar",
             "name": "string"
@@ -15907,7 +16103,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         },
         "expires_at": {
           "nullable": false,
-          "presence": "required",
+          "presence": "optional",
           "type": {
             "kind": "scalar",
             "name": "uint64"
@@ -19295,6 +19491,18 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "kind": "scalar",
             "name": "boolean"
           }
+        },
+        "revisions": {
+          "constraints": [
+            "Adds api_revision, min_api_revision, crate_version, install and update_command to the reply. Off by default so strict older SDK decoders keep reading the reply."
+          ],
+          "nullable": false,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
         }
       },
       "kind": "object"
@@ -19952,6 +20160,34 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "move-column": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "direction": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "ColumnMoveDirection"
+          }
+        },
+        "pane": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
           }
         }
       },
@@ -22269,6 +22505,32 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "PaneNeighborResult"
     }
   },
+  "park-tabs": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "surfaces": {
+          "aliases": [
+            "tabs"
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "TabRef"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "paste-image": {
     "request": {
       "additional_properties": false,
@@ -23891,7 +24153,8 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "additional_properties": false,
       "constraints": [
         "When both are present, UTF-8 text bytes precede decoded bytes.",
-        "Exactly one of surface and terminal_id; terminal_id (terminal-input-while-creating-v1) is the host terminal id, also of a terminal still being created, and has the semantics of terminal.input.write."
+        "Exactly one of surface and terminal_id; terminal_id (terminal-input-while-creating-v1) is the host terminal id, also of a terminal still being created, and has the semantics of terminal.input.write.",
+        "expect_foreground (send-expect-foreground-v1) needs surface: the write happens only while the surface's foreground executable equals it, else the request fails with nothing written."
       ],
       "fields": {
         "bytes": {
@@ -23906,6 +24169,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "ref",
             "name": "Base64"
+          }
+        },
+        "expect_foreground": {
+          "capability": "send-expect-foreground-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
           }
         },
         "paste": {
@@ -24069,6 +24342,19 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "request": {
       "additional_properties": false,
       "fields": {
+        "api_revision": {
+          "constraints": [
+            "The API revision the client reads and writes. An older revision within the daemon's range is translated both ways by the daemon; a newer client translates for itself; an older one than min_api_revision is refused. Absent: revision 12."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
+          }
+        },
         "capabilities": {
           "constraints": [
             "Advertises additive client capabilities for this connection."
@@ -24140,6 +24426,19 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "string"
           }
         },
+        "install": {
+          "constraints": [
+            "How the client was installed (npm, pypi, app, other), so a refusal names its exact update command."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
         "kind": {
           "constraints": [
             "Control characters become spaces; at most 64 Unicode characters are retained."
@@ -24168,6 +24467,19 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "capability": "shared-sizing-v1",
           "constraints": [
             "Shared sizing identity asserted by the client; not verified."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "version": {
+          "constraints": [
+            "The client's release (`cmux --version`), named in refusals and logs."
           ],
           "default": null,
           "nullable": true,
@@ -25926,6 +26238,59 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "TerminalResourcesResult"
     }
   },
+  "terminal-resume-command": {
+    "request": {
+      "additional_properties": false,
+      "constraints": [
+        "Exactly one of surface or terminal_id is present."
+      ],
+      "fields": {
+        "command": {
+          "constraints": [
+            {
+              "format": "one line of 1-4096 bytes without control characters, trimmed; absent reads, null clears"
+            }
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "surface": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "terminal_id": {
+          "constraints": [
+            {
+              "format": "terminal host id (UUIDv4 hex without dashes) or public term_ resource id",
+              "pattern": "^(term_)?[0-9a-f]{32}$"
+            }
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "TerminalResumeCommandResult"
+    }
+  },
   "undo-layout": {
     "request": {
       "additional_properties": false,
@@ -26939,6 +27304,16 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     "fields": {
       "agent": {
         "description": "Adapter identity when the producer knows it; absent from protocol-11 event senders and null when no adapter was identified.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "agent_session_id": {
+        "description": "The harness's own session id that the agent's hooks reported (`claude`, `codex` session ids), checked to `[A-Za-z0-9._:-]` and at most 256 bytes; null when no hook reported one or it isn't portable (a session-less adapter's local token). Hook reports keep `session` for a human label, so clients find a terminal's agent session by this.",
         "nullable": true,
         "presence": "optional",
         "since": 12,

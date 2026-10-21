@@ -69,6 +69,7 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
     public mutating func apply(_ event: BrowserNavigationEvent) -> Bool {
         let before = state
         reduce(event)
+        if before.isLoading, !state.isLoading { state.hasEndedLoad = true }
         return state != before
     }
 

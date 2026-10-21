@@ -5,7 +5,9 @@ Use the matching recipe after target and capacity authorization in [the skill](.
 The Mac-side `cmux vm` verbs these recipes used (route, run, exec, agent, dev, push,
 pull, tree, open, fork with flags, `cloud domains`) were removed with the Swift CLI.
 Every recipe below starts a terminal on the machine through the app, then works
-inside the machine with its own `cmux`.
+inside the machine with its own `cmux`. To run a one-off command or write a file,
+the app actions `cmux cloud exec` (returns the exit code and output), `cmux cloud file-write`
+and `cmux cloud file-read` also work from the Mac, each with `--target machine:vm-…` ([command reference](commands.md#shell-commands-and-files)).
 
 ## 0. Get a terminal on the machine
 
@@ -15,8 +17,8 @@ cmux cloud open-machine --target machine:vm-…              # a shell on the ma
 cmux cloud new-terminal-on-machine --target machine:vm-…   # another terminal there
 ```
 
-Creating a machine (`cmux cloud new-machine`) opens the app's sheet and needs the
-user's authorization. Prefer an existing machine and another workspace on it.
+Creating a machine (`cmux cloud new-machine`) asks the person in the app first and
+needs the user's authorization; it answers with the new `machine_id`. Prefer an existing machine and another workspace on it.
 
 Everything after this runs in that machine terminal.
 
@@ -90,9 +92,9 @@ These drive the app's actions and need authorization. Naming a fork at creation,
 Shells on desktop machines get `DISPLAY=:1`. Drive the desktop from inside the
 machine (for example `DISPLAY=:1 xdotool key ctrl+l`). `vm open <id>:desktop`,
 `vm open <id>:port/<n>` and `cloud domains publish|verify|access|rm` were removed;
-`cmux cloud machine-ports --target machine:vm-…` shows the ports in the app and
-`cmux cloud copy-machine-link --target machine:vm-… --port 3000` copies a private
-preview link. Publishing a public HTTPS domain has no CLI path now.
+`cmux cloud machine-ports --target machine:vm-…` shows the ports in the app, and
+the machine's menu (Copy Machine Link) copies a private preview link. `cmux cloud domain-list` and `cmux cloud publication-list` list
+domains; publishing a public HTTPS domain has no CLI path now.
 
 ## 7. Showing the human
 

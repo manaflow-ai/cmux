@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "Conformance vectors for cmux key binding resolution (R59). Every client (the Mac key router, the GPUI and browser clients) resolves each vector with the default table of the action catalog, every action runnable where its catalog context holds, plus the vector's own user entries and removals. keys: one stroke per array element in keybindings.json syntax (cmd, ctrl, opt, shift; tab, pagedown, right, escape, f1...). context: the live context keys (bool, string or number values). expect: {\"action\": id, \"args\": {...}} when the last key runs an entry, {\"armed\": true} when the chord waits for more keys, {\"none\": true} when a key completes nothing. Rules: plans/cmux-next/keybindings.md section 8.",
+  "description": "Conformance vectors for cmux key binding resolution (R59). Every client (the Mac key router, the GPUI and browser clients) resolves each vector with the default table of the action catalog, every action runnable where its catalog context holds, plus the vector's own user entries and removals. keys: one stroke per array element in keybindings.json syntax (cmd, ctrl, opt, shift; tab, pagedown, right, escape, f1...). context: the live context keys (bool, string or number values). expect: {\"action\": id, \"args\": {...}} when the last key runs an entry, {\"armed\": true} when the chord waits for more keys, {\"none\": true} when a key completes nothing. {\"refused\": true}: every entry of the vector is refused when it loads (the daemon leaves it out of keybindings.json's entries, the app's loader refuses it too) and its keys run nothing. A first stroke without cmd or ctrl (a bare key: no cmd, ctrl or opt) binds only when the entry's when requires a bare-key context (diffViewerFocused, markdownReadOnlyFocused: an && term) and no text-field context (textInputFocus, textBoxFocused, omnibarFocused, terminalFocused, agentPaneFocused, codeEditorFocused, markdownEditorFocused, browserFocused); such a sequence arms only while the context owns bare keys (a bare-key context holds and textInputFocus does not). Rules: plans/cmux-next/keybindings.md section 8.",
   "vectors": [
     {
       "name": "Ctrl-Tab in an agent chat is the focused pane's next tab",
@@ -148,11 +148,93 @@
       "expect": {"action": "focusUp"}
     },
     {
+      "name": "Cmd-Opt-Left in a terminal focuses the pane to the left (Ghostty goto_split, reserved)",
+      "context": {"surfaceKind": "terminal", "terminalFocused": true},
+      "keys": ["cmd+opt+left"],
+      "expect": {"action": "focusLeft"}
+    },
+    {
+      "name": "Cmd-Opt-Right in a web page focuses the pane to the right (Ghostty goto_split, reserved)",
+      "context": {"surfaceKind": "page", "browserFocused": true},
+      "keys": ["cmd+opt+right"],
+      "expect": {"action": "focusRight"}
+    },
+    {
       "name": "A removal with the default's own when takes it out (one-clause when)",
       "context": {"surfaceKind": "terminal", "terminalFocused": true},
       "removals": [{"key": "cmd+opt+up", "command": "focusUp", "when": "!codeEditorFocused"}],
       "keys": ["cmd+opt+up"],
       "expect": {"none": true}
+    },
+    {
+      "name": "A bare g g user entry arms on g in a read-only markdown page (K1)",
+      "context": {"pageId": "cmux.markdown", "markdownFocused": true, "markdownReadOnlyFocused": true},
+      "bindings": [{"key": "g g", "command": "markdownGoToTop", "when": "markdownReadOnlyFocused"}],
+      "keys": ["g"],
+      "expect": {"armed": true}
+    },
+    {
+      "name": "A bare g g user entry runs on the second g in a read-only markdown page",
+      "context": {"pageId": "cmux.markdown", "markdownFocused": true, "markdownReadOnlyFocused": true},
+      "bindings": [{"key": "g g", "command": "markdownGoToTop", "when": "markdownReadOnlyFocused"}],
+      "keys": ["g", "g"],
+      "expect": {"action": "markdownGoToTop"}
+    },
+    {
+      "name": "A bare g g entry does not arm in the markdown editor",
+      "context": {"pageId": "cmux.markdown", "markdownFocused": true, "markdownEditorFocused": true},
+      "bindings": [{"key": "g g", "command": "markdownGoToTop", "when": "markdownReadOnlyFocused"}],
+      "keys": ["g"],
+      "expect": {"none": true}
+    },
+    {
+      "name": "A bare g g entry does not arm while a text field in the page has the keyboard",
+      "context": {"pageId": "cmux.markdown", "markdownFocused": true, "markdownReadOnlyFocused": true, "textInputFocus": true},
+      "bindings": [{"key": "g g", "command": "markdownGoToTop", "when": "markdownReadOnlyFocused"}],
+      "keys": ["g"],
+      "expect": {"none": true}
+    },
+    {
+      "name": "A bare first key may arm under a when with other terms that requires a bare-key page",
+      "context": {"pageId": "cmux.markdown", "markdownFocused": true, "markdownReadOnlyFocused": true},
+      "bindings": [{"key": "g g", "command": "markdownGoToTop", "when": "pageId == cmux.markdown && markdownReadOnlyFocused"}],
+      "keys": ["g", "g"],
+      "expect": {"action": "markdownGoToTop"}
+    },
+    {
+      "name": "A bare sequence runs in the diff viewer, the other bare-key page",
+      "context": {"pageId": "cmux.diff", "diffViewerFocused": true},
+      "bindings": [{"key": "] f", "command": "diffViewerNextFile", "when": "diffViewerFocused"}],
+      "keys": ["]", "f"],
+      "expect": {"action": "diffViewerNextFile"}
+    },
+    {
+      "name": "A bare first key without a when that requires a bare-key page is refused",
+      "context": {"pageId": "cmux.markdown", "markdownFocused": true, "markdownReadOnlyFocused": true},
+      "bindings": [{"key": "g g", "command": "markdownGoToTop"}],
+      "keys": ["g"],
+      "expect": {"refused": true}
+    },
+    {
+      "name": "A bare first key whose when also requires a text field is refused",
+      "context": {"pageId": "cmux.markdown", "markdownFocused": true, "markdownReadOnlyFocused": true},
+      "bindings": [{"key": "g g", "command": "markdownGoToTop", "when": "markdownReadOnlyFocused && textInputFocus"}],
+      "keys": ["g"],
+      "expect": {"refused": true}
+    },
+    {
+      "name": "A bare first key whose when holds in a terminal too is refused",
+      "context": {"pageId": "cmux.markdown", "markdownFocused": true, "markdownReadOnlyFocused": true},
+      "bindings": [{"key": "g g", "command": "markdownGoToTop", "when": "markdownReadOnlyFocused || terminalFocused"}],
+      "keys": ["g"],
+      "expect": {"refused": true}
+    },
+    {
+      "name": "A bare first key in the markdown editor is refused",
+      "context": {"pageId": "cmux.markdown", "markdownFocused": true, "markdownEditorFocused": true},
+      "bindings": [{"key": "g g", "command": "markdownGoToTop", "when": "markdownEditorFocused"}],
+      "keys": ["g"],
+      "expect": {"refused": true}
     }
   ]
 }

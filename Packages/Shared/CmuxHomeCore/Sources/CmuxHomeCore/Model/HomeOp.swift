@@ -42,6 +42,21 @@ public enum HomeOp: Hashable, Sendable {
     /// My typing state. Ephemeral: never stored by the owner and never in the
     /// intent log (the store sends it directly; nothing to settle).
     case setTyping(conversation: ConversationID, on: Bool)
+    /// `title.set`: a group's new name (any member may set it). An empty title goes back to the
+    /// members' names. A DM or a Chief conversation has no name to change (`kind_forbids`).
+    case renameConversation(conversation: ConversationID, title: String)
+    /// `participants.add`, once per person: people (or Chiefs) join a group. The owner refuses a
+    /// person the user cannot reach (`not_reachable`: no shared team and no connection); the
+    /// client then offers an email invite. A DM gains no third person (`kind_forbids`).
+    case addParticipants(conversation: ConversationID, participants: [ParticipantID])
+    /// `participants.remove`: `participant` is the signed-in user to leave the group, else the
+    /// group's owner removes that person. A DM has no leave (`kind_forbids`); archive hides it.
+    case removeParticipant(conversation: ConversationID, participant: ParticipantID)
+    /// `conversation.settings.set {wake_policy}`: when the group's Chiefs answer
+    /// (plans/cmux-next/chief-group-chats-DESIGN.md). The group's owner only (`forbidden`); a DM
+    /// or a Chief conversation has no such setting (`kind_forbids`); a local owner refuses it
+    /// (`unsupported_op`).
+    case setChiefReplies(conversation: ConversationID, policy: ChiefReplyPolicy)
     /// `thread.update` (conversation-thread-objects-v1): a thread root's title, status or owner. nil leaves a
     /// field as it is; an empty title or owner clears it. At least one field.
     case updateThread(conversation: ConversationID, root: MessageID, title: String? = nil, status: ThreadInfo.Status? = nil, owner: String? = nil)
@@ -57,6 +72,10 @@ public enum HomeOp: Hashable, Sendable {
              .removeReaction(_, let conversation, _, _),
              .answerQuestion(_, let conversation, _, _),
              .updateThread(let conversation, _, _, _, _),
+             .renameConversation(let conversation, _),
+             .addParticipants(let conversation, _),
+             .removeParticipant(let conversation, _),
+             .setChiefReplies(let conversation, _),
              .setTyping(let conversation, _):
             .conversation(conversation)
         case .setPinned, .setMuted, .createGroup, .createChief, .startConversation, .invite, .openDirect:
@@ -77,6 +96,10 @@ public enum HomeOp: Hashable, Sendable {
              .removeReaction(_, let conversation, _, _),
              .answerQuestion(_, let conversation, _, _),
              .updateThread(let conversation, _, _, _, _),
+             .renameConversation(let conversation, _),
+             .addParticipants(let conversation, _),
+             .removeParticipant(let conversation, _),
+             .setChiefReplies(let conversation, _),
              .setTyping(let conversation, _):
             conversation
         case .createGroup, .createChief, .startConversation, .invite, .openDirect:

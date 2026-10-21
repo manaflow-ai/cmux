@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "acpmux"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "base64",
@@ -13,10 +13,13 @@ dependencies = [
  "cmux-chat-index",
  "cmux-coderouter",
  "cmux-codex-acp",
+ "cmux-git",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-panic-log",
  "cmux-sdk",
  "cmux-unix-socket",
+ "cmux-worktree-care",
  "crossterm",
  "dirs",
  "futures",
@@ -28,6 +31,7 @@ dependencies = [
  "ratatui",
  "regex",
  "reqwest",
+ "ring",
  "rustls",
  "schemars",
  "serde",
@@ -915,6 +919,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-api-compat"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-app-host"
 version = "0.1.0"
 dependencies = [
@@ -935,7 +948,7 @@ dependencies = [
 
 [[package]]
 name = "cmux-browser-host"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "chacha20poly1305",
  "getrandom 0.3.4",
@@ -1024,7 +1037,7 @@ dependencies = [
 [[package]]
 name = "cmux-codex-acp"
 version = "0.1.0"
-source = "git+https://github.com/manaflow-ai/cmux-codex-acp?rev=882b976332ea3dd89df18b401ab13e14a5dc78cc#882b976332ea3dd89df18b401ab13e14a5dc78cc"
+source = "git+https://github.com/manaflow-ai/cmux-codex-acp?rev=e0a27f2f4210ad1a7dd1b33d5f33b273ac647e9b#e0a27f2f4210ad1a7dd1b33d5f33b273ac647e9b"
 dependencies = [
  "serde_json",
 ]
@@ -1114,6 +1127,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "url",
 ]
 
@@ -1123,11 +1137,16 @@ version = "0.1.0"
 dependencies = [
  "cmux-server",
  "cmux-server-core",
+ "flate2",
  "libc",
  "proptest",
+ "ring",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
+ "tar",
  "tempfile",
+ "tokio",
 ]
 
 [[package]]
@@ -1227,6 +1246,14 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-tungstenite",
+]
+
+[[package]]
+name = "cmux-panic-log"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde_json",
 ]
 
 [[package]]
@@ -1494,7 +1521,7 @@ dependencies = [
 
 [[package]]
 name = "cmux-tui"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "acpmux",
  "anyhow",
@@ -1506,6 +1533,7 @@ dependencies = [
  "cmux-config",
  "cmux-host",
  "cmux-link",
+ "cmux-panic-log",
  "cmux-pty",
  "cmux-remote",
  "cmux-remote-protocol",
@@ -1530,6 +1558,7 @@ dependencies = [
  "ratatui",
  "regex",
  "reqwest",
+ "ring",
  "rquickjs",
  "rusqlite",
  "rustls",
@@ -1577,11 +1606,12 @@ dependencies = [
 
 [[package]]
 name = "cmux-tui-core"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "base64",
  "cmux-agent-pane-policy",
+ "cmux-api-compat",
  "cmux-app-host",
  "cmux-app-manifest",
  "cmux-config",
@@ -1621,6 +1651,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "socket2",
  "tokio",
  "tungstenite",
  "uds_windows",
@@ -1746,6 +1777,16 @@ dependencies = [
  "tokio-util",
  "x25519-dalek",
  "zeroize",
+]
+
+[[package]]
+name = "cmux-worktree-care"
+version = "0.1.0"
+dependencies = [
+ "cmux-git",
+ "libc",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

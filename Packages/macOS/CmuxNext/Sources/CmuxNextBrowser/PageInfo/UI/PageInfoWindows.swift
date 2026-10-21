@@ -64,7 +64,7 @@ class PageInfoWindow: NSWindow {
         self.title = title
         isReleasedWhenClosed = false
         minSize = NSSize(width: size.width * 0.8, height: size.height * 0.6)
-        animationBehavior = .utilityWindow
+        animationBehavior = Motion.overlays.animatesMovement ? .utilityWindow : .none
     }
 
     /// Sets the window's content through the window kit (kind

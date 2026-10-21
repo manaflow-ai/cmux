@@ -11,6 +11,9 @@ enum BrowserHitStrings {
         String(format: t("browserHits.menu.search", "Search %1$@ for “%2$@”"), engine, snippet)
     }
 
+    /// Copy Link for a `mailto:` link, as Chrome names it.
+    static var copyEmailAddress: String { t("browserHits.menu.copyEmailAddress", "Copy Email Address") }
+
     /// Look Up “…”.
     static func lookUp(_ snippet: String) -> String {
         String(format: t("browserHits.menu.lookUp", "Look Up “%@”"), snippet)
@@ -28,10 +31,11 @@ enum BrowserHitStrings {
     /// The media hub with no tab playing (BrowserMediaMenu).
     static var mediaNothingPlaying: String { t("browserHits.media.nothingPlaying", "Nothing Playing") }
 
-    // The toolbar's Downloads menu (BrowserDownloadsMenu).
+    // The toolbar's Downloads popup (BrowserDownloadsPopup) and its rows' menu (BrowserDownloadsMenu).
     static var downloadsEmpty: String { t("browserHits.downloads.empty", "No Downloads") }
     static var downloadsClear: String { t("browserHits.downloads.clear", "Clear Finished Downloads") }
     static var downloadOpen: String { t("browserHits.downloads.open", "Open") }
+    static var downloadsShowFolder: String { t("browserHits.downloads.showFolder", "Open Downloads Folder") }
     static var downloadShowInFinder: String { t("browserHits.downloads.showInFinder", "Show in Finder") }
     static var downloadPause: String { t("browserHits.downloads.pause", "Pause") }
     static var downloadResume: String { t("browserHits.downloads.resume", "Resume") }

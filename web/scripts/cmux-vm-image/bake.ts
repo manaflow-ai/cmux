@@ -359,8 +359,9 @@ async function installApt(ctx: Ctx): Promise<void> {
   await L.step(vm, "pgdg-key", `mkdir -p /etc/postgresql-common/createcluster.d && printf 'create_main_cluster = false\\n' > /etc/postgresql-common/createcluster.d/00-cmux.conf && curl -fsSL --retry 3 -o ${PGDG_KEY} ${sq(pgdg.keyUrl)} && printf '%s  %s\\n' ${pgdg.keySha256} ${PGDG_KEY} | sha256sum -c --quiet -`);
   await writeGuestFile(vm, "/etc/apt/sources.list.d/pgdg.sources", pgdgSourcesFile(pgdg, PGDG_KEY), 0o644);
   await L.step(vm, "apt-install-pgdg", `apt-get update -q >/tmp/apt-update.log 2>&1 || { tail -30 /tmp/apt-update.log; exit 1; }; apt-get install -y --no-install-recommends ${aptPinArgs(pgdg.packages)} >/tmp/apt-pg.log 2>&1 || { tail -40 /tmp/apt-pg.log; exit 1; }; ${DPKG_LIST} > /root/after-dpkg.tsv`);
-  const added = dpkgChanges(parseDpkgList(await readGuestText(vm, "/root/base-dpkg.tsv")), parseDpkgList(await readGuestText(vm, "/root/after-dpkg.tsv")));
-  const problems = aptClosureProblems({ ...ubuntu.packages, ...pgdg.packages }, added);
+  const baseDpkg = parseDpkgList(await readGuestText(vm, "/root/base-dpkg.tsv"));
+  const added = dpkgChanges(baseDpkg, parseDpkgList(await readGuestText(vm, "/root/after-dpkg.tsv")));
+  const problems = aptClosureProblems({ ...ubuntu.packages, ...pgdg.packages }, added, baseDpkg);
   if (problems.length > 0) throw new Error(`apt closure differs from the lock:\n${problems.join("\n")}`);
   ctx.result.aptInstalled = added.size;
   await L.step(vm, "postgres-binaries-only", [
@@ -463,10 +464,13 @@ async function configureRoles(ctx: Ctx): Promise<void> {
 async function installHostConfig(ctx: Ctx): Promise<void> {
   const { vm, L } = ctx;
   await L.step(vm, "host-dirs", "install -d -m 0700 /var/lib/cmux && install -d -m 0755 /etc/cmux");
-  await writeGuestFile(vm, HOST_CONFIG_PATH, hostConfig(), 0o644);
+  const hostConfigBody = hostConfig();
+  const hostCarrier = (JSON.parse(hostConfigBody) as { remoteWs: { carrier: string } }).remoteWs.carrier;
+  ctx.result.cmuxRemoteAuth = hostCarrier === "freestyle-edge-grant" ? "client-grant" : "trusted-carrier";
+  await writeGuestFile(vm, HOST_CONFIG_PATH, hostConfigBody, 0o644);
   ctx.result.hostConfig = (await L.step(vm, "host-config", [
     `chown root:root ${HOST_CONFIG_PATH}`,
-    `python3 -c 'import json,sys; c=json.load(open(sys.argv[1])); assert c == {"remoteWs": {"bind": "[::]:1337", "carrier": "freestyle-edge"}}, c' ${HOST_CONFIG_PATH}`,
+    `python3 -c 'import json,sys; c=json.load(open(sys.argv[1])); assert c == {"remoteWs": {"bind": "[::]:1337", "carrier": "${hostCarrier}"}}, c' ${HOST_CONFIG_PATH}`,
     `test "$(stat -c '%U %a' ${HOST_CONFIG_PATH})" = "root 644"`,
     "test ! -e /var/lib/cmux/bind.json && test ! -e /var/lib/cmux/bound.json",
     `${HOST_CLI} --help >/dev/null`,

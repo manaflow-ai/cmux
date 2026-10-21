@@ -1,17 +1,9 @@
 import CmuxHomeCore
 import CmuxNextHome
 import CmuxNextHomeEngine
+import CmuxNextHostedChief
 import Foundation
 import Observation
-
-/// One of the user's Chiefs, as UserDO's `chief.list` reports it.
-struct HomeChiefRecord: Hashable, Sendable {
-    var id: String
-    var name: String
-    var isDefault: Bool
-    var rev: Int
-    var mainConversation: String?
-}
 
 /// The people and Chiefs behind the Home page's New Message and New Chief
 /// (home-messaging.md 4.2 and 16): the members of the user's team
@@ -29,9 +21,13 @@ final class HomeDirectory {
     private(set) var chiefs: [HomeChiefRecord] = []
     /// My archived Chiefs' agent ids: the page hides their conversations.
     private(set) var archivedChiefs: Set<String> = []
-    /// The Chief's avatar for its list tile, the one its header shows: read
-    /// by `HomeService.refreshChiefAvatar()`, set by the header's avatar picker.
-    var chiefAvatar: HomeChiefAvatar?
+    /// Each of this Mac's Chiefs' own avatar for its list tile, by participant id, the one
+    /// its header shows: read by `HomeService.refreshChiefAvatars()` (again after the
+    /// header's avatar picker). A Chief not listed draws the bundled default.
+    var chiefAvatars: [String: HomeChiefAvatar] = [:]
+    /// The engine each of this Mac's Chiefs runs on, by participant id (a Chief on the brain's
+    /// own default is not listed), for the Home list's badges: read by `HomeService.refreshChiefHarnesses()`.
+    var chiefHarnesses: [String: String] = [:]
     @ObservationIgnored private let call: Call
     /// The signed-in account's Worker user id (`CloudIdentity.workerUserID`), left out of the contacts.
     @ObservationIgnored private let me: @MainActor () -> String?
@@ -54,8 +50,8 @@ final class HomeDirectory {
     func refreshChiefs() async {
         if let reply = try? await call("v1/read", ["op": "chief.list", "params": ["include_archived": true]]),
            let value = try? Self.value(reply) {
-            chiefs = Self.chiefs(from: value)
-            archivedChiefs = Self.archivedChiefIDs(from: value)
+            chiefs = HomeChiefRecord.list(from: value)
+            archivedChiefs = HomeChiefRecord.archivedIDs(from: value)
         }
     }
 
@@ -69,7 +65,7 @@ final class HomeDirectory {
                                        "idempotency_key": "chief-create-" + UUID().uuidString.lowercased(), "origin": "user"]
             return try Self.value(try await self.call("v1/ops", body))
         }
-        guard let record = Self.chief(value) else { throw FeedServiceError.badReply }
+        guard let record = HomeChiefRecord.parse(value) else { throw FeedServiceError.badReply }
         chiefs.removeAll { $0.id == record.id }
         chiefs.append(record)
         return record
@@ -124,21 +120,5 @@ final class HomeDirectory {
             return HomeContact(id: ParticipantID(id), name: name, source: .team)
         }
         .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-    }
-
-    static func chiefs(from value: Any?) -> [HomeChiefRecord] {
-        ((value as? [String: Any])?["chiefs"] as? [[String: Any]] ?? []).compactMap(chief)
-    }
-
-    static func archivedChiefIDs(from value: Any?) -> Set<String> {
-        let list = (value as? [String: Any])?["chiefs"] as? [[String: Any]] ?? []
-        return Set(list.compactMap { $0["archived_at"] is String ? $0["id"] as? String : nil })
-    }
-
-    static func chief(_ value: Any?) -> HomeChiefRecord? {
-        guard let object = value as? [String: Any], let id = object["id"] as? String,
-              (object["archived_at"] as? String) == nil else { return nil }
-        return HomeChiefRecord(id: id, name: object["display_name"] as? String ?? "", isDefault: object["is_default"] as? Bool ?? false,
-                               rev: (object["rev"] as? NSNumber)?.intValue ?? 0, mainConversation: object["main_conversation"] as? String)
     }
 }

@@ -13,6 +13,15 @@ target to lie under a `tree` or `gitlink` input or to be a `blob` input.
 OUT_DIR embeds are the crate's own build output; build.rs files are skipped (the
 code they generate embeds build outputs). An embed form it cannot resolve fails.
 
+Only crates a tree binary can contain are checked: the dependency closure, in
+cmux-tui/Cargo.lock, of the packages the tree publishes or daemon-tests
+(PUBLISHED_ROOTS, every package the other-workspace tree binaries' lockfiles
+list, and every package holding a cmux_next_ test). A workspace
+crate outside it never reaches the tree, so covering its embeds only rebuilds
+the tree for nothing: cmux-theme-tokens embeds the design-tokens.json every
+Swift design change edits (#21785). Crates of other workspaces (no Cargo.lock
+entry) and every crate when a lock is missing or names no root stay checked.
+
 Usage: check_cmux_tui_tree_inputs.py [--root DIR]   (exit 1 lists what to add)
 """
 from __future__ import annotations
@@ -29,6 +38,72 @@ LITERAL = re.compile(r'\s*"([^"]+)"\s*\)', re.S)
 MANIFEST_DIR = re.compile(r'\s*concat!\s*\(\s*env!\s*\(\s*"CARGO_MANIFEST_DIR"\s*\)\s*,\s*"([^"]+)"\s*\)\s*\)', re.S)
 OUT_DIR = re.compile(r'\s*concat!\s*\(\s*env!\s*\(\s*"OUT_DIR"\s*\)', re.S)
 CONCAT_PREFIX = re.compile(r'\s*concat!\s*\(\s*"([^"]+)"', re.S)
+
+
+# The packages scripts/ci/macos-cross.sh and cmux-tui-build-package.yml build
+# into the tree (cmux-tui-hook and cmux-tui-host are cmux-tui bins).
+PUBLISHED_ROOTS = (
+    "acpmux",
+    "chatmux-relay",
+    "cmux-app-host",
+    "cmux-browser-host",
+    "cmux-relay",
+    "cmux-tui",
+    "ghostty-vt-sys",
+)
+
+# Tree binaries built from their own Cargo workspaces (macos-cross.sh hosts):
+# the cmux-tui crates their lockfiles list are linked too.
+OTHER_PUBLISHED_LOCKS = (
+    "first-party-apps/cloud/server/Cargo.lock",
+    "cmux-tui/bindings/examples/rust-agent-screen-detection/Cargo.lock",
+)
+
+
+def unpublished_crates(root: Path, manifests: set[str]) -> set[str]:
+    """Crate directories in the cmux-tui lock that no tree binary links."""
+    lock_path = root / "cmux-tui/Cargo.lock"
+    try:
+        import tomllib
+        lock = tomllib.loads(lock_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, ImportError):
+        return set()
+    graph: dict[str, set[str]] = {}
+    for package in lock.get("package", []):
+        graph.setdefault(package["name"], set()).update(
+            dep.split()[0] for dep in package.get("dependencies", []))
+    names: dict[str, str] = {}
+    for crate in manifests:
+        try:
+            name = tomllib.loads((root / crate / "Cargo.toml").read_text(encoding="utf-8"))["package"]["name"]
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        if isinstance(name, str):
+            names[crate] = name
+    tested = subprocess.run(["git", "-C", str(root), "grep", "-l", "cmux_next_", "--", "cmux-tui/*.rs"],
+                            capture_output=True, text=True).stdout.splitlines()
+    roots = set(PUBLISHED_ROOTS)
+    for other in OTHER_PUBLISHED_LOCKS:
+        try:
+            roots.update(p["name"] for p in tomllib.loads((root / other).read_text(encoding="utf-8")).get("package", []))
+        except (OSError, ValueError, KeyError, TypeError):
+            return set()
+    for path in tested:
+        d = os.path.dirname(path)
+        while d and d not in manifests:
+            d = os.path.dirname(d)
+        if d not in names:
+            return set()
+        roots.add(names[d])
+    if not roots & graph.keys():
+        return set()
+    closure, stack = set(), [r for r in roots if r in graph]
+    while stack:
+        name = stack.pop()
+        if name not in closure:
+            closure.add(name)
+            stack.extend(graph.get(name, ()))
+    return {crate for crate, name in names.items() if name in graph and name not in closure}
 
 
 def inputs(root: Path) -> tuple[list[str], set[str]]:
@@ -55,9 +130,12 @@ def embeds(root: Path) -> tuple[set[str], list[str]]:
             d = os.path.dirname(d)
         return d
 
+    skipped = unpublished_crates(root, manifests)
     targets, problems = set(), []
     for path in files:
         if not path or os.path.basename(path) == "build.rs":
+            continue
+        if crate_dir(path) in skipped:
             continue
         text = (root / path).read_text(encoding="utf-8", errors="replace")
         if "include_" not in text:

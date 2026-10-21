@@ -17,7 +17,8 @@ extension SidebarListViewComponents {
         case let .workspace(id):
             guard !model.isPlaceholder(id) else { return }
             let ids = model.selection.contains(id) ? model.orderedSelection : [id]
-            if !model.selection.contains(id) { model.click(id) }
+            // Multi-view: the drag moves the row and leaves the shown workspace (and the selection) as it is.
+            if !model.selection.contains(id), press.clickOnRelease != id { model.click(id) }
             payload = .workspaces(ids)
             hidden = Set(ids.map(SidebarRowKey.workspace))
             origin = ids.first.flatMap { SidebarEdits.position(of: $0, in: model.sections) }.map(DropTarget.position)
@@ -115,7 +116,7 @@ extension SidebarListViewComponents {
             self.drag = nil
             // A drop is no focus change (hq-2d, cx-8quut): the reloads that show it anchor, and scroll only when the
             // focused row moved or was pushed out of view (sidebar-focused-visible, `ListViewport.settle`).
-            revealedActive = model.activeWorkspaceID.map { SidebarRowKey.workspace($0) }
+            revealedActive = selectionRevealKey
             let sentBefore = SidebarDocStore.current?.lastIntentKey
             doc.drop(items, target)
             settling?.key = SidebarDocStore.current?.lastIntentKey // nil already: refused inside the call
@@ -133,7 +134,7 @@ extension SidebarListViewComponents {
         self.drag = nil
         // A drop moves rows, not the list: its reloads anchor on the first visible row (cx-fnfj, cx-8quut) and reveal only
         // a focused row the drop moved or pushed out of view (sidebar-focused-visible).
-        revealedActive = model.activeWorkspaceID.map { SidebarRowKey.workspace($0) }
+        revealedActive = selectionRevealKey
         switch (drag.payload, target) {
         case let (.workspaces(ids), .position(position)):
             model.send(.reorder(ids, to: position))
@@ -160,6 +161,7 @@ extension SidebarListViewComponents {
             drag.blockBases = blockBases()
             let base = SidebarLayout.make(sections: listSections, metrics: metrics, options: options(includeGap: false))
             drag.docGeometry = doc.geometry(base, width: bounds.width, acceptance: drag.docAcceptance, blocks: drag.blockBases)
+            if drag.groupHeadHeight != nil { drag.groupBlocks = SidebarGroupReorder.blocks(of: base.rows) }
         }
         guard let (geometry, rows) = drag.docGeometry else { return }
         // The rest shape's centre under the pointer: it does not move when the card morphs (no hit oscillation at a block edge).
@@ -167,8 +169,31 @@ extension SidebarListViewComponents {
         // holds it, not the card's centre many rows away.
         let displayY = drag.morphs || drag.tileSource != nil ? point.y - drag.grabOffsetY * drag.restFrame.height / max(1, drag.lift.frame.height)
             + drag.restFrame.height / 2 : drag.groupHeadHeight.map { drag.lift.frame.minY + $0 / 2 } ?? drag.probeCard.midY
-        let y = drag.blockTarget != nil ? baseY(displayY: displayY, blockGap: drag.blockTarget, bases: drag.blockBases)
+        var y = drag.blockTarget != nil ? baseY(displayY: displayY, blockGap: drag.blockTarget, bases: drag.blockBases)
             : SidebarDragGeometry.baseY(displayY: displayY, gapY: displayed.gapY, gapHeight: displayed.gapShift)
+        // A dragged group moves by its edges (u2455): its bottom past the middle of the block below moves it down,
+        // its top past the middle of the block above moves it up (`SidebarGroupReorder`), for tall and short groups.
+        if drag.groupHeadHeight != nil, drag.blockTarget == nil, let gapY = displayed.gapY, !drag.groupBlocks.isEmpty {
+            var reorder = SidebarGroupReorder(blocks: drag.groupBlocks, shift: displayed.gapShift)
+            let current = reorder.index(ofGapAt: gapY)
+            // The blocks below the gap as drawn: the gap plus the spacing between groups (6 pt more than `gapShift`).
+            let shown = SidebarGroupReorder.blocks(of: displayed.rows.filter { !drag.hiddenKeys.contains($0.key) })
+            if current < min(shown.count, drag.groupBlocks.count) { reorder.shift = shown[current].lowerBound - drag.groupBlocks[current].lowerBound }
+            let card = drag.lift.frame
+            let index = reorder.index(top: card.minY, bottom: card.maxY, current: current)
+            if let probe = reorder.probeY(for: index) { y = probe }
+        } else if drag.groupHeadHeight == nil, drag.blockTarget == nil {
+            // A row moves by its edges too (Lawrence 2026-10-20): its top past the middle of the row above moves it up,
+            // its bottom past the middle of the row below moves it down (`SidebarDragGeometry.edgeY`). The rest shape's
+            // edges, as for the centre above, so a morph does not move them. A block's tiles keep the centre.
+            let morphs = drag.morphs || drag.tileSource != nil
+            let height = morphs ? drag.restFrame.height : drag.lift.frame.height
+            let top = morphs ? displayY - height / 2 : drag.lift.frame.minY
+            let reversing = drag.docTargetChangedUp.map { $0 != drag.movingUp } ?? false
+            guard let edge = geometry.edgeY(top: top, bottom: top + height, x: point.x, movingUp: drag.movingUp, gapY: displayed.gapY,
+                                            gapHeight: displayed.gapShift, current: drag.docTarget, reversing: reversing) else { return }
+            if let hit = geometry.hit(CGPoint(x: point.x, y: edge)), rows[hit.slot.key] != nil { y = edge }
+        }
         guard let hit = geometry.hit(CGPoint(x: point.x, y: y)) else {
             // Nowhere to drop: no gap shows.
             drag.docTarget = nil
@@ -240,7 +265,7 @@ extension SidebarListViewComponents {
         if let source = drag.tileSource { drag.tileRegion?.docSpentPress = source.item } // the tile's press drags nothing more
         suppressed = drag.hiddenKeys
         reload(animated: true, adopt: true) // the gap closes and the source slot opens on the drag's spring
-        land(drag)
+        land(drag) { [weak region = drag.tileSource == nil ? nil : drag.tileRegion] in region?.endDocPress() } // a list press eats the tile's release
     }
     /// Flies the lifted view to its row's current frame (or `slot`, the
     /// band slot of a pin drop), then swaps it out and runs `then`.
@@ -289,6 +314,9 @@ extension SidebarListViewComponents {
             suppressed.subtract(shown)
             for key in shown { rowViews[key]?.alphaValue = 1 }
             drag.heldKeys = []
+            // A lifted group's line rode on the card; the applies under the flight left it out while its rows were
+            // hidden. It shows with its rows, in this transaction (u2455: it came back only at the next click).
+            groupLineViews.showMissing(groupLines(displayed), in: self, above: decorations)
         }
         updateHover()
         // The rows the ticks patched meanwhile show their new content now, together (`SidebarRowHold`).
@@ -447,7 +475,7 @@ extension SidebarListViewComponents {
         decorations.frame = bounds
         decorations.setGap(gapFrame, animated: true)
         let lines = groupLineViews.update(groupLines(layout), from: groupLines(layout, current: true), in: self, above: decorations, animated: true)
-        Motion.animate(.move, in: self, { lines.changes() }, completion: { [leaving = lines.leaving] in leaving.forEach { $0.removeFromSuperview() } })
+        Motion.sidebar.animate(.move, in: self, { lines.changes() }, completion: { [leaving = lines.leaving] in leaving.forEach { $0.removeFromSuperview() } })
     }
 
     /// An adopting apply's motion: kept rows spring from where they are,
@@ -458,11 +486,11 @@ extension SidebarListViewComponents {
             SidebarDragSpring.move(view, to: target)
             SidebarDragSpring.fade(view, to: 1)
         }
-        Motion.animate(.move, in: self, { lines.changes() }, completion: { [leaving = lines.leaving] in leaving.forEach { $0.removeFromSuperview() } })
+        Motion.sidebar.animate(.move, in: self, { lines.changes() }, completion: { [leaving = lines.leaving] in leaving.forEach { $0.removeFromSuperview() } })
         guard !leaving.isEmpty else { return }
         // The motion probe keeps sampling a fading row until it is gone (a fade is not a pop).
         for (view, _) in leaving { fadingRows[ObjectIdentifier(view)] = view }
-        Motion.animate(.hover, in: self, {
+        Motion.feedback.animate(.hover, in: self, {
             for (view, _) in leaving { view.animator().alphaValue = 0 }
         }, completion: { [weak self, leaving] in
             guard let self else { return }

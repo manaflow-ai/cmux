@@ -34,6 +34,9 @@ pub struct SessionSpec {
     /// The fast service tier (codex-acp's `fast-mode` config option, set
     /// right after session/new); false: the harness's default speed.
     pub fast: bool,
+    /// The acpmux peer (`acpmux host ls`) the session is created on
+    /// (`_meta.acpmux.peer`; a cloud subagent); None: this machine.
+    pub peer: Option<String>,
 }
 
 /// The tag on every session the Chief itself runs (its turns and its
@@ -42,6 +45,8 @@ pub struct SessionSpec {
 pub const CHIEF_TAG: &str = "cmux.chief";
 /// `turn` or `compactor`, next to `cmux.chief`.
 pub const CHIEF_ROLE_TAG: &str = "cmux.chief.role";
+/// The compactor's `cmux.chief.role`.
+pub const COMPACTOR_ROLE: &str = "compactor";
 
 /// The tags of a Chief session of `role` for home `home_id`.
 pub fn chief_tags(home_id: &str, role: &str) -> BTreeMap<String, String> {
@@ -191,6 +196,18 @@ pub trait AgentPort: Send + Sync {
     fn cancel(&self, _session: &str) -> Result<(), String> {
         Err("cancel is not supported".into())
     }
+    /// Ends every background process of `session` that still runs
+    /// (`_acpmux/process/list`, then `_acpmux/process/kill` of each): the
+    /// shells a harness started to outlive its turn. How many it ended.
+    fn kill_processes(&self, _session: &str) -> Result<usize, String> {
+        Err("ending background processes is not supported".into())
+    }
+    /// Takes a prompt that still waits in `session`'s queue out of it
+    /// (`_acpmux/queue_remove`): true when it was removed, false when it no
+    /// longer waits (it ran or was removed).
+    fn remove_queued(&self, _session: &str, _prompt_id: &str) -> Result<bool, String> {
+        Err("removing queued prompts is not supported".into())
+    }
     /// Sets `session`'s harness mode (`session/set_mode`).
     fn set_mode(&self, _session: &str, _mode: &str) -> Result<(), String> {
         Err("set_mode is not supported".into())
@@ -203,7 +220,8 @@ pub trait AgentPort: Send + Sync {
     }
 
     /// The models acpmux offers for `harness` (`_acpmux/models`), each
-    /// `{"id", "name"}`, in its order: what an engine set may pick.
+    /// `{"id", "name"}` with the picker's catalog fields, in its order: what
+    /// an engine set may pick.
     fn offered_models(&self, _harness: &str) -> Result<Vec<Value>, String> {
         Ok(Vec::new())
     }
@@ -430,12 +448,13 @@ impl Acpmux {
                 // setting source keeps it), then every isolation word.
                 if key == "args"
                     && let Some(args) = map.get_mut("args").and_then(Value::as_array_mut)
-                    && let Some(kept) =
-                        without_tools_list(args).or_else(|| without_isolation_args(args))
+                    && let Some(kept) = project_sources_only(args)
+                        .or_else(|| without_tools_list(args))
+                        .or_else(|| without_isolation_args(args))
                 {
                     *args = kept;
                     log(&format!(
-                        "acpmux refused the isolation args of preset {} ({text}); trying them without the newest (a --tools list, then --setting-sources and --disable-slash-commands; the project settings' denied tools still apply)",
+                        "acpmux refused the isolation args of preset {} ({text}); trying them without the newest (the local setting source, then a --tools list, then --setting-sources and --disable-slash-commands; the project settings' denied tools still apply)",
                         preset.name
                     ));
                     continue;
@@ -645,6 +664,17 @@ pub fn without_isolation_args(args: &[Value]) -> Option<Vec<Value>> {
     dropped.then_some(kept)
 }
 
+/// `args` with `--setting-sources project,local` read as `project` (an
+/// acpmux from before the local source refuses it); None when it has none.
+pub fn project_sources_only(args: &[Value]) -> Option<Vec<Value>> {
+    let at = args.windows(2).position(|w| {
+        w[0].as_str() == Some("--setting-sources") && w[1].as_str() == Some("project,local")
+    })?;
+    let mut kept = args.to_vec();
+    kept[at + 1] = Value::String("project".into());
+    Some(kept)
+}
+
 /// `args` without a `--tools <names>` list (`--tools ""` stays); None when
 /// it has none.
 pub fn without_tools_list(args: &[Value]) -> Option<Vec<Value>> {
@@ -764,7 +794,7 @@ pub fn sessions(client: &RpcClient) -> Result<Vec<SessionSummary>, String> {
         .collect())
 }
 
-/// `_acpmux/events` after `after`, every page.
+/// `_acpmux/events` after `after`, every page (`hasMore`: a page ends at the daemon's byte limit).
 pub fn events(client: &RpcClient, session: &str, after: u64) -> Result<Vec<AcpmuxEvent>, String> {
     const LIMIT: u64 = 10_000;
     let mut all: Vec<AcpmuxEvent> = Vec::new();
@@ -783,10 +813,10 @@ pub fn events(client: &RpcClient, session: &str, after: u64) -> Result<Vec<Acpmu
             .flatten()
             .filter_map(|e| serde_json::from_value(e.clone()).ok())
             .collect();
-        let full = page.len() as u64 >= LIMIT;
+        let more = result.get("hasMore") == Some(&json!(true)) || page.len() as u64 >= LIMIT;
         let last = page.iter().map(|e| e.seq).max().unwrap_or(cursor);
         all.extend(page);
-        if !full || last <= cursor {
+        if !more || last <= cursor {
             return Ok(all);
         }
         cursor = last;
@@ -796,13 +826,15 @@ pub fn events(client: &RpcClient, session: &str, after: u64) -> Result<Vec<Acpmu
 /// codex-acp's config option for the fast (priority) service tier.
 pub const FAST_MODE_OPTION: &str = "fast-mode";
 
-/// `session/new` with acpmux's name, harness, policy, model and preset.
-pub fn new_session(
-    client: &RpcClient,
-    spec: &SessionSpec,
-    preset: Option<&str>,
-) -> Result<String, String> {
-    let mut meta = json!({"name": spec.name, "harness": spec.harness, "policy": spec.policy});
+/// `session/new`'s `_meta.acpmux`: name, harness, policy, model, effort,
+/// preset, env and peer. On a peer (a cloud VM) a policy that does not ask is
+/// left out: a peer refuses one from a remote connection, and the VM's own
+/// default (its config.json) applies; `ask` (the spawn floor) is still sent.
+pub fn session_meta(spec: &SessionSpec, preset: Option<&str>) -> Value {
+    let mut meta = json!({"name": spec.name, "harness": spec.harness});
+    if spec.peer.is_none() || matches!(spec.policy.as_str(), "ask" | "deny-all") {
+        meta["policy"] = json!(spec.policy);
+    }
     if let Some(model) = &spec.model {
         meta["model"] = json!(model);
     }
@@ -815,6 +847,19 @@ pub fn new_session(
     if !spec.env.is_empty() {
         meta["env"] = json!(spec.env);
     }
+    if let Some(peer) = &spec.peer {
+        meta["peer"] = json!(peer);
+    }
+    meta
+}
+
+/// `session/new` with acpmux's name, harness, policy, model and preset.
+pub fn new_session(
+    client: &RpcClient,
+    spec: &SessionSpec,
+    preset: Option<&str>,
+) -> Result<String, String> {
+    let mut meta = session_meta(spec, preset);
     let request = |meta: &Value| {
         client.request(
             "session/new",
@@ -887,6 +932,8 @@ impl AgentPort for Acpmux {
                     "the acpmux preset {name} is not installed, and this session never starts without it"
                 ));
             }
+            // A peer session: this daemon's presets do not exist there.
+            None if spec.peer.is_some() => None,
             None => self
                 .preset
                 .as_ref()
@@ -967,6 +1014,45 @@ impl AgentPort for Acpmux {
             .map_err(|e| format!("cancel: {e}"))
     }
 
+    fn kill_processes(&self, session: &str) -> Result<usize, String> {
+        let client = self.client()?;
+        let list = client
+            .request("_acpmux/process/list", json!({"sessionId": session}))
+            .map_err(|e| format!("process list: {e}"))?;
+        let running: Vec<String> = list
+            .get("processes")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter(|p| p.get("state").and_then(Value::as_str) == Some("running"))
+            .filter_map(|p| p.get("id").and_then(Value::as_str).map(str::to_owned))
+            .collect();
+        // One process that will not die does not keep the rest running.
+        let mut ended = 0;
+        let mut errors = Vec::new();
+        for id in &running {
+            match client.request("_acpmux/process/kill", json!({"processId": id})) {
+                Ok(_) => ended += 1,
+                Err(e) => errors.push(format!("process kill {id}: {e}")),
+            }
+        }
+        if errors.is_empty() {
+            Ok(ended)
+        } else {
+            Err(format!("ended {ended}; {}", errors.join("; ")))
+        }
+    }
+
+    fn remove_queued(&self, session: &str, prompt_id: &str) -> Result<bool, String> {
+        self.client()?
+            .request(
+                "_acpmux/queue_remove",
+                json!({"sessionId": session, "promptId": prompt_id}),
+            )
+            .map(|v| v["removed"].as_bool().unwrap_or(false))
+            .map_err(|e| format!("queue_remove: {e}"))
+    }
+
     fn set_mode(&self, session: &str, mode: &str) -> Result<(), String> {
         self.client()?
             .request(
@@ -1000,7 +1086,16 @@ impl AgentPort for Acpmux {
             .filter_map(|m| {
                 let id = m["id"].as_str()?;
                 let name = m["name"].as_str().unwrap_or(id);
-                Some(json!({"id": id, "name": name}))
+                let mut offered = json!({"id": id, "name": name});
+                // The picker's metadata (family sections, alias dedupe, the
+                // efforts and fast tier a model takes); prices and curation
+                // flags stay acpmux's.
+                for key in PICKER_FIELDS {
+                    if let Some(value) = m.get(*key).filter(|v| !v.is_null()) {
+                        offered[*key] = value.clone();
+                    }
+                }
+                Some(offered)
             })
             .collect())
     }
@@ -1163,3 +1258,20 @@ impl AgentPort for Acpmux {
             .map_err(|e| format!("setting the system prompt of preset {preset}: {e}"))
     }
 }
+
+/// The catalog fields of an `_acpmux/models` entry the Chief's model picker
+/// reads (Home's Chief card: family sections, alias dedupe, per-model efforts,
+/// the fast tier, context variants).
+const PICKER_FIELDS: &[&str] = &[
+    "family",
+    "provider",
+    "shortName",
+    "efforts",
+    "defaultEffort",
+    "fast",
+    "aliases",
+    "resolvedModel",
+    "contextWindow",
+    "releaseDate",
+    "description",
+];

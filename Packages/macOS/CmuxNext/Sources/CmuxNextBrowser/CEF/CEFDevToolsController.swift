@@ -53,6 +53,8 @@ final class CEFDevToolsController {
             _ = shim.devToolsCommand(browserID, CEFShimLibrary.DevToolsCommand.close, 0, 0)
         case .dock(let dock):
             move(to: dock)
+        case .panel(let panel):
+            _ = shim.devToolsShowPanel(browserID, panel.chromiumID)
         }
     }
 

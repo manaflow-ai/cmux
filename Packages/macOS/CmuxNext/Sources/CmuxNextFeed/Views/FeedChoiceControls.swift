@@ -14,20 +14,18 @@ struct FeedChoiceControls: View {
     var body: some View {
         let answers = model.drafts.choices[item.id] ?? [:]
         let issues = FeedChoiceValidation.issues(answers, for: prompt)
-        VStack(alignment: .leading, spacing: density == .menubar ? 4 : 10) {
+        VStack(alignment: .leading, spacing: 10) {
             ForEach(prompt.questions) { question in
                 VStack(alignment: .leading, spacing: 5) {
-                    if density != .menubar {
-                        Text(question.question)
-                            .font(.system(size: 12))
-                            .foregroundStyle(colors.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+                    Text(question.question)
+                        .font(.system(size: 12))
+                        .foregroundStyle(colors.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                     FeedFlowLayout(spacing: 5) {
                         ForEach(question.options) { option in
                             let selected = model.drafts.choice(item.id, question.id).selected.contains(option.id)
                             Button(option.label) { tap(question, option.id) }
-                                .buttonStyle(FeedButtonStyle(role: .chip(selected: selected), compact: density == .menubar))
+                                .buttonStyle(FeedButtonStyle(role: .chip(selected: selected)))
                                 .themedHelp(option.detail ?? "")
                         }
                     }

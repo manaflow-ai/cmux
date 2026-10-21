@@ -7,7 +7,9 @@ name: cmux-next generated catch-up
 # On each feat-cmux-next move this merges the base into every same-repository
 # PR whose only conflicts are those files, rebuilds them
 # (scripts/cmux-next/regenerate-web-bundles.sh) and pushes the merge. A PR with
-# any authored conflict is left to its author.
+# any authored conflict is left to its author. It pushes only to Leo's agent
+# PRs (author teamleaderleo) and to PRs labeled generated-catch-up: never to a
+# teammate's PR they did not opt in.
 #
 # Dry run until the repo variable CMUX_NEXT_GENERATED_CATCH_UP is 1: it merges
 # and rebuilds, and the summary says what it would push.
@@ -19,9 +21,13 @@ on:
 permissions:
   contents: read
 
+# A newer move must not cancel a running catch-up: the base moves every few
+# minutes and a catch-up takes up to 20, so cancelling left every run unfinished
+# (38 of 40 cancelled, 2026-10-20). One run finishes; GitHub keeps only the
+# newest pending run behind it, which catches up from the newest base.
 concurrency:
   group: cmux-next-generated-catch-up
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   select:
@@ -52,6 +58,7 @@ jobs:
           echo "Conflicting PRs to catch up: $prs" >> "$GITHUB_STEP_SUMMARY"
 
   catch-up:
+    environment: ci-routing-agent
     needs: select
     if: needs.select.outputs.prs != '' && needs.select.outputs.prs != '[]'
     name: catch up #${{ matrix.pr.number }}

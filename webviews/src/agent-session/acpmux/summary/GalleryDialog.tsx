@@ -3,6 +3,7 @@
 // in place as in the transcript.
 import { useMemo, useRef, useState } from "react";
 import { Dialog } from "../../../ui/Dialog";
+import { keyedIconProps } from "../../../ui/DialogButton";
 import { canRender, RenderCard } from "../conversation/RenderCard";
 import { Close } from "../conversation/icons";
 import { useT } from "../i18n";
@@ -58,8 +59,7 @@ export function GalleryDialog({
           type="button"
           className="acpmux-image-viewer-action"
           ref={close}
-          aria-label={t("image.close")}
-          title={t("image.close")}
+          {...keyedIconProps(t("image.close"), "escape")}
           onClick={onClose}
         >
           <Close />

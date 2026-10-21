@@ -238,6 +238,11 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-chromium-${{ runner.os }}-${{ hashFiles('web/bun.lock') }}
 
+      - name: Cache Playwright's apt packages
+        uses: ./.github/actions/playwright-apt-cache
+        with:
+          engines: chromium
+
       - name: Install browser for instant navigation tests
         run: bunx playwright install --with-deps chromium
 
@@ -255,14 +260,17 @@ jobs:
     needs: web-subarea-scope
     if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
     # `bun test` grows memory across the suite and was SIGKILLed (exit 137) on the
-    # 4 vCPU runner (run 37666132324), so this job takes the 8 vCPU size, which
-    # has twice the memory. Fork pull requests run the same suite on it.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-8vcpu-ubuntu-2404' }}
+    # 4 vCPU runner (run 37666132324). The 32 vCPU size has the memory and runs
+    # 32 files and 8 dev-server files at once (run-webviews-tests.sh). Fork pull
+    # requests run the same suite on the hosted runner.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-32vcpu-ubuntu-2404' }}
     # The 10-minute siblings in this workflow, plus the browser engines and the
-    # browser-lane suites they run. The full suite grew to 22 min in one process;
-    # two deterministic file shards keep per-file isolation while shortening the
-    # critical path. Keep the existing cap until hosted timing proves a tighter
-    # bound for the shard with the longer browser files.
+    # browser-lane suites they run. The full suite grew to 22 min in one process.
+    # Deterministic file shards keep per-file isolation. Each shard warms one
+    # Vite cache per dev-server config, cold, so many small shards each paid
+    # that warm-up and ran their dev-server files two at a time: 12 shards on
+    # 8 vCPU took 14.3 min (run 39347314726), barely under 2 shards' 15.5.
+    # Fewer, wider shards share each warm cache across more files.
     timeout-minutes: 40
     name: react-apps-check (${{ matrix.shard }})
     strategy:
@@ -270,9 +278,13 @@ jobs:
       matrix:
         include:
           - shard: 1
-            shard_count: 2
+            shard_count: 4
           - shard: 2
-            shard_count: 2
+            shard_count: 4
+          - shard: 3
+            shard_count: 4
+          - shard: 4
+            shard_count: 4
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -323,57 +335,155 @@ jobs:
       - name: Build the web bundles
         run: ./scripts/cmux-next/build-web-bundles.sh --force
 
+      # The checks below are gates, not builds: each records its outcome and the
+      # last step fails the job on any of them, so a lint, format, budget or
+      # compiler miss does not hide the webview test results. A failed bundle
+      # build or engine install still stops everything after it.
       # ci-guards runs this on main; feat-cmux-next PRs skip ci-guards.
+      # The checks from here to the engines do not depend on the shard, so
+      # they run once, on shard 1: one red check, not one per shard.
       - name: Generated bundle merge driver
+        id: merge-driver
+        if: matrix.shard == 1
+        continue-on-error: true
         run: python3 tests/test_install_git_hooks.py
 
-      # A budget miss must not hide the checks and tests below: the step records its outcome and
-      # the job fails on it in the last step. A failed build still stops everything after it.
+      # Runs after the webviews install, so the real-vp case runs too.
+      - name: Post-edit formatting hook
+        id: post-edit-format
+        if: matrix.shard == 1
+        continue-on-error: true
+        run: python3 tests/test_format_post_edit.py
+
       - name: Check diff viewer eager JS budget
         id: eager-js-budget
+        if: matrix.shard == 1
         continue-on-error: true
         run: node ./scripts/check-webviews-diff-budget.mjs
 
       - name: Verify React Compiler for webviews
+        id: react-compiler
+        if: matrix.shard == 1
+        continue-on-error: true
         run: ./scripts/check-webviews-react-compiler.mjs
 
+      # For feat-cmux-next (CMUX_NEXT_STYLE_GUARDS=warn, Leo 2026-10-19) the lint, format,
+      # layer, type-scale, glyph, system-blue, text-focus, dialog-key and switch-fetch checks each
+      # run and only warn; the type check, the browser test-lane check, the
+      # protocol codegen check and the string catalog key check still fail.
+      # Elsewhere `bun run check` gates as before.
       - name: Check webviews (Oxlint, Oxfmt, type check)
+        id: webviews-check
+        if: matrix.shard == 1
+        continue-on-error: true
         working-directory: webviews
-        run: bun run check
+        env:
+          CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
+        run: |
+          if [ "$CMUX_NEXT_STYLE_GUARDS" != warn ]; then
+            exec bun run check
+          fi
+          status=0
+          bun run check:browser-lanes || status=1
+          # A new fixed-time wait in a test makes it flaky on a slow runner: a test rule, not style.
+          bun run check:fixed-waits || status=1
+          bun run typecheck || status=1
+          # The generated protocol must match the daemon's IR: a wire-format check, not style.
+          bun run acpmux-protocol:check || status=1
+          # A key named twice in a string catalog silently drops one of its texts: data, not style.
+          bun run check:catalog-keys || status=1
+          for check in check:layers check:type-scale check:motion-scale check:status-glyphs check:system-blue check:text-focus check:dialog-keys check:switch-fetches; do
+            bun run "$check" || echo "::warning title=webviews $check (warn-only)::see the step log"
+          done
+          # Lint, format and types together; a type error already failed `typecheck` above.
+          ./node_modules/.bin/vp check || echo "::warning title=webviews lint and format (warn-only)::vp check found lint or format issues; see the step log"
+          exit "$status"
 
       # The browser-lane suites (test/support/requireBrowserLane.ts) fail in CI
       # without these engines; before, they skipped themselves and passed.
+      - name: Cache Playwright's apt packages
+        uses: ./.github/actions/playwright-apt-cache
+        with:
+          engines: chromium-webkit
+
       - name: Install headless engines
         working-directory: webviews
         run: ./node_modules/.bin/playwright install --with-deps --only-shell chromium webkit
 
       - name: Check PR-scoped webview rules
+        id: pr-scoped-rules
         if: matrix.shard == 1
+        continue-on-error: true
         run: python3 scripts/tests/test_pr_scoped_webviews_checks.py
 
       # One bun process per test file with a per-file timeout: a single
       # `bun test` stalled in a different file each run (scripts/ci/run-webviews-tests.sh).
+      # ui-rules, gallery coverage, hairline rims, tooltip rules, theme colors and
+      # system blue report through test/support/prScope.ts, which only warns
+      # under CMUX_NEXT_STYLE_GUARDS=warn (feat-cmux-next).
+      # A pull request fails only on tests red on it and not on its base (the merge
+      # parent): the red files run again there, and the base's reds are warnings
+      # (scripts/ci/webviews-tests-new-reds.sh). A push keeps every red.
       - name: Test webviews
         working-directory: webviews
         env:
+          CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
           CMUX_WEB_TEST_SHARD: ${{ matrix.shard }}
           CMUX_WEB_TEST_SHARD_COUNT: ${{ matrix.shard_count }}
-        run: ../scripts/ci/run-webviews-tests.sh
+          BASE_REF: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
+        run: ../scripts/ci/webviews-tests-new-reds.sh "$BASE_REF"
 
-      - name: Fail on the eager JS budget
-        if: ${{ !cancelled() && steps.eager-js-budget.outcome == 'failure' }}
+      - name: Fail on the gate checks
+        if: ${{ !cancelled() }}
+        env:
+          MERGE_DRIVER: ${{ steps.merge-driver.outcome }}
+          POST_EDIT_FORMAT: ${{ steps.post-edit-format.outcome }}
+          EAGER_JS_BUDGET: ${{ steps.eager-js-budget.outcome }}
+          REACT_COMPILER: ${{ steps.react-compiler.outcome }}
+          WEBVIEWS_CHECK: ${{ steps.webviews-check.outcome }}
+          PR_SCOPED_RULES: ${{ steps.pr-scoped-rules.outcome }}
+          # The eager JS budget (a size cap) and the React Compiler coverage are
+          # structural: for feat-cmux-next they warn (Leo 2026-10-19).
+          CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
+          STYLE_GATES: EAGER_JS_BUDGET REACT_COMPILER
         run: |
-          echo "::error::The webviews eager JS budget failed; see the step 'Check diff viewer eager JS budget'."
-          exit 1
+          failed=0
+          for gate in \
+            "MERGE_DRIVER|Generated bundle merge driver" \
+            "POST_EDIT_FORMAT|Post-edit formatting hook" \
+            "EAGER_JS_BUDGET|Check diff viewer eager JS budget" \
+            "REACT_COMPILER|Verify React Compiler for webviews" \
+            "WEBVIEWS_CHECK|Check webviews (Oxlint, Oxfmt, type check)" \
+            "PR_SCOPED_RULES|Check PR-scoped webview rules"; do
+            var="${gate%%|*}"
+            if [ "${!var}" = "failure" ]; then
+              if [ "$CMUX_NEXT_STYLE_GUARDS" = warn ] && [[ " $STYLE_GATES " == *" $var "* ]]; then
+                echo "::warning::Style gate reported findings (warn-only); see the step '${gate#*|}'."
+                continue
+              fi
+              echo "::error::Gate failed; see the step '${gate#*|}'."
+              failed=1
+            fi
+          done
+          exit "$failed"
+
+  # The runner capability map (.github/runners.json), for jobs that pick a
+  # size from it. Resolves in parallel with web-subarea-scope.
+  runners:
+    if: ${{ inputs.web == 'true' }}
+    uses: ./.github/workflows/resolve-runners.yml
 
   # React Doctor is independent of the per-file browser tests. Keep it on its
   # own required lane so the long-running shard 1 does not serialize this
   # diagnostic after the test suite.
   react-doctor:
-    needs: web-subarea-scope
+    needs: [web-subarea-scope, runners]
     if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 10
+    # React Doctor took 7.4-9.9 min on 4 vCPU and hit the 10 min timeout on
+    # 2026-10-20 (runs 39505208959, 39506071754), which failed
+    # react-apps-check. It takes the 16 vCPU size from the capability map.
+    runs-on: ${{ fromJSON(needs.runners.outputs.map).linux_16 }}
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: webviews
@@ -466,11 +576,18 @@ jobs:
         working-directory: webviews
         run: bun install --frozen-lockfile
 
-      - name: Check Rust sidecar
+      # Format and clippy are gates: a miss is recorded and fails the job in the
+      # last step, so it no longer hides the cargo tests and checks below.
+      - name: Lint Rust sidecar (fmt, clippy)
+        id: sidecar-lint
+        continue-on-error: true
         run: |
           ./scripts/run-diff-sidecar-cargo.sh fmt --manifest-path Native/DiffSidecar/Cargo.toml --all --check
           ./scripts/run-diff-sidecar-cargo.sh clippy --manifest-path Native/DiffSidecar/Cargo.toml --all-targets --locked --no-default-features -- -D warnings
           ./scripts/run-diff-sidecar-cargo.sh clippy --manifest-path Native/DiffSidecar/Cargo.toml --all-targets --all-features --locked -- -D warnings
+
+      - name: Test Rust sidecar
+        run: |
           ./scripts/run-diff-sidecar-cargo.sh test --manifest-path Native/DiffSidecar/Cargo.toml --all-targets --locked --no-default-features
           ./scripts/run-diff-sidecar-cargo.sh test --manifest-path Native/DiffSidecar/Cargo.toml --all-targets --all-features --locked
 
@@ -481,6 +598,20 @@ jobs:
         env:
           CMUX_DIFF_WEB_BENCH_ITERATIONS: "10"
         run: ./scripts/benchmark-diff-viewer.sh
+
+      # fmt and clippy are style for feat-cmux-next (Leo 2026-10-19): a warning there. The
+      # sidecar tests above still compile and fail on their own.
+      - name: Fail on the Rust sidecar lint
+        if: ${{ !cancelled() && steps.sidecar-lint.outcome == 'failure' }}
+        env:
+          CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
+        run: |
+          if [ "$CMUX_NEXT_STYLE_GUARDS" = warn ]; then
+            echo "::warning::Rust sidecar fmt or clippy found issues (warn-only); see the step 'Lint Rust sidecar (fmt, clippy)'."
+            exit 0
+          fi
+          echo "::error::Rust sidecar fmt or clippy failed; see the step 'Lint Rust sidecar (fmt, clippy)'."
+          exit 1
 
   web-db-migrations:
     needs: web-subarea-scope
@@ -493,7 +624,7 @@ jobs:
         working-directory: web
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
         env:
           POSTGRES_DB: cmux_test
           POSTGRES_PASSWORD: cmux

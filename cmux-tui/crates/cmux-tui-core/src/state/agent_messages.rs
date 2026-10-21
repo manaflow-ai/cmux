@@ -229,7 +229,8 @@ impl Mux {
     /// acpmux decides each acpmux recipient's outcome, and every answer
     /// commits (a refusal is that recipient's `failed` outcome) whatever
     /// else committed while acpmux answered: acpmux already acted on it.
-    /// The pump hands nothing over meanwhile.
+    /// The pump claims no hand-over and records no outcome meanwhile; one
+    /// already out counts as tried, so acpmux decides it.
     pub(crate) fn agent_message_unsend(
         &self,
         mutation: &WorkspaceMutation,
@@ -288,7 +289,9 @@ impl Mux {
                 || self.agent_message_attempt_unnoted(message_id, &target.recipient);
             match self.acp_withdraw_message(session, message_id) {
                 // acpmux holds no such prompt yet, but the hand-over may
-                // still reach it and run: not unsent, try again.
+                // still reach it and run: not unsent, try again. A session
+                // acpmux no longer knows (`NoSession`: deleted, and no peer
+                // runs it) takes nothing late.
                 Ok(Withdrawn::NotFound) if tried && target.state == "queued" => {
                     failures.insert(to, unsend::in_flight(&target.recipient));
                 }

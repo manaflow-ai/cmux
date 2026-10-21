@@ -1,0 +1,24 @@
+id: no-ad-hoc-spinner
+language: swift
+severity: error
+message: "ad-hoc spinner: use StatusIndicatorView.spinner() (AppKit), ThemedSpinner (SwiftUI) or StatusIndicatorLayer (layer trees); they share one glyph, one clockwise direction and one phase clock (SpinnerClock)"
+note: user 2026-10-20 "make sure spinners are synced and spinning in the same direction"; CmuxNextDesign/StatusIndicator/SpinnerClock.swift
+ignores:
+  # Renders the native spokes once into an image mask; never shown or animated itself.
+  - "**/CmuxNextDesign/StatusIndicator/NativeSpinnerImage.swift"
+  # The one place spinner rotations are built (Motion.spinAnimation / stepAnimation).
+  - "**/CmuxNextDesign/Motion/Motion+AppKit.swift"
+rule:
+  any:
+    - pattern: NSProgressIndicator($$$ARGS)
+    - pattern: 'CABasicAnimation(keyPath: "transform.rotation.z")'
+    - pattern: 'CABasicAnimation(keyPath: "transform.rotation")'
+    - pattern: 'CAKeyframeAnimation(keyPath: "transform.rotation.z")'
+    - pattern: 'CAKeyframeAnimation(keyPath: "transform.rotation")'
+    # SwiftUI's indeterminate circular ProgressView; a linear bar is not a spinner.
+    - all:
+        - pattern: ProgressView()
+        - not:
+            inside:
+              pattern: $V.progressViewStyle(.linear)
+              stopBy: end

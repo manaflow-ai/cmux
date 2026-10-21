@@ -1,0 +1,31 @@
+{
+  "name": "Commit digest",
+  "description": "Every weekday at 9:00, read the last 5 commits of feat-cmux-next, have Claude write a 3-line digest, and save it on the team machine.",
+  "triggers": [{ "type": "cron", "expr": "0 9 * * 1-5", "tz": "America/Los_Angeles" }, { "type": "manual" }],
+  "body": {
+    "type": "steps",
+    "steps": [
+      {
+        "type": "machine",
+        "machine": "vm_digest00000000000000",
+        "command": "curl -fsS 'https://api.github.com/repos/manaflow-ai/cmux/commits?sha=feat-cmux-next&per_page=5' | jq -r '.[] | .sha[0:11] + \" \" + (.commit.message | split(\"\\n\")[0])'",
+        "timeout_seconds": 60
+      },
+      {
+        "type": "agent",
+        "machine": "vm_digest00000000000000",
+        "harness": "claude",
+        "prompt": "Write a digest of these commits for the team channel: exactly 3 lines, each starting with '- '. Plain text, no preamble.",
+        "input_from": 0,
+        "timeout_seconds": 300
+      },
+      {
+        "type": "machine",
+        "machine": "vm_digest00000000000000",
+        "command": "mkdir -p \"$HOME/digests\" && f=\"$HOME/digests/$CMUX_RUN.txt\" && cat > \"$f\" && echo \"saved $(wc -l < \"$f\") lines to $f\"",
+        "input_from": 1,
+        "timeout_seconds": 30
+      }
+    ]
+  }
+}
