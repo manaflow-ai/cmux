@@ -122,7 +122,7 @@ enum DebugWindowRecord {
     /// Each frame's brightness, in frame order. The recorder's `encoder` queue
     /// is serial, so the order is the frames' order.
     private final class Brightness: Sendable {
-        struct Series: Sendable {
+        nonisolated struct Series: Sendable {
             var means: [Double] = []
             var peaks: [Double] = []
         }
@@ -130,9 +130,11 @@ enum DebugWindowRecord {
         private let samples = Mutex(Series())
 
         /// What every frame measured so far, in frame order.
-        var series: Series { samples.withLock { $0 } }
+        /// Nonisolated, like every member here: the module's default isolation
+        /// is MainActor, and the encoder queue is the only caller.
+        nonisolated var series: Series { samples.withLock { $0 } }
 
-        func measure(_ image: CGImage) {
+        nonisolated func measure(_ image: CGImage) {
             let reading = Self.brightness(of: image)
             samples.withLock {
                 $0.means.append(reading.mean)
@@ -145,7 +147,7 @@ enum DebugWindowRecord {
         /// of the window shows even when the mean stays low. Core Graphics
         /// resamples the frame down to 8x8, which averages every pixel into a
         /// cell. Both are 0...1, and 0 when the draw fails.
-        static func brightness(of image: CGImage) -> (mean: Double, peak: Double) {
+        nonisolated static func brightness(of image: CGImage) -> (mean: Double, peak: Double) {
             let side = 8
             var pixels = [UInt8](repeating: 0, count: side * side * 4)
             guard let space = CGColorSpace(name: CGColorSpace.sRGB) else { return (0, 0) }

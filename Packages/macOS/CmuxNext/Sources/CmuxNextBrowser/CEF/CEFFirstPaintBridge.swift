@@ -21,7 +21,9 @@ import Foundation
 /// this bridge never attaches to.
 final class CEFFirstPaintBridge {
     /// Blink's lifecycle event name for the first paint of page content.
-    static let firstContentfulPaint = "firstContentfulPaint"
+    /// Nonisolated, like the matcher that reads it: the module's default
+    /// isolation is MainActor, and `isFirstContentfulPaint` is pure.
+    nonisolated static let firstContentfulPaint = "firstContentfulPaint"
 
     /// Weak: the tab owns the relay that owns this bridge.
     private weak var tab: CEFTab?
