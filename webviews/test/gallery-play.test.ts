@@ -217,10 +217,11 @@ describe("gallery play waitFor", () => {
   // not the DOM. The wait re-checked only on a DOM mutation, so it held or ran out its 5000 ms by
   // whether some unrelated mutation landed after the pick (gallery health, 2026-10-21).
   test("sees a condition that turns true without touching the DOM", async () => {
-    const restore = ["requestAnimationFrame", "cancelAnimationFrame", "PerformanceObserver"].map(
+    const restore = ["requestAnimationFrame", "cancelAnimationFrame", "MutationObserver", "PerformanceObserver"].map(
       (key) => [key, key in scope, scope[key]] as const,
     );
     Object.assign(scope, {
+      MutationObserver: dom.window.MutationObserver,
       requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
       cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
       PerformanceObserver: class {
