@@ -17,16 +17,22 @@ public final class HomeCloudLink {
         var id: ObjectIdentifier?
         var userID: String?
         var displayName: String
+        /// The chat server (`home.server`): the build's cmux Cloud with the
+        /// Stack account (`userID`), or a self-hosted server over Tailscale,
+        /// which names the person itself.
+        var server: HomeCloudServer
 
-        public init(endpoint: (any HomeCloudEndpoint)? = nil, id: ObjectIdentifier? = nil, userID: String? = nil, displayName: String) {
+        public init(endpoint: (any HomeCloudEndpoint)? = nil, id: ObjectIdentifier? = nil, userID: String? = nil, displayName: String,
+                    server: HomeCloudServer = .hosted) {
             self.endpoint = endpoint
             self.id = id
             self.userID = userID
             self.displayName = displayName
+            self.server = server
         }
 
         public static func == (lhs: Link, rhs: Link) -> Bool {
-            lhs.id == rhs.id && lhs.userID == rhs.userID && lhs.displayName == rhs.displayName
+            lhs.id == rhs.id && lhs.userID == rhs.userID && lhs.displayName == rhs.displayName && lhs.server == rhs.server
         }
     }
 
