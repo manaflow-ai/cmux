@@ -546,13 +546,7 @@ impl Hub {
     pub async fn background_work(&self, key: &str, tool: Option<&str>) -> Result<Value, RpcError> {
         let session = self.resolve(key)?;
         let harness = session.meta().harness;
-        let claude = self
-            .config
-            .read()
-            .await
-            .profile(&harness)
-            .is_some_and(|p| p.kind == crate::config::HarnessKind::ClaudeStdio);
-        if !claude {
+        if !backgrounds_work(&*self.config.read().await, &harness) {
             return Err(RpcError::invalid_params(
                 "only Claude Code can move running work to the background",
             ));
@@ -586,6 +580,14 @@ impl Hub {
             }
         }
     }
+}
+
+/// Whether `_acpmux/process/background` moves the foreground work of a
+/// chat on `harness`: a Claude Code (claude-stdio) profile, whatever its
+/// name (the `cmux` model router's too). Every session summary says it
+/// (`backgroundsWork`), so a client offers Ctrl-B exactly where this takes it.
+pub(super) fn backgrounds_work(cfg: &crate::config::Config, harness: &str) -> bool {
+    cfg.profile(harness).is_some_and(|p| p.kind == crate::config::HarnessKind::ClaudeStdio)
 }
 
 /// No process has the id.
