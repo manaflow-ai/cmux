@@ -1,7 +1,7 @@
 #if DEBUG
 import CmuxNextRemoteBrowser
 import CmuxNextRemoteView
-import Foundation
+public import Foundation
 
 /// Development builds only (cx-wb5.75): a real `cmux.rd/1` desktop host on
 /// this Mac's loopback, such as an SSH tunnel to a Linux `cmux-rd host`.
