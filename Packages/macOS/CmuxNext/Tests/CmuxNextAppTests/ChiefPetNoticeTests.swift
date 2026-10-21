@@ -19,6 +19,10 @@ import Testing
         let defaults: UserDefaults
         let controller: ChiefPetController
         var opened: [UInt64] = []
+        /// Whether cmux is the active app, as the pet reads it; `activate` changes it.
+        var active = true
+        /// Where the test posts the app's activation changes.
+        let center = NotificationCenter()
 
         init() {
             _ = NSApplication.shared
@@ -34,7 +38,8 @@ import Testing
             service.terminalNotificationsEnabled = { true }
             var opened: (ChiefPetReplyTarget) -> Void = { _ in }
             controller = ChiefPetController(makePanel: { [defaults] in ChiefPetPanel(defaults: defaults) },
-                                            actions: ChiefPetActions(open: { opened($0) }, send: { _, _ in false }), clock: clock)
+                                            actions: ChiefPetActions(open: { opened($0) }, send: { _, _ in false }), clock: clock,
+                                            appIsActive: { [weak self] in self?.active ?? true }, notifications: center)
             opened = { [weak self] target in
                 if case .notice(let notice) = target { self?.opened.append(notice.id) }
             }
@@ -58,6 +63,19 @@ import Testing
         }
 
         var titles: [String] { controller.feed.notices.map(\.title) }
+
+        /// cmux becomes (or stops being) the active app, as AppKit reports it.
+        func activate(_ active: Bool) {
+            self.active = active
+            center.post(name: active ? NSApplication.didBecomeActiveNotification : NSApplication.didResignActiveNotification, object: nil)
+        }
+
+        /// Moves the clock past `seconds` once a timer sleeps on it, and lets what fired run.
+        func advance(_ seconds: Double) async throws {
+            try await clock.waitForSleeper()
+            clock.advance(by: .seconds(seconds))
+            for _ in 0..<200 { await Task.yield() }
+        }
 
     }
 
@@ -121,5 +139,50 @@ import Testing
         for _ in 0..<1000 where !harness.titles.isEmpty { await Task.yield() }
         #expect(harness.titles.isEmpty)
         #expect(harness.controller.bubble?.isVisible == false)
+    }
+
+    /// The card is a toast (Leo 2026-10-20: it sat over Chrome for minutes): it folds away after
+    /// `toastSeconds`, while a notice that waits stays on the badge and the chevron unfolds it again.
+    @Test func cardFoldsAwayOnItsOwnAndTheBadgeStays() async throws {
+        let harness = Harness()
+        defer { harness.controller.sync(false) }
+        try harness.deliver(5, surface: 1, title: "Claude needs approval", level: "warning")
+        #expect(harness.controller.bubble?.isVisible == true)
+        try await harness.advance(ChiefPetController.toastSeconds + 1)
+        #expect(harness.controller.bubble?.isVisible == false, "the card folds away")
+        #expect(harness.titles == ["Claude needs approval"], "the notice still waits")
+        #expect(harness.controller.panel?.pet.badge == 1)
+        harness.controller.panel?.onExpand?()
+        #expect(harness.controller.bubble?.isVisible == true, "the chevron unfolds what waits")
+    }
+
+    /// An agent posting the same notice again (its next tool call) does not keep the card up.
+    @Test func theSameNoticePostedAgainDoesNotKeepTheCardUp() async throws {
+        let harness = Harness()
+        defer { harness.controller.sync(false) }
+        try harness.deliver(5, surface: 1, title: "Claude needs approval", level: "warning")
+        try await harness.advance(ChiefPetController.toastSeconds / 2)
+        try harness.deliver(6, surface: 1, title: "Claude needs approval", level: "warning")
+        #expect(harness.controller.bubble?.isVisible == true)
+        harness.clock.advance(by: .seconds(ChiefPetController.toastSeconds / 2 + 1))
+        for _ in 0..<1000 where harness.controller.bubble?.isVisible == true { await Task.yield() }
+        #expect(harness.controller.bubble?.isVisible == false)
+    }
+
+    /// The card shows over cmux only, never over another app's window (Leo 2026-10-20: it floated
+    /// over Chrome and Edge); there the pet's badge counts what waits. The chevron still unfolds it.
+    @Test func cardShowsOverCmuxOnly() throws {
+        let harness = Harness()
+        defer { harness.controller.sync(false) }
+        harness.active = false
+        try harness.deliver(5, surface: 1, title: "Claude needs approval", level: "warning")
+        #expect(harness.controller.bubble?.isVisible != true, "another app is in front: no card")
+        #expect(harness.controller.panel?.pet.badge == 1)
+        harness.activate(true)
+        #expect(harness.controller.bubble?.isVisible == true, "back in cmux within its time: the card shows")
+        harness.activate(false)
+        #expect(harness.controller.bubble?.isVisible == false, "switching away takes it down at once")
+        harness.controller.panel?.onExpand?()
+        #expect(harness.controller.bubble?.isVisible == true, "the chevron is asked for: it shows anywhere")
     }
 }

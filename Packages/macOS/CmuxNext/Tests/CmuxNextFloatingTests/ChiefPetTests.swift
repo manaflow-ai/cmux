@@ -83,6 +83,15 @@ import Testing
         #expect(!reply.hidesOnDeactivate)
     }
 
+    /// A notice is the overlay card (the popup surface, mostly opaque, under its glass), not bare
+    /// glass: over a web page the page's headline showed through it (Leo 2026-10-20).
+    @Test func noticeCapsuleIsTheOpaqueOverlayCard() {
+        let capsule = ChiefPetCapsule(frame: NSRect(x: 0, y: 0, width: ChiefPetBubblePanel.width, height: ChiefPetBubblePanel.pillHeight))
+        #expect(capsule.surface.isCard, "the card fill keeps its text legible over any backdrop")
+        #expect(capsule.surface.samplesBehindWindow, "the blur before macOS 26 samples what is behind its clear window")
+        #expect(capsule.surface.cornerRadius == ChiefPetBubblePanel.pillHeight / 2)
+    }
+
     /// One press through the view: down at `from`, dragged through `path`, up.
     /// `onCharacter` false presses the rail's background instead.
     private func press(_ pet: ChiefPetView, from: CGPoint, path: [CGPoint], onCharacter: Bool = true) {
