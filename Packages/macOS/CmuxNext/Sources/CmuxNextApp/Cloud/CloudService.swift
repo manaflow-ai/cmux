@@ -395,8 +395,7 @@ final class CloudService {
     }
 
     func signOut() async {
-        // The chat tails the agent panes handed the host go with the session (AgentPaneTailCache);
-        // they are memory only, so this is the whole of forgetting them.
+        // The chat tails the panes handed the host are memory only, so this forgets them whole.
         AgentPaneTailCache.shared.clear()
         // No ensure starts from here until the session's final endLink (the
         // signed-out branch above, after auth.signOut).
