@@ -3020,18 +3020,49 @@ button.cv-received__name:focus-visible {
 }
 
 /* ---------- A background shell's end (BackgroundTaskNote.tsx, cx-ncc.84) ---------- */
+/* A failed task keeps its red mark, open or closed. A click opens it in place (`.is-toggle`: the
+   pointer, the shared focus ring, no hover fill, Leo 2026-10-13); nothing else opens. */
 .cv-bgtask[data-state="failed"] .cv-tool__icon {
   color: var(--agent-danger);
 }
-/* A click opens the task's terminal (processTerminal.ts): no hover fill (Leo 2026-10-13), only the
-   pointer and the keyboard focus ring. */
-.cv-bgtask {
+/* The opened card's last line: the harness's words on the end, then Open in terminal at the end. */
+.cv-bgtask__foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+  font-family: var(--cv-font);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+.cv-bgtask__detail {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--cv-text-muted);
+}
+/* The one way to the task's terminal: a quiet glass button in the theme's accent. */
+.cv-bgtask__open {
+  all: unset;
+  box-sizing: border-box;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border: 1px solid color-mix(in srgb, var(--agent-accent) 34%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--agent-accent) 6%, transparent);
+  color: var(--agent-accent);
   cursor: pointer;
 }
-.cv-bgtask:focus-visible {
-  outline: 2px solid var(--agent-accent-soft);
+.cv-bgtask__open:hover {
+  background: color-mix(in srgb, var(--agent-accent) 12%, transparent);
+}
+.cv-bgtask__open:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
   outline-offset: 1px;
-  border-radius: 4px;
 }
 
 /* ---------- Where a Claude Code session started (SessionStartNote.tsx) ---------- */

@@ -1552,6 +1552,12 @@ export class AcpmuxDirectClient {
     return () => void this.processListeners.delete(listener);
   }
 
+  /// The end of background process `processId`'s output, at most `maxBytes` (acpmux reads at most
+  /// 1 MiB): `{data (base64), fromByte, nextByte, eof}`. Claude Code's processes only.
+  tailProcess(processId: string, maxBytes: number): Promise<unknown> {
+    return this.request("_acpmux/process/tail", { processId, maxBytes });
+  }
+
   /// Stops background process `processId` (Claude's stop_task, Codex's terminate). A harness
   /// that never answers fails it after 10 s.
   killProcess(processId: string): Promise<unknown> {
@@ -4569,6 +4575,8 @@ function backgroundTask(update: any): BackgroundUpdate | undefined {
     command: typeof update.command === "string" ? update.command : "",
     state,
     ...(typeof update.reason === "string" && update.reason ? { reason: update.reason } : {}),
+    ...(typeof update.summary === "string" && update.summary ? { summary: update.summary } : {}),
+    ...(Number.isInteger(update.exitCode) ? { exitCode: update.exitCode as number } : {}),
   };
 }
 
