@@ -419,6 +419,31 @@ export function toolDiffs(content: any, locations: any): AcpmuxFileDiff[] | unde
   return diffs.length ? diffs : undefined;
 }
 
+/// An edit call's change read from its own input, for a call whose content carries no `diff` item:
+/// Claude Code's Write (`file_path`, `content`), Edit (`old_string`, `new_string`) and MultiEdit
+/// (`edits`). Each is marked `fragment`: the page never saw the file around it, so Undo
+/// (turnChanges/model.ts `fileUndo`) never writes a file back from these.
+export function inputDiffs(rawInput: any): AcpmuxFileDiff[] | undefined {
+  const path = rawInput?.file_path;
+  if (typeof path !== "string" || !path) return undefined;
+  if (typeof rawInput.content === "string") return [{ path, newText: rawInput.content, fragment: true }];
+  const edits: any[] = Array.isArray(rawInput.edits) ? rawInput.edits : [rawInput];
+  const diffs = edits
+    .filter((edit) => typeof edit?.old_string === "string" && typeof edit.new_string === "string")
+    .map((edit): AcpmuxFileDiff => ({ path, oldText: edit.old_string, newText: edit.new_string, fragment: true }));
+  return diffs.length ? diffs : undefined;
+}
+
+/// The input an earlier event of a call carried, kept as its `inputSummary` JSON.
+function storedInput(summary: string | undefined): unknown {
+  if (!summary) return undefined;
+  try {
+    return JSON.parse(summary);
+  } catch {
+    return undefined;
+  }
+}
+
 /// Diffs placed again by an update that brings only locations.
 function placeDiffs(diffs: AcpmuxFileDiff[] | undefined, locations: any): AcpmuxFileDiff[] | undefined {
   if (!diffs || !Array.isArray(locations)) return diffs;
@@ -444,13 +469,23 @@ export function mergeToolItem(
   const title = update.title ?? update.name;
   const status = String(update.status ?? before?.status ?? "in_progress");
   const ended = status === "completed" || status === "failed";
+  const kind = update.kind ?? before?.kind;
+  // An edit whose content names no `diff` (a Write whose result is plain text) still changed its
+  // file: its input has the change. A failed one changed nothing.
+  const diffs =
+    (update.content === undefined
+      ? placeDiffs(before?.diffs, update.locations)
+      : toolDiffs(update.content, Array.isArray(update.locations) ? update.locations : before?.locations)) ??
+    (kind === "edit" && status !== "failed"
+      ? inputDiffs(update.rawInput ?? storedInput(before?.inputSummary))
+      : undefined);
   return {
     kind: "tool",
     text: String(title ?? previous?.text ?? callId),
     tool: {
       id: callId,
       title: String(update.title ?? before?.title ?? callId),
-      kind: update.kind ?? before?.kind,
+      kind,
       status,
       inputSummary: update.rawInput ? JSON.stringify(update.rawInput) : before?.inputSummary,
       output:
@@ -461,10 +496,7 @@ export function mergeToolItem(
       endedAt: before?.endedAt ?? (ended ? at : undefined),
       locations: Array.isArray(update.locations) ? update.locations : before?.locations,
       images: update.content === undefined ? before?.images : imagesFromContent(update.content),
-      diffs:
-        update.content === undefined
-          ? placeDiffs(before?.diffs, update.locations)
-          : toolDiffs(update.content, Array.isArray(update.locations) ? update.locations : before?.locations),
+      diffs,
     },
   };
 }

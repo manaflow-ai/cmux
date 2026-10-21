@@ -21,3 +21,5 @@
 .acpmux-edited-dir{display:flex;min-width:0;overflow:hidden}
 .acpmux-edited-dir-head{flex:none}
 .acpmux-edited-dir-tail{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;direction:rtl;text-align:left}
+.acpmux-edited-title--toggle{cursor:pointer}
+.acpmux-edited-diff{padding:2px 8px 4px}
