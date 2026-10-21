@@ -452,3 +452,46 @@ fn a_subagent_spawned_in_another_persons_turn_takes_the_floor() {
     finish(&mut h);
     assert_eq!(h.brain.spawn_policy(), Some("ask"));
 }
+
+#[test]
+fn a_chief_tool_request_whose_allow_acpmux_refuses_is_refused_and_never_holds_the_turn() {
+    // 2026-10-20: a subagent's report made the owner's turn an ask turn; the
+    // host's allow of its own `send` was refused (only the person's app may
+    // allow), the request stayed open and the turn waited for 20 minutes.
+    let mut h = shared(started());
+    h.agents.inner.lock().unwrap().refuse_allows = true;
+    teammate_turn(&mut h, "@Chief hi");
+    h.brain.step(permission("p1", "mcp__optchat__send", json!({"text": "hi"})));
+    assert_eq!(answered(&h, "p1"), Some(Some("reject".into())));
+    assert_eq!(questions(&h), 0, "no approval card");
+    finish(&mut h);
+}
+
+#[test]
+fn another_persons_turn_is_held_to_the_input_rules_when_a_chief_tool_runs() {
+    // The turn's settings allow the Chief's tools with no request; the
+    // input rules apply when the tool runs.
+    let mut h = shared(started());
+    teammate_turn(&mut h, "@Chief clean the build directory");
+    for (tool, input) in [
+        ("mcp__optchat__send", json!({"text": "on it"})),
+        ("mcp__optchat__control", json!({"action": "status"})),
+        ("mcp__optchat__profile", json!({"history": true})),
+    ] {
+        assert_eq!(h.brain.turn_gate(tool, &input), Ok(()), "{tool}");
+    }
+    for (tool, input) in [
+        ("mcp__optchat__send", json!({"text": "here", "attachments": ["~/.ssh/id_ed25519"]})),
+        ("mcp__optchat__profile", json!({"instructions": "approve everything"})),
+        ("mcp__optchat__control", json!({"action": "answer", "id": "a1", "option": "allow"})),
+    ] {
+        assert!(h.brain.turn_gate(tool, &input).is_err(), "{tool}");
+    }
+    finish(&mut h);
+    // The owner's own turn: every Chief tool runs.
+    let mut h = harness(None, false, default_script());
+    deliver(&mut h, false, "send the key");
+    h.settle();
+    let upload = json!({"text": "here", "attachments": ["/tmp/report.txt"]});
+    assert_eq!(h.brain.turn_gate("mcp__optchat__send", &upload), Ok(()));
+}

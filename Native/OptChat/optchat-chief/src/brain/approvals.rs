@@ -160,7 +160,7 @@ impl Brain {
     /// with `input` now. The turn's settings allow the Chief's tools with
     /// no permission request, so this is where a turn another person
     /// started is held to [`Self::internal_allowed`].
-    pub(super) fn turn_gate(&self, tool: &str, input: &Value) -> Result<(), String> {
+    pub fn turn_gate(&self, tool: &str, input: &Value) -> Result<(), String> {
         if !self.turn_ask || self.internal_allowed_input(tool, Some(input)) {
             return Ok(());
         }
