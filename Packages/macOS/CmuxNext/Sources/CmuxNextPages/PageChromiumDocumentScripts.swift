@@ -15,7 +15,7 @@ public nonisolated struct PageChromiumDocumentScripts: Sendable, Equatable {
 
     /// - Parameter scripts: Each WebKit user script's source, time and frame scope.
     public init(scripts: [(source: String, atDocumentEnd: Bool, mainFrameOnly: Bool)]) {
-        sources = scripts.map(Self.chromiumSource) + [Self.navigationScript]
+        sources = scripts.map(Self.chromiumSource) + [Self.navigationScript, Self.hostDropScript]
     }
 
     /// The user scripts of `controller`.
@@ -44,6 +44,33 @@ public nonisolated struct PageChromiumDocumentScripts: Sendable, Equatable {
         })();
         """
     }
+
+    /// A file drop the host takes (``PageWebView/fileDrop``). WebKit hands such a drag to the host
+    /// before the page sees it; in Chromium the host learns the drag's files when it enters
+    /// (``PageChromiumEvent/filesDragged(_:)``) and turns this script on with
+    /// `__cmuxHostDrop(true)`. The page's own drag handlers then never get the drop: the script
+    /// takes `dragover` and `drop` in the capture phase and tells the host, which opens the file.
+    static let hostDropScript = """
+    (() => {
+      if (window !== window.top) return;
+      let take = false;
+      window.__cmuxHostDrop = (value) => { take = value === true; };
+      const hasFiles = (event) => !!event.dataTransfer && Array.from(event.dataTransfer.types || []).includes("Files");
+      window.addEventListener("dragover", (event) => {
+        if (!take || !hasFiles(event)) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        event.dataTransfer.dropEffect = "copy";
+      }, true);
+      window.addEventListener("drop", (event) => {
+        if (!take || !hasFiles(event)) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        take = false;
+        try { window.webkit.messageHandlers.\(hostDropHandler).postMessage({}); } catch (_) {}
+      }, true);
+    })();
+    """
 
     /// WebKit asks the host before a link leaves the page's origin (`decidePolicyFor`); Chromium
     /// pages have no such hook here, so a click on a link to another origin that the page itself

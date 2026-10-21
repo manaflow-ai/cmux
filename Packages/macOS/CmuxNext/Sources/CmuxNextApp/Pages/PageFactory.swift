@@ -100,9 +100,8 @@ struct PageFactory {
         return page
     }
 
-    /// The Settings page's engine options: an image dropped on it becomes the background
-    /// (`fileDrop`), a WebKit-only hook so far.
-    static let settingsEngineOptions = PageEngineOptions(requiresWebKit: .nativeHooks)
+    /// The Settings page's engine options.
+    static let settingsEngineOptions = PageEngineOptions.standard
 
     /// The React Settings page (R82) on `route` (`#/settings/<section>?focus=<key>`). Its namespace
     /// goes to `SettingsPageProvider` (interim owner; the daemon relay once the config actor
