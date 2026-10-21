@@ -14,10 +14,8 @@ final class LegacyHistoryFile: Sendable, Equatable {
     private let identity: Identity
 
     init?(url: URL, supportDirectory: URL) {
-        // `standardized`, not `standardizedFileURL`: the latter also drops a leading
-        // /private, turning /private/var/… into /var/…, which is a link and so refused.
-        let support = supportDirectory.standardized
-        let candidate = url.standardized
+        let support = Self.plainPath(supportDirectory, isDirectory: true)
+        let candidate = Self.plainPath(url, isDirectory: false)
         let supportParts = support.pathComponents
         let candidateParts = candidate.pathComponents
         guard candidateParts.count > supportParts.count,
@@ -68,7 +66,7 @@ final class LegacyHistoryFile: Sendable, Equatable {
     }
 
     static func pathEntryExists(_ url: URL) -> Bool {
-        identity(at: url.standardized) != nil
+        identity(at: plainPath(url, isDirectory: false)) != nil
     }
 
     /// Removes a captured SQLite generation only when every present member is
@@ -174,12 +172,20 @@ final class LegacyHistoryFile: Sendable, Equatable {
         return Identity(info)
     }
 
+    /// `url` as the file system sees it, with `.` and `..` collapsed. Rebuilt from the
+    /// decoded path first, so an encoded `%2E%2E` collapses too and an encoded `%2F` stays
+    /// part of one name. Not `standardizedFileURL`: it also drops a leading /private,
+    /// turning /private/var/… into /var/…, a link that cleanup refuses.
+    private static func plainPath(_ url: URL, isDirectory: Bool) -> URL {
+        URL(fileURLWithPath: url.path, isDirectory: isDirectory).standardized
+    }
+
     /// The directory identity only when every path component from `/` is a
     /// real directory rather than a symbolic link.
     private static func directoryIdentity(at url: URL) -> Identity? {
         var current = URL(fileURLWithPath: "/", isDirectory: true)
         guard var found = identity(at: current), found.isDirectory else { return nil }
-        for component in url.standardized.pathComponents.dropFirst() {
+        for component in plainPath(url, isDirectory: true).pathComponents.dropFirst() {
             current.append(path: component, directoryHint: .isDirectory)
             guard let next = identity(at: current), next.isDirectory else { return nil }
             found = next
