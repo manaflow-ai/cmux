@@ -52,12 +52,20 @@ import Testing
         static func tree(_ keys: [String]) -> DaemonTree {
             var tree = DaemonTree(registryID: "s-local", workspaces: keys.enumerated().map { index, key in
                 WorkspaceSnapshot(id: WorkspaceHandle(rawValue: UInt64(index + 1)), key: WorkspaceKey(rawValue: key), name: key,
-                                  screens: [SpaceSwitchBench.screen(Int(key.dropFirst()) ?? index)])
+                                  screens: [key == "k1" ? twoPanes : SpaceSwitchBench.screen(Int(key.dropFirst()) ?? index)])
             })
             tree.personal = PersonalState(workspaces: keys.enumerated().map { index, key in
                 PersonalWorkspace(sessionID: "s-local", workspaceKey: WorkspaceKey(rawValue: key), index: index)
             })
             return tree
+        }
+
+        /// `k1`'s screen: two panes side by side, a terminal each.
+        static var twoPanes: ScreenSnapshot {
+            let first = PaneSnapshot(id: PaneID(rawValue: 101), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 201), title: "~")])
+            let second = PaneSnapshot(id: PaneID(rawValue: 102), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 202), title: "~")])
+            return ScreenSnapshot(id: ScreenID(rawValue: 101), layout: .split(id: nil, resourceID: nil, direction: .right, ratio: 0.5,
+                                                                              a: .leaf(first.id), b: .leaf(second.id)), panes: [first, second])
         }
 
         func close() {
@@ -123,7 +131,9 @@ import Testing
         }
 
         /// A screen point on `edge`'s split zone of the shown workspace's pane: 15% of the pane in from that edge,
-        /// past the window-edge dock band and inside the pane's split band.
+        /// past the window-edge dock band and inside the pane's split band. Tests use the left and bottom edges: a
+        /// CI host without a display clamps the window to its minimum size, where a pane is wider than its layout
+        /// and its right edge is out of view.
         func edgePoint(_ edge: TabDropEdge) throws -> CGPoint {
             let layout = try #require(controller.content?.layoutView)
             let window = try #require(layout.window)
@@ -194,13 +204,13 @@ import Testing
             let k1Tabs = f.tabs("k1")
             try #require(f.shown == ["k0"])
 
-            try f.dragRow("k1", to: .right)
-            #expect(f.shown == ["k0", "k1"], "the right-edge drop did not show k1 beside k0: \(f.shown)")
+            try f.dragRow("k1", to: .left)
+            #expect(f.shown == ["k0", "k1"], "the left-edge drop did not show k1 beside k0: \(f.shown) \(f.geometry)")
             #expect(f.state.workspaceID == "k0", "the drop switched the focused workspace")
             #expect(f.tabs("k1") == k1Tabs, "the drop moved k1's tabs: it merged instead of placing beside")
             #expect(f.services.workspace(id: "k1") != nil)
-            let left = try #require(f.windowFrame("k0")), right = try #require(f.windowFrame("k1"))
-            #expect(right.minX >= left.maxX, "k1 is not on k0's right: \(left) \(right)")
+            let left = try #require(f.windowFrame("k1")), right = try #require(f.windowFrame("k0"))
+            #expect(right.minX >= left.maxX, "k1 is not on k0's left: \(left) \(right)")
             #expect(abs(left.width - right.width) <= 1 && left.height == right.height, "the halves differ: \(left) \(right)")
 
             // Another row on the bottom edge goes under k0, k1 keeping its column.
@@ -218,15 +228,15 @@ import Testing
         try await Self.withMultiView {
             let f = try await Fixture()
             defer { f.close() }
-            try f.dragRow("k1", to: .left, release: false)
+            try f.dragRow("k1", to: .bottom, release: false)
             #expect(f.shown == ["k0"])
             #expect(f.onScreen == ["k0"])
             f.services.dragSession.finish(commit: true)
             f.services.dragSession.finishLanding()
             f.frame()
             #expect(f.shown == ["k0", "k1"])
-            let right = try #require(f.windowFrame("k0")), left = try #require(f.windowFrame("k1"))
-            #expect(left.maxX <= right.minX, "k1 is not on k0's left")
+            let top = try #require(f.windowFrame("k0")), bottom = try #require(f.windowFrame("k1"))
+            #expect(bottom.maxY <= top.minY, "k1 is not under k0: \(top) \(bottom)") // window coordinates, y up
         }
     }
 
@@ -246,8 +256,8 @@ import Testing
             }
             check(["k0"], focused: "k0")
 
-            step = "k1 dropped on k0's right edge"
-            try f.dragRow("k1", to: .right)
+            step = "k1 dropped on k0's left edge"
+            try f.dragRow("k1", to: .left)
             check(["k0", "k1"], focused: "k0")
 
             step = "a click in k1's content"
@@ -262,10 +272,10 @@ import Testing
             try f.clickRow("k2")
             check(["k2"], focused: "k2")
 
-            step = "back to k0 and k3 dropped on its right edge"
+            step = "back to k0 and k3 dropped on its left edge"
             try f.clickRow("k0")
             check(["k0"], focused: "k0")
-            try f.dragRow("k3", to: .right)
+            try f.dragRow("k3", to: .left)
             check(["k0", "k3"], focused: "k0")
 
             step = "k3 closed"
@@ -276,12 +286,54 @@ import Testing
         }
     }
 
+    /// A press on a pane of a workspace beside the focused one, through the app's event dispatch (the layout's own
+    /// event monitor sees it first): that workspace is focused, and so is the pane pressed, not the one it last had.
+    @Test func aPressOnAPaneOfAWorkspaceBesideFocusesThatWorkspaceAndPane() async throws {
+        try await Self.withMultiView {
+            let f = try await Fixture()
+            defer { f.close() }
+            try f.dragRow("k1", to: .left)
+            try #require(f.shown == ["k0", "k1"])
+            let k1 = try #require(f.visible.first { $0.workspace.id == "k1" })
+            let order = k1.layoutModel.screens.flatMap(\.layout.panes)
+            try #require(order.count == 2, "k1 has \(order.count) panes")
+            let pressed = try #require(k1.panes[order[1]])
+            let frame = pressed.view.convert(pressed.view.bounds, to: nil)
+            let point = NSPoint(x: frame.midX, y: frame.midY)
+            NSApp.sendEvent(try f.event(.leftMouseDown, at: point))
+            NSApp.sendEvent(try f.event(.leftMouseUp, at: point))
+            f.frame()
+            #expect(f.state.workspaceID == "k1", "the press did not focus k1")
+            #expect(f.shown == ["k0", "k1"])
+            #expect(f.controller.focus.state.pane == pressed.paneKey,
+                    "the focused pane is \(f.controller.focus.state.pane ?? "-"), not the pressed \(pressed.paneKey)")
+        }
+    }
+
+    /// The toggle turned off while a window shows two workspaces: it shows the focused one alone.
+    @Test func turningTheToggleOffShowsTheFocusedWorkspaceAlone() async throws {
+        try await Self.withMultiView {
+            let f = try await Fixture()
+            defer { f.close() }
+            try f.dragRow("k1", to: .left)
+            try #require(f.shown == ["k0", "k1"])
+            TunableStore.shared.set(SidebarTunables.multiView.key, nil)
+            try await Task.sleep(for: .milliseconds(100))
+            f.frame()
+            #expect(f.shown == ["k0"], "the window still shows \(f.shown)")
+            #expect(f.onScreen.isEmpty)
+            let k0 = try #require(f.windowFrame("k0"))
+            let host = f.controller.root.contentHost
+            #expect(k0.size == host.bounds.size, "k0 does not fill the content area: \(k0) in \(host.bounds)")
+        }
+    }
+
     // MARK: - The window's record
 
     @Test func theShownSetComesBackWithTheWindowsRecord() async throws {
         try await Self.withMultiView {
             let f = try await Fixture()
-            try f.dragRow("k1", to: .right)
+            try f.dragRow("k1", to: .left)
             try #require(f.shown == ["k0", "k1"])
             let record = try #require(f.services.windows.registry.value.record(f.state.id, state: f.state, order: 0))
             let json = try #require(String(data: try JSONEncoder().encode(record), encoding: .utf8))
@@ -292,7 +344,7 @@ import Testing
             #expect(again.shown == ["k0", "k1"], "the relaunched window shows \(again.shown)")
             #expect(again.onScreen == ["k0", "k1"])
             #expect(again.state.workspaceID == "k0")
-            let left = try #require(again.windowFrame("k0")), right = try #require(again.windowFrame("k1"))
+            let left = try #require(again.windowFrame("k1")), right = try #require(again.windowFrame("k0"))
             #expect(right.minX >= left.maxX)
         }
     }
@@ -308,11 +360,11 @@ import Testing
                                              rowScreenFrame: CGRect(x: 300, y: 300, width: 220, height: 28),
                                              grabOffset: CGPoint(x: 20, y: 14), screenPoint: CGPoint(x: 320, y: 314), image: nil)
             #expect(f.services.dragSession.beginWorkspaces(handoff, from: f.controller))
-            let point = try f.edgePoint(.right)
+            let point = try f.edgePoint(.left)
             f.services.dragSession.update(point)
             let drag = try #require(f.services.dragSession.drag)
             let pane = try #require(f.controller.content?.panes.values.first?.layoutPaneID.rawValue)
-            #expect(drag.workspaceOutcome == .window(id: f.state.id, target: .merge(.newSplit(paneID: pane, edge: .right))),
+            #expect(drag.workspaceOutcome == .window(id: f.state.id, target: .merge(.newSplit(paneID: pane, edge: .left))),
                     "the edge drop is no longer the merge: \(drag.workspaceOutcome) at \(point): \(f.geometry)")
             f.services.dragSession.finish(commit: true)
             f.services.dragSession.finishLanding()
