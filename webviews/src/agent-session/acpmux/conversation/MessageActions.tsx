@@ -40,7 +40,6 @@ export function CopyButton({ text }: { text: string }) {
       type="button"
       className="cv-iconbtn cv-iconbtn--compact"
       aria-label={label}
-      title={label}
       onClick={() =>
         void copyText(text).then(
           () => setCopied(true),
