@@ -262,6 +262,7 @@ extension SidebarDocStore {
     public func show(live: [SidebarDocWorkspaceRef], connectedRemotes: Set<String> = []) {
         let previous = shown
         let next = projection(live: live)
+        shownVersion = version
         if next != shown { shown = next }
         if let next, !next.unplaced.isEmpty { adopt(next.unplaced) }
         let now = Set(live)

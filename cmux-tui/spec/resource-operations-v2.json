@@ -12876,6 +12876,28 @@
             "name": "string"
           },
           "description": "What the Chief logged about the stop."
+        },
+        "restarted": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "For restart: the subagents that go on again."
+        },
+        "errors": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "For restart: one line per subagent that could not go on."
         }
       },
       "extra": false
@@ -17437,7 +17459,27 @@
               "name": "string",
               "max_length": 128
             },
-            "description": "One subagent to stop (its id, e.g. a3); absent stops the turn and every subagent at work."
+            "description": "One subagent to stop (its id, e.g. a3); absent (with no all or restart) stops the Chief's running turn only, and its subagents go on."
+          },
+          "all": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "true: Stop all agents, the running turn and every subagent at work or queued; the result's subagents names them (for an undo toast's Restart)."
+          },
+          "restart": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "max_length": 128
+              }
+            },
+            "description": "Subagent ids to bring back after a stop (Restart on the stop-all toast): a started one goes on in its own session, one stopped before it started is queued again. Nothing is stopped."
           }
         },
         "extra": false
