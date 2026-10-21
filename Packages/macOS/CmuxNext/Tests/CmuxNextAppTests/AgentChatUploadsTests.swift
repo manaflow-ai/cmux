@@ -24,4 +24,58 @@ import Testing
         let folderMode = try FileManager.default.attributesOfItem(atPath: folder.path)[.posixPermissions] as? Int
         #expect(folderMode == 0o700)
     }
+
+    /// Nothing ever deleted a chat's uploads. A deleted chat's go with it, and any older than the
+    /// age cap goes at launch; what the app did not name, a symlink and a file stay.
+    @Test func aDeletedChatsUploadsAndOldOnesGoAndNothingElse() throws {
+        let manager = FileManager.default
+        let root = manager.temporaryDirectory.appending(path: "agent-chat-uploads-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let outside = root.appendingPathExtension("outside")
+        defer {
+            try? manager.removeItem(at: root)
+            try? manager.removeItem(at: outside)
+        }
+        let now = Date()
+        func upload(_ chat: String?, age days: Double) throws -> URL {
+            let parent = chat.map { AgentChatUploads.chatFolder($0, in: root) } ?? root
+            let folder = parent.appending(path: UUID().uuidString.lowercased(), directoryHint: .isDirectory)
+            _ = try AgentChatUploads.write([AgentPaneUpload(name: "a.txt", data: Data("x".utf8))], in: folder)
+            try manager.setAttributes([.creationDate: now.addingTimeInterval(-days * 86_400)], ofItemAtPath: folder.path)
+            return folder
+        }
+        let old = try upload("chat-a", age: 31), new = try upload("chat-a", age: 1)
+        let onlyOld = try upload("chat-b", age: 40), newChatOld = try upload(nil, age: 45), newChatNew = try upload(nil, age: 2)
+        let notes = AgentChatUploads.chatFolder("chat-c", in: root).appending(path: "notes", directoryHint: .isDirectory)
+        try manager.createDirectory(at: notes, withIntermediateDirectories: true)
+        try manager.setAttributes([.creationDate: now.addingTimeInterval(-90 * 86_400)], ofItemAtPath: notes.path)
+        try manager.createDirectory(at: outside, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: outside.appending(path: "keep.txt"))
+        try manager.createSymbolicLink(at: AgentChatUploads.chatFolder("chat-d", in: root), withDestinationURL: outside)
+        try manager.createSymbolicLink(at: root.appending(path: UUID().uuidString.lowercased()), withDestinationURL: outside)
+
+        #expect(AgentChatUploads.sweep(root, now: now) == 3)
+        #expect(!manager.fileExists(atPath: old.path) && manager.fileExists(atPath: new.path))
+        #expect(!manager.fileExists(atPath: onlyOld.deletingLastPathComponent().path), "an emptied chat folder stays")
+        #expect(!manager.fileExists(atPath: newChatOld.path) && manager.fileExists(atPath: newChatNew.path))
+        #expect(manager.fileExists(atPath: notes.path))
+        #expect(manager.fileExists(atPath: outside.appending(path: "keep.txt").path))
+        #expect(AgentChatUploads.sweep(root, now: now) == 0)
+
+        // A deleted chat's folder goes; another chat's, a link and a name that is no session id stay.
+        let uuidChat = try upload("0190a000-0000-7000-8000-000000000001", age: 1)
+        AgentChatUploads.remove(session: "chat-a", in: root)
+        AgentChatUploads.remove(session: "0190a000-0000-7000-8000-000000000001", in: root)
+        #expect(!manager.fileExists(atPath: new.deletingLastPathComponent().path))
+        #expect(!manager.fileExists(atPath: uuidChat.deletingLastPathComponent().path))
+        #expect(manager.fileExists(atPath: newChatNew.path))
+        AgentChatUploads.remove(session: "chat-d", in: root)
+        AgentChatUploads.remove(session: "../outside", in: root)
+        #expect(manager.fileExists(atPath: outside.appending(path: "keep.txt").path))
+        #expect(manager.fileExists(atPath: notes.path))
+    }
+
+    @Test func aSessionIdIsOneFolderName() {
+        for good in ["0190a000-0000-7000-8000-000000000001", "chat_1"] { #expect(AgentChatUploads.isSessionName(good), "\(good)") }
+        for bad in ["", ".", "..", "a/b", "huge-blue/chat", "é"] { #expect(!AgentChatUploads.isSessionName(bad), "\(bad)") }
+    }
 }
