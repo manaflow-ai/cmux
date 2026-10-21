@@ -210,7 +210,9 @@ pub(crate) async fn identity_with(io: &impl Io, t: &PeerTarget<'_>) -> StepResul
 
 /// The remote's acpmux CLI as `"$@"`: the binary `host setup` installs and
 /// its launchd agent runs, else the one cmux-tui carries (`cmux-tui acp`).
-const REMOTE_CLI: &str = "if [ -x ~/.local/bin/acpmux ]; then set -- ~/.local/bin/acpmux; elif [ -x ~/.local/bin/cmux-tui ]; then set -- ~/.local/bin/cmux-tui acp; elif [ -x ~/.cmux/bin/cmux-tui ]; then set -- ~/.cmux/bin/cmux-tui acp; elif command -v cmux-tui >/dev/null 2>&1; then set -- cmux-tui acp; else echo 'no acpmux or cmux-tui on this machine' >&2; exit 127; fi; ";
+/// The machine's acpmux CLI: a standalone one, else the cmux app's (macOS,
+/// `cmux*.app/Contents/Resources/bin/acpmux`), else cmux-tui's `acp`.
+const REMOTE_CLI: &str = "a=; for f in /Applications/cmux*.app/Contents/Resources/bin/acpmux; do if [ -x \"$f\" ]; then a=$f; break; fi; done; if [ -x ~/.local/bin/acpmux ]; then set -- ~/.local/bin/acpmux; elif [ -n \"$a\" ]; then set -- \"$a\"; elif [ -x ~/.local/bin/cmux-tui ]; then set -- ~/.local/bin/cmux-tui acp; elif [ -x ~/.cmux/bin/cmux-tui ]; then set -- ~/.cmux/bin/cmux-tui acp; elif command -v cmux-tui >/dev/null 2>&1; then set -- cmux-tui acp; else echo 'no acpmux or cmux-tui on this machine' >&2; exit 127; fi; ";
 
 /// A remote script running `"$@" --json TAIL`. `tail` is acpmux's own text
 /// with only checked names in it.
