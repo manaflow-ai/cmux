@@ -107,6 +107,8 @@ class SidebarItemRowView: NSView {
     /// A drag from a press (window points): true once the region drags.
     var onDragged: ((NSPoint, NSEvent) -> Bool)?
     var onDragEnded: (() -> Void)?
+    /// Every press, before it acts: a drag an earlier press left held ends (its release went elsewhere).
+    var onPressBegan: (() -> Void)?
     private var pressLocation: NSPoint?
     private var didDrag = false
     /// The press's modifiers, which the release acts with (Option opens a workspace).
@@ -388,6 +390,7 @@ class SidebarItemRowView: NSView {
     /// Activates on press, as the sidebar's rows do; the pressed fill shows
     /// until release.
     override func mouseDown(with event: NSEvent) {
+        onPressBegan?()
         let point = convert(event.locationInWindow, from: nil)
         guard pill.frame.contains(point) else { return super.mouseDown(with: event) }
         isPressed = true
