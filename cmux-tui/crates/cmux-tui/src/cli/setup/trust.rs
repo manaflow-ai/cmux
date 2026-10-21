@@ -8,6 +8,12 @@
 //! Claude Code's and Codex's own files keep their one writer: this never
 //! touches them. The record already holding the level is "ok" and writes
 //! nothing; `undo` names the level the record held before.
+//!
+//! A linked worktree, or any folder in a repository, takes the record made
+//! for its worktree's root or its repository's (`via` in `acp.trust.get`).
+//! That answer already holding the level is "ok" too; forgetting it forgets
+//! it there, as the pane's Undo does, so every worktree of the repository
+//! asks again. `written` names the folder whose record changed.
 
 use std::path::{Path, PathBuf};
 
@@ -31,7 +37,20 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
     let before = recorded(&paths, &folder)?;
     let current = read(&paths, &folder)?;
     let wanted = (request.level != Level::Unknown).then_some(request.level);
-    let undo = command(&folder, before.unwrap_or(Level::Unknown));
+    // The folder whose record answers for this one, when it is not this
+    // folder's own, and the level it holds.
+    let via = current["via"].as_str().map(str::to_owned);
+    let held = match via {
+        Some(_) => current["level"].as_str().and_then(Level::parse),
+        None => before,
+    };
+    // Forgetting an inherited answer forgets it where it was made; anything
+    // else is this folder's own record.
+    let (written, old) = match (&via, wanted) {
+        (Some(via), None) => (via.clone(), held),
+        _ => (folder.clone(), before),
+    };
+    let undo = command(&written, old.unwrap_or(Level::Unknown));
     let mut report = json!({
         "schema_version": 1,
         "task": TASK,
@@ -39,27 +58,30 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
         "folder": folder,
         "level": request.level.as_str(),
         "recorded": before.map(Level::as_str),
+        "via": via,
         "before": current,
         "after": Value::Null,
-        "via": Value::Null,
+        "written": Value::Null,
+        "through": Value::Null,
         "undo": Value::Null,
         "user_action": Value::Null,
     });
-    if before == wanted {
+    if held == wanted {
         report["state"] = json!("ok");
         report["after"] = report["before"].clone();
         return Ok(Outcome { report, failed: false });
     }
+    report["written"] = json!(written);
     if request.dry_run {
         report["state"] = json!("planned");
         report["undo"] = json!(undo);
         return Ok(Outcome { report, failed: false });
     }
-    let via = write(&paths, &folder, request.level)?;
+    let through = write(&paths, &written, request.level)?;
     let after = read(&paths, &folder)?;
     report["state"] = json!("changed");
     report["after"] = after;
-    report["via"] = json!(via);
+    report["through"] = json!(through);
     report["undo"] = json!(undo);
     Ok(Outcome { report, failed: false })
 }

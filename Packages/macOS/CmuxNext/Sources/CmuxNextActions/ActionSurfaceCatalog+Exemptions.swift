@@ -130,6 +130,7 @@ nonisolated extension ActionSurfaceCatalog {
         "bookmark.open", "bookmark.openInNewTab", "bookmark.openInBackgroundTab", "bookmark.openAll", "bookmark.edit",
         "bookmark.move", "bookmark.remove", "bookmark.import", "bookmark.importFromBrowser", "bookmark.export",
         "bookmark.setIcon", "bookmark.clearIcon", "machine.setIcon", "machine.clearIcon",
+        "agentChat.toggleNotificationMute",
     ]
 
     /// Why the CLI has no verb for an action (`cmux action run <id>` still runs it).
@@ -154,7 +155,6 @@ nonisolated extension ActionSurfaceCatalog {
     static let cliExemptionsByReason: [SurfaceExemption: [ActionID]] = [
         .ownerVerb: ownerVerbActions,
         .unimplemented: [
-            "agentChat.toggleNotificationMute",
             "palette.openFindPane",
             "palette.openFilesPane",
         ],
