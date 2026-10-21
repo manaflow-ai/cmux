@@ -232,6 +232,20 @@ private func assertMatch(
         #expect(result?.positions == [0, 1, 2, 3, 4])
     }
 
+    /// The expressions above move with the constants, so pin a few totals as plain numbers:
+    /// a change to any scoring constant shows up here.
+    @Test(arguments: [
+        ("foo bar baz", "fbb", 78),
+        ("/man1/zshcompctl.1", "zshc", 109),
+        ("fooBarbaz1", "obz", 49),
+        ("foo-bar", "o-ba", 88),
+    ])
+    func scoresMatchFzfLiteralTotals(text: String, pattern: String, score: Int) {
+        let algorithm = FzfAlgorithm()
+        #expect(algorithm.fuzzyMatchV2(text: text, pattern: pattern, caseSensitive: false)?.score == score)
+        #expect(algorithm.fuzzyMatchV1(text: text, pattern: pattern, caseSensitive: false)?.score == score)
+    }
+
     @Test func schemesDifferInBoundaryBonus() {
         #expect(FzfScheme.default.bonusBoundaryWhite == bonusBoundary + 2)
         #expect(FzfScheme.path.bonusBoundaryWhite == bonusBoundary)
