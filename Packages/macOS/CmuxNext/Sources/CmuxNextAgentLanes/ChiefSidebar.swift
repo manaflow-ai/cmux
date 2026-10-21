@@ -3,9 +3,10 @@ public import CmuxNextAgentActivity
 import CmuxNextApps
 import CmuxNextCompat
 public import CmuxNextDesign
+import CmuxNextHome
 public import CmuxNextSidebar
 import Foundation
-import Observation
+public import Observation
 
 /// The sidebar's Chief item (the `chief` built-in) and its subagent rows
 /// (`SidebarTransientItem.chiefSubagents`): Leo 2026-10-20, talk to the Chief from the left side
@@ -83,6 +84,11 @@ public final class ChiefSidebar {
         SidebarTransientItem.chiefSubagents(lanes: lanes.lanes.values, showsIdle: showsIdleSubagents)
     }
 
+    /// Every subagent row, idle ones too, in number order (the Chief pane's Subagents menu).
+    public func allSubagents() -> [SidebarTransientItem] {
+        SidebarTransientItem.chiefSubagents(lanes: lanes.lanes.values, showsIdle: true)
+    }
+
     /// The Chief item's look with its status.
     public func decorate(_ info: inout SidebarItemInfo) {
         (info.activity, info.badge) = (status.activity, status.badge)
@@ -107,6 +113,11 @@ public final class ChiefSidebar {
         registry.bind(Self.toggleIdleAction, isEnabled: { [weak self] in self?.isPlaced == true },
                       invoke: { [weak self] _ in self?.showsIdleSubagents.toggle() })
         ActionTargetTitles.setState(Self.toggleIdleAction, in: registry) { [weak self] _ in self?.showsIdleSubagents }
+        // The docked Home's Messages view (the Chief's chat) shows its tools in the pane's tab row.
+        HomeDockSwitchView.makeRowTools = { [weak self, weak registry] mode in
+            guard mode == .messages, let self, let registry else { return nil }
+            return ChiefPaneTools(chief: self, registry: registry)
+        }
         // The App Store's Chief in Sidebar card: Get is Add to Sidebar, Remove takes every Chief item out.
         let chief = SidebarBuiltIn.chief.rawValue
         SettingsAppFeatures.sidebarItems = .init(names: [chief], isShown: { [weak self] in $0 == chief && self?.isPlaced == true },
