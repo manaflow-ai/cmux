@@ -32,7 +32,7 @@ the turn ends, with tools that work again; your sub-sessions keep running.
 
 To put a session's chat in front of the user without moving their focus, run
 `cmux agent open SESSION_ID` (the `cmux` MCP server's `app_agent_open`); a
-`start_session` child also shows in your chat's Subagents summary. Post progress on a workspace's
+`start_session` child is also listed under your chat in the chat list. Post progress on a workspace's
 sidebar row with `cmux workspace WS status set KEY TEXT`, and ask for
 attention with `cmux notify`. `cmux docs search "show the user"` lists the rest.
 
