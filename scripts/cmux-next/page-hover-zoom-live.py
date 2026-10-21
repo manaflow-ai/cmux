@@ -4,11 +4,14 @@
   scripts/cmux-next/page-hover-zoom-live.py --socket PATH
 
 Against a running app (a capture slot's, `build-fleet/capture-host launch`): opens Settings at the
-Chief pet and, at each UI scale (`app.uiScale` 1, 1.25, 1.5, 0.85), hovers a different pet choice.
-Each hover must answer `hovered: true`, and the page must report that same choice as `:hover`.
+Chief pet in Chromium and, at each UI scale (`app.uiScale` 1, 1.25, 1.5, 0.85), waits until the
+page's `devicePixelRatio` shows that zoom, then hovers a different pet choice, taking the ones
+farthest from the viewport origin. Each hover must answer `hovered: true` natively, the page must
+report that same choice as `:hover`, and at a scale other than 1 a point scaled wrongly would have
+moved by more than half a card (88 CSS px), so it would have missed.
 DevTools mouse input is in the viewport's CSS pixels and Chromium scales it by the page zoom itself
 (`InputHandler::ScaleFactor`), so the verb sends `getBoundingClientRect` coordinates unscaled.
-Restores `app.uiScale` at the end. Exits 1 when a check fails.
+Puts `app.uiScale` back as it found it. Exits 1 when a check fails.
 """
 import argparse, json, socket, sys, time
 
@@ -56,19 +59,43 @@ def wait_for(predicate, what, seconds=20):
     return False
 
 
+HALF_CARD = 88  # .chief-pet-choice is at least 176 CSS px wide
+before = call("settings.get", {"path": "app.uiScale"}) or {}
 call("settings.open", {"setting": "home.chiefPetMascot"})
 wait_for(lambda: page().get("painted") is True, "Settings painted")
-pets = [e["data"].get("pet") for e in page("query", selector=".chief-pet-choice[data-pet]").get("elements", [])]
-pets = [pet for pet in pets if pet and pet != "none"]
-check(len(pets) >= 4, f"four pet choices to hover ({pets})")
+check(page().get("engine") == "chromium", "Settings shows in Chromium")
+pets = []
+
+
+def read_pets():
+    found = [e["data"].get("pet") for e in page("query", selector=".chief-pet-choice[data-pet]").get("elements", [])]
+    pets[:] = [pet for pet in found if pet and pet != "none"]
+    return len(pets) >= 4
+
+
+wait_for(read_pets, "four pet choices to hover")
 try:
-    for scale, pet in zip((1.0, 1.25, 1.5, 0.85), pets[1:] + pets[:1]):
-        call("settings.set", {"path": "app.uiScale", "value": scale})
-        time.sleep(1)  # live script: Chromium applying the new zoom level
+    base = None
+    for scale, pet in zip((1.0, 1.25, 1.5, 0.85), reversed(pets)):
+        reply = call("settings.set", {"path": "app.uiScale", "value": scale})
+        check("error" not in (reply or {"error": None}), f"uiScale {scale}: set ({reply})")
+        if base is None:
+            # The display's own scale: the ratio at zoom 1 is a whole number (1 or 2).
+            wait_for(lambda: float(page().get("device_pixel_ratio") or 0).is_integer(), "zoom 1 reached the page")
+            base = float(page().get("device_pixel_ratio") or 1)
+        wait_for(lambda: abs(float(page().get("device_pixel_ratio") or 0) - base * scale) < 0.02,
+                 f"uiScale {scale}: zoom reached the page")
         reply = page("hover", selector=f".chief-pet-choice[data-pet={pet}]")
         hovered = [e["data"].get("pet") for e in page("query", selector=".chief-pet-choice:hover").get("elements", [])]
-        check(reply.get("hovered") is True, f"uiScale {scale}: hover {pet} answers hovered ({reply})")
+        check(reply.get("hovered") is True and reply.get("native") is True,
+              f"uiScale {scale}: hover {pet} answers hovered natively ({reply})")
         check(hovered == [pet], f"uiScale {scale}: the page hovers {pet} ({hovered})")
+        if scale != 1.0:
+            moved = abs(1 - scale) * max(reply.get("x", 0), reply.get("y", 0))
+            check(moved > HALF_CARD, f"uiScale {scale}: a wrongly scaled point would move {moved:.0f} px, off the card")
 finally:
-    call("settings.unset", {"path": "app.uiScale"})
+    if before.get("exists"):
+        call("settings.set", {"path": "app.uiScale", "value": before.get("value")})
+    else:
+        call("settings.unset", {"path": "app.uiScale"})
 sys.exit(1 if failures else 0)

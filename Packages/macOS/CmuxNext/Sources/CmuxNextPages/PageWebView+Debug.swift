@@ -25,6 +25,7 @@ extension PageWebView {
           html: getComputedStyle(document.documentElement).backgroundColor,
           body: document.body ? getComputedStyle(document.body).backgroundColor : null,
           painted_ms: document.documentElement.dataset.cmuxPainted ? Number(document.documentElement.dataset.cmuxPainted) : null,
+          device_pixel_ratio: window.devicePixelRatio,
           active: document.activeElement && document.activeElement !== document.body
             ? { tag: document.activeElement.tagName.toLowerCase(), value: 'value' in document.activeElement ? String(document.activeElement.value) : null }
             : null,
@@ -153,8 +154,8 @@ extension PageWebView {
         guard point["hit"] == true else { return ["hovered": false, "error": "another element is at its center"] }
         if let page {
             // DevTools input is in the viewport's CSS pixels, as `getBoundingClientRect` gives them:
-            // Chromium scales it by the browser zoom, CSS zoom and pinch scale itself
-            // (`InputHandler::ScaleFactor`). scripts/cmux-next/page-hover-zoom-live.py checks it at
+            // Chromium scales it by the browser zoom, the embedding frame's CSS zoom and the pinch
+            // scale itself (`InputHandler::ScaleFactor`). scripts/cmux-next/page-hover-zoom-live.py checks it at
             // UI scales 0.85 to 1.5.
             guard (try? await page.devTools("Input.dispatchMouseEvent", params: [
                 "type": "mouseMoved", "x": x, "y": y, "button": "none", "buttons": 0, "modifiers": 0,
