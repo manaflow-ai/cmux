@@ -2273,7 +2273,18 @@ export function VirtualTranscript({
     (index: number, event: React.KeyboardEvent<HTMLElement>) => rowKeyDownRef.current(index, event),
     [],
   );
-  const activeVisible = rows.slice(range.first, range.last).some((row) => row.id === effectiveActiveRowId);
+  // Avoid allocating a new slice on every scroll/follow commit. Long transcripts can dispatch
+  // several state commits per frame while the reader is moving; the mounted range is already
+  // bounded, so a direct scan keeps the check allocation-free.
+  let activeVisible = false;
+  if (effectiveActiveRowId) {
+    for (let index = range.first; index < range.last; index += 1) {
+      if (rows[index]?.id === effectiveActiveRowId) {
+        activeVisible = true;
+        break;
+      }
+    }
+  }
   const tabStopId = activeVisible ? effectiveActiveRowId : rows[range.first]?.id;
   useLayoutEffect(() => {
     const spans = mountedRanges.map(({ first, last }): MountedSpan => [
@@ -2826,12 +2837,13 @@ export function VirtualTranscript({
   // to its footer. Marked on the mounted rows, so a hover renders nothing.
   // The last ended turn's prompt offers Retry under its bubble (UserBubble.tsx); turns.ts names
   // it on the turn's footer while it may be sent again.
-  let retryPromptId: string | undefined;
-  for (let index = rows.length - 1; index >= 0; index -= 1)
-    if (rows[index]!.kind === "turnSummary") {
-      retryPromptId = rows[index]!.retryRowId;
-      break;
-    }
+  // Rows are immutable snapshots. Reuse the last ended turn's retry target across scroll and
+  // focus commits, which do not change `rows` and otherwise walk the entire transcript.
+  const retryPromptId = useMemo(() => {
+    for (let index = rows.length - 1; index >= 0; index -= 1)
+      if (rows[index]!.kind === "turnSummary") return rows[index]!.retryRowId;
+    return undefined;
+  }, [rows]);
   const markTurns = useCallback(() => {
     for (const node of thread.current?.querySelectorAll<HTMLElement>(".acpmux-row") ?? []) {
       node.toggleAttribute("data-retryable", node.dataset.rowId === retryPromptId);
