@@ -139,4 +139,33 @@ test("a lost host says so once, in the page's words, not again in a banner above
   expect(store.getSnapshot().connection).toBe("disconnected");
   expect(host.querySelector(".history-empty")?.textContent).toBe(strings.t("page.disconnected"));
   expect(host.querySelector(".history-error")).toBeNull();
+  // The page's own words are announced in place of the banner's alert.
+  expect(host.querySelector(".history-empty")?.getAttribute("role")).toBe("status");
+  // Clear has nothing to reach while the host is gone, like the search field.
+  const clear = [...host.querySelectorAll<HTMLButtonElement>(".history-menu-button")].find(
+    (button) => button.textContent === strings.t("page.clear"),
+  );
+  expect(clear?.disabled).toBe(true);
+});
+
+test("a host that comes back drops the lost link's error before it re-reads", async () => {
+  const [historyModule, storeModule] = await Promise.all([
+    import("../src/pages/history/mockProvider"),
+    import("../src/pages/history/store"),
+  ]);
+  const provider = new historyModule.MockHistoryProvider();
+  const store = new storeModule.HistoryStore(provider, { newKey: () => "k" });
+  const unsubscribe = store.subscribe(() => {});
+  await store.start();
+  provider.offline = true;
+  provider.page.setConnected(false);
+  store.setText("atlas");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(store.getSnapshot()).toMatchObject({ connection: "disconnected" });
+  expect(store.getSnapshot().error).toBeDefined();
+  provider.offline = false;
+  provider.page.setConnected(true);
+  // While the re-read is on its way the stale error would come back as a banner and an alert.
+  expect(store.getSnapshot()).toMatchObject({ connection: "connecting", error: undefined });
+  unsubscribe();
 });
