@@ -422,3 +422,68 @@ button.cv-subagent > :last-child {
   text-align: center;
   user-select: none;
 }
+
+/* ---------- The tray of running work above the composer (SubagentTray.tsx) ---------- */
+/* The user bubble's tinted glass (conversation.css .cv-user__bubble): the theme's text at a low
+   strength over the backdrop, never a solid fill, with the composer's hairline rim. Its rows are
+   the summary card's (AgentLine.tsx, summary.css), so a subagent reads the same in both. */
+.acpmux-running-tray {
+  box-sizing: border-box;
+  padding: 2px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, transparent);
+  color: var(--agent-text);
+  font-family: var(--cv-font);
+  font-size: var(--text-control);
+  line-height: 18px;
+}
+/* Past five lines the list scrolls in place; the stack never scrolls the transcript. */
+.acpmux-running-tray__list {
+  max-height: calc(5 * 28px);
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+}
+.acpmux-running-tray__head > svg {
+  flex: none;
+  color: var(--agent-muted);
+}
+.acpmux-running-tray__head + .acpmux-running-tray__list {
+  border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-composer-edge, transparent);
+}
+/* A line (AgentLine.tsx) is its button and, for a running subagent or a registry command, its
+   stop button (SubagentGroup.tsx, inspector/TasksSection.tsx). */
+.acpmux-agent-line {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.acpmux-agent-line > .acpmux-agent-line__button {
+  flex: 1;
+  min-width: 0;
+}
+.acpmux-agent-line > .cv-subagent__stop {
+  position: static;
+  flex: none;
+  margin-left: 2px;
+}
+.acpmux-agent-line > .acpmux-chat-inspector-stop {
+  margin: 0 4px 0 2px;
+}
+/* Running work's icon is the theme's accent, never a brand color. */
+.acpmux-agent-line .acpmux-lineage__icon[data-state="running"],
+.acpmux-running-tray__head .acpmux-lineage__icon {
+  color: var(--agent-accent);
+}
+
+/* ---------- Where a subagent ended (SubagentDoneLine.tsx) ---------- */
+/* A tool row like a background task's end; a failure in the danger color. */
+.cv-subagent-done:disabled {
+  cursor: default;
+}
+.cv-subagent-done[data-state="failed"] {
+  color: var(--agent-danger);
+}

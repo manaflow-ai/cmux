@@ -22,6 +22,8 @@
 # CMUX_WEB_TEST_FILES: optional newline-separated test files (relative to webviews/) to run instead
 # of every file, for focused runs (scripts/ci/car_guards.py). A name the git index does not list
 # is an error, so a stale selection never passes by running nothing.
+# CMUX_WEB_TEST_RESULTS: optional file to write each file's and failed test's result into
+# (webviews_test_results.py), for webviews-tests-new-reds.sh.
 # CMUX_WEB_TEST_SHARD / CMUX_WEB_TEST_SHARD_COUNT: optional one-based shard selector (for example
 # 1/2 or 2/2). Sharding happens after the git-index file list is built, so every shard keeps the
 # same per-file process and Vite-cache isolation rules while covering a disjoint deterministic set.
@@ -313,6 +315,11 @@ while read -r result file log; do
   cat "$log"
   echo "::endgroup::"
 done < <(sort -k2 "$results/summary")
+
+# Per-test results for webviews-tests-new-reds.sh, which compares them with the base's.
+if [ -n "${CMUX_WEB_TEST_RESULTS:-}" ]; then
+  python3 "$(dirname "$self")/webviews_test_results.py" "$results/summary" "$CMUX_WEB_TEST_RESULTS"
+fi
 
 echo "### webviews tests: $count files, $failed failed or timed out ($retried retried alone, $(wc -l < "$results/retry-passed" | tr -d ' ') passed alone)"
 if [ -s "$results/retry-passed" ]; then

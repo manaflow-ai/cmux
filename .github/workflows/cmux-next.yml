@@ -1224,6 +1224,13 @@ jobs:
           python3 -I scripts/cmux-next/gen-type-scale.py --check
           python3 -I scripts/cmux-next/check-swift-type-scale.py
 
+      # The one motion duration scale (schemas/motion-scale/motion-scale.json): its Swift, CSS and
+      # TypeScript copies (Leo 2026-10-20: one token file both sides read).
+      - name: Motion scale
+        id: motion-scale
+        continue-on-error: true
+        run: python3 -I scripts/cmux-next/gen-motion-scale.py --check
+
       # LAUNCH-NO-TCC-PROMPTS: the Swift and TypeScript copies of the one
       # protected-folder list (cmux-tui/crates/acpmux/data/protected-folders.json).
       - name: Protected-folder copies
@@ -1640,6 +1647,7 @@ jobs:
             ${{ steps.scrollbars.outcome }}|Scrollbars thin, one style
             ${{ steps.motion.outcome }}|Motion tokens
             ${{ steps.type-scale.outcome }}|Type scale
+            ${{ steps.motion-scale.outcome }}|Motion scale
             ${{ steps.protected-folders.outcome }}|Protected-folder copies
             ${{ steps.settings-sources.outcome }}|Settings source copies
             ${{ steps.phone-lane-fields.outcome }}|Phone lane field allowlist
