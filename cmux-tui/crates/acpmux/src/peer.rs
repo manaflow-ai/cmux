@@ -243,14 +243,13 @@ impl Peer {
         if let Some(t) = &self.token {
             return Ok((t.clone(), peer));
         }
-        let cfg: Value = serde_json::from_slice(config)
-            .map_err(|_| format!("remote {host} has no readable ~/.acpmux/config.json"))?;
-        let token = cfg
-            .pointer("/websocket/token")
-            .and_then(Value::as_str)
-            .map(str::to_owned)
-            .ok_or_else(|| format!("remote {host} config has no websocket token"))?;
-        Ok((token, peer))
+        let remote = remote_daemon_config(config).map_err(|why| match why {
+            RemoteConfigError::Unreadable => {
+                format!("remote {host} has no readable ~/.acpmux/config.json")
+            }
+            RemoteConfigError::NoToken => format!("remote {host} config has no websocket token"),
+        })?;
+        Ok((remote.token, peer))
     }
 
     pub fn remote_build(&self) -> Option<String> {
@@ -739,9 +738,48 @@ pub fn carries_peer_token(url: &str) -> bool {
 /// (None when absent or not a 64-digit hex token).
 pub fn split_remote_read(out: &[u8]) -> (&[u8], Option<String>) {
     let Some(at) = out.iter().position(|b| *b == 0) else { return (out, None) };
-    let token = std::str::from_utf8(&out[at + 1..]).ok().map(str::trim);
-    let token = token.filter(|t| t.len() == 64 && t.bytes().all(|b| b.is_ascii_hexdigit()));
-    (&out[..at], token.map(str::to_owned))
+    (&out[..at], peer_token_text(&out[at + 1..]))
+}
+
+/// A daemon's `run/peer.token` file: the token, trimmed, when it is 64 hex
+/// digits; None for anything else.
+pub fn peer_token_text(bytes: &[u8]) -> Option<String> {
+    let token = std::str::from_utf8(bytes).ok().map(str::trim);
+    token.filter(|t| t.len() == 64 && t.bytes().all(|b| b.is_ascii_hexdigit())).map(str::to_owned)
+}
+
+/// What a peer reads from another daemon's `~/.acpmux/config.json`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteDaemonConfig {
+    /// The dashboard token (`websocket.token`).
+    pub token: String,
+    /// The WebSocket listen address (`websocket.listen`), when set.
+    pub listen: Option<String>,
+}
+
+/// Why [`remote_daemon_config`] found no token. The reason never quotes
+/// the file (it holds a secret).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemoteConfigError {
+    /// Not JSON.
+    Unreadable,
+    /// JSON without a `websocket.token` string.
+    NoToken,
+}
+
+/// Parse another daemon's `config.json` bytes, as an `ssh://` peer reads
+/// them at each connect and the Cloud link's peer bridge reads them over
+/// the remote tunnel.
+pub fn remote_daemon_config(config: &[u8]) -> Result<RemoteDaemonConfig, RemoteConfigError> {
+    let cfg: Value = serde_json::from_slice(config).map_err(|_| RemoteConfigError::Unreadable)?;
+    let token = cfg
+        .pointer("/websocket/token")
+        .and_then(Value::as_str)
+        .filter(|t| !t.is_empty())
+        .ok_or(RemoteConfigError::NoToken)?
+        .to_owned();
+    let listen = cfg.pointer("/websocket/listen").and_then(Value::as_str).map(str::to_owned);
+    Ok(RemoteDaemonConfig { token, listen })
 }
 
 type PendingReplies = Arc<Mutex<HashMap<String, oneshot::Sender<Result<Value, RpcError>>>>>;
@@ -764,5 +802,43 @@ impl Drop for ForgetPending {
                 pending.lock().await.remove(&key);
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod remote_config_tests {
+    use super::*;
+
+    #[test]
+    fn a_remote_config_gives_its_token_and_listen_address() {
+        let cfg = br#"{"websocket": {"listen": "127.0.0.1:47811", "token": "abc"}}"#;
+        let parsed = remote_daemon_config(cfg).unwrap();
+        assert_eq!(parsed.token, "abc");
+        assert_eq!(parsed.listen.as_deref(), Some("127.0.0.1:47811"));
+        let no_listen = remote_daemon_config(br#"{"websocket": {"token": "abc"}}"#).unwrap();
+        assert_eq!(no_listen.listen, None);
+    }
+
+    #[test]
+    fn a_remote_config_without_a_token_is_refused_without_quoting_it() {
+        assert_eq!(remote_daemon_config(b"not json"), Err(RemoteConfigError::Unreadable));
+        for cfg in [
+            &br#"{}"#[..],
+            br#"{"websocket": {"listen": "x"}}"#,
+            br#"{"websocket": {"token": ""}}"#,
+        ] {
+            assert_eq!(remote_daemon_config(cfg), Err(RemoteConfigError::NoToken));
+        }
+    }
+
+    #[test]
+    fn a_peer_token_is_64_hex_digits() {
+        let good = "a".repeat(64);
+        assert_eq!(peer_token_text(format!("{good}\n").as_bytes()), Some(good.clone()));
+        assert_eq!(peer_token_text(b""), None);
+        assert_eq!(peer_token_text("g".repeat(64).as_bytes()), None);
+        assert_eq!(peer_token_text("a".repeat(63).as_bytes()), None);
+        let read = [br#"{"websocket":{"token":"t"}}"#.as_slice(), b"\0", good.as_bytes()].concat();
+        assert_eq!(split_remote_read(&read).1, Some(good));
     }
 }

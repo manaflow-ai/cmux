@@ -60,6 +60,7 @@ export function toolLabel(
   const paths = editedPaths(tool);
   const command = tool.command?.trim();
   if (tool.kind === "execute" && tool.description) return tool.description;
+  // Without its setup, a leading `cd <folder> &&` included: the opened Shell block names the folder (#20456).
   if (tool.kind === "execute" && command) return commandLabel(shortCommand(command));
   if (unnamedCommand && isBareShellName(tool, title || fallbackName)) return unnamedCommand;
   // An MCP call reads as its server and action, never as `mcp__<server>__<tool>`.

@@ -5,6 +5,10 @@
 
 /// A step that only sets the shell up: an export, a bare assignment, a cd, a source, a set.
 const SETUP = /^(?:export|cd|pushd|source|\.|set|unset|ulimit|umask)(?:\s|$)|^[A-Za-z_][A-Za-z0-9_]*=\S*$/;
+/// A substitution runs code, so a setup step with one (`cd "$(…)"`, `export X=`…``) is never left
+/// out: nothing the call ran is hidden (commandFolder.ts, #20456).
+const RUNS_CODE = /\$\(|`/;
+const isSetup = (step: string) => SETUP.test(step) && !RUNS_CODE.test(step);
 /// Assignments before a program (`FOO=1 BAR=2 cargo test`).
 const LEADING_ASSIGNMENTS = /^(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|\S)*\s+)+/;
 
@@ -52,7 +56,7 @@ function programName(step: string): string {
 export function shortCommand(command: string, max = 60): string {
   const all = steps(command.trim());
   if (all.length === 0) return "";
-  const at = all.findIndex((step) => !SETUP.test(step));
+  const at = all.findIndex((step) => !isSetup(step));
   const step = at < 0 ? all[0]! : all[at]!;
   let text = programName(step.replace(LEADING_ASSIGNMENTS, "")).replace(/\s+/g, " ");
   const more = at >= 0 && at < all.length - 1;

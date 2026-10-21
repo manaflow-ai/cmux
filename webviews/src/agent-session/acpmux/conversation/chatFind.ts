@@ -6,6 +6,7 @@
 // FindReveal, the tool group or call that holds it (cx-ncc.70).
 import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
+import { commandFolder } from "./commandFolder";
 import { cleanText, mcpCall, prettyOutput, prettyValue } from "./mcpCalls";
 
 /** One match: the `occurrence`th match of the query in row `rowIndex`. */
@@ -28,7 +29,8 @@ function drawnText(item: AcpmuxActivity): string {
   if (call) return [prettyValue(call.args), prettyOutput(tool.output)].filter(Boolean).join("\n");
   const shell = tool.kind === "execute" && Boolean(tool.command);
   const output = shell || !tool.output ? tool.output : cleanText(tool.output);
-  return [tool.command || tool.title, output].filter(Boolean).join("\n");
+  // The command as its rows draw it, without a leading `cd <folder> &&` (commandFolder).
+  return [(tool.command && commandFolder(tool.command).rest) || tool.title, output].filter(Boolean).join("\n");
 }
 
 /** A call's edits' new text, which draws in @pierre/diffs' shadow root, past the page's highlights. */

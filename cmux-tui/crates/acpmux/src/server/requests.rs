@@ -331,6 +331,9 @@ async fn dispatch_request(
                 let mut p = params.clone();
                 if let Some(m) = p.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
                     m.remove("peer");
+                    // The peer would tie it to this daemon's long-lived connection, never to the
+                    // client's: the client's own kill purges it (`ephemeral.rs`).
+                    m.remove("ephemeral");
                 }
                 super::remote_guard::mark_forwarded(conn.origin, conn.auth, &params, &mut p);
                 let mut result = peer.request(method::SESSION_NEW, p).await?;
@@ -416,6 +419,10 @@ async fn dispatch_request(
                 hub.start_in_mode(conn.is_person(), conn.caller(), &params, &s, adopting).await?;
             }
             attach(hub, conn, &s.id);
+            // An adopted id may name a chat that already exists: never tied to this connection.
+            if !adopting && super::ephemeral::requested(&params) {
+                super::ephemeral::own(hub, conn, &s).await;
+            }
             let meta = s.meta();
             Ok(json!({
                 "sessionId": s.id,
@@ -684,6 +691,26 @@ async fn dispatch_request(
         "_acpmux/peer_add" => {
             hub.add_peer_from(&params).await?;
             Ok(json!({"peers": hub.peers()}))
+        }
+        // A peer that lasts as long as this connection (`hub/peer_lease.rs`):
+        // the unix socket only (`remote_guard.rs`).
+        "_acpmux/peer_lease" => {
+            let text = |k: &str| str_param(&params, k).filter(|v| !v.is_empty()).map(str::to_owned);
+            let required = |k: &str| {
+                text(k).ok_or_else(|| RpcError::invalid_params(format!("{k} is required")))
+            };
+            let (name, url, token) = (required("name")?, required("url")?, required("token")?);
+            let wait = params.get("wait").and_then(Value::as_bool).unwrap_or(false);
+            let (lease, mut settled) = {
+                let cfg = hub.config.read().await;
+                hub.lease_peer(&name, &url, token, text("peerToken"), &cfg)?
+            };
+            conn.hold_peer_lease(hub, lease);
+            if wait {
+                let _ =
+                    tokio::time::timeout(crate::hub::PEER_SETTLE_BUDGET, settled.changed()).await;
+            }
+            Ok(json!({"lease": name, "peers": hub.peers()}))
         }
         "_acpmux/peer_reconnect" => {
             let name = str_param(&params, "name")

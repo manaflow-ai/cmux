@@ -1,12 +1,14 @@
 // One command in a "Ran N commands" group, as the Codex desktop app lists them: the terminal glyph
 // and what it does (Claude Code's Bash description) or "Ran <command>" with the command in mono, cut
-// to the row without the setup it starts with (`export PATH=…;`), then its exit status and run time (the check and time on hover only), opening to its
-// Shell block. A command that went on in the background shows how it stands there instead
-// (BackgroundMark.tsx), and its time once it ends.
+// to the row without the setup it starts with (`export PATH=…;`, a leading `cd <folder> &&`, which
+// its Shell block names), then its exit status and run time (the check and time on hover only),
+// opening to its Shell block. A command that went on in the background shows how it stands there
+// instead (BackgroundMark.tsx), and its time once it ends.
 import { useFindReveal } from "./chatFind";
 import { useId, useMemo } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
+import { commandFolder } from "./commandFolder";
 import { menuPartRef } from "./menuParts";
 import { BackgroundHint } from "./BackgroundHint";
 import { ShellBlock } from "./ShellBlock";
@@ -32,8 +34,10 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
   const running = foreground || tool.background?.state === "running";
   const failed = isFailed(tool);
   const duration = toolDuration(t, tool);
-  // Find counts the whole line, so a shortened one is skipped; opened, the Shell block draws it.
+  // Find counts the line without its leading cd (chatFind.ts), so a line shortened past that is
+  // skipped; opened, the Shell block draws it.
   const short = shortCommand(tool.command ?? "");
+  const whole = short === commandFolder(tool.command ?? "").rest.trim();
   const exited = tool.exitCode !== undefined && tool.exitCode !== 0;
   // "Ran {command}" in the reader's language, the command drawn as code where the string puts it.
   const [before = "", after = ""] = t("tools.ranCommand", { command: "\u0000" }).split("\u0000");
@@ -59,7 +63,7 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
           ) : (
             <>
               {before && <span data-find-skip>{before}</span>}
-              <code className="cv-command__line" data-find-skip={open || short !== tool.command?.trim() || undefined}>
+              <code className="cv-command__line" data-find-skip={open || !whole || undefined}>
                 {short}
               </code>
               {after && <span data-find-skip>{after}</span>}
