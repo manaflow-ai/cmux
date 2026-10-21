@@ -19,6 +19,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -293,7 +294,7 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
       first: unknown;
       cadence: number[];
     }>((resolve) => {
-      const sample = () => {
+      window.cmuxAfterPaint(() => {
         const at = performance.now() - start;
         const shows = scroller.innerText.includes(marker);
         if (drawn === null) {
@@ -328,10 +329,10 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
           before = tops;
           scrollTop = scroller.scrollTop;
         }
-        if (at < limitMs && (drawn === null || at < drawn + settleMs)) requestAnimationFrame(sample);
-        else resolve({ drawn, shifted, moved, blank, frames, first, cadence });
-      };
-      requestAnimationFrame(sample);
+        if (at < limitMs && (drawn === null || at < drawn + settleMs)) return;
+        resolve({ drawn, shifted, moved, blank, frames, first, cadence });
+        return false;
+      });
     });
     const actions = (window as { cmuxAcpmuxActions?: Record<string, (params: object) => Promise<unknown>> })
       .cmuxAcpmuxActions;
@@ -361,6 +362,7 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
       viewport: { width: 1000, height: 760 },
       ...(videoDir ? { recordVideo: { dir: videoDir, size: { width: 1000, height: 760 } } } : {}),
     });
+    await installPaintedFrames(page);
     await page.goto(url(chats[0].sessionId));
     await page.getByText(chats[0].marker).waitFor();
     const open = (entry: (typeof chats)[number]) =>

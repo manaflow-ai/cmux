@@ -28,7 +28,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 id: "agentChat.toggleNotificationMute",
                 title: String(localized: "action.agentChat.toggleNotificationMute", defaultValue: "Mute/Unmute Chat Notifications", bundle: .module),
                 keywords: ["mute", "silence", "quiet", "notifications", "agent", "chat"], category: .agents, symbol: "bell.slash",
-                surfaces: [.palette, .contextMenu], targets: [.tab]
+                surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "tab toggle-chat-notifications"
             ),
             ActionDescriptor(
                 id: "palette.newAgentChat",
