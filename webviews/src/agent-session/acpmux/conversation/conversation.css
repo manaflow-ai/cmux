@@ -1558,11 +1558,14 @@ pre.cv-math-source {
   min-width: 0;
   margin: 2px 0;
 }
+/* Clear of the row's Copy button (28 px at its top right, which takes the pointer even while
+   hidden), so a long sender name ends in an ellipsis before › instead of under it. */
 .cv-received__line {
   display: flex;
   align-items: center;
   min-width: 0;
   height: 26px;
+  padding-right: 28px;
   color: var(--cv-text-dim);
   font-size: var(--text-control);
   white-space: pre;
