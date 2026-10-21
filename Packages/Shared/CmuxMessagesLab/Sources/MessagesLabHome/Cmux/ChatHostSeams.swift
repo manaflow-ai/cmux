@@ -29,8 +29,15 @@ protocol ChatIntents: AnyObject {
     /// A paste in the field or a drop: true when the host's attachment
     /// intake took the pasteboard (files and pictures, Home's type rule).
     func takeAttachments(from pasteboard: NSPasteboard) -> Bool
-    /// While dragging: whether a drop would be taken (types only).
+    /// Whether a paste would be taken (types only).
     func acceptsAttachments(from pasteboard: NSPasteboard) -> Bool
+    /// A drop on the field: true when the host's intake took the drag's
+    /// pasteboard (file URLs, file promises, pictures).
+    func takeDroppedAttachments(from pasteboard: NSPasteboard) -> Bool
+    /// While dragging over the field: whether a drop would be taken (types only).
+    func acceptsDroppedAttachments(from pasteboard: NSPasteboard) -> Bool
+    /// The field became or stopped being the target of a drag the host takes.
+    func attachmentDropTargeted(_ targeted: Bool)
     /// A click on the status line (the Chief's "working on" line): `rect` is its text in `view`'s
     /// coordinates, where the turn's details open.
     func statusLineClicked(_ rect: CGRect, in view: NSView)
@@ -87,4 +94,8 @@ public protocol ChatWakeScheduler: AnyObject {
 extension ChatIntents {
     /// No local copy (hosts and fakes without attachment bytes).
     func attachmentFile(_ message: ID, _ attachment: ID) async -> URL? { nil }
+    /// Hosts without a drop intake of their own take a drop as a paste.
+    func takeDroppedAttachments(from pasteboard: NSPasteboard) -> Bool { takeAttachments(from: pasteboard) }
+    func acceptsDroppedAttachments(from pasteboard: NSPasteboard) -> Bool { acceptsAttachments(from: pasteboard) }
+    func attachmentDropTargeted(_ targeted: Bool) {}
 }

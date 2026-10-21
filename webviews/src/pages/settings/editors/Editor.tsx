@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { AccentRowEditor } from "./AccentRowEditor";
 import { ChoiceOrNumberEditor } from "./ChoiceOrNumberEditor";
+import { ChoiceOrUrlEditor } from "./ChoiceOrUrlEditor";
 import { ChoiceSetEditor } from "./ChoiceSetEditor";
 import { ColorEditor } from "./ColorEditor";
 import { DomainListEditor } from "./DomainListEditor";
@@ -40,6 +41,8 @@ export function Editor(props: EditorProps): ReactNode {
       );
     case "choice_or_number":
       return <ChoiceOrNumberEditor {...props} />;
+    case "choice_or_url":
+      return <ChoiceOrUrlEditor {...props} />;
     case "number":
       return <NumberEditor {...props} />;
     case "color":

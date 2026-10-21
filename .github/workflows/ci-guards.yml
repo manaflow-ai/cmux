@@ -151,7 +151,7 @@ jobs:
         run: python3 tests/test_pr_proof_section.py
 
       - name: Validate the PR capture check
-        if: ${{ matrix.group == 'ci' }}
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_pr_capture_check.py
 
       - name: Validate gh-merge-green --revert
@@ -190,9 +190,17 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_macos_xcode_selection.py
 
+      - name: Validate the CEF shim C++ tests run on Linux
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_next_shim_cpp_linux.py
+
       - name: Validate Xcode pin audit
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_xcode_pin_audit.py
+
+      - name: Validate the bash 3.2 parse job runs on Linux
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_bash32_linux_job.py
 
       - name: Validate v0.64.25 rpath repair workflow contract
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -277,8 +285,12 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: python3 tests/test_web_complexity_scope.py
 
+      # test-ios.yml and cmux-next.yml run the iOS package conventions lint for
+      # feat-cmux-next too, so this guard and the test-ios.yml dispatch guard are in
+      # preflight, which feat-cmux-next pull requests route; release-ios guards only
+      # main's iOS upload path.
       - name: Validate iOS package conventions for this change
-        if: ${{ !cancelled() && matrix.group == 'release-ios' }}
+        if: ${{ !cancelled() && matrix.group == 'preflight' }}
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
         run: |
@@ -401,6 +413,10 @@ jobs:
           python3 scripts/whats-new/test_validate.py
           python3 scripts/whats-new/test_community.py
           python3 tests/test_cmux_next_release_notes.py
+
+      - name: Test the server bootstrap candidate renderer
+        if: ${{ !cancelled() && matrix.group == 'preflight' }}
+        run: python3 scripts/server-release/test_render.py
 
       - name: Test the /release changelog line classifier
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
@@ -579,6 +595,14 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_install_git_hooks.py
 
+      - name: Validate the advisory post-edit checks
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_post_edit_checks.py
+
+      - name: Validate post-edit formatting touches only the edited file
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_format_post_edit.py
+
       - name: Validate bead auto-close on merged pull requests
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_bead_autoclose.py
@@ -623,6 +647,26 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_run_sources.py
 
+      - name: Validate every build-fleet client call checks the client is installed
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_cmux_ci_client_guarded.py
+
+      - name: Validate published cmux-tui manifests carry acpmux
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_cmux_tui_latest_acpmux.py
+
+      - name: Validate feat-cmux-next pushes run the web and cmux-next checks
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_next_web_base_push.py
+
+      - name: Validate the cmux-next web-bundle cache contract
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_next_web_bundle_cache.py
+
+      - name: Validate the nightly builder
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_nightly_builder.py
+
       - name: Validate shallow complexity comparison fetching
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_fetch_complexity_base.py
@@ -666,6 +710,10 @@ jobs:
       - name: Validate the pull request status comment
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_pr_status.py
+
+      - name: Validate the gallery advisory's state ranking and receipt
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_gallery_select.py
 
       - name: Validate the feat-cmux-next PR merge-tree publisher
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -771,6 +819,12 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_pool_rescue.py
 
+      # Reads the other branch's workflows too (origin/main here, origin/feat-cmux-next on main) and
+      # main's rescue lists; under Actions the test fetches it blob-less and fails if it cannot.
+      - name: Validate that the persistent-pool rescue watches every owned-pool workflow
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_owned_pool_sources.py
+
       - name: Validate the backend migrations plan
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_backend_migrations_plan.py
@@ -851,6 +905,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_signing_secrets_need_release_environment.py
 
+      - name: Validate the nightly-next train runs only feat-cmux-next code with the release App
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_nightly_next_train_drive_pin.py
+
       - name: Validate the signing keychain is deleted before bundle code runs
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py
@@ -904,6 +962,27 @@ jobs:
       - name: Validate the PR media pruner
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_prune_pr_media.py
+
+      # The same tesseract the media publishing action installs: a picture
+      # showing a seeded private term is refused before it is written, and the
+      # action's canary preflight passes. A local run (scripts/ci/guards-local.sh)
+      # installs nothing; without tesseract the tests skip themselves.
+      - name: Validate the media publishing gate with real OCR
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        timeout-minutes: 6
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          set -euo pipefail
+          if ! command -v tesseract >/dev/null && [ "${GITHUB_ACTIONS:-}" = true ] && command -v apt-get >/dev/null; then
+            sudo apt-get update -qq || sudo apt-get update -qq
+            sudo apt-get install -y -qq --no-install-recommends tesseract-ocr tesseract-ocr-eng >/dev/null
+          fi
+          python3 tests/test_ci_pr_media_privacy.py -v SeededTermEndToEndTests
+
+      - name: Validate the PR media privacy check and its writers
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pr_media_privacy.py
 
       - name: Validate nightly prune Python compatibility
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
@@ -1072,7 +1151,7 @@ jobs:
         run: python3 ios/tests/test_dogfood_readiness_app_receipt.py
 
       - name: Validate manual iOS workflow ref resolution
-        if: ${{ !cancelled() && matrix.group == 'release-ios' }}
+        if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: python3 tests/test_ios_workflow_dispatch_ref.py
 
       - name: Validate cmux scheme test configuration
@@ -1141,12 +1220,16 @@ jobs:
         run: python3 tests/test_cmux_tui_superseded_push.py
 
       - name: Validate a feat-cmux-next push stops deferring to a publisher whose daemon tests are stuck
-        if: ${{ matrix.group == 'release-notary' }}
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_publisher_testing.py
 
-      - name: Validate the cmux-next tour runs on merges and media-tour pull requests only
+      - name: Validate when the cmux-next tour runs (merges, media-tour, Swift UI a tour covers)
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_next_media_tour_gate.py
+
+      - name: Validate which pull requests get a native media tour
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_media_auto_tour.py
 
       - name: Validate webview-only changes tour on Linux, not a Mac
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
@@ -1157,6 +1240,10 @@ jobs:
       - name: Validate the cmux-next tour bounds its DerivedData on each Mac
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_ci_prune_media_derived_data.py
+
+      - name: Validate reload.sh reads the cmux-next tour's free-space floor from tour-requirements.json
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_tour_requirements.py
 
       - name: Validate a second cmux-next tour of a tag waits for the tour holding it
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
@@ -1265,6 +1352,10 @@ jobs:
       - name: Validate the nightly-next feed rollback
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_feed_rollback.py
+
+      - name: Validate the nightly-next release-ring tags
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_next_ring.py
 
       - name: Validate the nightly-next canary mode and its one-week flip
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
@@ -1394,6 +1485,10 @@ jobs:
       - name: Validate runner capability resolution
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_runner_capability_resolver.py
+
+      - name: Validate every macOS job names its job class
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_runner_routing_table.py
 
       - name: Validate evidence collection reporting
         if: ${{ !cancelled() && matrix.group == 'ci' }}

@@ -10,7 +10,7 @@ import Testing
 /// The harness lists `count` workspaces in 100 groups (fewer groups below 100 workspaces), all open, in one machine
 /// section, and toggles one group near the top with a real click on its header's name (mouse down and up on the
 /// list, then the observation's render, as the window draws it). The toggled group always holds the same 10
-/// workspaces, so 100 and 10,000 workspaces change the same rows. Each toggle is timed on the main thread; the median
+/// workspaces, so 100 and 10,000 workspaces change the same rows. Each toggle's main-thread CPU is timed; the median
 /// of 16 is compared.
 @MainActor @Suite(.serialized) struct SidebarGroupToggleScalingTests {
     struct Harness {
@@ -83,15 +83,18 @@ import Testing
         h.sidebar.renderNow()
     }
 
-    static func measure(_ h: Harness, runs: Int = 16) -> Cost {
+    /// - Parameter work: one toggle (`toggle` itself; a test stands in a toggle that waits).
+    static func measure(_ h: Harness, runs: Int = 16, work: @MainActor (Harness) -> Void = { toggle($0) }) -> Cost {
         // Warm up both directions (caches, row views of the toggled rows).
         for _ in 0..<4 { toggle(h) }
         _ = SidebarPerfCounters.report(reset: true)
-        let clock = ContinuousClock()
+        // Main-thread CPU, as SidebarScrollBench times a frame: other work on the host delays the toggle, but it
+        // adds nothing to the toggle's own cost.
         var samples: [Double] = []
         for _ in 0..<runs {
-            let elapsed = clock.measure { toggle(h) }
-            samples.append(Double(elapsed.components.attoseconds) / 1e15 + Double(elapsed.components.seconds) * 1000)
+            let started = SidebarScrollBench.threadCPU()
+            work(h)
+            samples.append((SidebarScrollBench.threadCPU() - started) * 1000)
         }
         let reloads = SidebarPerfCounters.report(reset: true)["list_reloads"] ?? 0
         samples.sort()
@@ -130,6 +133,20 @@ import Testing
         print("group-toggle-phases n=\(count) \(Self.phases(h))")
         print("group-toggle n=\(count) rows=\(h.list.displayed.rows.count) realized=\(h.list.rowViews.count) \(cost)")
         #expect(h.model.group(h.target) != nil)
+    }
+
+    /// The budget measures the toggle's own work, not the time its thread waits: other work on the host (another
+    /// app, the next job on a shared fleet runner) delays the main thread without adding to the toggle's cost. Timed
+    /// by the wall clock, a 1 ms toggle at 10,000 workspaces read 70-90 ms at p90 while threads at the highest QoS
+    /// took every core (aws-m4pro-1, 2026-10-21). A toggle that waits 20 ms stands in for those delays here.
+    @Test func aToggleThatWaitsCostsOnlyItsOwnWork() {
+        let h = Self.make(100)
+        defer { h.window.close() }
+        let cost = Self.measure(h, runs: 8) { h in
+            Thread.sleep(forTimeInterval: 0.02)
+            Self.toggle(h)
+        }
+        #expect(cost.p90 < 8, "a toggle that waited 20 ms cost \(cost.p90) ms (p90): the wait was counted as its work")
     }
 
     /// The guard: a toggle at 10,000 workspaces costs at most 1.5x one at 100, and fits in one 8 ms frame.

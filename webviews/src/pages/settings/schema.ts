@@ -8,6 +8,8 @@ export type SettingKind =
   | "toggle"
   | "choice"
   | "choice_or_number"
+  // A choice, or an object whose only member `url_key` is an http(s) origin (`home.server`).
+  | "choice_or_url"
   | "number"
   | "color"
   | "sound"
@@ -48,6 +50,8 @@ export type SchemaRow = {
   /** A string_list of `choices`: true in an order the user picks, false any subset in choice order. */
   ordered?: boolean;
   range?: NumberRange;
+  /** choice_or_url: the member that holds the address (`selfHosted`). */
+  url_key?: string;
   default: unknown;
   default_label: LocalizedText | null;
   keywords: string[];

@@ -89,6 +89,11 @@ pub struct NewRequest {
     /// The new session is a sub-session (`hub/subsessions.rs`): its parent,
     /// short name and depth, checked against the parent's limits by the caller.
     pub subsession: Option<crate::store::SubsessionLink>,
+    /// Claude Code built-in tools this chat never gets
+    /// (`_meta.acpmux.disallowedTools`, checked by the caller): kept in its
+    /// meta as `tool:<name>` rows that are off, so every start of its Claude
+    /// Code passes `--disallowedTools <name>` (`tools.rs`).
+    pub disallowed_tools: Vec<String>,
 }
 
 /// Why the Claude conversation `sid` cannot be resumed on `profile` (None:
