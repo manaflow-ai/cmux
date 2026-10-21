@@ -164,12 +164,14 @@ for f in "${settings_files[@]}"; do
 done
 grep -q "schemas/settings/settings-schema.json" "$tmp/out" || fail "the run does not name the held export: $(cat "$tmp/out")"
 
-# 8. The base workflow lands its repair through base-autofix-push.sh, so the runs here are the
-#    path feat-cmux-next takes.
+# 8. The base workflow lands its repair through base-autofix-land.sh, which pushes with
+#    base-autofix-push.sh, so the runs here are the path feat-cmux-next takes.
 workflow="$here/../../../.github/workflows/cmux-next-base-autofix.yml"
 # shellcheck disable=SC2016 # the workflow's own text
-grep -qF 'scripts/cmux-next/base-autofix-push.sh "$remote" feat-cmux-next "$HEAD_SHA"' "$workflow" \
-  || fail "the Push the repairs step does not land the repair with base-autofix-push.sh"
+grep -qF 'scripts/cmux-next/base-autofix-land.sh "$remote" feat-cmux-next "$HEAD_SHA"' "$workflow" \
+  || fail "the Push the repairs step does not land the repair with base-autofix-land.sh"
+grep -qF 'base-autofix-push.sh' "$here/../base-autofix-land.sh" \
+  || fail "base-autofix-land.sh does not push with base-autofix-push.sh"
 
 # 9. A newer commit wrote one repaired file: only that file waits, the rest lands, and the run
 #    fails, so the next run still diffs from an older successful one.

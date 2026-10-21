@@ -7,7 +7,8 @@
 # (autofix-areas.sh's settings area) after the run's commit, and
 # base-autofix-push.sh held exports made there on every run: they never landed
 # (2026-10-21). So after each regeneration this reads the newest tip, and when
-# the tip moved the settings inputs since the commit the exports were made at,
+# the tip moved the settings inputs since the commit the exports were made at
+# (the settings area, unless the tip's sources still give the export's stamp),
 # it checks that tip out and regenerates there, at most
 # CMUX_BASE_AUTOFIX_SETTINGS_TRIES times (3). It then prints "made at: SHA";
 # base-autofix-push.sh lands the exports only where nothing moved their inputs
@@ -28,7 +29,8 @@ set -euo pipefail
 
 # The whole body is read before it runs: a checkout of a newer tip rewrites this file.
 main() {
-  local out remote branch tries here root start at tip try moved changed areas file rel prepare regenerate
+  local out remote branch tries here root start at tip try moved changed areas file rel prepare regenerate stamp
+  local stamp_path=schemas/settings-export/settings-schema.sources.sha256
   out="$(mkdir -p "${1:?usage: $0 OUT REMOTE BRANCH}" && cd "$1" && pwd)"
   remote="${2:?usage: $0 OUT REMOTE BRANCH}"
   branch="${3:?usage: $0 OUT REMOTE BRANCH}"
@@ -66,6 +68,15 @@ main() {
     moved=1
     if changed="$(git diff --name-only --no-renames "$at" "$tip")" && areas="$("$work/areas.sh" <<<"$changed")"; then
       grep -qx 'settings=true' <<<"$areas" || moved=0
+      # A settings-area move that leaves the stamp what the tip's sources give, with the same
+      # regeneration, changed none of the exports' inputs (base-autofix-push.sh judges it the same way).
+      # The checkout's own guard reads the tip's tree (it finds the repository from its own path).
+      if ((moved)) && [[ -f "$work/out/$stamp_path" ]] \
+        && stamp="$(python3 "$root/scripts/ci/defaults_guard.py" source-stamp --ref "$tip" 2>/dev/null)" \
+        && [[ -n "$stamp" && "$stamp" == "$(cat "$work/out/$stamp_path")" ]] \
+        && git diff --quiet "$at" "$tip" -- scripts/cmux-next/regenerate-settings-exports.sh 2>/dev/null; then
+        moved=0
+      fi
     else
       echo "::warning::cannot read what ${at:0:12}..${tip:0:12} changed; counting the settings inputs as moved" >&2
     fi
