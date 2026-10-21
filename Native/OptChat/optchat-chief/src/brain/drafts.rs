@@ -48,13 +48,13 @@ impl Brain {
     /// not know: the run's key as its reply's key, and the messages the reply
     /// answers. A failure is logged once per process (display only).
     pub(super) fn turn_run(&mut self, update: crate::run::RunUpdate) {
+        self.desk_note_activity(&update.turn, &update.live);
         let Some(turn) = self.state.turn.as_ref().filter(|t| t.key == update.turn) else {
             return;
         };
         let Some(conversation) = turn.conversation.clone() else {
             return;
         };
-        self.desk_note_activity(&update.turn, &update.live);
         // Live frames first (`chief-live-v1`), with the conversation and the
         // run (the turn key); display only, like the run.
         if !update.live.is_empty()
