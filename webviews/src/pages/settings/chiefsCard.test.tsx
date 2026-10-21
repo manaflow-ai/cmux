@@ -98,9 +98,10 @@ test("New Chief opens the editor empty; Back returns to the list", async () => {
   page.unmount();
 });
 
-/** The picture a row draws: the img's src, and the letter disc's text if it draws one instead. */
+/** The picture a row draws: the img's src, whether it is a pixel-art mascot (drawn crisp, uncropped), and the letter disc's text if it draws one instead. */
 const picture = (row: HTMLElement) => ({
   src: row.querySelector<HTMLImageElement>(".chiefs-picture img")?.getAttribute("src") ?? null,
+  mascot: row.querySelector(".chiefs-picture img")?.hasAttribute("data-mascot") ?? false,
   initial: row.querySelector(".chiefs-initial")?.textContent ?? null,
 });
 const art = async (id: string) =>
@@ -111,14 +112,14 @@ test("a Chief with no picture of its own wears the chosen pet character, never a
   let page = await renderPage({ path: "/settings/chief" });
   await settle();
   let rows = [...card(page.container).querySelectorAll<HTMLElement>("[data-chief]")];
-  const orb = { src: await art("orb"), initial: null };
+  const orb = { src: await art("orb"), mascot: true, initial: null };
   expect(rows.map(picture)).toEqual([orb, orb]);
   page.unmount();
   // A chosen character, still with the pet off.
   page = await renderPage({ path: "/settings/chief", mock: { values: { "home.chiefPetMascot": "fox" } } });
   await settle();
   rows = [...card(page.container).querySelectorAll<HTMLElement>("[data-chief]")];
-  const fox = { src: await art("fox"), initial: null };
+  const fox = { src: await art("fox"), mascot: true, initial: null };
   expect(rows.map(picture)).toEqual([fox, fox]);
   page.unmount();
 });
@@ -135,8 +136,8 @@ test("a Chief with its own picture keeps it; the others wear the character", asy
   await settle();
   const rows = [...card(page.container).querySelectorAll<HTMLElement>("[data-chief]")];
   expect(rows.map(picture)).toEqual([
-    { src: await art("moon"), initial: null },
-    { src: "data:image/png;base64,UkVM", initial: null },
+    { src: await art("moon"), mascot: true, initial: null },
+    { src: "data:image/png;base64,UkVM", mascot: false, initial: null },
   ]);
   page.unmount();
 });
