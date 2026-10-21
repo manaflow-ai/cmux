@@ -24,7 +24,8 @@ describe("agent pane strings", () => {
 
   test("a file exempt as not shipped stops being exempt once shipped code imports it", () => {
     const findings = scan(FIXTURES).filter((finding) => finding.file !== "shipped/fallbacks.ts");
-    expect(findings.map((finding) => `${finding.file}:${finding.line} ${finding.text}`)).toEqual([
+    expect(findings.map((finding) => `${finding.file}:${finding.line} ${finding.text}`).sort()).toEqual([
+      "shipped/lazyPrototype.ts:2 imports board/Board.tsx, which is exempt as not shipped",
       "shipped/usesPrototype.ts:2 imports board/Board.tsx, which is exempt as not shipped",
     ]);
   });

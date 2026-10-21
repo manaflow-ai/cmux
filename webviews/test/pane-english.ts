@@ -172,10 +172,29 @@ function errorArgument(node: ts.Node): boolean {
  * as opposed to text that ships but is not for a person (an agent's prompt, a gallery note). */
 const NOT_SHIPPED = /l10n-allow-file:[^\n]*\b(not shipped|prototype)\b/i;
 
-/** A file that says it is not shipped: its exemption says so, or it sits under prototype/. */
-function exemptAsNotShipped(file: string): boolean {
-  if (file.split(path.sep).includes("prototype")) return true;
+/** A file that says it is not shipped: its exemption says so, or it sits under prototype/ (below
+ * the scanned root, so a checkout's own path never counts). */
+function exemptAsNotShipped(root: string, file: string): boolean {
+  if (path.relative(root, file).split(path.sep).includes("prototype")) return true;
   return NOT_SHIPPED.test(fs.readFileSync(file, "utf8").slice(0, 2000));
+}
+
+/** The module an import that ships code names: `import`/`export ... from` that is not type-only,
+ * or a dynamic `import("...")` (a lazy-loaded panel ships too). */
+function shippedImport(node: ts.Node): string | undefined {
+  if (ts.isImportDeclaration(node))
+    return node.importClause?.isTypeOnly || !ts.isStringLiteral(node.moduleSpecifier)
+      ? undefined
+      : node.moduleSpecifier.text;
+  if (ts.isExportDeclaration(node))
+    return node.isTypeOnly || !node.moduleSpecifier || !ts.isStringLiteral(node.moduleSpecifier)
+      ? undefined
+      : node.moduleSpecifier.text;
+  if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+    const [argument] = node.arguments;
+    return argument && ts.isStringLiteralLike(argument) ? argument.text : undefined;
+  }
+  return undefined;
 }
 
 /** The source file a relative import names, if there is one. */
@@ -217,14 +236,10 @@ export function scan(root: string = PANE): Finding[] {
     const ships = !/\.gallery\.tsx?$/.test(file);
     const visit = (node: ts.Node) => {
       if (ts.isJsxText(node) && looksEnglish(node.text)) report(node, node.text);
-      if (
-        ships &&
-        (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
-        node.moduleSpecifier &&
-        ts.isStringLiteral(node.moduleSpecifier)
-      ) {
-        const target = resolveImport(file, node.moduleSpecifier.text);
-        if (target && exemptAsNotShipped(target))
+      const specifier = ships ? shippedImport(node) : undefined;
+      if (specifier !== undefined) {
+        const target = resolveImport(file, specifier);
+        if (target && exemptAsNotShipped(root, target))
           report(node, `imports ${path.relative(root, target)}, which is exempt as not shipped`);
       }
       const value = ts.isStringLiteralLike(node)
