@@ -336,6 +336,12 @@ impl Mux {
             surfaces,
             request.end_terminals,
             OPERATION,
+            match request.level {
+                BulkLevel::Tab => crate::resource::ResourceOperation::TabClose,
+                BulkLevel::Pane => crate::resource::ResourceOperation::PaneClose,
+                BulkLevel::Screen => crate::resource::ResourceOperation::ScreenClose,
+                BulkLevel::Workspace => crate::resource::ResourceOperation::WorkspaceClose,
+            },
             &fingerprint,
             mutation,
             request.level == BulkLevel::Workspace,
