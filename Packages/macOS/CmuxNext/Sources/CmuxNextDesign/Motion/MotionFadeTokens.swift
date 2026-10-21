@@ -12,8 +12,11 @@ public nonisolated enum MotionFade: String, Sendable, CaseIterable {
     /// instant, by default, as in Edge: a fast sweep down a list leaves no
     /// trail. Under Reduce Motion both hover tokens are instant.
     case hoverOut
-    /// Focus ring and inactive-pane dim.
+    /// Focus ring.
     case focus
+    /// The veil over an unfocused pane easing in and out when focus moves (Leo 2026-10-21: a short
+    /// ease, about 150 ms, not a jump).
+    case paneDim
     /// A view or panel fades in.
     case fadeIn
     /// A view, panel or window fades out. Faster than `fadeIn`.

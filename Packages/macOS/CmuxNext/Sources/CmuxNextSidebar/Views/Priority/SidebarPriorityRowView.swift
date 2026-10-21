@@ -9,7 +9,7 @@ final class SidebarPriorityRowView: NSView {
     var onAction: ((SidebarPriorityAction) -> Void)?
 
     private let title = ChromeLabel(labelWithString: "")
-    private let tag = ChromeLabel(labelWithString: "")
+    private let placeLabel = ChromeLabel(labelWithString: "")
     private let preview = ChromeLabel(wrappingLabelWithString: "")
     private let chip = ChromeLabel(labelWithString: "")
     private let indicator = StatusIndicatorView()
@@ -27,10 +27,10 @@ final class SidebarPriorityRowView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         title.lineBreakMode = .byTruncatingTail
-        tag.lineBreakMode = .byTruncatingTail
+        placeLabel.lineBreakMode = .byTruncatingTail
         preview.maximumNumberOfLines = 2
         preview.truncatesLastVisibleLine = true
-        [title, tag, preview, chip, indicator].forEach(addSubview)
+        [title, placeLabel, preview, chip, indicator].forEach(addSubview)
         layer?.addSublayer(unreadDot)
         for button in actionButtons { addSubview(button) }
         markRead.onPress = { [weak self] in self.map { $0.onAction?(.markRead($0.entry.id)) } }
@@ -53,7 +53,7 @@ final class SidebarPriorityRowView: NSView {
     func configure(_ entry: SidebarPriorityEntry) {
         self.entry = entry
         title.stringValue = entry.title
-        tag.stringValue = [entry.project, entry.machine].compactMap(\.self).joined(separator: " · ")
+        placeLabel.stringValue = [entry.project, entry.machine].compactMap(\.self).joined(separator: " · ")
         preview.stringValue = entry.preview ?? ""
         preview.isHidden = entry.preview == nil
         chip.stringValue = Self.chipText(entry.state, now: Date())
@@ -116,7 +116,7 @@ final class SidebarPriorityRowView: NSView {
         super.layout()
         let b = bounds, inset = SidebarStyle.horizontalInset, pad = Metrics.space2
         title.font = SidebarStyle.titleFont
-        tag.font = SidebarStyle.titleFont
+        placeLabel.font = SidebarStyle.titleFont
         preview.font = SidebarStyle.subtitleFont
         chip.font = SidebarStyle.subtitleFont
         let lineHeight = ceil(SidebarStyle.titleFont.boundingRectForFont.height)
@@ -148,10 +148,10 @@ final class SidebarPriorityRowView: NSView {
             if entry.unread { trailing = unreadDot.frame.minX - Metrics.space1 }
         }
         let textWidth = max(0, trailing - inset)
-        let tagWidth = tag.stringValue.isEmpty ? 0 : min(tag.naturalSize.width, textWidth * 0.4)
+        let tagWidth = placeLabel.stringValue.isEmpty ? 0 : min(placeLabel.naturalSize.width, textWidth * 0.4)
         let titleWidth = min(title.naturalSize.width, textWidth - tagWidth - (tagWidth > 0 ? Metrics.space2 : 0))
         title.frame = NSRect(x: inset, y: pad, width: max(0, titleWidth), height: lineHeight)
-        tag.frame = NSRect(x: title.frame.maxX + Metrics.space2, y: pad, width: tagWidth, height: lineHeight)
+        placeLabel.frame = NSRect(x: title.frame.maxX + Metrics.space2, y: pad, width: tagWidth, height: lineHeight)
         let previewTop = pad + lineHeight + Metrics.space1
         preview.frame = NSRect(x: inset, y: previewTop, width: max(0, b.width - 2 * inset), height: max(0, b.height - previewTop - pad))
     }
@@ -159,7 +159,7 @@ final class SidebarPriorityRowView: NSView {
     override func updateLayer() {
         performWithTheme {
             title.textColor = Palette.textPrimary
-            tag.textColor = entry.machine.map(Self.machineColor) ?? Palette.textTertiary
+            placeLabel.textColor = entry.machine.map(Self.machineColor) ?? Palette.textTertiary
             preview.textColor = Palette.textSecondary
             chip.textColor = switch entry.state {
             case .needsYou: Palette.attention

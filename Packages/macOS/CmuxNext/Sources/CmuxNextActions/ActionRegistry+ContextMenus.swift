@@ -59,6 +59,7 @@ extension ActionRegistry {
                 guard let descriptor = descriptor(for: id), ActionFeature.turnedOff(descriptor, in: disabledFeatures) == nil, Self.isAvailable(descriptor, in: context),
                       !ActionTargetVisibility.isHidden(id, invocation: invocation, in: self), let item = makeMenuItem(for: id) else { continue }
                 item.representedObject = ActionMenuPayload(id: descriptor.id, target: target, arguments: arguments)
+                item.image = Self.menuIcon(descriptor.symbol)
                 // A menu-only short title (the palette keeps the action's title).
                 if let label = labels[id] { item.title = label }
                 // Built per click: names the target's change (Pin or Unpin, over the label), says why it is disabled.
@@ -68,6 +69,7 @@ extension ActionRegistry {
                 let childItems = menuItems(children, target: target, context: context, arguments: arguments, labels: labels)
                 guard !childItems.isEmpty, let title = labels[id] ?? title(for: id) else { continue }
                 let item = NSMenuItem(title: title.droppingEllipsis, action: nil, keyEquivalent: "")
+                item.image = descriptor(for: id).flatMap { Self.menuIcon($0.symbol) }
                 let submenu = NSMenu(title: item.title)
                 childItems.forEach(submenu.addItem)
                 item.submenu = submenu
@@ -76,6 +78,7 @@ extension ActionRegistry {
                 let childItems = menuItems(children, target: target, context: context, arguments: arguments, labels: labels)
                 guard childItems.contains(where: { !$0.isSeparatorItem }) else { continue }
                 let item = NSMenuItem(title: folder.title, action: nil, keyEquivalent: "")
+                item.image = Self.menuIcon(folder.symbol)
                 let submenu = NSMenu(title: folder.title)
                 childItems.forEach(submenu.addItem)
                 item.submenu = submenu
@@ -84,12 +87,23 @@ extension ActionRegistry {
                 guard let descriptor = descriptor(for: id), ActionFeature.turnedOff(descriptor, in: disabledFeatures) == nil, Self.isAvailable(descriptor, in: context),
                       let item = makeChoicesItem(for: descriptor, target: target, in: context)
                 else { continue }
+                item.image = Self.menuIcon(descriptor.symbol)
                 if let label = labels[id] { item.title = label.droppingEllipsis }
                 items.append(item)
             }
         }
         while items.last?.isSeparatorItem == true { items.removeLast() }
         return items
+    }
+}
+
+extension ActionRegistry {
+    /// A right-click row's icon: its action's SF Symbol as a template, inked like the row's text.
+    /// Nil for `ActionDescriptor`'s default symbol (`command`), so a row without its own icon shows none.
+    static func menuIcon(_ symbol: String) -> NSImage? {
+        guard symbol != "command", let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) else { return nil }
+        image.isTemplate = true
+        return image
     }
 }
 

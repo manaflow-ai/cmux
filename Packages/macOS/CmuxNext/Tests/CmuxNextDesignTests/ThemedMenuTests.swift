@@ -3,8 +3,8 @@ import CmuxTheme
 @testable import CmuxNextDesign
 import Testing
 
-/// Follow-up to #19754: the workspace, tab and pane right-click menus highlight their rows in the
-/// theme's accent, not macOS's. NSMenu draws its highlight in the system accent whatever the
+/// Follow-up to #19754: the workspace, tab and pane right-click menus highlight their rows with a
+/// wash of the theme's accent, not macOS's. NSMenu draws its highlight in the system accent whatever the
 /// theme, so these menus' rows are cmux-drawn (`NSMenu.themeRows(in:)`), and a drawn row must still run its
 /// action once from a click and from Return.
 @MainActor @Suite(.serialized) struct ThemedMenuTests {
@@ -17,7 +17,9 @@ import Testing
         return scope
     }
 
-    @Test func aHighlightedRowDrawsTheThemeAccentNotTheSystemAccent() throws {
+    /// The highlight is a faint wash of the theme's accent over the menu's glass, never a solid bar
+    /// and never the system blue (Leo 2026-10-20: "the blue is garish, but don't make it opaque").
+    @Test func aHighlightedRowWashesTheThemeAccentNotTheSystemAccent() throws {
         let scope = try Self.accentedScope()
         let counter = Counter()
         let menu = Self.menu(counter)
@@ -27,21 +29,17 @@ import Testing
         row.highlightOverride = true
         let fill = try #require(Self.sample(row, x: 8))
         let accent = scope.tokens.accent.withAlpha(1).nsColor
-        #expect(Self.distance(fill, accent) < 0.04, "highlight \(fill) vs theme accent \(accent)")
+        #expect(fill.alphaComponent > 0.1 && fill.alphaComponent < 0.35, "highlight alpha \(fill.alphaComponent) is a wash, not a bar")
+        let hue = try #require(fill.withAlphaComponent(1).usingColorSpace(.sRGB))
+        #expect(Self.distance(hue, accent) < 0.06, "highlight \(hue) vs theme accent \(accent)")
         for system in [NSColor.controlAccentColor, .selectedContentBackgroundColor] {
-            #expect(Self.distance(fill, system) > 0.15, "highlight \(fill) is the system accent \(system)")
+            #expect(Self.distance(hue, system) > 0.15, "highlight \(hue) is the system accent \(system)")
         }
 
         // An unhighlighted row paints no fill there.
         row.highlightOverride = false
         let plain = try #require(Self.sample(row, x: 8))
-        #expect(plain.alphaComponent < 0.05 || Self.distance(plain, accent) > 0.15)
-
-        // The ink on the highlight reads: the theme's on-accent, at least 4.5:1.
-        let tokens = scope.tokens
-        #expect(tokens.onAccent.withAlpha(1).contrast(with: tokens.accent.withAlpha(1)) >= ThemeTokens.minimumTextContrast)
-        #expect(Self.distance(scope.perform { Palette.onAccent }, tokens.onAccent.withAlpha(1).nsColor) < 0.02)
-        #expect(Self.distance(scope.perform { Palette.accentFill }, accent) < 0.02)
+        #expect(plain.alphaComponent < 0.05)
     }
 
     @Test func returnRunsTheActionOnce() throws {

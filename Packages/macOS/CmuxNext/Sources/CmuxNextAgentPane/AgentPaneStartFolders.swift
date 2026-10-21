@@ -12,6 +12,8 @@ public final class AgentPaneStartFolders {
     public var resolve: (@MainActor (_ proposed: String?) async -> AgentPaneStartFolder?)?
     /// The store's last answer for this pane's new chat.
     public internal(set) var answer: AgentPaneStartFolder?
+    /// The App's saved environments a New Tab page starts a chat with (`environment.*`).
+    public var environments: (any AgentPaneEnvironmentStoring)?
 
     public init() {}
 

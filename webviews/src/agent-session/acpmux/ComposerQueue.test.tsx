@@ -1,6 +1,6 @@
 // A queued prompt's row shows its actions (Leo, 2026-10-20: "where the hell is the edit button?"):
 // Edit, Remove and Send now, each a button named by its tooltip, and each does what it says through
-// `_acpmux/queue_edit` or the withdraw.
+// `_acpmux/queue_edit` or the withdraw. Send now is a click only: no key sends it.
 import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -72,7 +72,11 @@ test("every queued row shows Edit, Remove and Send now, each with its tooltip", 
   for (const entry of queue) {
     const buttons = actions(container, entry.id);
     expect(buttons.map((b) => b.dataset.action)).toEqual(["edit", "remove", "send"]);
-    expect(buttons.map((b) => b.title)).toEqual(["composer.queueEdit", "composer.queueRemove", "composer.queueSendNow"]);
+    expect(buttons.map((b) => b.title)).toEqual([
+      "composer.queueEdit",
+      "composer.queueRemove",
+      "composer.queueSendNow",
+    ]);
     for (const b of buttons) expect(b.getAttribute("aria-label")).toBe(b.title);
   }
 });
@@ -109,7 +113,7 @@ test("Edit opens the prompt's text in its row", async () => {
   expect(field?.value).toBe("first");
 });
 
-test("a held ⌘↩ on a row sends that row once and keeps focus on it", async () => {
+test("⌘↩ on a row, held or not, sends nothing and keeps focus on it", async () => {
   const edits: [string, QueueEdit][] = [];
   const container = await render(
     async (id, edit) => {
@@ -121,14 +125,12 @@ test("a held ⌘↩ on a row sends that row once and keeps focus on it", async (
   const row = container.querySelector<HTMLElement>('[data-prompt-id="p-1"]')!;
   row.focus();
   const press = (repeat: boolean) =>
-    row.dispatchEvent(
-      new dom!.window.KeyboardEvent("keydown", { key: "Enter", metaKey: true, repeat, bubbles: true }),
-    );
+    row.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Enter", metaKey: true, repeat, bubbles: true }));
   await act(async () => {
     press(false);
     press(true);
     press(true);
   });
-  expect(edits).toEqual([["p-1", { op: "send_now" }]]);
+  expect(edits).toEqual([]);
   expect(dom!.window.document.activeElement).toBe(row);
 });
