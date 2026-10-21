@@ -2229,7 +2229,8 @@ jobs:
         uses: ./.github/actions/setup-cmux-tui-rust
 
       # As cmux-tui.yml: cargo's registry and dependency builds under cmux-tui/target.
-      # Only a feat-cmux-next push saves; a pull request reads the base branch's cache.
+      # Only a feat-cmux-next push saves this build cache; a pull request reads the base
+      # branch's. (The pass record at the end of the job is separate and tiny.)
       - name: Cache cargo build
         if: ${{ steps.reuse.outputs.cache-hit != 'true' }}
         id: cargo-cache

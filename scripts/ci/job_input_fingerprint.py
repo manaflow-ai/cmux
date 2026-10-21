@@ -74,14 +74,18 @@ JOBS = {
         "ghostty-next",  # GHOSTTY_ZIG_SOURCE: ghostty-vt-sys builds libghostty-vt from this gitlink
         "scripts/ci/init-submodule.sh",
         "scripts/install-zig-ci.sh",
+        "scripts/ghostty-zig-version.sh",  # install-zig-ci.sh's pin, with the Zig SDK's minimum version:
+        "cmux-tui/bindings/zig/build.zig.zon",
         ".github/actions/setup-cmux-tui-rust",
     )),
 }
 
-# A quoted string that climbs out of its directory, and the compile-time forms of one.
-ESCAPE = r'"[^"\n]*\.\./[^"\n]*"'
-INCLUDE = r'include(_str|_bytes)?!\([^;]*"[^"\n]*\.\./[^"\n]*"'
-TOML_PATH = r'path *= *"[^"\n]*\.\./[^"\n]*"'
+# A quoted string that climbs out of its directory, and the compile-time forms of one. git grep -E
+# patterns: a backslash in a bracket is literal there (`[^"\n]` would also refuse the letter n), and
+# git grep matches line by line, so `[^"]` stays on one line.
+ESCAPE = r'"[^"]*\.\./[^"]*"'
+INCLUDE = r'include(_str|_bytes)?!\([^;]*"[^"]*\.\./[^"]*"'
+TOML_PATH = r'path *= *"[^"]*\.\./[^"]*"'
 # Code that finds files from where it sits at run time, which no `../` names.
 WALKS_UP = {
     "cargo": ("CARGO_MANIFEST_DIR", re.compile(r"CARGO_MANIFEST_DIR[^;]{0,300}?(\.parent\(\)|\.ancestors\(\))")),
@@ -297,12 +301,18 @@ def swift_inputs(tree: Tree, entries: list[dict]) -> set[str]:
 
 
 def job_block(text: str, job: str) -> str:
+    """The job's block in the workflow, after the workflow-level `env:` every job inherits."""
     lines = text.splitlines()
+    env = []
+    if "env:" in lines:
+        at = lines.index("env:")
+        env = [lines[at]] + [line for line in lines[at + 1:next(
+            (i for i in range(at + 1, len(lines)) if lines[i] and not lines[i].startswith((" ", "#"))), len(lines))]]
     start = lines.index(f"  {job}:")
     end = next((i for i in range(start + 1, len(lines))
                 if lines[i] and not lines[i].startswith((" ", "#")) or re.match(r"  [A-Za-z0-9_-]+:\s*$", lines[i])),
                len(lines))
-    return "\n".join(lines[start:end])
+    return "\n".join(env + lines[start:end])
 
 
 def fingerprint(tree: Tree, job: str, extra: list[str]) -> tuple[str, dict]:
