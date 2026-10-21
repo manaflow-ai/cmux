@@ -1136,11 +1136,15 @@ check_paths_gate() {
   [ "$dry_run" -eq 0 ] || check_only=(--check-only)
   err=$(mktemp)
   tmp_files+=("$err")
+  # Its wait (a rerun, up to 900s) adds to the fast gate's in the summary, and in a SIGTERM's.
+  gate_waiting_since=$(( $(date +%s) - waited_seconds ))
   out=$(python3 "$script_dir/ci/merge_check_paths.py" "$repo" "$num" "$sha" --base "$base" \
       --interval "${GH_MERGE_GREEN_CHECK_PATHS_INTERVAL:-20}" "${check_only[@]+"${check_only[@]}"}" 2>"$err") || status=$?
-  grep '^note: ' "$err" >&2 || true
+  waited_seconds=$(( $(date +%s) - gate_waiting_since ))
+  gate_waiting_since=''
+  sed -n '/^note: /p' "$err" >&2
   if [ "$status" -ne 0 ]; then
-    why=$(grep -v '^note: ' "$err" || true)
+    why=$(sed '/^note: /d' "$err")
     rm -f "$err"
     [ "$status" -eq 3 ] && refuse_rate_limited "the check-path gate: ${why#rate-limited: }"
     if [ -n "$override_reason" ]; then

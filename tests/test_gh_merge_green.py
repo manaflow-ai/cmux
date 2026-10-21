@@ -891,6 +891,18 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertTrue(marker.exists())
             self.assertEqual(events.read_text().splitlines(), ["dispatch", "merge"])
 
+    def test_override_waives_the_check_path_gates_red(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker, events = Path(directory) / "merged", Path(directory) / "events"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                     event_log=events, check_paths=self.CHECK_PATHS, fast_gates_base=ANCESTOR,
+                                     fast_gates_after=(MERGED_SHA, "failure"), tip_sha=MERGED_SHA,
+                                     compare=self.LANDED, extra_args=("--override", self.OVERRIDE))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+            self.assertIn("merge", events.read_text().splitlines())
+            self.assertIn("--override waives the check-path gate", result.stderr)
+
     def test_a_dry_run_dispatches_nothing_for_a_stale_check_path(self):
         with tempfile.TemporaryDirectory() as directory:
             marker, events = Path(directory) / "merged", Path(directory) / "events"
