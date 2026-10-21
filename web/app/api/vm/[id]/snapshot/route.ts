@@ -9,6 +9,7 @@ import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
 import { snapshotVm } from "../../../../../services/vms/workflows";
 import { idempotencyKeyFromRequest, parseOptionalObjectBody } from "../../../../../services/vms/routeInput";
 import { enforceVmAllocationRateLimit } from "../../../../../services/vms/allocationRateLimit";
+import { vmMutationGuardCopy, vmRequestLocale } from "../../../../../services/vms/vmErrorMessages";
 
 // Snapshot duration scales with the machine's dirty memory; give it the same
 // long-provisioning budget as create (see app/api/vm/route.ts).
@@ -38,11 +39,13 @@ export async function POST(
       if (!idempotency.ok) return idempotency.response;
       const idempotencyKey = idempotency.key;
       if (!idempotencyKey) {
+        const copy = await vmMutationGuardCopy("snapshotIdempotencyRequired", vmRequestLocale(request));
         return vmErrorResponse({
           error: "vm_idempotency_key_required",
           status: 400,
-          message: "Idempotency-Key is required for Cloud VM snapshots.",
-          action: "Retry with a stable Idempotency-Key of at most 128 characters.",
+          message: copy.message,
+          action: copy.action,
+          displayTitle: copy.title,
           phase: "snapshot",
           retryable: false,
           details: { field: "Idempotency-Key", maxLength: 128 },

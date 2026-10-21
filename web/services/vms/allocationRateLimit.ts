@@ -1,6 +1,7 @@
 import { checkRateLimit } from "@vercel/firewall";
 import { reportMissingRateLimitRule } from "../rateLimitObservability";
 import { vmErrorResponse } from "./routeHelpers";
+import { vmMutationGuardCopy, vmRequestLocale } from "./vmErrorMessages";
 
 const VM_ALLOCATION_RETRY_AFTER_SECONDS = 60;
 const VM_ALLOCATION_RATE_LIMIT_TIMEOUT_MS = 1_000;
@@ -28,7 +29,7 @@ export async function enforceVmAllocationRateLimit(input: {
   const ruleId = (input.ruleId ?? process.env.CMUX_VM_ALLOCATION_RATE_LIMIT_ID)?.trim();
   if (!ruleId) {
     void reportMissingRateLimitRule({ route: input.route, reason: "unset" });
-    return unavailableResponse();
+    return unavailableResponse(input.request);
   }
 
   let result: { rateLimited: boolean; error?: string | null };
@@ -43,15 +44,17 @@ export async function enforceVmAllocationRateLimit(input: {
       route: input.route,
       failure: "check_failed",
     });
-    return unavailableResponse();
+    return unavailableResponse(input.request);
   }
 
   if (result.rateLimited || result.error === "blocked") {
+    const copy = await vmMutationGuardCopy("allocationUnavailable", vmRequestLocale(input.request));
     return vmErrorResponse({
       error: "vm_allocation_rate_limited",
       status: 429,
-      message: "Too many Cloud VM allocation requests.",
-      action: "Wait a minute, then retry with the same idempotency key.",
+      message: copy.message,
+      action: copy.action,
+      displayTitle: copy.title,
       phase: "create",
       retryable: true,
       retryAfterSeconds: VM_ALLOCATION_RETRY_AFTER_SECONDS,
@@ -59,24 +62,26 @@ export async function enforceVmAllocationRateLimit(input: {
   }
   if (result.error === "not-found") {
     void reportMissingRateLimitRule({ route: input.route, reason: "not-found" });
-    return unavailableResponse();
+    return unavailableResponse(input.request);
   }
   if (result.error) {
     console.error("vm allocation rate-limit returned an error", {
       route: input.route,
       failure: "check_error",
     });
-    return unavailableResponse();
+    return unavailableResponse(input.request);
   }
   return null;
 }
 
-function unavailableResponse(): Response {
+async function unavailableResponse(request: Request): Promise<Response> {
+  const copy = await vmMutationGuardCopy("allocationUnavailable", vmRequestLocale(request));
   return vmErrorResponse({
     error: "rate_limit_unavailable",
     status: 503,
-    message: "Cloud VM allocation rate limiting is unavailable.",
-    action: "Retry in a minute.",
+    message: copy.message,
+    action: copy.action,
+    displayTitle: copy.title,
     phase: "create",
     retryable: true,
     retryAfterSeconds: VM_ALLOCATION_RETRY_AFTER_SECONDS,
