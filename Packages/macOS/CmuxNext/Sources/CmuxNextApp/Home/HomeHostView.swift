@@ -330,6 +330,7 @@ final class HomeHostView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         openPendingSettings()
+        watchHeaderPanels()
     }
 
     override func viewDidHide() {
