@@ -36,9 +36,12 @@ Flakes: scripts/cmux-next/quarantine.json (the fast tier's list) also holds car-
 name (`python:tests/test_x.py`, `swift:CmuxNextFilesTests`). A quarantined entry still runs and
 is reported, but does not fail the car.
 
-Only the car's own reds fail it. A failed focused test (python, web, cargo, swift) runs again in a
-worktree of BASE; red there too, it is `base-red` and the car rides. A runner missing a tool or
-python module is `error`, never the car's fault. god files over its allowance is `warn`, as on
+Only the car's own reds fail it. A failed python test, or webviews file, that exists at BASE runs
+again in a worktree of BASE (webviews only when webviews/bun.lock is unchanged); a real failure
+there too (not a timeout) makes it `base-red` and it does not fail the car. Webviews files are
+judged one by one. Cargo, native and Swift reds are never excused. A runner missing one of its
+own tools (bun, cargo, swift, zig) or pinned modules (yaml, bashlex) is `error`; any other
+missing module or command is the car's red. An internal crash exits 2, never 1. god files over its allowance is `warn`, as on
 the checks job (GODFILES_WARN_SLACK=20). Browser-lane webviews files and a Swift selection of a
 whole package (a manifest or target-graph change) are `deferred` to the candidate build.
 
@@ -79,9 +82,10 @@ PASSING = {"success", "neutral"}
 CHEAP = {"guard", "python"}
 TIMEOUT = {"guard": 600, "python": 300, "cargo": 1500, "swift": 900, "swift-build": 2400, "web": 1200}
 JOBS = int(os.environ.get("CAR_GUARDS_JOBS", str(max(2, (os.cpu_count() or 4)))))
-# Re-run at the base: a red that is red there too is the base's, not the car's.
-BASE_CHECKED = {"python", "web", "cargo", "swift"}
-MISSING_TOOL = re.compile(r"ModuleNotFoundError: No module named|command not found|No such file or directory: '(bun|cargo|swift)'")
+# Only the runner's own tools and pinned modules make a red the runner's: anything else a test
+# cannot import or run is the car's (it may have deleted or renamed it).
+MISSING_TOOL = re.compile(r"ModuleNotFoundError: No module named '(yaml|bashlex)'|\b(bun|cargo|swift|zig): command not found")
+WEB_RESULT = re.compile(r"^(FAIL|TIMEOUT) (?:\./)?(\S+) \(limit ", re.M)
 
 
 def reused_kinds(prior: dict[str, str]) -> set[str]:
@@ -164,11 +168,14 @@ def run_one(root: Path, entry: dict) -> dict:
     except FileNotFoundError as error:
         status, output = "error", str(error)
     except subprocess.TimeoutExpired as error:
-        status = "fail"
+        status = "timeout"  # the car's red at its head; never a base red at the base
         partial = error.stdout or ""
         output = f"timed out after {timeout}s\n" + (partial.decode(errors="replace") if isinstance(partial, bytes) else partial)
-    return {"name": entry["name"], "kind": entry["kind"], "status": status,
-            "seconds": round(time.monotonic() - start, 1), "tail": output[-4000:] if status != "pass" else ""}
+    result = {"name": entry["name"], "kind": entry["kind"], "status": status,
+              "seconds": round(time.monotonic() - start, 1), "tail": output[-4000:] if status != "pass" else ""}
+    if entry["kind"] == "web" and status in ("fail", "timeout"):
+        result["files"] = {m.group(2): m.group(1) for m in WEB_RESULT.finditer(output)}
+    return result
 
 
 def run_all(root: Path, todo: list[dict]) -> list[dict]:
@@ -190,25 +197,47 @@ def run_all(root: Path, todo: list[dict]) -> list[dict]:
     return [by_name[e["name"]] for e in todo]
 
 
-def at_base(root: Path, base: str, todo: list[dict], failed: list[str]) -> set[str]:
-    """The failed entries that fail at the base too, run in a detached worktree of the base."""
-    names = set(failed)
-    again = [e for e in todo if e["name"] in names]
-    builds = {e["needs"] for e in again if e.get("needs")}
-    again = [e for e in todo if e["name"] in builds] + again
-    if not again:
-        return set()
+def exists_at(root: Path, rev: str, path: str) -> bool:
+    return subprocess.run(["git", "-C", str(root), "cat-file", "-e", f"{rev}:{path}"], capture_output=True).returncode == 0
+
+
+def same_at(root: Path, base: str, head: str, path: str) -> bool:
+    return subprocess.run(["git", "-C", str(root), "diff", "--quiet", base, head, "--", path], capture_output=True).returncode == 0
+
+
+def at_base(root: Path, base: str, head: str, results: list[dict], todo: list[dict]) -> tuple[set[str], set[str], str]:
+    """(python entries red at the base, webviews files red at the base, a note when the check
+    could not run). Only a test that exists at the base and fails there (a real failure: not a
+    timeout, not a missing tool) is the base's. Web files are compared one by one, and only when
+    webviews/bun.lock is the same at both ends, so the head's node_modules serves the base.
+    Cargo, native and Swift reds are never re-run: they fail the car."""
+    by_name = {e["name"]: e for e in todo}
+    python = [r["name"] for r in results if r["kind"] == "python" and r["status"] == "fail"
+              and exists_at(root, base, r["name"].split(":", 1)[1])]
+    web_failed = [f for r in results if r["kind"] == "web" for f, how in r.get("files", {}).items() if how == "FAIL"]
+    web = [f for f in web_failed if exists_at(root, base, f"webviews/{f}")]
+    if web and not (same_at(root, base, head, "webviews/bun.lock") and (root / "webviews/node_modules").is_dir()):
+        web = []
+    if not python and not web:
+        return set(), set(), ""
     with tempfile.TemporaryDirectory() as tmp:
         tree = Path(tmp) / "base"
         added = subprocess.run(["git", "-C", str(root), "worktree", "add", "--quiet", "--detach", str(tree), base],
                                capture_output=True, text=True)
         if added.returncode != 0:
-            return set()
+            return set(), set(), f"the base check did not run: {added.stderr.strip()[-300:]}"
         try:
-            results = run_all(tree, again)
+            again = run_all(tree, [by_name[n] for n in python])
+            red = {r["name"] for r in again if r["status"] == "fail"}
+            red_web: set[str] = set()
+            if web:
+                (tree / "webviews/node_modules").symlink_to(root / "webviews/node_modules")
+                entry = dict(by_name["web"], env={"CMUX_WEB_TEST_FILES": "\n".join(web)})
+                (result,) = run_all(tree, [entry])
+                red_web = {f for f, how in result.get("files", {}).items() if how == "FAIL"}
         finally:
             subprocess.run(["git", "-C", str(root), "worktree", "remove", "--force", str(tree)], capture_output=True)
-    return {r["name"] for r in results if r["name"] in names and r["status"] == "fail"}
+    return red, red_web, ""
 
 
 def run(root: Path, base: str, head: str, where: str, the_plan: dict, prior: dict[str, str],
@@ -219,21 +248,30 @@ def run(root: Path, base: str, head: str, where: str, the_plan: dict, prior: dic
     flaky = quarantined(root)
     results = run_all(root, todo)
     for result in results:
-        if result["status"] == "fail" and result["name"] in flaky:
+        if result["status"] in ("fail", "timeout") and result["name"] in flaky:
             result["status"] = "quarantined-fail"
-    checked = [r["name"] for r in results if r["status"] == "fail" and r["kind"] in BASE_CHECKED]
-    red_at_base = at_base(root, base, todo, checked) if checked else set()
+    red, red_web, note = at_base(root, base, head, results, todo)
     for result in results:
-        if result["name"] in red_at_base:
+        if result["name"] in red:
             result["status"] = "base-red"
+        elif result["kind"] == "web" and result.get("files"):
+            own = sorted(f for f, how in result["files"].items() if not (how == "FAIL" and f in red_web))
+            result["base_red_files"] = sorted(red_web)
+            if not own and result["status"] == "fail":
+                result["status"] = "base-red"
+            result["own_files"] = own
     statuses = {r["status"] for r in results}
-    # A build that fails at the car's head fails the car; one that fails at the base too is base-red.
-    status = "fail" if "fail" in statuses else "error" if "error" in statuses else "pass"
+    status = "fail" if statuses & {"fail", "timeout"} else "error" if "error" in statuses else "pass"
     deferred = [f"web (browser lane): {t['path']}" for t in the_plan["web"] if t.get("browser")]
+    if the_plan.get("web_dropped"):
+        deferred.append(f"web: {the_plan['web_dropped']} more files past the nearest {len(the_plan['web'])}")
     if the_plan.get("swift_deferred"):
         deferred.append(f"swift: {the_plan['swift_deferred']}")
-    return {"status": status, "results": results, "reused": sorted(skip),
-            "deferred": deferred, "unmapped": the_plan["unmapped"]}
+    verdict = {"status": status, "results": results, "reused": sorted(skip),
+               "deferred": deferred, "unmapped": the_plan["unmapped"]}
+    if note:
+        verdict["base_check"] = note
+    return verdict
 
 
 def main(argv: list[str]) -> int:
@@ -287,4 +325,8 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except Exception as error:  # noqa: BLE001 - a crash is the guard's error, never the car's red
+        print(f"car_guards: internal error: {type(error).__name__}: {error}", file=sys.stderr)
+        sys.exit(2)

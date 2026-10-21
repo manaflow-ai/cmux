@@ -353,9 +353,9 @@ def plan(root: Path, files: list[str]) -> dict:
         "files": files,
         "python": [{"path": p, "lane": registry.get(p, ("", False))[0], "serial": registry.get(p, ("", False))[1], "why": why}
                    for p, why in sorted(python.items())],
-        "swift": [{"package": p, "filter": t, "why": why} for (p, t), why in sorted(swift.items())][:SWIFT_CAP],
-        "swift_dropped": max(0, len(swift) - SWIFT_CAP),
-        "swift_deferred": swift_deferred,
+        "swift": [] if swift_deferred or len(swift) > SWIFT_CAP else
+                 [{"package": p, "filter": t, "why": why} for (p, t), why in sorted(swift.items())],
+        "swift_deferred": swift_deferred or (f"{len(swift)} Swift test targets (over {SWIFT_CAP})" if len(swift) > SWIFT_CAP else ""),
         "cargo": {"changed": bool(cargo), "files": cargo},
         "web": [{"path": p, "why": why, "browser": corpus_web.browser(WEB + p)} for p, (_, why) in sorted(nearest)],
         "web_dropped": len(web) - len(nearest),

@@ -8,7 +8,9 @@ name: cmux-next car guards
 # The train calls this once per car (workflow_call, a matrix in the caller). Each leg uploads
 # its verdict JSON as `car-guards-<car>-<leg>`; the job results are the verdict too.
 #   linux  repo guards (prepush-gate, god files) and focused python, webviews (not the browser
-#          lane), cargo tests; a red also red at the car's base is the base's and passes
+#          lane), cargo tests. A python test or webviews file that fails at the car's base
+#          too (it exists there, and fails rather than times out) is the base's; cargo and
+#          Swift reds are never excused
 #   mac    focused Swift test targets, one build per package, on a CI Mac (never cosmic-gray
 #          or air-blue); runs only when the plan selects Swift tests
 # A pull request that changes the car guards runs them on itself (base = its merge base).

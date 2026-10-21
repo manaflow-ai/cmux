@@ -222,10 +222,38 @@ class CarGuards(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(self.statuses(verdict)["python:tests/test_tool.py"], "quarantined-fail")
 
-    def test_a_missing_module_is_the_runners_error_not_the_cars_red(self):
-        code, verdict = self.run_car(head_test='import a_module_no_runner_has\n"scripts/ci/the-tool.py"\n')
+    def test_a_missing_pinned_module_is_the_runners_error(self):
+        code, verdict = self.run_car(head_test='import sys\n"scripts/ci/the-tool.py"\n'
+                                               'print("ModuleNotFoundError: No module named \'yaml\'")\nsys.exit(1)\n')
         self.assertEqual((code, verdict["status"]), (2, "error"))
         self.assertEqual(self.statuses(verdict)["python:tests/test_tool.py"], "error")
+
+    def test_a_module_the_car_removed_is_the_cars_red(self):
+        """A car that deletes or renames a module a test imports must not ride as a warning."""
+        code, verdict = self.run_car(head_test='import the_module_this_car_deleted\n"scripts/ci/the-tool.py"\n')
+        self.assertEqual((code, verdict["status"]), (1, "fail"))
+
+    def test_a_failing_test_the_car_adds_is_never_the_bases(self):
+        """At the base the new file is missing: that failure must not excuse the car."""
+        code, verdict = self.run_car(head_test=PASS, extra={"tests/test_new.py": FAIL,
+                                     "tests/test-execution.toml": '[[test]]\npath = "tests/test_tool.py"\nlane = "linux-guard"\n'
+                                                                  '[[test]]\npath = "tests/test_new.py"\nlane = "linux-guard"\n'})
+        self.assertEqual((code, verdict["status"]), (1, "fail"))
+        self.assertEqual(self.statuses(verdict)["python:tests/test_new.py"], "fail")
+
+    def test_a_crash_is_an_error_never_a_quarantine(self):
+        code, verdict = 0, None
+        with tempfile.TemporaryDirectory() as tmp:
+            root = repo(tmp, {"scripts/cmux-next/quarantine.json": "{not json", "tests/test_tool.py": PASS,
+                              "scripts/ci/the-tool.py": "", "scripts/cmux-next/prepush-gate.py": "",
+                              "scripts/cmux-next/check-no-godfiles.sh": ""})
+            base = git(root, "rev-parse", "HEAD")
+            write(root, {"scripts/ci/the-tool.py": "x = 1\n"})
+            git(root, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qam", "car")
+            proc = subprocess.run([sys.executable, "-I", str(root / "scripts/ci/car_guards.py"), "run", "--root", str(root),
+                                   "--where", "linux", "--base", base, "--head", "HEAD"], capture_output=True, text=True)
+            self.assertEqual(proc.returncode, 2, proc.stderr)
+            self.assertIn("internal error", proc.stderr)
 
     def test_god_files_over_its_allowance_warns_as_on_the_checks_job(self):
         code, verdict = self.run_car(head_test=PASS, godfiles='[ "$GODFILES_WARN_SLACK" = 20 ] || exit 3\nexit 1\n')
@@ -275,6 +303,53 @@ class CarGuards(unittest.TestCase):
         self.assertEqual([r["status"] for r in results], ["fail", "skipped", "skipped"], "no filter runs on a failed build")
 
 
+FAKE_WEB_RUNNER = """#!/usr/bin/env bash
+# Stand-in for run-webviews-tests.sh: a file whose text says fail fails, as the real summary prints.
+failed=0
+while read -r f; do
+  [ -n "$f" ] || continue
+  if grep -q fail "$f"; then echo "FAIL ./$f (limit 120s)"; failed=1; fi
+done <<< "$CMUX_WEB_TEST_FILES"
+exit $failed
+"""
+
+
+class WebBaseReds(unittest.TestCase):
+    """Webviews files are compared with the base one by one: a file red at both ends is the
+    base's, but it never hides a file the car broke."""
+
+    def run_web(self, base_files: dict, head_files: dict) -> dict:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = repo(tmp, {"scripts/ci/run-webviews-tests.sh": FAKE_WEB_RUNNER, "webviews/bun.lock": "{}",
+                              "webviews/src/x.ts": "export const a = 1\n", **base_files})
+            (root / "webviews/node_modules").mkdir()
+            base = git(root, "rev-parse", "HEAD")
+            write(root, {"webviews/src/x.ts": "export const a = 2\n", **head_files})
+            git(root, "add", "-A")
+            git(root, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "car")
+            got = json.loads(subprocess.run([sys.executable, "-I", str(root / "scripts/ci/focused_tests.py"), "--root", str(root),
+                                             "--files", "webviews/src/x.ts"], check=True, capture_output=True, text=True).stdout)
+            return car_guards.run(root, base, "HEAD", "linux", got, {}, {"web"})
+
+    def test_a_file_red_at_both_ends_is_the_bases(self):
+        red = {"webviews/test/a.test.ts": 'import { a } from "../src/x"\n// fail\n'}
+        verdict = self.run_web(red, red)
+        self.assertEqual(verdict["status"], "pass")
+        self.assertEqual(verdict["results"][0]["status"], "base-red")
+
+    def test_a_base_red_file_never_hides_one_the_car_broke(self):
+        base = {"webviews/test/a.test.ts": 'import { a } from "../src/x"\n// fail\n',
+                "webviews/test/b.test.ts": 'import { a } from "../src/x"\n'}
+        head = {"webviews/test/b.test.ts": 'import { a } from "../src/x"\n// fail\n'}
+        verdict = self.run_web(base, head)
+        self.assertEqual(verdict["status"], "fail")
+        self.assertEqual(verdict["results"][0]["own_files"], ["test/b.test.ts"])
+
+    def test_a_web_test_the_car_adds_is_never_the_bases(self):
+        verdict = self.run_web({}, {"webviews/test/new.test.ts": 'import { a } from "../src/x"\n// fail\n'})
+        self.assertEqual(verdict["status"], "fail")
+
+
 class Deferred(unittest.TestCase):
     def test_a_browser_lane_webviews_file_is_deferred_not_run(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -302,6 +377,13 @@ class Deferred(unittest.TestCase):
         got = focused_tests.plan(ROOT, ["Packages/macOS/CmuxNext/Package.swift"])
         self.assertEqual([s for s in got["swift"] if s["package"] == "Packages/macOS/CmuxNext"], [])
         self.assertTrue(got["swift_deferred"], "a CmuxNext manifest change is the candidate's swift test tier")
+
+    def test_more_swift_targets_than_the_cap_are_deferred_not_cut(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = repo(tmp, SWIFT_TREE)
+            got = plan(root, "Packages/Shared/Core/Sources/CoreModel/Model.swift", env={"FOCUSED_SWIFT_CAP": "1"})
+            self.assertEqual(got["swift"], [])
+            self.assertIn("2 Swift test targets", got["swift_deferred"])
 
     def test_a_plans_data_file_that_tests_name_selects_them(self):
         with tempfile.TemporaryDirectory() as tmp:
