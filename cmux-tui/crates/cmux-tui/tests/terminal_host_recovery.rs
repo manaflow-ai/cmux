@@ -3570,6 +3570,13 @@ fn interrupted_creation_waits_for_transient_host_adoption_before_serving() {
         started.elapsed() >= Duration::from_millis(400),
         "daemon served before interrupted host adoption settled"
     );
+    // The host answers after 500 ms: the start waits for that answer, not
+    // for the 2 s an adoption thread gives a start that never says ready.
+    assert!(
+        started.elapsed() < Duration::from_millis(1_800),
+        "the interrupted creation waited {:?} for its host's adoption",
+        started.elapsed()
+    );
 
     let resolved = request(
         &harness.socket,
