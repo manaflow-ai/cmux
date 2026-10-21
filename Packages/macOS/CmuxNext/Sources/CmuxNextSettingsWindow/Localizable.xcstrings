@@ -54747,127 +54747,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The mic in the message box dictates into it, on this Mac. Off shows the waveform instead."
+            "value": "Dictate into the message box with its mic, on this Mac."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يُملي الميكروفون في مربع الرسالة النص فيه على هذا الـ Mac. عند إيقافه يظهر شكل الموجة بدلًا منه."
+            "value": "أملِ النص في مربع الرسالة بالميكروفون على هذا الـ Mac."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mikrofon u polju za poruku diktira u njega, na ovom Macu. Kada je isključeno, prikazuje se talasni oblik."
+            "value": "Diktirajte u polje za poruku mikrofonom, na ovom Macu."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mikrofonen i beskedfeltet dikterer ind i det, på denne Mac. Fra viser bølgeformen i stedet."
+            "value": "Diktér i beskedfeltet med mikrofonen på denne Mac."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Das Mikrofon im Nachrichtenfeld diktiert hinein, auf diesem Mac. Aus zeigt stattdessen die Wellenform."
+            "value": "Per Mikrofon ins Nachrichtenfeld diktieren, auf diesem Mac."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El micrófono del cuadro de mensaje dicta en él, en este Mac. Desactivado muestra la forma de onda."
+            "value": "Dicta en el cuadro de mensaje con el micrófono, en este Mac."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le micro du champ de message y dicte le texte, sur ce Mac. Désactivé, la forme d’onde s’affiche à la place."
+            "value": "Dictez dans le champ de message avec le micro, sur ce Mac."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Il microfono nel campo del messaggio vi detta il testo, su questo Mac. Disattivato mostra la forma d’onda."
+            "value": "Detta nel campo messaggio con il microfono, su questo Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "メッセージ欄のマイクで、この Mac 上で音声入力します。オフにすると代わりに波形が表示されます。"
+            "value": "メッセージ欄にマイクで音声入力します（この Mac 上で）。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មីក្រូហ្វូននៅក្នុងប្រអប់សារសរសេរតាមសំឡេងចូលទៅក្នុងវា នៅលើ Mac នេះ។ បិទ បង្ហាញរលកសំឡេងជំនួសវិញ។"
+            "value": "សរសេរតាមសំឡេងចូលប្រអប់សារដោយមីក្រូហ្វូន នៅលើ Mac នេះ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "메시지 상자의 마이크로 이 Mac에서 받아쓰기합니다. 끄면 대신 파형이 표시됩니다."
+            "value": "이 Mac에서 마이크로 메시지 상자에 받아쓰기합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mikrofonen i meldingsfeltet dikterer inn i det, på denne Macen. Av viser bølgeformen i stedet."
+            "value": "Dikter inn i meldingsfeltet med mikrofonen, på denne Macen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mikrofon w polu wiadomości dyktuje do niego na tym Macu. Wyłączone pokazuje zamiast tego falę dźwiękową."
+            "value": "Dyktuj do pola wiadomości mikrofonem, na tym Macu."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O microfone na caixa de mensagem dita nela, neste Mac. Desativado mostra a forma de onda."
+            "value": "Dite na caixa de mensagem com o microfone, neste Mac."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Микрофон в поле сообщения диктует в него на этом Mac. Если выключено, вместо него показана звуковая волна."
+            "value": "Диктуйте в поле сообщения с микрофона на этом Mac."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ไมโครโฟนในช่องข้อความจะป้อนข้อความด้วยเสียงบน Mac เครื่องนี้ ปิดจะแสดงรูปคลื่นเสียงแทน"
+            "value": "ป้อนข้อความด้วยเสียงผ่านไมโครโฟนบน Mac เครื่องนี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mesaj kutusundaki mikrofon, bu Mac'te kutuya dikte eder. Kapalıyken yerine dalga biçimi görünür."
+            "value": "Mesaj kutusuna mikrofonla dikte edin, bu Mac'te."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Мікрофон у полі повідомлення диктує в нього на цьому Mac. Якщо вимкнено, замість нього показано звукову хвилю."
+            "value": "Диктуйте в поле повідомлення мікрофоном на цьому Mac."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Micrô trong ô tin nhắn đọc chính tả vào ô, trên máy Mac này. Tắt sẽ hiện dạng sóng thay thế."
+            "value": "Đọc chính tả vào ô tin nhắn bằng micrô, trên máy Mac này."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "消息框中的麦克风可在这台 Mac 上听写输入。关闭后改为显示波形。"
+            "value": "在这台 Mac 上用麦克风向消息框听写。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "訊息框中的麥克風可在這台 Mac 上聽寫輸入。關閉後改為顯示波形。"
+            "value": "在這台 Mac 上用麥克風向訊息框聽寫。"
           }
         }
       }
