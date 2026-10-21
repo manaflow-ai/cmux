@@ -61,6 +61,10 @@ class CheckPaths(unittest.TestCase):
                      "scripts/ci/fast_gate_webviews_checks.py"):
             self.assertEqual(matching([path]), [path], path)
 
+    def test_only_the_workflows_a_dispatch_reruns(self):
+        # Another workflow's change is churn a dispatch cannot catch: the fast gates rerun only their own gates.
+        self.assertEqual(matching([".github/workflows/nightly.yml", ".github/workflows/cmux-next.yml"]), [])
+
 
 if __name__ == "__main__":
     unittest.main()
