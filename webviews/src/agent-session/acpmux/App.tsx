@@ -1951,6 +1951,14 @@ export function VirtualTranscript({
   const previousViewport = useRef({ height, width, dockSpace });
   /// The room kept under the last row (`room` below) as of the last placement pass.
   const heldRoom = useRef(dockSpace);
+  const [, roomTaken] = useReducer((count: number) => count + 1, 0);
+  /// Gives the room under the last row the stack's height again, at once, before Jump to latest
+  /// follows again (`room` below).
+  const takeRoom = useCallback(() => {
+    if (Math.abs(heldRoom.current - dockSpaceRef.current) <= 0.5) return;
+    heldRoom.current = dockSpaceRef.current;
+    flushSync(roomTaken);
+  }, []);
   /// The pane's width changed and no new content has come since: rows settling to their drawn
   /// heights at the new width are that resize, not growth, and never glide.
   const reflowing = useRef(false);
@@ -2755,10 +2763,13 @@ export function VirtualTranscript({
     // view back to the match and stops following again.
     revealing.current = undefined;
     revealWindow.current = 0;
+    // The room the stack grew while scrolled up comes first, out of view, so following again moves
+    // nothing and the glide runs to the end above the card instead of snapping there.
+    takeRoom();
     follow(true);
     if (focused) focusComposer?.();
     const reduce = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    const target = Math.max(0, layout.totalHeight - node.clientHeight);
+    const target = Math.max(0, node.scrollHeight - node.clientHeight);
     node.scrollTo({ top: target, behavior: reduce ? "auto" : "smooth" });
     // The landing: whether the smooth scroll arrived, was cut short as rows above settled, or the
     // reply grew past it. Only the reader's own scroll meanwhile cancels it.
