@@ -2502,12 +2502,17 @@ export function VirtualTranscript({
   let lastTurnId: string | undefined;
   for (let index = rows.length - 1; index >= 0 && !lastTurnId; index -= 1)
     if (rows[index]!.kind === "turnSummary") lastTurnId = rows[index]!.id;
+  // The latest prompt shows its action row always, as Claude Code desktop's (UserBubble.tsx).
+  let lastPromptId: string | undefined;
+  for (let index = rows.length - 1; index >= 0 && !lastPromptId; index -= 1)
+    if (rows[index]!.kind === "user") lastPromptId = rows[index]!.id;
   const markTurns = useCallback(() => {
     for (const node of thread.current?.querySelectorAll<HTMLElement>(".acpmux-row") ?? []) {
       node.toggleAttribute("data-last-turn", node.dataset.rowId === lastTurnId);
+      node.toggleAttribute("data-last-prompt", node.dataset.rowId === lastPromptId);
       node.toggleAttribute("data-turn-revealed", node.dataset.rowId === pointedTurn.current);
     }
-  }, [lastTurnId]);
+  }, [lastTurnId, lastPromptId]);
   // Mark only when the mounted rows, their range, or the last turn changes. The old no-deps
   // layout effect scanned every commit, including scroll/follow state commits that cannot change
   // these attributes. `pointAt` still calls the callback directly for pointer-driven updates.

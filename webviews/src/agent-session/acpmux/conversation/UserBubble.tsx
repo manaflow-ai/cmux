@@ -1,18 +1,21 @@
-// A prompt's bubble, with Copy, Bookmark and Edit under it (cx-ncc.60, Claude parity). Edit opens the prompt in
+// A prompt's bubble, with its action row under it as Claude Code desktop draws one: the prompt's age
+// ("1 hour ago", its time on hover), two ticks once the agent has it, then Copy, Edit, Fork and
+// Bookmark (cx-ncc.60, Claude parity). The latest prompt shows the row always, older ones on hover
+// (VirtualTranscript marks the latest `data-last-prompt`). Edit opens the prompt in
 // place; Send forks the chat through the turn before it and sends the edited text there (the App's
 // `edit.send`), Escape or Cancel puts the bubble back. Edit shows only on a prompt the chat can fork
 // before (`editableTurns`), so it is never dead. A prompt with versions (an edit made it, or replaced
-// it) shows < n/m > before them, always (branches.ts, cx-ncc.61). Copy is on the prompt's right-click
-// menu (Copy Message; Leo dogfood 2026-10-13: one hover action); the `hover-actions` experiment's
-// "all" arm keeps it under the bubble. The images a prompt sent show above its bubble, each opening
-// the image viewer (Leo, 2026-10-13: they vanished once sent).
+// it) shows < n/m > before them, always (branches.ts, cx-ncc.61). Fork forks the chat through the
+// turn before the prompt, as Edit does, and keeps the prompt to send again. The row is Claude's whole
+// row (GUI push 2026-10-20), not the `hover-actions` experiment's one action. The images a prompt
+// sent show above its bubble, each opening the image viewer (Leo, 2026-10-13: they vanished once sent).
 import { useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AcpmuxRow, PromptImage } from "../model";
-import { experimentArm } from "../../../experiments/experiment";
-import { hoverActions } from "../../../ui/hoverActions.experiment";
-import { useT } from "../i18n";
+import { useMinuteClock } from "../clock";
+import { usePaneLanguage, useT } from "../i18n";
 import { copyText } from "./clipboard";
-import { ChevronLeft, ChevronRight, Copy, Pencil } from "./icons";
+import { CheckDouble, ChevronLeft, ChevronRight, Copy, Pencil, TurnFork } from "./icons";
+import { relativeTime } from "./relativeTime";
 import { ImageViewerContext } from "./imageViewerContext";
 import { TurnActionsContext } from "./turnActions";
 import { BookmarkIcon } from "../threadMinimap/BookmarkIcon";
@@ -20,13 +23,15 @@ import { usePromptRowMark } from "../threadMinimap/promptMarks";
 
 export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
   const t = useT();
-  const { edit, branches } = useContext(TurnActionsContext);
+  const { edit, branches, fork, forkSeq, forkAny } = useContext(TurnActionsContext);
+  const now = useMinuteClock();
+  const language = usePaneLanguage();
   const branch = branches?.of.get(row.id);
   const [editing, setEditing] = useState(false);
   const [copied, setCopied] = useState(false);
   const mark = usePromptRowMark(row);
   const through = edit?.seqs.get(row.id);
-  const copies = experimentArm(hoverActions) === "all";
+  const forks = fork !== undefined && through !== undefined && (forkAny || through === forkSeq);
   // An open editor stays while the chat changes under it (a reconnect, a turn starting), so the
   // draft is kept; Send waits until the prompt can be forked before again. A resend that fails
   // (the fork refused, the reader opened another chat) leaves the draft open too.
@@ -47,7 +52,7 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
     <>
       {row.images && row.images.length > 0 && <SentImages images={row.images} />}
       <div className="cv-user__bubble selectable">{text}</div>
-      {text && !row.failed && !row.queued && (copies || branch || through !== undefined || mark.can) && (
+      {text && !row.failed && !row.queued && (
         <div className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}>
           {branch && branches && (
             <span className="cv-user__versions">
@@ -79,20 +84,57 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
               </button>
             </span>
           )}
-          {copies && (
+          <time
+            className="cv-user__time"
+            dateTime={new Date(row.at).toISOString()}
+            title={new Date(row.at).toLocaleString(language)}
+          >
+            {relativeTime(row.at, now, language)}
+          </time>
+          {!row.pending && (
+            <span
+              className="cv-user__delivered"
+              role="img"
+              aria-label={t("message.delivered")}
+              title={t("message.delivered")}
+            >
+              <CheckDouble size={14} />
+            </span>
+          )}
+          <button
+            type="button"
+            className="cv-iconbtn cv-iconbtn--compact"
+            aria-label={copied ? t("turn.copied") : t("turn.copy")}
+            title={copied ? t("turn.copied") : t("turn.copy")}
+            onClick={() =>
+              void copyText(row.text ?? text).then(
+                () => setCopied(true),
+                () => setCopied(false),
+              )
+            }
+          >
+            <Copy size={14} />
+          </button>
+          {through !== undefined && (
             <button
               type="button"
               className="cv-iconbtn cv-iconbtn--compact"
-              aria-label={copied ? t("turn.copied") : t("turn.copy")}
-              title={copied ? t("turn.copied") : t("turn.copy")}
-              onClick={() =>
-                void copyText(row.text ?? text).then(
-                  () => setCopied(true),
-                  () => setCopied(false),
-                )
-              }
+              aria-label={t("message.edit")}
+              title={t("message.edit")}
+              onClick={() => setEditing(true)}
             >
-              <Copy size={14} />
+              <Pencil size={14} />
+            </button>
+          )}
+          {forks && (
+            <button
+              type="button"
+              className="cv-iconbtn cv-iconbtn--compact"
+              aria-label={t("turn.fork")}
+              title={t("turn.fork")}
+              onClick={() => fork!(through!)}
+            >
+              <TurnFork size={14} />
             </button>
           )}
           {/* The prompt's bookmark, the same mark as the thread minimap's dot and card. */}
@@ -106,17 +148,6 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
               onClick={mark.toggle}
             >
               <BookmarkIcon filled={mark.marked} size={14} />
-            </button>
-          )}
-          {through !== undefined && (
-            <button
-              type="button"
-              className="cv-iconbtn cv-iconbtn--compact"
-              aria-label={t("message.edit")}
-              title={t("message.edit")}
-              onClick={() => setEditing(true)}
-            >
-              <Pencil size={14} />
             </button>
           )}
         </div>
