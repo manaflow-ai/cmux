@@ -253,46 +253,91 @@ test("the state is a pill in its own colour: open, merged, closed, draft", async
   expect(styles).toMatch(/\.acpmux-pr-card__state\{[^}]*background:color-mix\(in srgb,var\(--pr-state\)/);
 });
 
-test("checks that also fail on the base branch read muted, not as this pull request's failures", async () => {
-  const failing = (n: number) => Array.from({ length: n }, (_, i) => ({ name: `check ${i}`, state: "failed" }));
-  // Every failure is a base red: "(base)", and the line's state is `base`, not `failing`.
-  const all = await card({
+// A red the base branch's tip has too is not this pull request's: the merge rules say so, and the
+// card says which of its reds those are, so nobody opens a log that was already red before the
+// branch existed. The host decides (AgentPanePullRequest `failingOnBase`, which compares only each
+// workflow's newest run so a cancelled, superseded run can never excuse a red); the card reads it.
+test("the card says how many of the failing checks are also red on the base", async () => {
+  const { body } = await card({
     pullRequest: pullRequest({
-      state: "merged",
-      checks: { state: "failing", passed: 118, total: 122 },
-      checkList: failing(4),
-      failingOnBase: 4,
+      checks: { state: "failing", passed: 98, total: 100, failingOnBase: 1 },
+      checkList: [
+        { name: "cmux-next generated files", state: "failed", onBase: true },
+        { name: "web lint (fast)", state: "failed" },
+      ],
     }),
-    fetchedAt: Date.now() / 1000,
+    fetchedAt: Date.now() / 1000 - 5,
   });
-  const allChecks = all.body.querySelector(".acpmux-pr-card__checks")!;
-  expect(allChecks.textContent).toBe("118 of 122 checks passed, 4 failing (base)");
-  expect(allChecks.getAttribute("data-state")).toBe("base");
-  await unmount();
-  // Some are: the count of them, and the line stays failing.
-  const some = await card({
+  const checks = body.querySelector<HTMLElement>(".acpmux-pr-card__checks")!;
+  expect(checks.textContent).toBe("98 of 100 checks passed, 2 failing, 1 also red on base");
+  // One red is still this pull request's, so the dot stays danger.
+  expect(checks.dataset.onBase).toBeUndefined();
+});
+
+test("every red being the base's reads the line muted, with a hollow dot", async () => {
+  const { body } = await card({
     pullRequest: pullRequest({
-      checks: { state: "failing", passed: 118, total: 122 },
-      checkList: failing(4),
-      failingOnBase: 1,
+      checks: { state: "failing", passed: 98, total: 100, failingOnBase: 2 },
+      checkList: [
+        { name: "cmux-next generated files", state: "failed", onBase: true },
+        { name: "web lint (fast)", state: "failed", onBase: true },
+      ],
     }),
-    fetchedAt: Date.now() / 1000,
+    fetchedAt: Date.now() / 1000 - 5,
   });
-  const someChecks = some.body.querySelector(".acpmux-pr-card__checks")!;
-  expect(someChecks.textContent).toBe("118 of 122 checks passed, 4 failing, 1 on base");
-  expect(someChecks.getAttribute("data-state")).toBe("failing");
-  await unmount();
-  // The host does not say (it does not send `failingOnBase` yet): the plain failing line.
-  const none = await card({
-    pullRequest: pullRequest({ checks: { state: "failing", passed: 118, total: 122 }, checkList: failing(4) }),
-    fetchedAt: Date.now() / 1000,
-  });
-  expect(none.body.querySelector(".acpmux-pr-card__checks")?.textContent).toBe("118 of 122 checks passed, 4 failing");
-  // A base-only line has no alarm colour on its dot.
+  const checks = body.querySelector<HTMLElement>(".acpmux-pr-card__checks")!;
+  expect(checks.textContent).toBe("98 of 100 checks passed, 2 failing, 2 also red on base");
+  expect(checks.dataset.onBase).toBe("all");
+  // Nothing here is this pull request's to fix (Leo 2026-10-21): the line reads in the muted text
+  // colour and its dot is hollow and neutral, neither danger pink nor the warning colour.
   const { readFileSync } = await import("node:fs");
   const path = await import("node:path");
   const styles = readFileSync(path.join(import.meta.dir, "../src/agent-session/acpmux/styles.css"), "utf8");
-  const baseDot = /\.acpmux-pr-card__checks\[data-state=base\]::before\{([^}]*)\}/.exec(styles)?.[1] ?? "";
-  expect(baseDot).not.toBe("");
-  expect(baseDot).not.toContain("danger");
+  const rule = (selector: string) =>
+    new RegExp(`${selector.replace(/[[\]().]/g, "\\$&")}\\{([^}]*)\\}`).exec(styles)?.[1] ?? "";
+  const line = rule(".acpmux-pr-card__checks[data-state=failing][data-on-base=all]");
+  const dot = rule(".acpmux-pr-card__checks[data-state=failing][data-on-base=all]::before");
+  expect(line).toContain("color:var(--agent-muted)");
+  expect(dot).toContain("background:transparent");
+  expect(dot).toContain("var(--agent-muted)");
+  expect(dot).not.toContain("danger");
+  expect(dot).not.toContain("warning");
+});
+
+test("a host that claims nothing about the base draws the card it always did", async () => {
+  // The single-link path reads one `gh pr view`, which cannot see the base branch's checks at all.
+  // Saying nothing there is the only safe reading: "not marked" must never render as "not yours".
+  const quiet = await card({ pullRequest: pullRequest(), fetchedAt: Date.now() / 1000 - 5 });
+  const checks = quiet.body.querySelector<HTMLElement>(".acpmux-pr-card__checks")!;
+  expect(checks.textContent).toBe("89 of 100 checks passed, 1 failing");
+  expect(checks.dataset.onBase).toBeUndefined();
+  await teardown?.();
+  teardown = undefined;
+  // And a count that outruns the reds it claims to explain is clamped to them, rather than drawing
+  // "1 failing, 7 also red on base".
+  const loud = await card({
+    pullRequest: pullRequest({ checks: { state: "failing", passed: 99, total: 100, failingOnBase: 7 } }),
+    fetchedAt: Date.now() / 1000 - 5,
+  });
+  expect(loud.body.querySelector(".acpmux-pr-card__checks")?.textContent).toBe(
+    "99 of 100 checks passed, 1 failing, 1 also red on base",
+  );
+});
+
+test("a host that marks rows without counting them is still read", async () => {
+  // The count is the host's own and covers the whole rollup, which is why it wins; the rows are
+  // what a host that only marks them leaves, and the card reads those rather than nothing.
+  const { body } = await card({
+    pullRequest: pullRequest({
+      checks: { state: "failing", passed: 98, total: 100 },
+      checkList: [
+        { name: "cmux-next generated files", state: "failed", onBase: true },
+        { name: "web lint (fast)", state: "failed" },
+      ],
+    }),
+    fetchedAt: Date.now() / 1000 - 5,
+  });
+  expect(body.querySelector(".acpmux-pr-card__checks")?.textContent).toBe(
+    "98 of 100 checks passed, 2 failing, 1 also red on base",
+  );
 });

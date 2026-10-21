@@ -6,8 +6,8 @@
 // The card reads: the title (in the link card's head when it has one, cut to two lines), the state
 // pill (open green, merged purple, closed red, draft grey, and conflicts beside it), `owner/repo#N`,
 // the author with a monogram, when GitHub last saw it change, `base ← head`, the checks summed
-// (failures that also fail on the base branch read muted, not as this pull request's), the review
-// decision and labels, and the files with `+/−`.
+// (with how many failures are also red on base; when every one is, the line reads muted, not as
+// this pull request's), the review decision and labels, and the files with `+/−`.
 // Hovering (or focusing) the `+/−` breaks those lines down by kind — Code, Tests, Mocks, Docs,
 // Evals, Generated — from the one classifier the diff viewer groups by (src/fileKinds.ts), and
 // says so when code changed with no test.
@@ -138,32 +138,41 @@ export function PullRequestCardBody({
   );
 }
 
-/// The checks summed: how many passed, and how many are failing. Failures that also fail on the
-/// base branch (`failingOnBase`) are not this pull request's doing: when every failure is one, the
-/// line reads muted with "(base)"; when only some are, it says how many.
+/// The checks summed: how many passed, how many are failing, and how many of those failures the
+/// base branch's tip has too — a red the pull request did not cause, which is what decides whether
+/// anyone has to go and look at it. The host works that out (AgentPanePullRequest `failingOnBase`,
+/// which only compares each workflow's newest run, so a run the concurrency group cancelled can
+/// never excuse a red); the card only reads it.
 function Checks({ read, t }: { read: LinkedPullRequest | undefined; t: Translate }) {
   const checks = read?.checks;
   if (!checks) return null;
   if (checks.total === 0) return <div className="acpmux-pr-card__checks">{t("header.prNoChecks")}</div>;
-  const listed = read?.checkList?.filter((check) => check.state === "failed").length || 0;
-  if (listed === 0 && checks.state !== "failing")
-    return (
-      <div className="acpmux-pr-card__checks" data-state={checks.state}>
-        {t("prCard.checks", { passed: checks.passed, total: checks.total })}
-      </div>
-    );
-  const failed = listed || checks.total - checks.passed;
-  const onBase = Math.min(Math.max(0, read?.failingOnBase ?? 0), failed);
-  const counts = { passed: checks.passed, total: checks.total, failed };
-  if (onBase > 0 && onBase === failed)
-    return (
-      <div className="acpmux-pr-card__checks" data-state="base">
-        {t("prCard.checksFailingBase", counts)}
-      </div>
-    );
+  const rows = read?.checkList ?? [];
+  const failed = rows.filter((check) => check.state === "failed").length || 0;
+  const failing = failed || checks.total - checks.passed;
+  // The host's own count, because it counts the whole rollup while `checkList` is truncated; the
+  // rows are the fallback for a host that marks them without counting them. Clamped, so the line
+  // stays arithmetically honest whatever the two halves say.
+  const marked = rows.filter((check) => check.state === "failed" && check.onBase === true).length;
+  const onBase = Math.min(checks.failingOnBase ?? marked, failing);
   return (
-    <div className="acpmux-pr-card__checks" data-state={checks.state}>
-      {onBase > 0 ? t("prCard.checksFailingSomeBase", { ...counts, onBase }) : t("prCard.checksFailing", counts)}
+    <div
+      className="acpmux-pr-card__checks"
+      data-state={checks.state}
+      // Every red is base's: the line and its dot read muted, a hollow dot rather than danger or
+      // warning, because nothing here is this pull request's to fix (the merge rules say so too).
+      data-on-base={onBase > 0 && onBase >= failing ? "all" : undefined}
+    >
+      {failed > 0 || checks.state === "failing"
+        ? onBase > 0
+          ? t("prCard.checksFailingOnBase", {
+              passed: checks.passed,
+              total: checks.total,
+              failed: failing,
+              onBase,
+            })
+          : t("prCard.checksFailing", { passed: checks.passed, total: checks.total, failed: failing })
+        : t("prCard.checks", { passed: checks.passed, total: checks.total })}
     </div>
   );
 }

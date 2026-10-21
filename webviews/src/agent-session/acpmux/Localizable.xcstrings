@@ -144906,6 +144906,138 @@
         }
       }
     },
+    "header.prCheckOnBase": {
+      "comment": "Agent pane chat header: a failing check of the pull request fails the same way at the base branch's tip, so the pull request did not break it",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فاشل في الفرع الأساسي أيضًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ne prolazi ni na osnovnoj grani"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fejler også på basisgrenen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "schlägt auch auf dem Basis-Branch fehl"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "also red on base"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "también falla en la rama base"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "en échec aussi sur la branche de base"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "non riuscito anche sul branch di base"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ベースでも失敗"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បរាជ័យនៅសាខាមូលដ្ឋានផងដែរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "베이스에서도 실패"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "feiler også på basisgrenen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nie przechodzi też na gałęzi bazowej"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "também falha na branch base"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "падает и в базовой ветке"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ล้มเหลวบนเบรนช์ฐานด้วย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "temel dalda da başarısız"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "падає і в базовій гілці"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cũng lỗi trên nhánh gốc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在基础分支上同样失败"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在基礎分支上同樣失敗"
+          }
+        }
+      }
+    },
     "message.edit": {
       "comment": "Agent pane: edit and resend a prompt",
       "extractionState": "manual",
@@ -186569,266 +186701,134 @@
         }
       }
     },
-    "prCard.checksFailingBase": {
-      "comment": "Agent pane: a pull request's hover card, its checks when every failing check also fails on the base branch (not this pull request's fault); shown muted",
+    "prCard.checksFailingOnBase": {
+      "comment": "Agent pane: a pull request's hover card, its checks when some failed and {onBase} of those failures also fail at the base branch's tip",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "نجح {passed} من {total} من الفحوصات، وفشل {failed} (في الفرع الأساسي)"
+            "value": "نجح {passed} من {total} من الفحوصات، وفشل {failed}، و{onBase} منها فاشلة في الفرع الأساسي أيضًا"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "prošlo {passed} od {total} provjera, {failed} ne prolazi (osnovna grana)"
+            "value": "prošlo {passed} od {total} provjera, {failed} ne prolazi, {onBase} ne prolazi ni na osnovnoj grani"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "{passed} af {total} tjek bestået, {failed} fejler (base)"
+            "value": "{passed} af {total} tjek bestået, {failed} fejler, {onBase} fejler også på basisgrenen"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "{passed} von {total} Checks bestanden, {failed} fehlgeschlagen (Basis)"
+            "value": "{passed} von {total} Checks bestanden, {failed} fehlgeschlagen, {onBase} schlagen auch auf dem Basis-Branch fehl"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "{passed} of {total} checks passed, {failed} failing (base)"
+            "value": "{passed} of {total} checks passed, {failed} failing, {onBase} also red on base"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "{passed} de {total} comprobaciones superadas, {failed} con errores (base)"
+            "value": "{passed} de {total} comprobaciones superadas, {failed} con errores, {onBase} también fallan en la rama base"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "{passed} vérifications réussies sur {total}, {failed} en échec (base)"
+            "value": "{passed} vérifications réussies sur {total}, {failed} en échec, dont {onBase} en échec aussi sur la branche de base"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "{passed} controlli superati su {total}, {failed} non riusciti (ramo base)"
+            "value": "{passed} controlli superati su {total}, {failed} non riusciti, {onBase} non riusciti anche sul branch di base"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "{total} 件中 {passed} 件のチェックに合格、{failed} 件が失敗（ベース）"
+            "value": "{total} 件中 {passed} 件のチェックに合格、{failed} 件が失敗、うち {onBase} 件はベースでも失敗"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ការពិនិត្យ {passed} ក្នុងចំណោម {total} បានឆ្លងកាត់, {failed} បរាជ័យ (មូលដ្ឋាន)"
+            "value": "ការពិនិត្យ {passed} ក្នុងចំណោម {total} បានឆ្លងកាត់, {failed} បរាជ័យ, {onBase} បរាជ័យនៅសាខាមូលដ្ឋានផងដែរ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "검사 {total}개 중 {passed}개 통과, {failed}개 실패(기준 브랜치)"
+            "value": "검사 {total}개 중 {passed}개 통과, {failed}개 실패, 그중 {onBase}개는 베이스에서도 실패"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "{passed} av {total} sjekker bestått, {failed} feiler (base)"
+            "value": "{passed} av {total} sjekker bestått, {failed} feiler, {onBase} feiler også på basisgrenen"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zaliczono {passed} z {total} testów, {failed} nie przechodzi (gałąź bazowa)"
+            "value": "Zaliczono {passed} z {total} testów, {failed} nie przechodzi, {onBase} nie przechodzi też na gałęzi bazowej"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "{passed} de {total} verificações aprovadas, {failed} com falha (base)"
+            "value": "{passed} de {total} verificações aprovadas, {failed} com falha, {onBase} também falham na branch base"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Пройдено проверок: {passed} из {total}, с ошибкой: {failed} (базовая ветка)"
+            "value": "Пройдено проверок: {passed} из {total}, с ошибкой: {failed}, из них {onBase} падают и в базовой ветке"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ผ่านการตรวจสอบ {passed} จาก {total} รายการ ล้มเหลว {failed} รายการ (สาขาฐาน)"
+            "value": "ผ่านการตรวจสอบ {passed} จาก {total} รายการ ล้มเหลว {failed} รายการ โดย {onBase} รายการล้มเหลวบนเบรนช์ฐานด้วย"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "{total} denetimden {passed} tanesi geçti, {failed} tanesi başarısız (taban)"
+            "value": "{total} denetimden {passed} tanesi geçti, {failed} tanesi başarısız, {onBase} tanesi temel dalda da başarısız"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Пройдено перевірок: {passed} з {total}, з помилкою: {failed} (базова гілка)"
+            "value": "Пройдено перевірок: {passed} з {total}, з помилкою: {failed}, з них {onBase} падають і в базовій гілці"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Đã đạt {passed}/{total} lượt kiểm tra, {failed} lượt lỗi (nhánh gốc)"
+            "value": "Đã đạt {passed}/{total} lượt kiểm tra, {failed} lượt lỗi, {onBase} lượt cũng lỗi trên nhánh gốc"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "{total} 项检查中通过 {passed} 项，{failed} 项失败（基准分支）"
+            "value": "{total} 项检查中通过 {passed} 项，{failed} 项失败，其中 {onBase} 项在基础分支上同样失败"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "{total} 項檢查中通過 {passed} 項，{failed} 項失敗（基準分支）"
-          }
-        }
-      }
-    },
-    "prCard.checksFailingSomeBase": {
-      "comment": "Agent pane: a pull request's hover card, its checks when some failed and {onBase} of those also fail on the base branch",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "نجح {passed} من {total} من الفحوصات، وفشل {failed}، منها {onBase} في الفرع الأساسي"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "prošlo {passed} od {total} provjera, {failed} ne prolazi, {onBase} na osnovnoj grani"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{passed} af {total} tjek bestået, {failed} fejler, {onBase} på base"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{passed} von {total} Checks bestanden, {failed} fehlgeschlagen, {onBase} auf der Basis"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{passed} of {total} checks passed, {failed} failing, {onBase} on base"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{passed} de {total} comprobaciones superadas, {failed} con errores, {onBase} en la base"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{passed} vérifications réussies sur {total}, {failed} en échec, {onBase} sur la base"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{passed} controlli superati su {total}, {failed} non riusciti, {onBase} sul ramo base"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{total} 件中 {passed} 件のチェックに合格、{failed} 件が失敗（うち {onBase} 件はベースでも失敗）"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ការពិនិត្យ {passed} ក្នុងចំណោម {total} បានឆ្លងកាត់, {failed} បរាជ័យ, {onBase} លើមូលដ្ឋាន"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "검사 {total}개 중 {passed}개 통과, {failed}개 실패, 기준 브랜치에서도 {onBase}개"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{passed} av {total} sjekker bestått, {failed} feiler, {onBase} på base"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zaliczono {passed} z {total} testów, {failed} nie przechodzi, {onBase} na gałęzi bazowej"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{passed} de {total} verificações aprovadas, {failed} com falha, {onBase} na base"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Пройдено проверок: {passed} из {total}, с ошибкой: {failed}, из них на базовой ветке: {onBase}"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ผ่านการตรวจสอบ {passed} จาก {total} รายการ ล้มเหลว {failed} รายการ ล้มเหลวที่สาขาฐาน {onBase} รายการ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{total} denetimden {passed} tanesi geçti, {failed} tanesi başarısız, {onBase} tanesi tabanda da"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Пройдено перевірок: {passed} з {total}, з помилкою: {failed}, з них на базовій гілці: {onBase}"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Đã đạt {passed}/{total} lượt kiểm tra, {failed} lượt lỗi, {onBase} lượt ở nhánh gốc"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{total} 项检查中通过 {passed} 项，{failed} 项失败，其中 {onBase} 项在基准分支上也失败"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{total} 項檢查中通過 {passed} 項，{failed} 項失敗，其中 {onBase} 項在基準分支上也失敗"
+            "value": "{total} 項檢查中通過 {passed} 項，{failed} 項失敗，其中 {onBase} 項在基礎分支上同樣失敗"
           }
         }
       }
