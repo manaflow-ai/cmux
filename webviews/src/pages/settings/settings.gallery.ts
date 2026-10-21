@@ -929,6 +929,7 @@ export default settingsPageEntry({
     "pages/settings/editors/SegmentedEditor.tsx",
     "pages/settings/editors/Select.tsx",
     "pages/settings/editors/SoundEditor.tsx",
+    "pages/settings/editors/StringMapEditor.tsx",
     "pages/settings/editors/TextEditor.tsx",
     "pages/settings/editors/TimeRangeEditor.tsx",
     "pages/settings/editors/ToggleEditor.tsx",

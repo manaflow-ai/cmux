@@ -99,6 +99,7 @@ export function ChatHeaderTools({
   onMenuOpen,
   expand,
   onExpanded,
+  pullRequestChip,
   onMergePullRequest,
   folder,
   readStatus,
@@ -140,6 +141,8 @@ export function ChatHeaderTools({
   /// A row with children to show open (the palette's Continue in…); `onExpanded` clears it.
   expand?: string;
   onExpanded?: () => void;
+  /// The pull request chip (default on); a subagent's own pane draws none: the pull request is the chat's.
+  pullRequestChip?: boolean;
   /// Merge on the PR chip (cx-ncc.77.4): merges that pull request; rejects with why not.
   onMergePullRequest?: (pullRequest: { number: number; url: string }) => Promise<MergeResult>;
   /// The chat's folder on this Mac and its `git.status`: a worktree chat's branch shows (cx-lyqio.3b),
@@ -396,7 +399,9 @@ export function ChatHeaderTools({
   return (
     <div className="acpmux-header-tools" onPointerEnter={onPointerEnter}>
       {worktree && <WorktreePill worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />}
-      {pullRequest && <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />}
+      {pullRequest && pullRequestChip !== false && (
+        <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />
+      )}
       {buttons ? (
         <div className="acpmux-header-tool-group acpmux-header-tool-group-actions">
           {onCustomize ? (

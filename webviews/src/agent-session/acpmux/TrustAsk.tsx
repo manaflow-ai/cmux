@@ -4,7 +4,7 @@ import { useT } from "./i18n";
 import { isAgentHome } from "./sessionList";
 import type { FolderTrustAsk } from "./useFolderTrustAsk";
 
-/// One quiet line among the chat's permission asks, above the composer: what the agent may do in
+/// One line among the chat's permission asks, above the composer: what the agent may do in
 /// this folder, with Trust and Don't trust, then the answer with Undo. Nothing waits on it.
 export function TrustAsk({
   ask,
@@ -25,7 +25,14 @@ export function TrustAsk({
   const owned = isAgentHome(ask.cwd);
   const folder = projectName(ask.cwd) ?? ask.cwd;
   return (
-    <div className="acpmux-trust-ask" aria-live="polite">
+    // An open question reads as one (full text, the accent's edge, Trust as the primary answer),
+    // not as the quiet receipt it becomes once answered: a dim line was easy to miss while the
+    // agent waited on it (Leo, 2026-10-21).
+    <div
+      className="acpmux-trust-ask"
+      data-asking={ask.state === "ask" || ask.state === "failed" || undefined}
+      aria-live="polite"
+    >
       {ask.state === "decided" ? (
         <>
           <span className="acpmux-trust-ask-text">
@@ -52,7 +59,7 @@ export function TrustAsk({
                 ? t("trust.askPrivate", { agent })
                 : t("trust.ask", { agent, folder })}
           </span>
-          <button type="button" className="acpmux-trust-ask-action" onClick={onTrust}>
+          <button type="button" className="acpmux-trust-ask-action acpmux-trust-ask-primary" onClick={onTrust}>
             {t("trust.trust")}
           </button>
           <button type="button" className="acpmux-trust-ask-action" onClick={onDistrust}>
