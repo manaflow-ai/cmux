@@ -448,6 +448,11 @@ export function ComposerQueue({
         t={t}
         read={readImage}
         onRemove={editing === entry.id ? (id) => setDropped((current) => new Set(current).add(id)) : undefined}
+        onLeave={
+          editing === entry.id
+            ? () => save(entry, draft.current?.id === entry.id ? draft.current.text : entry.prompt)
+            : undefined
+        }
       />
     </>
   );
@@ -578,8 +583,12 @@ function QueuedEdit({
           finish(event.key === "Enter" ? event.currentTarget.value : undefined);
         }
       }}
-      // A click elsewhere saves; leaving the window keeps the edit open.
+      // A click elsewhere saves; leaving the window keeps the edit open, and so does Tab to the
+      // prompt's image remove controls (QueuedImages.tsx), which save when focus leaves them.
       onBlur={(event) => {
+        const to = event.relatedTarget;
+        const images = event.currentTarget.parentElement?.querySelector(".acpmux-queued-images");
+        if (to instanceof Node && images?.contains(to)) return;
         if (document.hasFocus()) finish(event.currentTarget.value);
       }}
     />

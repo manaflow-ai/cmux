@@ -14,6 +14,7 @@ export function QueuedImages({
   t,
   read,
   onRemove,
+  onLeave,
 }: {
   images: readonly QueuedPromptImage[];
   t: Translate;
@@ -21,14 +22,25 @@ export function QueuedImages({
   read?(id: string): Promise<string | undefined>;
   /// While the prompt is edited: drops the image from it. Absent otherwise.
   onRemove?(id: string): void;
+  /// While the prompt is edited: focus left the remove controls for somewhere outside the row, which
+  /// saves the edit as a blur of its field does.
+  onLeave?(): void;
 }) {
   const editing = onRemove !== undefined;
   if (images.length === 0) return null;
   return (
-    <span className="acpmux-queued-images">
-      {images.map((image) => (
+    <span
+      className="acpmux-queued-images"
+      onBlur={(event) => {
+        const to = event.relatedTarget;
+        if (!editing || (to instanceof Node && event.currentTarget.parentElement?.contains(to))) return;
+        if (document.hasFocus()) onLeave?.();
+      }}
+    >
+      {images.map((image, index) => (
         <QueuedImage
-          key={image.id}
+          // The same picture attached twice has one id.
+          key={`${image.id}-${index}`}
           image={image}
           t={t}
           read={read}
@@ -92,7 +104,14 @@ function QueuedImage({
           aria-label={t("composer.removeAttachment", { name: label })}
           title={t("composer.removeAttachment", { name: label })}
           onMouseDown={keepFocus}
-          onClick={onRemove}
+          onClick={(event) => {
+            // Removed from the keyboard: focus goes back to the edit's field, where Return saves.
+            if (document.activeElement === event.currentTarget) {
+              const field = event.currentTarget.closest(".acpmux-queued-images")?.parentElement;
+              field?.querySelector<HTMLElement>(".acpmux-queued-edit")?.focus();
+            }
+            onRemove();
+          }}
         >
           <svg viewBox="0 0 16 16" width="8" height="8" aria-hidden="true">
             <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
