@@ -100,3 +100,16 @@ test("a card keeps Preview and Install together when its footer wraps", () => {
     expect(actions?.querySelectorAll("button").length).toBe(2);
   }
 });
+
+test("the featured apps leave the catalog grid, and a search drops the featured row", () => {
+  const home = render(snapshot({}));
+  expect([...home.querySelectorAll(".apps-grid .apps-name")].map((name) => name.textContent)).toEqual(["acme.tool"]);
+  const searching = render(snapshot({ query: "cmux" }));
+  expect(searching.querySelector(".apps-featured-grid")).toBeNull();
+});
+
+test("no empty All section when every app is featured", () => {
+  const page = render(snapshot({ visible: [app("cmux.github-prs", "first-party", 30)] }));
+  expect(page.querySelectorAll(".apps-featured-grid > *").length).toBe(1);
+  expect(page.querySelector("#apps-catalog-title")).toBeNull();
+});
