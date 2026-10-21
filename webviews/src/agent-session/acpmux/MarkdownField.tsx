@@ -103,6 +103,8 @@ export type MarkdownFieldProps = {
   /// Shift-Enter adds a line (default true).
   multiline?: boolean;
   placeholder?: string;
+  /// A muted keycap after the placeholder, naming the key that takes it (the composer's "Tab").
+  placeholderKey?: string;
   className?: string;
   /// Attributes for the editable element (aria-label, role=combobox, aria-expanded...).
   attributes?: Record<string, string | undefined>;
@@ -217,6 +219,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
     plugins = [],
     multiline = true,
     placeholder,
+    placeholderKey,
     className,
     attributes,
   },
@@ -571,8 +574,13 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
           Object.defineProperty(element, "acpmuxMarkdownField", { get: () => handle.current, configurable: true });
       }}
     >
-      <span ref={empty} className="acpmux-md-placeholder" aria-hidden="true">
-        {placeholder}
+      <span
+        ref={empty}
+        className={placeholderKey ? "acpmux-md-placeholder has-key" : "acpmux-md-placeholder"}
+        aria-hidden="true"
+      >
+        {placeholderKey ? <span className="acpmux-md-placeholder-text">{placeholder}</span> : placeholder}
+        {placeholderKey && <kbd className="acpmux-md-placeholder-key">{placeholderKey}</kbd>}
       </span>
       <div ref={mount} className="acpmux-md-root" />
     </div>
