@@ -4,6 +4,7 @@ import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
+import type { StartedSession } from "../started/startedSessions";
 import { subagentsIn } from "../subagents/subagentRows";
 import { GalleryDialog } from "./GalleryDialog";
 import { chatGallery } from "./chatGallery";
@@ -14,6 +15,13 @@ import { SUBSESSION_STATUS, SubagentStatusList, subagentStatus, waitingSubagents
 import { SubagentsTab } from "./SubagentsTab";
 import { SummaryBody, type SummaryChanges } from "./SummaryBody";
 import type { SummaryCardControl } from "./cardState";
+import { backgroundCommands } from "./backgroundWork";
+import type { SummaryBackgroundTask } from "./sessionSummary";
+import type { ProcessRegistry } from "./sessionProcesses";
+
+const NO_SESSIONS: readonly StartedSession[] = [];
+const NO_TASKS: readonly SummaryBackgroundTask[] = [];
+const NO_REGISTRY: ProcessRegistry = { processes: [], listed: false };
 
 const NO_SUBSESSIONS: readonly SubsessionRow[] = [];
 
@@ -24,6 +32,9 @@ const NO_SUBSESSIONS: readonly SubsessionRow[] = [];
 /// A subagent row shows that subagent (`subagents.onOpen`). The Subagents section's title opens a
 /// Subagents tab beside the Summary (SubagentsTab.tsx), as the ChatGPT desktop app's right pane
 /// does; its close button goes back to the summary.
+/// Background work shows live: the chat's background commands (`background`, the process
+/// registry's merged with the transcript's, backgroundWork.ts) with Stop, and the chats its agent
+/// started (`sessions`) under Subagents. The header's counts include the running ones.
 export function SummaryCard({
   card,
   rows,
@@ -34,6 +45,8 @@ export function SummaryCard({
   subagents,
   subsessions,
   onAttach,
+  background,
+  sessions,
 }: {
   card: SummaryCardControl;
   rows: readonly AcpmuxRow[];
@@ -59,6 +72,14 @@ export function SummaryCard({
   subsessions?: { rows: readonly SubsessionRow[]; onOpen: (sessionId: string) => void };
   /// Sources' + (Attach files or folders), for a chat on this computer.
   onAttach?: () => void;
+  /// The chat's background commands: the process registry's records, the transcript's tasks still
+  /// running (for the folded header, which reads no summary), and Stop (`_acpmux/process/kill`).
+  background?: ProcessRegistry & {
+    running: readonly SummaryBackgroundTask[];
+    onStop?: (processId: string) => Promise<unknown>;
+  };
+  /// The chats this chat's agent started, and how one opens.
+  sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
 }) {
   const t = useT();
   const [gallery, setGallery] = useState(false);
@@ -73,6 +94,13 @@ export function SummaryCard({
   const galleryRow = useRef<HTMLElement | null>(null);
   const summary = useMemo(() => (open ? sessionSummary(rows) : undefined), [open, rows]);
   const galleryCount = useMemo(() => (open ? chatGallery(rows).length : 0), [open, rows]);
+  const registry = background ?? NO_REGISTRY;
+  const running = background?.running ?? NO_TASKS;
+  // The open card merges the registry with every transcript task; a folded one, the running ones.
+  const commands = useMemo(
+    () => (shown ? backgroundCommands(registry.processes, summary?.backgroundTasks ?? running, registry.listed) : []),
+    [shown, registry.processes, registry.listed, summary, running],
+  );
   const panel = useRef<HTMLElement>(null);
   const popover = shown && !card.column;
   const edges = useScrollEdges();
@@ -117,14 +145,23 @@ export function SummaryCard({
       <aside className="acpmux-summary-card acpmux-summary-card--reserve" aria-hidden="true" data-placement="inline" />
     ) : null;
   }
-  const sessions = subsessions?.rows ?? NO_SUBSESSIONS;
-  const listed = agents.length > 0 || sessions.length > 0;
+  const subsessionRows = subsessions?.rows ?? NO_SUBSESSIONS;
+  // A started chat that is also a sub-session shows once, as its sub-session row.
+  const children = (sessions?.list ?? NO_SESSIONS).filter(
+    (child) => !subsessionRows.some((row) => row.sessionId === child.sessionId),
+  );
   const count = (status: string) =>
     agents.filter((agent) => subagentStatus(agent, waiting) === status).length +
-    sessions.filter((session) => SUBSESSION_STATUS[session.state] === status).length;
+    subsessionRows.filter((session) => SUBSESSION_STATUS[session.state] === status).length;
+  // A started chat waiting on the person is counted with the waiting subagents.
+  const waitingCount = count("waiting") + children.filter((child) => child.state === "waiting").length;
+  const runningCommands = commands.filter((command) => command.state === "running").length;
+  const runningSessions = children.filter((child) => child.state === "running").length;
   const counts = [
-    count("waiting") > 0 && t("summary.subagents.waiting", { n: count("waiting") }),
+    waitingCount > 0 && t("summary.subagents.waiting", { n: waitingCount }),
     count("running") > 0 && t("summary.subagents.running", { n: count("running") }),
+    runningCommands > 0 && t("turn.working.commands", { n: runningCommands }),
+    runningSessions > 0 && t("turn.working.sessions", { n: runningSessions }),
     count("failed") > 0 && t("summary.subagents.failed", { n: count("failed") }),
     count("stopped") > 0 && t("summary.subagents.stopped", { n: count("stopped") }),
     count("done") > 0 && t("summary.subagents.done", { n: count("done") }),
@@ -132,6 +169,7 @@ export function SummaryCard({
   const title = t("summary.open");
   const foldLabel = card.collapsed ? t("summary.expand") : t("summary.collapse");
   const onSubagents = tab === "subagents";
+  const hasSubagents = agents.length > 0 || children.length > 0 || subsessionRows.length > 0;
   return (
     <>
       <aside
@@ -227,18 +265,20 @@ export function SummaryCard({
         )}
         {summary && !onSubagents && (
           <div className="acpmux-summary-card__body" ref={edges}>
-            {/* The subagents first: they are what the card follows while a turn runs. */}
-            {listed && (
+            {/* The subagents, sub-sessions and started chats first: they are what the card follows while a turn runs. */}
+            {hasSubagents && (
               <SubagentStatusList
                 agents={agents}
                 waiting={waiting}
                 current={subagents.current}
                 onOpen={subagents.onOpen}
                 autoOpen={agents.length > 0 ? subagents.autoOpen : undefined}
-                // The tab lists subagents only; a chat with only sub-sessions has none to show there.
+                // The tab lists subagents only; a chat with only sub-sessions or started chats has none to show there.
                 onShowAll={agents.length > 0 ? () => setTab("subagents") : undefined}
-                subsessions={sessions}
-                onOpenSession={subsessions?.onOpen}
+                subsessions={subsessionRows}
+                sessions={children}
+                onOpenSession={sessions?.onOpen ?? subsessions?.onOpen}
+                stack={agents.length === 0 ? summary.subagents : undefined}
               />
             )}
             <SummaryBody
@@ -250,9 +290,11 @@ export function SummaryCard({
               }}
               changes={changes}
               onOpenChanges={onOpenChanges}
-              subagents={listed ? <></> : undefined}
+              subagents={hasSubagents ? <></> : undefined}
               onOpenOutput={onOpenOutput}
               onAttach={onAttach}
+              commands={commands}
+              onStopCommand={background?.onStop}
             />
           </div>
         )}
