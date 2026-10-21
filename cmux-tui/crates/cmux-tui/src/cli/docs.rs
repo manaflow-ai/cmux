@@ -85,6 +85,40 @@ pub(super) const GUIDES: &[Guide] = &[Guide {
         (tab_focus, pane_focus, screen_focus, workspace_focus, agents_tab_select) and focus: true \
         move the user's focus: use them only when the user asked. The selector `current` is what \
         the user looks at, not your own workspace.",
+}, Guide {
+    topic: "Start, prompt and drive another agent chat in the app",
+    keywords: &[
+        "agent",
+        "agents",
+        "start",
+        "spawn",
+        "delegate",
+        "subagent",
+        "prompt",
+        "message",
+        "nudge",
+        "continue",
+        "interrupt",
+        "stop",
+        "harness",
+        "model",
+        "effort",
+        "screenshot",
+        "capture",
+    ],
+    text: "Start an agent chat the user sees in the app, without moving their focus: `cmux \
+        agents chat new [--workspace WS | --pane PANE] [--harness claude|codex|...] [--model M] \
+        [--effort low|medium|high|xhigh|max] [--mode M] [--policy ask|approve-reads|deny-all] \
+        [--cwd DIR] [--name N] -- PROMPT` (MCP agents_chat_new); with neither --workspace nor \
+        --pane it gets a new workspace. Its receipt names the chat (an acpmux session id), tab, \
+        pane and workspace. Drive a chat of this cmux session (never your own): `cmux agents chat \
+        send CHAT -- TEXT` (agents_chat_send, an agent message), `chat read CHAT --after N` \
+        (agents_chat_read), `chat state CHAT` (agents_chat_state: status, running, pending \
+        permissions), `chat interrupt CHAT` (agents_chat_interrupt, stops its turn) and `chat \
+        continue CHAT [TEXT]` (a nudge). Wait for its answer with agents_wait or read on from \
+        next_after. See a pane or tab: `cmux pane PANE screenshot --out PATH` or `cmux tab TAB \
+        screenshot` (terminals and app pages; a browser page is `cmux browser page screenshot`, \
+        a chat is chat read).",
 }];
 
 /// The guides for `query` (see [`Guide`]).
@@ -306,6 +340,16 @@ mod tests {
 
     /// An agent that searches in its own words for showing its work finds
     /// the guide, and the guide names only tools that exist.
+    /// An agent that wants another agent to do work finds the chat verbs.
+    #[test]
+    fn starting_another_agent_finds_its_guide() {
+        for query in ["spawn an agent", "interrupt", "screenshot a pane"] {
+            let found = guides(query);
+            assert_eq!(found.len(), 1, "{query}");
+            assert!(found[0].text.contains("agents chat new"), "{query}");
+        }
+    }
+
     #[test]
     fn showing_work_to_the_user_finds_its_guide() {
         for query in ["show the user", "status", "open a chat"] {
