@@ -62,7 +62,7 @@ final class FileExplorerCell: NSTableCellView {
     /// Makes the name editable (Rename); `delegate` gets the end of editing.
     func beginEditing(delegate: any NSTextFieldDelegate) {
         name.isEditable = true
-        name.isSelectable = true
+        name.isSelectable = true // text-focus-allow: the rename field in a sidebar row; the ring shows where typing goes (accessibility).
         name.delegate = delegate
         window?.makeFirstResponder(name)
         name.currentEditor()?.selectedRange = NSRange(location: 0, length: ((name.stringValue as NSString).deletingPathExtension as NSString).length)
