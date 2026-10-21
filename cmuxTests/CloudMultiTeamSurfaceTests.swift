@@ -206,14 +206,15 @@ struct CloudMultiTeamSurfaceTests {
             refreshProvider: { _, _ in true }
         )
         let resource = SurfaceResourceID(machine: .cloud("vm-a"), kind: .terminal, key: "term_a")
-        catalog.restore([SurfaceProjectionRecord(panelID: UUID(), resource: resource)], workspaceID: live.id())
+        let workspaceID = live.id()
+        catalog.restore([SurfaceProjectionRecord(panelID: UUID(), resource: resource)], workspaceID: workspaceID)
         registry.adoptOwnerTeam(savedTeam, forMachineID: "vm-a")
         registry.start(catalog: catalog)
 
         #expect(await registry.refresh(force: true))
         #expect(registry.provider(machineID: "vm-a") == nil)
         #expect(catalog.pendingRestoredMachineIDs == ["vm-a"])
-        #expect(catalog.projectionRecords(forWorkspace: live.id()).map(\.resource) == [resource])
+        #expect(catalog.projectionRecords(forWorkspace: workspaceID).map(\.resource) == [resource])
 
         ownerSelected = true
         await registry.teamScopeDidChange()
