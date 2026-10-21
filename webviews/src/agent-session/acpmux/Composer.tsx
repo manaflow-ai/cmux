@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, us
 import { createPortal } from "react-dom";
 // Send's iMessage colors (--cmux-messages-blue); build-agent-pane-web.sh inlines the sheet.
 import "../../theme/messages.css";
-import type { ConnectKind } from "./environments";
+import type { ConnectKind, OffloadKind } from "./environments";
 import { useEscapingList } from "../../ui/popupHost";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import { MAX_ATTACHMENTS, type AttachmentError, type ComposerAttachment } from "./attachments";
@@ -211,6 +211,8 @@ type Props = {
   onBrowseFolder?(): Promise<string | undefined>;
   /// The location row's SSH… and New Cloud Machine rows open the host's connect flows.
   onConnect?(kind: ConnectKind): void;
+  /// A started chat's Move to Cloud or Bring Back Local (see ComposerContext).
+  onOffload?(kind: OffloadKind): void;
   /// The environment picker opened: read the machines and their status again.
   onRefreshMachines?(): void;
   /// This Mac's name for the location row.
@@ -274,6 +276,7 @@ export function Composer({
   onNewWorktree,
   onBrowseFolder,
   onConnect,
+  onOffload,
   onRefreshMachines,
   localName,
   environments,
@@ -1251,6 +1254,7 @@ export function Composer({
       onNewWorktree={onNewWorktree}
       onBrowseFolder={onBrowseFolder}
       onConnect={onConnect}
+      {...(onOffload ? { onOffload } : {})}
       summary={snapshot.summary}
       sessions={snapshot.sessions}
       peers={snapshot.peers}
