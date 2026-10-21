@@ -30,6 +30,7 @@ const cssVariables: Record<keyof AgentSessionTheme, string | null> = {
   motion: null,
   statusIndicators: null,
   workingLook: null,
+  subagentTray: null,
 };
 
 const motionVariables = {
