@@ -360,6 +360,9 @@
    "26.7": true,
    "27.0": true
   },
+  "NSStackView call:viewDidHide/0": {
+   "27.0": true
+  },
   "NSStackView call:viewDidMoveToWindow/0": {
    "26.5.2": true,
    "26.7": true,

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextDesign
 import CmuxNextPages
 import WebKit
 
@@ -9,12 +10,23 @@ import WebKit
 // webview-allow: agent chat needs WebKit (native context menu, file drops, input hooks)
 final class AgentPaneWKWebView: WKWebView {
     var contextMenuEditor: (@MainActor (NSMenu) -> Void)?
-    /// Files the person dropped on the page: a real gesture page script can't make (``AgentPaneUpload``).
-    var onFilesDropped: (@MainActor () -> Void)?
+    /// Files the person dropped on the page, with their URLs: a real gesture page script can't make
+    /// (``AgentPaneUpload``, ``AgentPaneDroppedPaths``).
+    var onFilesDropped: (@MainActor ([URL]) -> Void)?
+    /// A paste is about to reach the page (``AgentPaneDroppedPaths``).
+    var onPaste: (@MainActor () -> Void)?
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        if sender.draggingPasteboard.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) { onFilesDropped?() }
+        if let onFilesDropped {
+            let urls = AgentPaneDroppedPaths.fileURLs(on: sender.draggingPasteboard)
+            if !urls.isEmpty { onFilesDropped(urls) }
+        }
         return super.performDragOperation(sender)
+    }
+
+    @objc func paste(_ sender: Any?) {
+        onPaste?()
+        webKitPaste(sender)
     }
 
     /// Keeps macOS's AutoFill out of this view's context menu (``PageMenuAutoFill``).
@@ -73,12 +85,14 @@ final class AgentPaneMenuAction: NSObject {
 
     @objc func run() { handler() }
 
-    /// An item titled `title` that runs `handler`.
-    static func item(_ title: String, handler: @escaping () -> Void) -> NSMenuItem {
+    /// An item titled `title` with SF Symbol `symbol` (the matching action's catalog symbol: every
+    /// cmux menu row shows one) that runs `handler`.
+    static func item(_ title: String, symbol: String, handler: @escaping () -> Void) -> NSMenuItem {
         let action = AgentPaneMenuAction(handler: handler)
         let item = NSMenuItem(title: title, action: #selector(run), keyEquivalent: "")
         item.target = action
         item.representedObject = action
+        item.image = AgentPaneContextMenu.icon(symbol)
         return item
     }
 }
@@ -88,10 +102,26 @@ extension AgentPaneView {
     static let contextMenuHandler = "cmuxAgentContextMenu"
 
     /// Routes WebKit's context menu through the pane and listens for the page's reports. Also takes
-    /// a native file drop on the page as the person's gesture (an upload's, ``AgentPaneUpload``).
+    /// a native file drop on the page as the person's gesture (an upload's, ``AgentPaneUpload``), and
+    /// records where the files of the person's drop or paste are, for the page's
+    /// `chat.attach.dropped` (``AgentPaneDroppedPaths``).
     func installContextMenu() {
-        let dropped: @MainActor () -> Void = { [weak self] in self.map { AgentPanePersonInput.record($0.model.transport.gestures) } }
-        if let page { page.onFilesDropped = dropped } else { (webView as? AgentPaneWKWebView)?.onFilesDropped = dropped }
+        let dropped: @MainActor ([URL]) -> Void = { [weak self] urls in
+            guard let self, AgentPanePersonInput.currentIsPerson else { return }
+            AgentPanePersonInput.record(model.transport.gestures)
+            model.droppedPaths.stash(urls, kind: .drop)
+        }
+        // Read as the paste goes to WebKit: the pasteboard WebKit hands the page. As for a drop, only
+        // the person's paste (a posted Cmd-V records nothing).
+        let pasted: @MainActor () -> Void = { [weak self] in
+            guard AgentPanePersonInput.currentIsPerson else { return }
+            self?.model.droppedPaths.stash(AgentPaneDroppedPaths.fileURLs(on: .general), kind: .paste)
+        }
+        if let page {
+            (page.onFilesDropped, page.onPaste) = (dropped, pasted)
+        } else if let view = webView as? AgentPaneWKWebView {
+            (view.onFilesDropped, view.onPaste) = (dropped, pasted)
+        }
         // A page host view can come back from its pool: never add the handler twice (WebKit throws).
         webView.configuration.userContentController.removeScriptMessageHandler(forName: Self.contextMenuHandler, contentWorld: .page)
         webView.configuration.userContentController.add(AgentPaneContextMenuReporter(view: self), contentWorld: .page,
@@ -105,8 +135,10 @@ extension AgentPaneView {
         webView.configuration.userContentController.removeScriptMessageHandler(forName: Self.contextMenuHandler, contentWorld: .page)
         page?.contextMenuEditor = nil
         page?.onFilesDropped = nil
+        page?.onPaste = nil
         (webView as? AgentPaneWKWebView)?.contextMenuEditor = nil
         (webView as? AgentPaneWKWebView)?.onFilesDropped = nil
+        (webView as? AgentPaneWKWebView)?.onPaste = nil
     }
 
     /// The page's report for the menu about to open (nil: the pointer is not on a message).
@@ -121,7 +153,8 @@ extension AgentPaneView {
         messageMenuTarget = nil
         menuSelection = nil
         let chatMenu = target == nil && selection == nil ? model.chatMenuItems?() ?? [] : []
-        AgentPaneContextMenu.rebuild(menu, target: target, selection: selection, devTools: DevTools.isEnabled, chatMenu: chatMenu, actions: .init(
+        AgentPaneContextMenu.rebuild(menu, target: target, selection: selection, devTools: DevTools.isEnabled, chatMenu: chatMenu,
+                                     scope: themeScope.fullStrength, actions: .init(
             copy: { [weak self] text in self?.copyText(text) },
             fork: { [weak self] seq in self?.fork(through: seq) },
             retry: { [weak self] row in self?.runMessageAction("chat.retryPrompt", ["rowId": row]) },
@@ -130,7 +163,8 @@ extension AgentPaneView {
             linkItems: { LinkMenu().linkItems(for: $0) },
             pathItems: { [weak self] path in self?.pathMenuItems(path) },
             search: { [weak self] text in self?.model.onSearchWeb?(text) },
-            page: { [weak self] name, params in self?.runMessageAction(name, params) }))
+            page: { [weak self] name, params in self?.runMessageAction(name, params) },
+            pasteTarget: webView))
     }
 
     /// Retry, Edit and Resend, Open Image and a path's Open: the page's own actions, with the menu choice as the gesture.

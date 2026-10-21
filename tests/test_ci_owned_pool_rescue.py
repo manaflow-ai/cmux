@@ -1097,8 +1097,10 @@ class SideLanes(unittest.TestCase):
         self.assertIsInstance(rescue.sweep_target(fork, "manaflow-ai/cmux", late=False), str)
 
     def test_a_completed_failed_blacksmith_retry_is_not_watched_again(self):
+        # The bot's attempt 3; a person's re-run stays minis-first and is watched at any attempt.
         run = dict(side_event(path=rescue.CMUX_NEXT_WORKFLOW_PATH, run_attempt=3,
-                              status="completed", conclusion="failure")["workflow_run"])
+                              status="completed", conclusion="failure",
+                              triggering_actor={"login": rescue.RESCUE_ACTOR})["workflow_run"])
         self.assertFalse(rescue.owned_rerun(run))
         self.assertEqual(rescue.sweep_target(run, "manaflow-ai/cmux", late=False), "attempt 3")
 
@@ -1514,6 +1516,11 @@ class Nightly(unittest.TestCase):
         # cmux-next.yml's fast tier runs on CI_FAST_LANE_RUNNER, a reserved glaeda-fast-* runner.
         self.assertEqual(rescue.job_pool({"labels": ["glaeda-fast-std-xcode-26.6"]}),
                          "glaeda-fast-std-xcode-26.6")
+
+    def test_the_session_lane_is_an_owned_pool(self):
+        # cmux-next.yml's generated files run on CI_SESSION_LANE_RUNNER, a glaeda-session-* runner.
+        self.assertEqual(rescue.job_pool({"labels": ["glaeda-session-light-xcode-26.6"]}),
+                         "glaeda-session-light-xcode-26.6")
 
     def test_the_marker_listing_pages_past_the_window_by_the_id_order_skew(self):
         api = rescue.GitHub("token", "manaflow-ai/cmux")

@@ -121,7 +121,7 @@ export function SessionSidebar({
   return (
     <OpenSessions.Provider value={openIds}>
       <nav className="acpmux-sidebar" id="acpmux-sidebar" data-list-keyboard aria-label={t("sidebar.label")}>
-        <div className="acpmux-rail" data-list-keyboard>
+        <div className="acpmux-sidebar-rail" data-list-keyboard>
           <RailButton label={t("picker.newChat")} title={t("picker.newChat")} onClick={onNewChat} icon="home" />
 
           <RailButton
@@ -281,7 +281,8 @@ function SessionsView({
     [sessions, query, groupProjects],
   );
   const settled = useMemo(() => sortByRecency(filterSessions(settledSessions, query)), [settledSessions, query]);
-  const noMatches = pinned.length === 0 && active.length === 0 && settled.length === 0;
+  // Grouped by project, the shown chats are in `groups` and `active` is empty.
+  const noMatches = pinned.length === 0 && active.length === 0 && groups.length === 0 && settled.length === 0;
   if (sessions.length === 0 && settledSessions.length === 0)
     return (
       <>

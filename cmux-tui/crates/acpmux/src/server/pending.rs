@@ -4,12 +4,6 @@
 use super::*;
 use crate::store::EventRecord;
 
-/// A record that asks a client to answer a prompt: a new one, or one the
-/// next daemon adopted with a new decision nonce (`hub/hosts.rs`).
-pub(super) fn is_permission_ask(kind: &str) -> bool {
-    matches!(kind, "permission_request" | "permission_reissued")
-}
-
 /// The `_acpmux/permission_pending` notification. The record's
 /// `decisionNonce` and `personInstance` (the daemon run that asks, also for a
 /// peer's session) are what a relayed allow's decision proof covers
@@ -36,12 +30,13 @@ pub(super) fn peer_permission_pending(session_id: &str, rec: &EventRecord, peer:
 
 /// A record as `_acpmux/event` sends it.
 pub fn event_value(session_id: &str, rec: &EventRecord) -> Value {
-    json!({
-        "sessionId": session_id,
-        "seq": rec.seq,
-        "at": rec.at,
-        "dir": rec.dir,
-        "kind": rec.kind,
-        "msg": rec.msg,
-    })
+    let event = crate::protocol::events::SessionEvent {
+        session_id: session_id.to_owned(),
+        seq: rec.seq,
+        at: rec.at,
+        dir: rec.dir.clone(),
+        kind: rec.kind.clone(),
+        msg: rec.msg.clone(),
+    };
+    serde_json::to_value(event).unwrap_or(Value::Null)
 }

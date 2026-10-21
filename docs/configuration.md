@@ -139,6 +139,21 @@ What Cmd-W does on a pinned tab.
 
 A tab closed by name (its menu, `cmux tab close`, MCP) closes with either value. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.cmdWClosesPinnedTabs false`.
 
+## `tabs.terminalFirst`
+
+What Cmd-T, Cmd-D and Cmd-Shift-D open.
+
+```json
+{
+  "tabs": { "terminalFirst": true }
+}
+```
+
+- `false` (default): Cmd-T opens the New Tab page, and a split from a browser tab, the New Tab page or an agent chat opens the New Tab page in the new pane.
+- `true`: Cmd-T opens a terminal tab and Cmd-D and Cmd-Shift-D open a terminal in the new pane, as in cmux classic.
+
+With it on, Cmd-T always opens a tab in the focused pane, even with `newTerminal.opensWorkspace` or `layout.newPanePlacement: split`. A new workspace still starts on the New Tab page. Scripts (`cmux tab new`, `cmux pane split-right`, MCP) are not affected. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.terminalFirst true`.
+
 ## `tabs.swapCmdTAndCmdN`
 
 Which of Cmd-T and Cmd-N opens a tab and which opens a workspace.
@@ -336,17 +351,17 @@ Where a new workspace goes in the sidebar when you do not pick a place: Cmd-N, N
 
 ```json
 {
-  "workspaces": { "newPlacement": "top" }
+  "workspaces": { "newPlacement": "afterCurrent" }
 }
 ```
 
-- `"top"` (default): right below the workspace the window shows, inside its group, when that workspace is in a group. When it is not in a group, first in the workspace list, above every group. Pinned workspaces stay above it in the Pinned section, and it goes below the Home row when the list shows one.
-- `"afterCurrent"`: right after the workspace the window shows, inside that workspace's group when it has one. When that workspace is pinned, is Home, or is on another machine, the new one goes to the top.
+- `"afterCurrent"` (default, as in cmux classic): right after the workspace the window shows, inside that workspace's group when it has one. When that workspace is pinned, is Home, or is on another machine, the new one goes to the top.
+- `"top"`: right below the workspace the window shows, inside its group, when that workspace is in a group. When it is not in a group, first in the workspace list, above every group. Pinned workspaces stay above it in the Pinned section, and it goes below the Home row when the list shows one.
 - `"bottom"`: last in the group of the workspace the window shows. When that workspace is not in a group, after the last workspace that is not in a group.
 
 So under every value, a new workspace opened while you are in a group stays in that group.
 
-A place you pick always wins: a tab dropped on a gap in the sidebar, New Workspace Above, Below, at Top or at Bottom, and New Workspace Like This. A reopened workspace (Reopen Closed Workspace) comes back where it was. The position is written to the sidebar order cmux keeps for you, so it survives a relaunch and shows the same in every window. Change it in **Settings > General > Sidebar** or with `cmux settings set workspaces.newPlacement afterCurrent`.
+A place you pick always wins: a tab dropped on a gap in the sidebar, New Workspace Above, Below, at Top or at Bottom, and New Workspace Like This. A reopened workspace (Reopen Closed Workspace) comes back where it was. The position is written to the sidebar order cmux keeps for you, so it survives a relaunch and shows the same in every window. Change it in **Settings > General > Sidebar** or with `cmux settings set workspaces.newPlacement top`.
 
 ## `sidebar.groupByComputer`
 
@@ -969,3 +984,31 @@ Settings > General > Agent Chat shows the same keys.
   whole chat, at its latest edit.
 
 A value cmux does not know keeps that key's default and is reported as a diagnostic.
+
+## `home.server`
+
+Which server Home's direct messages and group chats use. Settings > Accounts > Messages Server
+edits it.
+
+- `"hosted"` (the default): cmux Cloud for this build, with your cmux sign-in.
+- `{"selfHosted": "<origin>"}`: your own `cmux-chat-server` (on a Mac mini or a Linux server),
+  reached over Tailscale.
+
+```json
+{ "home": { "server": "hosted" } }
+```
+
+```json
+{ "home": { "server": { "selfHosted": "http://mini.tail1234.ts.net:7320" } } }
+```
+
+The address is an origin: `http://` or `https://`, a host and an optional port, with no path,
+query or user name. Use the server's MagicDNS name (`<name>.<tailnet>.ts.net`) or its Tailscale
+address. The session daemon accepts a self-hosted server only when its host is a `*.ts.net` name,
+an address in `100.64.0.0/10` or an address in `fd7a:115c:a1e0::/48`, over http or https; it
+refuses any other host. No token or password is sent to a self-hosted server: it identifies you by
+your Tailscale login, and the cmux Cloud sign-in is not used for it. Plain http is fine on the
+tailnet, because WireGuard already encrypts and authenticates the connection.
+
+A value that is neither form falls back to cmux Cloud and shows a settings diagnostic. Agents
+cannot change this setting.

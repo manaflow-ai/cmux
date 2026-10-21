@@ -11,6 +11,7 @@ Behaviour per prompt text:
   "deaf-to-cancel" -> streams "running", ignores session/cancel, answers end_turn after 20 s
   "answer-then-exit" -> answers, then the agent exits between turns
   "gate: <p>"  -> streams before-gate, waits for a write to FIFO <p>, then after-gate
+  image blocks -> the echo ends with " image:<sha256 of its bytes>" for each
   anything     -> echoes the text as one agent_message_chunk
 
 FAKE_CODEX_STEER=1: steering as codex-acp 1.10.0 does it. The agent
@@ -43,6 +44,8 @@ start takes it: its one mode is "ask" (an acpmux config.json `webAskingModes` en
 {"sample": ["ask"]} lists it), and a prompt naming "hostname" runs `hostname` as a tool
 call through the ACP permission flow: announced, asked, run only after an allow.
 """
+import base64
+import hashlib
 import json
 import sys
 import os
@@ -346,6 +349,13 @@ def handle_prompt(rid, params):
             )
             for b in links
         )
+    # Each image block the agent got, by the SHA-256 of its bytes (acpmux's attachment id).
+    images = [b for b in blocks if isinstance(b, dict) and b.get("type") == "image"]
+    if images:
+        text += " " + " ".join(
+            "image:" + hashlib.sha256(base64.b64decode(b.get("data", ""))).hexdigest()
+            for b in images
+        )
     if text.startswith("permission-batch:"):
         with open(os.path.join(os.path.dirname(__file__), "fixtures", "permission-batches.json")) as f:
             fixture = json.load(f)[text.split(":", 1)[1].strip()]
@@ -385,7 +395,8 @@ def handle_prompt(rid, params):
     # the FIFO at PATH (no timers), then streams "after-gate" and ends.
     if text.startswith("gate:"):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "before-gate"}})
-        with open(text[5:].strip()) as gate:
+        # The path ends where a hidden context block (`<cmux-rules-context>`) starts.
+        with open(text[5:].split("<", 1)[0].strip()) as gate:
             gate.read()
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "after-gate"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})

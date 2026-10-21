@@ -3,8 +3,8 @@
 // `data-status-indicators="static"` on the root: the app's WebTheme bootstrap sets it from the theme
 // payload (`statusIndicators`), which this test runs as the app does, and under it, or under Reduce
 // Motion, no web loop may run: the mic's wait pulse, the model picker and harness spinners, the
-// floating chat's breathing dot, the Thinking sweep, the running line's working dots, the todo
-// list's spinner, the activity line's dots, the Jump to Latest dots and Home's "writing" pulse.
+// floating chat's breathing dot, the Thinking sweep, the todo list's spinner, the Jump to Latest
+// dots and Home's "writing" pulse.
 // The diff viewer does not get the pane's theme, so its spinners stop under Reduce Motion alone.
 // Static also gives the color-only marks a shape each.
 // This loads the real stylesheets in Chromium and lists the animations that never end.
@@ -52,12 +52,10 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     `<span class="acpmux-mp-refresh-spinner"></span><span class="acpmux-harness-spinner"></span>` +
     `<span class="acpmux-floating-status" data-status="streaming"></span>` +
     `<div class="cv-md"><span class="cv-thinking">Thinking</span></div>` +
-    `<div class="cv-worked"><span class="cv-working-mark"><span></span><span></span><span></span></span></div>` +
     `<button class="acpmux-jump-latest" data-shown data-working><span class="acpmux-jump-latest__dots"><i></i><i></i><i></i></span></button>` +
     `<ul class="cv-plan"><li class="cv-plan__item" data-status="in_progress"><span class="cv-plan__mark"></span></li></ul>` +
     `<span class="cv-spinner"></span>` +
     working +
-    `<div class="cv-activity"><span class="cv-activity__dots"><span></span><span></span><span></span></span></div>` +
     `<span class="hc-writing">writing</span>`;
   const diffLoops = `<span class="base-picker-spinner"></span><div id="status" data-pending="true">Loading</div>`;
 

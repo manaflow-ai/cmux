@@ -13,7 +13,11 @@ import CmuxNextSidebar
 enum WorkspaceVerbHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("workspace.newAbove", run: { try create(context, $0) { .above($0.id) } })
-        registry.bind("workspace.newBelow", run: { try create(context, $0) { .below($0.id) } })
+        // On one of several selected rows: below the last of them (Chrome's New Tab Below).
+        registry.bind("workspace.newBelow", run: { invocation in
+            let anchor = try WindowMembershipHandlers.rowTargets(invocation, context).last ?? context.workspace(invocation).model
+            try spawn(context, anchor: anchor, cwd: nil, slot: .below(anchor.id), newTabPage: invocation.origin == .user)
+        })
         registry.bind("workspace.newAtTop", run: { try create(context, $0, anchorFree: .top(anchor: nil)) })
         registry.bind("workspace.newAtBottom", run: { try create(context, $0, anchorFree: .bottom(anchor: nil)) })
         // Its directory, its place (below it, so in its group) and its first tab's kind

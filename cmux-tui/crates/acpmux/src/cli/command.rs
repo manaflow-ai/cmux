@@ -261,11 +261,15 @@ pub enum Command {
     /// use routes (~/.config/cmux/routes/<id>.toml). Also `cmux route …`.
     #[command(subcommand)]
     Route(crate::cli::route::RouteCmd),
+    /// Forum rules: announce one, list the current ones, ack one.
+    #[command(subcommand)]
+    Forum(crate::cli::forum::ForumCmd),
     /// Every chat on this device, from every harness: list, open, roots. Also `cmux chats …`.
     #[command(subcommand)]
     Chats(crate::cli::chats::ChatsCmd),
     /// Background processes agents left running (dev servers, watchers):
-    /// list, show (everything one printed, live with --follow), kill.
+    /// list, show (everything one printed, live with --follow), kill,
+    /// background (Ctrl-B: move a chat's running work there).
     #[command(subcommand, alias = "ps")]
     Process(crate::cli::process::ProcessCmd),
     /// This machine's git worktrees, cleaned up after the agents that made
@@ -301,6 +305,10 @@ pub enum Command {
     /// stdio server for one agent session (agent_tools.rs registers it; not for people).
     #[command(hide = true)]
     SubsessionMcp,
+    /// The agent's forum tools (announce, rules, ack): an MCP stdio server
+    /// for one agent session (agent_tools.rs registers it; not for people).
+    #[command(hide = true)]
+    ForumMcp,
     // Old spellings, kept working but hidden from help.
     #[command(hide = true)]
     Tail {
@@ -803,7 +811,8 @@ pub struct NewArgs {
     /// Create the session on this peer (see `acpmux host ls`). `--cwd` is then a remote path.
     #[arg(long)]
     pub host: Option<String>,
-    /// Session name. Generated when omitted.
+    /// Session name. Generated when omitted. With a launcher flag it is lowercased
+    /// and `/` or spaces become `-` (`gui/x` is `gui-x`).
     #[arg(long, short)]
     pub name: Option<String>,
     #[arg(long)]
@@ -849,6 +858,27 @@ pub struct NewArgs {
     /// Send the first prompt with this id again (from a `daemon_closed` error); it runs once.
     #[arg(long)]
     pub prompt_id: Option<String>,
+    /// Start in the git worktree named by --name of REPO's repository,
+    /// `~/.cmux/worktrees/<project>/<name>` on branch `cmux/<name>` from BASE
+    /// (a ref or commit; default REPO's current branch). Made when missing,
+    /// reused when there; implies --reuse. Replaces --cwd.
+    #[arg(long, value_name = "REPO[@BASE]")]
+    pub worktree: Option<String>,
+    /// Read the first prompt from this file (after any prompt words), now; a
+    /// missing or empty file fails before anything starts.
+    #[arg(long, value_name = "FILE")]
+    pub prompt_file: Option<PathBuf>,
+    /// Tell the new session that this session started it and how to report back.
+    #[arg(long, value_name = "SESSION")]
+    pub report_to: Option<String>,
+    /// Show the session in the cmux app's sidebar, in this workspace group
+    /// (made when missing). Runs `cmux agent open` on this machine.
+    #[arg(long, value_name = "GROUP")]
+    pub group: Option<String>,
+    /// When a session named --name already exists, use it instead of failing;
+    /// the first prompt is not sent to it again.
+    #[arg(long)]
+    pub reuse: bool,
 }
 
 /// Map the grouped spellings onto the flat handlers.
