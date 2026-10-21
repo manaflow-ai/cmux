@@ -67,15 +67,21 @@ impl Daemon {
     }
 
     /// A daemon whose default harness is `cmux`, the model router's profile:
-    /// Claude Code (claude-stdio, fake_claude.py) under a name that is not `claude*`.
-    fn claude_router(tag: &str) -> Self {
+    /// Claude Code (claude-stdio, fake_claude.py) under a name that is not `claude*`,
+    /// with `env` on top. Its "fg-shell" waits two minutes for Ctrl-B, past any restart.
+    fn claude_router(tag: &str, env: &[(&str, &str)]) -> Self {
         let mut daemon = Self::with_env(tag, "approve-all", &[]);
         daemon.sigterm();
         let claude_home = daemon.home.join("claude");
         std::fs::create_dir_all(&claude_home).unwrap();
+        let mut harness_env =
+            json!({"CLAUDE_CONFIG_DIR": claude_home, "FAKE_CLAUDE_FG_WAIT_S": "120"});
+        for (k, v) in env {
+            harness_env[*k] = json!(v);
+        }
         std::fs::write(
             daemon.home.join("config.json"),
-            json!({"harnesses": {"cmux": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio", "env": {"CLAUDE_CONFIG_DIR": claude_home}}}, "defaultHarness": "cmux", "permissionPolicy": "approve-all"}).to_string(),
+            json!({"harnesses": {"cmux": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio", "env": harness_env}}, "defaultHarness": "cmux", "permissionPolicy": "approve-all"}).to_string(),
         )
         .unwrap();
         daemon.start();
@@ -532,7 +538,7 @@ async fn a_claude_chat_saved_without_steering_steers_once_adopted() {
 /// `_acpmux/process/background` refused until the chat's next fresh start.
 #[tokio::test]
 async fn an_adopted_claude_chat_still_moves_its_work_after_an_update_restart() {
-    let mut daemon = Daemon::claude_router("bg-adopt");
+    let mut daemon = Daemon::claude_router("bg-adopt", &[]);
     let session = new_session(&daemon).await;
     let mut client = daemon.rpc().await;
     client
@@ -568,6 +574,65 @@ async fn an_adopted_claude_chat_still_moves_its_work_after_an_update_restart() {
     let moved = rpc.call("_acpmux/process/background", json!({"sessionId": session})).await;
     assert_eq!(moved, json!({"backgrounded": true}));
     daemon.wait_event(&session, "turn_result", |e| e["kind"] == "turn_result");
+}
+
+/// The chat's `backgroundsWork` (`session/list`).
+async fn backgrounds_work(daemon: &Daemon, session: &str) -> Value {
+    let listed = daemon.rpc().await.call("session/list", json!({})).await;
+    let entry = listed["sessions"]
+        .as_array()
+        .and_then(|all| all.iter().find(|s| s["sessionId"] == session))
+        .cloned()
+        .unwrap_or(Value::Null);
+    entry["_meta"]["acpmux"]["backgroundsWork"].clone()
+}
+
+/// A Claude Code host that streamed a long backlog while no daemon ran: the next daemon adopts it
+/// at once, still moves its work, and does not wait out the host's state query behind the replay.
+/// Asked before the session read the replay, the query's answer sat behind 8,000 entries nothing
+/// drained: adoption waited the query's 5 s budget, and the chat read `backgroundsWork` false.
+#[tokio::test]
+async fn a_claude_host_with_a_long_backlog_is_adopted_at_once_and_still_moves_its_work() {
+    let gate_dir = std::env::temp_dir().join(format!("amd-flood-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&gate_dir);
+    std::fs::create_dir_all(&gate_dir).unwrap();
+    let gate = gate_dir.join("gate");
+    make_fifo(&gate);
+    let gate_env = gate.to_string_lossy().into_owned();
+    let mut daemon = Daemon::claude_router("bg-flood", &[("FAKE_CLAUDE_FLOOD_GATE", &gate_env)]);
+    let session = new_session(&daemon).await;
+    let mut client = daemon.rpc().await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "fg-shell"}]}),
+        )
+        .await;
+    daemon.wait_event(&session, "the foreground shell", |e| {
+        e["msg"]["params"]["update"]["toolCallId"] == "toolu_fg"
+    });
+
+    daemon.sigterm();
+    drop(client);
+    // The backlog, streamed while no daemon runs.
+    std::fs::write(&gate, b"go").unwrap();
+    let done = gate_dir.join("gate.done");
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !done.exists() {
+        assert!(Instant::now() < deadline, "the agent never streamed its backlog");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let started = Instant::now();
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+    let adopted = started.elapsed();
+    assert!(adopted < Duration::from_secs(4), "adoption took {adopted:?}");
+    assert_eq!(backgrounds_work(&daemon, &session).await, true, "the adopted chat hides Ctrl-B");
+    let mut rpc = daemon.rpc().await;
+    let moved = rpc.call("_acpmux/process/background", json!({"sessionId": session})).await;
+    assert_eq!(moved, json!({"backgrounded": true}));
+    daemon.wait_event(&session, "turn_result", |e| e["kind"] == "turn_result");
+    let _ = std::fs::remove_dir_all(&gate_dir);
 }
 
 #[tokio::test]

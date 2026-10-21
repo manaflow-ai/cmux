@@ -35,7 +35,11 @@ turn (with FAKE_CLAUDE_BACKGROUND_SILENT_END=1 the turn ends at once and the
 shell moves <ms> after). FAKE_CLAUDE_BACKGROUND_TWICE waits for two requests,
 answers the first `backgrounded: true` and the second false, and moves the
 shell before the second answer ("moved") or after it ("answered"); the
-shell's tool result then names its output file.
+shell's tool result then names its output file. FAKE_CLAUDE_FG_WAIT_S (20
+by default) is how long the shell waits for a control request before the
+turn ends by itself. With FAKE_CLAUDE_FLOOD_GATE=<fifo>, the shell first
+reads the fifo, then streams FAKE_CLAUDE_FLOOD (8000) text deltas and writes
+<fifo>.done: output the agent's host buffers while no daemon reads it.
 FAKE_CLAUDE_AUTH=1 looks for a sign-in the way Claude Code does (the
 environment, then `env` and `apiKeyHelper` in <Claude home>/settings.json,
 then <Claude home>/.credentials.json; the home is CLAUDE_CONFIG_DIR or
@@ -214,6 +218,15 @@ def fg_shell():
           "input": {"command": "npm run build", "description": "Build"}}]}})
     send({"type": "system", "subtype": "task_started", "task_id": "f1", "tool_use_id": "toolu_fg",
           "description": "Build", "task_type": "local_bash", "is_backgrounded": False})
+    gate = os.environ.get("FAKE_CLAUDE_FLOOD_GATE")
+    if gate:
+        with open(gate) as f:
+            f.read()
+        for i in range(int(os.environ.get("FAKE_CLAUDE_FLOOD", "8000"))):
+            send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                                     "delta": {"type": "text_delta", "text": f"line {i}\n"}}})
+        with open(gate + ".done", "w") as f:
+            f.write("done")
 
     def answer(rid, moved):
         send({"type": "control_response", "response": {"subtype": "success", "request_id": rid,
@@ -234,7 +247,7 @@ def fg_shell():
     stopped = False
     while True:
         try:
-            got = LINES.get(timeout=20)
+            got = LINES.get(timeout=float(os.environ.get("FAKE_CLAUDE_FG_WAIT_S", "20")))
         except queue.Empty:
             break
         if got is None:
