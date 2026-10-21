@@ -1031,6 +1031,53 @@ async fn an_unproven_caller_token_is_refused_with_how_to_get_a_new_one() {
     assert!(listed.get("error").is_none(), "the restarted agent's token: {listed}");
 }
 
+/// A host of an older build records no caller token, so after an update
+/// restart its agent cannot prove its session and loses its sub-session
+/// tools. The daemon restarts that agent (same conversation) once its turn
+/// ends, never during it; an agent whose host kept its token runs on.
+#[tokio::test]
+async fn an_adopted_agent_without_a_recorded_token_restarts_after_its_turn() {
+    let mut daemon = Daemon::new("callerold", "approve-all");
+    let kept = new_session(&daemon).await;
+    let kept_token = agent_env(&daemon, &kept, "ACPMUX_SESSION_TOKEN").await;
+    let kept_harness = daemon.host_record(&kept)["harness_pid"].as_i64().unwrap();
+    let (session, host, client) = gated_turn(&daemon).await;
+    let token = recorded_token(&daemon, &session);
+    let harness = host["harness_pid"].as_i64().unwrap();
+
+    daemon.sigterm();
+    drop(client);
+    // What an older host's record looks like: no caller token.
+    let mut record = host.clone();
+    assert!(record.as_object_mut().unwrap().remove("caller_token").is_some());
+    let path = daemon.home.join("hosts").join(format!("{session}.json"));
+    std::fs::write(&path, record.to_string()).unwrap();
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+    daemon.wait_event(&kept, "host_adopted", |e| e["kind"] == "host_adopted");
+    std::thread::sleep(Duration::from_millis(500));
+    assert!(alive(harness), "the agent was restarted mid-turn");
+
+    std::fs::write(daemon.home.join(format!("gate-{session}")), b"go").unwrap();
+    daemon.wait_event(&session, "after-gate chunk", |e| chunk(e, "after-gate"));
+    assert!(
+        gone_within(harness, Duration::from_secs(10)),
+        "the agent without a known caller token was not restarted after its turn"
+    );
+    let fresh = agent_env(&daemon, &session, "ACPMUX_SESSION_TOKEN").await;
+    assert_ne!(Some(fresh.as_str()), token.as_deref(), "it kept the earlier run's token");
+    let listed = list_as(&daemon, &session, &fresh).await;
+    assert!(listed.get("error").is_none(), "the restarted agent's token: {listed}");
+    assert!(alive(kept_harness), "an agent with a known token was restarted");
+    let listed = list_as(&daemon, &kept, &kept_token).await;
+    assert!(listed.get("error").is_none(), "the kept agent's token: {listed}");
+}
+
+/// The caller token a host recorded for its agent, if any.
+fn recorded_token(daemon: &Daemon, session: &str) -> Option<String> {
+    daemon.host_record(session)["caller_token"].as_str().map(str::to_owned)
+}
+
 /// `--keep-agents` stays accepted (a no-op now) for callers that may run an
 /// older CLI: hosted agents keep running for the next daemon to adopt.
 #[tokio::test]
