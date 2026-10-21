@@ -7,4 +7,6 @@ public nonisolated enum LaunchRegion: String, Sendable, CaseIterable {
     case tabs
     /// Pane content: the first terminal frame.
     case pane
+    /// Home: its conversation's first page (header, first-run actions, message box).
+    case home
 }
