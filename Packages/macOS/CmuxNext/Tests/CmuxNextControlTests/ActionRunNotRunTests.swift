@@ -61,6 +61,48 @@ final class RefusingExecutor: ControlActionExecutor {
         #expect(error?.data?["not_run"] == nil)
     }
 
+    /// A key reused for another request runs nothing, so a retry hint with that key would only
+    /// conflict again.
+    @Test func anIdempotencyConflictIsNotRun() async throws {
+        let router = ControlRouter(identity: testIdentity(), executor: RefusingExecutor(.ran), configuration: .loadTolerant)
+        router.snapshots.publish { $0 = BrowserOpenSplitTests.snapshot() }
+        func run(_ url: String) async -> Result<JSONValue, ControlError> {
+            await router.handle(ControlRequest(id: "1", method: "action.run", params: [
+                "action": "openBrowser", "args": ["url": .string(url)], "idempotency_key": "k-conflict",
+            ]))
+        }
+        _ = try await run("https://a.example").get()
+        guard case .failure(let error) = await run("https://b.example") else {
+            Issue.record("expected idempotency_conflict")
+            return
+        }
+        #expect(error.code == "idempotency_conflict")
+        #expect(error.data?["not_run"] == true)
+    }
+
+    /// A later step of a call whose earlier steps ran (`file.open` with several paths runs one
+    /// `action.run` per path on the call's progress) may follow applied changes: its refusal is
+    /// not marked.
+    @Test func aRefusedLaterStepIsNotMarked() async {
+        let router = ControlRouter(identity: testIdentity(), executor: RefusingExecutor(.refused("no room")), configuration: .loadTolerant)
+        let snapshot = BrowserOpenSplitTests.snapshot()
+        router.snapshots.publish { $0 = snapshot }
+        let progress = ControlCallProgress()
+        _ = progress.begin()
+        let call = ControlCall(request: ControlRequest(id: "1", method: "action.run", params: ["action": "openBrowser"]),
+                               snapshot: snapshot, connection: ControlConnectionID(rawValue: 1),
+                               deadline: .now + .seconds(20), progress: progress)
+        do {
+            _ = try await router.runAction(call)
+            Issue.record("expected a refusal")
+        } catch let error as ControlError {
+            #expect(error.code == "unavailable")
+            #expect(error.data?["not_run"] == nil)
+        } catch {
+            Issue.record("unexpected \(error)")
+        }
+    }
+
     @Test func aHandlerRefusalAfterItStartedWorkIsNotMarked() async {
         let failure = ActionWorkFailure("the reopened window did not show")
         let error = await run(RefusingExecutor(.refused("no window"), failure: failure))
