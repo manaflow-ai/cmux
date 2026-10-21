@@ -58,10 +58,7 @@ enum AgentSessionWorkspace {
         let logger = daemon.logger
         // A caller's key that names a listed workspace already shows the
         // session (a launcher run again): nothing is opened twice.
-        if services.machines.workspace(id: key.rawValue) != nil {
-            logger.info("agent.openSessionWorkspace: workspace \(key.rawValue, privacy: .public) is already listed")
-            return Task { nil }
-        }
+        if services.machines.workspace(id: key.rawValue) != nil { return Task { nil } }
         // Placed like Cmd-N (`workspaces.newPlacement`): in the group of the
         // workspace the window shows, when it is in one (cx-caoh), then into
         // the named `group`.
@@ -78,7 +75,7 @@ enum AgentSessionWorkspace {
                 }
                 // The workspace's first pane once the store mirrors it, found
                 // by the key chosen here (as CloudHandlers finds its anchor).
-                guard let pane = await mirroredPane(of: key, in: daemon.store) else {
+                guard let pane = await daemon.store.firstPane(mirroring: key) else {
                     logger.error("agent.openSessionWorkspace: the pane of workspace \(key.rawValue, privacy: .public) did not appear")
                     return ActionWorkFailure("agent.openSessionWorkspace: the new workspace's pane did not appear")
                 }
@@ -115,31 +112,5 @@ enum AgentSessionWorkspace {
             }
         }
         sidebar.groupFlow.newGroup(of: ids, name: name, byUser: false)
-    }
-
-    /// The first pane of workspace `key` once the store mirrors it (10 s at most).
-    @MainActor static func mirroredPane(of key: WorkspaceKey, in store: DaemonStore) async -> PaneModel? {
-        if let pane = firstPane(of: key, in: store) { return pane }
-        // concurrency-allow: the observation task exits on cancellation; this bounds a daemon mirror race
-        let mirrored = await withTaskGroup(of: Bool.self) { group -> Bool in
-            group.addTask { await waitForPane(of: key, in: store) }
-            group.addTask {
-                // wakeup-allow: one-shot ten-second daemon mirror deadline
-                try? await Task.sleep(for: .seconds(10))
-                return false
-            }
-            defer { group.cancelAll() }
-            return await group.next() ?? false
-        }
-        return mirrored ? firstPane(of: key, in: store) : nil
-    }
-
-    @MainActor private static func firstPane(of key: WorkspaceKey, in store: DaemonStore) -> PaneModel? {
-        store.workspaces.first { $0.key == key }?.screens.first?.panes.first
-    }
-
-    @MainActor private static func waitForPane(of key: WorkspaceKey, in store: DaemonStore) async -> Bool {
-        for await ready in ObservationStream({ firstPane(of: key, in: store) != nil }) where ready { return true }
-        return false
     }
 }

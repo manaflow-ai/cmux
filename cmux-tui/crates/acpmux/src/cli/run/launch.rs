@@ -16,8 +16,8 @@ use crate::rpc::method;
 
 /// What the launcher flags of one `acpmux new` add to the plain command.
 pub(super) struct Launch {
-    /// The session name: `--name` with every character a name may not hold
-    /// (`/`, spaces) turned into `-`.
+    /// The session name: `--name` as the worktree and branch name it gets
+    /// (`subsession_worktree::slug`: `Gui/Composer` is `gui-composer`).
     pub name: Option<String>,
     /// `--name` as given, when the session name had to differ from it.
     pub title: Option<String>,
@@ -34,7 +34,17 @@ impl Launch {
     /// Checks the launcher flags and reads the prompt file, before anything
     /// is created; every mistake fails here.
     pub(super) fn prepare(args: &NewArgs) -> Result<Self> {
+        let launcher = args.worktree.is_some()
+            || args.prompt_file.is_some()
+            || args.report_to.is_some()
+            || args.group.is_some()
+            || args.reuse;
         let (name, title) = match &args.name {
+            // A plain `acpmux new -n NAME` keeps its name as given.
+            Some(given) if !launcher => {
+                crate::session_name::validate(given).map_err(|e| anyhow::anyhow!(e))?;
+                (Some(given.clone()), None)
+            }
             Some(given) => {
                 let name = session_name(given)?;
                 let title = (name != *given).then(|| given.clone());
@@ -95,50 +105,66 @@ impl Launch {
             ));
         }
         let words = args.prompt.join(" ");
-        if !words.trim().is_empty() {
+        let has_words = !words.trim().is_empty();
+        if has_words {
             parts.push(words);
         }
         parts.extend(self.file_prompt.clone());
         // The context lines alone are no task: no prompt at all then.
-        (!args.prompt.is_empty() || self.file_prompt.is_some()).then(|| parts.join("\n\n"))
+        (has_words || self.file_prompt.is_some()).then(|| parts.join("\n\n"))
     }
 }
 
-/// `name` as a session name: characters outside `[A-Za-z0-9._-]` become
-/// `-`, runs of `-` collapse, and the name never starts with `.` or `-`.
+/// `name` as a session name, the same as its worktree's folder and branch
+/// (`cmux/<name>`): lowercase letters and digits, every other run one `-`,
+/// at most 48 characters.
 pub(crate) fn session_name(name: &str) -> Result<String> {
-    let mut out = String::with_capacity(name.len());
-    for c in name.trim().chars() {
-        let c = if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') { c } else { '-' };
-        if !(c == '-' && out.ends_with('-')) {
-            out.push(c);
-        }
-    }
-    let out: String =
-        out.trim_start_matches(['.', '-']).trim_end_matches('-').chars().take(80).collect();
-    crate::session_name::validate(&out).map_err(|e| anyhow::anyhow!("--name {name:?}: {e}"))?;
+    let out = crate::subsession_worktree::slug(name);
+    crate::session_name::validate(&out).map_err(|_| {
+        anyhow::anyhow!("--name {name:?} has no letters or digits to name a session")
+    })?;
     Ok(out)
 }
 
-/// `REPO[@BASE]`: the last `@` splits off the base (a ref or commit).
+/// `REPO[@BASE]`: the last `@` splits off the base (a ref or commit),
+/// unless the whole of it is a folder.
 fn split_worktree(spec: &str) -> (&str, Option<&str>) {
     match spec.rsplit_once('@') {
-        Some((repo, base)) if !repo.is_empty() && !base.is_empty() => (repo, Some(base)),
+        Some((repo, base)) if !repo.is_empty() && !base.is_empty() && !expand(spec).is_dir() => {
+            (repo, Some(base))
+        }
         _ => (spec, None),
     }
 }
 
+/// `~/` as the home folder (`--worktree=~/repo` reaches no shell).
+fn expand(path: &str) -> PathBuf {
+    match (path.strip_prefix("~/"), std::env::var_os("HOME")) {
+        (Some(rest), Some(home)) => PathBuf::from(home).join(rest),
+        _ => PathBuf::from(path),
+    }
+}
+
 fn absolute(path: &str) -> Result<PathBuf> {
-    let p = Path::new(path);
-    let p = if p.is_absolute() { p.to_path_buf() } else { std::env::current_dir()?.join(p) };
+    let p = expand(path);
+    let p = if p.is_absolute() { p } else { std::env::current_dir()?.join(p) };
     std::fs::canonicalize(&p)
         .map_err(|e| anyhow::anyhow!("--worktree repository {}: {e}", p.display()))
 }
+
+/// Longest prompt file read: a brief, not a log.
+const MAX_PROMPT_FILE: u64 = 1 << 20;
 
 /// The prompt file's text, read at call time; a missing or empty file fails.
 fn read_prompt_file(path: &Path) -> Result<String> {
     let abs =
         if path.is_absolute() { path.to_path_buf() } else { std::env::current_dir()?.join(path) };
+    let len = std::fs::metadata(&abs)
+        .map_err(|e| anyhow::anyhow!("--prompt-file {}: {e}", abs.display()))?
+        .len();
+    if len > MAX_PROMPT_FILE {
+        bail!("--prompt-file {} is {len} bytes, more than 1 MiB", abs.display());
+    }
     let text = std::fs::read_to_string(&abs)
         .map_err(|e| anyhow::anyhow!("--prompt-file {}: {e}", abs.display()))?;
     if text.trim().is_empty() {
@@ -147,15 +173,45 @@ fn read_prompt_file(path: &Path) -> Result<String> {
     Ok(text)
 }
 
-/// The session already named `name` (its `_acpmux/info`), None when there is none.
-pub(super) async fn existing(client: &Client, name: &str) -> Result<Option<Value>> {
-    match client.request(method::MUX_INFO, json!({"sessionId": name})).await {
-        Ok(v) => Ok(Some(v)),
+/// The session named exactly `key` (`NAME` or `HOST/NAME`; its
+/// `_acpmux/info`), None when there is none. `_acpmux/info` also takes a
+/// prefix of a name: a session it finds by one is not this one.
+pub(super) async fn existing(client: &Client, key: &str) -> Result<Option<Value>> {
+    let name = key.rsplit('/').next().unwrap_or(key);
+    match client.request(method::MUX_INFO, json!({"sessionId": key})).await {
+        Ok(v) if v.get("name").and_then(Value::as_str) == Some(name) => Ok(Some(v)),
+        Ok(_) => Ok(None),
         Err(e) => {
             let m = e.to_string().to_lowercase();
-            if m.contains("no session") || m.contains("not found") { Ok(None) } else { Err(e) }
+            let none = m.contains("no session") || m.contains("not found") || m.contains("matches");
+            if none { Ok(None) } else { Err(e) }
         }
     }
+}
+
+/// Refuses to reuse `info` (the session named `name`) for this launch: it
+/// ended, or it works outside the worktree the launch names.
+pub(super) fn check_reusable(info: &Value, name: &str, worktree: bool) -> Result<()> {
+    if info.get("status").and_then(Value::as_str) == Some("closed") {
+        bail!(
+            "a session named {name} exists but has ended: delete it with \
+             `acpmux session kill --purge {name}`, or pick another --name"
+        );
+    }
+    let cwd = info.get("cwd").and_then(Value::as_str).unwrap_or_default();
+    if worktree && !in_worktree(Path::new(cwd), name) {
+        bail!(
+            "a session named {name} exists but works in {cwd}, not in its worktree: \
+             pick another --name"
+        );
+    }
+    Ok(())
+}
+
+/// `cwd` is in a worktree named `name`: `.../.cmux/worktrees/<project>/<name>[/...]`.
+fn in_worktree(cwd: &Path, name: &str) -> bool {
+    let parts: Vec<_> = cwd.components().map(|c| c.as_os_str().to_string_lossy()).collect();
+    parts.windows(4).any(|w| w[0] == ".cmux" && w[1] == "worktrees" && w[3] == name)
 }
 
 /// A create that lost a race to another launcher with the same name.
@@ -163,17 +219,17 @@ pub(super) fn name_taken(e: &anyhow::Error) -> bool {
     e.to_string().contains("is taken")
 }
 
-/// The sidebar workspace key for session `name`: the same on every run, so
+/// The sidebar workspace key for session `id`: the same on every run, so
 /// the app keeps one row for it (a lowercase UUID, as `agent open` takes).
-fn workspace_key(name: &str) -> String {
-    let h = crate::sha256::sha256_hex(format!("acpmux-launch:{name}").as_bytes());
+fn workspace_key(id: &str) -> String {
+    let h = crate::sha256::sha256_hex(format!("acpmux-launch:{id}").as_bytes());
     format!("{}-{}-{}-{}-{}", &h[0..8], &h[8..12], &h[12..16], &h[16..20], &h[20..32])
 }
 
 /// Shows session `id` in the cmux app's sidebar group `group` through the
 /// app's `agent open` action (`cmux agent open`), named `title`.
-pub(super) fn show_in_group(id: &str, name: &str, title: &str, group: &str) -> Result<()> {
-    let key = workspace_key(name);
+pub(super) fn show_in_group(id: &str, title: &str, group: &str) -> Result<()> {
+    let key = workspace_key(id);
     let out = std::process::Command::new("cmux")
         .args(["agent", "open", id, "--name", title, "--key", &key, "--group", group])
         .output()
@@ -198,6 +254,8 @@ mod tests {
         assert_eq!(session_name("lane-launcher").unwrap(), "lane-launcher");
         assert_eq!(session_name(" a // b c ").unwrap(), "a-b-c");
         assert_eq!(session_name("/.x/").unwrap(), "x");
+        // One worktree, one session: the name is the worktree's.
+        assert_eq!(session_name("Lane_A").unwrap(), session_name("lane-a").unwrap());
         assert!(session_name("//").is_err());
     }
 
@@ -207,6 +265,21 @@ mod tests {
         assert_eq!(split_worktree("/a@b/r@main"), ("/a@b/r", Some("main")));
         assert_eq!(split_worktree("/r"), ("/r", None));
         assert_eq!(split_worktree("/r@"), ("/r@", None));
+    }
+
+    #[test]
+    fn a_session_outside_its_worktree_or_ended_is_not_reused() {
+        let at = |cwd: &str, status: &str| json!({"cwd": cwd, "status": status});
+        let wt = "/home/u/.cmux/worktrees/cmux/lane";
+        assert!(check_reusable(&at(wt, "ready"), "lane", true).is_ok());
+        assert!(check_reusable(&at(&format!("{wt}/cmux-tui"), "running"), "lane", true).is_ok());
+        assert!(check_reusable(&at("/home/u/proj", "ready"), "lane", true).is_err());
+        assert!(check_reusable(&at("/home/u/proj", "ready"), "lane", false).is_ok());
+        assert!(check_reusable(&at(wt, "closed"), "lane", true).is_err());
+        assert!(
+            check_reusable(&at("/home/u/.cmux/worktrees/cmux/lane-2", "ready"), "lane", true)
+                .is_err()
+        );
     }
 
     #[test]

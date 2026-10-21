@@ -356,7 +356,6 @@ async fn dispatch_request(
                     cwd = Some(super::local_app::canonical_cwd(given).await?);
                 }
             }
-            let worktree = super::new_worktree::ensure(conn.origin, meta, &mut cwd).await?;
             let adopt =
                 crate::adopt::AdoptRequest::from_meta(meta).map_err(RpcError::invalid_params)?;
             let adopting = adopt.is_some();
@@ -377,6 +376,8 @@ async fn dispatch_request(
                 return Err(RpcError::invalid_params(format!("route {r:?} is not a route id")));
             }
             let asked_policy = policy.is_some();
+            // Last of the checks, so a request refused above makes no worktree.
+            let worktree = super::new_worktree::ensure(conn.origin, meta, &mut cwd).await?;
             let req = crate::hub::NewRequest {
                 harness: pick("harness"),
                 preset: pick("preset"),

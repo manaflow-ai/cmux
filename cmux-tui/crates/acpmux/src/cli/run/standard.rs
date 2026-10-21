@@ -357,15 +357,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 .unwrap_or(&id)
                 .to_owned();
             let show = || match &args.group {
-                Some(group) => launch::show_in_group(
-                    &id,
-                    &name,
-                    launch.title.as_deref().unwrap_or(&name),
-                    group,
-                ),
+                Some(group) => {
+                    launch::show_in_group(&id, launch.title.as_deref().unwrap_or(&name), group)
+                }
                 None => Ok(()),
             };
             if let Some(info) = &reused {
+                launch::check_reusable(info, &name, launch.worktree.is_some())?;
                 // Its first prompt went with the first run; it is not sent twice.
                 show()?;
                 if json_out {

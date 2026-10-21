@@ -21,10 +21,11 @@ acpmux new -n gui/composer \
 ```
 
 - **Worktree.** The daemon makes `~/.cmux/worktrees/<project>/<name>` on
-  branch `cmux/<name>` from BASE (default: REPO's current branch), laid out
-  as the app's `git.worktree.create` lays one out, so Apply and Remove find
-  it. A worktree already there is used as it is; a branch already there gets
-  a new worktree; nothing is ever copied to `<name>-2`. Over the local unix
+  branch `cmux/<name>` (`<name>` is the session name, below) from BASE
+  (default: REPO's current branch), laid out as the app's
+  `git.worktree.create` lays one out, so Apply and Remove find it. A worktree already there is used as it is; a branch already there gets
+  a new worktree (a failed fill then removes only the folder, never the
+  branch); nothing is ever copied to `<name>-2`. Over the local unix
   socket only: on another machine, run the command there (`ssh HOST acpmux
   new ...`); `--worktree --host` is refused.
 - **Prompt.** `--prompt-file` is read when the command runs, from its
@@ -33,12 +34,16 @@ acpmux new -n gui/composer \
   (`--report-to`), where its worktree is, the prompt words, then the file.
 - **Idempotent.** Running the same command again gives the same session and
   worktree and sends nothing (`--reuse`, which `--worktree` implies). Two
-  launchers racing on one name end with one session.
-- **Names.** Any name works: characters a session name may not hold (`/`,
-  spaces) become `-` (`gui/composer` is session and branch `gui-composer`);
-  the name as given is the sidebar title.
+  launchers racing on one name on one machine end with one session; the
+  daemon makes one worktree at a time per name. A session of that name that
+  has ended, or that works outside that worktree, is refused, not reused.
+- **Names.** Any name with a letter or digit works: it is lowercased and
+  every other run of characters becomes one `-`, at most 48 characters
+  (`Gui/Composer` is session `gui-composer`, folder `gui-composer`, branch
+  `cmux/gui-composer`); the name as given is the sidebar title.
 - **Sidebar.** `--group G` runs `cmux agent open SESSION --group G` with a
-  workspace key derived from the name, so a second run finds the same row.
+  workspace key derived from the session id, so a second run finds the same
+  row and opens nothing.
   It needs the cmux app on this machine; elsewhere leave it off and run
   `cmux agent open` on the Mac.
 

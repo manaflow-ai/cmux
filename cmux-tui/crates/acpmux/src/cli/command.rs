@@ -794,7 +794,8 @@ pub struct NewArgs {
     /// Create the session on this peer (see `acpmux host ls`). `--cwd` is then a remote path.
     #[arg(long)]
     pub host: Option<String>,
-    /// Session name. Generated when omitted.
+    /// Session name. Generated when omitted. With a launcher flag it is lowercased
+    /// and `/` or spaces become `-` (`gui/x` is `gui-x`).
     #[arg(long, short)]
     pub name: Option<String>,
     #[arg(long)]

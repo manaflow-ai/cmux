@@ -266,12 +266,14 @@ fn layout(folder: &Path, home: &Path) -> Result<Layout, String> {
 }
 
 /// Fills the worktree git just added at `made.root` with `commit`'s files
-/// and index and records its base; removes it when that fails.
+/// and index and records its base; removes it when that fails, and its
+/// branch too unless `kept_branch` (the branch was there before).
 fn fill(
     folder: &Path,
     layout: &Layout,
     mut made: Worktree,
     commit: &str,
+    kept_branch: bool,
 ) -> Result<Worktree, String> {
     // Its files without the repository's config; then its index, which
     // `read-tree` (no `-u`) writes from the objects alone.
@@ -283,7 +285,11 @@ fn fill(
                 .map(drop)
         });
     if let Err(e) = filled {
-        remove_worktree(folder, &made);
+        if kept_branch {
+            let _ = git(folder, &["worktree", "remove", "--force", &root.to_string_lossy()]);
+        } else {
+            remove_worktree(folder, &made);
+        }
         return Err(e);
     }
     // The started-from folder exists in the worktree only once its
@@ -321,7 +327,7 @@ fn make_worktree_under(folder: &Path, title: &str, home: &Path) -> Result<Worktr
             Err(e) => return Err(e),
         }
         let made = Worktree { root: root.clone(), branch, base: base.clone(), cwd: root };
-        return fill(folder, &layout, made, &commit);
+        return fill(folder, &layout, made, &commit, false);
     }
     Err(format!("every worktree name from {name} to {name}-99 is taken"))
 }
@@ -362,6 +368,18 @@ pub fn ensure_worktree(folder: &Path, name: &str, base: Option<&str>) -> Result<
     ensure_worktree_under(folder, name, base, &home()?)
 }
 
+type Lock = std::sync::Arc<std::sync::Mutex<()>>;
+
+/// One ensure at a time per worktree folder in this process: git lists a
+/// `--no-checkout` worktree before its files are written, so a second
+/// launcher of the same name must not find it half filled.
+fn name_lock(root: &Path) -> Lock {
+    static LOCKS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<PathBuf, Lock>>> =
+        std::sync::OnceLock::new();
+    let mut locks = LOCKS.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
+    locks.entry(root.to_path_buf()).or_default().clone()
+}
+
 fn ensure_worktree_under(
     folder: &Path,
     name: &str,
@@ -378,7 +396,9 @@ fn ensure_worktree_under(
     let layout = layout(folder, home)?;
     let root = layout.parent.join(&chosen);
     let branch = format!("cmux/{chosen}");
-    // A second pass covers another launcher adding it meanwhile.
+    let lock = name_lock(&root);
+    let _held = lock.lock().unwrap_or_else(|e| e.into_inner());
+    // A second pass covers another process adding it meanwhile.
     for _ in 0..2 {
         if root.exists() {
             let listed = listed_worktree(folder, &root).ok_or_else(|| {
@@ -427,7 +447,7 @@ fn ensure_worktree_under(
             Err(e) => return Err(e),
         }
         let made = Worktree { root: root.clone(), branch: branch.clone(), base, cwd: root.clone() };
-        let worktree = fill(folder, &layout, made, &commit)?;
+        let worktree = fill(folder, &layout, made, &commit, reused.is_some())?;
         return Ok(Ensured { worktree, reused });
     }
     Err(format!("{} was added and removed while this ran; run it again", root.display()))
