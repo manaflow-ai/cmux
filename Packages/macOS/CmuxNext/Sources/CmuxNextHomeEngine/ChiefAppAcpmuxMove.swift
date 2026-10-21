@@ -12,8 +12,10 @@ import os
 /// names its pid and the app's acpmux home (written at launch, ``mark(pid:)``). Any other running
 /// host (an older build's, a `cmux chief` CLI's, or one whose executable is gone) is restarted:
 /// asked to hand off when idle when it takes that (its exit restarts the start, which comes back
-/// here), else stopped. Then the Chief home's own daemon ends, unless a named Chief of the home
-/// (`c/<id>`, cmux-tui chief_brains.rs) still runs on it. Never the app's daemon.
+/// here), else stopped. Then the Chief home's own daemon ends with its agents, unless a named
+/// Chief of the home (`c/<id>`, cmux-tui chief_brains.rs) still runs on it or one of its sessions
+/// is in a turn (a subagent the Chief started still working): then a later start ends it. Never
+/// the app's daemon.
 struct ChiefAppAcpmuxMove: Sendable {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "home")
 
@@ -83,10 +85,20 @@ struct ChiefAppAcpmuxMove: Sendable {
             }
         }
         if plan.endOwnDaemon, let own, own.home.standardizedFileURL != app.home.standardizedFileURL {
+            if let census = await AcpmuxQuit.census(own), !Self.idle(census) {
+                Self.logger.info("Chief's own acpmux at \(own.home.path, privacy: .public) has a session in a turn; it ends at a later start")
+                return true
+            }
             let result = await AcpmuxQuit.endAgents(own, keep: .nothing)
             Self.logger.info("Chief's own acpmux at \(own.home.path, privacy: .public) ended: \(String(describing: result), privacy: .public)")
         }
         return true
+    }
+
+    /// Whether no session of a daemon is in a turn, the Chief's own included: ending it then
+    /// stops no work. A daemon that does not answer (nil census) has no turn to lose.
+    static func idle(_ census: AcpmuxSessionCensus) -> Bool {
+        census.inTurn == 0 && !census.chiefInTurn
     }
 
     /// Whether process `pid` runs an executable whose file is gone (an update replaced the bundle).

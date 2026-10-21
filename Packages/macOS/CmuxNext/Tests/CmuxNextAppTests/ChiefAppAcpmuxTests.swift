@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CmuxNextCompat
 @testable import CmuxNextAgentPane
 @testable import CmuxNextHomeEngine
 
@@ -26,9 +27,9 @@ struct ChiefAppAcpmuxTests {
                        chiefRoot: base.appendingPathComponent("chief/default", isDirectory: true))
     }
 
-    private func host(_ fixture: Fixture, buildID: String) -> HomeBrainHost? {
+    private func host(_ fixture: Fixture, buildID: String, appBuild: BuildIdentity? = nil) -> HomeBrainHost? {
         let home = ChiefHome(root: fixture.chiefRoot, isolated: false, buildID: buildID)
-        return HomeBrainHost.resolve(daemonSocket: "/tmp/owner.sock", controlSocket: "/tmp/app.sock", home: home,
+        return HomeBrainHost.resolve(daemonSocket: "/tmp/owner.sock", controlSocket: "/tmp/app.sock", home: home, appBuild: appBuild,
                                      environment: ["CMUX_NEXT_ACPMUX_ROOT": fixture.acpmuxRoot.path],
                                      bundledBinDirectory: fixture.bin, bundledChiefAllowed: true)
     }
@@ -44,6 +45,18 @@ struct ChiefAppAcpmuxTests {
         #expect(environment["OPTCHAT_ACPMUX_SHARED"] == nil)
     }
 
+    // A Debug compile running as NIGHTLY (`CMUX_NEXT_CHIEF_BUILD_ID`) resolves the daemon its
+    // own panes use, the app's build's, never another one.
+    @Test func theChiefResolvesTheDaemonOfTheAppsBuild() throws {
+        let fixture = try fixture()
+        let build = BuildIdentity(bundleID: "com.cmuxterm.app.debug.chiefbase", bundledTag: "chiefbase")
+        let host = try #require(host(fixture, buildID: ChiefHome.nightlyBundleID, appBuild: build))
+        let panes = AcpmuxEnvironment.resolve(build: build, bundledBinDirectory: fixture.bin,
+                                              environment: ["CMUX_NEXT_ACPMUX_ROOT": fixture.acpmuxRoot.path])
+        #expect(host.acpmux?.home.standardizedFileURL == panes?.home.standardizedFileURL)
+        #expect(host.acpmux?.socketPath == panes?.socketPath)
+    }
+
     @Test func anotherBuildsChiefKeepsItsOwnAcpmux() throws {
         let fixture = try fixture()
         let host = try #require(host(fixture, buildID: "com.cmuxterm.app.debug.chiefbase"))
@@ -56,8 +69,11 @@ struct ChiefAppAcpmuxTests {
     @Test func onlyNightlysOwnHomeUsesTheAppsAcpmux() {
         let nightly = ChiefHome.nightlyBundleID
         #expect(ChiefHome.usesAppAcpmux(isolated: false, buildID: nightly, ownAcpmux: false))
-        // The Debug Settings toggle brings the Chief's own daemon back.
+        // `CMUX_CHIEF_OWN_ACPMUX=1` brings the Chief's own daemon back.
         #expect(!ChiefHome.usesAppAcpmux(isolated: false, buildID: nightly, ownAcpmux: true))
+        #expect(ChiefHome.ownAcpmux(["CMUX_CHIEF_OWN_ACPMUX": "1"]))
+        #expect(!ChiefHome.ownAcpmux(["CMUX_CHIEF_OWN_ACPMUX": "0"]))
+        #expect(!ChiefHome.ownAcpmux([:]))
         #expect(!ChiefHome.usesAppAcpmux(isolated: true, buildID: nightly, ownAcpmux: false))
         #expect(!ChiefHome.usesAppAcpmux(isolated: false, buildID: nil, ownAcpmux: false))
         #expect(!ChiefHome.usesAppAcpmux(isolated: false, buildID: "com.cmuxterm.app.nightly.cmux-next", ownAcpmux: false))
@@ -74,7 +90,7 @@ struct ChiefAppAcpmuxTests {
         }
         // The previous build's host: no launch mark.
         #expect(move(41, false, nil, nil, true, false) == .init(restartHost: true, endOwnDaemon: true))
-        // A mark of an earlier host, or of another acpmux home (the Debug toggle was on).
+        // A mark of an earlier host, or of another acpmux home (`CMUX_CHIEF_OWN_ACPMUX` was on).
         #expect(move(41, false, 40, app, false, false).restartHost)
         #expect(move(41, false, 41, "/Users/me/.cmux/chief/default/acpmux", false, false).restartHost)
         // This app's host on the app's acpmux, but its bundle was replaced by an update.
@@ -84,5 +100,13 @@ struct ChiefAppAcpmuxTests {
         #expect(move(41, false, 41, app, true, false) == .init(restartHost: false, endOwnDaemon: true))
         // A named Chief of the home still runs on that daemon: it keeps running.
         #expect(move(nil, false, nil, nil, true, true) == .init())
+    }
+
+    // The old Chief daemon ends with its agents only when none of them is in a turn: a subagent
+    // the Chief started may still be working after the Chief itself went idle.
+    @Test func theOldChiefDaemonEndsOnlyWhenNoSessionIsInATurn() {
+        #expect(ChiefAppAcpmuxMove.idle(AcpmuxSessionCensus(live: 3)))
+        #expect(!ChiefAppAcpmuxMove.idle(AcpmuxSessionCensus(live: 3, inTurn: 1, inTurnNames: ["lane"])))
+        #expect(!ChiefAppAcpmuxMove.idle(AcpmuxSessionCensus(live: 1, chiefInTurn: true)))
     }
 }

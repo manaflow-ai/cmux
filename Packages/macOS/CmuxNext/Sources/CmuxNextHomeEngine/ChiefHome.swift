@@ -1,7 +1,4 @@
 public import Foundation
-import CmuxNextDesign
-import CmuxNextHome
-import os
 
 /// The home of one build's Chief (plans/cmux-next/home-state-ownership.md):
 /// the OptChat memory and host state (`optchat/`, `state/host.lock`), the
@@ -86,27 +83,21 @@ public nonisolated struct ChiefHome: Sendable, Equatable {
     /// run unless it uses the app's (``usesAppAcpmux``).
     public var acpmuxHome: URL { root.appendingPathComponent("acpmux", isDirectory: true) }
     /// Whether this Chief runs on the app's own acpmux (`~/.acpmux`, the one daemon of this
-    /// machine) instead of ``acpmuxHome``: NIGHTLY's home only, unless the Debug Settings toggle
-    /// `home.chief.ownAcpmux` brings the old daemon back. The app then starts and hands off that
+    /// machine) instead of ``acpmuxHome``: NIGHTLY's home only, unless `CMUX_CHIEF_OWN_ACPMUX=1` in
+    /// the app's environment brings the old daemon back. The app then starts and hands off that
     /// daemon; the Chief host only waits for it (`OPTCHAT_ACPMUX_SUPERVISED=1`) and never starts or
     /// stops it, and the Chief's sessions stay apart by their tags (`cmux.chief`, `mux.parent`).
     public var usesAppAcpmux: Bool {
         Self.usesAppAcpmux(isolated: isolated, buildID: buildID, ownAcpmux: Self.ownAcpmuxAtLaunch)
     }
 
-    /// `home.chief.ownAcpmux` as this launch first read it once the Debug Settings file was
-    /// loaded, so every consumer agrees and a change applies at the next launch. Before the load
-    /// (or in Release, where the store never activates) the live value, the default.
-    private static var ownAcpmuxAtLaunch: Bool {
-        ownAcpmuxRead.withLock { kept in
-            if let kept { return kept }
-            let value = HomeTunables.chiefOwnAcpmux.value
-            if TunableStore.shared.hasLoaded { kept = value }
-            return value
-        }
-    }
+    /// `CMUX_CHIEF_OWN_ACPMUX=1`, read once from the process environment, so the tab wiring, the
+    /// error journal and the Chief host, which resolve at different points of the launch, agree.
+    private static let ownAcpmuxAtLaunch = ownAcpmux(ProcessInfo.processInfo.environment)
 
-    private static let ownAcpmuxRead = OSAllocatedUnfairLock<Bool?>(initialState: nil)
+    static func ownAcpmux(_ environment: [String: String]) -> Bool {
+        environment["CMUX_CHIEF_OWN_ACPMUX"] == "1"
+    }
 
     static func usesAppAcpmux(isolated: Bool, buildID: String?, ownAcpmux: Bool) -> Bool {
         !isolated && buildID == nightlyBundleID && !ownAcpmux

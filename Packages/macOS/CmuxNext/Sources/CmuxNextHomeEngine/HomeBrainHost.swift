@@ -1,4 +1,5 @@
 public import CmuxNextActions
+public import CmuxNextCompat
 import CmuxNextAgentPane
 public import Foundation
 import os
@@ -65,7 +66,9 @@ public nonisolated struct HomeBrainHost: Sendable {
         AcpmuxEnvironment.agentLaunchDisabled(environment) ? HomeStrings.chiefAgentsDisabled : nil
     }
 
-    public static func resolve(daemonSocket: String, controlSocket: String, home: ChiefHome,
+    /// - Parameter appBuild: the build whose acpmux the app's panes use (`AppEnvironment.build`);
+    ///   a Chief on the app's acpmux (``ChiefHome/usesAppAcpmux``) resolves the same daemon.
+    public static func resolve(daemonSocket: String, controlSocket: String, home: ChiefHome, appBuild: BuildIdentity? = nil,
                         environment: [String: String] = ProcessInfo.processInfo.environment,
                         bundledBinDirectory: URL? = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true),
                         bundledChiefAllowed: Bool = HomeBrainHost.bundledChiefAllowed(bundleID: Bundle.main.bundleIdentifier,
@@ -86,7 +89,8 @@ public nonisolated struct HomeBrainHost: Sendable {
             acpmuxEnvironment.removeValue(forKey: "ACPMUX_SOCKET")
         }
         var host = HomeBrainHost(executable: URL(fileURLWithPath: path), muxHome: home.muxHome, daemonSocket: daemonSocket, controlSocket: controlSocket,
-                                 acpmux: AcpmuxEnvironment.resolve(build: nil, bundledBinDirectory: bundledBinDirectory, environment: acpmuxEnvironment))
+                                 acpmux: AcpmuxEnvironment.resolve(build: usesAppAcpmux ? appBuild : nil, bundledBinDirectory: bundledBinDirectory,
+                                                                   environment: acpmuxEnvironment))
         host.usesAppAcpmux = usesAppAcpmux
         return host
     }
@@ -207,7 +211,11 @@ public nonisolated struct HomeBrainHost: Sendable {
         }
         let token = try await mintToken()
         let pid = await launch(agentToken: token)
-        if usesAppAcpmux, let acpmux, let pid { ChiefAppAcpmuxMove(home: chiefHome, app: acpmux).mark(pid: pid) }
+        // A pid the launch could not read: the host's lock names it, so the next start does
+        // not take this new host for an old one and restart it.
+        if usesAppAcpmux, let acpmux, let marked = pid ?? ChiefHostStop.runningHostPID(home: chiefHome) {
+            ChiefAppAcpmuxMove(home: chiefHome, app: acpmux).mark(pid: marked)
+        }
         return .launched(pid: pid)
     }
 
