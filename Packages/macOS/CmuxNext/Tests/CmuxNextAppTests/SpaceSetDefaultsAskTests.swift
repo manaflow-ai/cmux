@@ -123,7 +123,11 @@ import Testing
 
         let prompt = await DestructiveConfirmation.prompt(for: "space.clearDefaults", ActionInvocation(target: Self.work), fixture.services)
         #expect(prompt != nil, "the confirmation has no question, so it clears without asking")
-        // A space with nothing to clear runs at once (nothing is at stake).
+        // A space with nothing to clear runs at once (nothing is at stake). The fixture's Default
+        // space has no terminal defaults; say so, so a fixture change cannot pass this vacuously.
+        let defaultSpace = try #require(fixture.services.machines.local.store.profile(.defaultProfile), "the fixture has no Default space")
+        let defaultHasNone = defaultSpace.defaults?.isEmpty ?? true
+        #expect(defaultHasNone, "the fixture's Default space has terminal defaults: \(String(describing: defaultSpace.defaults))")
         let none = await DestructiveConfirmation.prompt(
             for: "space.clearDefaults", ActionInvocation(target: ActionTargetRef(kind: .profile, id: ProfileID.defaultProfile.rawValue)), fixture.services)
         #expect(none == nil)
