@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Runs an ``ImportPlan``: for each source profile, reads each picked kind,
 /// reports progress, then hands the batch to the destination. Runs off the
