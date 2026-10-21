@@ -23,8 +23,9 @@ fn dir() -> PathBuf {
 
 /// How a prompt block names an attachment `_acpmux/attachment_put` kept.
 pub const ATTACHMENT_URI: &str = "acpmux-attachment:";
-/// The most bytes one put attachment has (the pane's PDF bound is 20 MiB).
-const MAX_PUT_BYTES: usize = 24 << 20;
+/// The most bytes one put attachment has: the pane's per-file cap, and what `_acpmux/attachment`
+/// reads back whole in one reply: 13.4 MiB of base64, under the 15 MiB message bound.
+const MAX_PUT_BYTES: usize = 10 << 20;
 /// What a client may put: the images and the PDF a prompt carries.
 const PUT_TYPES: &[&str] =
     &["image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"];
