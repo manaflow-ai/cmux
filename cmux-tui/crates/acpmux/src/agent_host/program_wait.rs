@@ -27,6 +27,8 @@ pub async fn spawn_within(
     spec: &SpawnSpec,
     budget: Duration,
 ) -> Result<HostRecord> {
+    // A refused launch is refused now, not after the wait.
+    crate::launch_policy::refuse_if_disabled()?;
     wait_for_program(&spec.program, budget).await?;
     match link::spawn(launcher, spec).await {
         // Gone again between the check and the host's spawn: the same
@@ -64,24 +66,34 @@ pub async fn wait_for_program(program: &str, budget: Duration) -> Result<()> {
         }
     })
     .with_context(|| format!("watch for {program}"))?;
-    let mut watched: Option<PathBuf> = None;
+    let mut watched: Vec<PathBuf> = Vec::new();
     let came_back = within("program wait", budget, async {
         loop {
             // Watch before checking, so a program written in between is
             // seen by the check or wakes the next wait.
-            if let Some(dir) = nearest_existing_ancestor(&path)
-                && watched.as_ref() != Some(&dir)
-            {
-                if let Some(old) = watched.take() {
-                    let _ = watcher.unwatch(&old);
+            let wanted = watch_dirs(&path);
+            for old in watched.iter().filter(|d| !wanted.contains(d)) {
+                let _ = watcher.unwatch(old);
+            }
+            watched.retain(|d| wanted.contains(d));
+            let mut vanished = false;
+            for dir in wanted {
+                if watched.contains(&dir) {
+                    continue;
                 }
-                watcher
-                    .watch(&dir, notify::RecursiveMode::NonRecursive)
-                    .with_context(|| format!("watch {}", dir.display()))?;
-                watched = Some(dir);
+                match watcher.watch(&dir, notify::RecursiveMode::NonRecursive) {
+                    Ok(()) => watched.push(dir),
+                    // Removed since it was found: the update is still at
+                    // work; look again for the folder above it.
+                    Err(e) if not_found(&e) => vanished = true,
+                    Err(e) => return Err(anyhow!(e).context(format!("watch {}", dir.display()))),
+                }
             }
             if !missing(program) {
                 return Ok::<_, anyhow::Error>(());
+            }
+            if vanished {
+                continue;
             }
             if rx.recv().await.is_none() {
                 bail!("the watch for {program} ended");
@@ -91,9 +103,41 @@ pub async fn wait_for_program(program: &str, budget: Duration) -> Result<()> {
     .await;
     match came_back {
         Ok(result) => result,
-        Err(_) => bail!(
-            "{program} was not found (waited {budget:?} in case an update was replacing it)"
-        ),
+        Err(_) => {
+            bail!("{program} was not found (waited {budget:?} in case an update was replacing it)")
+        }
+    }
+}
+
+/// The folders whose changes can bring `path` back: the nearest existing
+/// folder above it and, when it is a link whose target is gone (npm keeps
+/// the bin link and swaps the package folder), the nearest existing folder
+/// above each target along the link chain.
+fn watch_dirs(path: &Path) -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = nearest_existing_ancestor(path).into_iter().collect();
+    let mut link = path.to_path_buf();
+    // A bounded chain: a loop of links never resolves.
+    for _ in 0..8 {
+        let Ok(target) = std::fs::read_link(&link) else { break };
+        let target = match link.parent() {
+            Some(parent) if target.is_relative() => parent.join(target),
+            _ => target,
+        };
+        if let Some(dir) = nearest_existing_ancestor(&target)
+            && !dirs.contains(&dir)
+        {
+            dirs.push(dir);
+        }
+        link = target;
+    }
+    dirs
+}
+
+fn not_found(e: &notify::Error) -> bool {
+    match &e.kind {
+        notify::ErrorKind::PathNotFound => true,
+        notify::ErrorKind::Io(io) => io.kind() == std::io::ErrorKind::NotFound,
+        _ => false,
     }
 }
 

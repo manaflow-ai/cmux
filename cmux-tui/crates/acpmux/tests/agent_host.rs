@@ -431,15 +431,23 @@ async fn a_start_waits_for_a_harness_binary_an_update_is_replacing() {
     let mut launch = spec(&dir, "s-replaced");
     launch.program = program.to_string_lossy().into_owned();
     launch.args.clear();
-    let start = tokio::spawn(async move {
-        agent_host::program_wait::spawn_within(&launcher(), &launch, Duration::from_secs(20)).await
-    });
+    let host = launcher();
+    let mut start = std::pin::pin!(agent_host::program_wait::spawn_within(
+        &host,
+        &launch,
+        Duration::from_secs(20)
+    ));
+    // The start waits while the program is missing.
+    assert!(
+        tokio::time::timeout(Duration::from_millis(300), &mut start).await.is_err(),
+        "the start did not wait for the missing program"
+    );
     // The update writes the package, then links the program into place.
     std::fs::create_dir_all(&bin).unwrap();
     let staged = dir.join("agent.staged");
     write_executable(&staged, &format!("#!/bin/sh\nexec python3 {}\n", daemon_env::sh_quote(FAKE)));
     std::fs::rename(&staged, &program).unwrap();
-    let record = start.await.unwrap().expect("the start waited for the program");
+    let record = start.await.expect("the start waited for the program");
     let lock = live_lock(&dir, &record);
     let (owner, _) = connected(&record, 0).await;
     let mut logged = 0;
