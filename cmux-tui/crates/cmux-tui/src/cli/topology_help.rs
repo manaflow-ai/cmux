@@ -77,7 +77,8 @@ SELECTORS
 pub(super) const PANE_HELP: &str = "\
 USAGE
   cmux pane list [--workspace <selector>] [--screen <selector>]
-  cmux pane create [--correlation-key <value>]
+  cmux pane create [--cwd <path>] [--correlation-key <value>]
+    [--shell <script> | -- <argv...>]
   cmux pane <selector> show|focus|close
   cmux pane <selector> close --others|--all
   cmux pane <selector> rename <name>|--name <name>
@@ -95,7 +96,8 @@ USAGE
   cmux pane <selector> tab ...
 
 split keeps the focus where it is unless --focus is given. With --shell or
--- argv the new pane runs that command instead of a shell. To add a terminal
+-- argv the new pane (of split or create) runs that command instead of a
+shell. To add a terminal
 to a pane that already exists, use `cmux tab create terminal --pane <selector>`
 instead of splitting again.
 
@@ -119,7 +121,7 @@ USAGE
   cmux tab <selector> update --icon <value>|--clear-icon
   cmux tab create terminal [--cwd <path>] [--name <value>] [--cols <n> --rows <n>]
     [--workspace <selector>] [--screen <selector>] [--pane <selector>]
-    [--correlation-key <value>]
+    [--correlation-key <value>] [--shell <script> | -- <argv...>]
   cmux tab create browser --url <value> [--name <value>] [--width-px <n> --height-px <n>]
     [--workspace <selector>] [--screen <selector>] [--pane <selector>]
     [--correlation-key <value>]
