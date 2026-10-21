@@ -18475,13 +18475,13 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "侧边栏的行更高、留白更多，仍然每行一行。"
+            "value" : "侧边栏的行更高、留白更多，仍为单行显示。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "側邊欄的列更高、留白更多，仍然每列一行。"
+            "value" : "側邊欄的列更高、留白更多，仍為單行顯示。"
           }
         }
       }

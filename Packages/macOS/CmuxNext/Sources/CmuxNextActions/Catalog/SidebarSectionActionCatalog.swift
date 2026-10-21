@@ -309,8 +309,7 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
             ),
             // Leo (2026-10-09): the sidebar's menu checks Show Tabs Under
             // Workspaces (`sidebar.showWorkspaceTabs`; scripts set that), in
-            // Options. A sidebar-wide setting, so not on each workspace row's
-            // menu (cmuxterm-hq#2015).
+            // Options, and a workspace row's ⋮ offers it under More ▸ Options.
             ActionDescriptor(
                 id: "sidebar.workspaceTabs.toggle", title: t("action.sidebar.workspaceTabs.toggle", "Show Tabs Under Workspaces"),
                 keywords: ["sidebar", "tabs", "workspace", "show", "list", "nested", "children"], category: .sidebar, symbol: "list.bullet.indent",

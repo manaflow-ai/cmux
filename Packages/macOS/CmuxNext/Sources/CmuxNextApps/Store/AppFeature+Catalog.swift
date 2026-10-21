@@ -105,7 +105,7 @@ extension AppFeature {
                        name: t("store.feature.expandedSidebar.name", "Expanded Sidebar"),
                        summary: t("store.feature.expandedSidebar.summary",
                                   "Each workspace shows its status or folder, its age and its pull request under its name."),
-                       keywords: ["density", "view", "compact", "two lines", "detail", "rows"]),
+                       keywords: ["density", "view", "two lines", "detail", "rows"]),
             // The sidebar's own items, which Add Items in its edit mode opens on (Leo 2026-10-20).
             AppFeature(id: "sidebar.homeItem", setting: "sidebar.layout", on: .sidebarItem("home"),
                        category: .sidebar, preview: .icon(.home),
