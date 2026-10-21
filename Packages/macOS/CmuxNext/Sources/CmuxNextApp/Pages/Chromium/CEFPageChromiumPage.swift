@@ -29,7 +29,18 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         didSet { listen() }
     }
 
-    var resources: (@MainActor (URL) async -> PageChromiumResponse)?
+    var resources: (@MainActor (URL) async -> PageChromiumResponse)? {
+        didSet {
+            guard let resources else {
+                tab.pageResources = nil
+                return
+            }
+            tab.pageResources = { url in
+                let answer = await resources(url)
+                return CEFPageResponse(status: answer.status, mimeType: answer.mimeType, body: answer.body)
+            }
+        }
+    }
 
     private func listen() {
         guard onEvent != nil, !closed else {
@@ -74,6 +85,7 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         crashWatch?.cancel()
         crashWatch = nil
         tab.agentRelay.set(onMessage: nil, onEnd: nil)
+        tab.pageResources = nil
         tab.delegate = nil
         tab.close()
     }

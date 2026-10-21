@@ -90,6 +90,7 @@ extension PageWebView {
         let bridge = ChromiumPageHostBridge(page: page, fireAndForget: Self.chromiumFireAndForget)
         let session = PageChromiumSession(page: page, bridge: bridge, clock: chromiumClock)
         page.onEvent = { [weak self] event in self?.chromiumEvent(event) }
+        page.resources = { [weak self] url in await self?.chromiumResource(url) ?? .notFound }
         do {
             for (method, params) in ChromiumPageHostBridge.setupCalls(handlers: Self.chromiumFireAndForget,
                                                                        documentScripts: scripts.sources) {
@@ -216,6 +217,14 @@ extension PageWebView {
         externalLinkModifiers = modifiers
         let other = LinkRouter.isOtherTarget(modifiers)
         (onOpenExternal ?? { LinkRouter.shared.open($0, otherTarget: other) })(url)
+    }
+
+    /// Chromium's request for `url`, one of the page's dynamic paths: what the WebKit scheme handler
+    /// answers (``PageSchemeHandler/dynamicResponse(to:source:)``). A URL of another origin or
+    /// outside the page's dynamic prefixes is a 404 that never reaches ``dynamicResources``.
+    func chromiumResource(_ url: URL) async -> PageChromiumResponse {
+        guard let request = PageSchemeHandler.dynamicRequest(for: url, page: descriptor) else { return .notFound }
+        return await PageSchemeHandler.dynamicResponse(to: request, source: dynamicResources)
     }
 
     /// Types `text` into the focused editable element of a Chromium page (``PageInputReadiness``).

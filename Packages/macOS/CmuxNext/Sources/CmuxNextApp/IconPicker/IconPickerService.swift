@@ -133,8 +133,9 @@ final class IconPickerService {
         }
     }
 
-    /// The picker page's engine options.
-    static let engineOptions = PageEngineOptions.standard
+    /// The picker page's engine options: it shows in a floating glass panel that closes when it
+    /// loses the keys, and a Chromium page is an opaque child window that takes them.
+    static let engineOptions = PageEngineOptions(requiresWebKit: .transparentOverlay)
 
     private func makeWarm(catalog: IconPickerSymbolCatalog) -> Warm? {
         let provider = IconPickerProvider(prefs: prefs, catalog: catalog, maxEmojiVersion: maxEmojiVersion)
