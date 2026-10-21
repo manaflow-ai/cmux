@@ -58,13 +58,17 @@ public nonisolated struct MarkdownPageCommand {
 
     /// The file's viewer comments changed: `text` is the new `{v, comments}` JSON (the page redraws its markers).
     public static let comments = "comments"
-    public static let all: Set<String> = [zoomIn, zoomOut, zoomReset, save, link, resetTableWidths, resetContextTableWidths, comments]
+    /// Scrolls the document to its top (`markdownGoToTop`; a user's `g g` in a read-only page, K1).
+    public static let goToTop = "goToTop"
+    public static let all: Set<String> = [
+        zoomIn, zoomOut, zoomReset, save, link, resetTableWidths, resetContextTableWidths, comments, goToTop,
+    ]
 
     /// The page command each markdown action sends; back and forward are the shared page commands.
     public static let forAction: [String: String] = [
         "markdownZoomIn": zoomIn, "markdownZoomOut": zoomOut, "markdownZoomReset": zoomReset, "markdownSave": save,
         "markdownLink": link, "markdownBack": "back", "markdownForward": "forward",
-        "markdownResetTableWidths": resetTableWidths,
+        "markdownResetTableWidths": resetTableWidths, "markdownGoToTop": goToTop,
     ]
 }
 
