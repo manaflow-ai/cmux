@@ -111,15 +111,17 @@ def _online(label: str, runners: Sequence[Mapping[str, Any]]) -> int:
                if runner.get("status") == "online" and pool.carries_office_pool_label(runner, label))
 
 
-def side_route(label: str, runners: Sequence[Mapping[str, Any]] | None) -> str:
-    """The compatible side label with the most live room, or "" when no online runner carries one.
+def side_route(label: str, runners: Sequence[Mapping[str, Any]] | None, want: int = 0) -> str:
+    """The compatible side label the run's jobs take, or "" when no online runner carries one.
 
-    Live room is the runners API itself (the fleet's registered labels), not a
-    count kept in a variable: the most idle runners now, then the most online
-    (the queue that drains fastest), with ties to the job's own class. On
-    2026-10-20 at 22:16Z the light side label had 133 jobs queued on its 3
-    online runners while 51 std side runners sat idle; the light jobs could
-    have run on any of them.
+    The job's own class first, while its idle runners can take all `want`
+    jobs of the run. Otherwise the compatible label with the most live room:
+    the most idle runners now, then the most online (the queue that drains
+    fastest), ties to the own class. Live room is the runners API itself (the
+    fleet's registered labels), not a count kept in a variable. On 2026-10-20
+    at 22:22Z the light side label had 133 jobs queued on its 3 online
+    runners while 51 std side runners sat idle; the light jobs could have run
+    on any of them.
     """
     if runners is None or not label.startswith(pool.SIDE_PREFIX) or not pool.persistent(label):
         return ""
@@ -129,16 +131,18 @@ def side_route(label: str, runners: Sequence[Mapping[str, Any]] | None) -> str:
         if not online:
             continue
         here = (pool.live_owned_free(runners, [candidate])[candidate], online)
+        if candidate == label and want > 0 and here[0] >= want:
+            return candidate
         if not best or here > room:
             best, room = candidate, here
     return best
 
 
-def route_label(label: str, runners: Sequence[Mapping[str, Any]] | None) -> str:
+def route_label(label: str, runners: Sequence[Mapping[str, Any]] | None, want: int = 0) -> str:
     """side_route(), else the owned pool label while no compatible side runner is online."""
     if runners is None:
         return ""
-    return side_route(label, runners) or pool.pool_label(label)
+    return side_route(label, runners, want) or pool.pool_label(label)
 
 
 def _live_role_label(label: str, runners: Sequence[Mapping[str, Any]] | None, role) -> str:
@@ -201,7 +205,7 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
         return (), (), f"owned runners could not be read live; the jobs keep `{label}`"
     # The jobs take the compatible side label with the most room (side_route()), so idle runners
     # are counted where they go.
-    route = side_route(label, runners) or label
+    route = side_route(label, runners, len(jobs)) or label
     owned = pool.idle_placement(runners, route, jobs)
     # A busy fleet is a queue, not an instantaneous Blacksmith decision. The
     # rescue moves a job only after the side queue budget has elapsed.
@@ -226,7 +230,7 @@ def main(env: Mapping[str, str] = os.environ) -> int:
             print(f"::warning title=side-lane placement::could not list runners ({error})")
     owned, fallback, why = decide(env, runners)
     label = (env.get("SIDE_LABEL") or "").strip()
-    route = route_label(label, runners)
+    route = route_label(label, runners, len((env.get("JOBS") or "").split()))
     gui_route = gui_route_label(label, runners)
     session_route = session_route_label(label, runners)
     if route and route != label:

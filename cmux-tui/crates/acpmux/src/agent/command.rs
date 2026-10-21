@@ -349,7 +349,6 @@ mod tests {
     #[test]
     fn remote_scope_never_probes_a_profile_path_runner() {
         use std::io::Write as _;
-        use std::os::unix::fs::PermissionsExt;
         use std::process::{Command as StdCommand, Stdio};
 
         let root = std::env::temp_dir().join(format!("acpmux-remote-scope-{}", std::process::id()));
