@@ -174,15 +174,17 @@ await requireBrowserLane("agent-pane-long-prompt.test.ts", async () => {
     });
     expect(Math.abs(gap)).toBeLessThan(1);
 
-    const toggle = longRow.getByRole("button", { name: "Show more" });
+    // The toggle by its state, not its English words (REVIEW.md).
+    const toggle = longRow.locator(".cv-user__more");
+    expect(await toggle.getAttribute("aria-expanded")).toBe("false");
     await toggle.click();
-    await longRow.getByRole("button", { name: "Show less" }).waitFor();
+    await longRow.locator(".cv-user__more[aria-expanded='true']").waitFor();
     const open = await measure();
     expect(open.height).toBeGreaterThan(1000 * open.lineHeight);
     expect(open.mask === "none" || open.mask === "").toBe(true);
 
-    await longRow.getByRole("button", { name: "Show less" }).click();
-    await longRow.getByRole("button", { name: "Show more" }).waitFor();
+    await toggle.click();
+    await longRow.locator(".cv-user__more[aria-expanded='false']").waitFor();
     expect((await measure()).height).toBeLessThanOrEqual(10 * closed.lineHeight + 1);
 
     // The short prompt draws whole, with no toggle and no fade.
