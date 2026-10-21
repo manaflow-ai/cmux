@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import http.client
 import importlib.util
 import io
 import json
@@ -993,12 +994,17 @@ class FakeGitHub(janitor.GitHub):
         # Completed runs per workflow file, for the lost-assignment evidence listing.
         self.completed = {}
         self.refuse_rerun = set()
+        self.refuse_dispatch = False
+        # (method, path, body) of every POST.
+        self.bodies = []
         # Branch -> pull requests the GraphQL lookup answers with.
         self.prs = {}
 
     def request(self, method, path, body=None):
         self.calls += 1
         self.log.append((method, path))
+        if method == "POST":
+            self.bodies.append((method, path, body))
         path = path.replace("/repos/manaflow-ai/cmux", "", 1)
         if method == "POST" and path == "/graphql":
             variables = (body or {}).get("variables") or {}
@@ -1017,8 +1023,20 @@ class FakeGitHub(janitor.GitHub):
                  "archive_download_url": f"https://example.invalid/{index}",
                  "workflow_run": {"head_branch": "main", "repository_id": 1, "head_repository_id": 1}}
                 for index in range(len(self.snapshots))]}
+        if method == "POST" and path.startswith("/actions/workflows/") and path.endswith("/dispatches"):
+            if self.refuse_dispatch:
+                raise RuntimeError(f"POST {path} failed (422)")
+            return {}
         if method == "GET" and path.startswith("/actions/workflows/"):
             name = path.split("?", 1)[0].split("/")[3]
+            query = urllib.parse.parse_qs(path.split("?", 1)[1])
+            if "head_sha" in query:
+                # The runs of one workflow at one branch, event and head (newer_run_at_head()).
+                return {"workflow_runs": [dict(r) for r in self.runs.values()
+                                          if r["path"].endswith("/" + name)
+                                          and r["head_branch"] == query["branch"][0]
+                                          and r["event"] == query["event"][0]
+                                          and r["head_sha"] == query["head_sha"][0]]}
             return {"workflow_runs": [dict(r) for r in self.completed.get(name, [])]}
         parts = path.split("?", 1)[0].split("/")
         run_id = int(parts[3])
@@ -1362,6 +1380,70 @@ class LostAssignmentPlanTests(unittest.TestCase):
         # Not gated on a backed-up pool: one queued job is far under the threshold.
         self.assertFalse(result.over_threshold)
 
+    def test_pr_23694_swift_test_on_the_gui_pool_is_lost_at_the_open_pr_head(self):
+        # Run 39667716636 attempt 1 (PR #23694, head f4090b079d), the same pattern as job 119450713364:
+        # job 119458409272 `cmux-next swift test` on exactly glaeda-gui-std-xcode-26.6, created 20:11:17Z,
+        # never assigned, while newer gui-std jobs started (22:51Z, 23:07Z). Its wait starts when the
+        # run's last other job finished (Release compile, 22:33:32Z), so it is lost from 23:03:32Z.
+        gui = "glaeda-gui-std-xcode-26.6"
+        sha = "f4090b079dafb116fcd800023aef9ca1e1007f9d"
+        now = dt.datetime(2026, 10, 21, 23, 10, tzinfo=dt.timezone.utc)
+
+        def job(name, label, created, started=None, completed=None, conclusion=None, runner=None):
+            status = "completed" if completed else ("in_progress" if runner else "queued")
+            return {"name": name, "labels": [label], "status": status, "conclusion": conclusion,
+                    "created_at": created, "started_at": started or created, "completed_at": completed,
+                    "runner_id": runner or 0, "runner_name": f"runner-{runner}" if runner else None}
+
+        def world(sibling_conclusion):
+            run = {"id": 39667716636, "event": "pull_request", "status": "queued", "run_attempt": 1,
+                   "head_branch": "launch-frame/restore-first-frame", "head_sha": sha,
+                   "path": ".github/workflows/cmux-next.yml", "name": "cmux-next",
+                   "created_at": "2026-10-21T20:08:33Z", "triggering_actor": {"login": "teamleaderleo"},
+                   "head_repository": {"full_name": "manaflow-ai/cmux", "owner": {"login": "manaflow-ai"}},
+                   "pull_requests": [{"number": 23694}]}
+            jobs = [
+                job("cmux-next checks (god files, concurrency, crash safety, l10n)", LINUX, "2026-10-21T20:08:34Z",
+                    "2026-10-21T20:08:44Z", "2026-10-21T20:11:58Z", sibling_conclusion, 3258772),
+                job("cmux-next web bundles (source-keyed cache)", LINUX, "2026-10-21T20:09:06Z",
+                    "2026-10-21T20:09:10Z", "2026-10-21T20:11:17Z", "success", 3258992),
+                job("cmux-next Release compile (Xcode 26)", SIDE, "2026-10-21T20:09:22Z",
+                    "2026-10-21T22:23:49Z", "2026-10-21T22:33:32Z", "success", 1249742),
+                job("cmux-next generated files", "glaeda-session-std-xcode-26.6", "2026-10-21T20:11:17Z",
+                    "2026-10-21T20:13:06Z", "2026-10-21T20:13:18Z", sibling_conclusion, 2782319),
+                job("cmux-next swift test", gui, "2026-10-21T20:11:17Z"),
+            ]
+            other = make_run(branch="another-pr", sha="ccc", path=".github/workflows/cmux-next.yml",
+                             name="cmux-next")
+            served = [job("cmux-next swift test", gui, "2026-10-21T22:20:00Z", "2026-10-21T22:26:00Z",
+                          "2026-10-21T22:40:00Z", "success", 11),
+                      job("cmux-next swift test", gui, "2026-10-21T22:46:00Z", "2026-10-21T22:51:00Z",
+                          "2026-10-21T23:05:00Z", "success", 12),
+                      job("cmux-next swift test", gui, "2026-10-21T23:01:00Z", "2026-10-21T23:07:00Z", runner=13)]
+            return run, other, {run["id"]: jobs, other["id"]: served}
+
+        pr = make_pr(23694, head=sha)
+        for sibling_conclusion, rerun in (("failure", False), ("success", True)):
+            with self.subTest(sibling_conclusion=sibling_conclusion):
+                run, other, jobs = world(sibling_conclusion)
+                lost = janitor.find_lost([run, other], jobs, now=now)
+                self.assertEqual(lost[run["id"]].job_name, "cmux-next swift test")
+                self.assertEqual(lost[run["id"]].labels, gui)
+                # 22:26Z was created before the wait began; 22:51Z and 23:07Z are the evidence.
+                self.assertEqual(lost[run["id"]].skipped, 2)
+                result = janitor.build_plan([run, other], jobs, {run["head_branch"]: [pr], "another-pr": []},
+                                            threshold=6, max_cancels=10, pull_request_policy="compile-only",
+                                            now=now)
+                decision = decision_for(result, run)
+                self.assertEqual((decision.action, decision.candidate.category), ("cancel", "lost"))
+                self.assertIn("PR #23694", decision.candidate.reason)
+                # As it happened, two other jobs had already failed, so it is cancelled but not re-run;
+                # a run with no failure is re-run once.
+                self.assertEqual(decision.candidate.rerun, rerun)
+        # Before 23:03:32Z it had not waited 30 minutes since it could run.
+        run, other, jobs = world("success")
+        self.assertEqual(janitor.find_lost([run, other], jobs, now=now - dt.timedelta(minutes=7)), {})
+
     def test_a_job_younger_than_thirty_minutes_is_left_alone(self):
         stuck, other, jobs = lost_world(age=25, evidence_age=20)
         self.assertEqual(plan([stuck, other], jobs, {PIN_BRANCH: []}).decisions, [])
@@ -1441,18 +1523,38 @@ class LostAssignmentPlanTests(unittest.TestCase):
         self.assertEqual(decision.action, "cancel")
         self.assertFalse(decision.candidate.rerun)
 
-    def test_a_bot_re_run_is_cancelled_but_never_re_run_again(self):
+    def test_a_bot_re_run_at_the_pr_head_is_left_to_the_rescue_and_the_orphan_pass(self):
         for actor in ("github-actions[bot]", "cmux-bot[bot]"):
             with self.subTest(actor=actor):
                 stuck, other, jobs = lost_world(age=85, event="pull_request", branch="feature", attempt=2,
                                                 actor=actor)
                 decision = decision_for(plan([stuck, other], jobs, {"feature": [make_pr(5)]}), stuck)
+                self.assertEqual(decision.action, "skip")
+                self.assertIn("bot", decision.note)
+                # Nobody reads a superseded bot re-run, so that one still goes.
+                stuck, other, jobs = lost_world(age=85, event="pull_request", branch="feature", attempt=2,
+                                                actor=actor)
+                decision = decision_for(plan([stuck, other], jobs, {"feature": [make_pr(5, head="bbb")]}), stuck)
                 self.assertEqual(decision.action, "cancel")
                 self.assertFalse(decision.candidate.rerun)
         # A person's re-run is theirs to ask for again.
         stuck, other, jobs = lost_world(age=85, event="pull_request", branch="feature", attempt=2, actor="leo")
         self.assertTrue(decision_for(plan([stuck, other], jobs, {"feature": [make_pr(5)]}), stuck)
                         .candidate.rerun)
+
+    def test_a_newer_run_at_the_same_head_takes_over_so_the_cancel_asks_for_no_rerun(self):
+        # A `labeled` run queued behind the lost run in ci.yml's concurrency group: re-running the
+        # old one would replay `synchronize` with cancel-in-progress and kill the newer one.
+        for newer_path in (".github/workflows/ci.yml", ".github/workflows/cmux-tui.yml"):
+            with self.subTest(newer_path=newer_path):
+                stuck, other, jobs = lost_world(age=85, event="pull_request", branch="feature")
+                stuck.update(path=newer_path, name="CI" if newer_path.endswith("ci.yml") else "cmux-tui")
+                newer = make_run(event="pull_request", branch="feature", sha="aaa", status="pending", age=20,
+                                 path=newer_path)
+                decision = decision_for(plan([stuck, other, newer], jobs, {"feature": [make_pr(5)]}), stuck)
+                self.assertEqual((decision.action, decision.candidate.category), ("cancel", "lost"))
+                self.assertFalse(decision.candidate.rerun)
+                self.assertIn(str(newer["id"]), decision.candidate.reason)
 
     def test_without_re_run_state_the_current_head_is_left_alone(self):
         stuck, other, jobs = lost_world(age=85, event="pull_request", branch="feature")
@@ -1465,6 +1567,7 @@ class LostAssignmentPlanTests(unittest.TestCase):
     def test_never_candidates_are_never_touched(self):
         for event, branch, name, path in (
                 ("push", "main", "CI", ".github/workflows/ci.yml"),
+                ("push", "feat-cmux-next", "CI", ".github/workflows/ci.yml"),
                 ("merge_group", "gh-readonly-queue/main/pr-1-abc", "CI", ".github/workflows/ci.yml"),
                 ("schedule", "main", "Some check", ".github/workflows/check.yml"),
                 ("workflow_dispatch", "main", "CI", ".github/workflows/ci.yml"),
@@ -1568,13 +1671,13 @@ class LostRerunPlanTests(unittest.TestCase):
     def test_cancelled_run_still_at_the_open_pr_head_is_re_run(self):
         run = self.cancelled()
         decisions = janitor.plan_lost_reruns([pending_entry(run)], {run["id"]: run}, {"feature": [make_pr(5)]},
-                                             now=NOW)
+                                             now=NOW, head_runs={run["id"]: []})
         self.assertEqual([d.action for d in decisions], ["rerun"])
 
     def test_a_cancel_that_has_not_settled_is_kept_for_the_next_sweep(self):
         run = self.cancelled(status="in_progress", conclusion=None)
         decisions = janitor.plan_lost_reruns([pending_entry(run)], {run["id"]: run}, {"feature": [make_pr(5)]},
-                                             now=NOW)
+                                             now=NOW, head_runs={run["id"]: []})
         self.assertEqual([d.action for d in decisions], ["keep"])
 
     def test_a_moved_closed_or_opted_out_pr_is_never_re_run(self):
@@ -1582,7 +1685,7 @@ class LostRerunPlanTests(unittest.TestCase):
             with self.subTest(pr=pr["state"]):
                 run = self.cancelled()
                 decisions = janitor.plan_lost_reruns([pending_entry(run)], {run["id"]: run}, {"feature": [pr]},
-                                                     now=NOW)
+                                                     now=NOW, head_runs={run["id"]: []})
                 self.assertEqual([d.action for d in decisions], ["drop"])
 
     def test_someone_elses_re_run_or_another_conclusion_drops_it(self):
@@ -1590,14 +1693,37 @@ class LostRerunPlanTests(unittest.TestCase):
         finished = self.cancelled(conclusion="success")
         decisions = janitor.plan_lost_reruns(
             [pending_entry(rerun), pending_entry(finished)], {rerun["id"]: rerun, finished["id"]: finished},
-            {"feature": [make_pr(5)]}, now=NOW)
+            {"feature": [make_pr(5)]}, now=NOW, head_runs={rerun["id"]: [], finished["id"]: []})
         self.assertEqual([d.action for d in decisions], ["drop", "drop"])
 
     def test_an_unreadable_run_is_kept_and_an_old_entry_expires(self):
         run = self.cancelled()
         decisions = janitor.plan_lost_reruns([pending_entry(run), pending_entry(run, age=60 * 7)], {},
-                                             {"feature": [make_pr(5)]}, now=NOW)
+                                             {"feature": [make_pr(5)]}, now=NOW, head_runs={})
         self.assertEqual([d.action for d in decisions], ["keep", "drop"])
+
+    def test_a_newer_run_at_the_head_drops_the_re_run(self):
+        run = self.cancelled()
+        newer = make_run(branch="feature", sha="aaa", status="completed")
+        newer["conclusion"] = "success"
+        decisions = janitor.plan_lost_reruns([pending_entry(run)], {run["id"]: run}, {"feature": [make_pr(5)]},
+                                             now=NOW, head_runs={run["id"]: [run, newer]})
+        self.assertEqual([d.action for d in decisions], ["drop"])
+        self.assertIn(str(newer["id"]), decisions[0].note)
+        # A newer run that was cancelled took nothing over; another branch, head, workflow or event is
+        # not this run's.
+        cancelled = dict(newer, conclusion="cancelled")
+        unrelated = [make_run(branch="other", sha="aaa", status="queued"),
+                     make_run(branch="feature", sha="bbb", status="queued"),
+                     make_run(branch="feature", sha="aaa", path=".github/workflows/other.yml", status="queued"),
+                     make_run(event="push", branch="feature", sha="aaa", status="queued")]
+        decisions = janitor.plan_lost_reruns([pending_entry(run)], {run["id"]: run}, {"feature": [make_pr(5)]},
+                                             now=NOW, head_runs={run["id"]: [cancelled, *unrelated]})
+        self.assertEqual([d.action for d in decisions], ["rerun"])
+        # Not listed this sweep: unknown, so kept.
+        decisions = janitor.plan_lost_reruns([pending_entry(run)], {run["id"]: run}, {"feature": [make_pr(5)]},
+                                             now=NOW, head_runs={})
+        self.assertEqual([d.action for d in decisions], ["keep"])
 
     def test_new_pending_entries_come_only_from_cancels_that_took(self):
         runs = [make_run(branch=f"b{index}") for index in range(4)]
@@ -1651,15 +1777,45 @@ class LostAssignmentSweepTests(unittest.TestCase):
             self.assertIn("re-ran", text)
             self.assertEqual(fake.runs[stuck["id"]]["run_attempt"], 2)
 
-            # Sweep 3: the janitor's re-run lost its runner again -> cancelled, never re-run a second time.
+            # Sweep 3: the janitor's re-run lost its runner again -> left to the rescue and the
+            # orphan pass, never re-run a second time.
             fake.log.clear()
             code, text = self.sweep(fake, temp)
-            self.assertEqual(fake.posts(), [[str(stuck["id"]), "cancel"]])
-            self.assertEqual(fake.snapshots[-1]["lost_reruns"], [])
-            fake.runs[stuck["id"]]["conclusion"] = "cancelled"
-            fake.log.clear()
-            self.sweep(fake, temp)
             self.assertEqual(fake.posts(), [])
+            self.assertEqual(fake.snapshots[-1]["lost_reruns"], [])
+
+    def test_a_newer_run_at_the_head_before_the_re_run_gets_none(self):
+        stuck, other, jobs = lost_world(age=85, event="pull_request", branch="feature")
+        newer = make_run(event="pull_request", branch="feature", sha="aaa", status="completed", age=20,
+                         path=stuck["path"])
+        newer["conclusion"] = "success"
+        fake = FakeGitHub({stuck["id"]: dict(stuck, status="completed", conclusion="cancelled"),
+                           newer["id"]: newer}, {})
+        fake.prs["feature"] = [make_pr(5)]
+        fake.snapshots.append({"generated_at": iso(10), "pools": {}, "lost_reruns": [pending_entry(stuck)]})
+        with tempfile.TemporaryDirectory() as temp:
+            self.sweep(fake, temp)
+        self.assertEqual(fake.posts(), [])
+        self.assertEqual(fake.snapshots[-1]["lost_reruns"], [])
+
+    def test_a_ci_re_run_dispatches_ui_tests_for_the_new_attempt(self):
+        for refuse in (False, True):
+            with self.subTest(refuse_dispatch=refuse):
+                stuck, other, jobs = lost_world(age=85, event="pull_request", branch="feature")
+                stuck.update(path=".github/workflows/ci.yml", name="CI")
+                fake = FakeGitHub({stuck["id"]: dict(stuck, status="completed", conclusion="cancelled")}, {})
+                fake.refuse_dispatch = refuse
+                fake.prs["feature"] = [make_pr(5)]
+                fake.snapshots.append({"generated_at": iso(10), "pools": {}, "lost_reruns": [pending_entry(stuck)]})
+                with tempfile.TemporaryDirectory() as temp:
+                    code, text = self.sweep(fake, temp)
+                # A dispatch GitHub refused is a warning: the re-run itself took.
+                self.assertEqual(code, 0)
+                self.assertEqual(fake.posts(), [[str(stuck["id"]), "rerun-failed-jobs"],
+                                                ["ci-ui-tests.yml", "dispatches"]])
+                self.assertEqual(fake.bodies[-1][2], {"ref": "main", "inputs": {"run_id": str(stuck["id"]),
+                                                                               "run_attempt": "2"}})
+                self.assertEqual(fake.snapshots[-1]["lost_reruns"], [])
 
     def test_a_pr_head_that_moved_before_the_re_run_gets_none(self):
         stuck, other, jobs = lost_world(age=85, event="pull_request", branch="feature")
@@ -1692,14 +1848,17 @@ class LostAssignmentSweepTests(unittest.TestCase):
         self.assertEqual(fake.posts(), [[str(stuck["id"]), "rerun-failed-jobs"]])
 
     def test_an_unreadable_previous_state_leaves_the_current_head_alone(self):
-        stuck, other, jobs = lost_world(age=85, event="pull_request", branch="feature")
-        fake = FakeGitHub({stuck["id"]: dict(stuck), other["id"]: dict(other)}, jobs)
-        fake.prs["feature"] = [make_pr(5)]
-        with tempfile.TemporaryDirectory() as temp, \
-                mock.patch.object(janitor, "previous_lost_reruns", side_effect=RuntimeError("boom")):
-            self.sweep(fake, temp)
-        self.assertEqual(fake.posts(), [])
-        self.assertNotIn("lost_reruns", fake.snapshots[-1])
+        for error in (RuntimeError("boom"), http.client.IncompleteRead(b""), KeyError("archive_download_url")):
+            with self.subTest(error=type(error).__name__):
+                stuck, other, jobs = lost_world(age=85, event="pull_request", branch="feature")
+                fake = FakeGitHub({stuck["id"]: dict(stuck), other["id"]: dict(other)}, jobs)
+                fake.prs["feature"] = [make_pr(5)]
+                with tempfile.TemporaryDirectory() as temp, \
+                        mock.patch.object(janitor, "previous_lost_reruns", side_effect=error):
+                    code, _ = self.sweep(fake, temp)
+                self.assertEqual(code, 0)
+                self.assertEqual(fake.posts(), [])
+                self.assertNotIn("lost_reruns", fake.snapshots[-1])
 
 
 if __name__ == "__main__":
