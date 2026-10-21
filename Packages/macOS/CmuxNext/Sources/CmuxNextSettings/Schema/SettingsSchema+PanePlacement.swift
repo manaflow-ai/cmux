@@ -6,7 +6,7 @@ nonisolated enum PanePlacementSettingsSchema {
     /// Agents may change them all: layout choices, like `layout.dockColumnMode`.
     static var agentSettableKeys: Set<String> {
         [CmuxConfigSnapshot.newPanePlacementPath, CmuxConfigSnapshot.tileBrowsersPath, LinkPlacement.configPath,
-         MainPaneSetting.configPath]
+         MainPaneSetting.configPath, ChatLinkTarget.configPath]
             .reduce(into: []) { $0.insert($1.joined(separator: ".")) }
     }
 
@@ -37,7 +37,7 @@ nonisolated enum PanePlacementSettingsSchema {
                 LinkPlacement.configPath, section: .general, group: columns,
                 title: SettingsText.keyed("settings.layout.linkPlacement", "Open Links and Files"),
                 help: SettingsText.keyed("settings.layout.linkPlacement.help",
-                                        "Where a link or file you Command-click in a terminal or a browser page appears. Split Right uses the pane on the right, or makes one. What you open from an agent chat, Home or another page opens as a tab in its own pane."),
+                                        "Where a link or file you Command-click in a terminal or a browser page appears. Split Right uses the pane on the right, or makes one. What you open from Home or another page opens as a tab in its own pane."),
                 kind: .choice([
                     SettingChoice(LinkPlacement.splitRight.rawValue, SettingsText.keyed("settings.choice.linkPlacementSplitRight", "Split Right")),
                     SettingChoice(LinkPlacement.newColumn.rawValue, SettingsText.keyed("settings.choice.linkPlacementNewColumn", "New Column on the Right")),
@@ -45,6 +45,19 @@ nonisolated enum PanePlacementSettingsSchema {
                 ]),
                 default: .string(LinkPlacement.fallback.rawValue),
                 keywords: ["link", "url", "path", "file", "open", "split", "right", "column", "pane", "tab"]
+            ),
+            SettingDescriptor(
+                ChatLinkTarget.configPath, section: .general, group: columns,
+                title: SettingsText.keyed("settings.links.openTarget", "Open Links from Agent Chats"),
+                help: SettingsText.keyed("settings.links.openTarget.help",
+                                        "Where a web link you click in an agent chat opens. Rightmost Split uses the split furthest right on the chat's screen, or makes a split beside the chat when the chat is furthest right. The chat is never covered. Command-click opens the link there in the background."),
+                kind: .choice([
+                    SettingChoice(ChatLinkTarget.rightmost.rawValue, SettingsText.keyed("settings.choice.chatLinkRightmost", "Rightmost Split")),
+                    SettingChoice(ChatLinkTarget.newSplit.rawValue, SettingsText.keyed("settings.choice.chatLinkNewSplit", "New Split on the Right")),
+                    SettingChoice(ChatLinkTarget.sameTab.rawValue, SettingsText.keyed("settings.choice.chatLinkSameTab", "Tab in the Chat's Pane")),
+                ]),
+                default: .string(ChatLinkTarget.fallback.rawValue),
+                keywords: ["link", "url", "chat", "agent", "open", "split", "right", "rightmost", "side", "pane", "tab"]
             ),
             SettingDescriptor(
                 MainPaneSetting.configPath, section: .general, group: columns,

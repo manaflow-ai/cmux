@@ -133797,127 +133797,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Where a link or file you Command-click in a terminal or a browser page appears. Split Right uses the pane on the right, or makes one. What you open from an agent chat, Home or another page opens as a tab in its own pane."
+            "value": "Where a link or file you Command-click in a terminal or a browser page appears. Split Right uses the pane on the right, or makes one. What you open from Home or another page opens as a tab in its own pane."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "المكان الذي يظهر فيه رابط أو ملف تنقر عليه مع Command في طرفية أو صفحة متصفح. يستخدم «تقسيم إلى اليمين» اللوحة الموجودة على اليمين، أو ينشئ واحدة. ما تفتحه من محادثة وكيل أو الصفحة الرئيسية أو صفحة أخرى يُفتح كعلامة تبويب في لوحته."
+            "value": "المكان الذي يظهر فيه رابط أو ملف تنقر عليه مع Command في طرفية أو صفحة متصفح. يستخدم «تقسيم إلى اليمين» اللوحة الموجودة على اليمين، أو ينشئ واحدة. ما تفتحه من الصفحة الرئيسية أو صفحة أخرى يُفتح كعلامة تبويب في لوحته."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gdje se pojavljuje link ili fajl na koji kliknete uz Command u terminalu ili na stranici preglednika. Podijeli desno koristi okno s desne strane ili ga pravi. Ono što otvorite iz chata s agentom, Početne ili druge stranice otvara se kao kartica u istom oknu."
+            "value": "Gdje se pojavljuje link ili fajl na koji kliknete uz Command u terminalu ili na stranici preglednika. Podijeli desno koristi okno s desne strane ili ga pravi. Ono što otvorite iz Početne ili druge stranice otvara se kao kartica u istom oknu."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hvor et link eller en fil, du Kommando-klikker på i en terminal eller en browserside, vises. Opdel til højre bruger ruden til højre eller opretter en. Det, du åbner fra en agentchat, Hjem eller en anden side, åbner som en fane i samme rude."
+            "value": "Hvor et link eller en fil, du Kommando-klikker på i en terminal eller en browserside, vises. Opdel til højre bruger ruden til højre eller opretter en. Det, du åbner fra Hjem eller en anden side, åbner som en fane i samme rude."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wo ein Link oder eine Datei erscheint, die du in einem Terminal oder auf einer Browserseite mit gedrückter Befehlstaste anklickst. „Rechts teilen“ nutzt den Bereich rechts oder legt einen an. Was du aus einem Agent-Chat, Home oder einer anderen Seite öffnest, öffnet sich als Tab im selben Bereich."
+            "value": "Wo ein Link oder eine Datei erscheint, die du in einem Terminal oder auf einer Browserseite mit gedrückter Befehlstaste anklickst. „Rechts teilen“ nutzt den Bereich rechts oder legt einen an. Was du aus Home oder einer anderen Seite öffnest, öffnet sich als Tab im selben Bereich."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dónde aparece un enlace o archivo en el que haces clic con Comando en una terminal o una página del navegador. Dividir a la derecha usa el panel de la derecha o crea uno. Lo que abres desde un chat de agente, Inicio u otra página se abre como pestaña en su propio panel."
+            "value": "Dónde aparece un enlace o archivo en el que haces clic con Comando en una terminal o una página del navegador. Dividir a la derecha usa el panel de la derecha o crea uno. Lo que abres desde Inicio u otra página se abre como pestaña en su propio panel."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Où s’affiche un lien ou un fichier sur lequel vous cliquez avec Commande dans un terminal ou une page du navigateur. Diviser à droite utilise le panneau de droite ou en crée un. Ce que vous ouvrez depuis une discussion d’agent, l’Accueil ou une autre page s’ouvre dans un onglet de son propre panneau."
+            "value": "Où s’affiche un lien ou un fichier sur lequel vous cliquez avec Commande dans un terminal ou une page du navigateur. Diviser à droite utilise le panneau de droite ou en crée un. Ce que vous ouvrez depuis l’Accueil ou une autre page s’ouvre dans un onglet de son propre panneau."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dove appare un link o un file su cui fai clic con Comando in un terminale o in una pagina del browser. Dividi a destra usa il riquadro a destra o ne crea uno. Ciò che apri da una chat con un agente, Home o un’altra pagina si apre come scheda nel suo riquadro."
+            "value": "Dove appare un link o un file su cui fai clic con Comando in un terminale o in una pagina del browser. Dividi a destra usa il riquadro a destra o ne crea uno. Ciò che apri da Home o da un’altra pagina si apre come scheda nel suo riquadro."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ターミナルやブラウザのページで Command キーを押しながらクリックしたリンクやファイルを表示する場所です。「右に分割」は右側のペインを使い、なければ作成します。エージェントチャット、ホーム、その他のページから開いたものは、そのペインのタブとして開きます。"
+            "value": "ターミナルやブラウザのページで Command キーを押しながらクリックしたリンクやファイルを表示する場所です。「右に分割」は右側のペインを使い、なければ作成します。ホームやその他のページから開いたものは、そのペインのタブとして開きます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "កន្លែងដែលតំណ ឬឯកសារដែលអ្នកចុចជាមួយ Command នៅក្នុងស្ថានីយ ឬទំព័រកម្មវិធីរុករក បង្ហាញ។ «បំបែកទៅស្តាំ» ប្រើផ្ទាំងនៅខាងស្តាំ ឬបង្កើតផ្ទាំងថ្មី។ អ្វីដែលអ្នកបើកពីការជជែកជាមួយភ្នាក់ងារ ទំព័រដើម ឬទំព័រផ្សេងទៀត បើកជាថេបនៅក្នុងផ្ទាំងរបស់វាផ្ទាល់។"
+            "value": "កន្លែងដែលតំណ ឬឯកសារដែលអ្នកចុចជាមួយ Command នៅក្នុងស្ថានីយ ឬទំព័រកម្មវិធីរុករក បង្ហាញ។ «បំបែកទៅស្តាំ» ប្រើផ្ទាំងនៅខាងស្តាំ ឬបង្កើតផ្ទាំងថ្មី។ អ្វីដែលអ្នកបើកពីទំព័រដើម ឬទំព័រផ្សេងទៀត បើកជាថេបនៅក្នុងផ្ទាំងរបស់វាផ្ទាល់។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "터미널이나 브라우저 페이지에서 Command 클릭한 링크나 파일이 나타나는 위치입니다. 오른쪽으로 분할은 오른쪽 패널을 사용하거나 새로 만듭니다. 에이전트 채팅, 홈 또는 다른 페이지에서 연 항목은 해당 패널의 탭으로 열립니다."
+            "value": "터미널이나 브라우저 페이지에서 Command 클릭한 링크나 파일이 나타나는 위치입니다. 오른쪽으로 분할은 오른쪽 패널을 사용하거나 새로 만듭니다. 홈 또는 다른 페이지에서 연 항목은 해당 패널의 탭으로 열립니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hvor en lenke eller fil du Kommando-klikker på i en terminal eller en nettleserside, vises. Del til høyre bruker ruten til høyre, eller lager en. Det du åpner fra en agentchat, Hjem eller en annen side, åpnes som en fane i samme rute."
+            "value": "Hvor en lenke eller fil du Kommando-klikker på i en terminal eller en nettleserside, vises. Del til høyre bruker ruten til høyre, eller lager en. Det du åpner fra Hjem eller en annen side, åpnes som en fane i samme rute."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gdzie pojawia się link lub plik kliknięty z klawiszem Command w terminalu lub na stronie przeglądarki. Podziel w prawo używa panelu po prawej albo go tworzy. To, co otworzysz z czatu z agentem, strony głównej lub innej strony, otwiera się jako karta w tym samym panelu."
+            "value": "Gdzie pojawia się link lub plik kliknięty z klawiszem Command w terminalu lub na stronie przeglądarki. Podziel w prawo używa panelu po prawej albo go tworzy. To, co otworzysz ze strony głównej lub innej strony, otwiera się jako karta w tym samym panelu."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Onde aparece um link ou arquivo em que você clica com Command em um terminal ou em uma página do navegador. Dividir à Direita usa o painel à direita ou cria um. O que você abre em um chat de agente, no Início ou em outra página abre como aba no próprio painel."
+            "value": "Onde aparece um link ou arquivo em que você clica com Command em um terminal ou em uma página do navegador. Dividir à Direita usa o painel à direita ou cria um. O que você abre no Início ou em outra página abre como aba no próprio painel."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Где появляется ссылка или файл, по которым вы щёлкнули с Command в терминале или на странице браузера. «Разделить вправо» использует панель справа или создаёт её. То, что вы открываете из чата с агентом, «Главной» или другой страницы, открывается вкладкой в той же панели."
+            "value": "Где появляется ссылка или файл, по которым вы щёлкнули с Command в терминале или на странице браузера. «Разделить вправо» использует панель справа или создаёт её. То, что вы открываете из «Главной» или другой страницы, открывается вкладкой в той же панели."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ตำแหน่งที่ลิงก์หรือไฟล์ที่คุณกด Command ค้างแล้วคลิกในเทอร์มินัลหรือหน้าเบราว์เซอร์จะแสดง แยกไปทางขวาจะใช้แผงทางขวา หรือสร้างขึ้นใหม่ สิ่งที่คุณเปิดจากแชทเอเจนต์ หน้าหลัก หรือหน้าอื่นจะเปิดเป็นแท็บในแผงเดียวกัน"
+            "value": "ตำแหน่งที่ลิงก์หรือไฟล์ที่คุณกด Command ค้างแล้วคลิกในเทอร์มินัลหรือหน้าเบราว์เซอร์จะแสดง แยกไปทางขวาจะใช้แผงทางขวา หรือสร้างขึ้นใหม่ สิ่งที่คุณเปิดจากหน้าหลักหรือหน้าอื่นจะเปิดเป็นแท็บในแผงเดียวกัน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bir terminalde veya tarayıcı sayfasında Command ile tıkladığınız bağlantı ya da dosyanın göründüğü yer. Sağa Böl, sağdaki bölmeyi kullanır veya bir tane oluşturur. Ajan sohbetinden, Ana Sayfa'dan veya başka bir sayfadan açtığınız şey kendi bölmesinde bir sekme olarak açılır."
+            "value": "Bir terminalde veya tarayıcı sayfasında Command ile tıkladığınız bağlantı ya da dosyanın göründüğü yer. Sağa Böl, sağdaki bölmeyi kullanır veya bir tane oluşturur. Ana Sayfa'dan veya başka bir sayfadan açtığınız şey kendi bölmesinde bir sekme olarak açılır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Де з’являється посилання або файл, на які ви клацнули з Command у терміналі чи на сторінці браузера. «Розділити праворуч» використовує панель праворуч або створює її. Те, що ви відкриваєте з чату з агентом, «Головної» чи іншої сторінки, відкривається вкладкою в тій самій панелі."
+            "value": "Де з’являється посилання або файл, на які ви клацнули з Command у терміналі чи на сторінці браузера. «Розділити праворуч» використовує панель праворуч або створює її. Те, що ви відкриваєте з «Головної» чи іншої сторінки, відкривається вкладкою в тій самій панелі."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nơi liên kết hoặc tệp bạn Command-click trong terminal hoặc trang trình duyệt xuất hiện. Chia sang phải dùng ngăn bên phải, hoặc tạo một ngăn mới. Những gì bạn mở từ cuộc trò chuyện với tác tử, Trang chủ hoặc trang khác sẽ mở thành thẻ trong chính ngăn đó."
+            "value": "Nơi liên kết hoặc tệp bạn Command-click trong terminal hoặc trang trình duyệt xuất hiện. Chia sang phải dùng ngăn bên phải, hoặc tạo một ngăn mới. Những gì bạn mở từ Trang chủ hoặc trang khác sẽ mở thành thẻ trong chính ngăn đó."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在终端或浏览器页面中按住 Command 点按的链接或文件显示的位置。“向右拆分”使用右侧的窗格，没有则新建一个。从智能体聊天、主页或其他页面打开的内容，会在其所在窗格中以标签页打开。"
+            "value": "在终端或浏览器页面中按住 Command 点按的链接或文件显示的位置。“向右拆分”使用右侧的窗格，没有则新建一个。从主页或其他页面打开的内容，会在其所在窗格中以标签页打开。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在終端機或瀏覽器頁面中按住 Command 點按的連結或檔案顯示的位置。「向右分割」使用右側的窗格，沒有則新建一個。從代理程式聊天、首頁或其他頁面打開的內容，會在其所在窗格中以分頁打開。"
+            "value": "在終端機或瀏覽器頁面中按住 Command 點按的連結或檔案顯示的位置。「向右分割」使用右側的窗格，沒有則新建一個。從首頁或其他頁面打開的內容，會在其所在窗格中以分頁打開。"
           }
         }
       }
@@ -153899,6 +153899,661 @@
           "stringUnit": {
             "state": "translated",
             "value": "永不"
+          }
+        }
+      }
+    },
+    "settings.links.openTarget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Links from Agent Chats"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح الروابط من محادثات الوكلاء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otvaranje linkova iz chatova s agentima"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbn links fra agentchats"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Links aus Agent-Chats öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir enlaces de chats de agentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir les liens des discussions d’agents"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri link dalle chat con gli agenti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントチャットのリンクを開く場所"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើកតំណពីការជជែកជាមួយភ្នាក់ងារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 채팅의 링크 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åpne lenker fra agentchatter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otwieranie linków z czatów z agentami"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir links de chats de agentes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открытие ссылок из чатов с агентами"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดลิงก์จากแชทเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan Sohbetlerindeki Bağlantıları Aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкриття посилань із чатів з агентами"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mở liên kết từ cuộc trò chuyện với tác tử"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开智能体聊天中的链接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打開代理程式聊天中的連結"
+          }
+        }
+      }
+    },
+    "settings.links.openTarget.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Where a web link you click in an agent chat opens. Rightmost Split uses the split furthest right on the chat's screen, or makes a split beside the chat when the chat is furthest right. The chat is never covered. Command-click opens the link there in the background."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مكان فتح رابط ويب تنقر عليه في محادثة وكيل. يستخدم «أقصى تقسيم يمينًا» التقسيم الأبعد إلى اليمين في شاشة المحادثة، أو ينشئ تقسيمًا بجانب المحادثة عندما تكون هي الأبعد إلى اليمين. لا تُغطّى المحادثة أبدًا. النقر مع Command يفتح الرابط هناك في الخلفية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdje se otvara web link na koji kliknete u chatu s agentom. Krajnja desna podjela koristi podjelu najdalje desno na ekranu chata ili pravi podjelu pored chata kada je chat najdalje desno. Chat se nikada ne prekriva. Klik uz Command otvara link tamo u pozadini."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor et weblink, du klikker på i en agentchat, åbner. Opdeling længst til højre bruger opdelingen længst til højre på chattens skærm, eller laver en opdeling ved siden af chatten, når chatten er længst til højre. Chatten bliver aldrig dækket. Kommando-klik åbner linket der i baggrunden."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wo sich ein Weblink öffnet, den du in einem Agent-Chat anklickst. „Teilung ganz rechts“ nutzt die Teilung ganz rechts auf dem Bildschirm des Chats oder legt neben dem Chat eine an, wenn der Chat ganz rechts ist. Der Chat wird nie verdeckt. Ein Klick mit gedrückter Befehlstaste öffnet den Link dort im Hintergrund."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dónde se abre un enlace web en el que haces clic en un chat de agente. División más a la derecha usa la división situada más a la derecha en la pantalla del chat, o crea una junto al chat cuando el chat es el que está más a la derecha. El chat nunca queda tapado. Hacer clic con Comando abre el enlace allí en segundo plano."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Où s’ouvre un lien web sur lequel vous cliquez dans une discussion d’agent. Division la plus à droite utilise la division la plus à droite de l’écran de la discussion, ou en crée une à côté de la discussion quand celle-ci est la plus à droite. La discussion n’est jamais masquée. Un clic avec Commande y ouvre le lien en arrière-plan."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dove si apre un link web su cui fai clic in una chat con un agente. Divisione più a destra usa la divisione più a destra nello schermo della chat, o ne crea una accanto alla chat quando la chat è la più a destra. La chat non viene mai coperta. Il clic con Comando apre il link lì in background."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントチャットでクリックした Web リンクを開く場所です。「一番右の分割」はチャットの画面で一番右にある分割を使い、チャット自体が一番右にあるときはチャットの横に分割を作ります。チャットが隠れることはありません。Command キーを押しながらクリックすると、そこでバックグラウンドで開きます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កន្លែងដែលតំណគេហទំព័រដែលអ្នកចុចក្នុងការជជែកជាមួយភ្នាក់ងារបើក។ «ការបំបែកខាងស្តាំបំផុត» ប្រើការបំបែកដែលនៅខាងស្តាំបំផុតលើអេក្រង់នៃការជជែក ឬបង្កើតការបំបែកនៅក្បែរការជជែក នៅពេលការជជែកនៅខាងស្តាំបំផុត។ ការជជែកមិនដែលត្រូវបានគ្របបាំងទេ។ ការចុចជាមួយ Command បើកតំណនៅទីនោះនៅផ្ទៃខាងក្រោយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 채팅에서 클릭한 웹 링크가 열리는 위치입니다. 가장 오른쪽 분할은 채팅 화면에서 가장 오른쪽에 있는 분할을 사용하고, 채팅이 가장 오른쪽에 있으면 채팅 옆에 분할을 만듭니다. 채팅은 절대 가려지지 않습니다. Command 클릭하면 그곳에서 백그라운드로 열립니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor en nettlenke du klikker på i en agentchat, åpnes. Deling lengst til høyre bruker delingen lengst til høyre på chattens skjerm, eller lager en deling ved siden av chatten når chatten er lengst til høyre. Chatten blir aldri dekket. Kommando-klikk åpner lenken der i bakgrunnen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdzie otwiera się link internetowy kliknięty w czacie z agentem. Podział najbardziej po prawej używa podziału położonego najdalej w prawo na ekranie czatu albo tworzy podział obok czatu, gdy to czat jest najdalej w prawo. Czat nigdy nie jest zasłaniany. Kliknięcie z klawiszem Command otwiera tam link w tle."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Onde abre um link da web em que você clica em um chat de agente. Divisão Mais à Direita usa a divisão mais à direita na tela do chat, ou cria uma ao lado do chat quando o chat é o mais à direita. O chat nunca fica coberto. Clicar com Command abre o link lá em segundo plano."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Где открывается веб-ссылка, по которой вы щёлкнули в чате с агентом. «Крайнее правое разделение» использует самое правое разделение на экране чата или создаёт разделение рядом с чатом, когда чат находится справа. Чат никогда не закрывается. Щелчок с Command открывает ссылку там в фоне."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตำแหน่งที่ลิงก์เว็บที่คุณคลิกในแชทเอเจนต์จะเปิด ส่วนแยกขวาสุดจะใช้ส่วนแยกที่อยู่ขวาสุดบนหน้าจอของแชท หรือสร้างส่วนแยกข้างแชทเมื่อแชทอยู่ขวาสุด แชทจะไม่ถูกบังเลย การกด Command ค้างแล้วคลิกจะเปิดลิงก์ที่นั่นในเบื้องหลัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir ajan sohbetinde tıkladığınız web bağlantısının açıldığı yer. En Sağdaki Bölme, sohbetin ekranında en sağdaki bölmeyi kullanır; sohbet en sağdaysa sohbetin yanında bir bölme oluşturur. Sohbet asla örtülmez. Command ile tıklamak bağlantıyı orada arka planda açar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Де відкривається вебпосилання, на яке ви клацнули в чаті з агентом. «Крайній правий поділ» використовує найправіший поділ на екрані чату або створює поділ поруч із чатом, коли чат найправіший. Чат ніколи не закривається. Клацання з Command відкриває посилання там у фоні."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nơi liên kết web bạn nhấp trong cuộc trò chuyện với tác tử được mở. Ô chia ngoài cùng bên phải dùng ô chia xa nhất bên phải trên màn hình của cuộc trò chuyện, hoặc tạo một ô chia cạnh cuộc trò chuyện khi cuộc trò chuyện ở xa nhất bên phải. Cuộc trò chuyện không bao giờ bị che. Command-click mở liên kết ở đó trong nền."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在智能体聊天中点按的网页链接打开的位置。“最右侧拆分”使用聊天所在屏幕上最右侧的拆分；聊天本身在最右侧时，则在聊天旁新建一个拆分。聊天永远不会被遮住。按住 Command 点按会在那里于后台打开链接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在代理程式聊天中點按的網頁連結打開的位置。「最右側分割」使用聊天所在螢幕上最右側的分割；聊天本身在最右側時，則在聊天旁新增一個分割。聊天永遠不會被遮住。按住 Command 點按會在那裡於背景打開連結。"
+          }
+        }
+      }
+    },
+    "settings.choice.chatLinkRightmost": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rightmost Split"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أقصى تقسيم يمينًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Krajnja desna podjela"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opdeling længst til højre"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teilung ganz rechts"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "División más a la derecha"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Division la plus à droite"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Divisione più a destra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一番右の分割"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការបំបែកខាងស្តាំបំផុត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가장 오른쪽 분할"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deling lengst til høyre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podział najbardziej po prawej"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Divisão Mais à Direita"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Крайнее правое разделение"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่วนแยกขวาสุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En Sağdaki Bölme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Крайній правий поділ"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ô chia ngoài cùng bên phải"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最右侧拆分"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最右側分割"
+          }
+        }
+      }
+    },
+    "settings.choice.chatLinkNewSplit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Split on the Right"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تقسيم جديد على اليمين"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nova podjela desno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ny opdeling til højre"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neue Teilung rechts"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nueva división a la derecha"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouvelle division à droite"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuova divisione a destra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右に新しく分割"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការបំបែកថ្មីនៅខាងស្តាំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오른쪽에 새 분할"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ny deling til høyre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nowy podział po prawej"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nova Divisão à Direita"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новое разделение справа"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่วนแยกใหม่ทางขวา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sağda Yeni Bölme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новий поділ праворуч"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ô chia mới bên phải"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在右侧新建拆分"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在右側新增分割"
+          }
+        }
+      }
+    },
+    "settings.choice.chatLinkSameTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab in the Chat's Pane"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "علامة تبويب في لوحة المحادثة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kartica u oknu chata"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fane i chattens rude"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab im Bereich des Chats"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pestaña en el panel del chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Onglet dans le panneau de la discussion"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scheda nel riquadro della chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットのペインのタブ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថេបក្នុងផ្ទាំងនៃការជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 패널의 탭"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fane i chattens rute"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Karta w panelu czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aba no Painel do Chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкладка в панели чата"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แท็บในแผงของแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbetin Bölmesinde Sekme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкладка в панелі чату"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thẻ trong ngăn của cuộc trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天窗格中的标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天窗格中的分頁"
           }
         }
       }

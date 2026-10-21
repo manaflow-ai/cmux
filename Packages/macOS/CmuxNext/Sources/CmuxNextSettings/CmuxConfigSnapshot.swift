@@ -122,6 +122,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var linkPlacement: LinkPlacement = .fallback
     /// `layout.mainPane`: whether an agent chat is its screen's main pane (``MainPaneSetting``).
     public var mainPane: MainPaneSetting = .fallback
+    /// `links.openTarget`: where a link opened from an agent chat lands (``ChatLinkTarget``).
+    public var chatLinkTarget: ChatLinkTarget = .fallback
     /// `workspaces.newPlacement` (`WorkspaceListSettings`).
     public var newWorkspacePlacement: NewWorkspacePlacement = CmuxConfigSnapshot.newWorkspacePlacementFallback
     /// `layout.closeFocus`; "previousNeighbor" when unset or invalid.
