@@ -380,6 +380,7 @@
         "CmuxGhosttyKit",
         "CmuxHomeCore",
         "CmuxHomeRender",
+        "CmuxInstallAuthCore",
         "CmuxMessagesLab",
         "CmuxUpdater"
       ],

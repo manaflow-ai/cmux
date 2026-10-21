@@ -1440,6 +1440,8 @@ let package = Package(
                 .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
+                // MacInstallTeamAuthTests signs team challenges with the install key.
+                .product(name: "CmuxInstallAuthCore", package: "CmuxInstallAuthCore"),
                 // UpdateLoadingIndicatorTests feeds Sparkle's update states.
                 .product(name: "CmuxUpdater", package: "CmuxUpdater"),
                 // ReduceMotionLoopTests builds the vendored Home typing indicators.
