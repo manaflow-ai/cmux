@@ -457,5 +457,8 @@ final class BrowserDownloadRowEventView: NSView, NSDraggingSource {
 /// The popup's content: a click on a control (a footer button) acts on the
 /// first click, also while the popup opened without the keys.
 final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
+    // A main-actor generic class's isolated deinit crashes the Release compile (swift-frontend 6.3, macOS 14 target).
+    nonisolated deinit {}
+
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
