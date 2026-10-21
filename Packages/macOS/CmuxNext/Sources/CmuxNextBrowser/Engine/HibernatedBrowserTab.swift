@@ -111,11 +111,13 @@ private final class SnapshotView: NSImageView {
         }
     }
 
-    /// `image` drawn into a bitmap of its size and color space (a page picture is opaque).
+    /// `image` drawn into a bitmap of its size and color space, keeping its alpha if it has one
+    /// (a page with a transparent background).
     private nonisolated static func decoded(_ image: CGImage) -> CGImage {
+        let opaque = [CGImageAlphaInfo.none, .noneSkipFirst, .noneSkipLast].contains(image.alphaInfo)
         guard let context = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: 0,
                                       space: image.colorSpace ?? CGColorSpaceCreateDeviceRGB(),
-                                      bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return image }
+                                      bitmapInfo: (opaque ? CGImageAlphaInfo.noneSkipLast : .premultipliedLast).rawValue) else { return image }
         context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
         return context.makeImage() ?? image
     }

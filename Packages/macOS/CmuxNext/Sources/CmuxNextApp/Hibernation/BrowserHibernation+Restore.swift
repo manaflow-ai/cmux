@@ -90,12 +90,12 @@ extension BrowserHibernation {
     /// Records when the woken page's load ends (finished or failed), bounded: a page that is
     /// still loading after 15 s records none.
     private func timeLoad(_ key: String, page: any BrowserTab) {
-        Task { @MainActor [weak self] in
+        Task { @MainActor [weak self, weak page] in
             let ended = try? await ControlDeadline.shared.run(method: "hibernation.wake", deadline: .now + .seconds(15)) { @MainActor in
-                for await ended in ObservationStream({ Self.loadEnded(page.state.phase) }) where ended { return true }
+                for await ended in ObservationStream({ page.map { Self.loadEnded($0.state.phase) } ?? true }) where ended { return true }
                 return false
             }
-            guard let self, self.cache?.browsers[key]?.tab === page else { return }
+            guard let self, let page, self.cache?.browsers[key]?.tab === page else { return }
             self.wakeLog.loaded(key, ended: ended == true)
         }
     }

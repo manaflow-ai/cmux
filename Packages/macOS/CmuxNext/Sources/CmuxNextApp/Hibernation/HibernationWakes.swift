@@ -6,7 +6,7 @@ import CmuxNextSettings
 /// (`loaded_ms`, nil while it loads or when it did not end within 15 s), whether a snapshot
 /// covered the pane meanwhile, and whether the tab was shown when it came back (a neighbor or a
 /// hover wakes it hidden).
-struct HibernationWakes {
+nonisolated struct HibernationWakes {
     struct Wake: Equatable {
         let tab: String
         let engine: BrowserEngineKind

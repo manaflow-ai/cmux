@@ -284,15 +284,21 @@ import Testing
             document.getElementById('name').value = 'Ada'; document.getElementById('notes').value = 'two\\nlines';
             window.scrollTo(0, 3000); true
             """, world: .page)
+        // WebKit writes the scroll position into the page's history item once scrolling has
+        // stopped for a moment; a person's page hibernates minutes later.
+        try await Task.sleep(for: .seconds(1))
         let key = try await rig.hide(page)
         try await rig.until("the page hibernated") { rig.isHibernated(key) || rig.exemption(key) != nil }
         try #require(rig.isHibernated(key))
         rig.services.cache.present(key, by: rig.pane, presence: .visible)
         let state = "JSON.stringify([document.getElementById('name')?.value, document.getElementById('notes')?.value, Math.round(window.scrollY)])"
-        try await rig.until("the woken page has its state back") {
+        var seen = "no page"
+        try await rig.until("the woken page has its state back (it has \(seen))") {
             guard let woken = rig.services.cache.browsers[key]?.tab as? WebKitTab else { return false }
             if rig.window.contentView !== woken.contentView { rig.window.contentView = woken.contentView }
-            return (try? await woken.evaluate(state, world: .page)) == .string(#"["Ada","two\nlines",3000]"#)
+            let value = try? await woken.evaluate(state, world: .page)
+            seen = String(describing: value)
+            return value == .string(#"["Ada","two\nlines",3000]"#)
         }
     }
 
@@ -395,10 +401,10 @@ import Testing
         func isHibernated(_ key: String) -> Bool { services.cache.browsers[key]?.tab is HibernatedBrowserTab }
         func exemption(_ key: String) -> HibernationPlanner.Exemption? { hibernation.exemptions[key] }
 
-        func until(_ what: String, _ condition: () async -> Bool) async throws {
+        func until(_ what: @autoclosure () -> String, _ condition: () async -> Bool) async throws {
             let deadline = ContinuousClock.now + .seconds(15)
             while !(await condition()), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(25)) }
-            try #require(await condition(), "\(what) never happened")
+            try #require(await condition(), "\(what()) never happened")
         }
 
         func close() {

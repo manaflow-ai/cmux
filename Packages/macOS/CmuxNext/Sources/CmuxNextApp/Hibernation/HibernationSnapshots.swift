@@ -58,7 +58,8 @@ final class HibernationSnapshots {
     nonisolated static let maxPixels = 16 << 20
 
     /// `image` as a JPEG at most `maxPixels` large (same aspect and color space), encoded on a
-    /// background task; nil when ImageIO cannot encode it.
+    /// background task; a PNG when it has transparent pixels, which JPEG would turn black (a page
+    /// with a transparent background); nil when ImageIO cannot encode it.
     nonisolated static func compress(_ image: CGImage, quality: Double = 0.8) async -> Picture? {
         await Task.detached(priority: .userInitiated) { compressed(image, quality: quality) }.value
     }
@@ -70,11 +71,24 @@ final class HibernationSnapshots {
             ? TabPreviewFitting.fitted(image, CGSize(width: Double(image.width) * scale, height: Double(image.height) * scale))
             : image
         let data = NSMutableData()
-        guard let destination = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
+        let type = isOpaque(source) ? UTType.jpeg : UTType.png
+        guard let destination = CGImageDestinationCreateWithData(data, type.identifier as CFString, 1, nil) else { return nil }
         CGImageDestinationAddImage(destination, source, [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary)
         guard CGImageDestinationFinalize(destination),
               let reader = CGImageSourceCreateWithData(data, nil),
               let decoded = CGImageSourceCreateImageAtIndex(reader, 0, [kCGImageSourceShouldCache: false] as CFDictionary) else { return nil }
         return Picture(data: data as Data, image: decoded)
+    }
+
+    /// True when `image` has no alpha, or no transparent pixel in a 32 x 32 sample of it (a
+    /// transparent background spans most of a page; an engine's opaque picture often has alpha).
+    nonisolated static func isOpaque(_ image: CGImage) -> Bool {
+        if [CGImageAlphaInfo.none, .noneSkipFirst, .noneSkipLast].contains(image.alphaInfo) { return true }
+        let side = 32
+        guard let context = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+              let pixels = context.data?.bindMemory(to: UInt8.self, capacity: side * side * 4) else { return false }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
+        return stride(from: 3, to: side * side * 4, by: 4).allSatisfy { pixels[$0] == 255 }
     }
 }
