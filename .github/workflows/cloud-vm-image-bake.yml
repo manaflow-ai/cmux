@@ -8,6 +8,9 @@ name: Cloud VM image bake
 #   gh workflow run cloud-vm-image-bake.yml -R manaflow-ai/cmux \
 #     --ref feat-cmux-next -f mode=bake
 #
+# Add -f team_vm=true to bake the team VM image (TEAM_VM_SNAPSHOT) instead of
+# the personal Cloud image (CLOUD_FREESTYLE_SNAPSHOT).
+#
 # A dispatch runs the file at --ref, so feat-cmux-next's inputs and jobs win;
 # these inputs only mirror them for the Actions form.
 on:
@@ -38,6 +41,11 @@ on:
         type: boolean
       agent_tools:
         description: Bake the agent tools (browser role baked, on-demand agent display and computer use, tool dir for acpmux; dev snapshots only, bead cx-h8n)
+        required: false
+        default: false
+        type: boolean
+      team_vm:
+        description: Bake the team VM image (TEAM_VM_SNAPSHOT; adds the team files root /srv/team, bead cx-cemg); the smoke checks /srv/team and the candidate records var TEAM_VM_SNAPSHOT
         required: false
         default: false
         type: boolean
