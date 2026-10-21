@@ -58,7 +58,7 @@ async function rowsOf(history: ReturnType<typeof record>): Promise<AcpmuxRow[]> 
 }
 
 /// A client attached to `history`, its attach page the newest `page` events; `loadOlder` reads the rest.
-async function clientOf(history: ReturnType<typeof record>, page = history.length) {
+async function clientOf(history: ReturnType<typeof record>, page = history.length, status = "running") {
   let socket: any;
   const session = {
     sessionId: CHAT,
@@ -66,7 +66,7 @@ async function clientOf(history: ReturnType<typeof record>, page = history.lengt
     title: "x",
     harness: "claude",
     family: "claude",
-    status: "running",
+    status,
     steering: false,
     turnCount: 1,
     updatedAt: START,
@@ -441,4 +441,88 @@ test("a turn that failed while a Send now waited still shows its failure", async
   const next = rows.find((row) => row.kind === "user" && row.text === "also check the logout path")!;
   expect(next.continues).toBeUndefined();
   expect(rows.some((row) => row.kind === "turnSummary" && row.status === "failed" && !row.continued)).toBe(true);
+});
+
+/// The chain up to acpmux taking the Send now: `p-2` waits, sent now, while turn-1 runs.
+const sentNow: Step[] = steerChain.slice(0, 6);
+const cancelAt = (seconds: number): Step => ["mux", "turn_result", { status: "cancelled", turnId: "turn-1" }, seconds];
+/// The drawn turn of the first prompt reads "You stopped after", and its summary ends the turn.
+function readsStopped(rows: AcpmuxRow[], working = false) {
+  const view = turnView(rows, new Set(), { working });
+  const stopped = view.filter((row) => row.kind === WORKED && row.status === "cancelled");
+  expect(stopped).toHaveLength(1);
+  expect(workedLabel(translate, stopped[0]!)).toBe(translate("turn.stopped", { time: "55s" }));
+  const summary = rows.find((row) => row.kind === "turnSummary")!;
+  expect(summary.continued).toBeUndefined();
+  expect(view.some((row) => row.kind === "turnSummary" && row.status === "cancelled")).toBe(true);
+}
+
+for (const replay of [false, true]) {
+  const how = replay ? "replayed" : "live";
+  /// Rows after `steps`: attached at once (replayed), or the chain's start attached and the rest live.
+  const after = async (steps: Step[], status = "running", end: Step[] = []) => {
+    const all = record([...steps, ...end]);
+    if (replay) return (await clientOf(all, all.length, status)).rows();
+    const head = all.slice(0, 2);
+    const { rows, push } = await clientOf(head, head.length, status);
+    push(all.slice(2));
+    return rows();
+  };
+
+  test(`a Send now removed before the turn ends leaves the turn stopped (${how})`, async () => {
+    readsStopped(
+      await after([...sentNow, ["mux", "queue_removed", { promptId: "p-2", turnId: "turn-2" }, 54], cancelAt(55)]),
+    );
+  });
+
+  test(`a Send now withdrawn after the turn ended leaves the turn stopped (${how})`, async () => {
+    readsStopped(
+      await after([
+        ...sentNow,
+        cancelAt(55),
+        ["mux", "queue_removed", { promptId: "p-2", turnId: "turn-2", reason: "withdrawn" }, 56],
+      ]),
+    );
+  });
+
+  test(`a Send now refused at dispatch leaves the turn stopped once the chat is idle (${how})`, async () => {
+    // acpmux took it from the queue, then refused it (`prompt_refused`, not streamed to the pane).
+    readsStopped(
+      await after(
+        [...sentNow, cancelAt(55), ["mux", "dequeued", { promptId: "p-2" }, 55]],
+        "idle",
+        replay ? [] : [["mux", "status", { status: "idle" }, 56]],
+      ),
+    );
+  });
+
+  test(`a Send now refused with its record leaves the turn stopped (${how})`, async () => {
+    readsStopped(
+      await after([
+        ...sentNow,
+        cancelAt(55),
+        ["mux", "dequeued", { promptId: "p-2" }, 55],
+        ["mux", "prompt_refused", { promptId: "p-2", turnId: "turn-2", error: "refused" }, 55],
+      ]),
+    );
+  });
+
+  test(`a Send now that runs while the chat reads idle for a moment still continues the turn (${how})`, async () => {
+    const rows = await after(steerChain, "idle");
+    const view = turnView(rows, new Set(), { working: true });
+    expect(view.some((row) => row.kind === WORKED && row.status === "cancelled")).toBe(false);
+    expect(rows.find((row) => row.text === "also check the logout path")?.continues).toBe(true);
+  });
+}
+
+test("Stop, then Send now before the cancel lands: the turn reads stopped", async () => {
+  const head = record(sentNow.slice(0, 4));
+  const { client, rows, push } = await clientOf(head);
+  await client.cancel();
+  push(
+    record([...sentNow, cancelAt(55)])
+      .slice(4)
+      .map((event, index) => ({ ...event, seq: head.length + 1 + index })),
+  );
+  readsStopped(rows());
 });
