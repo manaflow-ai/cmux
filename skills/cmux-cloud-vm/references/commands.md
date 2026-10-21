@@ -13,18 +13,23 @@ no `vm.*` socket method on the CLI, and no `cmux rpc`.
 - **Run** with `cmux <noun> <verb> [--target machine:vm-…] [--<arg> <value>] [--wait]`
   or `cmux action run <id> …` with the same flags. `--wait` waits for the action's
   work to finish. `--json` prints the result object.
-- **Target:** `--target machine:vm-…`. Without it, a machine action applies to the
-  focused cloud workspace's machine. The copy actions (machine id, link, port)
+- **Target:** `--target machine:vm-…`, required from the CLI or MCP: a machine
+  action run without it is refused (only a person's own click falls back to the
+  machine in front of them). The copy actions (machine id, link, port)
   are menu-only: the CLI never writes the clipboard.
-- **Results** are action results. No action returns command output, a file, a
-  listing or a URL on stdout, even with `--json`. Read and list actions show
-  their result to the person in an app toast with a Copy button.
+- **Results** come back in the action result's `result` object (`--json` prints it);
+  nothing opens on the person's screen. `cloud exec` returns `exit_code`, `stdout` and
+  `stderr`; `new-machine` returns `machine_id` and `target` (or `pending: true` while
+  the server still provisions); `new-terminal-on-machine` returns `workspace_id`;
+  `machine-status`, `machine-ports`, `machine-tools`, `hand-off-machine`,
+  `snapshot-machine` (`snapshot_id`, or `pending`), the file actions, `prepare-scp`
+  and the network, firewall, domain and publication lists return `text` and their fields.
 - **Exit codes:** `0` success, `1` action failure, `2` usage, `3` app unreachable.
 
 ## Machine actions
 
 ```bash
-cmux cloud new-machine                                      # New Cloud Machine… sheet
+cmux cloud new-machine                                      # answers machine_id (or pending)
 cmux cloud new-workspace                                    # New Cloud Workspace
 cmux cloud open-machine --target machine:vm-…
 cmux cloud new-terminal-on-machine --target machine:vm-…
@@ -49,7 +54,7 @@ cmux workspace new-on-machine --machine machine:vm-…
 
 ```bash
 cmux cloud ssh --target machine:vm-…                           # opens an SSH terminal
-cmux cloud exec --target machine:vm-… --command '<cmd>'        # runs in a new terminal
+cmux cloud exec --target machine:vm-… --command '<cmd>'        # exit_code, stdout, stderr (25 s cap)
 cmux cloud files-list --target machine:vm-… --path <dir>
 cmux cloud file-read --target machine:vm-… --path <file>
 cmux cloud file-write --target machine:vm-… --path <file> --contents '<text>'
@@ -59,11 +64,11 @@ cmux cloud file-stat --target machine:vm-… --path <file>
 cmux cloud prepare-scp --target machine:vm-…                   # takes an SSH public key
 ```
 
-`cloud exec` and `cloud ssh` start a terminal; read its output inside that
-terminal, not from the action result. `files-list`, `file-read`, `file-stat` and
-`prepare-scp` show their result in an app toast for the person, not to the CLI;
-to read a file or listing yourself, run `cat` or `ls` in a terminal on the
-machine. Run `cmux action describe "cloud prepare-scp"`
+From the CLI, `cloud exec` runs the command through the Cloud API and returns its
+exit code and output (a person's run types it into a new terminal instead); for a
+command longer than 25 s, open a terminal on the machine. `cloud ssh` starts a
+terminal. `files-list`, `file-read` (`text`, or `data_base64` for binary), `file-stat`
+and `prepare-scp` return their result to the CLI. Run `cmux action describe "cloud prepare-scp"`
 for the public-key argument's flag.
 
 ## Networks, domains and chat moves
@@ -113,11 +118,11 @@ and `vm ls`. See [guest operations](guest.md).
 | Old verb | Closest supported path |
 | --- | --- |
 | `vm ls`, `vm route`, `vm tree`, `vm self`, `surface ls` | none on the Mac; `cmux self` and `cmux self peers` inside a machine |
-| `vm new\|create` with `--size`, `--name`, `--desktop`, `--detach` | `cmux cloud new-machine` (the sheet) |
+| `vm new\|create` with `--size`, `--name`, `--desktop`, `--detach` | `cmux cloud new-machine` (returns `machine_id`) |
 | `vm exec`, `vm run`, `vm dev`, `vm agent` | `cmux cloud exec --command …`, or open a terminal on the machine and use `cmux workspace current run -- <argv>` or `cmux agent <harness>` there |
 | `vm terminal send\|read\|wait\|wait-exit\|output\|close` from the Mac | the same work with `cmux terminal <term_…> write\|screen read\|screen wait\|process wait\|output read\|close` inside the machine |
 | `vm push\|upload` | `cmux cloud file-write --path <file> --contents …`, or `cmux cloud prepare-scp` then scp |
-| `vm pull\|download` | read the file in a terminal on the machine; `file-read` only shows it to the person in a toast |
+| `vm pull\|download` | `cmux cloud file-read --target machine:vm-… --path <file>` |
 | `vm layout export\|apply`, `vm env set\|ls\|rm` from the Mac | `cmux layout …` and `cmux env …` inside the machine |
 | `vm open`, `vm shell`, `vm tui`, `vm desktop`, `surface open\|new-terminal` | `cmux cloud open-machine`, `cmux cloud new-terminal-on-machine` |
 | `vm open <id> <port>`, `vm ports` | `cmux cloud machine-ports`; copy the link from the machine's menu (Copy Machine Link) |

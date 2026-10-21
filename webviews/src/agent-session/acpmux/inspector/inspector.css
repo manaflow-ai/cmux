@@ -1,7 +1,9 @@
 /* The Inspector (ChatInspector.tsx): the chat's right-hand panel. Push (a setting): a column in the shell's
    flex row beside the chat, which reflows narrower. Overlay (the default): the same column over the chat's right
-   side, with a shadow. Its width comes from the viewer's drag (inline style); it fades in, and the
-   width never animates. Sections are hairline cards a step lighter than the page; rows are 28px;
+   side, with a shadow, from under the chat header (--acpmux-inspector-top, the header's height) to the pane's
+   foot: the header's tools, its own toggle among them, stay above it, and like the pushed column it
+   lies beside the composer's right side. Its width comes from the viewer's drag (inline style); it slides in from the right
+   and back out, and the width never animates. Sections are hairline cards a step lighter than the page; rows are 28px;
    a long list scrolls inside its section. */
 .acpmux-chat-inspector {
   position: relative;
@@ -22,20 +24,19 @@
 .acpmux-chat-inspector[data-placement="overlay"] {
   position: absolute;
   z-index: var(--layer-overlay);
-  top: 0;
+  top: var(--acpmux-inspector-top, 0px);
   right: 0;
   bottom: 0;
   box-shadow: var(--elevation-2);
 }
-@media (prefers-reduced-motion: no-preference) {
-  .acpmux-chat-inspector {
-    animation: acpmux-chat-inspector-in 120ms var(--acpmux-motion-ease, ease-out);
-  }
+/* It slides in from the pane's right edge and back out (ui/presence.ts, data-presence): pushing, it
+   travels its own width inside the pane (the shell clips it), so the chat lays out once, not on
+   every frame; over the chat, the panel's few points. */
+.acpmux-chat-inspector[data-placement="push"] {
+  --ui-enter-distance: 100%;
 }
-@keyframes acpmux-chat-inspector-in {
-  from {
-    opacity: 0;
-  }
+.acpmux-chat-inspector[data-placement="overlay"] {
+  --ui-enter-distance: 24px;
 }
 .acpmux-chat-inspector[data-resizing] {
   user-select: none;

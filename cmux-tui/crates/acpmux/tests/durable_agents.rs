@@ -1471,6 +1471,101 @@ async fn queued_prompts_survive_a_quit_that_ends_the_agent() {
     queue_survives_restart(&mut daemon, Daemon::sigterm, false).await;
 }
 
+/// Two image blocks, and their attachment ids.
+fn shots() -> Vec<(Value, String)> {
+    use base64::Engine;
+    [b"first shot".as_slice(), b"second shot".as_slice()]
+        .iter()
+        .enumerate()
+        .map(|(i, bytes)| {
+            let data = base64::engine::general_purpose::STANDARD.encode(bytes);
+            let block = json!({"type": "image", "mimeType": "image/png", "data": data, "name": format!("shot{i}.png")});
+            let id: String =
+                <sha2::Sha256 as sha2::Digest>::digest(bytes).iter().map(|b| format!("{b:02x}")).collect();
+            (block, id)
+        })
+        .collect()
+}
+
+/// Queues a prompt with two images behind a gated turn, edits it with `edit` (`queue_edit`
+/// `update` params) if given, restarts the daemon for an update, and checks the queue that comes
+/// back: its row names the images `kept` (indexes into the two), reads them back, and the agent
+/// gets them after `text` when the prompt runs.
+async fn queued_images_survive_restart(
+    name: &str,
+    edit: Option<Value>,
+    text: &str,
+    kept: &[usize],
+) {
+    let mut daemon = Daemon::new(name, "approve-all");
+    let (session, gate, mut client) = gated_turn_without_host(&daemon).await;
+    let shots = shots();
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "two shots"}, shots[0].0, shots[1].0], "_meta": {"acpmux": {"promptId": "q-img"}}}),
+        )
+        .await;
+    daemon.wait_event(&session, "queued record", |e| {
+        e["kind"] == "queued" && e["msg"]["promptId"] == "q-img"
+    });
+    if let Some(edit) = edit {
+        let mut rpc = daemon.rpc().await;
+        let mut params = json!({"sessionId": session, "promptId": "q-img", "op": "update"});
+        params.as_object_mut().unwrap().extend(edit.as_object().unwrap().clone());
+        let edited = rpc.call("_acpmux/queue_edit", params).await;
+        assert_eq!(edited["ok"], true, "{edited}");
+        drop(rpc);
+    }
+
+    daemon.sigterm();
+    drop(client);
+    daemon.start();
+
+    let mut rpc = daemon.rpc().await;
+    let attached = rpc.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
+    let names: Vec<Value> = kept
+        .iter()
+        .map(
+            |&i| json!({"id": shots[i].1, "mimeType": "image/png", "name": format!("shot{i}.png")}),
+        )
+        .collect();
+    assert_eq!(attached["session"]["queue"][0]["prompt"], text, "{attached:#}");
+    assert_eq!(attached["session"]["queue"][0]["images"], json!(names), "{attached:#}");
+    for &i in kept {
+        let read =
+            rpc.call("_acpmux/attachment", json!({"sessionId": session, "id": shots[i].1})).await;
+        assert_eq!(read["data"], shots[i].0["data"], "{read}");
+    }
+
+    let _ = std::fs::OpenOptions::new()
+        .write(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(&gate)
+        .and_then(|mut f| std::io::Write::write_all(&mut f, b"go"));
+    let images: String = kept.iter().map(|&i| format!(" image:{}", shots[i].1)).collect();
+    let echo = format!("echo: {text}{images}");
+    daemon.wait_event(&session, "the queued prompt's answer", |e| chunk(e, &echo));
+}
+
+/// A queued prompt's images come back with the queue after an update restart (Leo, 2026-10-21):
+/// its row lists them and reads them back, and the agent gets them when it runs.
+#[tokio::test]
+async fn a_queued_prompts_images_survive_an_update_restart() {
+    queued_images_survive_restart("qimg", None, "two shots", &[0, 1]).await;
+}
+
+/// An edited queued prompt comes back after an update restart with the images its edit kept:
+/// a text edit keeps both, and an edit that names one keeps that one.
+#[tokio::test]
+async fn an_edited_queued_prompts_images_survive_an_update_restart() {
+    let text = Some(json!({"text": "two shots, edited"}));
+    queued_images_survive_restart("qimg-text", text, "two shots, edited", &[0, 1]).await;
+    let second = shots()[1].1.clone();
+    let one = Some(json!({"text": "the second shot", "images": [second]}));
+    queued_images_survive_restart("qimg-one", one, "the second shot", &[1]).await;
+}
+
 /// A queue reordered and edited (`_acpmux/queue_edit`) comes back that way after a crash.
 #[tokio::test]
 async fn queue_ops_edits_survive_a_daemon_crash() {

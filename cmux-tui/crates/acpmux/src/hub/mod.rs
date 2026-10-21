@@ -4,6 +4,7 @@
 //! (export, import), `views` (summaries), `handoff` (a reviewed first message to another harness),
 //! `adoption` (resuming a harness's own session), `models_view` (the picker's model lists).
 
+mod activity;
 mod adoption;
 mod agent_pairs;
 pub use agent_pairs::PairGuard;
@@ -20,6 +21,8 @@ mod complete;
 pub mod composers;
 mod cursor_ext;
 mod digest;
+pub(crate) mod file_uploads;
+pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 mod fork;
 mod fork_at;
 pub mod forum;
@@ -102,8 +105,10 @@ mod remote_sandbox;
 pub use remote_sandbox::vm_host_peer_approves;
 mod start_gate;
 mod subsession_answer;
+mod subsession_send;
 pub mod subsessions;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
+pub use subsession_send::Delivery;
 mod drafts;
 pub mod rules;
 mod transcript;
@@ -148,12 +153,12 @@ pub const IDLE_CHILD: std::time::Duration = std::time::Duration::from_secs(5 * 6
 /// Git hash and date stamped at build time (see build.rs).
 pub const BUILD: &str = env!("ACPMUX_BUILD");
 
-/// Fan-out item: one appended record for one session. `remote` carries the
-/// peer name and the peer's session summary when the session lives elsewhere.
+/// Fan-out item: one appended record for one session, shared by every receiver, never copied.
+/// `remote` carries the peer name and the peer's summary when the session lives elsewhere.
 #[derive(Debug, Clone)]
 pub struct HubEvent {
     pub session_id: String,
-    pub record: EventRecord,
+    pub record: Arc<EventRecord>,
     pub remote: Option<RemoteRef>,
 }
 
@@ -199,6 +204,11 @@ pub struct TurnInfo {
     /// Who prompted (or steered) this turn. A Web turn never uses the chat
     /// allowance: each eligible permission in it still asks.
     pub control: Control,
+    /// What the turn does right now, one line: its latest tool call's title,
+    /// else its plan's step in progress (`activity.rs`). None until either.
+    pub activity: Option<String>,
+    /// Its plan's entry in progress, one line (`activity.rs`).
+    pub plan_step: Option<String>,
 }
 
 /// Options for `Hub::prompt_with`.
@@ -866,7 +876,7 @@ impl Hub {
         }
         let _ = self.events.send(HubEvent {
             session_id: session.id.clone(),
-            record: record.clone(),
+            record: Arc::new(record.clone()),
             remote: None,
         });
         (record, stored)
@@ -1080,6 +1090,36 @@ impl Hub {
         {
             tracing::warn!(session = %session.id, "delete of a purged session failed: {e}");
         }
+    }
+
+    /// Lists the temporary folders of sessions this daemon no longer has
+    /// (`agent/session_tmp.rs`) and removes them on a thread of their own.
+    /// The daemon calls it before its socket serves, so no session starts
+    /// between the list and the store it is checked against.
+    #[cfg(unix)]
+    pub fn sweep_session_tmp(&self) {
+        let metas = match self.store.list() {
+            Ok(m) => m,
+            Err(e) => {
+                tracing::warn!("session tmp sweep skipped, the store did not list: {e}");
+                return;
+            }
+        };
+        let known: std::collections::HashSet<&str> = metas.iter().map(|m| m.id.as_str()).collect();
+        let closed: std::collections::HashSet<&str> = metas
+            .iter()
+            .filter(|m| m.status == SessionStatus::Closed)
+            .map(|m| m.id.as_str())
+            .collect();
+        // A session whose record did not list still has its folder.
+        let stored =
+            |id: &str| known.contains(id) || self.store.session_dir(id).is_some_and(|d| d.exists());
+        let stale = crate::agent::session_tmp::stale_for_daemon(&stored, &|id| closed.contains(id));
+        if stale.is_empty() {
+            return;
+        }
+        tracing::info!(count = stale.len(), "removing temporary folders of forgotten sessions");
+        std::thread::spawn(move || crate::agent::session_tmp::remove_all(&stale));
     }
 
     pub(super) fn set_status(&self, session: &Session, status: SessionStatus) {

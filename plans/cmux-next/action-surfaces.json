@@ -17226,7 +17226,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Open Site Settings of Blocked Download",
+      "title" : "Open Site Settings for Blocked Downloads",
       "title_key" : "action.browser.download.openBlockedSiteSettings",
       "title_table" : "ActionCatalog"
     },
@@ -20509,7 +20509,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Toggle Tab Unread",
+      "title" : "Mark Tab Read\/Unread",
       "title_key" : "action.toggleUnread",
       "title_table" : "ActionCatalog"
     },
@@ -20655,7 +20655,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Copy Notification",
+      "title" : "Copy Notification Text",
       "title_key" : "action.notificationCopy",
       "title_table" : "ActionCatalog"
     },
@@ -21485,9 +21485,9 @@
     {
       "cli" : "offered",
       "cli_name" : "agent archive-chat",
-      "context_menu" : "guiOnly",
+      "context_menu" : "offered",
       "context_menus" : [
-
+        "priorityRow"
       ],
       "default_aliases" : [
 
@@ -22233,6 +22233,34 @@
       "palette_suggested" : null,
       "title" : "Open Agent Session in New Workspace",
       "title_key" : "action.agent.openSessionWorkspace",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "agent open-tab",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agent.openSessionTab",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "noObject",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Open Agent Session in Tab",
+      "title_key" : "action.agent.openSessionTab",
       "title_table" : "ActionCatalog"
     },
     {
@@ -24334,6 +24362,62 @@
       "palette_suggested" : null,
       "title" : "Connect to Machine…",
       "title_key" : "action.remote.connect",
+      "title_table" : "RemoteActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "machine add",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarBackground"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "machine.add",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.remote",
+        "order" : 111,
+        "title" : "Remote Machines",
+        "title_key" : "category.remote",
+        "title_table" : "RemoteActions"
+      },
+      "palette_suggested" : null,
+      "title" : "Add Machine…",
+      "title_key" : "action.machine.add",
+      "title_table" : "RemoteActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "machine doctor",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sshMachine"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "machine.doctor",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.remote",
+        "order" : 111,
+        "title" : "Remote Machines",
+        "title_key" : "category.remote",
+        "title_table" : "RemoteActions"
+      },
+      "palette_suggested" : null,
+      "title" : "Check Machine",
+      "title_key" : "action.machine.doctor",
       "title_table" : "RemoteActions"
     },
     {
@@ -30461,6 +30545,34 @@
       "title_table" : "SidebarSectionActions"
     },
     {
+      "cli" : "guiOnly",
+      "cli_name" : "action sidebar-chat-toggle-pin",
+      "context_menu" : "liveInput",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "sidebar.chat.togglePin",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "liveInput",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Pin or Unpin Chat",
+      "title_key" : "action.sidebar.chat.togglePin",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "sidebar add-item",
       "context_menu" : "offered",
@@ -30713,34 +30825,6 @@
       "palette_suggested" : null,
       "title" : "Move Section to Scrolling Area",
       "title_key" : "action.sidebar.section.moveToScrolling",
-      "title_table" : "SidebarSectionActions"
-    },
-    {
-      "cli" : "offered",
-      "cli_name" : "sidebar move-section-bottom",
-      "context_menu" : "offered",
-      "context_menus" : [
-        "sidebarSection"
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "sidebar.section.moveToBottom",
-      "main_menu" : null,
-      "mcp" : "offered",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.sidebar",
-        "order" : 107,
-        "title" : "Sidebar",
-        "title_key" : "category.sidebar",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Move Section to Bottom",
-      "title_key" : "action.sidebar.section.moveToBottom",
       "title_table" : "SidebarSectionActions"
     },
     {
@@ -31249,40 +31333,6 @@
     },
     {
       "cli" : "guiOnly",
-      "cli_name" : "action sidebar-priority-view-toggle",
-      "context_menu" : "guiOnly",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "k",
-        "modifiers" : [
-          "opt",
-          "cmd"
-        ]
-      },
-      "id" : "sidebar.priorityView.toggle",
-      "main_menu" : null,
-      "mcp" : "guiOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.sidebar",
-        "order" : 107,
-        "title" : "Sidebar",
-        "title_key" : "category.sidebar",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Toggle Priority View",
-      "title_key" : "action.sidebar.priorityView.toggle",
-      "title_table" : "SidebarSectionActions"
-    },
-    {
-      "cli" : "guiOnly",
       "cli_name" : "action sidebar-spaces-hide",
       "context_menu" : "offered",
       "context_menus" : [
@@ -31454,7 +31504,8 @@
       "cli_name" : "action sidebar-density-compact",
       "context_menu" : "offered",
       "context_menus" : [
-        "sidebarBackground"
+        "sidebarBackground",
+        "workspaceRow"
       ],
       "default_aliases" : [
 
@@ -31482,7 +31533,8 @@
       "cli_name" : "action sidebar-density-comfortable",
       "context_menu" : "offered",
       "context_menus" : [
-        "sidebarBackground"
+        "sidebarBackground",
+        "workspaceRow"
       ],
       "default_aliases" : [
 
@@ -31510,7 +31562,8 @@
       "cli_name" : "action sidebar-density-expanded",
       "context_menu" : "offered",
       "context_menus" : [
-        "sidebarBackground"
+        "sidebarBackground",
+        "workspaceRow"
       ],
       "default_aliases" : [
 
@@ -31617,6 +31670,124 @@
       "palette_suggested" : null,
       "title" : "Reset Sidebar Layout",
       "title_key" : "action.sidebar.layout.reset",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action sidebar-priority-view-toggle",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "k",
+        "modifiers" : [
+          "opt",
+          "cmd"
+        ]
+      },
+      "id" : "sidebar.priorityView.toggle",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Toggle Priority View",
+      "title_key" : "action.sidebar.priorityView.toggle",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action sidebar-priority-mark-read",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "priorityRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "sidebar.priority.markRead",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Mark Chat as Read",
+      "title_key" : "action.sidebar.priority.markRead",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action sidebar-priority-toggle-pin",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "priorityRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "sidebar.priority.togglePin",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Pin or Unpin Chat in Priority",
+      "title_key" : "action.sidebar.priority.togglePin",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action sidebar-priority-snooze",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "priorityRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "sidebar.priority.snooze",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Snooze Chat for 1 Hour",
+      "title_key" : "action.sidebar.priority.snooze",
       "title_table" : "SidebarSectionActions"
     },
     {
@@ -37240,6 +37411,69 @@
 
       ]
     },
+    "priorityRow" : {
+      "entries" : [
+        {
+          "enabled_when" : "can_perform",
+          "id" : "sidebar.priority.markRead",
+          "kind" : "action",
+          "order" : 0,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "sidebar.priority.togglePin",
+          "kind" : "action",
+          "order" : 1,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "sidebar.priority.snooze",
+          "kind" : "action",
+          "order" : 2,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 3
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "agentPane.archiveChat",
+          "kind" : "action",
+          "order" : 4,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "agentPaneFocused"
+            ]
+          }
+        }
+      ],
+      "implied" : [
+        "agentPaneFocused"
+      ]
+    },
     "screen" : {
       "entries" : [
         {
@@ -38349,25 +38583,25 @@
               }
             },
             {
-              "kind" : "separator",
-              "order" : 10
-            },
-            {
               "enabled_when" : "can_perform",
-              "id" : "sidebar.home.add",
+              "id" : "machine.add",
               "kind" : "action",
-              "order" : 11,
+              "order" : 10,
               "visible_when" : {
                 "debug_only" : false,
-                "feature" : null,
+                "feature" : "remoteHosts",
                 "requires" : [
 
                 ]
               }
             },
             {
+              "kind" : "separator",
+              "order" : 11
+            },
+            {
               "enabled_when" : "can_perform",
-              "id" : "sidebar.item.add",
+              "id" : "sidebar.home.add",
               "kind" : "action",
               "order" : 12,
               "visible_when" : {
@@ -38380,9 +38614,22 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "sidebar.section.add",
+              "id" : "sidebar.item.add",
               "kind" : "action",
               "order" : 13,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "sidebar.section.add",
+              "kind" : "action",
+              "order" : 14,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -39137,19 +39384,6 @@
 
                 ]
               }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "sidebar.section.moveToBottom",
-              "kind" : "action",
-              "order" : 2,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
             }
           ],
           "folder" : "move",
@@ -39726,14 +39960,10 @@
           }
         },
         {
-          "kind" : "separator",
-          "order" : 5
-        },
-        {
           "enabled_when" : "can_perform",
-          "id" : "remote.copyError",
+          "id" : "machine.doctor",
           "kind" : "action",
-          "order" : 6,
+          "order" : 5,
           "visible_when" : {
             "debug_only" : false,
             "feature" : "remoteHosts",
@@ -39744,13 +39974,30 @@
         },
         {
           "kind" : "separator",
-          "order" : 7
+          "order" : 6
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "remote.copyError",
+          "kind" : "action",
+          "order" : 7,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : "remoteHosts",
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 8
         },
         {
           "enabled_when" : "can_perform",
           "id" : "remote.forget",
           "kind" : "action",
-          "order" : 8,
+          "order" : 9,
           "visible_when" : {
             "debug_only" : false,
             "feature" : "remoteHosts",
@@ -43213,6 +43460,48 @@
                   "id" : "sidebar.workspaceTabs.toggle",
                   "kind" : "action",
                   "order" : 20,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "sidebar.density.compact",
+                  "kind" : "action",
+                  "label" : "Compact Rows",
+                  "order" : 21,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "sidebar.density.comfortable",
+                  "kind" : "action",
+                  "label" : "Comfortable Rows",
+                  "order" : 22,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "sidebar.density.expanded",
+                  "kind" : "action",
+                  "label" : "Expanded Rows",
+                  "order" : 23,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
