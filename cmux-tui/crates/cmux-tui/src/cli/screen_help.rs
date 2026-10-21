@@ -17,6 +17,7 @@ USAGE
     [--confirmation-token <value>]
   cmux screen <selector> column <split_…> update [--dock <bool>]
     [--edge left|right|top|bottom] [--mode docked|overlay] [--width <fraction>]
+    [--pinned true] [--allow-tabs <bool>]
   cmux screen <selector> pane ...
   cmux screen group list [--workspace <selector>]
   cmux screen group create --screens <screen_…,...> [--name <value>] [--color <color>]
@@ -29,6 +30,9 @@ USAGE
 A bulk close (--others, --to-right, --to-left, --all) is one closed group
 that `cmux closed reopen` restores whole; it keeps pinned screens unless
 --include-pinned.
+column update --pinned true makes a docked column the pinned dock (Home's):
+its first tab stays and it is never undocked; it takes no other tab unless
+--allow-tabs true. Pinning is one way.
 Pinned screens sort first and leave their group. Group colors: grey, blue,
 red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. A group
 icon is one emoji, an SF Symbol name, or a stored image:sha256-<hex> or

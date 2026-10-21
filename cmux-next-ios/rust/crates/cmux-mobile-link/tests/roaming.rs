@@ -33,6 +33,9 @@ struct Run {
     /// The endpoints the phone told the Mac before the change and at the end.
     endpoints_before: Vec<String>,
     endpoints_after: Vec<String>,
+    /// The endpoints the Mac told the phone before the change and at the end.
+    mac_endpoints_before: Vec<String>,
+    mac_endpoints_after: Vec<String>,
     marks: Vec<(String, Duration)>,
 }
 
@@ -52,6 +55,9 @@ enum Change {
     /// blocks it), and it roams: the new allocation must use TLS. With a
     /// delay, UDP to the server comes back that much later.
     UdpBlocked(std::sync::Arc<TestTurn>, Option<Duration>),
+    /// As `UdpBlocked`, but the Mac moves to that network and roams (the
+    /// phone's network stays as it was).
+    MacUdpBlocked(std::sync::Arc<TestTurn>, Option<Duration>),
 }
 
 /// Stream through an echo channel, take the phone's network away at 1 s
@@ -157,8 +163,9 @@ async fn stream_across(
     let before = *connected.path.borrow();
     let mac_label = || mac_path.lock().unwrap().as_ref().map(|path| *path.borrow());
     let mac_before = mac_label();
-    let endpoints_of = || wireguard::session_endpoints(&session_id, true).unwrap_or_default();
-    let endpoints_before = endpoints_of();
+    let endpoints_of = |dialer| wireguard::session_endpoints(&session_id, dialer).unwrap_or_default();
+    let (endpoints_before, mac_endpoints_before) = (endpoints_of(true), endpoints_of(false));
+    let phone_roams = !matches!(change, Change::MacUdpBlocked(..));
     let changed_at = Instant::now();
     let mut _new_phone = None;
     let roam_task = match change {
@@ -189,7 +196,7 @@ async fn stream_across(
             assert_eq!(wireguard::simulate_turn_loss(Some(&session_id), true), 1);
             None
         }
-        Change::UdpBlocked(turn, unblock) => {
+        Change::UdpBlocked(turn, unblock) | Change::MacUdpBlocked(turn, unblock) => {
             turn.set_udp_blocked(true);
             if let Some(delay) = unblock {
                 tokio::spawn(async move {
@@ -197,9 +204,11 @@ async fn stream_across(
                     turn.set_udp_blocked(false);
                 });
             }
-            assert_eq!(wireguard::simulate_network_loss(Some(&session_id), true), 1);
+            if phone_roams {
+                assert_eq!(wireguard::simulate_network_loss(Some(&session_id), true), 1);
+            }
             let session_id = session_id.clone();
-            Some(tokio::spawn(async move { wireguard::roam_session(&session_id, true).await }))
+            Some(tokio::spawn(async move { wireguard::roam_session(&session_id, phone_roams).await }))
         }
     };
     tokio::time::sleep(after_change).await;
@@ -213,7 +222,7 @@ async fn stream_across(
     let all =
         tokio::time::timeout(Duration::from_secs(25), progress.wait_for(|got| *got >= sent)).await.is_ok();
     let got = *progress.borrow();
-    let endpoints_after = endpoints_of();
+    let (endpoints_after, mac_endpoints_after) = (endpoints_of(true), endpoints_of(false));
     connected.link.close("done");
     let arrivals = reader.await.unwrap();
     assert!(all && got == sent, "bytes lost: sent {sent}, echoed {got}");
@@ -233,6 +242,8 @@ async fn stream_across(
         mac_after,
         endpoints_before,
         endpoints_after,
+        mac_endpoints_before,
+        mac_endpoints_after,
         marks: timeline.map(|t| t.marks()).unwrap_or_default(),
     }
 }
@@ -406,6 +417,39 @@ async fn wireguard_takes_the_turn_allocation_its_roam_missed() {
     // The old network's relayed address is dead: the phone no longer offers it.
     assert!(!run.endpoints_before.is_empty() && !run.endpoints_after.is_empty(), "{run:?}");
     assert!(run.endpoints_before.iter().all(|old| !run.endpoints_after.contains(old)), "{run:?}");
+}
+
+/// The Mac answered on a network whose STUN server answers (so it took no
+/// TURN allocation), then roams onto one that drops UDP to the server, STUN
+/// and TURN alike, for 6 s. The roam asks for an allocation and misses it;
+/// the session keeps asking and offers the phone the relayed address once
+/// the server answers (it does not wait for the next network change).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wireguard_mac_takes_the_turn_allocation_its_stun_silent_roam_missed() {
+    let turn = std::sync::Arc::new(TestTurn::start().await);
+    // The TURN server answers STUN on its UDP port too.
+    let stun = cmux_mobile_link::api::IceServer {
+        urls: vec![turn.ice.urls[0].replacen("turn:", "stun:", 1)],
+        ..turn.udp_only()
+    };
+    let mac = DialOptions { ice_servers: vec![turn.udp_only(), stun], ..options() };
+    let run = stream_across(
+        options(),
+        mac,
+        Change::MacUdpBlocked(std::sync::Arc::clone(&turn), Some(Duration::from_secs(6))),
+        Duration::from_secs(10),
+    )
+    .await;
+    eprintln!("stun-silent Mac roam: {run:?}");
+    let relayed = |endpoints: &[String]| {
+        endpoints
+            .iter()
+            .any(|endpoint| endpoint.parse::<std::net::SocketAddr>().is_ok_and(|addr| turn.is_relayed(&addr)))
+    };
+    assert!(!run.mac_endpoints_before.is_empty() && !relayed(&run.mac_endpoints_before), "{run:?}");
+    // Its STUN wait (1.5 s) and allocation window (2 s) end well before 6 s.
+    assert!(!names(&run).contains(&"roam_turn_allocated"), "the roam was meant to miss: {:?}", run.marks);
+    assert!(relayed(&run.mac_endpoints_after), "the Mac never took an allocation: {run:?}");
 }
 
 /// The TLS stream to the TURN server dies (a middlebox resets it) without
