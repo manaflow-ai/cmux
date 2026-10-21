@@ -537,6 +537,9 @@ async function stripeTeamCheckout(
           adjustable_quantity: {
             enabled: true,
             minimum: memberCount,
+            // Stripe otherwise defaults this to 99, below a legitimate large
+            // Team's initial quantity. It accepts values through 999,999.
+            maximum: Math.max(99, memberCount),
           },
         },
       ],
