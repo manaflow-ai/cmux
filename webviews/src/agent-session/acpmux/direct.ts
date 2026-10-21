@@ -735,8 +735,9 @@ export class AcpmuxDirectClient {
   private turnTokens: number | undefined;
   /// The first seq whose usage this client holds: the attach page's first record when acpmux has
   /// older ones (older pages carry no usage), else 0. A turn that started before it has calls this
-  /// client never saw, so every rebuild leaves its tokens unset.
-  private usageFromSeq = 0;
+  /// client never saw, so every rebuild leaves its tokens unset. Infinity until an attach answers:
+  /// live events can land before its reply, and those alone are not a whole turn.
+  private usageFromSeq = Infinity;
   /// Set once an update for this session is applied, so an older fetched list cannot replace it.
   private commandsApplied = false;
   private optimisticPromptRows = new Map<string, string>();
@@ -1108,7 +1109,7 @@ export class AcpmuxDirectClient {
     this.configSeq = 0;
     this.usage = undefined;
     this.turnTokens = undefined;
-    this.usageFromSeq = 0;
+    this.usageFromSeq = Infinity;
     this.queue = [];
     this.turnOpen = false;
     this.streamingAssistant = undefined;
@@ -1613,10 +1614,10 @@ export class AcpmuxDirectClient {
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
     const page: EventRecord[] = result?.events ?? [];
     // A reconnect to the same session keeps its events, and open() fills the gap to the new page
-    // (every kind, usage included): the client still holds what it held. A fresh attach holds the
-    // page only.
+    // (every kind, usage included): the client still holds what it held. A fresh attach (Infinity,
+    // whatever live events landed before this reply) holds the page only.
     const usageFrom = result?.hasMore === true && page.length > 0 ? Math.min(...page.map((event) => event.seq)) : 0;
-    this.usageFromSeq = this.events.length > 0 ? Math.min(this.usageFromSeq, usageFrom) : usageFrom;
+    this.usageFromSeq = Math.min(this.usageFromSeq, usageFrom);
     // An agent usually lists its commands once, at start, which is older than the page.
     if (
       !page.some((event) => event.kind === COMMANDS_KIND) &&
