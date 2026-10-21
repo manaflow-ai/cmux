@@ -36,16 +36,16 @@ struct TerminalRestoreAttachTests {
         _ = machine.reduce(.opened(7, attempt: next.attempt))
         _ = machine.reduce(.replayDelivered(7))
         #expect(machine.status == .connected)
+    }
 
-        // Once live, a dropped link backs off as before (the cap is for the restore only).
-        var effects = machine.reduce(.ended(7, .connectionLost("gone")))
-        var longest = 0
-        for _ in 1...10 {
-            let step = try #require(opened(effects))
-            longest = max(longest, step.wait)
-            effects = machine.reduce(.openFailed(attempt: step.attempt))
-        }
-        #expect(longest > 3)
+    @Test func aRestoreThatNeverAttachesOffersRetryAndBacksOffAsBefore() throws {
+        var machine = Machine(initialSize: CellSize(cols: 80, rows: 24), visible: true, restoring: true)
+        var next = try #require(opened(machine.reduce(.start)))
+        for _ in 1...60 { next = try #require(opened(machine.reduce(.openFailed(attempt: next.attempt)))) }
+        // A daemon that never answers is not asked every 2 s for good: Retry shows, and the
+        // view still retries by itself at the longer backoff.
+        #expect(machine.status == .disconnected(.attachFailed, reconnecting: false))
+        #expect(next.wait > 3)
     }
 
     @Test func theConnectionBackDuringAnAttachReattachesAtOnceWhenThatAttachFails() throws {

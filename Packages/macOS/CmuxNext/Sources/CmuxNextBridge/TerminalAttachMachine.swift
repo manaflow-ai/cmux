@@ -58,11 +58,13 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
     /// attach failed and that a click or key re-attaches now.
     public static var quietReconnects: Int { 8 }
     /// The backoff step a restored view that has not gone live yet waits at
-    /// most (2 s with the App's backoff): it says "Restoring…" and nothing
-    /// else may wake it, so it never waits 30 s for an attach that would
-    /// now work (#23029).
+    /// most (2 s with the App's backoff): it says "Restoring…", and only its
+    /// own retry or an event (a key, focus, the connection back) wakes it, so
+    /// it must not wait 30 s for an attach that would now work (#23029).
     public static var restoreBackoffCap: Int { 3 }
-    /// ``quietReconnects`` for that view: about the same 90 s at its shorter backoff.
+    /// ``quietReconnects`` for that view: about the same 90 s at its shorter backoff. Past it the
+    /// view offers Retry and backs off as any other, so a daemon that never answers is not asked
+    /// every 2 s for good.
     public static var quietRestoreReconnects: Int { 45 }
 
     public private(set) var phase: Phase = .detached
@@ -343,7 +345,7 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         reattachRequested = false
         let stillRestoring = restoring && !wentLive
         var wait = byEvent ? 0 : max(failed, autoReconnects - 1)
-        if stillRestoring { wait = min(wait, Self.restoreBackoffCap) }
+        if stillRestoring, autoReconnects <= Self.quietRestoreReconnects { wait = min(wait, Self.restoreBackoffCap) }
         lastAttempt += 1
         var pending = Pending(attempt: lastAttempt, failures: 1, size: desiredSize ?? initialSize, link: nil,
                               reconnects: byEvent ? 0 : failed)

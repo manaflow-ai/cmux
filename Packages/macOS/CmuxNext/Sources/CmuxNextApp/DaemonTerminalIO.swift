@@ -33,7 +33,7 @@ import os
 ///   a capped backoff (500 ms doubling to 30 s, cx-wwtam) until an attach works, offering Retry
 ///   after about 90 s; a hidden one waits for an event: shown again, a key press, a click, focus or
 ///   Retry, or the App's ``reconnect()``. A restored view says "Restoring…" until its first replay
-///   and retries every 2 s at most until then (#23029).
+///   and, for its first 90 s or so, retries every 2 s at most until then (#23029).
 ///   ``processExited()`` ends it until the daemon reports the terminal
 ///   running again (``processRevived()``, R41).
 nonisolated final class DaemonTerminalIO: TerminalIO {
