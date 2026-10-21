@@ -46,6 +46,9 @@ const MAX_FRAME_RAW_BYTES: u32 = 64 * 1024 * 1024;
 #[derive(Default)]
 pub(crate) struct Segments {
     enabled: AtomicBool,
+    /// Segment files this daemon last appended to, with the length it left:
+    /// a file of that length ends with a whole frame (no header walk).
+    verified: std::sync::Mutex<std::collections::HashMap<PathBuf, u64>>,
 }
 
 impl Segments {
@@ -92,6 +95,7 @@ fn generation_files(terminal_directory: &Path, generation: &str) -> Vec<(u64, Pa
 /// Append the pending bytes of each log as one frame (content-changed logs
 /// only, `digests` from the snapshot writer), then apply the caps.
 pub(super) fn flush_logs(
+    segments: &Segments,
     directory: &Path,
     logs: &[(Arc<TerminalLog>, Option<u64>)],
     policy: PersistencePolicy,
@@ -117,7 +121,7 @@ pub(super) fn flush_logs(
             (state.generation.clone(), state.pending_start, bytes)
         };
         let terminal_directory = terminal_directory(directory, &log.terminal_id);
-        match append_frame(&terminal_directory, &generation, start, &bytes) {
+        match append_frame(segments, &terminal_directory, &generation, start, &bytes) {
             Ok(()) => wrote = true,
             Err(error) => eprintln!(
                 "cmux-tui: terminal {} output segment was not written: {error:#}",
@@ -132,6 +136,7 @@ pub(super) fn flush_logs(
 }
 
 fn append_frame(
+    segments: &Segments,
     terminal_directory: &Path,
     generation: &str,
     start: u64,
@@ -141,19 +146,29 @@ fn append_frame(
     let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
     encoder.write_all(bytes)?;
     let compressed = encoder.finish()?;
-    // Append to the newest file while it is small and ends with a whole
-    // frame; after a cut frame (a crash) a new file starts, so the frames
-    // written after it stay readable.
-    let file = match generation_files(terminal_directory, generation).last() {
-        Some((file_start, path))
-            if fs::metadata(path).map(|metadata| metadata.len()).is_ok_and(|len| {
-                len < SEGMENT_FILE_BYTES
-                    && frame_extent(path, *file_start).is_some_and(|(whole, _)| whole == len)
-            }) =>
-        {
-            path.clone()
+    let mut verified = segments.verified.lock().unwrap_or_else(PoisonError::into_inner);
+    // Append to the newest file while it is small. A file this daemon did
+    // not leave at its current length (an earlier run, a crash) is checked
+    // once: a cut frame at its end is cut off, so the frames written after
+    // it stay readable.
+    let newest = generation_files(terminal_directory, generation).pop();
+    let file = match newest {
+        Some((file_start, path)) => {
+            let len = fs::metadata(&path)?.len();
+            if len < SEGMENT_FILE_BYTES {
+                if verified.get(&path) != Some(&len) {
+                    let whole = frame_extent(&path, file_start).map_or(0, |(whole, _)| whole);
+                    if whole < len {
+                        fs::OpenOptions::new().write(true).open(&path)?.set_len(whole)?;
+                    }
+                }
+                path
+            } else {
+                terminal_directory
+                    .join(format!("{}-{start:020}.{SUFFIX}", generation_key(generation)))
+            }
         }
-        _ => {
+        None => {
             terminal_directory.join(format!("{}-{start:020}.{SUFFIX}", generation_key(generation)))
         }
     };
@@ -162,7 +177,11 @@ fn append_frame(
     frame.extend_from_slice(&u32::try_from(compressed.len())?.to_le_bytes());
     frame.extend_from_slice(&u32::try_from(bytes.len())?.to_le_bytes());
     frame.extend_from_slice(&compressed);
-    fs::OpenOptions::new().create(true).append(true).open(&file)?.write_all(&frame)?;
+    let mut handle = fs::OpenOptions::new().create(true).append(true).open(&file)?;
+    handle.write_all(&frame)?;
+    let len = handle.metadata()?.len();
+    verified.retain(|path, _| path.parent() != Some(terminal_directory));
+    verified.insert(file, len);
     Ok(())
 }
 
@@ -284,16 +303,49 @@ fn frame_extent(path: &Path, file_start: u64) -> Option<(u64, u64)> {
     Some((at, end))
 }
 
-/// The offset after the last stored frame of `generation` (at least the
-/// first offset its newest file names).
-pub(super) fn stream_end(
+/// The stored stream end of every terminal and generation key (newest file
+/// of each generation, frame headers only): read once at start.
+pub(super) fn all_stream_ends(
     directory: &Path,
-    terminal_id: &TerminalPublicId,
-    generation: &str,
-) -> Option<u64> {
-    let files = generation_files(&terminal_directory(directory, terminal_id), generation);
-    let (file_start, path) = files.last()?;
-    frame_extent(path, *file_start).map(|(_, end)| end).or(Some(*file_start))
+) -> std::collections::HashMap<(TerminalPublicId, String), u64> {
+    let mut ends = std::collections::HashMap::new();
+    let Ok(entries) = fs::read_dir(directory) else { return ends };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(terminal_id) = path
+            .is_dir()
+            .then(|| path.file_name()?.to_str().and_then(|name| TerminalPublicId::parse(name).ok()))
+            .flatten()
+        else {
+            continue;
+        };
+        let Ok(files) = fs::read_dir(&path) else { continue };
+        let mut newest = std::collections::HashMap::<String, (u64, PathBuf)>::new();
+        for file in files.flatten().map(|file| file.path()) {
+            let Some((key, start)) = file
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .filter(|_| file.extension().is_some_and(|extension| extension == SUFFIX))
+                .and_then(|stem| stem.split_once('-'))
+                .and_then(|(key, start)| Some((key.to_owned(), start.parse::<u64>().ok()?)))
+            else {
+                continue;
+            };
+            if newest.get(&key).is_none_or(|(current, _)| start > *current) {
+                newest.insert(key, (start, file));
+            }
+        }
+        for (key, (start, file)) in newest {
+            let end = frame_extent(&file, start).map_or(start, |(_, end)| end);
+            ends.insert((terminal_id.clone(), key), end);
+        }
+    }
+    ends
+}
+
+/// The generation key of segment file names.
+pub(super) fn key_of(generation: &str) -> String {
+    generation_key(generation)
 }
 
 /// Raw bytes a rebuild replays at most (the newest frames).
