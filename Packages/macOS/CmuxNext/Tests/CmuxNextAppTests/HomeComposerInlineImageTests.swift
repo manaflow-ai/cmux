@@ -67,13 +67,13 @@ import UniformTypeIdentifiers
         return Home(window: window, store: store, view: view, blobs: blobs)
     }
 
-    /// A 600 x 400 px opaque PNG.
-    private static func png() throws -> Data {
+    /// A 600 x 400 px opaque PNG, blue unless RED is given.
+    private static func png(red: CGFloat = 0.2) throws -> Data {
         let w = 600, h = 400
         let ctx = try #require(CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
                                          space: CGColorSpace(name: CGColorSpace.sRGB)!,
                                          bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
-        ctx.setFillColor(CGColor(red: 0.2, green: 0.5, blue: 0.9, alpha: 1))
+        ctx.setFillColor(CGColor(red: red, green: 0.5, blue: 0.9, alpha: 1))
         ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
         let image = try #require(ctx.makeImage())
         let out = NSMutableData()
@@ -220,5 +220,53 @@ import UniformTypeIdentifiers
         let seen = "blue \(blue), white \(white), TextKit 2 \(textKit2), subviews \(views)"
         #expect(blue > 200, "the picture is drawn in the field (\(seen))")
         #expect(white < 50, "no blank white page where the picture goes (\(seen))")
+    }
+    /// The field places the picture's own view, which holds the remove button shown on hover
+    /// (Austin 2026-10-20: hovering a pasted picture showed no remove button).
+    @Test func theFieldPlacesThePicturesViewWithItsRemoveButton() async throws {
+        let h = try await home()
+        defer { h.close() }
+        try await attach(.pastePicture, to: h.view)
+        h.field.layoutSubtreeIfNeeded()
+        h.field.display()
+        func views(in v: NSView) -> [NSView] { v.subviews + v.subviews.flatMap(views(in:)) }
+        let placed = views(in: h.field).compactMap { $0 as? ComposeInlineAttachmentView }
+        #expect(placed.count == 1, "the field shows the picture's view (\(views(in: h.field).map { String(describing: Swift.type(of: $0)) }))")
+        #expect(placed.first.map { $0.removeButton.superview === $0 } == true, "with its remove button")
+    }
+
+    /// Two different pictures pasted one after the other both sit in the text (Austin 2026-10-20:
+    /// "I can't paste more than 1 image").
+    @Test func twoPastedPicturesBothSitInTheText() async throws {
+        let h = try await home()
+        defer { h.close() }
+        #expect(h.view.handlePaste(Board(items: [.png: try Self.png()])))
+        await h.view.attachmentsReady()
+        #expect(h.view.handlePaste(Board(items: [.png: try Self.png(red: 0.8)])))
+        await h.view.attachmentsReady()
+        h.view.layoutSubtreeIfNeeded()
+        #expect(h.view.transcript.draftAttachments.count == 2, "the draft holds both pictures")
+        #expect(h.inline.count == 2, "the field's text holds both pictures")
+    }
+
+    /// After a picture the caret sits on the text's line at the bottom of the picture's tall line,
+    /// not halfway up the picture (Austin 2026-10-20: the caret floated above the text).
+    @Test func theCaretSitsOnTheTextBesideAPicture() async throws {
+        let h = try await home()
+        defer { h.close() }
+        try await attach(.pastePicture, to: h.view)
+        h.field.insertText("hi", replacementRange: h.field.selectedRange())
+        h.view.layoutSubtreeIfNeeded()
+        let end = (h.field.string as NSString).length
+        let caret = try #require(h.field.caretRects(at: [end]).fresh.first ?? nil)
+        let tlm = try #require(h.field.textLayoutManager)
+        var line = CGRect.zero
+        tlm.enumerateTextLayoutFragments(from: tlm.documentRange.location, options: [.ensuresLayout]) { f in
+            line = f.layoutFragmentFrame
+            return false
+        }
+        let bottom = line.maxY + h.field.textContainerOrigin.y
+        #expect(line.height > Fixture.lineHeight + 4, "the picture makes the line taller (\(line))")
+        #expect(caret.maxY > bottom - Fixture.lineHeight - 2, "the caret is on the bottom text line (caret \(caret), line \(line))")
     }
 }
