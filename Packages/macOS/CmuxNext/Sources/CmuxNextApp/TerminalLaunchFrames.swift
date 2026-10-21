@@ -41,11 +41,11 @@ final class TerminalLaunchFrames {
         return true
     }
 
-    /// The frames of `cache`'s terminals on screen that show output, by tab key, at their point
-    /// size: saved at quit for the next launch.
+    /// The frames of `cache`'s terminals on screen, by tab key, at their point size: saved at quit
+    /// for the next launch. A bare prompt too: it is what the pane showed.
     func shownFrames(of cache: TabContentCache) async -> [String: NSImage] {
         var frames: [String: NSImage] = [:]
-        for (key, entry) in cache.terminals where !entry.session.isRenderingSuspended && entry.session.showsOutput {
+        for (key, entry) in cache.terminals where !entry.session.isRenderingSuspended {
             let surface = entry.session.surfaceView
             guard surface.window?.isVisible == true, !surface.isHiddenOrHasHiddenAncestor, surface.bounds.width > 0,
                   let frame = await entry.session.snapshotInBackground(maxPixelSize: .greatestFiniteMagnitude) else { continue }
