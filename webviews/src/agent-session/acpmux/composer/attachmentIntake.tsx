@@ -294,7 +294,7 @@ function AttachmentChip({
           <button
             type="button"
             className="acpmux-attachment-pasted-open"
-            aria-description={t(ATTACHMENT_LABELS.editPasted)}
+            title={t(ATTACHMENT_LABELS.editPasted)}
             onClick={expand}
           >
             {body}
