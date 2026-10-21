@@ -85,6 +85,7 @@ import {
   approveCmuxTuiEnrollment,
   cmuxTuiRunCommand,
   mintCmuxTuiInvitation,
+  type CmuxTuiCommandRunner,
   type CmuxTuiInvoke,
 } from "./cmuxTuiDaemon";
 import { cloudClientGrantRequired } from "../clientGrant";
@@ -1873,7 +1874,7 @@ export class FreestyleProvider implements VMProvider {
         try {
           const vm = this.deps.client(40_000 + EXEC_OVERHEAD_TIMEOUT_MS).vms.ref(vmId);
           return await approveCmuxTuiEnrollment(
-            this.cmuxTuiInvoke(vm),
+            this.cmuxTuiCommandRunner(vm),
             "freestyle",
             vmId,
             invitationId,
@@ -1998,6 +1999,17 @@ export class FreestyleProvider implements VMProvider {
         stdout: "",
         stderr: "exec failed",
       };
+  }
+
+  private cmuxTuiCommandRunner(vm: Vm): CmuxTuiCommandRunner {
+    return {
+      runCommand: async (command, timeoutMs) =>
+        await this.execResult(vm, command, timeoutMs ?? EXEC_DEFAULT_TIMEOUT_MS) ?? {
+          exitCode: 124,
+          stdout: "",
+          stderr: "exec failed",
+        },
+    };
   }
 
 }

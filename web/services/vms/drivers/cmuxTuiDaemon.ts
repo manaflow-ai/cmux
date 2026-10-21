@@ -464,6 +464,9 @@ export function parseJsonArray(text: string): Array<Record<string, unknown>> {
  * VM exec API.
  */
 export type CmuxTuiInvoke = (args: string, timeoutMs?: number) => Promise<ExecResult>;
+export type CmuxTuiCommandRunner = {
+  readonly runCommand: (command: string, timeoutMs?: number) => Promise<ExecResult>;
+};
 
 export async function waitForCmuxTuiReady(
   invoke: CmuxTuiInvoke,
@@ -562,12 +565,12 @@ export function cmuxTuiApprovalCommand(invitationId: string, binary?: string): s
 
 /** Approval bridge for a client claiming a short-lived Cloud invitation. */
 export async function approveCmuxTuiEnrollment(
-  invoke: CmuxTuiInvoke,
+  runner: CmuxTuiCommandRunner,
   provider: ProviderId,
   vmId: string,
   invitationId: string,
 ): Promise<{ approved: boolean; state: "approved" | "pending"; deviceFingerprint?: string }> {
-  const result = await invoke(
+  const result = await runner.runCommand(
     cmuxTuiApprovalCommand(invitationId),
     40_000,
   );
