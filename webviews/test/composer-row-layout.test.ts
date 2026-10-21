@@ -10,8 +10,7 @@
 //   - the row is compact and calm (hq#1957 item 15 compact row): the left cluster's controls sit
 //     4 to 12 px apart (composer-row-rhythm.test.ts: one gap per group); no ring or spinner; one lock at
 //     most; no granted-permission status chip; Stop has Send's footprint and a square glyph of 9
-//     to 12 px, centred in a solid text-colored disc with a base-colored square (Q4-B: the faint
-//     disc read as a disabled Send);
+//     to 12 px, centred in it: a plain glyph in the text color, with no disc (Leo 2026-10-21);
 //   - no label is ever cut: a short row swaps whole units instead (a short label, a glyph alone),
 //     in composerRowFit.ts's order, which composer-row-steps.test.ts plays;
 //   - these chats have started, so no location strip heads the card (a new chat's strip is
@@ -326,7 +325,7 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
     });
 
   for (const width of [420, 720, 1100])
-    test(`at ${width} px Stop has Send's footprint as a solid, theme-inverted disc`, async () => {
+    test(`at ${width} px Stop has Send's footprint as a plain glyph in the text color`, async () => {
       // Claude desktop's box (Leo 2026-10-20): no Send until there is a draft, so the idle row
       // Stop is held against has a prompt typed; there Send comes after the mic. While a turn
       // runs Stop comes before the mic, which keeps the right edge, so Stop matches Send's size
@@ -340,12 +339,11 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
       expect(off.map((side) => `${side} ${send[side].toFixed(1)} -> ${stop[side].toFixed(1)}`)).toEqual([]);
       expect(idle.trailing.slice(-2)).toEqual(["mic", "send"]);
       expect(running.trailing.slice(-2)).toEqual(["stop", "mic"]);
-      // A solid disc in the text color with a base-colored square, never the faint off circle
-      // (design panel Q4-B: that read as a disabled Send). An empty draft draws no Send at all now,
-      // so the solid text fill is the check, not a difference from the idle row's ready Send.
-      expect(running.fill).toBe(running.text);
-      expect(running.ink).toBe(running.base);
-      // The square sits in the disc's centre.
+      // A plain glyph, as the mic is (Leo 2026-10-21: "no solid discs"): no fill, the square in the
+      // full text color, so it never reads as an empty draft's dimmed Send.
+      expect(running.fill).toBe("rgba(0, 0, 0, 0)");
+      expect(running.ink).toBe(running.text);
+      // The square sits in Stop's centre.
       const glyph = running.stopGlyph!;
       const centre = (low: number, high: number) => (low + high) / 2;
       expect(Math.abs(centre(glyph.left, glyph.right) - centre(stop.left, stop.right))).toBeLessThanOrEqual(0.5);

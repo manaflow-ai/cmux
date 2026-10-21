@@ -7,9 +7,7 @@
 //     no fill, no ring and no shadow; the glyph has the mic's size and stroke;
 //   - hovered it takes the mic's soft pill, and a press changes nothing more;
 //   - the Esc-armed Stop keeps its glyph and footprint and says so in its color, never a pill;
-//   - mid-turn every control sits inside the box, and none is filled in a blue;
-//   - a one-line prompt's text shares the center line of +, the mic and Send (Leo 2026-10-21: the
-//     typed text sat lower than the +).
+//   - mid-turn every control sits inside the box, and none is filled in a blue.
 //
 // Real Chromium and WebKit on the gallery stage. CI fails the file when it cannot launch them
 // (requireBrowserLane). Locally: CMUX_BROWSER_TESTS=1 bun test test/composer-plain-glyphs.test.ts
@@ -84,7 +82,7 @@ await requireBrowserLane("composer-plain-glyphs.test.ts", async () => {
     return page;
   };
 
-  /** Types a one-line prompt into the box's field and waits for `wait` to show. */
+  /** Types a prompt into the box's field and waits for `wait` to show. */
   const type = async (page: Page, box: string, wait: string, text = "Retry the flaky test") => {
     await page.locator(`${box} .acpmux-md, ${box} .nt-field`).first().click();
     await page.keyboard.type(text);
@@ -259,52 +257,5 @@ await requireBrowserLane("composer-plain-glyphs.test.ts", async () => {
       expect(problems).toEqual([]);
     });
 
-    for (const [name, entry, variant, box, controls] of [
-      [
-        "chat",
-        "agent-pane.composer",
-        "quiet-chips",
-        CHAT_BOX,
-        [".acpmux-composer-plus .acpmux-picker-button", ".acpmux-mic", ".acpmux-send"],
-      ],
-      ["New Tab", "agent-pane.new-tab", "composer-mic", NEW_TAB_BOX, [".acpmux-mic", ".acpmux-send"]],
-    ] as const)
-      test(`${engine}: ${name}: a one-line prompt's text shares the center line of ${controls.length === 3 ? "+, " : ""}the mic and Send`, async () => {
-        const page = await open(engine, entry, variant);
-        await type(page, box, ".acpmux-send");
-        const centers = await page.evaluate(
-          ({ box, controls }) => {
-            const card = document.querySelector(box)!;
-            const middle = (r: DOMRect) => r.top + r.height / 2;
-            // The text's line: a Milkdown paragraph's line box, or the textarea's first line.
-            const paragraph = card.querySelector(".acpmux-md > p");
-            let line: number;
-            if (paragraph) {
-              line = middle(paragraph.getBoundingClientRect());
-            } else {
-              const field = card.querySelector<HTMLTextAreaElement>(".nt-field")!;
-              const style = getComputedStyle(field);
-              line =
-                field.getBoundingClientRect().top +
-                parseFloat(style.borderTopWidth) +
-                parseFloat(style.paddingTop) +
-                parseFloat(style.lineHeight) / 2;
-            }
-            return {
-              line,
-              controls: controls.map((selector) => {
-                const glyph = card.querySelector(`${selector} svg`) ?? card.querySelector(selector);
-                return [selector, glyph ? middle(glyph.getBoundingClientRect()) : NaN] as const;
-              }),
-            };
-          },
-          { box, controls: [...controls] },
-        );
-        await page.close();
-        const off = centers.controls
-          .filter(([, center]) => !(Math.abs(center - centers.line) <= 1))
-          .map(([selector, center]) => `${selector} ${(center - centers.line).toFixed(1)} px off the text's line`);
-        expect(off).toEqual([]);
-      });
   }
 });

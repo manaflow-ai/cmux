@@ -1355,8 +1355,8 @@ export function Composer({
       title={t(escapeStop.armed ? COMPOSER_LABELS.escapeAgainToStop : COMPOSER_LABELS.stop)}
       onClick={stopTurn}
     >
-      {/* The first Esc of the double press: Stop says which key stops the turn. */}
-      {escapeStop.armed ? <span className="acpmux-escape-key">{t(COMPOSER_LABELS.escapeKey)}</span> : <StopIcon />}
+      {/* The first Esc of the double press keeps the glyph; its color and name say Esc again stops. */}
+      <StopIcon />
     </button>
   ) : null;
   return (

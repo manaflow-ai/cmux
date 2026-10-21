@@ -147,41 +147,28 @@
   outline-offset: 2px;
 }
 
-/* Send is the one filled control, in the theme's own ink as Claude Code's (Leo 2026-10-19: no
-   system or iMessage blue anywhere): the text color's disc with the composer's surface for its
-   arrow (styles.css --acpmux-send-fill); Stop is the same disc (composerLocation.css). Each steps toward the
-   base on hover and further on press. */
-.acpmux-send.acpmux-send-ready:hover {
-  background: color-mix(in srgb, var(--acpmux-send-fill) 88%, var(--acpmux-base));
+/* Send, Stop and ↵ are plain glyphs, as the mic is (Leo 2026-10-21: "no solid discs"; Claude Code
+   desktop's): at rest the glyph alone (styles.css), hovered or keyboard-focused the mic's soft pill,
+   and a press adds nothing (Leo 2026-10-19: no mousedown feedback). Hover only under a fine pointer,
+   so a tap never leaves a wash behind. */
+@media (hover: hover) and (pointer: fine) {
+  .acpmux-send:not(:disabled):hover {
+    background: var(--acpmux-row-hover, var(--acpmux-composer-hover));
+  }
 }
-.acpmux-send.acpmux-send-ready:active {
-  background: color-mix(in srgb, var(--acpmux-send-fill) 76%, var(--acpmux-base));
+.acpmux-send:focus-visible {
+  background: var(--acpmux-row-hover, var(--acpmux-composer-hover));
 }
-.acpmux-composer-bar .acpmux-send.acpmux-cancel:hover {
-  background: color-mix(in srgb, var(--agent-text) 88%, var(--acpmux-base));
-}
-.acpmux-composer-bar .acpmux-send.acpmux-cancel:active {
-  background: color-mix(in srgb, var(--agent-text) 76%, var(--acpmux-base));
-}
-/* The first Esc of the double press (escapeStop.ts): Stop's disc widens into a pill that names the
-   key, "Esc", until a second Esc stops the turn or anything else puts Stop back. */
+/* The first Esc of the double press (escapeStop.ts): Stop keeps its glyph and footprint and takes the
+   theme's accent until a second Esc stops the turn or anything else puts Stop back; its name and the
+   prompt's placeholder say "Press Esc again to stop". */
 .acpmux-composer-bar .acpmux-send.acpmux-cancel[data-escape-armed] {
-  width: auto;
-  min-width: 28px;
-  padding: 0 9px;
-  border-radius: 14px;
-}
-.acpmux-escape-key {
-  font-size: var(--text-detail);
-  font-weight: 600;
-  line-height: 1;
-  white-space: nowrap;
+  color: var(--agent-lit-glyph, var(--agent-accent, var(--agent-text)));
 }
 
-/* Send off (the folder's trust question is open, useFolderTrustAsk.ts): the empty draft's off disc
-   (styles.css, --acpmux-send-off-*), one disabled look, with no step on hover. */
+/* Send off (the folder's trust question is open, useFolderTrustAsk.ts): the empty draft's dimmed
+   glyph (styles.css, --acpmux-send-off-fg), one disabled look, with no pill on hover. */
 button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
-  background: var(--acpmux-send-off-bg);
   color: var(--acpmux-send-off-fg);
   cursor: default;
 }

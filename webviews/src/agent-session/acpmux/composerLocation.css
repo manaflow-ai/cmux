@@ -401,8 +401,6 @@
   margin-left: 0;
   margin-inline-start: auto;
 }
-/* Send's inset sits inside the actions cluster's box, which the row's fit measures whole. */
-.acpmux-composer-bar .acpmux-send { margin-inline-start: var(--acpmux-row-inset); }
 /* + and the mic draw a 16 px glyph, as Send does, so a 28 px button keeps the row's inset. */
 .acpmux-composer-bar .acpmux-composer-plus .acpmux-picker-button .acpmux-icon,
 .acpmux-composer-bar .acpmux-mic .acpmux-icon {
@@ -745,19 +743,11 @@
 .acpmux-composer-box:has(:focus-visible) {
   box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-shadow, var(--elevation-1));
 }
-.acpmux-composer-bar .acpmux-send.acpmux-send-ready {
-  background: var(--acpmux-send-fill);
-  color: var(--acpmux-send-ink);
-}
-/* Send and Stop are the bar's 28 px. Stop is a solid disc in the text color with a square in the
-   base color, the theme inverted, so a running turn reads as live and never as an empty draft's
-   faint, off Send (design panel Q4-B: the faint disc read as disabled). Its hover and press steps
-   are composerStates.css's. */
+/* Send, Stop and ↵ are the bar's 28 px, plain glyphs in the text color as the mic is (Leo
+   2026-10-21: no discs). Stop's square is in the full text color, so a running turn never reads as an
+   empty draft's dimmed Send. Their hover pill is composerStates.css's. */
 .acpmux-composer-bar .acpmux-send { width: 28px; height: 28px; }
-.acpmux-composer-bar .acpmux-send.acpmux-cancel {
-  background: var(--agent-text);
-  color: var(--acpmux-base);
-}
+.acpmux-composer-bar .acpmux-send:is(.acpmux-send-ready, .acpmux-cancel) { color: var(--agent-text); }
 
 /* Permission cards use the same quiet material language as the composer: the composer's hairline,
    clear under appearance.borders = none, and the floating step of the elevation scale. The icon and title form
@@ -1242,10 +1232,3 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* The ↵ disc while a turn runs: its own inset on the mic's side, as Send's sits on its leading
-   side, so ↵, the mic and Stop draw one gap apart. */
-.acpmux-composer-bar .acpmux-send.acpmux-steer-now {
-  margin-inline: 0 var(--acpmux-row-inset);
-}
-/* In the plain footer Stop follows ↵ and brings its own leading inset (above), so ↵ adds none. */
-.acpmux-composer-bar .acpmux-send.acpmux-steer-now:has(+ .acpmux-send) { margin-inline-end: 0; }
