@@ -147,10 +147,10 @@ public nonisolated struct ImportCardDeck: Sendable {
     func card(for job: ImportJob, finding: ImportFinding?) -> ImportCard {
         let name = finding?.name ?? job.browser?.displayName ?? job.kind.displayName
         let title = job.site.map { ImportSuggestionStrings.requestTitle(browser: name, site: $0) } ?? name
-        let facts = finding.map(facts) ?? ""
-        let benefit = job.site.map { ImportSuggestionStrings.request(site: $0) } ?? finding.map(benefit) ?? ""
-        var card = ImportCard(id: job.id, kind: job.kind, app: job.browser?.bundleIDs.first ?? finding.flatMap(app), title: title, facts: facts,
-                              benefit: benefit, state: .running, progress: job.fraction, primary: nil, secondary: [])
+        let factsText = finding.map { self.facts($0) } ?? ""
+        let benefitText = job.site.map { ImportSuggestionStrings.request(site: $0) } ?? finding.map { self.benefit($0) } ?? ""
+        var card = ImportCard(id: job.id, kind: job.kind, app: job.browser?.bundleIDs.first ?? finding.flatMap { self.app($0) }, title: title,
+                              facts: factsText, benefit: benefitText, state: .running, progress: job.fraction, primary: nil, secondary: [])
         switch job.phase {
         case .running:
             card.status = ImportSuggestionStrings.running
