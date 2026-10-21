@@ -51,9 +51,8 @@ def triggers(doc: dict) -> dict:
     return doc.get("on", doc.get(True))
 
 
-def job(doc: dict) -> dict:
-    jobs = doc["jobs"]
-    return next(iter(jobs.values()))
+def job(doc: dict, key: str = "fast-gates") -> dict:
+    return doc["jobs"][key]
 
 
 def step_named(steps: list[dict], fragment: str) -> dict:
@@ -67,15 +66,16 @@ class WorkflowShape(unittest.TestCase):
     def test_name_job_and_runner(self):
         doc = workflow()
         self.assertEqual(doc["name"], "cmux-next fast gates")
-        self.assertEqual(len(doc["jobs"]), 1, "one job, `fast gates`")
-        gates = job(doc)
-        self.assertEqual(gates["name"], "fast gates")
+        self.assertEqual(list(doc["jobs"]), ["resolve", "fast-gates", "post"])
+        self.assertEqual(job(doc)["name"], "fast gates")
         # The same Linux runner expression as cmux-next-guards.yml's jobs.
         guards_runner = yaml.safe_load(GUARDS.read_text(encoding="utf-8"))["jobs"]["crash-ratchet"]["runs-on"]
-        self.assertEqual(gates["runs-on"], guards_runner)
-        self.assertIn("blacksmith-4vcpu-ubuntu-2404", gates["runs-on"])
-        self.assertNotIn("macos", gates["runs-on"].lower())
-        self.assertLessEqual(int(gates["timeout-minutes"]), 15)
+        for key, each in doc["jobs"].items():
+            with self.subTest(job=key):
+                self.assertEqual(each["runs-on"], guards_runner)
+                self.assertIn("blacksmith-4vcpu-ubuntu-2404", each["runs-on"])
+                self.assertNotIn("macos", each["runs-on"].lower())
+                self.assertLessEqual(int(each["timeout-minutes"]), 15)
 
     def test_triggers_have_no_paths_filter(self):
         on = triggers(workflow())
@@ -90,15 +90,34 @@ class WorkflowShape(unittest.TestCase):
     def test_dispatch_input_is_validated_as_digits(self):
         doc = workflow()
         self.assertIn("pr", triggers(doc)["workflow_dispatch"]["inputs"])
-        steps = job(doc)["steps"]
-        validate = step_named(steps, "Validate")
-        self.assertEqual(steps[0], validate, "the input is checked before anything runs")
-        self.assertIn("inputs.pr", validate["env"]["PR"])
-        self.assertRegex(validate["run"], r"\^\[0-9\]")
+        resolve = step_named(job(doc, "resolve")["steps"], "Resolve")
+        self.assertIn("inputs.pr", resolve["env"]["PR"])
+        self.assertRegex(resolve["run"], r"\^\[0-9\]")
         # PR-controlled values reach shell through env only, never ${{ }} inside run.
-        for step in steps:
-            self.assertNotRegex(step.get("run", ""), r"\$\{\{",
-                                f"step {step.get('name')!r} interpolates an expression into shell")
+        for key, each in doc["jobs"].items():
+            for step in each["steps"]:
+                self.assertNotRegex(step.get("run", ""), r"\$\{\{",
+                                    f"{key} step {step.get('name')!r} interpolates an expression into shell")
+
+    def test_dispatch_refuses_a_fork_or_another_base_before_pr_code_runs(self):
+        doc = workflow()
+        resolve = job(doc, "resolve")
+        # resolve runs no checked-out code: on dispatch it checks nothing out at all.
+        for step in resolve["steps"]:
+            if step.get("uses", "").startswith("actions/checkout@"):
+                self.assertEqual(step["if"].replace(" ", ""), "${{github.event_name=='pull_request'}}")
+            self.assertNotIn("scripts/", step.get("run", ""), step.get("name"))
+        body = step_named(resolve["steps"], "Resolve")["run"]
+        self.assertIn('"$head_repo" != "$GITHUB_REPOSITORY"', body)
+        self.assertIn('"$base_ref" != "$BRANCH"', body)
+        self.assertIn('"$state" != open', body)
+        self.assertEqual(step_named(resolve["steps"], "Resolve")["env"]["BRANCH"], "feat-cmux-next")
+        # The gates job, which runs the PR's code, starts only after resolve passed.
+        self.assertEqual(job(doc)["needs"], "resolve")
+        prepare = step_named(job(doc)["steps"], "Merge with the base")
+        self.assertIn("needs.resolve.outputs.head_sha", prepare["env"]["HEAD_SHA"])
+        self.assertIn("needs.resolve.outputs.base", prepare["env"]["BASE"])
+        self.assertIn('--head "$HEAD_SHA" --base "$BASE"', prepare["run"])
 
     def test_concurrency_per_pull_request(self):
         concurrency = workflow()["concurrency"]
@@ -108,7 +127,10 @@ class WorkflowShape(unittest.TestCase):
     def test_permissions_are_minimal(self):
         doc = workflow()
         self.assertEqual(doc["permissions"], {"contents": "read"})
-        self.assertEqual(job(doc)["permissions"], {"contents": "read", "statuses": "write"})
+        self.assertEqual(job(doc, "resolve")["permissions"], {"contents": "read", "pull-requests": "read"})
+        # The job that runs pull request code can write nothing; only post can write a status.
+        self.assertEqual(job(doc)["permissions"], {"contents": "read"})
+        self.assertEqual(job(doc, "post")["permissions"], {"statuses": "write"})
 
     def test_four_gates_fail_the_job(self):
         doc = workflow()
@@ -130,14 +152,23 @@ class WorkflowShape(unittest.TestCase):
         self.assertEqual(int(checkout["with"]["fetch-depth"]), 2)
 
     def test_status_context_and_description(self):
-        gates = job(workflow())
-        post = step_named(gates["steps"], "status")
-        self.assertIn("!cancelled()", post["if"])
-        # Fork pull requests have no write token: no status, the job still passes or fails.
-        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", post["if"])
+        doc = workflow()
+        poster = job(doc, "post")
+        self.assertEqual(poster["needs"], ["resolve", "fast-gates"])
+        self.assertIn("!cancelled()", poster["if"])
+        self.assertIn("needs.resolve.result == 'success'", poster["if"])
+        # Fork pull requests have no write token: resolve says post=false, the gates still pass or fail.
+        self.assertIn("needs.resolve.outputs.post == 'true'", poster["if"])
+        self.assertIn('"$PR_REPO" == "$GITHUB_REPOSITORY"', step_named(job(doc, "resolve")["steps"], "Resolve")["run"])
+        self.assertEqual(len(poster["steps"]), 1, "post checks nothing out and runs no repository code")
+        post = poster["steps"][0]
+        self.assertNotIn("uses", post)
         self.assertEqual(post["env"]["CONTEXT"], "cmux-next/fast-gates")
-        self.assertIn("steps.prepare.outputs.head_sha", post["env"]["HEAD_SHA"])
-        self.assertIn("steps.prepare.outputs.base", post["env"]["BASE"])
+        # Head and base come from resolve, never from anything the gates job wrote.
+        self.assertIn("needs.resolve.outputs.head_sha", post["env"]["HEAD_SHA"])
+        self.assertIn("needs.resolve.outputs.base", post["env"]["BASE"])
+        self.assertEqual(post["env"]["GATES"].replace(" ", ""), "${{needs.fast-gates.result}}")
+        self.assertNotIn("outputs", job(doc), "the gates job hands post nothing but its result")
         self.assertIn("github.run_id", post["env"]["TARGET_URL"])
         self.assertIn("github.token", post["env"]["GH_TOKEN"])
         body = post["run"]
@@ -229,6 +260,13 @@ class ScriptBehavior(unittest.TestCase):
                         f"file://{self.remote}", str(work)], check=True)
         return work
 
+    def dispatch(self, work: Path, pr: str = "7", head: str | None = None, base: str | None = None):
+        # The workflow's resolve job names the head and base from the API before this runs.
+        return self.script(work, "prepare", "--event", "workflow_dispatch", "--pr", pr,
+                           "--head", head or git(self.remote, "rev-parse", "refs/pull/7/head"),
+                           "--base", base or git(self.remote, "rev-parse", "refs/heads/feat-cmux-next"),
+                           "--output", str(self.tmp / "out.txt"))
+
     def outputs(self) -> dict[str, str]:
         out = self.tmp / "out.txt"
         return dict(line.split("=", 1) for line in out.read_text().splitlines() if "=" in line)
@@ -240,12 +278,9 @@ class ScriptBehavior(unittest.TestCase):
 
     def test_dispatch_merges_the_pull_request_into_the_current_tip(self):
         work = self.clone()
-        result = self.script(work, "prepare", "--event", "workflow_dispatch", "--pr", "7",
-                             "--output", str(self.tmp / "out.txt"))
+        result = self.dispatch(work)
         self.assertEqual(result.returncode, 0, result.stderr)
         out = self.outputs()
-        self.assertEqual(out["base"], self.tip)
-        self.assertEqual(out["head_sha"], self.pr_head)
         merge = git(work, "rev-parse", "HEAD")
         self.assertEqual(out["merge"], merge)
         self.assertEqual(git(work, "rev-parse", "HEAD^1"), self.tip)
@@ -258,21 +293,42 @@ class ScriptBehavior(unittest.TestCase):
         tip = commit(seed, {"scripts/cmux-next/marker.txt": "tip edits the same line\n"}, "conflicting")
         git(seed, "push", "-q", str(self.remote), "feat-cmux-next")
         work = self.clone()
-        result = self.script(work, "prepare", "--event", "workflow_dispatch", "--pr", "7",
-                             "--output", str(self.tmp / "out.txt"))
+        result = self.dispatch(work)
         self.assertEqual(result.returncode, 1)
         self.assertIn("conflict", result.stdout + result.stderr)
         self.assertIn("#7", result.stdout + result.stderr)
-        out = self.outputs()
-        self.assertEqual(out["base"], tip)
-        self.assertEqual(out["head_sha"], self.pr_head)
+        self.assertIn(tip, result.stderr)
+
+    def test_dispatch_refuses_a_head_that_moved_after_resolve(self):
+        work = self.clone()
+        result = self.dispatch(work, head="e" * 40)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("not the resolved head", result.stderr)
+        self.assertEqual(self.gate_log(), [])
+
+    def test_dispatch_refuses_a_base_that_is_not_on_the_branch(self):
+        git(self.seed, "checkout", "-q", "-b", "elsewhere", self.root)
+        other = commit(self.seed, {"other.txt": "x\n"}, "not on feat-cmux-next")
+        git(self.seed, "push", "-q", str(self.remote), "elsewhere")
+        work = self.clone()
+        git(work, "fetch", "-q", "origin", "elsewhere")
+        result = self.dispatch(work, base=other)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("not on feat-cmux-next", result.stderr)
+
+    def test_prepare_needs_full_shas_for_head_and_base(self):
+        work = self.clone()
+        for flag in ("head", "base"):
+            with self.subTest(flag=flag):
+                result = self.dispatch(work, **{flag: "abc123"})
+                self.assertEqual(result.returncode, 2)
+                self.assertIn(f"--{flag} must be a full commit sha", result.stderr)
 
     def test_dispatch_refuses_a_pr_that_is_not_digits(self):
         work = self.clone()
         for bad in ("7; rm -rf /", "", "07a", "-1"):
             with self.subTest(pr=bad):
-                result = self.script(work, "prepare", "--event", "workflow_dispatch", "--pr", bad,
-                                     "--output", str(self.tmp / "out.txt"))
+                result = self.dispatch(work, pr=bad)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("pull request number", result.stderr)
 
@@ -281,21 +337,29 @@ class ScriptBehavior(unittest.TestCase):
         git(work, "fetch", "-q", "origin", "refs/pull/7/head")
         git(work, "-c", "user.name=t", "-c", "user.email=t@example.com", "merge", "-q", "--no-ff",
             "--no-edit", "FETCH_HEAD")
-        result = self.script(work, "prepare", "--event", "pull_request", "--pr-head", self.pr_head,
-                             "--output", str(self.tmp / "out.txt"))
+        result = self.script(work, "prepare", "--event", "pull_request", "--head", self.pr_head,
+                             "--base", self.tip, "--output", str(self.tmp / "out.txt"))
         self.assertEqual(result.returncode, 0, result.stderr)
-        out = self.outputs()
-        self.assertEqual(out["base"], self.tip)
-        self.assertEqual(out["head_sha"], self.pr_head)
-        self.assertEqual(out["merge"], git(work, "rev-parse", "HEAD"))
+        self.assertEqual(self.outputs()["merge"], git(work, "rev-parse", "HEAD"))
+        self.assertNotIn("head_sha", self.outputs(), "head and base come from resolve, not from here")
+
+    def test_pull_request_merge_onto_another_base_fails(self):
+        work = self.clone(shallow=False)
+        git(work, "fetch", "-q", "origin", "refs/pull/7/head")
+        git(work, "-c", "user.name=t", "-c", "user.email=t@example.com", "merge", "-q", "--no-ff",
+            "--no-edit", "FETCH_HEAD")
+        result = self.script(work, "prepare", "--event", "pull_request", "--head", self.pr_head,
+                             "--base", self.root, "--output", str(self.tmp / "out.txt"))
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("not the resolved base", result.stderr)
 
     def test_pull_request_merge_of_another_head_fails(self):
         work = self.clone(shallow=False)
         git(work, "fetch", "-q", "origin", "refs/pull/7/head")
         git(work, "-c", "user.name=t", "-c", "user.email=t@example.com", "merge", "-q", "--no-ff",
             "--no-edit", "FETCH_HEAD")
-        result = self.script(work, "prepare", "--event", "pull_request", "--pr-head", "f" * 40,
-                             "--output", str(self.tmp / "out.txt"))
+        result = self.script(work, "prepare", "--event", "pull_request", "--head", "f" * 40,
+                             "--base", self.tip, "--output", str(self.tmp / "out.txt"))
         self.assertEqual(result.returncode, 1)
         self.assertIn("not the pull request head", result.stderr)
 
@@ -308,27 +372,25 @@ class ScriptBehavior(unittest.TestCase):
         head = commit(seed, {"webviews/src/a.ts": "export const a = 1;\n"}, "web change")
         git(seed, "push", "-q", "-f", str(self.remote), "pr:refs/pull/7/head")
         work = self.clone()
-        result = self.script(work, "prepare", "--event", "workflow_dispatch", "--pr", "7",
-                             "--output", str(self.tmp / "out.txt"))
+        result = self.dispatch(work)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.outputs()["head_sha"], head)
+        self.assertEqual(git(work, "rev-parse", "HEAD^2"), head)
         self.assertEqual(self.outputs()["web"], "true")
 
     def prepared(self) -> tuple[Path, dict[str, str]]:
         work = self.clone()
-        result = self.script(work, "prepare", "--event", "workflow_dispatch", "--pr", "7",
-                             "--output", str(self.tmp / "out.txt"))
+        result = self.dispatch(work)
         self.assertEqual(result.returncode, 0, result.stderr)
         return work, self.outputs()
 
     def test_run_calls_every_gate_against_the_base(self):
         work, out = self.prepared()
         summary = self.tmp / "summary.md"
-        result = self.script(work, "run", "--base", out["base"], "--web", "true", "--summary", str(summary))
+        result = self.script(work, "run", "--base", self.tip, "--web", "true", "--summary", str(summary))
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         calls = {entry["gate"]: entry for entry in self.gate_log()}
         self.assertEqual(set(calls), set(GATE_SCRIPTS))
-        base, merge = out["base"], out["merge"]
+        base, merge = self.tip, out["merge"]
         self.assertEqual(calls["web lint"]["argv"][:4], ["--base", base, "--head", merge])
         self.assertEqual(calls["prepush gate"]["argv"][:4], ["--base", base, "--head", merge])
         self.assertEqual(calls["defaults stamp"]["argv"], ["check-stamp", "--base", base])
@@ -349,14 +411,14 @@ class ScriptBehavior(unittest.TestCase):
         for red in GATE_SCRIPTS:
             with self.subTest(red=red):
                 self.log.unlink(missing_ok=True)
-                result = self.script(work, "run", "--base", out["base"], "--web", "true", fail=red)
+                result = self.script(work, "run", "--base", self.tip, "--web", "true", fail=red)
                 self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
                 self.assertEqual({e["gate"] for e in self.gate_log()}, set(GATE_SCRIPTS))
                 self.assertRegex(result.stdout + result.stderr, rf"(?m)^.*{re.escape(red)}.*fail")
 
     def test_no_web_change_skips_web_lint_only(self):
         work, out = self.prepared()
-        result = self.script(work, "run", "--base", out["base"], "--web", "false")
+        result = self.script(work, "run", "--base", self.tip, "--web", "false")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual({e["gate"] for e in self.gate_log()}, set(GATE_SCRIPTS) - {"web lint"})
         self.assertIn("web lint", result.stdout)
