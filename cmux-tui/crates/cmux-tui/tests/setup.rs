@@ -201,7 +201,9 @@ fn cmux_setup_trust_an_agent_runs_the_fix_reruns_it_and_undoes_it() {
     // The fix status named.
     let changed = world.follow(&fix);
     assert_eq!(changed["state"], "changed", "{changed}");
-    assert_eq!(changed["via"], "record");
+    assert_eq!(changed["through"], "record");
+    assert_eq!(changed["via"], Value::Null);
+    assert_eq!(changed["written"], folder.as_str());
     assert_eq!(changed["before"]["level"], "unknown");
     assert_eq!(changed["after"]["level"], "trusted");
     assert_eq!(world.record(), Some(json!({folder.as_str(): "trusted"})));
@@ -258,7 +260,7 @@ fn cmux_setup_trust_goes_through_a_running_acpmux_daemon() {
 
     let changed = world.json(&["setup", "trust"]);
     assert_eq!(changed["state"], "changed", "{changed}");
-    assert_eq!(changed["via"], "daemon");
+    assert_eq!(changed["through"], "daemon");
     let requests = requests.lock().unwrap();
     let set = requests
         .iter()
@@ -266,6 +268,56 @@ fn cmux_setup_trust_goes_through_a_running_acpmux_daemon() {
         .unwrap_or_else(|| panic!("no acp.trust.set in {requests:?}"));
     assert_eq!(set["params"], json!({"cwd": folder, "level": "trusted"}));
     assert_eq!(world.record(), None, "the CLI wrote the record beside the daemon");
+}
+
+#[test]
+fn cmux_setup_trust_answers_a_worktree_from_its_repository_and_forgets_it_there() {
+    let world = World::new("via");
+    // The repository and a linked worktree of it, as git writes them.
+    let repo = world.folder();
+    let gitdir = world.repo.join(".git").join("worktrees").join("wt");
+    std::fs::create_dir_all(&gitdir).unwrap();
+    let worktree_path = world.repo.parent().unwrap().join("wt");
+    std::fs::create_dir_all(&worktree_path).unwrap();
+    let worktree = std::fs::canonicalize(&worktree_path).unwrap().to_string_lossy().into_owned();
+    std::fs::write(worktree_path.join(".git"), format!("gitdir: {}\n", gitdir.display())).unwrap();
+    std::fs::write(gitdir.join("gitdir"), format!("{worktree}/.git\n")).unwrap();
+    std::fs::write(gitdir.join("commondir"), "../..\n").unwrap();
+
+    // The person trusts the repository; its worktree has that answer.
+    world.json(&["setup", "trust", &repo]);
+    let again = world.json(&["setup", "trust", &worktree]);
+    assert_eq!(again["state"], "ok", "{again}");
+    assert_eq!(again["via"], repo.as_str(), "{again}");
+    assert_eq!(again["written"], Value::Null);
+    assert_eq!(world.record(), Some(json!({repo.as_str(): "trusted"})), "ok wrote the record");
+
+    // Forgetting the worktree's answer forgets it where it was made.
+    let planned = world.json(&["setup", "trust", &worktree, "--level", "unknown", "--dry-run"]);
+    assert_eq!(planned["state"], "planned", "{planned}");
+    assert_eq!(planned["written"], repo.as_str(), "{planned}");
+    assert_eq!(world.record(), Some(json!({repo.as_str(): "trusted"})), "a dry run wrote");
+    let forgot = world.json(&["setup", "trust", &worktree, "--level", "unknown"]);
+    assert_eq!(forgot["state"], "changed", "{forgot}");
+    assert_eq!(forgot["written"], repo.as_str(), "{forgot}");
+    assert_eq!(forgot["after"]["level"], "unknown", "{forgot}");
+    assert_eq!(world.record(), Some(json!({})));
+    let undo = forgot["undo"].as_str().expect("a change names its undo").to_owned();
+    assert_eq!(undo, format!("cmux setup trust {repo} --level trusted"));
+
+    // Its undo gives the repository, and so the worktree, the answer back.
+    world.follow(&undo);
+    assert_eq!(world.json(&["setup", "trust", &worktree])["state"], "ok");
+
+    // A different level for the worktree is the worktree's own.
+    let refused = world.json(&["setup", "trust", &worktree, "--level", "untrusted"]);
+    assert_eq!(refused["written"], worktree.as_str(), "{refused}");
+    assert_eq!(refused["after"]["level"], "untrusted", "{refused}");
+    assert_eq!(refused["undo"], format!("cmux setup trust {worktree} --level unknown"));
+    assert_eq!(
+        world.record(),
+        Some(json!({repo.as_str(): "trusted", worktree.as_str(): "untrusted"}))
+    );
 }
 
 #[test]
@@ -293,6 +345,7 @@ fn cmux_setup_list_names_every_task_and_bad_arguments_exit_2() {
         &["setup", "machine", "box:2222"],
         &["setup", "machine", "a", "b"],
         &["setup", "machine", "box", "--name", "two words"],
+        &["setup", "machine", "box", "--name", "--dry-run"],
     ] {
         let output = world.run(args);
         assert_eq!(output.status.code(), Some(2), "{args:?}");
@@ -488,6 +541,55 @@ fn cmux_setup_machine_updates_an_outdated_peer_and_says_why_there_is_no_undo() {
     let again = world.json(&["setup", "machine", "dev@box.example"]);
     assert_eq!(again["state"], "ok", "{again}");
     assert!(world.take_ssh_calls().is_empty());
+}
+
+#[test]
+fn cmux_setup_machine_never_moves_a_peer_by_its_default_name() {
+    let world = World::new("taken").with_fake_ssh();
+    let ws = json!({
+        "name": "box", "url": "wss://box.relay.example/acp", "connected": true,
+        "outdated": false, "remoteBuild": "this", "error": null,
+    });
+    let daemon = FakeDaemon::start(&world, vec![ws.clone()]);
+
+    // `box` is the default name for box.example, but it names another peer:
+    // nothing runs, not even ssh, and the person picks a name.
+    for dry_run in [true, false] {
+        let mut args = vec!["setup", "machine", "box.example"];
+        if dry_run {
+            args.push("--dry-run");
+        }
+        let result = world.json(&args);
+        assert_eq!(result["state"], "needs_user", "{result}");
+        assert_eq!(result["user_action"]["kind"], "name", "{result}");
+        assert_eq!(result["user_action"]["command"], "cmux setup machine box.example --name NAME");
+        assert_eq!(result["before"]["url"], ws["url"]);
+        assert_eq!(result["plan"], json!([]));
+        assert_eq!(result["undo"], Value::Null);
+        assert!(world.take_ssh_calls().is_empty(), "a taken name reached the machine");
+    }
+    assert_eq!(daemon.peers(), [ws.clone()]);
+
+    // A new name adds the machine beside it.
+    let added = world.json(&["setup", "machine", "box.example", "--name", "box2"]);
+    assert_eq!(added["state"], "changed", "{added}");
+    assert_eq!(added["undo"], "cmux acp host rm box2");
+    world.take_ssh_calls();
+    let peers = daemon.peers();
+    assert_eq!(peers.len(), 2, "{peers:?}");
+    assert_eq!(peers[0], ws);
+
+    // Without --name, the peer at that host is found under its own name.
+    let again = world.json(&["setup", "machine", "box.example"]);
+    assert_eq!(again["state"], "ok", "{again}");
+    assert_eq!(again["name"], "box2");
+    assert!(world.take_ssh_calls().is_empty());
+
+    // An ssh peer moved by an explicit --name names the way back.
+    let moved = world.json(&["setup", "machine", "other.example", "--name", "box2", "--dry-run"]);
+    assert_eq!(moved["state"], "planned", "{moved}");
+    assert_eq!(moved["before"]["url"], "ssh://box.example");
+    assert_eq!(moved["undo"], "cmux acp host add box2 ssh://box.example");
 }
 
 #[test]
