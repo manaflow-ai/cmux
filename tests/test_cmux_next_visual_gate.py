@@ -1,0 +1,563 @@
+#!/usr/bin/env python3
+"""The nightly visual gate's checks (scripts/cmux-next/visual-gate/visual_gate.py) on
+synthetic stills and text-box fixtures, so they run on Linux without Vision; the
+state files load; and nightly.yml wires the gate in front of publish-nightly."""
+
+from __future__ import annotations
+
+import importlib.util
+import json
+import os
+import plistlib
+import re
+from pathlib import Path
+import struct
+import subprocess
+import sys
+import tempfile
+import unittest
+import zlib
+
+ROOT = Path(__file__).resolve().parents[1]
+GATE = ROOT / "scripts/cmux-next/visual-gate"
+spec = importlib.util.spec_from_file_location("visual_gate", GATE / "visual_gate.py")
+gate = importlib.util.module_from_spec(spec)
+sys.modules["visual_gate"] = gate
+spec.loader.exec_module(gate)
+
+
+def png(width: int, height: int, pixel, *, channels: int = 4, filter_type: int = 0) -> bytes:
+    """An 8-bit RGBA (or RGB) PNG; pixel(x, y) gives (r, g, b). Every row uses `filter_type`."""
+    rows = []
+    prev = bytearray(width * channels)
+    for y in range(height):
+        line = bytearray()
+        for x in range(width):
+            r, g, b = pixel(x, y)
+            line += bytes((r, g, b, 255)[:channels])
+        encoded = bytearray(line)
+        if filter_type == 1:
+            encoded = bytearray((line[i] - (line[i - channels] if i >= channels else 0)) & 0xFF for i in range(len(line)))
+        elif filter_type == 2:
+            encoded = bytearray((line[i] - prev[i]) & 0xFF for i in range(len(line)))
+        elif filter_type == 3:
+            encoded = bytearray((line[i] - (((line[i - channels] if i >= channels else 0) + prev[i]) >> 1)) & 0xFF
+                                for i in range(len(line)))
+        elif filter_type == 4:
+            def paeth(a, b, c):
+                p = a + b - c
+                pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+                return a if pa <= pb and pa <= pc else b if pb <= pc else c
+            encoded = bytearray((line[i] - paeth(line[i - channels] if i >= channels else 0, prev[i],
+                                                 prev[i - channels] if i >= channels else 0)) & 0xFF
+                                for i in range(len(line)))
+        rows.append(bytes((filter_type,)) + bytes(encoded))
+        prev = line
+
+    def chunk(kind: bytes, body: bytes) -> bytes:
+        return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body) & 0xFFFFFFFF)
+
+    color = 6 if channels == 4 else 2
+    return (gate.PNG_SIGNATURE + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, color, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(b"".join(rows))) + chunk(b"IEND", b""))
+
+
+def light_ui(x, y):
+    """A light window: a sidebar, content and a darker card."""
+    if x < 20:
+        return (230, 230, 232)
+    if 40 <= x < 70 and 10 <= y < 30:
+        return (200, 200, 205)
+    return (250, 250, 250)
+
+
+def dark_ui(x, y):
+    if x < 20:
+        return (40, 40, 44)
+    if 40 <= x < 70 and 10 <= y < 30:
+        return (60, 60, 66)
+    return (28, 28, 30)
+
+
+def with_seam(base, at: int, colour=(0, 0, 0), *, axis: str = "x", start: int = 0, end: int = 10_000, gaps=()):
+    def pixel(x, y):
+        pos, along = (x, y) if axis == "x" else (y, x)
+        if pos == at and start <= along < end and along not in gaps:
+            return colour
+        return base(x, y)
+    return pixel
+
+
+def decode(data: bytes):
+    return gate.decode_png(data)
+
+
+class PngTests(unittest.TestCase):
+    def test_every_filter_decodes_to_the_same_pixels(self):
+        pixel = lambda x, y: ((x * 37 + y * 11) % 256, (x * 5) % 256, (y * 9) % 256)
+        want = decode(png(13, 7, pixel, filter_type=0)).pixels
+        for kind in (1, 2, 3, 4):
+            self.assertEqual(decode(png(13, 7, pixel, filter_type=kind)).pixels, want, f"filter {kind}")
+
+    def test_rgb_and_rgba(self):
+        rgb = decode(png(3, 2, lambda x, y: (10, 20, 30), channels=3))
+        self.assertEqual((rgb.width, rgb.height, rgb.channels), (3, 2, 3))
+        self.assertEqual(rgb.luminance(), bytes([18] * 6))
+        self.assertEqual(rgb.chroma(), bytes([20] * 6))
+
+    def test_refuses_what_it_cannot_read(self):
+        with self.assertRaises(gate.BadInput):
+            decode(b"GIF89a")
+
+
+class StepsTests(unittest.TestCase):
+    def test_failed_required_step_and_errors_fail_optional_is_info(self):
+        result = {"steps": [{"title": "seed", "status": "ok"},
+                            {"title": "ready", "status": "unavailable", "detail": "no page"},
+                            {"title": "load", "status": "failed", "detail": "timeout"}],
+                  "errors": ["dark still: no image"]}
+        found = gate.check_steps(result, {"light.png": True, "dark.png": False})
+        levels = [(f["level"], f["message"]) for f in found]
+        self.assertIn(("info", "optional step unavailable: ready: no page"), levels)
+        self.assertIn(("fail", "step failed: load: timeout"), levels)
+        self.assertIn(("fail", "capture error: dark still: no image"), levels)
+        self.assertIn(("fail", "dark.png is missing"), levels)
+
+    def test_all_ok_has_no_failures(self):
+        found = gate.check_steps({"steps": [{"title": "a", "status": "ok"}]}, {"light.png": True, "dark.png": True})
+        self.assertEqual([f for f in found if f["level"] == "fail"], [])
+
+
+def appearance(light: dict, dark: dict | None = None, **result):
+    return {"host": "mini-7", "settings_source": "own",
+            "appearance": {"light": light, "dark": dark or {"effective": "dark", "terminal_background": "#1E1E1E",
+                                                          "themes": "/x/ghostty/themes"}}, **result}
+
+
+LIGHT_OK = {"effective": "light", "terminal_background": "#FFFFFF", "themes": "/x/ghostty/themes"}
+
+
+class AppearanceTests(unittest.TestCase):
+    def same(self, result):
+        light = decode(png(80, 40, light_ui))
+        return gate.check_appearance(light, light, result)[0]
+
+    def test_identical_stills_are_the_builds_fault_when_the_app_says_so(self):
+        cases = {
+            "stayed dark": appearance({"effective": "dark"}),
+            "ships no Ghostty themes": appearance({"effective": "light", "terminal_background": "#1E1E1E", "themes": None}),
+            "on the app's own settings": appearance({**LIGHT_OK, "terminal_background": "#1E1E1E"}),
+            "did not repaint": appearance(LIGHT_OK),
+        }
+        for words, result in cases.items():
+            found = self.same(result)
+            self.assertEqual(found["level"], "fail", words)
+            self.assertIn("same picture", found["message"])
+            self.assertIn(words, found["message"])
+
+    def test_identical_stills_are_host_drift_on_the_macs_own_settings(self):
+        # cmux-mac-mini's shared cmux-next.json pinned a dark-only theme: every light still was dark.
+        found = self.same(appearance({**LIGHT_OK, "terminal_background": "#000000"}, settings_source="host"))
+        self.assertEqual(found["level"], "host")
+        self.assertIn("mini-7", found["message"])
+        self.assertEqual(found["host"], "mini-7")
+
+    def test_identical_stills_without_the_apps_word_are_not_pinned_on_the_build(self):
+        # HQ pr-capture's result.json records no appearance (the 3a63d6d9 stills).
+        found = self.same({"host": "cmux-mac-mini-cua", "steps": []})
+        self.assertEqual(found["level"], "host")
+        self.assertIn("cmux-mac-mini-cua", found["message"])
+
+    def test_a_real_switch_passes(self):
+        found = gate.check_appearance(decode(png(80, 40, light_ui)), decode(png(80, 40, dark_ui)))
+        self.assertEqual(found[0]["level"], "info", found)
+
+    def test_a_small_change_is_still_the_same_picture(self):
+        # A blinking caret or a spinner frame differs; the theme did not change.
+        moved = lambda x, y: (0, 0, 0) if (x, y) == (50, 20) else light_ui(x, y)
+        found = gate.check_appearance(decode(png(80, 40, light_ui)), decode(png(80, 40, moved)), appearance(LIGHT_OK))
+        self.assertEqual(found[0]["level"], "fail")
+
+    def test_inverted_is_a_warning(self):
+        found = gate.check_appearance(decode(png(80, 40, dark_ui)), decode(png(80, 40, light_ui)))
+        self.assertEqual(found[0]["level"], "warn")
+
+
+class ScaleTests(unittest.TestCase):
+    def test_1x_warns_2x_passes_unknown_warns(self):
+        image = decode(png(110, 72, light_ui))
+        self.assertEqual(gate.check_scale(image, [110, 72])[0]["level"], "warn")
+        self.assertEqual(gate.check_scale(image, [55, 36])[0]["level"], "info")
+        self.assertIn("unknown", gate.check_scale(image, None)[0]["message"])
+        self.assertIn("backing scale 1x", gate.check_scale(image, [110, 72])[0]["message"])
+
+    def test_the_require_switch_turns_below_2x_into_a_failure(self):
+        image = decode(png(110, 72, light_ui))
+        self.assertEqual(gate.check_scale(image, [110, 72], require=True)[0]["level"], "fail")
+        self.assertEqual(gate.check_scale(image, None, require=True)[0]["level"], "fail")
+        self.assertEqual(gate.check_scale(image, [55, 36], require=True)[0]["level"], "info")
+
+
+class SeamTests(unittest.TestCase):
+    def seams(self, pixel, width=120, height=80):
+        image = decode(png(width, height, pixel))
+        return gate.find_seams(image.luminance(), image.chroma(), width, height)
+
+    def test_full_height_black_column_in_a_light_window(self):
+        found = self.seams(with_seam(light_ui, 90, start=5))
+        self.assertEqual([(s["axis"], s["at"], s["width"]) for s in found], [("x", 90, 1)])
+        self.assertGreaterEqual(found[0]["fraction"], 0.9)
+
+    def test_column_in_the_dark_still_and_a_row(self):
+        self.assertEqual([s["at"] for s in self.seams(with_seam(dark_ui, 100, colour=(0, 0, 0)))], [])  # too close to the background
+        self.assertEqual([s["at"] for s in self.seams(with_seam(dark_ui, 100, colour=(140, 140, 140)))], [100])
+        rows = self.seams(with_seam(light_ui, 50, axis="y"))
+        self.assertEqual([(s["axis"], s["at"]) for s in rows], [("y", 50)])
+
+    def test_text_crossing_the_seam_does_not_break_it(self):
+        found = self.seams(with_seam(light_ui, 90, gaps=set(range(30, 36))))
+        self.assertEqual([s["at"] for s in found], [90])
+
+    def test_two_px_seam_at_2x(self):
+        def pixel(x, y):
+            return (0, 0, 0) if x in (90, 91) else light_ui(x, y)
+        found = self.seams(pixel)
+        self.assertEqual([(s["at"], s["width"]) for s in found], [(90, 2)])
+        # Content beside the run (a control drawn over its last rows) does not hide it.
+        def covered(x, y):
+            return (200, 0, 0) if y >= 70 and x in (90, 91) else pixel(x, y)
+        self.assertEqual([(s["at"], s["width"]) for s in self.seams(covered)], [(90, 2)])
+
+    def test_short_lines_edges_and_coloured_lines_are_not_seams(self):
+        self.assertEqual(self.seams(with_seam(light_ui, 90, end=30)), [])               # 37% of the height
+        self.assertEqual(self.seams(light_ui), [])                                       # the sidebar's edge is a step, not a line
+        self.assertEqual(self.seams(with_seam(light_ui, 90, colour=(0, 120, 255))), [])  # a focus ring or accent
+
+    def test_check_names_the_image(self):
+        found = gate.check_seams(decode(png(120, 80, with_seam(light_ui, 90))), "light.png")
+        self.assertEqual(found[0]["level"], "fail")
+        self.assertIn("light.png: 1-px vertical seam at x=90", found[0]["message"])
+
+
+def obs(text, box, **extra):
+    return {"text": text, "confidence": 1.0, "box": box, **extra}
+
+
+class OverlapTests(unittest.TestCase):
+    def test_separate_boxes_that_overlap_fail(self):
+        # Like the 3a63d6d9 long-session still: a queued prompt drawn over the Environment card,
+        # here read as two lines whose boxes overlap.
+        boxes = {"observations": [obs("Check the orders API still returns the", [362, 140, 238, 12]),
+                                  obs("cmux ~/code", [378, 144, 84, 12]),
+                                  obs("Working for 2s", [226, 230, 96, 14])]}
+        found = gate.check_overlaps(boxes, "light.png")
+        self.assertEqual([f["level"] for f in found], ["fail"])
+        self.assertIn("overlaps", found[0]["message"])
+
+    def test_neighbouring_lines_and_tiny_glyphs_pass(self):
+        boxes = {"observations": [obs("Tell it what you want done.", [856, 242, 210, 14]),
+                                  obs("quick things itself and hands", [858, 256, 206, 14]),
+                                  obs(".", [900, 250, 3, 3])]}
+        self.assertEqual(gate.check_overlaps(boxes, "light.png"), [])
+
+    def test_missing_boxes_warn(self):
+        self.assertEqual(gate.check_overlaps(None, "dark.png")[0]["level"], "warn")
+
+    def lines(self, *special):
+        normal = [obs(f"An ordinary line of text {i}", [10, 20 * i, 200, 14]) for i in range(6)]
+        return {"observations": normal + list(special)}
+
+    def test_a_tall_line_that_stays_garbled_fails(self):
+        # 3a63d6d9: the Outputs card drawn over a chat message.
+        bad = obs("It concatenates withutuatiosol'lladdan optionals-8", [226, 331, 408, 21],
+                  reread={"lines": [{"text": "It concatenates withgutguefhatiorso I'll add an optionals -8",
+                                     "box": [226, 331, 408, 21]}],
+                          "misspelled": ["withgutguefhatiorso"]})
+        found = gate.check_overlaps(self.lines(bad), "light.png")
+        self.assertEqual(len(found), 1)
+        self.assertIn("text over text", found[0]["message"])
+
+    def test_a_tall_line_whose_reread_stacks_lines_on_each_other_fails(self):
+        # A tab title under a "Terminal failed" toast reads as "Hoerminal failed".
+        bad = obs("@ Hoerminal failed", [215, 6, 110, 30],
+                  reread={"lines": [{"text": "Hame", "box": [220, 10, 40, 16]},
+                                    {"text": "Terminal failed", "box": [232, 12, 90, 16]}], "misspelled": ["Hame"]})
+        self.assertEqual(len(gate.check_overlaps(self.lines(bad), "light.png")), 1)
+
+    def test_two_wrapped_lines_read_as_one_pass(self):
+        ok = obs("Dow now, wah the pr status ir dsthare one", [325, 119, 257, 32],
+                 reread={"lines": [{"text": "Done: the tab and session cards share one", "box": [325, 119, 257, 14]},
+                                   {"text": "row now, with the PR status in color.", "box": [325, 137, 220, 14]}],
+                         "misspelled": []})
+        self.assertEqual(gate.check_overlaps(self.lines(ok), "light.png"), [])
+
+    def test_a_word_clipped_at_a_pane_edge_and_product_names_pass(self):
+        clipped = obs("paragraph. This sentence adds some width to the pa", [292, 441, 492, 23],
+                      reread={"lines": [{"text": "paragraph. This sentence adds some width. This sentenc",
+                                         "box": [292, 441, 492, 23]}], "misspelled": ["sentenc"]})
+        named = obs("Open the acpmux session list", [10, 300, 220, 22],
+                    reread={"lines": [{"text": "Open the acpmux session list", "box": [10, 300, 220, 22]}],
+                            "misspelled": ["acpmux"]})
+        self.assertEqual(gate.check_overlaps(self.lines(clipped, named), "light.png"), [])
+
+    def test_wrapped_lines_read_together_and_again_are_not_an_overlap(self):
+        # 5ae65cd7: Vision ran two wrapped lines together and read the second again on its own.
+        joined = obs("Dow now, wah the pr status ir dsthare one", [325, 119, 257, 32],
+                     reread={"lines": [{"text": "Done: the tab and session cards share one", "box": [325, 119, 257, 14]},
+                                       {"text": "row now, with the PR status in color.", "box": [325, 137, 220, 14]}],
+                             "misspelled": []})
+        again = obs("row now, with the PR status in color.", [332, 136, 208, 17])
+        self.assertEqual(gate.check_overlaps(self.lines(joined, again), "light.png"), [])
+
+    def test_a_garbled_line_of_normal_height_passes(self):
+        # Garbled OCR alone (small text, an icon read as letters) is not evidence of overlap.
+        meh = obs("Qxzvblorp frenulated nonsense", [10, 300, 200, 14], misspelled=["Qxzvblorp"])
+        self.assertEqual(gate.check_overlaps(self.lines(meh), "light.png"), [])
+
+
+class CaptureDirTests(unittest.TestCase):
+    def test_end_to_end_report_and_exit_code(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            good, bad, drift = Path(tmp) / "good", Path(tmp) / "bad", Path(tmp) / "drift"
+            for directory in (good, bad, drift):
+                directory.mkdir()
+            (good / "light.png").write_bytes(png(120, 80, light_ui))
+            (good / "dark.png").write_bytes(png(120, 80, dark_ui))
+            (good / "result.json").write_text(json.dumps({"steps": [{"title": "a", "status": "ok"}],
+                                                          "window_points": [60, 40]}))
+            (good / "text-boxes.json").write_text(json.dumps({
+                str(good / "light.png"): {"observations": []}, str(good / "dark.png"): {"observations": []}}))
+            seam = png(120, 80, with_seam(light_ui, 90))
+            (bad / "light.png").write_bytes(seam)
+            (bad / "dark.png").write_bytes(seam)
+            (bad / "result.json").write_text(json.dumps({"steps": [{"title": "a", "status": "failed"}],
+                                                         **appearance({"effective": "dark"})}))
+            same = png(120, 80, light_ui)
+            (drift / "light.png").write_bytes(same)
+            (drift / "dark.png").write_bytes(same)
+            (drift / "result.json").write_text(json.dumps({"steps": [], "host": "cmux-mac-mini"}))
+            report = Path(tmp) / "report.json"
+            summary = Path(tmp) / "summary.md"
+            done = subprocess.run([sys.executable, str(GATE / "visual_gate.py"), "--json", str(report),
+                                   "--summary", str(summary), str(good), str(bad)],
+                                  capture_output=True, text=True, timeout=120)
+            self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+            reports = json.loads(report.read_text())
+            self.assertEqual([r["ok"] for r in reports], [True, False])
+            checks = {f["check"] for f in reports[1]["findings"] if f["level"] == "fail"}
+            self.assertEqual(checks, {"steps", "appearance", "seam"})
+            self.assertIn("| `good` |  | pass |", summary.read_text())
+            # Host drift is named and reported, and never fails the gate.
+            done = subprocess.run([sys.executable, str(GATE / "visual_gate.py"), str(good), str(drift)],
+                                  capture_output=True, text=True, timeout=120)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            self.assertIn("host appearance:", done.stdout)
+            self.assertIn("cmux-mac-mini", done.stdout)
+
+
+class ModeResolverTests(unittest.TestCase):
+    """The canary's resolver, reused under the gate's own variable and issue."""
+    SCRIPT = ROOT / "scripts/ci/nightly_next_canary_mode.py"
+    ARGS = ["--variable", "NIGHTLY_NEXT_VISUAL_GATE", "--default-enforce-after", "2026-10-28T16:00:00Z",
+            "--gate", "visual gate", "--issue-title", "nightly-next visual gate failed",
+            "--failure-prefix", "cmux NEXT visual gate failed "]
+
+    def resolve(self, *extra, **env):
+        return subprocess.run([sys.executable, str(self.SCRIPT), "resolve", *self.ARGS, *extra],
+                              capture_output=True, text=True, timeout=60, env={"PATH": "/usr/bin:/bin", **env})
+
+    def test_reads_its_own_variable_not_the_canarys(self):
+        done = self.resolve("--now", "2026-10-22T00:00:00Z", NIGHTLY_NEXT_VISUAL_GATE="enforce",
+                            NIGHTLY_NEXT_CANARY="off")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("mode=enforce", done.stdout)
+        self.assertIn("why=NIGHTLY_NEXT_VISUAL_GATE=enforce", done.stdout)
+
+    def test_unset_reports_until_its_own_date(self):
+        done = self.resolve("--now", "2026-10-22T00:00:00Z", NIGHTLY_NEXT_CANARY="enforce")
+        self.assertIn("mode=report", done.stdout)
+        self.assertIn("until 2026-10-28T16:00Z", done.stdout)
+
+    def test_a_typo_names_the_gates_variable(self):
+        done = self.resolve(NIGHTLY_NEXT_VISUAL_GATE="enforec")
+        self.assertEqual(done.returncode, 2)
+        self.assertIn("NIGHTLY_NEXT_VISUAL_GATE='enforec'", done.stderr)
+
+    def test_the_report_week_counts_only_gate_failures(self):
+        spec = importlib.util.spec_from_file_location("canary_mode_for_gate", self.SCRIPT)
+        mode = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mode)
+        flip = mode.parse_when("2026-10-28T16:00:00Z")
+        options = dict(variable="NIGHTLY_NEXT_VISUAL_GATE", default_enforce_after="2026-10-28T16:00:00Z",
+                       failure_prefix="cmux NEXT visual gate failed ", gate="visual gate")
+        canary_only = lambda _since: [(flip - mode.REPORT_WEEK / 2, "cmux NEXT build 9 failed the canary twice")]
+        got, why = mode.resolve("", "", flip + mode.REPORT_WEEK, canary_only, **options)
+        self.assertEqual(got, "enforce", why)
+        gate_failed = lambda _since: [(flip - mode.REPORT_WEEK / 2, "cmux NEXT visual gate failed abc: run")]
+        got, why = mode.resolve("", "", flip + mode.REPORT_WEEK, gate_failed, **options)
+        self.assertEqual(got, "report")
+        self.assertIn("set NIGHTLY_NEXT_VISUAL_GATE=enforce", why)
+
+
+# A fake app for capture_states.py: serves CMUX_NEXT_SOCKET_PATH, logs its launch
+# (argv and the knobs the gate cares about) and every request.
+FAKE_APP = r'''#!/usr/bin/env python3
+import json, os, socket, sys, threading
+path, log = os.environ["CMUX_NEXT_SOCKET_PATH"], os.environ["FAKE_LOG"]
+server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+server.bind(path)
+server.listen(8)
+state = {"mode": "dark"}
+def write(entry):
+    with open(log, "a") as out:
+        out.write(json.dumps(entry) + "\n")
+write({"method": "_launch", "argv": sys.argv[1:], "config": os.environ.get("CMUX_NEXT_CONFIG_FILE"),
+       "showcase": os.environ.get("CMUX_NEXT_SHOWCASE")})
+def answer(connection):
+    with connection:
+        data = b""
+        while not data.endswith(b"\n"):
+            chunk = connection.recv(65536)
+            if not chunk:
+                return
+            data += chunk
+        request = json.loads(data)
+        method, params = request["method"], request.get("params") or {}
+        write({"method": method, "params": params})
+        if method == "debug.layers":
+            result = {"windows": [{"frame": [0, 0, 550, 360]}]}
+        elif method == "debug.appearance":
+            state["mode"] = params.get("mode", state["mode"])
+            result = {"effective": state["mode"], "terminal_background": "#FFFFFF" if state["mode"] == "light" else "#1E1E1E",
+                      "themes": "/x/themes"}
+        elif method == "debug.window_snapshot":
+            with open(params["path"], "wb") as image:
+                image.write(b"\x89PNG\r\n\x1a\n" + state["mode"].encode())
+            result = {"path": params["path"], "width": 1100, "height": 720, "method": "composited"}
+        elif method == "debug.fine":
+            result = {"ok": True}
+        else:
+            connection.sendall(json.dumps({"id": 1, "ok": False, "error": "unknown method"}).encode() + b"\n")
+            return
+        connection.sendall(json.dumps({"id": 1, "ok": True, "result": result}).encode() + b"\n")
+while True:
+    connection, _ = server.accept()
+    threading.Thread(target=answer, args=(connection,), daemon=True).start()
+'''
+
+FAKE_CLI = r'''#!/usr/bin/env python3
+import json, sys
+if "identify" in sys.argv:
+    print(json.dumps({"app": "cmux-next", "version": "0.0.0", "build": "1", "bundle_id": "dev.cmux.test"}))
+'''
+
+
+def executable(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    path.chmod(0o755)
+
+
+class CaptureStatesTests(unittest.TestCase):
+    """capture_states.py against a fake app: the stills, the read-back appearance and the app's own settings."""
+
+    def test_a_state_is_captured_with_its_own_settings_and_the_apps_word(self):
+        with tempfile.TemporaryDirectory(prefix="visual-gate-test.") as tmp:
+            root = Path(tmp)
+            app = root / "cmux DEV test.app"
+            (app / "Contents").mkdir(parents=True)
+            (app / "Contents/Info.plist").write_bytes(plistlib.dumps({"CFBundleExecutable": "fakeapp"}))
+            executable(app / "Contents/MacOS/fakeapp", FAKE_APP)
+            executable(app / "Contents/Resources/bin/cmux", FAKE_CLI)
+            executable(root / "bin/stat", "#!/bin/sh\necho root\n")
+            executable(root / "bin/pkill", "#!/bin/sh\nexit 1\n")
+            state = root / "demo.json"
+            state.write_text(json.dumps({"title": "Demo", "settings": None, "launch_args": ["--showcase"], "steps": [
+                {"title": "fine", "rpc": {"method": "debug.fine", "params": {}}, "wait": 0},
+                {"title": "maybe", "rpc": {"method": "debug.missing", "params": {}}, "wait": 0, "optional": True},
+            ]}))
+            log = root / "requests.jsonl"
+            env = {key: value for key, value in os.environ.items() if not key.startswith("CMUX_")}
+            env.update(PATH=f"{root / 'bin'}{os.pathsep}{env.get('PATH', '')}", FAKE_LOG=str(log))
+            out = root / "out"
+            done = subprocess.run([sys.executable, str(GATE / "capture_states.py"), "--app", str(app),
+                                   "--out", str(out), str(state)], capture_output=True, text=True, timeout=180, env=env)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            result = json.loads((out / "demo/result.json").read_text())
+            self.assertEqual([s["status"] for s in result["steps"]], ["ok", "unavailable"])
+            self.assertEqual(result["errors"], [])
+            self.assertEqual(result["settings_source"], "own")
+            self.assertEqual(result["window_points"], [550.0, 360.0])
+            self.assertEqual(result["appearance"]["light"]["effective"], "light")
+            self.assertEqual(result["appearance"]["dark"]["terminal_background"], "#1E1E1E")
+            self.assertEqual((out / "demo/light.png").read_bytes()[-5:], b"light")
+            self.assertEqual((out / "demo/dark.png").read_bytes()[-4:], b"dark")
+            entries = [json.loads(line) for line in log.read_text().splitlines()]
+            launch = next(e for e in entries if e["method"] == "_launch")
+            # Never the Mac's own cmux-next.json, even for a state with no settings.
+            self.assertTrue(launch["config"])
+            self.assertIn("--showcase", launch["argv"])
+            self.assertEqual(launch["showcase"], "1")
+
+    def test_a_bad_state_file_is_refused(self):
+        with tempfile.TemporaryDirectory(prefix="visual-gate-test.") as tmp:
+            bad = Path(tmp) / "bad.json"
+            bad.write_text(json.dumps({"steps": [{"title": "wait only", "wait": 2},
+                                                 {"title": "both", "cmux": ["app", "ping"], "rpc": {"method": "x"}}]}))
+            done = subprocess.run([sys.executable, str(GATE / "capture_states.py"), "--check", str(bad)],
+                                  capture_output=True, text=True, timeout=60)
+            self.assertEqual(done.returncode, 2)
+            self.assertIn("step 2 has both `cmux` and `rpc`", done.stderr)
+
+
+class StateFileTests(unittest.TestCase):
+    def test_checked_in_states_load(self):
+        done = subprocess.run([sys.executable, str(GATE / "capture_states.py"), "--check", str(GATE / "states")],
+                              capture_output=True, text=True, timeout=60)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+
+    def test_states_carry_nothing_private(self):
+        for path in (GATE / "states").glob("*.json"):
+            text = path.read_text()
+            self.assertNotRegex(text, r"@[A-Za-z0-9-]+\.[A-Za-z]{2,}", path.name)
+            self.assertNotIn("/Users/", text, path.name)
+
+
+class WiringTests(unittest.TestCase):
+    nightly = (ROOT / ".github/workflows/nightly.yml").read_text()
+
+    def job(self, name):
+        """The job's YAML, up to the next top-level job."""
+        rest = self.nightly[self.nightly.index(f"\n  {name}:\n") + 1:]
+        following = re.search(r"\n  [a-z0-9-]+:\n", rest[len(name) + 3:])
+        return rest[:following.start() + len(name) + 3] if following else rest
+
+    def test_publish_nightly_needs_the_gate(self):
+        publish = self.job("publish-nightly")
+        needs = publish[publish.index("needs:"):].splitlines()[0]
+        self.assertIn("visual-gate-nightly", needs)
+        # In report mode (and when the gate is skipped) publication goes ahead; enforce blocks it.
+        self.assertIn("needs.visual-gate-nightly.outputs.blocks != 'true'", publish)
+
+    def test_the_gate_uses_the_shared_mode_resolver(self):
+        route = self.job("route-visual-gate-nightly")
+        self.assertIn("scripts/ci/nightly_next_canary_mode.py resolve --variable NIGHTLY_NEXT_VISUAL_GATE", route)
+        self.assertIn("scripts/ci/cmux_next_media_runner.py", route)
+        job = self.job("visual-gate-nightly")
+        self.assertIn("scripts/cmux-next/visual-gate/visual_gate.py", job)
+        self.assertIn("scripts/cmux-next/visual-gate/capture_states.py", job)
+        self.assertIn("VISUAL_GATE_REQUIRE_2X: ${{ vars.NIGHTLY_NEXT_VISUAL_GATE_REQUIRE_2X }}", job)
+        self.assertIn("needs.route-visual-gate-nightly.outputs.runs_on", job)
+        # Never an owned label in the workflow (tests/test_ci_self_hosted_guard.sh).
+        self.assertNotRegex(job, r"runs-on:[^\n]*'glaeda-")
+
+    def test_the_gate_never_waits_on_the_signed_build(self):
+        # It runs beside the build: its needs hold no build, sign or verify job.
+        job = self.job("visual-gate-nightly")
+        needs = job[job.index("needs:"):].splitlines()[0]
+        for name in ("build-nightly-app", "build-sign-notarize-nightly", "verify-signed-nightly"):
+            self.assertNotIn(name, needs)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -27,6 +27,15 @@ issues: read. When the read fails, auto stays in report and says so.
 Prints `mode=...` and `why=...` lines for $GITHUB_OUTPUT. Exit 0 always for a
 valid input; 2 for a value it does not know (a typo must not silently enforce
 or silently skip).
+
+Other report-then-enforce gates on the nightly reuse this resolver with their
+own names (docs/ci/nightly-next-visual-gate.md):
+
+  resolve --variable NIGHTLY_NEXT_VISUAL_GATE --issue-title "nightly-next visual gate failed"
+          --failure-prefix "cmux NEXT visual gate failed " --default-enforce-after WHEN
+
+--variable names the toggle in messages and the default for --value and
+--enforce-after (read from $VARIABLE and $VARIABLE_ENFORCE_AFTER).
 """
 
 from __future__ import annotations
@@ -48,47 +57,51 @@ ISSUE_TITLE = "nightly-next canary failed"
 # Every entry the canary writes starts with this (nightly-next-canary.yml).
 FAILURE_PREFIX = "cmux NEXT build "
 EXPLICIT = ("report", "enforce", "off")
+VARIABLE = "NIGHTLY_NEXT_CANARY"
 
 
 class BadValue(Exception):
     pass
 
 
-def parse_when(text: str) -> dt.datetime | None:
-    """None for `never`; a UTC datetime otherwise."""
+def parse_when(text: str, default: str = DEFAULT_ENFORCE_AFTER, variable: str = VARIABLE) -> dt.datetime | None:
+    """None for `never`; a UTC datetime otherwise (`default` when empty)."""
     text = text.strip()
     if text.lower() == "never":
         return None
     if not text:
-        text = DEFAULT_ENFORCE_AFTER
+        text = default
     try:
         when = dt.datetime.fromisoformat(text.replace("Z", "+00:00"))
     except ValueError as err:
-        raise BadValue(f"NIGHTLY_NEXT_CANARY_ENFORCE_AFTER {text!r} is not an ISO date or `never`") from err
+        raise BadValue(f"{variable}_ENFORCE_AFTER {text!r} is not an ISO date or `never`") from err
     if when.tzinfo is None:
         when = when.replace(tzinfo=dt.timezone.utc)
     return when.astimezone(dt.timezone.utc)
 
 
-def failures_in(entries: Iterable[tuple[dt.datetime, str]], start: dt.datetime, end: dt.datetime) -> list[str]:
+def failures_in(entries: Iterable[tuple[dt.datetime, str]], start: dt.datetime, end: dt.datetime,
+                prefix: str = FAILURE_PREFIX) -> list[str]:
     """The failure entries (issue body or comment) written in [start, end)."""
     found = []
     for at, body in entries:
-        if start <= at < end and body.lstrip().startswith(FAILURE_PREFIX):
+        if start <= at < end and body.lstrip().startswith(prefix):
             found.append(f"{at.strftime('%Y-%m-%dT%H:%MZ')} {body.strip().splitlines()[0][:120]}")
     return sorted(found)
 
 
 def resolve(value: str, enforce_after: str, now: dt.datetime,
-            read_entries: Callable[[dt.datetime], list[tuple[dt.datetime, str]]]) -> tuple[str, str]:
+            read_entries: Callable[[dt.datetime], list[tuple[dt.datetime, str]]], *,
+            variable: str = VARIABLE, default_enforce_after: str = DEFAULT_ENFORCE_AFTER,
+            failure_prefix: str = FAILURE_PREFIX, gate: str = "canary") -> tuple[str, str]:
     value = value.strip().lower()
     if value in EXPLICIT:
-        return value, f"NIGHTLY_NEXT_CANARY={value}"
+        return value, f"{variable}={value}"
     if value not in ("", "auto"):
-        raise BadValue(f"NIGHTLY_NEXT_CANARY={value!r}: use report, enforce, off, auto or leave it unset")
-    when = parse_when(enforce_after)
+        raise BadValue(f"{variable}={value!r}: use report, enforce, off, auto or leave it unset")
+    when = parse_when(enforce_after, default_enforce_after, variable)
     if when is None:
-        return "report", "auto: NIGHTLY_NEXT_CANARY_ENFORCE_AFTER=never"
+        return "report", f"auto: {variable}_ENFORCE_AFTER=never"
     stamp = when.strftime("%Y-%m-%dT%H:%MZ")
     if now < when:
         return "report", f"auto: report until {stamp}, then enforce"
@@ -97,15 +110,16 @@ def resolve(value: str, enforce_after: str, now: dt.datetime,
         entries = read_entries(start)
     except Exception as err:  # noqa: BLE001 - any read failure keeps report
         return "report", f"auto: could not read the report week ({err}); staying in report"
-    failed = failures_in(entries, start, when)
+    failed = failures_in(entries, start, when, failure_prefix)
     if failed:
-        return "report", (f"auto: the canary failed {len(failed)} build(s) in the report week before {stamp} "
-                          f"(first: {failed[0]}); triage, then set NIGHTLY_NEXT_CANARY=enforce or move "
-                          "NIGHTLY_NEXT_CANARY_ENFORCE_AFTER")
-    return "enforce", f"auto: enforce since {stamp} (no canary failure in the report week)"
+        return "report", (f"auto: the {gate} failed {len(failed)} build(s) in the report week before {stamp} "
+                          f"(first: {failed[0]}); triage, then set {variable}=enforce or move "
+                          f"{variable}_ENFORCE_AFTER")
+    return "enforce", f"auto: enforce since {stamp} (no {gate} failure in the report week)"
 
 
-def github_entries(repo: str, token: str) -> Callable[[dt.datetime], list[tuple[dt.datetime, str]]]:
+def github_entries(repo: str, token: str,
+                   issue_title: str = ISSUE_TITLE) -> Callable[[dt.datetime], list[tuple[dt.datetime, str]]]:
     def get(path: str, query: dict[str, str]) -> object:
         url = f"https://api.github.com/{path}?{urllib.parse.urlencode(query)}"
         req = urllib.request.Request(url, headers={
@@ -124,10 +138,10 @@ def github_entries(repo: str, token: str) -> Callable[[dt.datetime], list[tuple[
         if not token:
             raise RuntimeError("no GH_TOKEN")
         result = get("search/issues", {
-            "q": f'repo:{repo} is:issue in:title "{ISSUE_TITLE}"', "per_page": "20"})
+            "q": f'repo:{repo} is:issue in:title "{issue_title}"', "per_page": "20"})
         entries: list[tuple[dt.datetime, str]] = []
         for issue in result.get("items", []):  # type: ignore[union-attr]
-            if issue.get("title") != ISSUE_TITLE:
+            if issue.get("title") != issue_title:
                 continue
             entries.append((stamp(issue["created_at"]), issue.get("body") or ""))
             page = 1
@@ -147,18 +161,28 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
     r = sub.add_parser("resolve")
-    r.add_argument("--value", default=os.environ.get("NIGHTLY_NEXT_CANARY", ""))
-    r.add_argument("--enforce-after", default=os.environ.get("NIGHTLY_NEXT_CANARY_ENFORCE_AFTER", ""))
+    r.add_argument("--variable", default=VARIABLE, help="the toggle's repository variable name")
+    r.add_argument("--value", default=None, help="default: $VARIABLE")
+    r.add_argument("--enforce-after", default=None, help="default: $VARIABLE_ENFORCE_AFTER")
+    r.add_argument("--default-enforce-after", default=DEFAULT_ENFORCE_AFTER)
+    r.add_argument("--issue-title", default=ISSUE_TITLE, help="the issue holding the report week's failures")
+    r.add_argument("--failure-prefix", default=FAILURE_PREFIX, help="how each failure entry starts")
+    r.add_argument("--gate", default="canary", help="the gate's name in messages")
     r.add_argument("--now", default="")
     r.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", "manaflow-ai/cmux"))
     args = parser.parse_args(argv)
+    value = args.value if args.value is not None else os.environ.get(args.variable, "")
+    enforce_after = (args.enforce_after if args.enforce_after is not None
+                     else os.environ.get(f"{args.variable}_ENFORCE_AFTER", ""))
     now = parse_when(args.now) if args.now else dt.datetime.now(dt.timezone.utc)
     assert now is not None
     try:
-        mode, why = resolve(args.value, args.enforce_after, now,
-                            github_entries(args.repo, os.environ.get("GH_TOKEN", "")))
+        mode, why = resolve(value, enforce_after, now,
+                            github_entries(args.repo, os.environ.get("GH_TOKEN", ""), args.issue_title),
+                            variable=args.variable, default_enforce_after=args.default_enforce_after,
+                            failure_prefix=args.failure_prefix, gate=args.gate)
     except BadValue as err:
-        print(f"::error title=nightly-next canary mode::{err}", file=sys.stderr)
+        print(f"::error title=nightly-next {args.gate} mode::{err}", file=sys.stderr)
         return 2
     print(f"mode={mode}")
     print(f"why={why}")
