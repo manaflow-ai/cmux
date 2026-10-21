@@ -564,7 +564,7 @@ function codexRuns(rows: AcpmuxRow[]): AcpmuxRow[] {
     if (row.kind !== "activity" || isEdit(row)) return row;
     return index === latest
       ? { ...row, inFlight: true, version: row.version * 4 + 1 }
-      : { ...row, settled: true, version: row.version * 4 + 2 };
+      : { ...row, settled: true, foldRun: true, version: row.version * 4 + 2 };
   });
 }
 

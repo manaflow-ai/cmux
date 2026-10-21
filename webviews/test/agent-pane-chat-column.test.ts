@@ -533,9 +533,10 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     await page.close();
   });
 
-  // Leo dogfood 2026-10-13 (hover buttons everywhere): a prompt's Copy and a tool row's are on the
-  // right-click menu (Copy Message, Copy Output), so a hover shows neither.
-  test("a hover shows no Copy on a prompt or a tool row", async () => {
+  // Leo dogfood 2026-10-13 (hover buttons everywhere): a tool row's Copy is on the right-click menu
+  // (Copy Output), so a hover shows none. A prompt's action row has Copy, as Claude Code's does
+  // (Leo, 2026-10-20).
+  test("a hover shows Copy on a prompt's action row, none on a tool row", async () => {
     const page = await open(newChat(), 900);
     /// The Copy buttons in the row holding `text` that show, by their own and their parents' opacity.
     const shown = (text: string) =>
@@ -558,7 +559,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     const onPrompt = await shown("Why does the build retry?");
     await commandToggle(page).hover();
     await page.waitForTimeout(250);
-    expect({ onPrompt, onTool: await shown("ls build") }).toEqual({ onPrompt: 0, onTool: 0 });
+    expect({ onPrompt, onTool: await shown("ls build") }).toEqual({ onPrompt: 1, onTool: 0 });
     await page.close();
   });
 
