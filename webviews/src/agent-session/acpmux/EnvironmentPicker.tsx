@@ -4,6 +4,7 @@ import { Popover } from "../../ui/Popover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { translate as t } from "./i18n";
 import {
+  type ConnectKind,
   type Environment,
   type EnvironmentKind,
   environmentDigit,
@@ -44,7 +45,7 @@ export function EnvironmentPicker({
   environments: Environment[];
   current: string;
   onPick(id: string): void;
-  onConnect?(kind: "ssh" | "cloud"): void;
+  onConnect?(kind: ConnectKind): void;
   /// The list opened: the host reads the machines again, so each one's status is current.
   onOpen?(): void;
 }) {
@@ -83,8 +84,8 @@ export function EnvironmentPicker({
       ),
     [shown],
   );
-  // New Cloud Machine closes the Cloud section (it heads the section when there is no cloud machine);
-  // New environment, last, holds the SSH connect flow.
+  // New Cloud Machine and Open Cloud… close the Cloud section (New Cloud Machine heads the
+  // section when there is no cloud machine); New environment, last, holds the SSH connect flow.
   const actions: { value: string; text: string; detail?: string; kind: "ssh" | "cloud"; run(): void }[] = onConnect
     ? [
         {
@@ -93,6 +94,12 @@ export function EnvironmentPicker({
           detail: t("composer.newCloudMachineDetail"),
           kind: "cloud",
           run: () => onConnect("cloud"),
+        },
+        {
+          value: ACTION + "cloudPage",
+          text: t("composer.openCloud"),
+          kind: "cloud",
+          run: () => onConnect("cloudPage"),
         },
         { value: ACTION + "ssh", text: t("composer.connectSSH"), kind: "ssh", run: () => onConnect("ssh") },
       ]
@@ -159,7 +166,11 @@ export function EnvironmentPicker({
     const action = actions.find((candidate) => candidate.value === value);
     if (action) {
       const section =
-        action.kind === "cloud" ? (cloudShown ? undefined : t(SECTION_LABELS.cloud)) : t("composer.newEnvironment");
+        action.kind === "ssh"
+          ? t("composer.newEnvironment")
+          : action === actions[0] && !cloudShown
+            ? t(SECTION_LABELS.cloud)
+            : undefined;
       return (
         <span
           className="acpmux-location-row acpmux-env-row acpmux-env-new"
@@ -242,9 +253,9 @@ export function EnvironmentPicker({
           onCommand={(event) => {
             if (event.key === "Escape") escaped.current = true;
             if (event.key === "Tab") event.preventDefault();
-            // Return runs New Cloud Machine (it creates a machine) or SSH… only once the arrow keys
-            // or the pointer reached it, never when Base UI highlighted it on its own: a search that
-            // leaves no machine moves that highlight onto the first action.
+            // Return runs an action (New Cloud Machine creates a machine; Open Cloud…, SSH…) only
+            // once the arrow keys or the pointer reached it, never when Base UI highlighted it on its
+            // own: a search that leaves no machine moves that highlight onto the first action.
             if (event.key === "Enter" && autoHighlighted.current?.startsWith(ACTION)) {
               event.preventDefault();
               event.preventBaseUIHandler?.();

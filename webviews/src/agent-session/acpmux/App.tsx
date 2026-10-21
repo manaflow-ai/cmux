@@ -13,6 +13,7 @@ import React, {
   useSyncExternalStore,
 } from "react";
 import { flushSync } from "react-dom";
+import { CONNECT_ACTIONS, type ConnectKind } from "./environments";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { QueryClientProvider, useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { applyAgentTheme } from "../shared/theme";
@@ -4082,8 +4083,8 @@ function AcpmuxPane() {
   const [shortcuts, setShortcuts] = useState<ShortcutLabels>({});
   const [preview, setPreview] = useState(false);
   // SSH… opens Connect to Machine; New Cloud Machine opens the host's create flow (Lawrence 2026-10-06).
-  const connectMachine = (kind: "ssh" | "cloud") =>
-    void callNative("action.run", { id: kind === "ssh" ? "remote.connect" : "newCloudMachine" }).catch(() => undefined);
+  const connectMachine = (kind: ConnectKind) =>
+    void callNative("action.run", { id: CONNECT_ACTIONS[kind] }).catch(() => undefined);
   /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.
   const [surface, setSurface] = useState<PaneSurface>("pane");
   const quick = surface === "quick";
