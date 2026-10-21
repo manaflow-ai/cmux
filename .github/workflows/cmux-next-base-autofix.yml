@@ -88,6 +88,7 @@ on:
       - scripts/cmux-next/base-autofix-action-exports.sh
       - scripts/cmux-next/base-autofix-mac-busy.sh
       - scripts/cmux-next/base-autofix-since.sh
+      - scripts/cmux-next/base-autofix-changed.sh
       - scripts/cmux-next/autofix-areas.sh
       - scripts/cmux-next/pr-autofix-apply.sh
       - scripts/cmux-next/base-autofix-frozen.txt
@@ -132,10 +133,12 @@ jobs:
         run: |
           set -euo pipefail
           since="$(scripts/cmux-next/base-autofix-since.sh feat-cmux-next)"
-          if [[ -z "$since" ]] || ! git fetch --quiet --depth=1 origin "$since"; then
+          # base-autofix-changed.sh: since..HEAD without grafting since into this depth-1 checkout, plus
+          # a stale settings stamp at HEAD.
+          if [[ -z "$since" ]] || ! changed="$(scripts/cmux-next/base-autofix-changed.sh "$since")"; then
             scripts/cmux-next/autofix-areas.sh --all | grep -E '^(actions|settings)=' | tee -a "$GITHUB_OUTPUT"
           else
-            git diff --name-only "$since" HEAD | scripts/cmux-next/autofix-areas.sh | grep -E '^(actions|settings)=' | tee -a "$GITHUB_OUTPUT"
+            scripts/cmux-next/autofix-areas.sh <<<"$changed" | grep -E '^(actions|settings)=' | tee -a "$GITHUB_OUTPUT"
           fi
 
       - name: Mac exports already queued or running
@@ -477,12 +480,15 @@ jobs:
           set -euo pipefail
           since="$(scripts/cmux-next/base-autofix-since.sh feat-cmux-next)"
           # scripts/cmux-next/autofix-areas.sh maps the changed paths to repairs.
-          if [[ -z "$since" ]] || ! git fetch --quiet --depth=1 origin "$since"; then
+          # base-autofix-changed.sh reads since..HEAD without grafting since into this depth-1 checkout:
+          # a graft cut the tip's history off before HEAD, and every Mac export was held (run 39617667536).
+          # A stale settings stamp at HEAD counts as a settings change.
+          if [[ -z "$since" ]] || ! changed="$(scripts/cmux-next/base-autofix-changed.sh "$since")"; then
             echo "No successful run to diff from; running every repair."
             scripts/cmux-next/autofix-areas.sh --all | tee -a "$GITHUB_OUTPUT"
           else
             echo "Changes since the last successful run at ${since:0:12}."
-            git diff --name-only "$since" HEAD | scripts/cmux-next/autofix-areas.sh | tee -a "$GITHUB_OUTPUT"
+            scripts/cmux-next/autofix-areas.sh <<<"$changed" | tee -a "$GITHUB_OUTPUT"
           fi
 
       - name: Setup Node
