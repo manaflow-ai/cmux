@@ -99,6 +99,29 @@ pub struct Subject {
     pub probe_error: Option<String>,
 }
 
+impl Subject {
+    /// The harness `id` as `profile` and its profile file's `[auth]` describe
+    /// it, without a probe error. None for an empty command line.
+    pub fn of(
+        id: &str,
+        profile: &crate::config::HarnessProfile,
+        auth: Option<&crate::config::profiles::AuthNotes>,
+    ) -> Option<Self> {
+        let (resolved, unresolved): (Vec<_>, Vec<_>) =
+            profile.env.iter().partition(|(_, v)| !v.contains("${"));
+        Some(Self {
+            id: id.to_owned(),
+            program: profile.argv.first()?.clone(),
+            family: crate::config::derive_family(id, profile),
+            check: auth.map(|a| a.check.clone()).unwrap_or_default(),
+            env: resolved.into_iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            login: auth.and_then(|a| a.login.clone()),
+            unresolved: unresolved.into_iter().map(|(k, _)| k.clone()).collect(),
+            probe_error: None,
+        })
+    }
+}
+
 /// Where the service asks and keeps its copy.
 #[derive(Clone, Debug, Default)]
 pub struct Settings {
