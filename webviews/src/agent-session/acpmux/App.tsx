@@ -75,6 +75,7 @@ import {
 } from "./catalog";
 import { usePickerCatalog } from "./modelCatalogHost";
 import { isDefaultChoice } from "./defaultChoice";
+import { topModelsFor } from "./topModels";
 import { applySwitch, HarnessSwitch, lastOfferedModel, type SwitchPort } from "./harnessSwitch";
 import { harnessProfiles } from "./harnessProfiles";
 import { pickedMode, setStartModeSource, startModeChanged } from "./startMode";
@@ -3876,14 +3877,16 @@ function AcpmuxPane() {
   useEffect(() => setHarnessesOpen(false), [snapshot.sessionId]);
   // A chat it starts, and a login it runs, go to the chat's folder (a new chat's start folder).
   const harnessFolder = snapshot.summary?.cwd ?? startFolder;
-  const retryModelsKey = (
-    pickerCatalog.harnesses.find(
-      (entry) => entry.acpmuxHarness === snapshot.summary?.harness || entry.id === snapshot.summary?.harness,
-    )?.models ?? []
-  )
+  const retryHarness = pickerCatalog.harnesses.find(
+    (entry) => entry.acpmuxHarness === snapshot.summary?.harness || entry.id === snapshot.summary?.harness,
+  );
+  // Named as the composer's picker names them (its short name under its harness, "Opus 5.5").
+  const retryModelsKey = (retryHarness?.models ?? [])
     .filter((model) => !model.unavailable && !isDefaultChoice(model))
-    .map((model) => `${model.id}\t${model.name || model.id}\t${model.release ?? ""}`)
+    .map((model) => `${model.id}\t${model.shortName || model.name || model.id}\t${model.release ?? ""}`)
     .join("\n");
+  const retryHarnessName = retryHarness?.name;
+  const retryTop = retryHarness ? topModelsFor(retryHarness.id) : undefined;
   const retryModels = useMemo(
     () =>
       retryModelsKey
@@ -3944,6 +3947,8 @@ function AcpmuxPane() {
           retryWith: {
             models: retryModels,
             current: snapshot.summary?.model,
+            ...(retryHarnessName ? { harness: retryHarnessName } : {}),
+            ...(retryTop ? { top: retryTop } : {}),
             retry: (rowId: string, prompt: string, model: string) =>
               void callNative("chat.retryWith", { rowId, prompt, model }).catch(() => undefined),
           },
@@ -3981,6 +3986,8 @@ function AcpmuxPane() {
       snapshot.summary?.harness,
       snapshot.summary?.model,
       retryModels,
+      retryHarnessName,
+      retryTop,
       catalog,
     ],
   );
