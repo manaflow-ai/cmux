@@ -3,8 +3,11 @@
 // It handles no Cmd or Ctrl chord: the host owns those (Cmd-A selects only inside the focused field,
 // Cmd-F is the page's find command, the native menu shows only Copy on a selection).
 import "./desktop.css";
+// LIQUID GLASS: the `.ui-glass` surface and its tokens, then its lens (ui/glass/lens.ts).
+import "../../ui/glass/glass.css";
 import { parseComputedColor } from "../../backdrop";
 import { installScrollers } from "../../scrollers";
+import { installGlassLens } from "../../ui/glass/lens";
 import { installSpinnerClock } from "../../ui/spinnerClock";
 import { installTooltips } from "../../ui/titleTooltips";
 import { installImeKeyLayer } from "./imeKeys";
@@ -61,6 +64,9 @@ export function installDesktopLayer(doc: Document = document): void {
   // SEE-THROUGH: follows the host's theme payload (window.cmuxTheme.apply fires `cmux-theme`).
   updateSeeThrough(doc);
   view.addEventListener("cmux-theme", () => updateSeeThrough(doc));
+  // LIQUID GLASS: the wallpaper lens behind every `.ui-glass` (inert under plain glass, Reduce
+  // Transparency, with no host still or with no glass on the page).
+  installGlassLens(doc);
   // A drop never navigates the page: a page that takes drops handles them (and calls
   // preventDefault itself); everything else is refused here.
   view.addEventListener("dragover", (event) => {

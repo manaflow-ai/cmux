@@ -61,6 +61,8 @@ bun scripts/agent-pane/bundle.mjs node_modules/@pierre/diffs/dist/worker/worker.
 # The desktop layer first (R139): chrome never selects, so Cmd-A highlights only
 # fields and `.selectable` content. desktop.ts imports it, but the bundle drops CSS.
 cat "$ROOT/webviews/src/pages/shared/desktop.css" > "$WORK/styles.css"
+# The liquid glass surface and tokens, which desktop.ts imports beside desktop.css.
+cat "$ROOT/webviews/src/ui/glass/glass.css" >> "$WORK/styles.css"
 # The shared stylesheet opens with a Tailwind @import that only Vite resolves;
 # the pane needs just its variables and rules, so drop @import lines.
 grep -v '^@import ' "$SRC/shared/styles.css" >> "$WORK/styles.css"
