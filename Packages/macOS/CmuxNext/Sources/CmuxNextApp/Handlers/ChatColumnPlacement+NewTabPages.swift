@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
@@ -34,8 +35,9 @@ extension ChatColumnPlacement {
             let transaction = ClientTransactionID.generate()
             // The enclosing tracked task still awaits these moves. Their daemon errors are
             // logged, but must not become failures of the tool's action.run command scope.
-            let moved = await DaemonCommandScope.$current.withValue(nil) {
-                await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+            // The move issues its daemon command synchronously, so the binding only has to cover the call.
+            let moved = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+                DaemonCommandScope.$current.withValueInTask(nil) {
                     TabMoves.move(page, to: dock, index: index, services: services, transaction: transaction) { done.resume(returning: $0) }
                 }
             }
