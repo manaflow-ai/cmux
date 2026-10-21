@@ -343,7 +343,7 @@ final class FilePageService: InternalPageProvider {
         }
         page.onOpenExternal = { [weak self] url in self?.openExternal(url, from: key) }
         page.fileDrop = fileDrop(provider: provider, page: page, key: key)
-        // One menu: Copy; Comment…, Quote in Chat, Send to Chief and Send to… on a selection; Reset
+        // One menu: Copy; Comment…, Quote in Chat, Send to Chief and Send To… on a selection; Reset
         // Column Widths on a table (viewer-comments-DESIGN.md).
         installSelectionMenu(on: page, key: key, then: kind == .markdown ? Self.tableMenu(provider: provider, page: page) : nil)
         tab.page = page
