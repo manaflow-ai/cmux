@@ -2351,6 +2351,9 @@ fn terminal_host_survives_sigkill_and_is_adopted_with_io_and_size() {
     assert_eq!(wait_for_host_records(&harness.host_root(), 1)[0].1.terminal_id, terminal_id);
 
     harness.restart();
+    // The owner answers before its hosts are adopted; each one runs once its
+    // host has answered (answers_before_adoption.rs).
+    wait_for_terminal_lifecycle(&harness.socket, &terminal_id, "running");
     let recovered =
         request(&harness.socket, serde_json::json!({"id": 4, "cmd": "list-workspaces"}));
     let recovered_workspace = recovered["workspaces"]

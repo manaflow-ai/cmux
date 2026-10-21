@@ -95,6 +95,7 @@ impl Mux {
         // At most one warm snapshot host becomes the first terminal of a
         // fresh registry (SurfaceOptions::adopt_template_terminal).
         let mut template_claimed = false;
+        let mut claimed_template = None;
         let mut recovery_workspace = None;
         // Sidecars are host-owned write-ahead completion records. Reconcile
         // them before live discovery records so a daemon crash after host
@@ -170,6 +171,7 @@ impl Mux {
             {
                 terminal = Some(self.claim_template_terminal(&options, &record)?);
                 template_claimed = true;
+                claimed_template = Some(terminal_id.clone());
             }
             if terminal.is_none() {
                 // One-release migration path for hosts launched before SQLite
@@ -287,6 +289,14 @@ impl Mux {
                 handled_terminals.insert(terminal_id.clone());
                 continue;
             }
+            if claimed_template.as_ref() == Some(&terminal_id) {
+                // A Cloud clone's first answer must already list the template
+                // terminal under its new identity: a client that listed
+                // nothing (the Cloud prompt sync) created a second workspace.
+                handled_terminals.insert(terminal_id.clone());
+                self.adopt_template_terminal_inline(&options, record, record_path)?;
+                continue;
+            }
             // The host adopts on its own thread, after the owner answers its
             // clients: one host's handshake and replay must not hold the first
             // answer, nor every other terminal (launch to a live terminal,
@@ -339,6 +349,36 @@ impl Mux {
                 &options,
             )?;
         }
+        Ok(())
+    }
+
+    /// Adopt the template terminal this pass claimed before the owner
+    /// answers anyone, then bind the warm shell to its new identity. A host
+    /// that does not answer yet keeps adopting on its own thread.
+    #[cfg(any(unix, windows))]
+    fn adopt_template_terminal_inline(
+        self: &Arc<Self>,
+        options: &SurfaceOptions,
+        record: crate::terminal_host_runtime::TerminalHostRecord,
+        record_path: std::path::PathBuf,
+    ) -> anyhow::Result<()> {
+        let terminal_id = record.terminal_id.clone();
+        let restored_binding = self.restored_terminal_binding(&terminal_id)?;
+        let adopted =
+            self.adopt_restored_terminal(restored_binding, options, &record, &record_path).ok();
+        if let Some(surface) = adopted {
+            if self
+                .finish_terminal_adoption(&terminal_id, &record.incarnation, surface.clone())
+                .is_ok()
+            {
+                self.ensure_template_adoption_completed(&terminal_id);
+                self.reap_if_dead(&surface);
+                return Ok(());
+            }
+            surface.disconnect_for_daemon_shutdown();
+        }
+        self.set_pending_terminal(&terminal_id, PendingTerminal::Adopting);
+        self.schedule_terminal_adoption(options.clone(), record, record_path);
         Ok(())
     }
 
@@ -996,12 +1036,9 @@ static ADOPTION_SLOT_FREED: Condvar = Condvar::new();
 
 impl AdoptionSlot {
     fn take() -> Self {
-        let mut in_flight =
-            ADOPTIONS_IN_FLIGHT.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut in_flight = ADOPTIONS_IN_FLIGHT.lock().unwrap_or_else(PoisonError::into_inner);
         while *in_flight >= ADOPTION_SLOTS {
-            in_flight = ADOPTION_SLOT_FREED
-                .wait(in_flight)
-                .unwrap_or_else(PoisonError::into_inner);
+            in_flight = ADOPTION_SLOT_FREED.wait(in_flight).unwrap_or_else(PoisonError::into_inner);
         }
         *in_flight += 1;
         AdoptionSlot
