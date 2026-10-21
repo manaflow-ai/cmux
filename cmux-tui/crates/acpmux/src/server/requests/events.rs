@@ -4,11 +4,12 @@
 use super::*;
 
 /// The most JSON one page holds when the caller names no `maxBytes`, and the most it may
-/// name. A page's records are parsed trees until the reply is written, several times their
-/// JSON: one read of a whole 31 MB log held about 1 GB (huge-blue, 2026-10-21). A longer
-/// read takes more pages through `hasMore`.
-const DEFAULT_PAGE_BYTES: usize = 4 << 20;
-const MAX_PAGE_BYTES: usize = 16 << 20;
+/// name. A page's records are parsed trees until the reply is written, many times their
+/// JSON: one read of a whole 31 MB log held about 1 GB (huge-blue, 2026-10-21), and a 4 MiB
+/// page still grew the daemon by 95 MB. A longer read takes more pages through `hasMore`;
+/// the app's pages are 128 and 256 KiB.
+const DEFAULT_PAGE_BYTES: usize = 1 << 20;
+const MAX_PAGE_BYTES: usize = 4 << 20;
 
 /// A page's byte limit from `maxBytes`: [`DEFAULT_PAGE_BYTES`] when absent, at most
 /// [`MAX_PAGE_BYTES`].
