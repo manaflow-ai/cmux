@@ -196,8 +196,6 @@ final class AppServices {
     let paneTabBars = PaneTabBarChoices()
     /// The panes in Full Width Tab mode (`PaneFullWidthTabs`).
     let paneFullWidthTabs = PaneFullWidthTabs()
-    /// Which workspaces list their tabs vertically, and whether those lists are collapsed (`WorkspaceVerticalTabs`).
-    let verticalTabs = WorkspaceVerticalTabs()
     /// Pane controller mounts and releases in any window (`PaneMounts`).
     let paneMounts = PaneMounts()
     /// The new tab screen's Search | Ask mode and last agent, and what `!` typed ahead.

@@ -153,15 +153,15 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             !o.excludedWorkspaces.contains(ws.id) && (o.filterMatches?.contains(ws.id) ?? true)
         }
 
-        // `showWorkspaceTabs` lists every workspace's tabs, except those
-        // the user collapsed with the row's disclosure.
+        // `showWorkspaceTabs` lists every workspace's tabs, except those the user collapsed with the
+        // row's disclosure and those of a vertical-tabs workspace, whose own list shows them (one list).
         func listsTabs(_ ws: SidebarWorkspace) -> Bool {
-            o.showWorkspaceTabs && !o.collapsedWorkspaces.contains(ws.id)
+            o.showWorkspaceTabs && !o.collapsedWorkspaces.contains(ws.id) && !o.inWorkspaceTabs.contains(ws.id)
         }
 
         func disclosure(_ ws: SidebarWorkspace) -> SidebarTabDisclosure? {
             guard o.showWorkspaceTabs else { return nil }
-            if ws.tabs.isEmpty { return .empty }
+            if ws.tabs.isEmpty || o.inWorkspaceTabs.contains(ws.id) { return .empty }
             return o.collapsedWorkspaces.contains(ws.id) ? .collapsed : .expanded
         }
 

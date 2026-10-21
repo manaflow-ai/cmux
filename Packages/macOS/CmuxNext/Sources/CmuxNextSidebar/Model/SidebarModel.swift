@@ -187,6 +187,7 @@ public final class SidebarModel {
     public var nowPlaying: SidebarNowPlaying?
     /// Whether each workspace expands to show its intra-workspace tabs.
     public var showWorkspaceTabs = false
+    public var inWorkspaceTabs = SidebarInWorkspaceTabs() // vertical-tabs workspaces list no tab rows here
     /// The workspaces whose disclosure hid their tabs: window view state.
     public var collapsedWorkspaces: Set<WorkspaceID> = []
     /// What workspace rows show (`sidebar.workspaceRow.*`).
@@ -525,9 +526,7 @@ public final class SidebarModel {
     /// Cmd-Opt-Up/Down: move the selection one slot. Returns false at a
     /// boundary or while filtering.
     @discardableResult
-    public func moveSelection(_ direction: KeyboardReorder.Direction) -> Bool {
-        move(orderedSelection, direction)
-    }
+    public func moveSelection(_ direction: KeyboardReorder.Direction) -> Bool { move(orderedSelection, direction) }
 
     /// Move Up/Down on row `id`: moves ``actionTargets(for:)`` one slot as one block, as
     /// Cmd-Opt-Up/Down does. Returns false at a boundary or while reordering is locked.
@@ -573,7 +572,7 @@ public final class SidebarModel {
     func listOptions() -> SidebarLayoutOptions {
         var o = SidebarLayoutOptions()
         o.filterMatches = filterMatches
-        o.showWorkspaceTabs = showWorkspaceTabs
+        (o.showWorkspaceTabs, o.inWorkspaceTabs) = (showWorkspaceTabs, inWorkspaceTabs)
         o.collapsedWorkspaces = collapsedWorkspaces
         o.activeWorkspaceID = activeWorkspaceID
         // A group opened by a structural set (another client) forgets its revealed members.

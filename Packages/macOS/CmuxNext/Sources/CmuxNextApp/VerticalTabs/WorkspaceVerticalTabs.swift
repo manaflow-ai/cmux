@@ -12,12 +12,14 @@ import Observation
 /// workspace, as Chrome keeps one per window.
 @Observable
 final class WorkspaceVerticalTabs {
+    /// The app's choices (one per app, like `DesignSettings.shared`); tests make their own.
+    static let shared = WorkspaceVerticalTabs()
     /// The workspaces remembered, newest last; older choices are dropped.
     static let maximumWorkspaces = 512
     private static let defaultsKey = "workspaces.verticalTabs"
     private static let collapsedKey = "tabs.verticalTabsCollapsed"
     @ObservationIgnored private let defaults: UserDefaults
-    private var choices: [String: Bool] = [:]
+    private(set) var choices: [String: Bool] = [:]
     @ObservationIgnored private var order: [String] = []
     /// Vertical tab lists show icons only (Collapse Tabs / Expand Tabs).
     private(set) var isCollapsed: Bool
