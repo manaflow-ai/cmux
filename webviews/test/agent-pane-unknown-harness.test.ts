@@ -92,6 +92,17 @@ await requireBrowserLane("agent-pane-unknown-harness.test.ts", async () => {
     },
   };
   const prompts: Record<string, unknown>[] = [];
+  /// The daemon's first prompt, and its answer to the trust check (the last thing an opening pane asks).
+  let prompted: () => void = () => {};
+  const firstPrompt = new Promise<void>((resolve) => (prompted = resolve));
+  let trusted: () => void = () => {};
+  const trustAnswered = new Promise<void>((resolve) => (trusted = resolve));
+  /// `promise`, or a failure naming `what` after `ms`.
+  const within = (promise: Promise<void>, ms: number, what: string) =>
+    Promise.race([
+      promise,
+      new Promise<void>((_, reject) => setTimeout(() => reject(new Error(`no ${what} in ${ms} ms`)), ms)),
+    ]);
 
   function answer(method: string, params: Record<string, any>): unknown {
     switch (method) {
@@ -137,6 +148,7 @@ await requireBrowserLane("agent-pane-unknown-harness.test.ts", async () => {
           // The agent has not answered yet: acpmux holds the prompt's reply until the turn ends.
           if (message.method === "session/prompt") {
             prompts.push(message.params ?? {});
+            prompted();
             return;
           }
           if (message.id !== undefined)
@@ -147,6 +159,7 @@ await requireBrowserLane("agent-pane-unknown-harness.test.ts", async () => {
                 result: answer(message.method, message.params ?? {}),
               }),
             );
+          if (message.method === "acp.trust.get") trusted();
         },
       },
     });
@@ -175,18 +188,24 @@ await requireBrowserLane("agent-pane-unknown-harness.test.ts", async () => {
     await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
     const drawn = page.locator(".acpmux-composer-prompt, .acpmux-pane-failed").first();
     await drawn.waitFor({ timeout: 60_000 });
-    await page.waitForTimeout(1_000);
+    // The pane has heard everything it asked while opening, and drawn what that earns.
+    await within(trustAnswered, 15_000, "trust check from the opening pane");
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     const failedOpening = await page.locator(".acpmux-pane-failed").count();
     let failedSending = failedOpening;
     if (!failedOpening) {
       await page.locator(".acpmux-composer-prompt").click();
       await page.keyboard.type("Is feat-cmux-next green?");
       await page.keyboard.press("Enter");
-      // Wait for the prompt to reach the daemon (the composer's own text would satisfy a text wait at once).
-      for (let waited = 0; prompts.length === 0 && waited < 15_000; waited += 100) {
-        await page.waitForTimeout(100);
-      }
-      await page.waitForTimeout(1_000);
+      // Wait for the prompt to reach the daemon (the composer's own text would satisfy a text wait at once),
+      // then for the transcript to draw it, or for the pane to fail drawing it.
+      await within(firstPrompt, 15_000, "prompt at the daemon");
+      await page
+        .locator(".acpmux-scroll")
+        .getByText("Is feat-cmux-next green?")
+        .or(page.locator(".acpmux-pane-failed"))
+        .first()
+        .waitFor({ timeout: 15_000 });
       failedSending = await page.locator(".acpmux-pane-failed").count();
     }
     if (failedOpening || failedSending) console.error(errors.join("\n---\n"));

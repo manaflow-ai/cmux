@@ -70,9 +70,14 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
 
   /// The `chat.permission` calls so far, once at least `count` arrived.
   async function permissionCalls(page: Page, count: number): Promise<Call[]> {
-    const read = () => page.evaluate(() => (window as unknown as { permissionCalls: Call[] }).permissionCalls);
-    for (let i = 0; i < 100 && (await read()).length < count; i++) await page.waitForTimeout(50);
-    return read();
+    await page
+      .waitForFunction(
+        (count) => (window as unknown as { permissionCalls: Call[] }).permissionCalls.length >= count,
+        count,
+        { timeout: 5_000 },
+      )
+      .catch(() => {});
+    return page.evaluate(() => (window as unknown as { permissionCalls: Call[] }).permissionCalls);
   }
 
   const highlighted = (page: Page) =>
@@ -148,7 +153,8 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
         Object.assign(window, { escapesSeen: seen });
       });
       await page.keyboard.press("Escape");
-      await page.waitForTimeout(100);
+      // The pane heard the key; by then the card had its say.
+      await page.waitForFunction(() => (window as unknown as { escapesSeen: boolean[] }).escapesSeen.length > 0);
       expect(await permissionCalls(page, 0)).toEqual([]);
       expect(await page.evaluate(() => (window as unknown as { escapesSeen: boolean[] }).escapesSeen)).toEqual([false]);
       expect(await focusedInCard(page)).toBe(false);
@@ -189,7 +195,8 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
         Object.assign(window, { escapesSeen: seen });
       });
       await page.keyboard.press("Escape");
-      await page.waitForTimeout(100);
+      // The pane heard the key; by then the card had its say.
+      await page.waitForFunction(() => (window as unknown as { escapesSeen: boolean[] }).escapesSeen.length > 0);
       expect(await permissionCalls(page, 0)).toEqual([]);
       expect(await page.evaluate(() => (window as unknown as { escapesSeen: boolean[] }).escapesSeen)).toEqual([true]);
       expect(await focusedInCard(page)).toBe(false);
