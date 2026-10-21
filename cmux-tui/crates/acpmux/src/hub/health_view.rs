@@ -14,26 +14,8 @@ impl Hub {
             .iter()
             .filter_map(|(id, p)| {
                 let auth = cfg.profile_meta.get(id).and_then(|m| m.auth.as_ref());
-                Some(Subject {
-                    id: id.clone(),
-                    program: p.argv.first()?.clone(),
-                    family: crate::config::derive_family(id, p),
-                    check: auth.map(|a| a.check.clone()).unwrap_or_default(),
-                    env: p
-                        .env
-                        .iter()
-                        .filter(|(_, v)| !v.contains("${"))
-                        .map(|(k, v)| (k.clone(), v.clone()))
-                        .collect(),
-                    login: auth.and_then(|a| a.login.clone()),
-                    unresolved: p
-                        .env
-                        .iter()
-                        .filter(|(_, v)| v.contains("${"))
-                        .map(|(k, _)| k.clone())
-                        .collect(),
-                    probe_error: probe_errors.get(id).cloned(),
-                })
+                let probe_error = probe_errors.get(id).cloned();
+                Subject::of(id, p, auth).map(|s| Subject { probe_error, ..s })
             })
             .collect()
     }

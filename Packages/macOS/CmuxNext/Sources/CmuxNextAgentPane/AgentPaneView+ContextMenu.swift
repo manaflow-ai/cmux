@@ -177,7 +177,7 @@ extension AgentPaneView {
     /// Open Link: outside the pane, on the rule a click on the link follows.
     private func openLink(_ url: URL) {
         AgentPanePersonInput.record(model.transport.gestures)
-        _ = AgentPaneNavigation.openOutside(url, gestures: model.transport.gestures) { self.openURL($0, false) }
+        _ = AgentPaneNavigation.openOutside(url, gestures: model.transport.gestures) { self.openURL($0, []) }
     }
 
     /// Fork from Here: the turn footer's fork, through the page's own action. The menu choice is
