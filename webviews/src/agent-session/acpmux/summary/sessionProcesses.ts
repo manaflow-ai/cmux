@@ -8,6 +8,9 @@ import { useEffect, useState } from "react";
 export type RailProcess = {
   /// acpmux's id, `<sessionId>/<task id>`: what `_acpmux/process/kill` takes.
   id: string;
+  /// The Bash or exec call that started it: the transcript's background task of the same id is
+  /// this process (summary/backgroundWork.ts), and its terminal opens by it (processTerminal.ts).
+  toolCallId?: string;
   command: string;
   /// Unix ms.
   startedAt: number;
@@ -24,6 +27,7 @@ function processOf(value: unknown, sessionId: string): RailProcess | undefined {
     return undefined;
   return {
     id: raw.id,
+    ...(typeof raw.toolCallId === "string" && raw.toolCallId ? { toolCallId: raw.toolCallId } : {}),
     command: raw.command,
     startedAt: raw.startedAt,
     ...(typeof raw.endedAt === "number" ? { endedAt: raw.endedAt } : {}),
@@ -60,33 +64,52 @@ export type ProcessSource = {
   watchProcesses(listener: (process: unknown) => void): () => void;
 };
 
-/// Chat `sessionId`'s background processes while `live` (the rail shows), kept current from
-/// the registry's updates. A listing that fails leaves what the updates said.
-export function useSessionProcesses(
+/// What the registry says of a chat: its processes, and whether a `process/list` answered for it
+/// (without one, only the updates since the subscription are known).
+export type ProcessRegistry = { processes: readonly RailProcess[]; listed: boolean };
+
+const NO_PROCESSES: ProcessRegistry = { processes: [], listed: false };
+
+/// Chat `sessionId`'s background processes while `live`, and while one it knows still runs (so its
+/// end arrives), kept current from the registry's updates. A listing that fails leaves what the
+/// updates said. Going quiet keeps the last records, and the next listing replaces them, so a
+/// count does not drop to zero and back.
+export function useProcessRegistry(
   source: ProcessSource | undefined,
   sessionId: string | undefined,
   live: boolean,
-): readonly RailProcess[] {
-  const [state, setState] = useState<{ sessionId?: string; processes: readonly RailProcess[] }>({ processes: [] });
+): ProcessRegistry {
+  const [state, setState] = useState<ProcessRegistry & { sessionId?: string }>(NO_PROCESSES);
+  const running = state.sessionId === sessionId && state.processes.some((process) => process.state === "running");
+  const on = live || running;
   useEffect(() => {
-    if (!source || !sessionId || !live) return;
+    if (!source || !sessionId || !on) return;
     let current = true;
-    setState({ sessionId, processes: [] });
-    const stop = source.watchProcesses((value) =>
-      setState((known) => ({ sessionId, processes: mergeProcess(known.processes, value, sessionId) })),
-    );
+    // This subscription's updates: newer than the list's records.
+    let updates: readonly RailProcess[] = [];
+    setState((known) => (known.sessionId === sessionId ? known : { sessionId, processes: [], listed: false }));
+    const stop = source.watchProcesses((value) => {
+      updates = mergeProcess(updates, value, sessionId);
+      setState((known) => {
+        const processes = known.sessionId === sessionId ? known.processes : [];
+        const listed = known.sessionId === sessionId && known.listed;
+        const next = mergeProcess(processes, value, sessionId);
+        return next === processes && known.sessionId === sessionId ? known : { sessionId, processes: next, listed };
+      });
+    });
     source.listProcesses(sessionId).then(
       (reply) => {
         if (!current) return;
         const listed = processesOf(reply, sessionId);
-        // An update that arrived while the list was on its way is newer than the list's record.
-        setState((known) => ({
+        setState({
           sessionId,
-          processes: known.processes.reduce<readonly RailProcess[]>(
+          processes: updates.reduce<readonly RailProcess[]>(
             (all, process) => mergeProcess(all, { ...process, sessionId }, sessionId),
             listed,
           ),
-        }));
+          // A reply without its list (a daemon that does not keep one) lists nothing.
+          listed: Array.isArray((reply as { processes?: unknown } | undefined)?.processes),
+        });
       },
       () => undefined,
     );
@@ -94,6 +117,16 @@ export function useSessionProcesses(
       current = false;
       stop();
     };
-  }, [source, sessionId, live]);
-  return state.sessionId === sessionId ? state.processes : [];
+  }, [source, sessionId, on]);
+  return state.sessionId === sessionId ? state : NO_PROCESSES;
+}
+
+/// Chat `sessionId`'s background processes while `live` (the rail shows), kept current from
+/// the registry's updates. A listing that fails leaves what the updates said.
+export function useSessionProcesses(
+  source: ProcessSource | undefined,
+  sessionId: string | undefined,
+  live: boolean,
+): readonly RailProcess[] {
+  return useProcessRegistry(source, sessionId, live).processes;
 }

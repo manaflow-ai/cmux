@@ -30,7 +30,7 @@ export default agentPaneEntry({
       ]),
     },
     "activity-line": {
-      note: "Debug Settings agent.sessionStatus on: the list sits under the work, and the line under it names the running edit by its file name and ticks the turn's time, in Working for's place.",
+      note: "Debug Settings agent.sessionStatus on: the list sits under the work, and the line under it names the running edit by its file name and ticks the turn's time, in Working for's place, with no blinking dots before it.",
       sessionStatus: true,
       snapshot: chat(
         [
