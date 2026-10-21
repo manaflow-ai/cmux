@@ -537,7 +537,8 @@ const keptAttachments: KeptAttachments = {
       (kept) => (Array.isArray(kept) ? (kept as ComposerAttachment[]) : []),
       () => [],
     ),
-  write: (sessionId, attachments) => callNative("chat.draftAttachments", { sessionId, attachments }),
+  write: (sessionId, attachments) =>
+    callNative<{ held?: unknown } | null>("chat.draftAttachments", { sessionId, attachments }),
 };
 /// Where chat `sessionId` rests, kept by its tab so a relaunch reopens it there (cx-6bgzj).
 const postScrollAnchor = (sessionId: string, anchor: ScrollAnchor | null) =>

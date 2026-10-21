@@ -20,14 +20,24 @@ struct ChatDraftAttachmentsTests {
         return try await provider.call(AgentPageOps.namespace + method, params: .object(params), context: context)
     }
 
-    static func keep(_ chips: [Chip], for session: String) async throws {
-        let list = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(chips))
-        _ = try await call("chat.draftAttachments", ["sessionId": .string(session), "attachments": list])
+    /// Writes chat `session`'s chips as the page does; answers the ids whose contents the host keeps.
+    @discardableResult
+    static func keep(_ chips: [Chip], for session: String) async throws -> [String] {
+        let list = try #require(JSONValue(foundation: try JSONSerialization.jsonObject(with: JSONEncoder().encode(chips))))
+        let reply = try await call("chat.draftAttachments", ["sessionId": .string(session), "attachments": list])
+        guard case .object(let body) = reply, case .array(let held)? = body["held"] else {
+            Issue.record("no held ids in \(reply)")
+            return []
+        }
+        return held.compactMap { value -> String? in
+            guard case .string(let id) = value else { return nil }
+            return id
+        }
     }
 
     static func kept(_ session: String) async throws -> [Chip] {
         let value = try await call("chat.draftAttachments.get", ["sessionId": .string(session)])
-        return try JSONDecoder().decode([Chip].self, from: JSONEncoder().encode(value))
+        return try JSONDecoder().decode([Chip].self, from: JSONSerialization.data(withJSONObject: value.foundationObject))
     }
 
     /// A Retina screenshot's worth of PNG.
@@ -62,7 +72,9 @@ struct ChatDraftAttachmentsTests {
         // This page: four pasted screenshots and an attached folder rest in chat s-1's composer.
         let store = AgentPaneDraftAttachments(directory: directory)
         AgentPaneDraftAttachments.shared = store
-        try await Self.keep([1, 2, 3, 4].map { Self.chip($0) } + [notes], for: "s-1")
+        let held = try await Self.keep([1, 2, 3, 4].map { Self.chip($0) } + [notes], for: "s-1")
+        // The host says which chips' contents it holds, so the page sends them no more.
+        #expect(held == ["shot-1", "shot-2", "shot-3", "shot-4"])
         let folder = try #require(store.folder(for: "s-1"))
         let names = Self.files(in: folder)
         #expect(names.filter { $0.hasSuffix(".png") }.count == 4, "\(names)")
@@ -104,7 +116,7 @@ struct ChatDraftAttachmentsTests {
         let first = Self.files(in: folder).filter { $0.hasSuffix(".png") }
         try #require(first.count == 1)
 
-        try await Self.keep([Self.chip(1, contents: false), Self.chip(2)], for: "s-1")
+        #expect(try await Self.keep([Self.chip(1, contents: false), Self.chip(2)], for: "s-1") == ["shot-1", "shot-2"])
         let both = Self.files(in: folder).filter { $0.hasSuffix(".png") }
         #expect(both.count == 2 && both.contains(first[0]), "the first chip's file was written again: \(both)")
         #expect(try await Self.kept("s-1").map { $0.data.flatMap { Data(base64Encoded: $0) } } == [Self.screenshot(1), Self.screenshot(2)])
@@ -115,8 +127,9 @@ struct ChatDraftAttachmentsTests {
         #expect(left.count == 1 && !left.contains(first[0]))
         #expect(try await Self.kept("s-1").map(\.id) == ["shot-2"])
 
-        // An image the host has no contents for (never sent, its file gone) is not brought back empty.
-        try await Self.keep([Self.chip(3, contents: false)], for: "s-1")
+        // An image the host has no contents for (never sent, its file gone) is not brought back empty,
+        // and the host says it holds none, so the page sends its contents next time.
+        #expect(try await Self.keep([Self.chip(3, contents: false)], for: "s-1").isEmpty)
         #expect(try await Self.kept("s-1").isEmpty)
         #expect(!FileManager.default.fileExists(atPath: folder.path))
     }

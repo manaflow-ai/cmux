@@ -91,6 +91,7 @@ class Host implements KeptAttachments {
     });
     if (kept.length) this.chats.set(sessionId, kept);
     else this.chats.delete(sessionId);
+    return { held: kept.filter((chip) => chip.data).map((chip) => chip.id) };
   }
 }
 
@@ -277,4 +278,65 @@ test("moving to another chat shows that chat's chips; a harness switch carries t
   expect(shown(switched).map((chip) => chip.id)).toEqual(["shot-1"]);
   await openPage("chat-new", store);
   expect(store.chats.get("chat-new")?.map((chip) => chip.id)).toEqual(["shot-1"]);
+});
+
+test("sending a chip before it rests never brings it back", async () => {
+  const store = new Host();
+  const page = await openPage("chat-a", store);
+  // Paste and Enter at once: the chip goes with the prompt before its write rests.
+  act(() => page.current!.attach(screenshot(1)));
+  act(() => {
+    page.current!.send();
+  });
+  await settle();
+  expect(store.chats.has("chat-a")).toBe(false);
+  closePage();
+  const reopened = await openPage("chat-a", store);
+  expect(shown(reopened)).toEqual([]);
+});
+
+test("a chip put back right after its send (a refusal) stays kept", async () => {
+  const store = new Host();
+  const page = await openPage("chat-a", store);
+  act(() => page.current!.attach(screenshot(1)));
+  await settle();
+  act(() => {
+    page.current!.send();
+  });
+  // The host refused the prompt: the composer gets its chip back before the clear rests.
+  act(() => page.current!.restore("", [screenshot(1)]));
+  await settle();
+  expect(store.chats.get("chat-a")?.map((chip) => chip.id)).toEqual(["shot-1"]);
+  closePage();
+  const reopened = await openPage("chat-a", store);
+  expect(shown(reopened).map((chip) => chip.data)).toEqual([btoa("png-bytes-1")]);
+});
+
+test("a chip the host no longer holds goes again with its contents", async () => {
+  const store = new Host();
+  const page = await openPage("chat-a", store);
+  act(() => page.current!.attach(screenshot(1)));
+  await settle();
+  // Sent: the host forgets it.
+  act(() => {
+    page.current!.send();
+  });
+  await settle();
+  expect(store.chats.has("chat-a")).toBe(false);
+  // Edit on the failed prompt puts the same chip back: the host has no file for it now.
+  act(() => page.current!.restore("", [screenshot(1)]));
+  await settle();
+  expect(store.writes.at(-1)!.attachments.map((chip) => Boolean(chip.data))).toEqual([true]);
+  expect(store.chats.get("chat-a")?.map((chip) => chip.data)).toEqual([btoa("png-bytes-1")]);
+});
+
+test("a page going away sends a write still resting", async () => {
+  const store = new Host();
+  const page = await openPage("chat-a", store);
+  act(() => page.current!.attach(screenshot(1)));
+  // The tab closes: the web page hides before React unmounts anything.
+  act(() => {
+    window.dispatchEvent(new window.Event("pagehide"));
+  });
+  expect(store.writes.map((write) => write.attachments.map((chip) => chip.id))).toEqual([["shot-1"]]);
 });

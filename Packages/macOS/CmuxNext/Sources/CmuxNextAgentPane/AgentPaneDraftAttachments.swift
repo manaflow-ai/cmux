@@ -1,3 +1,4 @@
+public import CmuxNextSettings
 import CryptoKit
 public import Foundation
 
@@ -20,8 +21,9 @@ public final class AgentPaneDraftAttachments {
     /// One chat's files: a composer full of images (10 of at most 5 MB, `attachments.ts`) fits.
     public var maximumBytes = 64 * 1024 * 1024
     let directory: URL?
-    /// Each chat's write in flight: the next write and a read wait for it.
-    private var writes: [String: Task<Void, Never>] = [:]
+    /// Each chat's last queued read or write: the next one waits for it, so they run in the order
+    /// the page asked, a later small write never overtaking an earlier large one.
+    private var queue: [String: Task<Void, Never>] = [:]
 
     public init(directory: URL?) {
         self.directory = directory?.appending(path: Self.directoryName, directoryHint: .isDirectory)
@@ -30,24 +32,48 @@ public final class AgentPaneDraftAttachments {
     /// The chips chat `sessionId` was left with, contents read back; empty when it holds none.
     public func attachments(for sessionId: String) async -> [AgentPaneWakeState.Attachment] {
         guard let folder = folder(for: sessionId) else { return [] }
-        await writes[sessionId]?.value
         let limit = maximumBytes
-        return await Task.detached { Self.read(folder, limit: limit) }.value
+        return await queued(sessionId) { Self.read(folder, limit: limit) }
     }
 
-    /// Keeps `attachments` as chat `sessionId`'s chips; none forgets them. A chip sent without its
-    /// contents keeps the file it already has.
-    public func keep(_ attachments: [AgentPaneWakeState.Attachment], for sessionId: String) async {
-        guard let directory, let folder = folder(for: sessionId) else { return }
-        let previous = writes[sessionId]
+    /// Keeps `list` (the page's chips, as JSON) as chat `sessionId`'s chips; none forgets them. A
+    /// chip sent without its contents keeps the file it already has. Answers the ids of the chips
+    /// whose contents are kept, so the page knows which it need not send again; nil when `list` is
+    /// not a list of chips. The list is decoded in the chat's queue, off the main actor.
+    public func keep(_ list: JSONValue, for sessionId: String) async -> [String]? {
+        guard let directory, let folder = folder(for: sessionId) else { return [] }
         let limit = maximumBytes
-        let write = Task.detached {
-            await previous?.value
-            Self.write(attachments, to: folder, in: directory, limit: limit)
+        return await queued(sessionId) { () -> [String]? in
+            guard let attachments = Self.decode(list) else { return nil }
+            return Self.write(attachments, to: folder, in: directory, limit: limit)
         }
-        writes[sessionId] = write
-        await write.value
-        if writes[sessionId] == write { writes[sessionId] = nil }
+    }
+
+    /// Runs `work` off the main actor after the chat's queued work.
+    private func queued<T: Sendable>(_ sessionId: String, _ work: @escaping @Sendable () -> T) async -> T {
+        let previous = queue[sessionId]
+        let task = Task.detached { () -> T in
+            await previous?.value
+            return work()
+        }
+        let done = Task.detached { _ = await task.value }
+        queue[sessionId] = done
+        let value = await task.value
+        if queue[sessionId] == done { queue[sessionId] = nil }
+        return value
+    }
+
+    /// The page's chips from their JSON; nil when it is not a list of chips.
+    nonisolated static func decode(_ list: JSONValue) -> [AgentPaneWakeState.Attachment]? {
+        guard case .array = list, let data = try? JSONSerialization.data(withJSONObject: list.foundationObject) else { return nil }
+        return try? JSONDecoder().decode([AgentPaneWakeState.Attachment].self, from: data)
+    }
+
+    /// The chips as the page's JSON.
+    nonisolated static func json(_ attachments: [AgentPaneWakeState.Attachment]) -> JSONValue {
+        guard let data = try? JSONEncoder().encode(attachments),
+              let object = try? JSONSerialization.jsonObject(with: data) else { return .array([]) }
+        return JSONValue(foundation: object) ?? .array([])
     }
 
     /// Chat `sessionId`'s folder: a digest of its id, so any id is a safe name.
@@ -74,14 +100,14 @@ public final class AgentPaneDraftAttachments {
         return AgentPaneAttachmentFiles.readBack(saved.attachments, files: saved.files ?? [:], in: folder, budget: &budget)
     }
 
-    private nonisolated static func write(_ attachments: [AgentPaneWakeState.Attachment], to folder: URL, in directory: URL, limit: Int) {
+    private nonisolated static func write(_ attachments: [AgentPaneWakeState.Attachment], to folder: URL, in directory: URL, limit: Int) -> [String] {
         let manager = FileManager.default
         let kept = saved(in: folder)?.files ?? [:]
         // A chat past the limit keeps nothing rather than some of its chips.
         guard !attachments.isEmpty, let moved = AgentPaneAttachmentFiles.moveOut(attachments, to: folder, within: limit, kept: kept),
               !moved.attachments.isEmpty else {
             try? manager.removeItem(at: folder)
-            return
+            return []
         }
         do {
             try manager.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -89,7 +115,7 @@ public final class AgentPaneDraftAttachments {
             try list.write(to: folder.appending(path: listName), options: .atomic)
         } catch {
             try? manager.removeItem(at: folder)
-            return
+            return []
         }
         // Files no chip names any more (a chip taken out) go.
         let named = Set(moved.files.values).union([listName])
@@ -97,6 +123,7 @@ public final class AgentPaneDraftAttachments {
             try? manager.removeItem(at: folder.appending(path: name))
         }
         prune(directory)
+        return moved.files.keys.sorted()
     }
 
     /// Only the ``limit`` most recently written chats stay.
