@@ -3,6 +3,7 @@ import { groupTargets, type DeliverResult, type TargetItem } from "./do-outbox.t
 import type { Env } from "./env.ts"
 import { isTransientError } from "./projection.ts"
 import { projectRows } from "./projection-targets.ts"
+import { warmBrain } from "./mux-wake-delivery.ts"
 import { deliverSecurityMail, SECURITY_MAIL_CLASS } from "./security-mail.ts"
 
 /** Dead outbox items are replayed this long after they died (automatic replay tool). */
@@ -26,6 +27,8 @@ export const outboxFailure = (channel: string, e: unknown): OutboxFailure => {
 
 /** The class name of a Chief wake queue target (home-core conversation outbox `mux.wake`). */
 const MUX_CLASS = "MuxDO"
+/** A Chief wake queue channel: a person waits on it. */
+export const isWakeChannel = (c: string) => c.startsWith(`${MUX_CLASS}:`)
 
 /**
  * One alarm's outbox work for an owner: each due channel (PlanetScale projections, or one target
@@ -38,7 +41,9 @@ export const drainOutboxChannels = async <S>(
   /** The PlanetScale projector (a fake in tests). */
   project: (env: Env, stream: string, rows: Parameters<typeof projectRows>[2]) => ReturnType<typeof projectRows> = projectRows,
   /** The security mail sender (a fake in tests). */
-  mail: typeof deliverSecurityMail = deliverSecurityMail
+  mail: typeof deliverSecurityMail = deliverSecurityMail,
+  /** Only these channels (the commit-time wake path); no prune or replay then. */
+  only?: (channel: string) => boolean
 ): Promise<void> => {
     const outbox = engine.outbox
     // Each channel (PlanetScale projections, or one target object) reads, fails and backs off on
@@ -48,9 +53,10 @@ export const drainOutboxChannels = async <S>(
     // (automations, integrations) read the projection, so the projection ("") is put first explicitly.
     // (A cross-channel order was never guaranteed: each channel backs off on its own.)
     const due = outbox.dueChannels(Date.now())
-    const wake = (c: string) => c.startsWith(`${MUX_CLASS}:`)
+    const wake = isWakeChannel
     for (const channel of [...due.filter(wake), ...due.filter((c) => c === ""), ...due.filter((c) => c !== "" && !wake(c))]) {
       // After a failure a target channel sends its head alone, so a poison item is found by itself.
+      if (only && !only(channel)) continue
       const rows = outbox.pending(channel, channel !== "" && outbox.isolating(channel) ? 1 : 100)
       if (rows.length === 0) continue
       try {
@@ -78,6 +84,9 @@ export const drainOutboxChannels = async <S>(
           const ns = targetNamespace(batch.class)
           if (!ns) throw new Error(`no binding for ${batch.class}`)
           const stub = ns.get(ns.idFromName(batch.name)) as unknown as { systemDeliver(entity: string, source: string, items: ReadonlyArray<TargetItem>): Promise<DeliverResult> }
+          // The commit-time wake path also starts each woken Chief's brain beside MuxDO's commit (mux-wake-delivery.ts).
+          // Not awaited: the wake's delivery never waits on a brain's cold start; one warm per conversation.
+          if (only && isWakeChannel(channel)) for (const c of new Set(batch.items.filter((i) => i.op === "mux.wake").map((i) => (i.params as { conversation?: unknown } | null)?.conversation))) void warmBrain(env, batch.name, c)
           const res = await stub.systemDeliver(batch.name, engine.stream, batch.items)
           outbox.markSent(res.done, Date.now())
           if (res.done.length < batch.items.length) throw new Error(`${batch.items.length - res.done.length} items not delivered`)
@@ -88,6 +97,7 @@ export const drainOutboxChannels = async <S>(
         console.error(JSON.stringify({ msg: "outbox delivery failed", stream: engine.stream, channel: channel || "planetscale", error: String(e), ...(dead === null ? {} : { dead_letter: dead }) }))
       }
     }
+  if (only) return
   // Rows an older build marked sent instead of deleting go away a batch per alarm.
   outbox.pruneSent(1000)
   const replayed = outbox.replayDead(Date.now(), { deadBefore: Date.now() - DEAD_REPLAY_MS })

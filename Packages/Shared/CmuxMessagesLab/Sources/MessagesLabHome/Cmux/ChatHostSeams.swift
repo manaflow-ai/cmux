@@ -5,6 +5,10 @@ import CmuxHomeRender
 /// projection store is a mirror of HomeStore (the single writer), so a send
 /// or a tapback is an intent, never a local transcript edit.
 protocol ChatIntents: AnyObject {
+    /// The user opened, drilled or closed a thread view (a permalink waiting for its message stops waiting).
+    func threadMovedByUser()
+    /// The message's permalink (`<scheme>://conversation/<c>/message/<m>`), nil when it has none yet.
+    func messageLink(_ id: ID) -> String?
     /// Return in the field: send the draft (the adapter dispatches `.send` on
     /// the projection at once, so the morph starts, and gives the draft to
     /// HomeStore, which delivers it or queues it while offline).
@@ -27,6 +31,9 @@ protocol ChatIntents: AnyObject {
     func takeAttachments(from pasteboard: NSPasteboard) -> Bool
     /// While dragging: whether a drop would be taken (types only).
     func acceptsAttachments(from pasteboard: NSPasteboard) -> Bool
+    /// A click on the status line (the Chief's "working on" line): `rect` is its text in `view`'s
+    /// coordinates, where the turn's details open.
+    func statusLineClicked(_ rect: CGRect, in view: NSView)
     /// The field's text changed (the host clears its notice).
     func draftChanged()
     /// A link card was clicked (it opens too): a domain-only card may fetch its preview now.
@@ -34,8 +41,22 @@ protocol ChatIntents: AnyObject {
     /// My send can be cancelled (an upload, or a failed send): Cancel Upload.
     func canCancelSend(_ message: ID) -> Bool
     func cancelSend(_ message: ID)
-    /// Open an attachment's bytes in the app the system picks (the context menu).
+    /// My send is "Not Delivered": Try Again and Delete are offered.
+    func canRetrySend(_ message: ID) -> Bool
+    /// Try Again: the send goes again (`HomeStore.retry`).
+    func retrySend(_ message: ID)
+    /// Delete: the failed send goes (`HomeStore.discardFailed`).
+    func deleteFailedSend(_ message: ID)
+    /// Forward… is offered (the host routes a bubble's text to another chat).
+    var canForward: Bool { get }
+    /// Forward…: the bubble's text goes to another chat or agent the host asks for.
+    func forward(_ text: String)
+    /// Open an attachment's bytes: in the host (``HomeFileHost``, cmux shows it on the right of
+    /// the chat), else in the app the system picks.
     func openAttachment(_ message: ID, _ attachment: ID)
+    /// The attachment's local copy, named like the attachment (fetched when needed); nil when it
+    /// cannot be read here. The host's menu rows (Open With, Reveal) run on it.
+    func attachmentFile(_ message: ID, _ attachment: ID) async -> URL?
     /// A click on a video bubble: play or pause it in place.
     func toggleVideo(_ ref: PartRef, _ attachment: ID)
     /// The inline playback state of a video part (the menu's Play or Pause).
@@ -48,6 +69,12 @@ protocol ChatIntents: AnyObject {
     func rowsPlaced()
 }
 
+extension ChatIntents {
+    /// No Forward… unless the host routes it (test hosts, the New Message composer).
+    var canForward: Bool { false }
+    func forward(_ text: String) {}
+}
+
 /// One-shot wake-ups for the controller's engine clock (scheduled actions,
 /// cleanups). CmuxNext passes its DemandTimer (the sanctioned wakeup
 /// primitive, plans/cmux-next/idle-wakeups.md); no polling, no display link.
@@ -55,4 +82,9 @@ public protocol ChatWakeScheduler: AnyObject {
     /// Replaces any pending wake-up.
     func schedule(after seconds: Double, _ action: @escaping @MainActor @Sendable () -> Void)
     func cancel()
+}
+
+extension ChatIntents {
+    /// No local copy (hosts and fakes without attachment bytes).
+    func attachmentFile(_ message: ID, _ attachment: ID) async -> URL? { nil }
 }

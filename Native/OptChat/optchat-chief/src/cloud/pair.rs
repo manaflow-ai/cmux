@@ -19,10 +19,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use base64::Engine as _;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64;
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 use tungstenite::client::IntoClientRequest as _;
 use tungstenite::http::HeaderValue;
 use tungstenite::stream::MaybeTlsStream;
@@ -58,53 +55,9 @@ impl Default for PairOptions {
     }
 }
 
-/// The pairing a wait socket pushed.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Paired {
-    pub host: String,
-    pub team: String,
-    pub user: String,
-    pub install: String,
-}
-
-/// How a wait ended.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Waited {
-    Paired(Paired),
-    /// The approver may not add servers, or the code was spent (close 4403).
-    Refused,
-    /// The code ran out before anyone approved it.
-    Expired,
-}
-
-/// RFC 7638 SHA-256 thumbprint of a P-256 public JWK (base64url, no padding).
-pub fn jwk_thumbprint(jwk: &Value) -> Result<String, String> {
-    let member = |k: &str| {
-        jwk.get(k)
-            .and_then(Value::as_str)
-            .ok_or_else(|| format!("public JWK without {k}"))
-    };
-    // Lexicographic member order, no whitespace; the values are base64url, so no escaping.
-    let canonical = format!(
-        r#"{{"crv":"{}","kty":"{}","x":"{}","y":"{}"}}"#,
-        member("crv")?,
-        member("kty")?,
-        member("x")?,
-        member("y")?
-    );
-    Ok(B64.encode(Sha256::digest(canonical.as_bytes())))
-}
-
-/// What the install key signs for `POST /v1/pair/begin`.
-pub fn begin_proof(environment: &str, thumbprint: &str, wg_public: &str, issued_at: u64) -> String {
-    format!("cmux-pair-begin\n{environment}\n{thumbprint}\n{wg_public}\n{issued_at}")
-}
-
-/// The four words the app shows for this thumbprint (the swap check).
-pub fn fingerprint_words(thumbprint: &str) -> Option<[&'static str; 4]> {
-    let bytes = B64.decode(thumbprint).ok()?;
-    (bytes.len() == 32).then(|| cmux_server_core::pairing::fingerprint_words(&bytes))
-}
+pub use cmux_server_core::pairing::enrollment::{
+    Paired, Waited, begin_proof, fingerprint_words, jwk_thumbprint,
+};
 
 /// `wss://…/v1/pair/wait?code=…` for an `https` API (`ws` for loopback `http`).
 pub fn wait_url(api: &str, code: &str) -> Result<String, String> {
@@ -187,8 +140,9 @@ fn wait_once(url: &str, secret: &str, deadline_ms: u64) -> Result<Option<Waited>
     let mut request = url
         .into_client_request()
         .map_err(|e| format!("pair wait: {e}"))?;
-    let protocols = HeaderValue::from_str(&format!("cmux.pair.v1, collect.{secret}"))
+    let mut protocols = HeaderValue::from_str(&format!("cmux.pair.v1, collect.{secret}"))
         .map_err(|_| "pair wait: the collect secret is not a header value".to_owned())?;
+    protocols.set_sensitive(true);
     request
         .headers_mut()
         .insert("Sec-WebSocket-Protocol", protocols);
@@ -202,28 +156,11 @@ fn wait_once(url: &str, secret: &str, deadline_ms: u64) -> Result<Option<Waited>
         }
         match ws.read() {
             Ok(Message::Text(text)) => {
-                let frame: Value = serde_json::from_str(text.as_str())
-                    .map_err(|e| format!("pair wait: bad frame: {e}"))?;
-                match frame.get("t").and_then(Value::as_str) {
-                    Some("paired") => {
-                        let field = |k: &str| {
-                            frame
-                                .get(k)
-                                .and_then(Value::as_str)
-                                .map(str::to_owned)
-                                .ok_or_else(|| format!("pair wait: paired frame without {k}"))
-                        };
-                        let paired = Paired {
-                            host: field("host")?,
-                            team: field("team")?,
-                            user: field("user")?,
-                            install: field("install")?,
-                        };
-                        let _ = ws.close(None);
-                        return Ok(Some(Waited::Paired(paired)));
-                    }
-                    Some("refused") => return Ok(Some(Waited::Refused)),
-                    _ => {}
+                if let Some(done) =
+                    cmux_server_core::pairing::enrollment::read_frame(text.as_str())?
+                {
+                    let _ = ws.close(None);
+                    return Ok(Some(done));
                 }
             }
             Ok(Message::Close(frame)) => {
@@ -300,18 +237,18 @@ fn begin(http: &dyn Http, file: &InstallFile, info: Value) -> Result<Value, Stri
         .get("environment")
         .and_then(Value::as_str)
         .ok_or("health reply without an environment")?;
-    let thumbprint = jwk_thumbprint(&file.public_jwk)?;
     let wg = file
         .wg_public()
         .ok_or("the install file has no WireGuard key")?;
-    let issued_at = now_ms();
-    let signature = file.sign(&begin_proof(environment, &thumbprint, &wg, issued_at))?;
-    http.post(
-        &format!("{api}/v1/pair/begin"),
-        &json!({"public_jwk": file.public_jwk, "wg_public_key": wg, "info": info,
-                "issued_at": issued_at, "signature": signature}),
-        None,
-    )
+    let body = cmux_server_core::pairing::enrollment::begin_request(
+        &file.public_jwk,
+        &wg,
+        info,
+        environment,
+        now_ms(),
+        |proof| file.sign(std::str::from_utf8(proof).map_err(|_| "pairing.invalid_proof")?),
+    )?;
+    http.post(&format!("{api}/v1/pair/begin"), &body, None)
 }
 
 /// The whole `cloud pair` flow; progress goes to `out`, the summary is returned.

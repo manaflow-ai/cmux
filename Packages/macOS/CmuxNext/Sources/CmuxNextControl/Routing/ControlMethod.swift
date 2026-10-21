@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import CmuxNextSettings
 
 /// One control-socket method and the lane it runs on
@@ -127,15 +128,26 @@ public struct ControlCall: Sendable {
     public let startsTerminal: Bool
     /// Whether the request's work started (`not_run` vs `in_progress`).
     public let progress: ControlCallProgress
+    /// `MainThreadEngineStart.total` when the request started (nil in the
+    /// initializer: now): main-thread time in Chromium's start after it moves
+    /// `deadline` out.
+    public let engineStartMark: Duration
 
     public init(request: ControlRequest, snapshot: ControlSnapshot, connection: ControlConnectionID,
-                deadline: ContinuousClock.Instant, startsTerminal: Bool = false, progress: ControlCallProgress = ControlCallProgress()) {
+                deadline: ContinuousClock.Instant, startsTerminal: Bool = false, progress: ControlCallProgress = ControlCallProgress(),
+                engineStartMark: Duration? = nil) {
         self.request = request
         self.snapshot = snapshot
         self.connection = connection
         self.deadline = deadline
         self.startsTerminal = startsTerminal
         self.progress = progress
+        self.engineStartMark = engineStartMark ?? MainThreadEngineStart.shared.total
+    }
+
+    /// `deadline` moved out by the main-thread time in Chromium's start so far.
+    public var movedDeadline: ContinuousClock.Instant {
+        MainThreadEngineStart.shared.movedDeadline(deadline, countingFrom: engineStartMark)
     }
 
     public var method: String { request.method }

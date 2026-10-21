@@ -108,6 +108,10 @@ impl Probe {
             Cli::Claude => "claude",
             Cli::Codex => "codex",
         };
+        // The daemon starter's turn values are not this command's (config::TURN_SCOPED_ENV).
+        for k in crate::config::inherited_caller_scoped_keys() {
+            cmd.env_remove(k);
+        }
         crate::login_env::apply_tokio_for(&mut cmd, Some(family), Some(env));
         crate::config::scrub_nested_claude_env_tokio_for(&mut cmd, Some(family));
         cmd.args(rest)

@@ -96,6 +96,73 @@ fn registries_under(root: &Path) -> Vec<PathBuf> {
     found
 }
 
+struct ExplicitOwner<'a> {
+    fixture: &'a Fixture,
+    session: String,
+    socket: PathBuf,
+}
+
+impl<'a> ExplicitOwner<'a> {
+    fn start(fixture: &'a Fixture, suffix: &str) -> Self {
+        let owner = Self {
+            fixture,
+            session: format!("{}-{suffix}", fixture.session),
+            socket: fixture.dir.join(format!("owner-{suffix}.sock")),
+        };
+        let output = fixture
+            .command()
+            .args(["server", "ensure", "--json", "--session", &owner.session, "--socket"])
+            .arg(&owner.socket)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "owner ensure: {output:?}");
+        owner
+    }
+}
+
+impl Drop for ExplicitOwner<'_> {
+    fn drop(&mut self) {
+        let _ = self
+            .fixture
+            .command()
+            .args(["server", "stop", "--json", "--session", &self.session, "--socket"])
+            .arg(&self.socket)
+            .stdin(Stdio::null())
+            .output();
+    }
+}
+
+/// Real CLI processes exercise initial startup, same-owner reuse and a refused
+/// destination change. Both mux owners and the sidecar belong to this fixture.
+#[test]
+fn remote_mux_binding_cli_keeps_the_selected_owner() {
+    let fixture = Fixture::new();
+    let first = ExplicitOwner::start(&fixture, "a");
+    let second = ExplicitOwner::start(&fixture, "b");
+    let attach = |socket: &Path| {
+        fixture
+            .command()
+            .args(["remote-link", "--stdio", "--session", &fixture.session, "--state-dir"])
+            .arg(fixture.remote_state())
+            .arg("--mux-socket")
+            .arg(socket)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap()
+    };
+    let started = attach(&first.socket);
+    assert!(started.status.success(), "initial explicit attach: {started:?}");
+    let reused = attach(&first.socket);
+    assert!(reused.status.success(), "same-owner reuse: {reused:?}");
+    let refused = attach(&second.socket);
+    assert!(!refused.status.success(), "different owner was silently accepted");
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("[remote-mux-binding]"));
+    let retained = attach(&first.socket);
+    assert!(retained.status.success(), "refusal disturbed the original sidecar: {retained:?}");
+    fixture.stop_daemons();
+}
+
 #[test]
 fn remote_link_state_dir_holds_the_mux_owner_registry() {
     let fixture = Fixture::new();

@@ -279,11 +279,204 @@ class DefaultsGuardTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertNotIn("DEFAULTS", result.stdout)
 
-    def test_exports_changed_without_regenerating_the_snapshot_fail(self):
+    # The snapshot is bot-only (#21946): the base autofix rewrites it after a merge, a pull request
+    # never commits it, and the guard judges a head by its sources and exports.
+
+    def test_a_head_that_does_not_commit_the_snapshot_is_judged_by_its_sources(self):
         actions = [*BASE_ACTIONS[:3], action("toggleEditor", "e", ["ctrl", "cmd"])]
-        result = self.check(self.head(actions, snapshot=False))
-        self.assertEqual(result.returncode, 1)
+        head = self.head(actions, snapshot=False)
+        result = self.check(head)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("DEFAULTS key.toggleEditor: + ctrl+cmd+e", result.stdout)
+        self.assertNotIn("does not match the sources", result.stdout)
+        approved = self.check(head, reviews=[("lawrencecchen", "APPROVED", head)])
+        self.assertEqual(approved.returncode, 0, approved.stdout)
+
+    def test_a_hand_edited_snapshot_cannot_hide_a_default_change(self):
+        actions = [*BASE_ACTIONS[:3], action("toggleEditor", "e", ["ctrl", "cmd"])]
+        stale = self.repo.root.joinpath("schemas/defaults/cmux-next.json").read_text(encoding="utf-8")
+        head = self.head(actions, snapshot=False, extra={"schemas/defaults/cmux-next.json": stale})
+        result = self.check(head, reviews=[("lawrencecchen", "APPROVED", head)])
+        # Judged as a change that needs the call, not only as a stale file.
+        self.assertIn("::warning title=Default changed::DEFAULTS key.toggleEditor", result.stdout)
+
+    def test_check_fresh_still_finds_a_stale_snapshot(self):
+        """No CI check runs check-fresh any more (the snapshot is stale between a merge and the base
+        autofix's commit); it stays the command that says the snapshot needs regenerating."""
+        actions = [*BASE_ACTIONS[:3], action("toggleEditor", "e", ["ctrl", "cmd"])]
+        head = self.head(actions, snapshot=False)
+        result = self.repo.guard("check-fresh", "--ref", head)
+        self.assertEqual(result.returncode, 1, result.stdout)
         self.assertIn("does not match the sources; run `python3 scripts/ci/defaults_guard.py snapshot`", result.stdout)
+
+
+
+SETTINGS_SOURCES = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings"
+EXPORTER_TESTS = "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests"
+STAMP = "schemas/settings-export/settings-schema.sources.sha256"
+
+
+def stamp_for(root):
+    """The stamp SettingsSchemaExportTests writes: one `sha256  path` entry per exporter input, in
+    UTF-8 path order, a blank line between entries so two pull requests that edit different
+    sources change lines git merges apart (#21946)."""
+    import hashlib
+    paths = [f"{EXPORTER_TESTS}/ManagedPreferencesManifestTests.swift", f"{EXPORTER_TESTS}/SettingsSchemaExportTests.swift"]
+    paths += [file.relative_to(root).as_posix() for file in (root / SETTINGS_SOURCES).rglob("*")
+              if file.suffix in (".swift", ".xcstrings")]
+    paths.sort(key=lambda path: path.encode("utf-8"))
+    return "\n\n".join(f"{hashlib.sha256((root / path).read_bytes()).hexdigest()}  {path}" for path in paths) + "\n"
+
+
+class SettingsExportStampTests(unittest.TestCase):
+    """`check-fresh` and the settings export stamp (schemas/settings-export/settings-schema.sources.sha256)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = Repo(pathlib.Path(self.tmp.name))
+        self.repo.git("init", "-q", "-b", "main")
+        self.repo.write("scripts/ci/defaults_guard.py", SCRIPT.read_text(encoding="utf-8"))
+        self.repo.write(".github/defaults-call-owners.json", json.dumps(OWNERS))
+        self.repo.sources(BASE_ACTIONS, BASE_SETTINGS)
+        self.repo.write(f"{EXPORTER_TESTS}/ManagedPreferencesManifestTests.swift", "// manifest\n")
+        self.repo.write(f"{EXPORTER_TESTS}/SettingsSchemaExportTests.swift", f"// writes {STAMP.rsplit('/', 1)[1]}\n")
+        for name in ("Alpha.swift", "Beta.swift", "Gamma.swift", "Localizable.xcstrings"):
+            self.repo.write(f"{SETTINGS_SOURCES}/{name}", f"// {name}\n")
+        self.repo.write(f"{SETTINGS_SOURCES}/README.md", "not an input\n")
+        self.export()
+        self.repo.commit("base")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def export(self):
+        self.repo.write(STAMP, stamp_for(self.repo.root))
+
+    def fresh(self, *args):
+        return self.repo.guard("check-fresh", *args)
+
+    def test_a_stamp_of_every_input_is_fresh(self):
+        result = self.fresh()
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(len(self.repo.root.joinpath(STAMP).read_text().split("\n\n")), 6)
+
+    def test_an_edited_source_is_stale_and_named(self):
+        self.repo.write(f"{SETTINGS_SOURCES}/Beta.swift", "// beta, edited\n")
+        result = self.fresh()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("settings exports are stale", result.stdout)
+        self.assertIn(f"{SETTINGS_SOURCES}/Beta.swift", result.stdout)
+        self.assertNotIn("Alpha.swift", result.stdout)
+
+    def test_an_added_or_removed_source_is_stale_and_named(self):
+        self.repo.write(f"{SETTINGS_SOURCES}/Delta.swift", "// delta\n")
+        (self.repo.root / SETTINGS_SOURCES / "Gamma.swift").unlink()
+        result = self.fresh()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Delta.swift", result.stdout)
+        self.assertIn("Gamma.swift", result.stdout)
+
+    def test_a_one_digest_stamp_from_before_the_manifest_is_stale(self):
+        self.repo.write(STAMP, "a01b76447321b7bdf25b78a05bd9a7e530b92e767537d604bae476d7084a7bde\n")
+        result = self.fresh()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("settings exports are stale", result.stdout)
+
+    def merge_two_branches(self):
+        for branch, name in (("one", "Alpha.swift"), ("two", "Gamma.swift")):
+            self.repo.git("checkout", "-q", "-b", branch, "main")
+            self.repo.write(f"{SETTINGS_SOURCES}/{name}", f"// {name}, edited on {branch}\n")
+            self.export()
+            self.repo.commit(branch, snapshot=False)
+        self.repo.git("checkout", "-q", "one")
+        self.repo.git("-c", "user.name=t", "-c", "user.email=t@t", "merge", "-q", "--no-edit", "two")
+
+    def test_a_clone_with_the_merge_drivers_keeps_one_stamp_so_check_fresh_fails(self):
+        """A line-merged stamp would match the merged sources while settings-schema.json and docs/mdm
+        (cmux-generated-v1: one side's copy) miss the other branch's rows, so check-fresh would pass
+        on stale exports. With the repository's drivers (the bots, a lane's local merge) the stamp
+        keeps one side too, and check-fresh names the other side's source until the exports are
+        regenerated. GitHub ignores drivers: there the stamp merges by line and the base autofix
+        regenerates the exports, which it does whenever CmuxNextSettings changed."""
+        self.repo.write(".gitattributes", (ROOT / ".gitattributes").read_text(encoding="utf-8"))
+        self.repo.commit("attributes", snapshot=False)
+        self.repo.git("config", "merge.cmux-generated-v1.driver", "true")
+        self.merge_two_branches()
+        result = self.fresh()
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("Gamma.swift", result.stdout)
+
+    def test_two_branches_editing_different_sources_merge_by_line_without_drivers(self):
+        """GitHub's view (no drivers): the two stamps merge cleanly, so neither pull request shows a
+        conflict, and the merged stamp is the merged sources'."""
+        self.merge_two_branches()
+        self.assertEqual(self.repo.root.joinpath(STAMP).read_text(), stamp_for(self.repo.root))
+
+    def test_check_fresh_reads_a_commit_as_it_reads_a_checkout(self):
+        head = self.repo.git("rev-parse", "HEAD")
+        self.assertEqual(self.fresh("--ref", head).returncode, 0)
+        self.repo.write(f"{SETTINGS_SOURCES}/Alpha.swift", "// alpha, edited\n")
+        stale = self.repo.commit("stale", snapshot=False)
+        result = self.fresh("--ref", stale)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Alpha.swift", result.stdout)
+
+    # The base autofix regenerates the exports after each merge, and with merges minutes apart
+    # feat-cmux-next's stamp is stale most of the time (10-21: d986b175b38, #22678 and #23028 left
+    # it stale for every pull request at once). A head answers only for the sources it changed.
+
+    def stale_base(self):
+        self.repo.write(f"{SETTINGS_SOURCES}/Beta.swift", "// beta, merged without its exports\n")
+        return self.repo.commit("a merge before the base autofix", snapshot=False)
+
+    def test_check_stamp_with_a_base_passes_a_head_that_inherits_the_bases_stale_exports(self):
+        base = self.stale_base()
+        self.repo.write("README.md", "an unrelated change\n")
+        head = self.repo.commit("head", snapshot=False)
+        result = self.repo.guard("check-stamp", "--ref", head, "--base", base)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("Beta.swift", result.stdout)
+        self.assertIn(f"stale on the base {base[:12]} too", result.stdout)
+
+    def test_check_stamp_with_a_base_fails_for_the_sources_the_head_changed(self):
+        base = self.stale_base()
+        self.repo.write(f"{SETTINGS_SOURCES}/Alpha.swift", "// alpha, edited on the head\n")
+        head = self.repo.commit("head", snapshot=False)
+        result = self.repo.guard("check-stamp", "--ref", head, "--base", base)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        problems = result.stdout.split(f"stale on the base {base[:12]} too")[0]
+        self.assertIn("Alpha.swift", problems)
+        self.assertNotIn("Beta.swift", problems)
+
+    def test_check_stamp_with_a_base_fails_a_head_that_changed_the_stamp_itself(self):
+        """Taking the old side of the stamp in a base merge is the head's own staleness, not the base's."""
+        base = self.repo.git("rev-parse", "HEAD")
+        stamp = self.repo.root.joinpath(STAMP).read_text()
+        digest = stamp.split("  ", 1)[0]
+        self.repo.write(STAMP, stamp.replace(digest, "0" * len(digest), 1))
+        head = self.repo.commit("head takes an old stamp", snapshot=False)
+        result = self.repo.guard("check-stamp", "--ref", head, "--base", base)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertNotIn("stale on the base", result.stdout)
+
+    def test_check_stamp_with_a_base_passes_however_many_sources_the_base_left_stale(self):
+        for n in range(25):
+            self.repo.write(f"{SETTINGS_SOURCES}/Merged{n:02}.swift", f"// merged {n} without its exports\n")
+        base = self.repo.commit("many merges before the base autofix", snapshot=False)
+        self.repo.write("README.md", "an unrelated change\n")
+        head = self.repo.commit("head", snapshot=False)
+        result = self.repo.guard("check-stamp", "--ref", head, "--base", base)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("and 5 more", result.stdout)
+
+    def test_a_stale_stamp_says_how_to_regenerate_the_exports(self):
+        """The old text pointed at a REPAIR.md row that is not in this repository."""
+        self.repo.write(f"{SETTINGS_SOURCES}/Alpha.swift", "// alpha, edited\n")
+        result = self.repo.guard("check-stamp")
+        self.assertEqual(result.returncode, 1)
+        self.assertNotIn("REPAIR.md", result.stdout)
+        self.assertIn("cmux-next-pr-autofix.yml", result.stdout)
+        self.assertIn("scripts/cmux-next/regenerate-settings-exports.sh", result.stdout)
 
 
 if __name__ == "__main__":

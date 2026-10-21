@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 
 /// Turns an engine's context menu model into an `NSMenu` and shows it. The
 /// host may put its own items (cmux actions) before and after the engine's.
@@ -11,6 +12,10 @@ public final class BrowserContextMenuBuilder {
 
     /// The page menu while it is open (diagnostics: `debug.menu`).
     public private(set) weak var presentedMenu: NSMenu?
+
+    /// Row images by icon: an extension's files are read once, not on every
+    /// right-click.
+    private let images = BrowserContextMenuImages()
 
     /// Menu items for `request.items`; choosing one completes the request
     /// with its id.
@@ -51,18 +56,21 @@ public final class BrowserContextMenuBuilder {
             for item in extra { menu.addItem(item) }
         }
         let point = view.isFlipped ? request.location : CGPoint(x: request.location.x, y: view.bounds.height - request.location.y)
+        // The page's rows highlight as the rest of cmux's menus do: a wash of the tab's theme accent.
+        menu.themeRows(in: view.themeScope.fullStrength)
         presentedMenu = menu
         menu.popUp(positioning: nil, at: point, in: view)
         presentedMenu = nil
-        // An engine item's action already completed the request; this ends
-        // a dismissed menu (or one where a host item ran).
-        request.complete(nil)
+        // A chosen engine row completes the request with its id once tracking has ended; this then
+        // ends a dismissed menu (or one where a host item ran).
+        menu.afterThemedRowRuns { request.complete(nil) }
     }
 
     private func item(for model: BrowserContextMenuItem, request: BrowserContextMenuRequest) -> NSMenuItem {
         if model.kind == .separator { return .separator() }
         let item = NSMenuItem(title: model.title, action: nil, keyEquivalent: "")
         item.isEnabled = model.isEnabled
+        if let icon = model.icon { item.image = images.image(for: icon) }
         item.state = (model.kind == .check || model.kind == .radio) && model.isChecked ? .on : .off
         if model.kind == .submenu {
             let submenu = NSMenu(title: model.title)

@@ -16,11 +16,13 @@ public import Foundation
 /// A view is never closed because its stream ended or an attach failed: it
 /// is `disconnected`, keeps its last screen, and re-attaches. A visible view
 /// retries by itself (cx-wwtam), each re-attach after the capped backoff
-/// (`openAfterBackoff`), up to `maxAutoReconnects` in a row, so a restored
-/// terminal whose daemon answers late comes back with no user input. After
-/// that, or while hidden, it re-attaches on the next event that can make an
-/// attach work (shown again, a key press, a click or focus, the terminal or
-/// the connection back). One re-attach at a time. Until a view first went
+/// (`openAfterBackoff`), for as long as it stays visible, so a terminal whose
+/// daemon answers late or refused its connection for a while comes back with
+/// no user input. While hidden it re-attaches on the next event that can make
+/// an attach work (shown again, a key press, a click or focus, the terminal
+/// or the connection back). After ``quietReconnects`` self-started ones the
+/// view keeps retrying but says the attach failed, so Retry shows (and a
+/// restored view stops saying `restoring`). One re-attach at a time. Until a view first went
 /// live its status is `restoring` (when it was created as a restore) while it
 /// attaches or retries. A terminal whose
 /// process ended is `exited` and never re-attaches on a view event; only the
@@ -49,10 +51,10 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
     public static var maxAttempts: Int { 8 }
     /// Input held while attaching. Beyond it new input is dropped and counted.
     public static var maxQueuedInputBytes: Int { 4 << 20 }
-    /// Failed re-attaches in a row a visible view retries by itself. With the
-    /// App's backoff (500 ms doubling to 30 s) that is about a minute; then
-    /// only an event re-attaches.
-    public static var maxAutoReconnects: Int { 8 }
+    /// Self-started re-attaches in a row (about 90 s with the App's backoff)
+    /// before the view, still retrying, offers Retry: its status says the
+    /// attach failed and that a click or key re-attaches now.
+    public static var quietReconnects: Int { 8 }
 
     public private(set) var phase: Phase = .detached
     public private(set) var queuedInput: [Data] = []
@@ -67,8 +69,13 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
     /// True while this view believes it holds geometry: it claimed, and the
     /// stream has not announced another client's grid since.
     public private(set) var claimed = false
+    /// The link this view hid on (`.hide`); showing the view again un-hides it there.
+    private var hiddenOn: Link?
     /// This view's claims the stream has not echoed yet, oldest first (a live resize claims every frame).
     public private(set) var echoesDue: [CellSize] = []
+    /// The grid the stream last announced on the live link: a claim of it changes nothing, so the
+    /// stream echoes nothing and no echo is due (a stale one held the next drag's grids).
+    public private(set) var announcedSize: CellSize?
     /// Last status the view was told (it starts connected: nothing shown).
     public private(set) var status: LinkStatus = .connected
     /// The process ended while an attach was pending: its replay (the last
@@ -111,6 +118,7 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         case .resize(let size): resize(size)
         case .visibility(let visible): setVisible(visible)
         case .focused: focused()
+        case .takeOver(let setLatest): takeOver(setLatest: setLatest)
         case .gridAnnounced(let link, let size): gridAnnounced(link, size: size)
         case .ended(let link, let reason): ended(link, reason: reason)
         case .reconnect: reconnect()
@@ -160,6 +168,12 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         reportedSize = pending.size
         claimed = false
         var effects = announce(.connected)
+        // Hidden while it attached (a background tab, a re-attach while parked): the size its attach
+        // reported does not count toward the grid.
+        if !visible {
+            hiddenOn = link
+            effects.append(.hide(link))
+        }
         effects += syncGeometry(link)
         effects += queuedInput.map { .send(link, $0) }
         queuedInput = []
@@ -203,6 +217,7 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
     /// geometry; its next key press or focus claims again. Its own earlier reports are not.
     private mutating func gridAnnounced(_ link: Link, size: CellSize) -> [Effect] {
         guard liveLink == link else { return [] }
+        announcedSize = size
         if let mine = echoesDue.firstIndex(of: size) { echoesDue.removeFirst(mine + 1); return [] }
         guard claimed, size != reportedSize else { return [] }
         claimed = false; echoesDue = []
@@ -214,6 +229,16 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
     private mutating func focused() -> [Effect] {
         if liveLink == nil { return reconnect() }
         return reclaim()
+    }
+
+    /// Take over always sends: under `priority` a claim that did not win changes no grid, so
+    /// `claimed` stays set and `reclaim` would send nothing on the next click.
+    private mutating func takeOver(setLatest: Bool) -> [Effect] {
+        if liveLink == nil { return reconnect() }
+        guard let link = liveLink, visible, let size = desiredSize else { return [] }
+        // The bookkeeping of a claim (claimed, reported size, echo due); the effect also claims.
+        _ = claim(link, size)
+        return [.takeOver(link, size, setLatest: setLatest)]
     }
 
     /// Key press or focus: a visible view that lost geometry takes it back.
@@ -229,11 +254,15 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         if visible, liveLink == nil { return reconnect() }
         guard let link = liveLink else { return [] }
         if !visible {
+            // The claim stays: hidden, the view only stops counting toward the grid (no PTY resize,
+            // no report or claim to show it again). Another client's grid meanwhile clears `claimed`.
             guard claimed || reportedSize != nil else { return [] }
-            claimed = false; reportedSize = nil; echoesDue = []
-            return [.release(link)]
+            hiddenOn = link
+            return [.hide(link)]
         }
-        return syncGeometry(link)
+        let unhide: [Effect] = hiddenOn == link ? [.unhide(link)] : []
+        hiddenOn = nil
+        return unhide + syncGeometry(link)
     }
 
     private mutating func ended(_ link: Link, reason: TerminalChannelCloseReason) -> [Effect] {
@@ -266,7 +295,7 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         // replay. Input typed meanwhile queues until that replay.
         let pending = newPending(failures: failures + 1)
         phase = .reattaching(pending)
-        claimed = false; reportedSize = nil; echoesDue = []
+        claimed = false; reportedSize = nil; echoesDue = []; announcedSize = nil; hiddenOn = nil
         return [.detach(link), .open(attempt: pending.attempt, size: pending.size)]
     }
 
@@ -274,12 +303,12 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
     /// already pending, a live, exited or closed view) ignores it.
     ///
     /// An event (a key, focus, shown again, Retry, the terminal or the
-    /// connection back) opens at once and gives the view its retries back;
+    /// connection back) opens at once and restarts its backoff;
     /// it also cuts short a self-started re-attach still waiting out its
     /// backoff (that attempt's late open is then detached as superseded).
     /// A self-started one waits the backoff for the larger of the failed
     /// re-attaches and the self-started ones before it, so a link that goes
-    /// live and drops again and again still slows down and stops.
+    /// live and drops again and again still slows down to the capped wait.
     private mutating func reconnect(byEvent: Bool = true) -> [Effect] {
         let reason: DisconnectReason
         let failed: Int
@@ -304,19 +333,25 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         let open: Effect = wait == 0
             ? .open(attempt: pending.attempt, size: pending.size)
             : .openAfterBackoff(attempt: pending.attempt, size: pending.size, failedReconnects: wait)
-        let status: LinkStatus = restoring && !wentLive ? .restoring : .disconnected(reason, reconnecting: true)
+        let status: LinkStatus = if !byEvent, autoReconnects > Self.quietReconnects {
+            .disconnected(reason, reconnecting: false)
+        } else if restoring, !wentLive {
+            .restoring
+        } else {
+            .disconnected(reason, reconnecting: true)
+        }
         return announce(status) + [open]
     }
 
     /// The attach (or the stream) failed: keep the last screen and queued
-    /// input. A visible view re-attaches by itself after the backoff while
-    /// it has retries left; otherwise it waits for an event. A failed
+    /// input. A visible view re-attaches by itself after the backoff, which
+    /// caps at the App's maximum; a hidden one waits for an event. A failed
     /// re-attach counts toward the backoff of the next one.
     private mutating func disconnect(_ reason: DisconnectReason, after pending: Pending?) -> [Effect] {
         let failed = pending?.reconnects.map { $0 + 1 } ?? 0
         phase = .disconnected(Disconnected(reason: reason, failedReconnects: failed))
-        claimed = false; reportedSize = nil; echoesDue = []
-        if visible, reason != .fellBehind, autoReconnects < Self.maxAutoReconnects {
+        claimed = false; reportedSize = nil; echoesDue = []; announcedSize = nil; hiddenOn = nil
+        if visible, reason != .fellBehind {
             autoReconnects += 1
             return reconnect(byEvent: false)
         }
@@ -338,7 +373,7 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         droppedInputBytes += queuedInputBytes
         queuedInput = []
         queuedInputBytes = 0
-        claimed = false; reportedSize = nil; echoesDue = []
+        claimed = false; reportedSize = nil; echoesDue = []; announcedSize = nil; hiddenOn = nil
         return (link.map { [Effect.detach($0)] } ?? []) + announce(.exited)
     }
 
@@ -409,7 +444,8 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
 
     private mutating func claim(_ link: Link, _ size: CellSize) -> [Effect] {
         claimed = true
-        reportedSize = size; echoesDue = Array((echoesDue + [size]).suffix(8))
+        reportedSize = size
+        if size != announcedSize || !echoesDue.isEmpty { echoesDue = Array((echoesDue + [size]).suffix(8)) }
         return [.claim(link, size)]
     }
 
@@ -418,7 +454,7 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         droppedInputBytes += queuedInputBytes
         queuedInput = []
         queuedInputBytes = 0
-        claimed = false; reportedSize = nil; echoesDue = []
+        claimed = false; reportedSize = nil; echoesDue = []; announcedSize = nil; hiddenOn = nil
         return (link.map { [Effect.detach($0)] } ?? []) + [.finish]
     }
 }

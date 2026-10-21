@@ -103,7 +103,6 @@ def context(ref, event="push", daemon_tests="true", daemon_result="success"):
         "github.event_name": event,
         "github.ref": ref,
         "github.repository": "manaflow-ai/cmux",
-        "github.event.pull_request.head.repo.full_name": "manaflow-ai/cmux" if event == "pull_request_target" else "",
         "needs.tree-preflight.result": "success",
         "needs.tree-preflight.outputs.key": KEY,
         "needs.tree-preflight.outputs.daemon_tests": daemon_tests,
@@ -161,7 +160,8 @@ def main():
         ("push", "refs/heads/main"),
         ("push", "refs/heads/codex/opted-in-lane"),
         ("workflow_dispatch", "refs/heads/cmux-tui-pin-0123456789ab"),
-        ("pull_request_target", "refs/heads/feat-cmux-next"),
+        # No pull_request_target case: 17bb49cc0b9 removed the dead
+        # publish-pr-tree job; PR trees publish from cmux-tui-pin-* pushes.
     ]
     for event, ref in tested_refs:
         for result in (None, "failure", "cancelled", "skipped", "success"):
@@ -186,8 +186,7 @@ def main():
     marker = all_jobs["publish-tree-tested"]
     _check(DAEMON in needs(marker) and f"needs.{DAEMON}.result == 'success'" in str(marker["if"]),
            "publish-tree-tested writes the marker only after the daemon tests pass")
-    for ref, event in (("refs/heads/feat-cmux-next", "push"), ("refs/heads/cmux-tui-pin-0123456789ab", "push"),
-                       ("refs/heads/feat-cmux-next", "pull_request_target")):
+    for ref, event in (("refs/heads/feat-cmux-next", "push"), ("refs/heads/cmux-tui-pin-0123456789ab", "push")):
         base = context(ref, event=event, daemon_result="success")
         base.update({"needs.tree-owner-wait.outputs.unmarked": "false",
                      **{f"needs.{name}.result": "success" for name in tree_publishers}})

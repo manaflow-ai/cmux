@@ -1,7 +1,9 @@
 import type { Env } from "../env.ts"
+import { brainModel } from "../model-gateway/routes.ts"
 import { ackWake, chiefPrincipal, chiefRecord, postReply, readConversation } from "../chief-brain/brain-io.ts"
 import { manageChiefs } from "../chief-brain/brain-chiefs.ts"
 import type { BrainConfig } from "../chief-brain/brain-store.ts"
+import { OWNER_APPROVAL_REQUIRED } from "../chief-brain/effect-policy.ts"
 
 /**
  * The Chief Protocol HOST services O's brain calls (brain -> host JSON-RPC requests), as the Chief
@@ -13,6 +15,7 @@ export interface Who {
   readonly agent: string
   readonly owner: string
   readonly config: BrainConfig
+  readonly effects_authorized: boolean
   /** Brain impl version the brain reported in `initialize` (diagnostics only). */
   readonly impl?: string
 }
@@ -92,6 +95,7 @@ export const hostCall = async (env: Env, who: Who, method: string, params: Recor
       return {}
     }
     case "chiefs/manage": {
+      if (!who.effects_authorized) return OWNER_APPROVAL_REQUIRED
       const { key, ...args } = params as { key?: string } & Record<string, unknown>
       return await manageChiefs(env, who.agent, who.owner, args as never, String(key ?? crypto.randomUUID())).catch((e: unknown) => (e instanceof Error ? e.message : String(e)))
     }
@@ -105,5 +109,4 @@ export const hostCall = async (env: Env, who: Who, method: string, params: Recor
   }
 }
 
-/** The model a Chief's turns use on O: the profile's model when the gateway serves it, else Claude Opus 5.5. */
-export const brainModel = (model: string): string => (model.startsWith("claude-") || model.startsWith("openrouter:") ? model : "claude-opus-5-5")
+export { brainModel }

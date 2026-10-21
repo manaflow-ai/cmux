@@ -44,6 +44,7 @@ struct HomePasteboardValue: HomePasteboardContents {
 
     func hasType(_ types: [NSPasteboard.PasteboardType]) -> Bool { types.contains(.fileURL) && !fileURLs.isEmpty }
     func data(forType type: NSPasteboard.PasteboardType) -> Data? { nil }
+    func string(forType type: NSPasteboard.PasteboardType) -> String? { nil }
 }
 
 extension HomeNativeTranscriptView {
@@ -109,6 +110,9 @@ extension HomeNativeTranscriptView {
     /// The text of the newest `limit` messages this view shows, oldest first.
     public func debugMessageTexts(limit: Int = 10) -> [String] { transcript.debugMessageTexts(limit: limit) }
     public var debugStatusLine: String? { transcript.debugStatusLine }
+    public var debugRebuilds: Int { transcript.debugRebuilds }
+    public var debugStreamTexts: [String] { transcript.debugStreamTexts }
+    public var debugLineCloseAfterHandOffFires: Int? { transcript.debugLineCloseAfterHandOffFires }
     /// Clicks the newest thread's "N Replies" or preview (the click's path); the open thread's root.
     public func debugOpenNewestThread() -> String? { transcript.debugOpenNewestThread() }
     /// The open thread's root (the transcript's id), nil when none is open.

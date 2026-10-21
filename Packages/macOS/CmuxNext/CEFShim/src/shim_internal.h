@@ -11,6 +11,7 @@
 #include "include/cef_browser.h"
 #include "include/cef_client.h"
 #include "include/cef_context_menu_handler.h"
+#include "include/cef_jsdialog_handler.h"
 #include "include/cef_request_context.h"
 #include "include/cef_resource_request_handler.h"
 #include "include/cef_unresponsive_process_callback.h"
@@ -72,6 +73,8 @@ struct ForkApi {
   void (*set_popup_windows_enabled)(int) = nullptr;
   int (*popup_window_bounds)(int, int*, int*, int*, int*) = nullptr;
   int (*popup_window_attach)(int, void*, int, int) = nullptr;
+  // API version 24: DevTools device mode bounds.
+  int (*devtools_inspected_bounds)(int, int*) = nullptr;
   // API version 13: the side panel header for the host.
   void (*side_panel_watch)(int) = nullptr;
   char* (*side_panel_state)(int) = nullptr;
@@ -156,8 +159,18 @@ void RegisterPageSchemes(CefRefPtr<CefRequestContext> context);
 void InstallPageSchemes();
 
 // Browsers the host asked to close (so DoClose can tell window.close apart).
+// A host close never asks: its beforeunload is answered Leave at once.
 void MarkHostClose(int browser_id);
 bool TakeHostClose(int browser_id);
+bool IsHostClose(int browser_id);
+
+// beforeunload questions the host answers (UI thread only; shim_process.mm).
+// Store returns the token of BEFORE_UNLOAD_DIALOG; Answer continues every
+// waiting question of the browser (accept = Leave) and Drop forgets them
+// unanswered (Chromium ended them). Both return true when one was waiting.
+int StoreBeforeUnloadCallback(int browser_id, CefRefPtr<CefJSDialogCallback> callback);
+bool AnswerBeforeUnload(int browser_id, bool accept);
+bool DropBeforeUnload(int browser_id);
 
 // Unanswered renderer hangs by browser (UI thread only). Storing replaces an
 // older callback of the same browser; Take removes it.

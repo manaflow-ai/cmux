@@ -156,6 +156,9 @@ pub struct PrewarmRequest {
     pub remote: bool,
     /// Whether the request came from a gated LocalApp/Web path.
     pub trust_gate: bool,
+    /// From a Web client or a peer forwarding for one: an auto-trust rule is no Trust answer
+    /// (`trust::web_session_level`), also for the folder picked when the hint names none.
+    pub trust_web: bool,
 }
 
 /// A pool lock. A panic while one was held leaves plain data behind, so a
@@ -333,7 +336,7 @@ impl Hub {
         let generation = self.pool.hint_gen.fetch_add(1, Ordering::SeqCst) + 1;
         let debounce = Duration::from_millis(self.config.read().await.pool.debounce_ms);
         let hub = self.clone();
-        let PrewarmRequest { harness, preset, wait, trust_gate, .. } = req;
+        let PrewarmRequest { harness, preset, wait, trust_gate, trust_web, .. } = req;
         let task = tokio::spawn(async move {
             if !debounce.is_zero() {
                 let clock = lock(&hub.clock).clone();
@@ -349,7 +352,7 @@ impl Hub {
                 let folder = spec.draft.cwd.to_string_lossy().into_owned();
                 let family =
                     spec.draft.family.clone().unwrap_or_else(|| spec.draft.harness.clone());
-                if !hub.folder_trusted_cwd(paths, folder, family).await {
+                if !hub.folder_trusted_cwd(paths, folder, family, trust_web).await {
                     return Err(RpcError::invalid_params(
                         "trust.pending: answer the trust question for the folder first",
                     )
@@ -510,6 +513,17 @@ impl Hub {
         if meta.remote_origin || !self.pool_enabled().await {
             return None;
         }
+        // A preset with a start mode or an approval starts cold: the approval
+        // holds for the contents this session's own spawn reads, not the ones
+        // a pooled harness started with (`hub/start_gate/preset_bind.rs`). Only
+        // the person sets an approval, so no client can clear it for a claim
+        // and get it back for the start.
+        let approved = |p: &crate::config::Preset| p.mode.is_some() || p.mode_approval.is_some();
+        if let Some(name) = &meta.preset
+            && self.config.read().await.presets.get(name).is_some_and(approved)
+        {
+            return None;
+        }
         let spec = self.pool_spec_for(meta, profile, defaults_env).await.ok()?;
         loop {
             let took = lock(&self.pool.pool).take(&spec.key);
@@ -583,13 +597,17 @@ impl Hub {
             tokio::spawn(end_pooled(p));
             return Err(e);
         }
+        self.forget_adopted_caller(&session.id);
         let tap = self.session_tap(session);
-        self.append(
-            session,
-            "mux",
-            "host_started",
-            json!({"incarnation": p.record.incarnation, "hostPid": p.record.host_pid, "hostBuild": p.record.host_build}),
-        );
+        let mut started = json!({
+            "incarnation": p.record.incarnation.clone(),
+            "hostPid": p.record.host_pid,
+            "hostBuild": p.record.host_build.clone()
+        });
+        if session.meta().remote_origin {
+            started["remoteEnvPolicy"] = crate::agent::REMOTE_ENV_POLICY_ID.into();
+        }
+        self.append(session, "mux", "host_started", started);
         {
             let mut slot = p.tap.lock().unwrap_or_else(|e| e.into_inner());
             if let TapSlot::Held(held) = &mut *slot {
@@ -618,6 +636,7 @@ impl Hub {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             m.agent_info = init.get("agentInfo").cloned();
             m.agent_capabilities = init.get("agentCapabilities").cloned();
+            m.steering = steering;
         }
         if p.claude {
             let state = child.claude_state().await.unwrap_or_default();

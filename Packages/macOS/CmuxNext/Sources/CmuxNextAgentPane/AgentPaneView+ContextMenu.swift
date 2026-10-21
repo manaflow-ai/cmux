@@ -1,11 +1,13 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextDesign
 import CmuxNextPages
 import WebKit
 
 /// The agent pane's web view on the old host: WebKit's context menu goes through the pane
 /// (``AgentPaneView/editContextMenu(_:)``). On the page host the shared view's
 /// `contextMenuEditor` does the same.
+// webview-allow: agent chat needs WebKit (native context menu, file drops, input hooks)
 final class AgentPaneWKWebView: WKWebView {
     var contextMenuEditor: (@MainActor (NSMenu) -> Void)?
     /// Files the person dropped on the page: a real gesture page script can't make (``AgentPaneUpload``).
@@ -72,12 +74,14 @@ final class AgentPaneMenuAction: NSObject {
 
     @objc func run() { handler() }
 
-    /// An item titled `title` that runs `handler`.
-    static func item(_ title: String, handler: @escaping () -> Void) -> NSMenuItem {
+    /// An item titled `title` with SF Symbol `symbol` (the matching action's catalog symbol: every
+    /// cmux menu row shows one) that runs `handler`.
+    static func item(_ title: String, symbol: String, handler: @escaping () -> Void) -> NSMenuItem {
         let action = AgentPaneMenuAction(handler: handler)
         let item = NSMenuItem(title: title, action: #selector(run), keyEquivalent: "")
         item.target = action
         item.representedObject = action
+        item.image = AgentPaneContextMenu.icon(symbol)
         return item
     }
 }
@@ -120,12 +124,15 @@ extension AgentPaneView {
         messageMenuTarget = nil
         menuSelection = nil
         let chatMenu = target == nil && selection == nil ? model.chatMenuItems?() ?? [] : []
-        AgentPaneContextMenu.rebuild(menu, target: target, selection: selection, devTools: DevTools.isEnabled, chatMenu: chatMenu, actions: .init(
+        AgentPaneContextMenu.rebuild(menu, target: target, selection: selection, devTools: DevTools.isEnabled, chatMenu: chatMenu,
+                                     scope: themeScope.fullStrength, actions: .init(
             copy: { [weak self] text in self?.copyText(text) },
             fork: { [weak self] seq in self?.fork(through: seq) },
             retry: { [weak self] row in self?.runMessageAction("chat.retryPrompt", ["rowId": row]) },
             edit: { [weak self] text in self?.runMessageAction("chat.editPrompt", ["text": text]) },
             open: { [weak self] url in self?.openLink(url) },
+            linkItems: { LinkMenu().linkItems(for: $0) },
+            pathItems: { [weak self] path in self?.pathMenuItems(path) },
             search: { [weak self] text in self?.model.onSearchWeb?(text) },
             page: { [weak self] name, params in self?.runMessageAction(name, params) }))
     }
@@ -140,7 +147,7 @@ extension AgentPaneView {
     /// Open Link: outside the pane, on the rule a click on the link follows.
     private func openLink(_ url: URL) {
         AgentPanePersonInput.record(model.transport.gestures)
-        _ = AgentPaneNavigation.openOutside(url, gestures: model.transport.gestures, open: openURL)
+        _ = AgentPaneNavigation.openOutside(url, gestures: model.transport.gestures) { self.openURL($0, false) }
     }
 
     /// Fork from Here: the turn footer's fork, through the page's own action. The menu choice is

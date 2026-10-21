@@ -241,14 +241,19 @@ describe("users.stop follow-ups", () => {
   })
 
   it("a connection that is gone records the failure; one without an account still stops; a 401 or 24 h records", async () => {
-    const gone = await linkGmail("stop-gone-1", () => 204)
+    // Four independent people (one team each): linked at once, not one after another, so the case pays for one link.
+    const [gone, noAccount, refused, slow] = await Promise.all([
+      linkGmail("stop-gone-1", () => 204),
+      linkGmail("stop-noacct-1", () => 204),
+      linkGmail("stop-gate401-1", () => 401),
+      linkGmail("stop-24h-1", () => 500)
+    ])
     await inDO(gone.connections, async (instance, s) => {
       s.storage.sql.exec("UPDATE google_watches SET renew_at = ?", Date.now() - 1)
       await runWatchWork(instance.watchHost(), {}, Date.now())
     })
     expect((await failures(gone.connections))[0]).toMatchObject({ connection: gone.conn, reason: expect.stringMatching(/connection is gone/) })
 
-    const noAccount = await linkGmail("stop-noacct-1", () => 204)
     await inDO(noAccount.connections, async (instance, s) => {
       const c = instance.boundEngine.currentState.connections[noAccount.conn]
       await ensureGmailWatch(instance.watchHost(), { ...c, account: null }, Date.now())
@@ -256,7 +261,6 @@ describe("users.stop follow-ups", () => {
     })
     expect(noAccount.calls.filter((c) => c === `POST ${GMAIL}/stop`)).toHaveLength(1)
 
-    const refused = await linkGmail("stop-gate401-1", () => 401)
     await inDO(refused.connections, async (instance, s) => {
       const saved = instance.env
       instance.env = { ...saved, GOOGLE_RESTRICTED_SCOPES: undefined }
@@ -267,7 +271,6 @@ describe("users.stop follow-ups", () => {
     })
     expect((await failures(refused.connections))[0]?.connection).toBe(refused.conn)
 
-    const slow = await linkGmail("stop-24h-1", () => 500)
     await inDO(slow.connections, async (instance, s) => {
       const saved = instance.env
       instance.env = { ...saved, GOOGLE_RESTRICTED_SCOPES: undefined }

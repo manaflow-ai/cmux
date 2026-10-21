@@ -11,6 +11,9 @@ public enum AgentCursorCommand: Equatable, Sendable {
     case glide(session: String, plan: GlidePlan)
     /// Click feedback at the cursor's current point.
     case pulse(session: String)
+    /// Show `text` in the keystroke caption beside the cursor (what the
+    /// agent types, ``AgentKeystrokeCaption``); it fades when typing stops.
+    case caption(session: String, text: String)
     /// The target is hidden: point at its tab chip or column edge.
     case indicate(session: String, anchor: CGPoint)
     /// The target is not in this window.

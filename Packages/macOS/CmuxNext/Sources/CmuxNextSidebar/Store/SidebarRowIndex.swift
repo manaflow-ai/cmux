@@ -29,6 +29,8 @@ nonisolated struct SidebarRowIndex: Sendable {
                     for (m, ws) in group.workspaces.enumerated() {
                         paths[ws.id, default: []].append(Path(section: s, node: n, member: m))
                     }
+                case .item:
+                    continue
                 }
             }
         }
@@ -40,6 +42,7 @@ nonisolated struct SidebarRowIndex: Sendable {
         switch sections[path.section].nodes[path.node] {
         case let .workspace(ws): ws
         case let .group(group): group.workspaces[path.member ?? 0]
+        case let .item(item): SidebarWorkspace(id: WorkspaceID(item.id), title: item.title) // never indexed: no path names an item row
         }
     }
 
@@ -50,6 +53,8 @@ nonisolated struct SidebarRowIndex: Sendable {
         case var .group(group):
             group.workspaces[path.member ?? 0] = row
             sections[path.section].nodes[path.node] = .group(group)
+        case .item:
+            break
         }
     }
 
@@ -74,6 +79,8 @@ nonisolated struct SidebarRowIndex: Sendable {
                     guard group.workspaces.contains(where: { changed[$0.id] != nil }) else { continue }
                     group.workspaces = group.workspaces.map(patched)
                     result[s].nodes[n] = .group(group)
+                case .item:
+                    continue
                 }
             }
         }
@@ -88,10 +95,15 @@ extension SidebarListView {
     /// unread total, and its tab rows) is configured again. Only a row whose
     /// height changes reloads the layout; nothing rebuilds the sections.
     func patchRows(_ patched: [SidebarWorkspace]) {
+        // A drag, its settle or its landing runs: the rows keep their look until the card is gone (`SidebarRowHold`).
+        if holdsRowPatches { return holdRowPatches(patched) }
+        // Rows still held after the hold ended (its card went without a landing): they apply with these.
+        if !rowHold.isEmpty { return releaseRowHold(adding: patched) }
         SidebarPerfCounters.add(.rowPatches, patched.count)
-        // A height change lays the list out again (outside the timed patch: `reload` times itself);
+        // A height change lays the list out again (outside the timed patch: `reload` times itself), with no
+        // motion unless the user asked for it, and not under the pointer (`showModelChange`, calm-sidebar-movement);
         // provisional rows swap in place, as on any reload (`SidebarView.animatesReload`).
-        if SidebarPerfCounters.timed({ patchRowsNow(patched) }) { reload(animated: !model.sections.contains(where: \.hasProvisionalRows)) }
+        if SidebarPerfCounters.timed({ patchRowsNow(patched) }) { showModelChange(animates: !model.sections.contains(where: \.hasProvisionalRows)) }
     }
 
     /// Patches each row in place; true when one row's height changed.
@@ -99,9 +111,15 @@ extension SidebarListView {
         var options: SidebarLayoutOptions?
         var heightChanged = false
         let shownCard = hoverCard.shownID
+        let shownGroupCard = hoverCard.shownGroupID
         for ws in patched {
             workspaces[ws.id] = ws
-            for tab in ws.tabs { tabs[tab.id] = tab }
+            // A tab switch changes the workspace row, not its tabs: only a tab whose own content changed is drawn again.
+            var changedTabs: [TabID] = []
+            for tab in ws.tabs where tabs[tab.id] != tab {
+                tabs[tab.id] = tab
+                changedTabs.append(tab.id)
+            }
             for path in model.rowIndex?.paths(of: ws.id) ?? [] {
                 let section = model.sections[path.section]
                 sections[section.id] = section
@@ -110,13 +128,18 @@ extension SidebarListView {
                 if path.member != nil, case let .group(group) = section.nodes[path.node] {
                     groups[group.id] = group
                     reconfigure(.group(group.id))
+                    // The shown card is this group's or an ancestor's: a parent's card counts its subgroups.
+                    if let shownGroupCard, groupSubtrees[shownGroupCard]?.contains(group.id) ?? (shownGroupCard == group.id) {
+                        hoverCards.contentChanged(WorkspaceHoverCardController.targetID(shownGroupCard))
+                    }
                 }
             }
             if shownCard == ws.id { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(ws.id)) }
             guard let row = displayed.row(for: .workspace(ws.id)), let section = sections[row.section] else { continue }
             let o = options ?? self.options(includeGap: true)
             options = o
-            let content = o.rowContent(ws, machine: SidebarLayout.machineLabel(section, options: o))
+            var content = o.rowContent(ws, machine: SidebarLayout.machineLabel(section, options: o))
+            content.treeDepth = row.content?.treeDepth ?? 0 // a patch moves no row: it stays where the tree put it
             let m = o.minimal ? metrics.minimal : metrics
             guard m.height(for: content) == row.height else {
                 heightChanged = true
@@ -124,7 +147,7 @@ extension SidebarListView {
             }
             displayed.setContent(content, for: row.key)
             reconfigure(row.key)
-            for tab in ws.tabs { reconfigure(.tab(ws.id, tab.id)) }
+            for tab in changedTabs { reconfigure(.tab(ws.id, tab)) }
         }
         return heightChanged
     }

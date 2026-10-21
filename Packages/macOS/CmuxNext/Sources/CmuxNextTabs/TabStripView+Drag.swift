@@ -7,12 +7,18 @@ extension TabStripView {
     // MARK: - Drag reorder
 
     func beginDrag(_ press: TabStripPress) {
-        guard let index = displayed.firstIndex(where: { $0.id == press.id }), let m = motion[press.id] else { return }
+        guard let start = displayed.first(where: { $0.id == press.id }), placed[press.id] != nil else { return }
+        // The tab is lifted where it shows now (a move may be in flight), then follows the pointer from there.
+        let shown = shownX(press.id) ?? placed[press.id]?.x ?? 0
         let local = convert(press.start, to: tabsClip)
-        let contentX = local.x + scroll.value
+        let contentX = scrollMapping.contentX(local.x, isPinned: start.isPinned)
+        guard let index = displayed.firstIndex(where: { $0.id == press.id }) else { return }
+        // Dragging one of several selected tabs takes them all (Chrome): the others hide under it.
+        hideDragCompanions(of: press.id)
+        placed[press.id]?.x = shown
         drag = TabStripDrag(
             id: press.id,
-            grabOffset: contentX - m.x.value,
+            grabOffset: contentX - shown,
             originalIndex: index,
             currentIndex: index,
             isPinned: displayed[index].isPinned,
@@ -26,7 +32,7 @@ extension TabStripView {
         setHovered(nil)
         hoverCards.dismiss(.action)
         cells[press.id]?.isLifted = true
-        installEscapeMonitor()
+        escapeMonitor.install()
         TabSeparatorVisibility.apply(to: self)
     }
 
@@ -37,8 +43,8 @@ extension TabStripView {
             return
         }
         drag.lastPoint = point
-        guard let width = motion[drag.id]?.width.target else { return }
-        let contentX = convert(point, to: tabsClip).x + scroll.value
+        guard let width = placed[drag.id]?.width else { return }
+        let contentX = scrollMapping.contentX(convert(point, to: tabsClip).x, isPinned: drag.isPinned)
         let region = result.slots.filter { $0.isPinned == drag.isPinned && $0.id != Self.placeholderID }
         guard let first = region.first, let last = region.last else { return }
         let x = min(max(contentX - drag.grabOffset, first.x), last.maxX - width)
@@ -56,9 +62,10 @@ extension TabStripView {
                 hysteresis: width * Self.groupJoinHysteresis
             )
             index = displayed.count(where: \.isPinned) + resolution.index
-            group = resolution.groupID
+            // A multi-tab drag moves the tabs only; their groups stay.
+            group = dragCompanions.isEmpty ? resolution.groupID : drag.targetGroup
         }
-        motion[drag.id]?.x.follow(x)
+        placed[drag.id]?.x = x
         // Chrome: a reorder waits until the pointer moved 16 x width / maxWidth pt (the density's max,
         // hq-4e + cmux2-0b) since the last one, the width of the tab being passed: moving right that is
         // the tab now just left of the target index among the others, moving left the one at it.
@@ -77,7 +84,6 @@ extension TabStripView {
             relayout(animated: !reduceMotion)
         } else {
             applyFrames()
-            startAnimating()
         }
     }
 
@@ -93,19 +99,23 @@ extension TabStripView {
     /// trailing edge to join or leave the group.
     static var groupJoinHysteresis: CGFloat { TabTunables.groupJoinHysteresis.value }
 
-    /// Scrolls an overflowing strip while a dragged tab sits in an edge fade.
+    /// Scrolls an overflowing strip while a dragged tab sits in an edge fade. The leading fade is after a
+    /// fixed pinned band; a pinned tab dragged in that band scrolls nothing.
     func autoscrollDuringDrag(_ dt: CGFloat) -> Bool {
         guard let point = drag?.lastPoint ?? groups.drag?.lastPoint ?? phantomPoint, result.isOverflowing else { return false }
-        let local = convert(point, to: tabsClip).x
+        let band = scrollMapping.band
+        if drag?.isPinned == true, band > 0 { return false }
+        let local = max(convert(point, to: tabsClip).x, band)
         let edge = metrics.scrollFadeWidth
         var speed: CGFloat = 0
         let gain = TabTunables.autoscrollGain.value
-        if local < edge { speed = -(edge - local) * gain }
+        if local < band + edge { speed = -(band + edge - local) * gain }
         if local > viewportWidth - edge { speed = (local - (viewportWidth - edge)) * gain }
         guard speed != 0 else { return false }
-        let target = TabScrollMath.clamp(scroll.value + speed * dt, contentWidth: result.contentWidth, viewportWidth: viewportWidth)
-        guard target != scroll.value else { return false }
-        scroll.snap(to: target)
+        settleScroll()
+        let target = TabScrollMath.clamp(scrollOffset + speed * dt, contentWidth: result.contentWidth, viewportWidth: viewportWidth)
+        guard target != scrollOffset else { return false }
+        scrollOffset = target
         if let drag {
             updateDrag(at: drag.lastPoint, event: nil)
         } else if let groupDrag = groups.drag {
@@ -119,10 +129,10 @@ extension TabStripView {
     func endDrag() {
         guard let drag else { return }
         self.drag = nil
-        removeEscapeMonitor()
+        escapeMonitor.remove()
         cells[drag.id]?.isLifted = false
-        // The release settles into the slot on a 200 ms ease-out from where it is (Chrome).
-        motion[drag.id]?.use(.tabMove)
+        if !dragCompanions.isEmpty { return endMultiDrag(drag) }
+        // The release settles into the slot on a 200 ms ease-out from where it is (Chrome): `relayout`'s tabMove.
         let regrouped = drag.targetGroup != drag.originalGroup
         // The model may have changed during the drag (tabs closed by the
         // daemon); indexes captured at the start no longer hold.
@@ -157,22 +167,9 @@ extension TabStripView {
         guard var drag else { return }
         drag.currentIndex = drag.originalIndex
         drag.targetGroup = drag.originalGroup
+        drag.cancelled = true
         self.drag = drag
         endDrag()
-    }
-
-    func installEscapeMonitor() {
-        guard escapeMonitor == nil else { return }
-        escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard event.keyCode == 53, let self, self.drag != nil || self.groups.drag != nil else { return event }
-            self.cancelDrag()
-            return nil
-        }
-    }
-
-    func removeEscapeMonitor() {
-        if let escapeMonitor { NSEvent.removeMonitor(escapeMonitor) }
-        escapeMonitor = nil
     }
 
     // MARK: - Hand-off to the App's drag session
@@ -191,49 +188,35 @@ extension TabStripView {
         let screenFrame = window.convertToScreen(frameInWindow)
         let pointer = window.convertPoint(toScreen: event.locationInWindow)
         let grabbed = CGPoint(x: cell.frame.minX + drag.grabOffset, y: drag.grabY)
+        let image = snapshot(of: [cell.layer], frame: cell.frame)
         let start = TabDragStart(
             tabID: drag.id,
             stripID: model.stripID,
             screenFrame: screenFrame,
             grabOffset: DragGrabPoint.screenOffset(of: grabbed, in: cell.frame, flipped: tabsClip.isFlipped),
             screenPoint: pointer,
-            snapshot: snapshot(of: [cell.layer], frame: cell.frame)
+            snapshot: image.image,
+            snapshotOnGlass: image.onGlass
         )
         self.drag = nil
-        removeEscapeMonitor()
+        escapeMonitor.remove()
         cell.isLifted = false
         detachedID = drag.id
+        // Only the dragged tab leaves the strip; the other selected tabs show again (multi-tab moves
+        // between strips, windows and the sidebar are a follow-up).
+        dragCompanions = []
         sync(fromModel: false)
         model.send(.dragBegan(start))
     }
 
-    /// Renders `layers` (tab or chip roots in the clip layer) into one image
-    /// covering `frame` (clip coordinates), on a window-colored rounded card.
-    func snapshot(of layers: [CALayer], frame: CGRect) -> TabImage? {
-        let scale = window?.backingScaleFactor ?? 2
-        let size = frame.size
-        let width = Int((size.width * scale).rounded())
-        let height = Int((size.height * scale).rounded())
-        guard width > 0, height > 0, let context = CGContext(
-            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-            space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ) else { return nil }
-        // Layers are flipped; CoreGraphics is not.
-        context.translateBy(x: 0, y: CGFloat(height))
-        context.scaleBy(x: scale, y: -scale)
-        performWithTheme {
-            context.setFillColor(Palette.windowBackground.cgColor)
-        }
-        let radius = metrics.cornerRadius
-        context.addPath(CGPath(roundedRect: metrics.pillFrame(slotWidth: size.width, height: size.height), cornerWidth: radius, cornerHeight: radius, transform: nil))
-        context.fillPath()
-        for layer in layers {
-            context.saveGState()
-            context.translateBy(x: layer.frame.minX - frame.minX, y: layer.frame.minY - frame.minY)
-            layer.render(in: context)
-            context.restoreGState()
-        }
-        return context.makeImage().map(TabImage.init)
+    /// The drag image of `layers` (`TabSnapshotRenderer`), on a window-colored card only in an
+    /// opaque window, and whether it was drawn for glass (no card): decided in this strip's scope,
+    /// which the drag ghost must follow.
+    func snapshot(of layers: [CALayer], frame: CGRect) -> (image: TabImage?, onGlass: Bool) {
+        let backdrop = WindowBackdrop.dragPreview(themeScope)
+        let background = performWithTheme { backdrop.dragCardFill(Palette.windowBackground)?.cgColor }
+        let image = TabSnapshotRenderer(metrics: metrics, scale: window?.backingScaleFactor ?? 2, background: background).image(of: layers, frame: frame)
+        return (image, backdrop.dragsOnGlass)
     }
 
     /// The tabs the strip shows, in order (tab conservation check DP1: once
@@ -253,7 +236,7 @@ extension TabStripView {
     /// not change.
     public func discardPendingReorder() {
         guard orderOverride != nil || !groups.membershipOverride.isEmpty else { return }
-        orderOverride = nil
+        (orderOverride, multiReorderTarget) = (nil, nil)
         groups.membershipOverride = [:]
         sync(fromModel: false)
     }
@@ -277,7 +260,7 @@ extension TabStripView {
             // Each part ends on its own: a sync can end the order alone (a tab torn out meanwhile).
             guard let self else { return }
             var changed = false
-            if pending.order != nil, self.orderOverride == pending.order { self.orderOverride = nil; changed = true }
+            if pending.order != nil, self.orderOverride == pending.order { (self.orderOverride, self.multiReorderTarget) = (nil, nil); changed = true }
             if !pending.groups.isEmpty, self.groups.membershipOverride == pending.groups { self.groups.membershipOverride = [:]; changed = true }
             if changed { self.sync(fromModel: false) }
         }
@@ -295,7 +278,8 @@ extension TabStripView {
 
     /// Where `id`'s cell shows now, its center in window coordinates; nil when it shows nowhere.
     public func tabCenterInWindow(_ id: TabID) -> CGPoint? {
-        guard let m = motion[id] else { return nil }
-        return tabsClip.convert(CGPoint(x: m.x.value - scroll.value + m.width.value / 2, y: tabsClip.bounds.midY), to: nil)
+        guard let cell = cells[id] else { return nil }
+        let frame = (cell.layer.presentation() ?? cell.layer).frame
+        return tabsClip.convert(CGPoint(x: frame.midX, y: tabsClip.bounds.midY), to: nil)
     }
 }

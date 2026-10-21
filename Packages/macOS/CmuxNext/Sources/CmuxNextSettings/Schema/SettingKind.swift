@@ -5,6 +5,9 @@ public nonisolated enum SettingKind: Sendable, Hashable {
     /// A fixed value or a number (`browser.hibernation`: "off", "moderate",
     /// "aggressive" or minutes).
     case choiceOrNumber([SettingChoice], SettingNumber)
+    /// A fixed value or an object whose only member `urlKey` is an http(s)
+    /// origin (`home.server`: "hosted" or `{"selfHosted": "http://mini.tail1234.ts.net:7320"}`).
+    case choiceOrURL([SettingChoice], urlKey: String)
     case toggle
     case number(SettingNumber)
     /// `#RRGGBB` or `#RRGGBBAA`; absent means the theme's color.
@@ -23,6 +26,8 @@ public nonisolated enum SettingKind: Sendable, Hashable {
     case theme
     /// A font family name (`TerminalFontSetting`).
     case fontFamily
+    /// Free text, empty for none (`files.textEditor`: an app name, bundle ID or app path).
+    case text
     /// A list of numbers, each in the range (`layout.columnWidthPresets`: strip width fractions).
     case numberList(SettingNumber)
     /// An object whose values are all strings (`sidebar.workspaceIcons`: workspace title to glyph).

@@ -703,10 +703,6 @@ def named(step_list, name):
     return matches[0], step_list[matches[0]]
 
 
-# cmux-next lanes whose bot re-runs stay on the minis through attempt 3; attempt 4 leaves them.
-MINIS_FIRST_THROUGH_ATTEMPT_3 = frozenset({"cmux-next.yml", "cmux-next-batch.yml", "cmux-tui-artifacts.yml"})
-
-
 TOKEN = re.compile(r"\s*(\|\||&&|==|!=|>=|<=|>|<|!|\(|\)|\[|\]|,|'(?:[^']|'')*'|[0-9]+(?:\.[0-9]+)?|[A-Za-z_][A-Za-z0-9_.*-]*)")
 
 
@@ -1446,9 +1442,8 @@ class Wiring(unittest.TestCase):
         # attempt 3 of the bot's re-runs (the rescue's move of a stuck attempt
         # 2) never does, so the rescue cannot loop. A person's re-run may
         # (test_a_retry_goes_to_blacksmith_after_a_host_fault_...).
-        # The cmux-next workflows keep minis first one attempt longer: the bot's
-        # attempt 3 may stay on the minis, and its attempt 4 (the rescue's move
-        # of a refused attempt 3) never takes a glaeda-* label (#18615, cx-urd.50).
+        # The cmux-next workflows use the same bot attempt-3 Blacksmith fallback
+        # as the other native workflows, so no retry attempt takes an owned label.
         mini, root, gui, side = ("glaeda-std-xcode-26.6", "glaeda-root-std-xcode-26.6",
                                  "glaeda-gui-std-xcode-26.6", "glaeda-side-std-xcode-26.6")
         owned_jobs = (" admission shard-1 lag cli-product swift-package remote-daemon ")
@@ -1462,7 +1457,7 @@ class Wiring(unittest.TestCase):
                     continue
                 runs_on = (runs_on.replace("format(' shard-{0} ', matrix.shard)", "' shard-1 '")
                            .replace("format('shard-{0}', matrix.shard)", "'shard-1'"))
-                last = "4" if path.name in MINIS_FIRST_THROUGH_ATTEMPT_3 else "3"
+                last = "3"
                 for attempt in ("1", "2", "3", "4")[:int(last)]:
                     context = github_context("pull_request", ref="refs/pull/1/merge",
                                              CI_PR_POOL_OWNED="1", CI_SIDE_LANE_RUNNER=side,
@@ -1493,8 +1488,7 @@ class Wiring(unittest.TestCase):
         for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
             text = path.read_text(encoding="utf-8")
             with self.subTest(workflow=path.name):
-                pattern = (r"run_attempt (?:<= ?[4-9]|== ?[2-9])" if path.name in MINIS_FIRST_THROUGH_ATTEMPT_3
-                           else r"run_attempt (?:<= ?[3-9]|== ?[2-9])")
+                pattern = r"run_attempt (?:<= ?[3-9]|== ?[2-9])"
                 self.assertIsNone(re.search(pattern, text))
         self.assertIn("(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]')",
                       load("ci-macos.yml")["jobs"]["late-placement"]["if"])

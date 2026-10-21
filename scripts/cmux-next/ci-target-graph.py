@@ -24,7 +24,9 @@ Usage: scripts/cmux-next/ci-target-graph.py [--check] [--dump FILE]
 from __future__ import annotations
 
 import argparse
+import functools
 import json
+import os
 import re
 import subprocess
 import sys
@@ -45,6 +47,34 @@ def repo_relative(path: Path) -> str | None:
         return path.resolve().relative_to(ROOT.resolve()).as_posix()
     except ValueError:
         return None
+
+
+@functools.lru_cache(maxsize=None)
+def directory_names(directory: str) -> frozenset[str]:
+    try:
+        return frozenset(os.listdir(directory))
+    except OSError:
+        return frozenset()
+
+
+def in_disk_case(path: Path) -> bool:
+    """True when every segment of `path` under ROOT matches an entry exactly.
+
+    macOS's default filesystem ignores case, so "app/README.md" exists there
+    when the repository tracks App/README.md; Linux says it does not. Only the
+    exact spelling counts, so the graph is the same on both.
+    """
+    root = ROOT.resolve()
+    try:
+        parts = path.resolve().relative_to(root).parts
+    except ValueError:
+        return False
+    current = root
+    for part in parts:
+        if part not in directory_names(str(current)):
+            return False
+        current = current / part
+    return True
 
 
 def dump_package(dump: Path | None) -> dict:
@@ -100,7 +130,7 @@ def literal_reads(source_dir: Path) -> list[str]:
             for base in (ROOT, PACKAGE, source_dir, source.parent):
                 candidate = base / literal
                 try:
-                    if not candidate.exists():
+                    if not candidate.exists() or not in_disk_case(candidate):
                         continue
                 except OSError:
                     # Not a path at all: a certificate or other blob too long

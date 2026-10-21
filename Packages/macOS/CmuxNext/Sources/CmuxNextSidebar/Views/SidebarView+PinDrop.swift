@@ -8,7 +8,10 @@ import AppKit
 // type: SidebarView is at its god-type limit.)
 @MainActor enum SidebarPinDrops {
     static func install(_ sidebar: SidebarView) {
-        sidebar.aboveRegion.dropToListProbe = { [weak sidebar] windowPoint in sidebar.map { isOverList($0, windowPoint) } ?? false }
+        sidebar.aboveRegion.dropToListProbe = { [weak sidebar] windowPoint in
+            sidebar.map { isOverList($0, windowPoint) } ?? false
+        }
+        // The older path: on the document every section draws in the list (SidebarBlockRowView), so these never run.
         sidebar.aboveRegion.onDropToList = { [weak sidebar] id in sidebar?.model.send(.layout(.itemRemove(id))) }
         // A drop's preview or landing changed a band's height: the bands lay
         // out again, so no gap stays above the list (cx-odqn).

@@ -35,6 +35,7 @@ pub(super) fn id_prefix(resource: &str) -> Option<&'static str> {
 pub(super) fn prefix_list(resource: &str) -> Option<cmux_tui_core::resource::ResourceOperation> {
     use cmux_tui_core::resource::ResourceOperation as Op;
     Some(match resource {
+        "machine" => Op::MachineList,
         "workspace" => Op::WorkspaceList,
         "screen" => Op::ScreenList,
         "pane" => Op::PaneList,

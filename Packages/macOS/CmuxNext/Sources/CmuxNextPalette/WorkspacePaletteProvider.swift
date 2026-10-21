@@ -26,15 +26,17 @@ public final class WorkspacePaletteProvider: PaletteProvider {
         let source = source
         return source.workspaces.map { workspace in
             let id = workspace.id
+            // The parent group first, then the folder: rows of the same name tell apart.
+            let parents = [workspace.groupName, workspace.directory.map(abbreviatePath)].compactMap { $0?.isEmpty == false ? $0 : nil }
             var item = PaletteItem(
                 id: "workspace:\(id)",
                 title: workspace.title,
-                subtitle: workspace.directory.map(abbreviatePath),
+                subtitle: parents.isEmpty ? nil : parents.joined(separator: " · "),
                 accessory: workspace.isSelected ? PaletteStrings.current
                     : (workspace.unreadCount > 0 ? PaletteStrings.unreadCount(workspace.unreadCount) : nil),
                 symbol: "rectangle.stack",
                 section: Self.section,
-                keywords: [PaletteStrings.workspaceKeyword],
+                keywords: [PaletteStrings.workspaceKeyword] + [workspace.groupName].compactMap { $0 },
                 primary: PaletteCommand(id: "select", title: PaletteStrings.switchToWorkspace, symbol: "return", effect: .perform {
                     source.selectWorkspace(id: id)
                 }),

@@ -22,8 +22,12 @@
 # is under min_hit percent (min_hit=0: measure only). No count_tokens step then.
 # real=1 reports each reply's correctness but does not check it, and a route that
 # fails mid-run exits 1 (a failed turn), not 3.
-# Exit: 0 pass; 1 over the limit, a failed turn or setup; 3 the route answered
-# 503 (stop: it is down); 4 another router error.
+# A failed count_tokens (the team subrouter answers 502 on purpose) falls back
+# to a byte estimate with a WARNING line; the limit still applies. With real=1
+# the first turn's provider usage (input + cache read + cache write) must stay
+# under the limit too.
+# Exit: 0 pass; 1 over the limit, a failed turn or setup; 3 real=1 and the route
+# answered 503 (stop: it is down); 4 a router error from an older count step.
 # Output: FIRST-TURN-COST lines; files under .build/chief-first-turn.
 set -euo pipefail
 count_url=""
@@ -59,8 +63,14 @@ rm -rf "$work"
 mkdir -p "$work/bin" "$work/home/.local/bin" "$work/cap"
 echo "FIRST-TURN-COST-MACHINE host=$(scutil --get ComputerName 2>/dev/null || hostname) rev=$(git rev-parse HEAD) limit=$limit force_full_tools=$force_full_tools turns=$turns real=$real min_hit=$min_hit"
 ready="$(curl -sS -m 10 -o /dev/null -w '%{http_code}' "$count_url/_subrouter/ready" || true)"
-if [[ "$ready" == 503 ]]; then echo "FIRST-TURN-COST the route $count_url answered 503. Stop: the route is down." >&2; exit 3; fi
-[[ "$ready" == 200 ]] || { echo "FIRST-TURN-COST the route $count_url is not reachable from this worker ($ready)" >&2; exit 1; }
+if [[ "$real" == 1 ]]; then
+  # The turns run on this route: it must be up.
+  if [[ "$ready" == 503 ]]; then echo "FIRST-TURN-COST the route $count_url answered 503. Stop: the route is down." >&2; exit 3; fi
+  [[ "$ready" == 200 ]] || { echo "FIRST-TURN-COST the route $count_url is not reachable from this worker ($ready)" >&2; exit 1; }
+elif [[ "$ready" != 200 ]]; then
+  # The stand-in runs the turn; count_tokens falls back to the byte estimate.
+  echo "FIRST-TURN-COST WARNING the route $count_url answered $ready to ready; count_tokens may fall back to the byte estimate" >&2
+fi
 
 # The build scripts run Cargo only on a build host; this step is one. The
 # step's checkout has empty submodules; cmux-tui crates build libghostty-vt
@@ -162,9 +172,9 @@ fi
 if [[ "$real" == 1 ]]; then
   # Every turn must have ended; then one line per turn from the driver's
   # metrics (turns.json: the turn.end usage in the brain's trace).
-  if ! python3 -I - "$work/run/turns.json" "$turns" "$min_hit" <<'PY'
+  if ! python3 -I - "$work/run/turns.json" "$turns" "$min_hit" "$limit" <<'PY'
 import json, sys
-path, want, min_hit = sys.argv[1], int(sys.argv[2]), float(sys.argv[3])
+path, want, min_hit, limit = sys.argv[1], int(sys.argv[2]), float(sys.argv[3]), int(sys.argv[4])
 try:
     rows = json.load(open(path))
     rows = rows.get("turns", rows) if isinstance(rows, dict) else rows
@@ -185,6 +195,16 @@ for k, r in enumerate(rows):
         bad.append(f"{r.get('id')} read {hit}% from the cache, under {min_hit:g}%")
 if len(rows) != want:
     bad.append(f"{len(rows)} turns ran, not {want}")
+if rows:
+    u = rows[0].get("turn_usage") or {}
+    first = sum(u.get(k) or 0 for k in ("input", "cache_read", "cache_write"))
+    requests = rows[0].get("chat_calls") or 1
+    # The provider's own usage of the first turn, averaged over its requests
+    # (the driver records the turn's sum only; a later request may be larger).
+    print("FIRST-TURN-COST " + json.dumps({"limit": limit, "first_turn_tokens": first, "requests": requests,
+                                           "average_per_request": first // requests, "source": "provider usage"}))
+    if first / requests > limit:
+        bad.append(f"the first turn averaged {first // requests} input tokens per request ({first} over {requests}), over the limit {limit}")
 warm = rows[1:]
 tot = {k: sum((r.get("turn_usage") or {}).get(k) or 0 for r in warm) for k in ("input", "cache_read", "cache_write")}
 den = sum(tot.values())
@@ -212,7 +232,10 @@ then
   status=1
 fi
 count_status=0
-python3 -I Native/OptChat/optchat-chief/measure/first_turn_cost.py count "$work/cap" --url "$count_url" --limit "$limit" || count_status=$?
+count_timeout=120
+# A route that is not ready: fall back to the estimate quickly.
+if [[ "$ready" != 200 ]]; then count_timeout=10; fi
+python3 -I Native/OptChat/optchat-chief/measure/first_turn_cost.py count "$work/cap" --url "$count_url" --limit "$limit" --timeout "$count_timeout" || count_status=$?
 if [[ "$count_status" == 3 || "$count_status" == 4 ]]; then
   echo "FIRST-TURN-COST router failure (exit $count_status); the turn's own status was $status" >&2
   exit "$count_status"

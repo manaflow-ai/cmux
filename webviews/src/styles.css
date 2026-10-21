@@ -317,7 +317,8 @@ body {
      floor keeps `<head> -> <base>` legible; the secondaries (reason,
      ahead/behind) shed via .base-picker-meta + the toolbar-left container
      queries before the ref itself ellipsizes. Free toolbar space is left empty
-     to the right rather than padding out this button. */
+     to the right rather than padding out this button. In a narrow cell the head
+     side hides and the floor drops to fit `<base> v` (the query below). */
   flex: 0 1 auto;
   min-width: 150px;
 }
@@ -375,8 +376,8 @@ body {
   /* Read-only head side of the comparison (current branch / detached HEAD). It
      is the least important token, so it ellipsizes FIRST: a higher flex-shrink
      than the base ref and a smaller min-width floor (4ch) mean it gives up
-     characters before the base ref does, but it does not vanish entirely while
-     any space remains. */
+     characters before the base ref does, and it hides whole only in a narrow
+     toolbar-left (the container query below). */
   flex: 0 8 auto;
   min-width: 4ch;
   overflow: hidden;
@@ -430,10 +431,25 @@ body {
 /* Clean-hide the secondaries at narrow toolbar-left widths so they disappear
    whole rather than clipping mid-glyph. The .base-picker-meta flex shrink above
    is the hard guarantee that the ref always wins; these container queries only
-   make the transition tidy. Widest-first: ahead/behind, then reason. */
+   make the transition tidy. Widest-first: ahead/behind, then the head side, then
+   reason. */
 @container toolbar-left (max-width: 380px) {
   .base-picker-aheadbehind {
     display: none;
+  }
+}
+@container toolbar-left (max-width: 330px) {
+  /* The head side and its arrow, beside the files sidebar (the cell is about 313px
+     at 560px) before "HEAD" would clip to "HE…": the base ref is what it picks. */
+  .base-picker-head,
+  .base-picker-head + svg {
+    display: none;
+  }
+  /* The floor fits what is left, the ref's 6ch and the chevron in the chip's
+     padding: 150px pushed jump-to-file under the toolbar pill here, and no floor
+     let the label spill out of the chip. */
+  #base-picker {
+    min-width: calc(6ch + 50px);
   }
 }
 @container toolbar-left (max-width: 312px) {
@@ -454,16 +470,12 @@ body {
   border-radius: 50%;
   border: 1.6px solid color-mix(in lab, var(--cmux-diff-fg) 26%, transparent);
   border-top-color: var(--cmux-diff-fg);
-  animation: base-picker-spin 0.7s linear infinite;
+  animation: cmux-spin var(--cmux-spinner-period, 900ms) linear infinite;
 }
-@keyframes base-picker-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
+/* Reduce Motion stops it (cx-sya4n); the diff viewer has no Static setting of its own. */
 @media (prefers-reduced-motion: reduce) {
   .base-picker-spinner {
-    animation-duration: 1.6s;
+    animation: none;
   }
 }
 .base-picker-popover {
@@ -1207,13 +1219,10 @@ body[data-loading="true"] #status::before {
   border: 2px solid color-mix(in lab, var(--cmux-diff-fg) 20%, transparent);
   border-top-color: color-mix(in lab, var(--cmux-diff-fg) 70%, var(--cmux-diff-bg));
   border-radius: 50%;
-  animation: cmuxDiffPendingSpin 800ms linear infinite;
+  animation: cmux-spin var(--cmux-spinner-period, 900ms) linear infinite;
 }
 #status[data-error="true"] {
   color: var(--cmux-diff-deletion-fg);
-}
-@keyframes cmuxDiffPendingSpin {
-  to { transform: rotate(360deg); }
 }
 @media (prefers-reduced-motion: reduce) {
   #status[data-pending="true"]::before,
@@ -1416,7 +1425,8 @@ body[data-loading="true"] #status::before {
   overflow-wrap: anywhere;
 }
 
-/* Find in diff (Cmd+F) */
+/* Find in diff (Cmd+F): the shared find pill (ui/findPill.css), at the top right where every
+   pane's find pill sits (FindPillMetrics.inset). */
 #diff-find-anchor {
   position: absolute;
   top: 0;
@@ -1425,43 +1435,7 @@ body[data-loading="true"] #status::before {
   pointer-events: none;
 }
 #diff-find-bar {
-  pointer-events: auto;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin: 10px 22px 0 0;
-  padding: 5px 6px;
-  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 13%, transparent);
-  border-radius: 8px;
-  background: var(--cmux-diff-bg);
-  box-shadow: var(--elevation-2);
-}
-#diff-find-input {
-  width: 180px;
-  padding: 3px 7px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: color-mix(in lab, var(--cmux-diff-fg) 7%, transparent);
-  color: var(--cmux-diff-fg);
-  font-family: var(--cmux-diff-ui-font-family);
-  font-size: var(--cmux-diff-ui-font-size);
-  outline: none;
-}
-#diff-find-input:focus-visible {
-  border-color: color-mix(in lab, var(--cmux-diff-fg) 24%, transparent);
-}
-#diff-find-count {
-  min-width: 40px;
-  text-align: right;
-  padding: 0 4px;
-  color: var(--cmux-diff-text-muted);
-  font-family: var(--cmux-diff-ui-font-family);
-  font-size: calc(var(--cmux-diff-ui-font-size) - 1px);
-  font-variant-numeric: tabular-nums;
-}
-#diff-find-bar .toolbar-icon:disabled {
-  opacity: 0.4;
-  cursor: default;
+  margin: var(--find-pill-inset, 10px) var(--find-pill-inset, 10px) 0 0;
 }
 
 /* The find match ::highlight() rules live in src/find/highlight.ts: they
@@ -1527,7 +1501,6 @@ body[data-loading="true"] #status::before {
   --agent-input-bg: var(--cmux-diff-solid-bg);
   --agent-accent: var(--cmux-diff-accent);
   --agent-danger: var(--cmux-diff-deletion-fg);
-  --acpmux-motion-hover: 80ms;
   --acpmux-motion-ease: ease-out;
   --acpmux-step-pressed: color-mix(in srgb, var(--agent-text) 16%, transparent);
 }

@@ -27,6 +27,7 @@ final class SidebarGroupSwatchView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.radioButton)
         setAccessibilityLabel(GroupEditorStrings.colorName(color))
+        setAccessibilityIdentifier("cmux.sidebar.groupEditor.color.\(color.rawValue)")
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil))
     }
 
@@ -58,7 +59,7 @@ final class SidebarGroupSwatchView: NSView {
     private func updateColors() {
         performWithTheme {
             // The group's swatch, as its members' line draws it; none draws an edge too.
-            fill.backgroundColor = color.headerFill.cgColor
+            fill.backgroundColor = GroupTint.palette(color).lineColor(themed: SidebarGroupPalette.tunable.value == .theme).cgColor
             fill.borderColor = Palette.textTertiary.cgColor
             fill.borderWidth = color == .grey ? Metrics.dividerThickness : 0
             ring.borderColor = (isChosen ? Palette.textPrimary : (isHovered ? Palette.separator : NSColor.clear)).cgColor
@@ -84,9 +85,9 @@ final class SidebarGroupSwatchView: NSView {
 final class SidebarGroupEditorRow: NSView {
     var onPress: (() -> Void)?
     let item: SidebarGroupEditorItem
-    private let icon = NSImageView()
-    private let label = NSTextField(labelWithString: "")
-    private let shortcut = NSTextField(labelWithString: "")
+    private let icon = DecorativeImageView() // the row's label names the action
+    private let label = ChromeLabel(labelWithString: "")
+    private let shortcut = ChromeLabel(labelWithString: "")
     private var isHovered = false { didSet { if oldValue != isHovered { updateColors(animated: window != nil) } } }
 
     init(_ item: SidebarGroupEditorItem) {
@@ -121,6 +122,7 @@ final class SidebarGroupEditorRow: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel(item.title)
+        setAccessibilityIdentifier("cmux.sidebar.groupEditor.action.\(item.id)")
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil))
         updateColors()
     }
@@ -156,7 +158,7 @@ final class SidebarGroupEditorRow: NSView {
 }
 
 /// The group editor's and the group chip's strings (Resources/Localizable.xcstrings, en and ja).
-/// Rows the group's right-click menu also offers use its words (Close Group, Ungroup, Move to
+/// Rows the group's right-click menu also offers use its words (Close All in Group, Ungroup, Move to
 /// New Window: CmuxNextActions ObjectMenuLabels).
 enum GroupEditorStrings {
     static var editor: String { String(localized: "sidebar.groupEditor.ax", defaultValue: "Edit Workspace Group", bundle: .module) }
@@ -164,9 +166,12 @@ enum GroupEditorStrings {
     static var namePlaceholder: String { String(localized: "sidebar.groupEditor.namePlaceholder", defaultValue: "Name this group", bundle: .module) }
     static var newWorkspace: String { String(localized: "sidebar.groupEditor.newWorkspace", defaultValue: "New Workspace in Group", bundle: .module) }
     static var moveToNewWindow: String { String(localized: "sidebar.groupEditor.moveToNewWindow", defaultValue: "Move to New Window", bundle: .module) }
-    static var close: String { String(localized: "sidebar.groupEditor.close", defaultValue: "Close Group", bundle: .module) }
+    static var close: String { String(localized: "sidebar.groupEditor.closeAll", defaultValue: "Close All in Group", bundle: .module) }
     static var ungroup: String { String(localized: "sidebar.groupEditor.ungroup", defaultValue: "Ungroup", bundle: .module) }
     static var delete: String { String(localized: "sidebar.groupEditor.delete", defaultValue: "Delete Group", bundle: .module) }
+    static var pin: String { String(localized: "sidebar.groupEditor.pin", defaultValue: "Pin Group", bundle: .module) }
+    static var unpin: String { String(localized: "sidebar.groupEditor.unpin", defaultValue: "Unpin Group", bundle: .module) }
+    static var moveToTop: String { String(localized: "sidebar.groupEditor.moveToTop", defaultValue: "Move to Top", bundle: .module) }
     static var moreActions: String { String(localized: "sidebar.groupEditor.moreActions", defaultValue: "More Group Actions…", bundle: .module) }
     static var more: String { String(localized: "sidebar.group.more", defaultValue: "Group options", bundle: .module) }
     static var collapse: String { String(localized: "sidebar.group.collapse", defaultValue: "Collapse group", bundle: .module) }

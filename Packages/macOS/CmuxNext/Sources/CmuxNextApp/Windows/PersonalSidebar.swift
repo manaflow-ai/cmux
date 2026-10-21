@@ -14,6 +14,7 @@ enum PersonalSidebar {
     /// home session's section only, so each group appears once; an empty
     /// group being deleted (`PersonalStore.endingGroups`) does not show.
     static func sections(of daemon: DaemonService, room: ProfileID, machines: MachineRegistry) -> [SidebarSection] {
+        if let sections = SidebarDocWiring.sections(of: daemon, room: room, machines: machines) { return sections } // the sidebar document (sidebar-v2)
         let personal = machines.local.store.personal
         guard personal.isLoaded, let session = daemon.store.registryID else { return daemon.store.sidebarSections }
         let groups = personal.groups.filter { personal.groupRooms[$0.id] == room }.sorted { $0.index < $1.index }
@@ -40,6 +41,8 @@ enum PersonalSidebar {
     /// order), whatever its room; in the shown (mixed) order with
     /// `personal-mixed-order-v1`.
     static func orderedIDs(of daemon: DaemonService, machines: MachineRegistry) -> [String]? {
+        // The sidebar document orders the rows: never the personal (`workspace_placement`) order on its path.
+        if let ordered = SidebarDocWiring.orderedIDs(of: daemon, machines: machines) { return ordered }
         let personal = machines.local.store.personal
         guard personal.isLoaded, let session = daemon.store.registryID else { return nil }
         if machines.local.store.supportsPersonalMixedOrder {
@@ -103,6 +106,14 @@ enum PersonalSidebar {
     private static func rows(of session: String, _ personal: PersonalStore) -> [String: PersonalWorkspace] {
         Dictionary(personal.workspaces.filter { $0.sessionID == session }.map { ($0.workspaceKey.rawValue, $0) },
                    uniquingKeysWith: { first, _ in first })
+    }
+
+    /// `workspaces` of `daemon` in personal order; unchanged without personal state. On the sidebar
+    /// document the rows it does not place yet follow in this order (RapidWorkspaceCreateTests).
+    static func personalOrder(_ workspaces: [WorkspaceModel], of daemon: DaemonService, machines: MachineRegistry) -> [WorkspaceModel] {
+        let personal = machines.local.store.personal
+        guard personal.isLoaded, let session = daemon.store.registryID else { return workspaces }
+        return order(workspaces, rows: rows(of: session, personal))
     }
 
     /// Rowed workspaces by personal position, then the rest in daemon order.

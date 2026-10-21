@@ -8,7 +8,9 @@ extension TabStripView {
     func tabID(at point: CGPoint) -> TabID? {
         let local = convert(point, to: tabsClip)
         guard local.x >= 0, local.x <= tabsClip.bounds.width else { return nil }
-        for item in displayed {
+        // An unpinned tab scrolled under the fixed pinned band is hidden there: only pinned tabs hit.
+        let showsUnpinned = scrollMapping.showsUnpinned(at: local.x)
+        for item in displayed where item.isPinned || showsUnpinned {
             guard let cell = cells[item.id], cell.frame.width > 0.5 else { continue }
             let frame = cell.frame
             // The full strip height is the hit area, not just the tab body.
@@ -26,6 +28,16 @@ extension TabStripView {
         return rect.insetBy(dx: -2, dy: -2).contains(inCell)
     }
 
+    /// Whether `point` (strip coordinates) is on tab `id`'s speaker, with a
+    /// little slack around the small glyph.
+    func isInAudioButton(_ id: TabID, _ point: CGPoint) -> Bool {
+        // The close button wins where the slack reaches it.
+        guard let cell = cells[id], let rect = cell.audioButtonRect, !isInCloseButton(id, point) else { return false }
+        let local = convert(point, to: tabsClip)
+        let inCell = CGPoint(x: local.x - cell.frame.minX, y: local.y - cell.frame.minY)
+        return rect.insetBy(dx: -3, dy: -4).contains(inCell)
+    }
+
     func isInNewTabButton(_ point: CGPoint) -> Bool {
         !newTabButton.isHidden && newTabButton.frame.contains(convert(point, to: contentView))
     }
@@ -37,6 +49,7 @@ extension TabStripView {
         if let hoveredID { cells[hoveredID]?.isHovered = false }
         hoveredID = id
         if let id { cells[id]?.isHovered = true }
+        onHoverTab?(id)
         TabSeparatorVisibility.apply(to: self)
     }
 
@@ -56,10 +69,24 @@ extension TabStripView {
             closeHoveredID = closeID
             if let closeID { cells[closeID]?.isCloseHovered = true }
         }
+        setAudioHovered(id.flatMap { isInAudioButton($0, point) ? $0 : nil })
         newTabButton.isHovered = !dragging && isInNewTabButton(point)
 
-        // The coordinator hit-tests the pointer itself (`hoverCardTarget`).
+        // The coordinator hit-tests the pointer itself (`TabHoverCardController.target`).
         if moved, let window { hoverCards.pointerMoved(to: window.convertPoint(toScreen: convert(point, to: nil))) }
+    }
+
+    /// The speaker under the pointer: its fill, and a tooltip naming what a click does.
+    func setAudioHovered(_ id: TabID?) {
+        if id != audioHoveredID {
+            if let audioHoveredID { cells[audioHoveredID]?.isAudioHovered = false }
+            audioHoveredID = id
+            if let id { cells[id]?.isAudioHovered = true }
+        }
+        let tip = id.flatMap { cells[$0]?.item.audio }.map { $0 == .muted ? Strings.unmuteTab : Strings.muteTab }
+        // tooltip-native-allow: the strip's speakers are layers, not views; a themed tracker added while the
+        // pointer is already inside gets no mouseEntered, and one anchors below the whole strip.
+        if toolTip != tip { toolTip = tip }
     }
 
     /// Shows tab `id`'s hover card now (with its CPU and memory) until the
@@ -75,9 +102,9 @@ extension TabStripView {
     }
 
     public override func mouseEntered(with event: NSEvent) {
-        if closingModeTrackingEvent(event, entered: true) { return }
+        if closingWatch.trackingEvent(event, entered: true) { return }
         buttonReveal.pointerInStrip = true
-        closingModePointerReturned()
+        closingWatch.pointerReturned()
         updateHover(at: convert(event.locationInWindow, from: nil), moved: true)
     }
 
@@ -87,7 +114,7 @@ extension TabStripView {
     }
 
     public override func mouseExited(with event: NSEvent) {
-        if closingModeTrackingEvent(event, entered: false) { return }
+        if closingWatch.trackingEvent(event, entered: false) { return }
         pointerLeft()
         hoverCards.pointerMoved(to: window.map { $0.convertPoint(toScreen: event.locationInWindow) })
     }
@@ -98,7 +125,7 @@ extension TabStripView {
         clearHover()
         newTabButton.isHovered = false
         // Deferred relayout: tabs resize once the pointer has left the extended strip for the delay.
-        if closingModeWidth != nil, drag == nil { closingModePointerLeft() }
+        if closingModeWidth != nil, drag == nil { closingWatch.pointerLeft() }
     }
 
     // MARK: - Clicks
@@ -116,7 +143,7 @@ extension TabStripView {
         if isInNewTabButton(point) {
             pressedNewTab = true
             newTabButton.isPressed = true
-            startNewTabHold()
+            newTabHold.start()
             return
         }
         if let group = chipGroup(at: point) {
@@ -131,22 +158,26 @@ extension TabStripView {
                 cells[id]?.isClosePressed = true
                 return
             }
-            if event.clickCount == 2, renamesOnDoubleClick {
+            // The speaker is a button: the press neither selects nor drags the
+            // tab, and the release on it mutes or unmutes (Chrome).
+            if isInAudioButton(id, point) {
+                pressedAudioID = id
+                cells[id]?.isAudioPressed = true
+                return
+            }
+            if event.clickCount == 2, renamesOnDoubleClick, Self.selectionClick(event.modifierFlags) == .plain {
                 beginInlineRename(id)
                 return
             }
-            // Select on mouse down.
-            if model.selectedID != id { model.send(.select(id)) }
+            // Select on mouse down; Cmd and Shift add to the selection (`selectOnPress`).
             press = TabStripPress(id: id, start: point)
+            selectOnPress(id, modifiers: event.modifierFlags)
             return
         }
-        // Between tabs or trailing buttons: the strip's, never the window's.
-        guard titlebarHit(at: point) == .empty else { return }
-        // In the window's top row empty space is the titlebar: the window
-        // already moved it or ran the double-click action
-        // (`TitlebarDragPolicy`). Elsewhere a double-click opens a tab.
-        if actsAsTitlebar { return }
-        if event.clickCount == 2 { model.send(.newTab(after: nil, opensWorkspace: event.modifierFlags.contains(.option))) }
+        // Empty strip space does nothing here: only the + button opens a tab
+        // (Leo 2026-10-12). In the window's top row it is the titlebar, which
+        // the window already moved or ran its double-click action for
+        // (`TitlebarDragPolicy`).
     }
 
     public override func mouseDragged(with event: NSEvent) {
@@ -157,6 +188,10 @@ extension TabStripView {
         }
         if pressedNewTab {
             newTabButton.isPressed = isInNewTabButton(point)
+            return
+        }
+        if let id = pressedAudioID {
+            cells[id]?.isAudioPressed = isInAudioButton(id, point)
             return
         }
         if drag != nil {
@@ -186,8 +221,16 @@ extension TabStripView {
             if isInCloseButton(id, point) || arrivingCloseTab(at: point) == id { close(id, source: .mouse, at: point) }
             return
         }
+        if let id = pressedAudioID {
+            pressedAudioID = nil
+            cells[id]?.isAudioPressed = false
+            if isInAudioButton(id, point) { model.send(.toggleAudioMute(id)) }
+            updateHover(at: point, moved: false)
+            return
+        }
         if endNewTabPress(at: point, modifiers: event.modifierFlags) { return }
         if drag != nil { endDrag() }
+        if press?.collapsesSelection == true { model.clearMultiSelection() }
         press = nil
         if groups.drag != nil {
             endGroupDrag()
@@ -218,7 +261,7 @@ extension TabStripView {
 
     public override func menu(for event: NSEvent) -> NSMenu? {
         let menu = contextMenu(for: event)
-        if let menu { beginMenuTracking(menu) }
+        if let menu { menuTracking.begin(menu) }
         return menu
     }
 
@@ -237,7 +280,7 @@ extension TabStripView {
             return nil
         }
         if let id = tabID(at: point) {
-            return contextMenuProvider?(.tab(id, selection: [id]))
+            return contextMenuProvider?(.tab(id, selection: model.contextSelection(for: id)))
         }
         return contextMenuProvider?(.emptyStrip)
     }
@@ -248,7 +291,8 @@ extension TabStripView {
         // Vertical wheels scroll the strip too.
         if abs(event.scrollingDeltaY) > abs(delta) { delta = event.scrollingDeltaY }
         if !event.hasPreciseScrollingDeltas { delta *= 12 }
-        scroll.snap(to: TabScrollMath.clamp(scroll.value - delta, contentWidth: result.contentWidth, viewportWidth: viewportWidth))
+        settleScroll()
+        scrollOffset = TabScrollMath.clamp(scrollOffset - delta, contentWidth: result.contentWidth, viewportWidth: viewportWidth)
         hoverCards.dismiss(.action)
         applyFrames()
     }
@@ -258,29 +302,12 @@ extension TabStripView {
     /// and must not also open a tab.
     @discardableResult
     func endNewTabPress(at point: CGPoint, modifiers: NSEvent.ModifierFlags = []) -> Bool {
-        newTabHoldTask?.cancel()
-        newTabHoldTask = nil
-        defer { newTabHoldOpenedMenu = false }
-        guard pressedNewTab else { return newTabHoldOpenedMenu }
+        let holdOpenedMenu = newTabHold.end()
+        guard pressedNewTab else { return holdOpenedMenu }
         pressedNewTab = false
         newTabButton.isPressed = false
-        if !newTabHoldOpenedMenu, isInNewTabButton(point) { model.send(.newTab(after: nil, sameKind: modifiers.contains(.option))) }
+        if !holdOpenedMenu, isInNewTabButton(point) { model.send(.newTab(after: nil, sameKind: modifiers.contains(.option))) }
         return true
-    }
-
-    /// Holding + opens the new tab menu, as a long press on a back button opens history.
-    func startNewTabHold() {
-        newTabHoldTask?.cancel()
-        newTabHoldOpenedMenu = false
-        let sleep = groups.sleep
-        newTabHoldTask = Task { [weak self] in
-            do { try await sleep(.milliseconds(450)) } catch { return }
-            guard let self, !Task.isCancelled, self.pressedNewTab else { return }
-            self.newTabHoldOpenedMenu = true
-            self.newTabButton.isPressed = false
-            self.pressedNewTab = false
-            self.showNewTabMenu()
-        }
     }
 
     /// The new tab menu (which kind of tab: terminal, WebKit, Chromium)
@@ -290,35 +317,9 @@ extension TabStripView {
         guard let menu = contextMenuProvider?(.newTabButton), !menu.items.isEmpty else { return }
         hoverCards.dismiss(.action)
         let origin = CmuxPopoverAnchor.menuPoint(for: newTabButton, in: self, gap: 2)
-        beginMenuTracking(menu)
+        menuTracking.begin(menu)
         menu.popUp(positioning: nil, at: origin, in: self)
-        endMenuTracking()
-    }
-
-    // MARK: - Menus keep the trailing buttons
-
-    /// A menu from this strip is about to show: the trailing buttons stay
-    /// while it is open, since the pointer leaves the strip for it.
-    func beginMenuTracking(_ menu: NSMenu) {
-        endMenuTracking()
-        buttonReveal.menuOpen = true
-        menuEndObserver = NotificationCenter.default.addObserver(
-            forName: NSMenu.didEndTrackingNotification, object: menu, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.endMenuTracking() } // main-proof: observer on queue: .main
-        }
-    }
-
-    /// The menu closed. AppKit sends no exit event for a pointer that left
-    /// during menu tracking, so the pointer is checked here.
-    func endMenuTracking() {
-        if let menuEndObserver { NotificationCenter.default.removeObserver(menuEndObserver) }
-        menuEndObserver = nil
-        guard buttonReveal.menuOpen else { return }
-        buttonReveal.menuOpen = false
-        if let window, !bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil)) {
-            buttonReveal.pointerInStrip = false
-        }
+        menuTracking.end()
     }
 
     /// Closes a tab once (a tab the model dropped is closing already). Mouse closes enter

@@ -1,9 +1,9 @@
 /*
  * Settings layout and looks (SETTINGS-PAGE-FIRST-PRINCIPLES P1-P5), after styles.css.
  * P1: the categories stay at the window's left; the content is one centered column of at most
- * 720 px, in slightly smaller type and rows than before. Two looks; mount.tsx SHIPPED_LOOK picks:
- *   quiet (shipped): grouped rows in hairline-outlined cards, as macOS System Settings groups them;
- *   dense (:root[data-settings-look="dense"], a gallery variant): no cards, hairline rows, tighter type.
+ * 720 px, in slightly smaller type and rows than before: grouped rows in hairline-outlined cards,
+ * as macOS System Settings groups them. refined.css (mount.tsx sets data-settings-look="refined",
+ * the one look) draws its section nav, cards and controls over these rules.
  * The render rule holds: containers stay transparent; only controls and interaction states fill,
  * with --input-bg, --accent-soft, or --accent for an on control (a switch, a default button).
  * The accent is --cmux-accent: neutral by default (the no-blue rule: the theme's text color), the
@@ -17,6 +17,9 @@
   --on-accent: var(--cmux-on-accent, var(--cmux-app-window, var(--cmux-surface-solid, Canvas)));
   --accent-text: var(--text);
   --column: 720px;
+  /* The one width of a row's popup (menus, the theme pickers, the accent), so a popup's left edge
+     lines up with the rows around it and its selected label never resizes it. */
+  --row-popup-width: 200px;
   --row-pad-y: calc(3px * var(--settings-scale));
   --row-pad-x: calc(12px * var(--settings-scale));
   --row-min: calc(28px * var(--settings-scale));
@@ -33,14 +36,6 @@
   font-size: calc(12.5px * var(--settings-scale));
 }
 
-:root[data-settings-look="dense"] {
-  --row-pad-y: 2px;
-  --row-pad-x: 2px;
-  --row-min: calc(26px * var(--settings-scale));
-  --card-radius: 0;
-  --sidebar-width: 188px;
-  font-size: calc(12px * var(--settings-scale));
-}
 
 .settings {
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
@@ -52,7 +47,8 @@
 }
 
 .content {
-  padding: calc(26px * var(--settings-scale)) var(--page-edge) calc(56px * var(--settings-scale));
+  --content-pad-end: calc(56px * var(--settings-scale));
+  padding: calc(26px * var(--settings-scale)) var(--page-edge) var(--content-pad-end);
 }
 
 .column {
@@ -78,11 +74,18 @@
   padding-bottom: 4px;
 }
 
+/* The filter sits on the search field's line at the field's height: icon and count centered on one
+   line (no superscript count). */
 .filter-button {
   position: relative;
-  gap: 2px;
-  border-radius: 6px;
-  padding: 4px;
+  flex: none;
+  align-self: stretch;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 26px;
+  border-radius: 7px;
+  padding: 0 6px;
 }
 
 .filter-button[aria-pressed="true"] {
@@ -91,7 +94,8 @@
 }
 
 .filter-count {
-  font-size: 10px;
+  font-size: 11px;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
   line-height: 1;
 }
@@ -116,10 +120,6 @@
   font-weight: 500;
 }
 
-:root[data-settings-look="dense"] .section-link {
-  padding: 3px 7px;
-  border-radius: 5px;
-}
 
 .section-title {
   font-size: calc(22px * var(--settings-scale));
@@ -128,11 +128,6 @@
   margin: 0 0 20px;
 }
 
-:root[data-settings-look="dense"] .section-title {
-  font-size: 16px;
-  font-weight: 600;
-  margin-bottom: 14px;
-}
 
 .result-section-title {
   font-size: 13px;
@@ -153,17 +148,9 @@
   color: var(--text);
 }
 
-:root[data-settings-look="dense"] .group {
-  margin-bottom: 16px;
-}
 
-:root[data-settings-look="dense"] .group-title {
-  margin: 0 0 2px;
-  font-size: 11px;
-  color: var(--muted-text);
-}
 
-/* Quiet: one outlined card per group, rows divided by hairlines inset from the card's edge. */
+/* One outlined card per group, rows divided by hairlines inset from the card's edge. */
 .rows {
   border: 1px solid var(--border);
   border-radius: var(--card-radius);
@@ -200,14 +187,21 @@
   border-bottom-right-radius: var(--card-radius);
 }
 
-:root[data-settings-look="dense"] .rows {
-  border: 0;
-  border-top: 1px solid var(--border);
+/* Search wraps each row in `.collapse > .collapse-body` (SearchResults), so the first and last
+   shown rows take the card's edges here. The last one's divider drew a second line under the
+   card's rounded edge. */
+.rows > .collapse[data-open]:not(.collapse[data-open] ~ .collapse) .row {
+  border-top-left-radius: var(--card-radius);
+  border-top-right-radius: var(--card-radius);
 }
 
-:root[data-settings-look="dense"] .rows > .row:last-child {
-  box-shadow: inset 0 -1px 0 var(--border);
+.rows > .collapse[data-open]:not(:has(~ .collapse[data-open])) .row {
+  box-shadow: none;
+  border-bottom-left-radius: var(--card-radius);
+  border-bottom-right-radius: var(--card-radius);
 }
+
+
 
 .row-main {
   gap: 20px;
@@ -223,9 +217,6 @@
   line-height: 1.35;
 }
 
-:root[data-settings-look="dense"] .row-help {
-  font-size: 11px;
-}
 
 /* P4: a scope override or an MDM lock, inline on its setting. */
 .row-managed {
@@ -561,15 +552,22 @@
   color: var(--accent-text);
 }
 
+/* Every theme and accent popup on the Theme page has one width, so neither the chosen name nor a
+   row's Reset moves it; a long name ellipsizes. */
 .theme-button {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  max-width: 280px;
+  box-sizing: border-box;
+  width: var(--row-popup-width);
+  max-width: 100%;
   padding: 2px 6px 2px 3px;
 }
 
 .theme-button-name {
+  flex: 1;
+  min-width: 0;
+  text-align: start;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -780,7 +778,161 @@
   }
 
   .content {
-    padding: 14px var(--page-edge) 40px;
+    --content-pad-end: 40px;
+    padding: 14px var(--page-edge) var(--content-pad-end);
     --content-fade-top: 12px;
   }
+}
+
+/* Chief Pet (ChiefPetCard): the pet's own page, after ChatGPT's Mini & Pets. */
+.chief-pet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 2px 12px;
+}
+
+.chief-pet-lede {
+  margin: 0;
+  color: var(--muted-text);
+  font-size: var(--text-detail);
+}
+
+.chief-pet-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 160px;
+  margin-bottom: 26px;
+  border: 1px solid var(--border);
+  border-radius: var(--card-radius);
+}
+
+.chief-pet-preview[data-enabled="false"] .chief-pet-art {
+  opacity: 0.45;
+}
+
+.chief-pet-art,
+.chief-pet-choice-art img {
+  image-rendering: pixelated;
+  object-fit: contain;
+}
+
+.chief-pet-art {
+  width: 88px;
+  height: 80px;
+}
+
+.chief-pet-rail {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--text);
+}
+
+.chief-pet-rail i {
+  height: 14px;
+  border-left: 1px solid var(--border-strong);
+}
+
+.chief-pet-up {
+  transform: rotate(180deg);
+}
+
+
+.chief-pet-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
+  gap: 12px;
+}
+
+.chief-pet-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 18px 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--card-radius);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  position: relative;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color var(--motion-hover) var(--motion-ease);
+}
+
+.chief-pet-choice:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+
+.chief-pet-choice[aria-pressed="true"] {
+  border-color: var(--text);
+}
+
+/* The chosen character's check, top right (ChatGPT's picker marks its pick the same way). */
+.chief-pet-choice[aria-pressed="true"]::after {
+  content: "✓";
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  color: var(--text);
+  font-size: var(--text-body);
+  font-weight: 600;
+}
+
+.chief-pet-choice-art {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 76px;
+}
+
+.chief-pet-choice-art img {
+  width: 72px;
+  height: 66px;
+}
+
+.chief-pet-choice strong {
+  font-size: var(--text-body);
+  font-weight: 600;
+}
+
+.chief-pet-choice-help {
+  color: var(--muted-text);
+  font-size: var(--text-caption);
+  line-height: 1.35;
+}
+
+/* An accent's swatch: the color it gives the app theme (AccentPicker draws it, and Art Color's hue
+   wheel, inline). */
+.accent-swatch {
+  flex-shrink: 0;
+  box-sizing: border-box;
+  width: 14px;
+  height: 14px;
+  margin: 1px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 18%, transparent);
+}
+
+.accent-popover .theme-list {
+  outline: none;
+}
+
+.accent-popover .theme-option {
+  cursor: default;
+}
+
+.accent-popover .theme-option[aria-selected="true"] {
+  background: var(--row-focus);
+  box-shadow: inset var(--cmux-row-focus-bar, 0px) 0 0 var(--cmux-accent, currentColor);
 }

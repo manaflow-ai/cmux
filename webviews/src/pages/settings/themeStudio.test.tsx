@@ -7,7 +7,8 @@ import type { Rendered } from "./testing";
 
 const restore = installDom();
 afterAll(() => restore());
-const { changeValue, click, fire, ops, renderPage, run } = await import("./testing");
+const { changeValue, click, fire, ops, renderPage, run, settle } = await import("./testing");
+const { act } = await import("react");
 
 let page: Rendered | null = null;
 afterEach(() => {
@@ -109,6 +110,37 @@ test("a theme previews live in the app before it is picked: hover or arrows, rig
   await fire(document.querySelector<HTMLElement>(".theme-search")!, "keydown", { key: "Escape" });
   expect(ops(page.provider, "cmux.settings.preview.end").length).toBeGreaterThan(0);
   expect(ops(page.provider, "cmux.settings.set")).toEqual([]);
+});
+
+test("a pointer passing over themes previews nothing until it rests; the arrow keys preview at once", async () => {
+  const { DWELL_MS } = await import("./components/ThemePicker");
+  page = await renderPage({ path: "/settings/theme" });
+  await click(theme(page).querySelector('[data-theme-row="app"] [data-theme-picker]')!);
+  const row = (name: string) => document.querySelector<HTMLElement>(`[data-theme-option="${name}"]`)!.closest("li")!;
+  const previews = () => ops(page!.provider, "cmux.settings.preview");
+  const pointer = (element: Element) =>
+    act(async () => {
+      for (const type of ["pointerenter", "pointermove", "mousemove", "mouseenter"])
+        element.dispatchEvent(new window.MouseEvent(type, { bubbles: type.endsWith("move"), cancelable: true }));
+    });
+  const names = [...document.querySelectorAll<HTMLElement>("[data-theme-option]")]
+    .slice(0, 4)
+    .map((el) => el.getAttribute("data-theme-option")!);
+  const before = previews().length;
+  // A sweep down the list: the rows highlight, but the app shows none of them.
+  for (const name of names) await pointer(row(name));
+  await settle();
+  expect(previews().length).toBe(before);
+  // The pointer rests on the last row: that one previews, once.
+  await act(() => new Promise((done) => setTimeout(done, DWELL_MS + 50)));
+  const rested = previews().slice(before);
+  expect(rested.length).toBeLessThanOrEqual(1);
+  // The arrow keys preview the row they land on with no wait.
+  const search = document.querySelector<HTMLElement>(".theme-search")!;
+  const keyed = previews().length;
+  await fire(search, "keydown", { key: "ArrowDown" });
+  expect(previews().length).toBe(keyed + 1);
+  await fire(search, "keydown", { key: "Escape" });
 });
 
 test("a theme with color edits reads as custom and previews its edited colors", async () => {

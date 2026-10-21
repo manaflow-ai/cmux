@@ -30,7 +30,9 @@
 #   path-based or remote-package binary targets, and two steps on one host
 #   would share one build database. Downloaded packages and binary artifacts
 #   stay warm in SwiftPM's own content-addressed cache. A caller that passes a
-#   path (the GitHub job: per-job $RUNNER_TEMP) owns it and keeps it.
+#   path owns it and keeps it. CI uses a worker/workspace/toolchain-specific
+#   Release path on owned runners; the binary-module guard and the one-time
+#   stale-module recovery keep it correct as in check-cmux-scheme-compile.sh.
 set -euo pipefail
 
 # xcodebuild compiles the app: fleet or GitHub runner only.
@@ -39,11 +41,18 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/fleet-only.sh"
 cmux_next_require_fleet check-release-compile.sh "xcodebuild" "cmux-next Release compile (Xcode 26)"
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+kept_path=0
 if [[ -n "${1:-}" ]]; then
   derived_data="$1"
+  kept_path=1
 else
   derived_data="$(mktemp -d "${TMPDIR:-/tmp}/cmux-next-release-compile.XXXXXX")"
-  trap 'rm -rf -- "$derived_data"' EXIT
+fi
+log="$(mktemp)"
+if (( kept_path )); then
+  trap 'rm -f "$log"' EXIT
+else
+  trap 'rm -f "$log"; rm -rf -- "$derived_data"' EXIT
 fi
 
 if [[ -z "${DEVELOPER_DIR:-}" ]]; then
@@ -61,10 +70,29 @@ fi
 
 echo "check-release-compile: $(xcodebuild -version | tr '\n' ' ')"
 cd "$repo_root/Packages/macOS/CmuxNext"
-"$repo_root/scripts/ci/run-xcodebuild-with-diagnostics.sh" -- \
-  xcodebuild -scheme CmuxNextApp -configuration Release \
-  -destination 'generic/platform=macOS' \
-  -derivedDataPath "$derived_data" \
-  ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
-  COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO \
-  build
+build() {
+  "$repo_root/scripts/ci/run-xcodebuild-with-diagnostics.sh" -- \
+    xcodebuild -scheme CmuxNextApp -configuration Release \
+    -destination 'generic/platform=macOS' \
+    -derivedDataPath "$derived_data" \
+    ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
+    COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO \
+    build 2>&1 | tee "$log"
+  return "${PIPESTATUS[0]}"
+}
+if (( kept_path )); then
+  # A binary target's headers changed since the last build there: build cold
+  # (scripts/ci/swiftpm-binary-module-guard.sh, xcode_binary_module_guard).
+  # shellcheck source=scripts/ci/swiftpm-binary-module-guard.sh
+  source "$repo_root/scripts/ci/swiftpm-binary-module-guard.sh"
+  xcode_binary_module_guard "$repo_root/Packages/macOS/CmuxNext" "$derived_data" -scheme CmuxNextApp
+fi
+status=0
+build || status=$?
+if (( status && kept_path )) && "$repo_root/scripts/cmux-next/stale-pcm-retry-needed.sh" "$log"; then
+  echo "check-release-compile: stale precompiled modules in $derived_data; removing them and building again"
+  "$repo_root/scripts/cmux-next/clear-stale-scheme-build-state.sh" "$derived_data"
+  status=0
+  build || status=$?
+fi
+exit "$status"

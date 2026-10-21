@@ -47,10 +47,10 @@ public struct SettingsSchemaExport {
         }
         let rows: [[String: Any]] = SettingsSchema.all.map { row(for: $0, text: text) }
         let page = page(text: text)
-        let rowsData = Data(try DeterministicJSON().string(rows, pretty: false).utf8)
+        // No schema_hash: the daemon computes it from the rows at load. A committed
+        // hash line changed in every settings pull request, so no two merged (#21946).
         let document: [String: Any] = [
             "version": version,
-            "schema_hash": SettingsSchemaHash.hex(rowsData),
             "sections": sections,
             "page": page,
             "rows": rows,
@@ -115,6 +115,10 @@ public struct SettingsSchemaExport {
             row["kind"] = "choice_or_number"
             row["choices"] = choices(list)
             row["range"] = range(number)
+        case .choiceOrURL(let list, let urlKey):
+            row["kind"] = "choice_or_url"
+            row["choices"] = choices(list)
+            row["url_key"] = urlKey
         case .number(let number):
             row["kind"] = "number"
             row["range"] = range(number)
@@ -126,6 +130,7 @@ public struct SettingsSchemaExport {
         case .timeRange: row["kind"] = "time_range"
         case .theme: row["kind"] = "theme"
         case .fontFamily: row["kind"] = "font_family"
+        case .text: row["kind"] = "text"
         case .numberList(let number):
             row["kind"] = "number_list"
             row["range"] = range(number)
@@ -145,6 +150,8 @@ public struct SettingsSchemaExport {
         // value domain the app publishes, not a fixed rule.
         if descriptor.path == ChatSettings.rootsPath {
             row["validation"] = "domain:chat_roots"
+        } else if descriptor.path == CustomDensitiesSetting().configPath {
+            row["validation"] = "domain:custom_densities"
         } else if descriptor.path == BackdropSelectionSetting().configPath {
             row["validation"] = "domain:backdrop_selection"
         } else if BrowserOmnibarSetting.templatePaths.contains(descriptor.path) {

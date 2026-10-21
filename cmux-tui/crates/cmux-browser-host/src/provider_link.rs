@@ -139,6 +139,9 @@ impl ProviderDriver {
                                 thread_cef_tabs.lock().unwrap_or_else(PoisonError::into_inner);
                             if let Some(tab) = tabs.get(target_id) {
                                 tab.driver.set_input_scale(scale);
+                                tab.driver.set_touch_emulation(
+                                    payload.get("touch").and_then(Value::as_bool).unwrap_or(false),
+                                );
                             }
                         }
                         // The tab went away, or the app replaced its Chromium
@@ -289,6 +292,11 @@ impl ProviderDriver {
     /// The emulation scale the app last announced for the tab (1.0 when none, cx-mogig).
     pub fn tab_input_scale(&self, target_id: &str) -> f64 {
         self.table().tab(target_id).map_or(1.0, |tab| tab.input_scale)
+    }
+
+    /// Whether the app last announced touch emulation for the tab (cx-3ny35).
+    pub fn tab_touch(&self, target_id: &str) -> bool {
+        self.table().tab(target_id).is_some_and(|tab| tab.touch)
     }
 
     /// Why an agent call on `target_id` is refused (browser page, the

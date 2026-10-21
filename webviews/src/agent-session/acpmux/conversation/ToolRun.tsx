@@ -1,11 +1,13 @@
 // A settled run of tool calls: one summary line ("Read files, ran commands")
 // that opens to the calls themselves, in a list that scrolls past nine rows.
 import { useFindReveal } from "./chatFind";
-import { useId, useState, type ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { ChevronRight, Globe, Magnifier, Pencil, TerminalSquare, ToolGroup } from "./icons";
 import { toolRunCategories, toolRunSummary, type ToolRunCategory } from "./toolRunSummary";
+import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { useFold } from "./fold";
 
 /// The summary's glyph: its leading category's, with searches and reads both as the magnifier.
 function runIcon(category: ToolRunCategory | undefined): ReactNode {
@@ -24,10 +26,19 @@ function runIcon(category: ToolRunCategory | undefined): ReactNode {
   }
 }
 
-export function ToolRun({ items, children }: { items: readonly AcpmuxActivity[]; children: ReactNode }) {
+export function ToolRun({
+  items,
+  children,
+  disclosureKey,
+}: {
+  items: readonly AcpmuxActivity[];
+  children: ReactNode;
+  disclosureKey: string;
+}) {
   const t = useT();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useTranscriptDisclosure(disclosureKey);
   useFindReveal(items, () => setOpen(true));
+  const fold = useFold(open);
   const list = useId();
   return (
     <>
@@ -48,9 +59,11 @@ export function ToolRun({ items, children }: { items: readonly AcpmuxActivity[];
           className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
         />
       </button>
-      {open && (
-        <div className="cv-tool-run" id={list}>
-          {children}
+      {fold.present && (
+        <div ref={fold.ref} className="cv-fold">
+          <div className="cv-tool-run" id={list}>
+            {children}
+          </div>
         </div>
       )}
     </>

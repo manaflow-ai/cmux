@@ -130,9 +130,6 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/SidebarSections/SidebarLayoutRemote.swift": {
   "JSON / property-list decode": 1
  },
- "Packages/macOS/CmuxNext/Sources/CmuxNextApp/TerminalOutput.swift": {
-  "line split of a whole input": 1
- },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/UpdaterService+Relaunch.swift": {
   "process launch": 1
  },

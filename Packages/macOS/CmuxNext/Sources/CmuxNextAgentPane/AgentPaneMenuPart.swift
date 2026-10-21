@@ -30,21 +30,25 @@ struct AgentPaneMenuPart: Equatable, Sendable {
         guard code != nil || command != nil || output != nil || path != nil || link != nil else { return nil }
     }
 
-    /// Copy Code; Copy Command and Copy Output; Open and Copy Path; Open Link and Copy Link.
+    /// Copy Code; Copy Command and Copy Output; Open and the path rows (`pathItems`, else Copy
+    /// Path); the link rows (`linkItems`, else Open Link and Copy Link).
     @MainActor
     func items(copy: @escaping (String) -> Void, openPath: @escaping (String) -> Void,
-               open: @escaping (URL) -> Void) -> [NSMenuItem] {
+               open: @escaping (URL) -> Void, linkItems: ((URL) -> [NSMenuItem])? = nil,
+               pathItems: ((String) -> [NSMenuItem]?)? = nil) -> [NSMenuItem] {
         var items: [NSMenuItem] = []
-        if let code { items.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.copyCode) { copy(code) }) }
-        if let command { items.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.copyCommand) { copy(command) }) }
-        if let output { items.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.copyOutput) { copy(output) }) }
+        if let code { items.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.copyCode, symbol: "chevron.left.forwardslash.chevron.right") { copy(code) }) }
+        if let command { items.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.copyCommand, symbol: "terminal") { copy(command) }) }
+        if let output { items.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.copyOutput, symbol: "doc.plaintext") { copy(output) }) }
         if let path {
-            items.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.open) { openPath(path) })
-            items.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.copyPath) { copy(path) })
+            items.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.open, symbol: "doc") { openPath(path) })
+            items += pathItems?(path) ?? [AgentPaneMenuAction.item(AgentPaneMenuStrings.copyPath, symbol: "doc.on.doc") { copy(path) }]
         }
-        if let link {
-            items.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.openLink) { open(link) })
-            items.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.copyLink) { copy(link.absoluteString) })
+        if let link, let linkItems {
+            items += linkItems(link)
+        } else if let link {
+            items.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.openLink, symbol: "arrow.up.right.square") { open(link) })
+            items.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.copyLink, symbol: "link") { copy(link.absoluteString) })
         }
         return items
     }

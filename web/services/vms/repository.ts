@@ -32,6 +32,7 @@ import {
   isBlockingAccountDeletionTombstone,
 } from "../account/deletionLock";
 import type { ProviderId } from "./drivers";
+import { cloudRemoteAuthMode, type CloudRemoteAuthMode } from "./clientGrant";
 import { allocateVmSlug } from "./vmNaming";
 import {
   beginSnapshotRequest,
@@ -112,6 +113,8 @@ export type VmResizeReservation = {
 export type CloudVmStatus = CloudVmRow["status"];
 export type CloudVmSessionStatus = CloudVmSessionRow["status"];
 export const OBSERVED_DESTROY_CLEANUP_METADATA_KEY = "cmuxObservedDestroyCleanup";
+/** When a status cron last claimed this paused row to re-pause an unexpected wake (ms). */
+export const UNEXPECTED_WAKE_CLAIM_METADATA_KEY = "unexpectedWakeClaimAtMs";
 /**
  * Keep every partial-index predicate value literal. PostgreSQL generic prepared
  * plans cannot prove that a bound status parameter implies the partial index.
@@ -685,6 +688,17 @@ export type VmRepositoryShape = Partial<VmHealthRepositoryMethods> & {
     /** Durable external cleanup work inserted atomically with a terminal status. */
     readonly cleanup?: VmObservedDestroyCleanup;
   }) => Effect.Effect<boolean, VmDatabaseError>;
+  /**
+   * Claim a paused row for a re-pause after an unexpected wake. True only for
+   * the one caller that finds the row still paused and unclaimed within
+   * `ttlMs`, so overlapping status crons pause and record a wake once. The
+   * claim time is the database's clock, so callers' clocks cannot disagree.
+   */
+  readonly claimUnexpectedWakeRepause?: (input: {
+    readonly id: string;
+    readonly providerVmId: string;
+    readonly ttlMs: number;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
   readonly setDisplayName: (input: {
     readonly id: string;
     readonly displayName: string | null;
@@ -726,6 +740,13 @@ export type VmRepositoryShape = Partial<VmHealthRepositoryMethods> & {
     readonly provider: ProviderId;
     readonly snapshotId: string;
   }) => Effect.Effect<VmResourceReservation | null, VmDatabaseError>;
+  /** Authentication mode captured with an owned snapshot. */
+  readonly ownedSnapshotRemoteAuthMode?: (input: {
+    readonly userId: string;
+    readonly billingTeamId?: string | null;
+    readonly provider: ProviderId;
+    readonly snapshotId: string;
+  }) => Effect.Effect<CloudRemoteAuthMode, VmDatabaseError>;
   readonly findUserVm: (input: {
     readonly userId: string;
     readonly billingTeamId?: string | null;
@@ -788,6 +809,10 @@ export type VmRepositoryShape = Partial<VmHealthRepositoryMethods> & {
   readonly activeAccessLeasesForUser?: (userId: string) => Effect.Effect<CloudVmAccessLeaseRow[], VmDatabaseError>;
   readonly markLeasesRevoked: (ids: readonly string[]) => Effect.Effect<void, VmDatabaseError>;
   readonly recordUsageEvent: (input: VmUsageEventInput) => Effect.Effect<void, VmDatabaseError>;
+  /** Insert one snapshot-created event once across concurrent succeeded replays. */
+  readonly recordSnapshotUsageEventIfMissing?: (
+    input: VmUsageEventInput & { readonly vmId: string },
+  ) => Effect.Effect<void, VmDatabaseError>;
   readonly recordUsageEvents: (inputs: readonly VmUsageEventInput[]) => Effect.Effect<void, VmDatabaseError>;
 };
 
@@ -3826,6 +3851,30 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
       });
     }),
 
+  claimUnexpectedWakeRepause: (input) =>
+    dbEffect("claimUnexpectedWakeRepause", async () => {
+      const nowMs = sql`(extract(epoch from now()) * 1000)::bigint`;
+      const claimed = await cloudDb()
+        .update(cloudVms)
+        .set({
+          providerMetadata: sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
+            || jsonb_build_object(${UNEXPECTED_WAKE_CLAIM_METADATA_KEY}::text, ${nowMs})`,
+          // Reconciliation reads oldest `updatedAt` first; moving a claimed row
+          // to the back lets a capped run reach the wakes it left behind.
+          updatedAt: sql`greatest(${cloudVms.updatedAt} + interval '1 millisecond', now())`,
+        })
+        .where(
+          and(
+            eq(cloudVms.id, input.id),
+            eq(cloudVms.providerVmId, input.providerVmId),
+            eq(cloudVms.status, "paused"),
+            sql`coalesce((${cloudVms.providerMetadata}->>${UNEXPECTED_WAKE_CLAIM_METADATA_KEY}::text)::bigint, 0) < ${nowMs} - ${input.ttlMs}::bigint`,
+          ),
+        )
+        .returning({ id: cloudVms.id });
+      return claimed.length > 0;
+    }),
+
   setDisplayName: (input) =>
     dbEffect("setDisplayName", async () => {
       const db = cloudDb();
@@ -4039,6 +4088,29 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         memoryMb: recordedMemoryMb ?? source.memoryMb,
         diskMb: recordedDiskMb ?? source.diskMb,
       };
+    }),
+
+  ownedSnapshotRemoteAuthMode: (input) =>
+    dbEffect("ownedSnapshotRemoteAuthMode", async () => {
+      const db = cloudDb();
+      const [event] = await db
+        .select({
+          metadata: cloudVmUsageEvents.metadata,
+          sourceMetadata: cloudVms.providerMetadata,
+        })
+        .from(cloudVmUsageEvents)
+        .leftJoin(cloudVms, eq(cloudVmUsageEvents.vmId, cloudVms.id))
+        .where(
+          and(
+            accountUsageScopeWhere({ userId: input.userId, billingTeamId: input.billingTeamId }),
+            eq(cloudVmUsageEvents.provider, input.provider),
+            eq(cloudVmUsageEvents.eventType, "vm.snapshot.created"),
+            sql`${cloudVmUsageEvents.metadata}->>'snapshotId' = ${input.snapshotId}`,
+          ),
+        )
+        .orderBy(desc(cloudVmUsageEvents.createdAt), desc(cloudVmUsageEvents.id))
+        .limit(1);
+      return cloudRemoteAuthMode(event?.metadata, cloudRemoteAuthMode(event?.sourceMetadata));
     }),
 
   findUserVm: (input) =>
@@ -4357,6 +4429,37 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         provider: input.provider,
         imageId: input.imageId,
         metadata: input.metadata ?? {},
+      });
+    }),
+  recordSnapshotUsageEventIfMissing: (input) =>
+    dbEffect("recordSnapshotUsageEventIfMissing", async () => {
+      const snapshotId = input.metadata?.snapshotId;
+      if (typeof snapshotId !== "string" || !snapshotId) {
+        throw new Error("snapshot usage event requires snapshotId");
+      }
+      const db = cloudDb();
+      await db.transaction(async (tx) => {
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`vm-snapshot-event:${input.vmId}:${snapshotId}`}, 0))`);
+        const [existing] = await tx
+          .select({ id: cloudVmUsageEvents.id })
+          .from(cloudVmUsageEvents)
+          .where(and(
+            eq(cloudVmUsageEvents.vmId, input.vmId),
+            eq(cloudVmUsageEvents.eventType, "vm.snapshot.created"),
+            sql`${cloudVmUsageEvents.metadata}->>'snapshotId' = ${snapshotId}`,
+          ))
+          .limit(1);
+        if (existing) return;
+        await tx.insert(cloudVmUsageEvents).values({
+          userId: input.userId,
+          billingTeamId: input.billingTeamId ?? null,
+          billingPlanId: input.billingPlanId ?? null,
+          vmId: input.vmId,
+          eventType: input.eventType,
+          provider: input.provider,
+          imageId: input.imageId,
+          metadata: input.metadata ?? {},
+        });
       });
     }),
   recordUsageEvents: (inputs) =>

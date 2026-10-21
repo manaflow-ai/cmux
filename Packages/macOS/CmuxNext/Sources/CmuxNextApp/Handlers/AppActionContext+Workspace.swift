@@ -1,6 +1,7 @@
 import AppKit
 import os
 import CmuxNextCompat
+import CmuxNextPages
 import CmuxNextDesign
 import CmuxNextActions
 import CmuxNextDaemon
@@ -73,6 +74,7 @@ extension AppActionContext {
     /// Refuses at once when no app opens `url` (a LaunchServices database lookup); the open itself
     /// runs off the main thread (cx-050n).
     func open(_ url: URL) throws {
+        if url.scheme == "http" || url.scheme == "https" { LinkRouter.shared.open(url); return }
         guard NSWorkspace.shared.urlForApplication(toOpen: url) != nil else {
             throw ActionFailure(message: RefusalStrings.couldNotOpen(url.absoluteString))
         }

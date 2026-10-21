@@ -107,7 +107,14 @@ enum Command {
     LinkChanged,
     /// The Mac app serves ops the daemon does not own (app-op-routing.md).
     #[serde(rename = "apps-provider-register")]
-    ProviderRegister { families: Vec<String> },
+    ProviderRegister {
+        families: Vec<String>,
+        #[serde(default)]
+        inventory_watch: bool,
+    },
+    /// A fixed invalidation from the current verified agent_cli provider.
+    #[serde(rename = "apps-agent-inventory-changed")]
+    AgentInventoryChanged { demand_sequence: u64 },
     #[serde(rename = "apps-provider-result")]
     ProviderResult {
         request_id: u64,
@@ -248,6 +255,20 @@ pub(super) fn try_handle(
         return None;
     }
     let id = value.get("id").cloned();
+    if cmd == "apps-agent-inventory-changed"
+        && value.as_object().is_none_or(|fields| {
+            fields.keys().any(|key| !matches!(key.as_str(), "id" | "cmd" | "demand_sequence"))
+        })
+    {
+        return Some(reply(
+            writer,
+            id,
+            Err(crate::apps::ApiError::new(
+                "bad-request",
+                "inventory invalidation accepts only demand_sequence",
+            )),
+        ));
+    }
     let request = match serde_json::from_value::<Request>(value) {
         Ok(request) => request,
         Err(e) => {
@@ -284,6 +305,18 @@ pub(super) fn try_handle(
     // Origin `user` also needs a connection that is not bound to an agent
     // (the verified app check above does not see the agent binding).
     let origin_claim = claim_for(mux, client);
+    if matches!(request.command, Command::AgentInventoryChanged { .. })
+        && !crate::apps::hosting_app_connection(&origin_claim)
+    {
+        return Some(reply(
+            writer,
+            request.id,
+            Err(crate::apps::ApiError::new(
+                "apps.provider.forbidden",
+                "only the verified app provider invalidates inventory",
+            )),
+        ));
+    }
     if let Err(e) = crate::apps::admit_origin(request.origin, &origin_claim) {
         return Some(reply(writer, request.id, Err(e)));
     }
@@ -373,8 +406,15 @@ pub(super) fn try_handle(
             return Some(true);
         }
         Command::Logs { app, follow } => Ok(supervisor.logs(client, &app, follow)),
-        Command::ProviderRegister { families } => {
-            supervisor.register_provider(client, claim_for(mux, client), families)
+        Command::ProviderRegister { families, inventory_watch } => {
+            if inventory_watch {
+                supervisor.register_inventory_provider(client, claim_for(mux, client), families)
+            } else {
+                supervisor.register_provider(client, claim_for(mux, client), families)
+            }
+        }
+        Command::AgentInventoryChanged { demand_sequence } => {
+            supervisor.agent_inventory_changed(client, claim_for(mux, client), demand_sequence)
         }
         Command::ProviderResult { request_id, ok, body } => {
             supervisor.provider_result(client, request_id, ok, body)
@@ -501,6 +541,83 @@ mod tests {
     }
 
     #[test]
+    fn cmux_next_agent_inventory_invalidation_requires_a_verified_non_agent_local_connection() {
+        let mux = Mux::new_for_test("inventory-provider-claim", SurfaceOptions::default());
+        let frame =
+            || json!({"id":1,"cmd":"apps-agent-inventory-changed","demand_sequence":u64::MAX});
+        let (declared, out) = connection(&mux, Some("app"), false);
+        assert_eq!(
+            error_code(&mux, declared, &out, frame()).as_deref(),
+            Some("apps.provider.forbidden")
+        );
+        let (agent, out) = connection(&mux, Some("app"), true);
+        verify(&mux, agent);
+        assert_eq!(
+            error_code(&mux, agent, &out, frame()).as_deref(),
+            Some("apps.provider.forbidden")
+        );
+        for transport in [ClientTransport::WebSocket, ClientTransport::Remote] {
+            let outbound = Arc::new(BoundedOutbound::default());
+            let writer =
+                MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+            let client = mux.control_clients.register(transport, writer);
+            verify(&mux, client);
+            assert_eq!(error_code(&mux, client, &outbound, frame()).as_deref(), Some("apps.local"));
+        }
+        let (relay, out) = connection(&mux, Some("app"), false);
+        crate::server::origin_gate::set_role_for_test(&mux, relay, "page_relay");
+        crate::server::origin_gate::set_verified_app_for_test(&mux, relay, true);
+        assert_eq!(
+            error_code(&mux, relay, &out, frame()).as_deref(),
+            Some("apps.provider.forbidden")
+        );
+    }
+
+    #[test]
+    fn cmux_next_agent_inventory_invalidation_rejects_payloads_selectors_and_malformed_sequences() {
+        let mux = Mux::new_for_test("inventory-provider-frame", SurfaceOptions::default());
+        let (client, out) = connection(&mux, Some("app"), false);
+        for key in [
+            "origin",
+            "machine",
+            "expected_machine_id",
+            "event",
+            "stream",
+            "clis",
+            "command",
+            "params",
+        ] {
+            let mut frame =
+                json!({"id":1,"cmd":"apps-agent-inventory-changed","demand_sequence":1});
+            frame[key] = json!("untrusted");
+            assert_eq!(error_code(&mux, client, &out, frame).as_deref(), Some("bad-request"));
+        }
+        for sequence in [
+            Value::Null,
+            json!(true),
+            json!(-1),
+            json!(1.5),
+            json!("1"),
+            serde_json::from_str("18446744073709551616").unwrap(),
+        ] {
+            let frame =
+                json!({"id":1,"cmd":"apps-agent-inventory-changed","demand_sequence":sequence});
+            assert_eq!(error_code(&mux, client, &out, frame).as_deref(), Some("bad-request"));
+        }
+        assert_eq!(
+            error_code(&mux, client, &out, json!({"id":1,"cmd":"apps-agent-inventory-changed"}))
+                .as_deref(),
+            Some("bad-request")
+        );
+        // The full UInt64 range is parsed exactly before the authority gate.
+        let frame = json!({"id":1,"cmd":"apps-agent-inventory-changed","demand_sequence":u64::MAX});
+        assert_eq!(
+            error_code(&mux, client, &out, frame).as_deref(),
+            Some("apps.provider.forbidden")
+        );
+    }
+
+    #[test]
     fn hiding_needs_the_verified_app_and_listing_does_not() {
         let mux = Mux::new_for_test("apps-origin-other", SurfaceOptions::default());
         let hide = |origin: &str| json!({ "id": 3, "cmd": "apps-set", "origin": origin, "idempotency_key": format!("h-{origin}"), "app": "cmux/demo", "hidden": true });
@@ -551,7 +668,7 @@ mod tests {
         let register =
             parse(json!({ "cmd": "apps-provider-register", "families": ["fs", "action"] }));
         assert!(
-            matches!(register.command, Command::ProviderRegister { ref families } if families.len() == 2)
+            matches!(register.command, Command::ProviderRegister { ref families, inventory_watch: false } if families.len() == 2)
         );
         let result = parse(
             json!({ "cmd": "apps-provider-result", "request_id": 4, "ok": false, "body": { "code": "x" } }),

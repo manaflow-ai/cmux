@@ -69,6 +69,36 @@ export const DEFAULT_CHIEF_TOOLS = ["spawn", "tell", "workspaces", "chiefs"] as 
 /** The agent harnesses a Chief's subagents may use (none checked: every harness). */
 export const CHIEF_HARNESSES = ["claude", "codex", "opencode", "pi"] as const;
 
+/** The official engines a Chief's own brain runs on (its record's `engine.harness`). The first is
+ * the default: a record that names none, or "default", runs on it. Not the subagent grant above. */
+export const CHIEF_BACKENDS = [
+  { id: "claude", label: "chief.backend.claude" },
+  { id: "codex", label: "chief.backend.codex" },
+  { id: "unii", label: "chief.backend.unii" },
+] as const;
+export type ChiefBackend = (typeof CHIEF_BACKENDS)[number]["id"];
+/** The engine a Chief starts on when the person picks none. */
+export const DEFAULT_CHIEF_BACKEND: ChiefBackend = "claude";
+
+/** The engine id a record names, with absent and "default" read as the default engine. */
+export function chiefBackend(harness?: string): string {
+  const id = harness?.trim().toLowerCase();
+  return !id || id === "default" ? DEFAULT_CHIEF_BACKEND : id;
+}
+
+/** A Chief engine's display name ("Claude", "Codex", "UniiChat"); an unknown id shows as it is. */
+export function chiefBackendLabel(t: (key: string) => string, harness?: string): string {
+  const id = chiefBackend(harness);
+  const known = CHIEF_BACKENDS.find((backend) => backend.id === id);
+  return known ? t(known.label) : (harness?.trim() ?? id);
+}
+
+/** The engine chip a Chief's row shows: only when it runs on something other than the default. */
+export function chiefBackendChip(t: (key: string) => string, chief: HomeChief | undefined): string | undefined {
+  if (!chief || chiefBackend(chief.engine?.harness) === DEFAULT_CHIEF_BACKEND) return undefined;
+  return chiefBackendLabel(t, chief.engine?.harness);
+}
+
 /** A Chief record (`chief.profile.*`). */
 export interface HomeChief {
   id: string;
@@ -85,6 +115,52 @@ export interface HomeChief {
   createdAt: string;
   /** The picture's hash (the page reads its bytes once per hash). */
   avatar?: string;
+  /** The Chief's backend, the engine its brain runs on (the record's `engine`): an acpmux harness
+   * id, its model and effort. Absent fields: the Chief's usual (the owner's default, Claude). The
+   * Chief editor changes it (`chief.profile.update`, after the harness check passes). */
+  engine?: { harness?: string; model?: string; effort?: string };
+  /** Only the person may change this Chief (`locked`): every Chief write is refused. */
+  locked?: boolean;
+}
+
+/** A Chief's backend as the editor picks it: "" means the Chief's usual (the owner's default). */
+export interface HomeChiefEngine {
+  harness: string;
+  model: string;
+  effort: string;
+}
+
+/** One committed state of a Chief's record (`chief.profile.history`), newest first. */
+export interface HomeChiefRevision {
+  rev: number;
+  /** When it was committed (ISO 8601). */
+  at: string;
+  /** Who made it: a Chief's id, or empty for the person (terminal or app). */
+  actor: string;
+  /** The operation that made it (`chief.profile.update`, `chief.profile.undo`, ...). */
+  operation: string;
+  record: HomeChief;
+}
+
+/** An acpmux harness a Chief may run on (`_acpmux/harnesses` with its probed models). */
+export interface HomeChiefBackend {
+  id: string;
+  name: string;
+  models: { id: string; name: string; efforts: string[] }[];
+  /** Why acpmux will not run it now (a failed launcher check), if it says. */
+  unavailable?: string;
+}
+
+/** Bring your own backend: an ACP agent command, or an Anthropic- or OpenAI-compatible endpoint.
+ * The key goes to the Keychain through the host; the page never keeps it after submit. */
+export type HomeChiefByoBackend =
+  | { kind: "command"; name: string; command: string; args: string[] }
+  | { kind: "anthropic-endpoint" | "openai-endpoint"; name: string; baseUrl: string; model: string; apiKey: string };
+
+/** `_acpmux/harness/doctor {id, prompt: true}`: each step, the first failing one with its fix. */
+export interface HomeChiefDoctor {
+  ok: boolean;
+  steps: { name: string; ok: boolean; detail?: string; fix?: string }[];
 }
 
 /** A Chief's profile text as the sheet edits it. */

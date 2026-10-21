@@ -43,10 +43,16 @@ extension SidebarRegionView {
     /// A press moved (window points). True once a drag runs.
     func dragMoved(_ subject: SidebarRegionDragSubject, from start: NSPoint, _ event: NSEvent) -> Bool {
         guard allowsDrag else { return false }
+        // A section the list draws (the sidebar document): its item drags as any list row does, in the list's one drag.
+        if let list = docList {
+            guard case let .item(id) = subject, let section = content?.sections.first?.id else { return false }
+            if docSpentPress == id { return true } // a cancelled drag: this press starts no other
+            return list.dragTile(id, section: section.rawValue, in: self, from: start, event)
+        }
         let point = convert(event.locationInWindow, from: nil)
         if reorder == nil {
             let origin = convert(start, from: nil)
-            guard hypot(point.x - origin.x, point.y - origin.y) >= SidebarStyle.dragThreshold else { return false }
+            guard SidebarPress.movedPastThreshold(from: origin, to: point) else { return false }
             beginDrag(subject, at: origin)
         }
         updateDrag(to: point)
@@ -100,15 +106,41 @@ extension SidebarRegionView {
     }
 
     func finishDrag() {
+        if let list = docList {
+            docSpentPress = nil
+            if list.drag?.tileSource != nil { list.finishDrag() }
+            endDocPress()
+            return
+        }
         guard let drag = reorder else { return }
         reorder = nil
         _ = dropToListProbe?(nil)
         if drag.dropsToList, case let .item(id) = drag.subject {
+            // The document moves the item into the list (no remove): the band shows it until the move lands.
             onDropToList?(id)
             return land(drag)
         }
         if let sections = reorderSections, sections != content?.sections { onReorder?(drag.subject, sections) }
         land(drag)
+    }
+
+    /// The list's drag let the press go: the tile shows again (or leaves, when its section no longer holds it).
+    func endDocPress() {
+        guard let id = docPressedItem else { return }
+        docPressedItem = nil
+        itemViews[id]?.alphaValue = 1
+        if let content { update(content, width: bounds.width) }
+        relayout(animated: false)
+    }
+
+    /// A new press on an item: a drag the last press left held (its release went to another window) is
+    /// cancelled, here or in the list that draws this region, as a press on the list's rows does.
+    func endStaleDrag() {
+        guard let docList else { return cancelDrag() }
+        docList.endPointerGesture()
+        // The old press's release never comes: its tile shows again and the new press may drag.
+        docSpentPress = nil
+        endDocPress()
     }
 
     func cancelDrag() {
@@ -126,6 +158,7 @@ extension SidebarRegionView {
     private func land(_ drag: SidebarRegionDrag) {
         let host = drag.lift.superview ?? self
         SidebarReorderLift.land(drag.lift, at: frame(of: drag.subject).map { host.convert($0, from: self) }) { [weak self] in
+            drag.lift.removeFromSuperview()
             for view in drag.hidden { view.alphaValue = 1 }
             guard let self, self.reorder == nil else { return }
             self.reorderSections = nil

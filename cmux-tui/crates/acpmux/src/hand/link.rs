@@ -42,7 +42,20 @@ fn socket_url(cfg: &HandConfig) -> String {
 }
 
 pub async fn run(cfg: HandConfig) -> Result<()> {
+    // First: every acpmux path below (gateway routes, the agent daemon) is the hand's own.
+    super::daemon::use_hand_home()?;
+    // The hand holds a person key in memory: no same-uid agent may read it (Linux).
+    #[cfg(unix)]
+    if let Err(e) = crate::daemon::not_dumpable() {
+        anyhow::bail!("the hand cannot protect its person key: {e}");
+    }
     pair::check_api(&cfg.api)?;
+    // A sandbox starts its agent daemon now, so the first agent.start does not wait for it (about 1.3 s).
+    if cfg.profile == super::config::Profile::Sandbox {
+        tokio::spawn(async {
+            let _ = super::daemon::connect().await;
+        });
+    }
     // One running hand per hand home: a second copy (a service plus a manual
     // run) would take turns replacing each other's socket.
     let _lock = single_instance()?;
@@ -55,24 +68,83 @@ pub async fn run(cfg: HandConfig) -> Result<()> {
     let (out_tx, mut out_rx) = mpsc::channel::<Value>(4096);
     // Pending owner approvals outlive a reconnect: the answer may come on the next socket.
     let approvals: Approvals = Arc::default();
+    // The hand's agents run on its own keyed acpmux daemon (daemon.rs), so its
+    // connection is the proven person that answers their permission prompts.
+    agents.set_ask(owner_ask(&out_tx, &approvals));
+    let idle = agents.clone();
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(Duration::from_secs(60));
+        loop {
+            tick.tick().await;
+            idle.stop_idle().await;
+        }
+    });
     let mut backoff = Duration::from_secs(1);
     loop {
-        match serve(&cfg, &agents, &approvals, &out_tx, &mut out_rx).await {
+        let mut connected = false;
+        let ended = serve(&cfg, &agents, &approvals, &out_tx, &mut out_rx, &mut connected).await;
+        // A link that came up starts the backoff again (a long-lived hand does not drift to the maximum).
+        if connected && !matches!(ended, Err(Ended::Revoked(_))) {
+            backoff = Duration::from_secs(1);
+        }
+        match ended {
             Ok(()) => backoff = Duration::from_secs(1),
             Err(Ended::Revoked(code)) => {
                 eprintln!(
-                    "hand: the Cloud refused this hand's key (close {code}); pair it again. Retrying in 10 min."
+                    "hand: the Cloud refused this hand (close {code}: a removed hand, a wrong key or a profile that does not match its pairing); pair it again. Retrying in 10 min."
                 );
                 backoff = Duration::from_secs(600);
             }
             Err(Ended::Failed(e)) => {
                 eprintln!("hand: connection failed: {e}");
             }
+            Err(Ended::Resumed) => {
+                // The machine slept (a paused sandbox resumed): reconnect at once.
+                eprintln!("hand: the machine was suspended; connecting again");
+                continue;
+            }
         }
         // A bounded, intentional delay between reconnects (not synchronization).
         tokio::time::sleep(backoff).await;
         backoff = (backoff * 2).min(MAX_BACKOFF).max(Duration::from_secs(1));
     }
+}
+
+/// An agent's permission prompt goes to the owner as an `approve` frame (the
+/// Cloud approval flow); no answer before APPROVAL_TIMEOUT is a refusal.
+fn owner_ask(out: &mpsc::Sender<Value>, approvals: &Approvals) -> super::agent::Ask {
+    let (out, approvals) = (out.clone(), approvals.clone());
+    Arc::new(move |summary: Value| {
+        let (out, approvals) = (out.clone(), approvals.clone());
+        Box::pin(async move {
+            let aid = uuid::Uuid::now_v7().to_string();
+            let (tx, rx) = oneshot::channel();
+            approvals
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .insert(aid.clone(), tx);
+            let req = summary.get("session").cloned().unwrap_or(Value::Null);
+            if out
+                .send(json!({ "t": "approve", "id": aid, "req": req, "summary": summary }))
+                .await
+                .is_err()
+            {
+                return false;
+            }
+            match tokio::time::timeout(APPROVAL_TIMEOUT, rx).await {
+                Ok(Ok(allow)) => allow,
+                _ => {
+                    approvals
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .remove(&aid);
+                    // The Cloud closes the row: a later answer would change nothing here.
+                    let _ = out.send(json!({ "t": "approval-expired", "id": aid })).await;
+                    false
+                }
+            }
+        })
+    })
 }
 
 /// An exclusive lock on `<hand home>/hand.lock`, held for the process life.
@@ -97,7 +169,14 @@ fn single_instance() -> Result<std::fs::File> {
 enum Ended {
     Revoked(u16),
     Failed(String),
+    /// The wall clock jumped while the process did not run (the machine was paused): the socket
+    /// is gone even when the network did not say so.
+    Resumed,
 }
+
+/// How often the link checks the wall clock for a suspend, and the jump that counts as one.
+const SUSPEND_CHECK: Duration = Duration::from_secs(2);
+const SUSPEND_JUMP: Duration = Duration::from_secs(10);
 
 async fn serve(
     cfg: &Arc<HandConfig>,
@@ -105,6 +184,7 @@ async fn serve(
     approvals: &Approvals,
     out_tx: &mpsc::Sender<Value>,
     out_rx: &mut mpsc::Receiver<Value>,
+    connected: &mut bool,
 ) -> Result<(), Ended> {
     let mut req =
         socket_url(cfg).into_client_request().map_err(|e| Ended::Failed(e.to_string()))?;
@@ -137,6 +217,8 @@ async fn serve(
         "roots": cfg.roots,
         "agent_policy": cfg.agent_policy,
         "harnesses": HARNESSES,
+        // This hand applies the permission level it gets with each request (policy.rs).
+        "caps": ["levels"],
         "os": std::env::consts::OS,
         "arch": std::env::consts::ARCH,
         "hostname": pair::hostname(),
@@ -146,11 +228,24 @@ async fn serve(
         .map_err(|e| Ended::Failed(e.to_string()))?;
     // Keepalive: the Cloud answers "ping" with "pong" without waking its object;
     // no pong for KEEPALIVE_DEAD means the path is gone, so reconnect.
+    *connected = true;
     let mut keepalive = tokio::time::interval(KEEPALIVE);
     keepalive.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut last_pong = tokio::time::Instant::now();
+    // The monotonic clock stops while a VM is paused; the wall clock does not.
+    let mut suspend = tokio::time::interval(SUSPEND_CHECK);
+    suspend.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut wall = std::time::SystemTime::now();
     loop {
         tokio::select! {
+            _ = suspend.tick() => {
+                let now = std::time::SystemTime::now();
+                let jumped = now.duration_since(wall).is_ok_and(|gap| gap > SUSPEND_JUMP);
+                wall = now;
+                if jumped {
+                    return Err(Ended::Resumed);
+                }
+            }
             _ = keepalive.tick() => {
                 if last_pong.elapsed() > KEEPALIVE_DEAD {
                     return Err(Ended::Failed("no keepalive answer".into()));

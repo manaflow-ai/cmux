@@ -56,6 +56,7 @@ enum TopPages {
     static func registerProviders(_ services: AppServices) {
         services.pages.register(HistoryTopPage(services: services))
         services.pages.register(BookmarksTopPage(services: services))
+        services.pages.register(StashTopPage(services: services))
     }
 
     /// The bookmarks profile of a Bookmarks top page: the browser profile
@@ -72,7 +73,7 @@ enum TopPages {
     static func bookmarkTab(of window: WindowController, services: AppServices) -> String? {
         guard let id = window.state.workspaceID, let (workspace, _) = services.machines.workspace(id: id) else { return nil }
         let panes = workspace.screens.flatMap(\.panes)
-        let recent = (window.focus.state.history[id] ?? []).compactMap { key in panes.first { $0.id == key } }
+        let recent = (window.focus.recentPanes(in: id)).compactMap { key in panes.first { $0.id == key } }
         let ordered = recent + panes.filter { pane in !recent.contains { $0 === pane } }
         for pane in ordered {
             if let selected = window.state.selection.selection(in: pane.id),

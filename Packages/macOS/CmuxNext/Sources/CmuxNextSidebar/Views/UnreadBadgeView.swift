@@ -14,7 +14,7 @@ final class UnreadBadgeView: NSView {
     /// A fixed look instead of the Debug Settings one: tab rows draw the quiet
     /// (muted) dot under their workspace's badge (Lawrence 2026-10-14).
     var fixedLook: NotificationBadgeLook? { didSet { if fixedLook != oldValue { needsDisplay = true } } }
-    private let label = NSTextField(labelWithString: "")
+    private let label = ChromeLabel(labelWithString: "")
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -28,7 +28,7 @@ final class UnreadBadgeView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
 
     func configure(_ state: UnreadState) {
         self.state = state

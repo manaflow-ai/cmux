@@ -17,6 +17,7 @@ import {
   type Shift,
   type StepReport,
 } from "../play";
+import { createMotionController } from "../motionEvidence";
 
 /** What the matrix runner installs for trusted input (Playwright's mouse and keyboard). */
 export type GalleryInputAction = {
@@ -308,8 +309,14 @@ function measurePopups(): PopupMeasure[] {
       .filter(([, x, y]) => x >= 0 && y >= 0 && x < innerWidth && y < innerHeight)
       .map(([point, x, y]) => {
         const top = document.elementFromPoint(x, y);
-        // A nested popup over this one (a submenu) is fine; anything else on top is a layer bug.
-        const covered = !!top && !popup.contains(top) && !found.some((other) => other.contains(top));
+        // A nested popup over this one (a submenu) is fine; anything else on top is a layer bug. The
+        // popup's own positioner draws nothing over it: the point is in a rounded corner the popup
+        // does not paint (a 12 px radius leaves the 3 px inset outside it).
+        const covered =
+          !!top &&
+          !popup.contains(top) &&
+          top !== popup.closest(".ui-positioner") &&
+          !found.some((other) => other.contains(top));
         return covered ? { point, covered, by: describeElement(top!) } : { point, covered };
       });
     const clippedBy: string[] = [];
@@ -438,6 +445,7 @@ export async function runPlay(
   const anchors = (options.anchors ?? []).map((target) => ({ label: describeTarget(target), target }));
   const checks = options.checks ?? {};
   const steps: StepReport[] = [];
+  const motion = createMotionController();
   // Each step is recorded once it has settled; the matrix runner then takes that step's still.
   const record = async (step: StepReport) => {
     steps.push(step);
@@ -471,6 +479,7 @@ export async function runPlay(
   };
   const ctx: PlayContext = {
     document,
+    motion,
     find,
     click: (target) => input("click", target),
     contextMenu: (target) => input("contextmenu", target),
@@ -555,8 +564,14 @@ export async function runPlay(
   };
   try {
     await play(ctx);
-    return { status: overall(steps), steps };
+    const evidence = motion.stop();
+    return { status: evidence?.status === "fail" ? "fail" : overall(steps), steps, motion: evidence };
   } catch (error) {
-    return { status: "fail", steps, error: error instanceof Error ? error.message : String(error) };
+    return {
+      status: "fail",
+      steps,
+      motion: motion.stop(),
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
 }

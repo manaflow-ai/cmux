@@ -14,6 +14,9 @@ public final class ScreenModel: Identifiable {
     public internal(set) var viewportBaseWidth: Double
     public internal(set) var zoomedPane: PaneID?
     public internal(set) var defaultPane: PaneID?
+    /// The daemon's active screen of its workspace, as of the last snapshot or screen record
+    /// (no event moves it in between): where a `move-tab-to-workspace` lands.
+    public internal(set) var isActive: Bool
     public internal(set) var panes: [PaneModel]
     /// Palette token, nil = none (`screen-metadata-v1`).
     public internal(set) var color: String?
@@ -36,6 +39,7 @@ public final class ScreenModel: Identifiable {
         viewportBaseWidth = s.viewportBaseWidth ?? 1
         zoomedPane = s.zoomedPane
         defaultPane = s.activePane
+        isActive = s.active
         panes = s.panes.map(PaneModel.init)
         color = s.color
         icon = s.icon
@@ -56,6 +60,7 @@ public final class ScreenModel: Identifiable {
         if viewportBaseWidth != (s.viewportBaseWidth ?? 1) { viewportBaseWidth = s.viewportBaseWidth ?? 1 }
         if zoomedPane != s.zoomedPane { zoomedPane = s.zoomedPane }
         if defaultPane != s.activePane { defaultPane = s.activePane }
+        if isActive != s.active { isActive = s.active }
         if !metadataFromState {
             if color != s.color { color = s.color }
             if icon != s.icon { icon = s.icon }
@@ -65,6 +70,16 @@ public final class ScreenModel: Identifiable {
         if let reordered = reconcile(panes, with: s.panes, id: PaneModel.identity, make: PaneModel.init, update: { $0.update($1) }) {
             panes = reordered
         }
+    }
+
+    /// Lays a `layout-changed` layout (`layout-delta-v1`) over the record:
+    /// the layout fields only; panes and metadata keep their own deltas.
+    func applyLayout(_ d: ScreenLayoutDelta) {
+        if layout != d.layout { layout = d.layout }
+        if columns != d.columns { columns = d.columns }
+        if viewportBaseWidth != (d.viewportBaseWidth ?? 1) { viewportBaseWidth = d.viewportBaseWidth ?? 1 }
+        if zoomedPane != d.zoomedPane { zoomedPane = d.zoomedPane }
+        if defaultPane != d.activePane { defaultPane = d.activePane }
     }
 
     /// Lays the daemon's screen state over the record.
@@ -78,4 +93,5 @@ public final class ScreenModel: Identifiable {
     }
 
     public func pane(_ handle: PaneID) -> PaneModel? { panes.first { $0.handle == handle } }
+
 }

@@ -24,6 +24,11 @@ public final class ServerHostView: NSView {
     public var onDismiss: (() -> Void)? {
         didSet { dismissBox.action = onDismiss }
     }
+    /// Called with the approver's size whenever its layout changes size (the floating card
+    /// resizes from its top edge).
+    public var onContentSize: ((CGSize) -> Void)? {
+        didSet { dismissBox.resized = onContentSize }
+    }
 
     private let appearanceState = ServerAppearance()
     private let dismissBox = DismissBox()
@@ -65,7 +70,7 @@ public final class ServerHostView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    public override var wantsUpdateLayer: Bool { true }
+    nonisolated public override var wantsUpdateLayer: Bool { true }
 
     public override func updateLayer() {
         resolveColors()

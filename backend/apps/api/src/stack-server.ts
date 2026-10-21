@@ -1,3 +1,4 @@
+import { PERSONAL_TENANT_METADATA_KEY } from "./team-vm-api-personal-stack.ts"
 import type { Env } from "./env.ts"
 
 /**
@@ -16,12 +17,14 @@ export interface StackServer {
   findUserByEmail(email: string): Promise<{ id: string; email_verified: boolean } | undefined>
   createUser(email: string, displayName: string | undefined): Promise<{ id: string }>
   createSession(userId: string, expiresInMillis: number | undefined): Promise<{ access_token: string; refresh_token: string }>
+  /** When the user's session (a token's refresh_token_id) was created, ms; null when Stack lists no such session. */
+  sessionCreatedAt(userId: string, sessionId: string): Promise<number | null>
   /**
    * The Stack team now, or null when Stack answers TEAM_NOT_FOUND (team webhooks, cx-3bi.43).
    * `plan` is the team's client_read_only_metadata.cmuxPlan (web billing's team plan mirror,
    * inference-plans.ts), null when absent or not a string.
    */
-  getTeam(teamId: string): Promise<{ display_name: string; plan: string | null } | null>
+  getTeam(teamId: string): Promise<{ display_name: string; plan: string | null; vm_personal_tenant?: boolean } | null>
   /**
    * A user's client_read_only_metadata.cmuxPlan (web billing's personal plan mirror,
    * inference-plans.ts): the plan id, null when absent, "user_gone" for USER_NOT_FOUND.
@@ -148,8 +151,12 @@ export const stackServer = (
   }
   return {
     getTeam: async (teamId) => {
-      const r = await lookup<{ display_name?: unknown; client_read_only_metadata?: unknown }>(`/teams/${encodeURIComponent(teamId)}`, "team", ["TEAM_NOT_FOUND"])
-      return isGone(r) ? null : { display_name: typeof r.display_name === "string" ? r.display_name : "", plan: readOnlyPlan(r.client_read_only_metadata) }
+      const r = await lookup<{ display_name?: unknown; client_read_only_metadata?: unknown; server_metadata?: unknown }>(`/teams/${encodeURIComponent(teamId)}`, "team", ["TEAM_NOT_FOUND"])
+      if (isGone(r)) return null
+      // Server-only metadata: a cmux VM personal tenant (team-vm-api-personal-stack.ts) is never mirrored as a cmux team.
+      const meta = r.server_metadata
+      const vm_personal_tenant = !!meta && typeof meta === "object" && !Array.isArray(meta) && (meta as Record<string, unknown>)[PERSONAL_TENANT_METADATA_KEY] != null
+      return { display_name: typeof r.display_name === "string" ? r.display_name : "", plan: readOnlyPlan(r.client_read_only_metadata), vm_personal_tenant }
     },
     getUserPlan: async (userId) => {
       const r = await lookup<{ client_read_only_metadata?: unknown }>(`/users/${encodeURIComponent(userId)}`, "user", ["USER_NOT_FOUND"])
@@ -220,7 +227,12 @@ export const stackServer = (
     createUser: async (email, displayName) =>
       call<{ id: string }>("POST", "/users", { primary_email: email, primary_email_verified: true, ...(displayName ? { display_name: displayName } : {}) }),
     createSession: async (userId, expiresInMillis) =>
-      call<{ access_token: string; refresh_token: string }>("POST", "/auth/sessions", { user_id: userId, ...(expiresInMillis ? { expires_in_millis: expiresInMillis } : {}) })
+      call<{ access_token: string; refresh_token: string }>("POST", "/auth/sessions", { user_id: userId, ...(expiresInMillis ? { expires_in_millis: expiresInMillis } : {}) }),
+    sessionCreatedAt: async (userId, sessionId) => {
+      const r = await call<{ items?: Array<{ id?: string; created_at?: number }> }>("GET", `/auth/sessions?user_id=${encodeURIComponent(userId)}`)
+      const hit = (r.items ?? []).find((s) => s.id === sessionId)
+      return typeof hit?.created_at === "number" ? hit.created_at : null
+    }
   }
 }
 

@@ -18,9 +18,9 @@ export function chatHasFirstSend(state: LocationState): boolean {
   );
 }
 
-/// Whether the composer shows its location strip (folder · computer · branch,
+/// Whether the composer shows its visible location strip (folder · computer · branch,
 /// ComposerContext.tsx): only on a new chat, before its first send. Not every harness can change
-/// folder or machine mid-chat, and cmux does not, so a started chat has no strip at all. A
+/// folder or machine mid-chat, and cmux does not, so a started chat has no visible strip at all. A
 /// selected session whose summary has not arrived (a reopened chat loading) is not known to be
 /// new and shows none, so a chat with history never flashes it.
 export function showsLocationRow(state: LocationState): boolean {

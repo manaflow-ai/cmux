@@ -5,8 +5,8 @@ import Foundation
 /// by its `protocol` field and answers with the request's string `id`; the
 /// transport sends the numeric id as a decimal string so both envelopes
 /// share one waiter table. Selectors are the flat `machine`/`session`/…
-/// fields of `params`; this client always routes to the connected session
-/// (`current`).
+/// fields of `params`. Defaults select the connected owner/session only when
+/// the operation accepts those ancestors.
 struct ResourceRequestEnvelope: Encodable {
     var id: UInt64
     var operation: String
@@ -29,20 +29,21 @@ struct ResourceRequestEnvelope: Encodable {
         try c.encode("request", forKey: .type)
         try c.encode(String(id), forKey: .id)
         try c.encode(operation, forKey: .operation)
-        var params = params
-        params["machine"] = params["machine"] ?? .string("current")
-        params["session"] = params["session"] ?? .string("current")
-        try c.encode(params, forKey: .params)
+        try c.encode(Self.wireParams(params, operation: operation), forKey: .params)
         try c.encodeIfPresent(idempotencyKey, forKey: .idempotencyKey)
         try c.encodeIfPresent(origin, forKey: .origin)
     }
 
     /// The `params` object exactly as it goes on the wire (the defaults filled in): what an
     /// origin confirmation token is bound to.
-    static func wireParams(_ params: [String: JSONValue]) -> [String: JSONValue] {
+    static func wireParams(_ params: [String: JSONValue], operation: String) -> [String: JSONValue] {
         var params = params
-        params["machine"] = params["machine"] ?? .string("current")
-        params["session"] = params["session"] ?? .string("current")
+        if operation != "machine.list" {
+            params["machine"] = params["machine"] ?? .string("current")
+        }
+        if !["machine.list", "machine.get", "session.list"].contains(operation) {
+            params["session"] = params["session"] ?? .string("current")
+        }
         return params
     }
 

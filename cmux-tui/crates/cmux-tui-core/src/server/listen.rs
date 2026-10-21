@@ -407,13 +407,34 @@ impl ServedSession {
     /// Serve one accepted connection on its own thread (bounded by the
     /// session's connection permits).
     pub(super) fn serve(&self, stream: Box<dyn transport::Stream>) {
-        let Some(permit) = claim_connection(self.mux.connection_stats()) else { return };
+        let Some(permit) = claim_connection(self.mux.connection_stats()) else {
+            refuse_busy(stream);
+            return;
+        };
         let mux = self.mux.clone();
         let render_service = self.render_service.clone();
         let _ = std::thread::Builder::new().name("mux-conn".into()).spawn(move || {
             handle_connection_with_permit(mux, stream, render_service, Some(permit));
         });
     }
+}
+
+/// The one line a connection refused at the connection limit reads before
+/// the close, so the client can say the session is busy instead of a broken
+/// pipe or a closed transport. The CLI reads `type: "refused"`.
+pub(super) const REFUSED_BUSY_LINE: &str = concat!(
+    r#"{"protocol":"cmux.protocol/2","type":"refused","code":"server.busy","#,
+    r#""message":"the session is at its connection limit; retry"}"#,
+    "\n"
+);
+
+/// Best effort: a short write timeout keeps the accept loop from waiting on a
+/// client that does not read.
+fn refuse_busy(mut stream: Box<dyn transport::Stream>) {
+    use std::io::Write as _;
+    let _ = stream.set_write_timeout(Some(Duration::from_millis(50)));
+    let _ = stream.write_all(REFUSED_BUSY_LINE.as_bytes());
+    let _ = stream.flush();
 }
 
 /// Start the accept loop for `listener`. Every accepted connection goes to
@@ -470,4 +491,27 @@ pub fn serve_bound(mux: Arc<Mux>, bound: BoundSocket) -> anyhow::Result<PendingS
 /// Bind the socket and serve connections on background threads.
 pub fn serve(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
     serve_paused(mux, path)?.mark_ready()
+}
+
+#[cfg(all(test, unix))]
+mod refuse_busy_tests {
+    use std::io::{BufRead, BufReader};
+    use std::os::unix::net::UnixStream;
+
+    use super::{REFUSED_BUSY_LINE, refuse_busy};
+
+    #[test]
+    fn a_refused_connection_reads_one_busy_line_then_end_of_stream() {
+        let (server, client) = UnixStream::pair().unwrap();
+        refuse_busy(Box::new(server));
+        let mut reader = BufReader::new(client);
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        assert_eq!(line, REFUSED_BUSY_LINE);
+        let reply: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(reply["type"], "refused");
+        assert_eq!(reply["code"], "server.busy");
+        line.clear();
+        assert_eq!(reader.read_line(&mut line).unwrap(), 0, "the refused stream closes");
+    }
 }

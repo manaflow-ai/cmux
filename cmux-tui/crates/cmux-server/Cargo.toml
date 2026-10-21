@@ -15,7 +15,9 @@ name = "cmux-server"
 path = "src/main.rs"
 
 [dependencies]
+base64.workspace = true
 cmux-server-core = { path = "../cmux-server-core" }
+futures-util.workspace = true
 flate2.workspace = true
 getrandom.workspace = true
 libc.workspace = true
@@ -27,6 +29,11 @@ serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 tar = { version = "0.4", default-features = false }
+tokio.workspace = true
+tokio-tungstenite.workspace = true
+url.workspace = true
+x25519-dalek.workspace = true
+zeroize.workspace = true
 
 [dev-dependencies]
 tempfile = "3"

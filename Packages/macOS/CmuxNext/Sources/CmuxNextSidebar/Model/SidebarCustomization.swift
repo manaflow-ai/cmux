@@ -33,6 +33,7 @@ extension SidebarSection {
                 case let .workspace(ws): .workspace(ws.decorated(by: decorations))
                 case let .group(group):
                     .group({ var group = group; group.workspaces = group.workspaces.map { $0.decorated(by: decorations) }; return group }())
+                case .item: node
                 }
             }
             return section

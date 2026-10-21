@@ -2,7 +2,8 @@
 // The transcript's row kinds and states (conversation/*, App.tsx VirtualTranscript), each as the
 // snapshot the pane bridge would deliver. src/gallery/format.ts describes the format.
 import { agentPaneEntry } from "../../../gallery/format";
-import { activity, assistant, chat, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
+import { activity, assistant, chat, row, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
+import { SUBAGENTS } from "../subagents/subagentFold";
 import type { PlayContext } from "../../../gallery/play";
 import { workedTurnRows } from "../workedTurn";
 import { minutesAgo } from "../../../gallery/clock";
@@ -81,13 +82,20 @@ const groupedShellRows = [
 
 /// One call in the gallery's log: a host bridge call, or `acpmux <method>` for a request the page
 /// sent to the in-page mock daemon (mock.ts).
-type GalleryCall = { method: string; params?: { id?: string; sessionId?: string; archived?: unknown } };
+type GalleryCall = {
+  method: string;
+  params?: { id?: string; sessionId?: string; archived?: unknown };
+};
 /// The pane's client attached the mock daemon's chat (the menu can show before, from the stage's
 /// snapshot), and its header offers the chat menu.
 const chatMenuReady = async (ctx: PlayContext) => {
   const log = (ctx.document.defaultView as unknown as { cmuxGalleryLog: GalleryCall[] }).cmuxGalleryLog;
-  await ctx.waitFor(() => log.some(({ method }) => method === "acpmux _acpmux/attach"), { capMs: 10_000 });
-  await ctx.waitFor(() => ctx.document.querySelector('[aria-label="Chat actions"]'), { capMs: 10_000 });
+  await ctx.waitFor(() => log.some(({ method }) => method === "acpmux _acpmux/attach"), {
+    capMs: 10_000,
+  });
+  await ctx.waitFor(() => ctx.document.querySelector('[aria-label="Chat actions"]'), {
+    capMs: 10_000,
+  });
 };
 /// The plays that run the pane's real client against the in-page mock daemon.
 const mockDaemonFrames = {
@@ -122,13 +130,28 @@ const openSingleShell = async (ctx: PlayContext) => {
 
 const openGroupedShells = async (ctx: PlayContext) => {
   await openWorked(ctx);
-  await ctx.click({ selector: ".cv-tool.is-toggle" });
+  // A group of commands lists its calls without a click.
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-command").length === 2);
   await ctx.click({ selector: ".cv-command" });
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-shell__command").length === 1);
   await ctx.click({ selector: ".cv-command:nth-of-type(2)" });
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-shell__command").length === 2);
   await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-shell__exit")));
+};
+
+/// Clicks the disclosure line `selector` finds and fails when the line moved once its fold settled:
+/// opening or closing never moves the reader's view (foldAnchor.ts, Leo 2026-10-20).
+const clickHoldsLine = async (ctx: PlayContext, selector: string, expanded: boolean) => {
+  const top = () => ctx.find({ selector }).getBoundingClientRect().top;
+  const before = top();
+  await ctx.click({ selector });
+  await ctx.waitFor(
+    () =>
+      ctx.find({ selector }).getAttribute("aria-expanded") === String(expanded) &&
+      [...ctx.document.querySelectorAll(".cv-fold")].every((fold) => fold.getAnimations().length === 0),
+  );
+  const moved = top() - before;
+  if (Math.abs(moved) > 1) throw new Error(`the clicked line moved ${moved.toFixed(1)}px`);
 };
 
 const shellDisclosureChecks = {
@@ -240,7 +263,10 @@ const BUILD_CHART = [
         },
         {
           mark: { type: "tick", color: "#e8a33d", thickness: 2 },
-          encoding: { y: { field: "target", type: "nominal", sort: "-x" }, x: { field: "p90", type: "quantitative" } },
+          encoding: {
+            y: { field: "target", type: "nominal", sort: "-x" },
+            x: { field: "p90", type: "quantitative" },
+          },
         },
       ],
     },
@@ -324,6 +350,102 @@ const CHIP_HOST = {
   },
 };
 
+const completedFooterSnapshot = chat([
+  user(prompt, 30),
+  assistant(MARKDOWN_MIX, 29),
+  summary(29, { status: "completed", durationMs: 41_000, seq: 2 }),
+]);
+
+const footerActionsPlacement = (placement: "left" | "right") => async (ctx: PlayContext) => {
+  await ctx.waitFor(() => {
+    const group = ctx.document.querySelector<HTMLElement>(".cv-turn-action-group");
+    const datasetPlacement = ctx.document.documentElement.dataset.turnActionsPlacement;
+    // Left is the stylesheet default, so the bridge removes its data attribute for that side.
+    const datasetMatches = placement === "left" ? datasetPlacement === undefined : datasetPlacement === placement;
+    return (
+      datasetMatches &&
+      group !== null &&
+      group.querySelector('button[aria-label="Copy"]') !== null &&
+      group.querySelector('button[aria-label="Retry"]') !== null
+    );
+  });
+  const footer = ctx.document.querySelector<HTMLElement>(".cv-turn-actions");
+  const group = ctx.document.querySelector<HTMLElement>(".cv-turn-action-group");
+  const copy = group?.querySelector('button[aria-label="Copy"]');
+  const retry = group?.querySelector('button[aria-label="Retry"]');
+  if (!footer || !group || !copy || !retry) throw new Error("turn footer actions did not render");
+  await ctx.focus({ selector: 'button[aria-label="Copy"]' });
+  const footerBox = footer.getBoundingClientRect();
+  const groupBox = group.getBoundingClientRect();
+  const footerMid = (footerBox.left + footerBox.right) / 2;
+  const groupMid = (groupBox.left + groupBox.right) / 2;
+  if (placement === "left" ? groupMid >= footerMid : groupMid <= footerMid)
+    throw new Error(`turn footer actions are not ${placement}-aligned`);
+};
+
+/// The running line ("Thinking", "Working for") holds still: no mark blinks before its words and
+/// nothing on it loops (Leo, 2026-10-20, "the blinking ascii").
+const runningLineStill = (label: RegExp) => async (ctx: PlayContext) => {
+  await ctx.waitFor(() => label.test(ctx.document.querySelector(".cv-worked")?.textContent ?? ""));
+  const line = ctx.document.querySelector<HTMLElement>(".cv-worked")!;
+  if (line.querySelector(".cv-working-mark, .cv-activity__dots")) throw new Error("a working mark draws on the line");
+  const first = line.firstElementChild?.textContent?.trim() ?? "";
+  if (!label.test(first)) throw new Error(`the line starts with ${JSON.stringify(first)}, not its words`);
+  const loops = line
+    .getAnimations({ subtree: true })
+    .filter((animation) => animation.effect?.getTiming().iterations === Infinity);
+  if (loops.length > 0) throw new Error(`${loops.length} animations loop on the running line`);
+};
+
+/// A run of commands longer than a group shows at once (ToolGroupRow.tsx GROUP_TAIL).
+const DENSE_COMMANDS = [
+  "cd ~/Projects/cmux && git log --oneline -5 -- Sources/Sidebar",
+  "rg -n 'onDrop' webviews/src/sidebar",
+  "rg -n 'dragIndex' webviews/src/sidebar",
+  "git diff origin/feat-cmux-next -- webviews/src/sidebar/SidebarDrag.tsx",
+  "bun test test/sidebar-drag.test.tsx",
+  "rg -n 'reorder' webviews/src/sidebar/sidebarStore.ts",
+  "git log -3 --format='%h %s' -- webviews/src/sidebar/sidebarStore.ts",
+];
+const shellTool = (command: string) =>
+  tool(command, "execute", "completed", {
+    command,
+    exitCode: 0,
+    output: "",
+    startedAt: minutesAgo(2.8),
+    endedAt: minutesAgo(2.79),
+  });
+
+const MCP_THREAD = "01a14822-c01a-76a1-9fc5-1268687464d4";
+/// Codex's MCP call shape: `<server>.<tool> call`, arguments nested under `arguments`.
+const mcpTool = (name: string, args: unknown, output: string) =>
+  tool(`codex_apps.${name} call`, "execute", "completed", {
+    inputSummary: JSON.stringify({ server: "codex_apps", tool: name, arguments: args }),
+    output,
+  });
+const MCP_SENDS = ["READY #22338", "MERGED #22283", "CI armed", "Previews saved"].map((message) =>
+  mcpTool("send_message", { threadId: MCP_THREAD, message }, JSON.stringify({ ok: true })),
+);
+const MCP_READ = mcpTool(
+  "read_thread",
+  { threadId: MCP_THREAD },
+  JSON.stringify({
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          thread: {
+            id: MCP_THREAD,
+            title: "Coordination hub",
+            preview:
+              '<in-app-browser-context source="ambient-ui-state">\nActive tab\n</in-app-browser-context>\nship it',
+          },
+        }),
+      },
+    ],
+  }),
+);
+
 export default agentPaneEntry({
   id: "agent-pane.transcript",
   title: "Transcript rows",
@@ -358,7 +480,9 @@ export default agentPaneEntry({
     "agent-session/acpmux/chips/ReplyMedia.tsx",
     "agent-session/acpmux/conversation/icons.tsx#Expand",
     "agent-session/acpmux/conversation/ToolRun.tsx",
+    "agent-session/acpmux/conversation/transcriptDisclosure.tsx#TranscriptDisclosureProvider",
     "agent-session/acpmux/conversation/ToolGroupRow.tsx",
+    "agent-session/acpmux/conversation/McpCallRows.tsx#McpCallRows",
     "agent-session/acpmux/conversation/CommandRow.tsx",
     "agent-session/acpmux/conversation/ShellBlock.tsx#ShellBlock",
     "agent-session/acpmux/conversation/CopyButton.tsx#CopyButton",
@@ -371,17 +495,27 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/WorkingFor.tsx",
     "agent-session/acpmux/conversation/TurnRows.tsx",
     "agent-session/acpmux/conversation/DateLine.tsx",
-    "agent-session/acpmux/FailedPrompt.tsx",
+    "agent-session/acpmux/conversation/PromptDelivery.tsx#DeliveryFailure",
+    "agent-session/acpmux/conversation/PromptDelivery.tsx#DeliveryMark",
+    "agent-session/acpmux/conversation/icons.tsx#Clock",
     "agent-session/acpmux/PermissionCard.tsx",
   ],
   variants: {
     conversation: {
       note: "A finished exchange: prompt, markdown reply, turn footer.",
-      snapshot: chat([
-        user(prompt, 30),
-        assistant(MARKDOWN_MIX, 29),
-        summary(29, { status: "completed", durationMs: 41_000, seq: 2 }),
-      ]),
+      snapshot: completedFooterSnapshot,
+    },
+    "footer-actions-left": {
+      note: "A completed answer keeps Copy and Retry at the transcript's left edge.",
+      theme: { turnActionsPlacement: "left" },
+      snapshot: completedFooterSnapshot,
+      play: footerActionsPlacement("left"),
+    },
+    "footer-actions-right": {
+      note: "A completed answer keeps Copy and Retry at the transcript's right edge.",
+      theme: { turnActionsPlacement: "right" },
+      snapshot: completedFooterSnapshot,
+      play: footerActionsPlacement("right"),
     },
     "github-references": {
       note: "Issue and pull request references link in prose while code stays untouched.",
@@ -401,8 +535,9 @@ export default agentPaneEntry({
       snapshot: chat([user("Review the release checklist", 4), assistant(TASKS_REPLY, 3)]),
     },
     thinking: {
-      note: "A turn that started and has no output yet.",
+      note: "A turn that started and has no output yet: Thinking alone, with no blinking dots before it. Play: the line holds still.",
       snapshot: chat([user(prompt, 0.2)], { isWorking: true }),
+      play: runningLineStill(/^Thinking/),
     },
     streaming: {
       note: "A reply still streaming (its last block still open).",
@@ -435,7 +570,9 @@ export default agentPaneEntry({
       ]),
       play: async (ctx) => {
         await ctx.focus({ selector: "[contenteditable='true']" });
-        const page = ctx.document.defaultView as unknown as { cmuxAcpmuxBridge?: { lastCodeBlock?(): string | null } };
+        const page = ctx.document.defaultView as unknown as {
+          cmuxAcpmuxBridge?: { lastCodeBlock?(): string | null };
+        };
         await ctx.waitFor(() => page.cmuxAcpmuxBridge?.lastCodeBlock !== undefined);
         const copied = page.cmuxAcpmuxBridge?.lastCodeBlock?.();
         if (copied !== "retry(fetch, { attempts: 3, cap: 8000 });") throw new Error(`copied ${JSON.stringify(copied)}`);
@@ -480,7 +617,9 @@ export default agentPaneEntry({
       snapshot: forkTurns(undefined),
       play: async (ctx) => {
         await ctx.focus({ selector: "[contenteditable='true']" });
-        await ctx.waitFor(() => ctx.document.querySelectorAll('button[aria-label="Fork from here"]').length === 1);
+        await ctx.waitFor(
+          () => ctx.document.querySelectorAll('.cv-turn-actions button[aria-label="Fork from here"]').length === 1,
+        );
       },
     },
     "mark-unread-menu": {
@@ -583,17 +722,19 @@ export default agentPaneEntry({
       },
     },
     "long-thought-streaming": {
-      note: "A long thought still streaming shows in full (with the Debug toggle agentPane.debug.foldLongThoughts on, it folds only once done).",
-      snapshot: chat([user(prompt, 2), activity([thought(LONG_THOUGHT)], 1.5)], { isWorking: true }),
+      note: "A long thought still streaming shows in full. With the Debug toggle agentPane.debug.foldLongThoughts on, it holds a seven-line viewport with its newest line in view (agentPane.debug.liveThoughtViewport) and folds once done.",
+      snapshot: chat([user(prompt, 2), activity([thought(LONG_THOUGHT)], 1.5)], {
+        isWorking: true,
+      }),
     },
     "long-thought-done": {
-      note: "A long thought followed by a step. With the Debug toggle agentPane.debug.foldLongThoughts on (data-fold-long-thoughts on <html>), it folds to its first line; off, it shows in full as before.",
+      note: 'A long thought followed by a step. With the Debug toggle agentPane.debug.foldLongThoughts on (data-fold-long-thoughts on <html>), it folds to "Thought for 12s" (with agentPane.debug.thoughtHeader preview, "Thought" and its first line); off, it shows in full as before.',
       snapshot: chat(
         [
           user(prompt, 2),
           activity(
             [
-              thought(LONG_THOUGHT),
+              thought(LONG_THOUGHT, { startedAt: 0, endedAt: 12_000 }),
               tool("Read client.ts", "read", "completed", {
                 locations: [{ path: "/Users/you/src/atlas-web/src/net/client.ts" }],
               }),
@@ -635,9 +776,11 @@ export default agentPaneEntry({
       ]),
       play: async (ctx) => {
         // Cmd-F: the app sends the page `find`, and the bar takes the keyboard.
-        const page = ctx.document.defaultView as unknown as { cmuxAcpmuxBridge?: { command?(name: string): void } };
+        const page = ctx.document.defaultView as unknown as {
+          cmuxAcpmuxBridge?: { command?(name: string): void };
+        };
         page.cmuxAcpmuxBridge?.command?.("find");
-        await ctx.waitFor(() => ctx.document.activeElement?.classList.contains("acpmux-find__field") ?? false);
+        await ctx.waitFor(() => ctx.document.activeElement?.classList.contains("find-pill__field") ?? false);
         // A key at a time, as a person types: the play's type inserts its whole text in one task,
         // which ran seven query updates and the fold opening in one frame (cx-ncc.76).
         for (const key of "thought") await ctx.type(key);
@@ -653,7 +796,7 @@ export default agentPaneEntry({
       },
     },
     "working-tools": {
-      note: "Tool calls running in a live turn.",
+      note: "Tool calls running in a live turn; the status line names the call in flight.",
       snapshot: chat(
         [
           user(prompt, 2),
@@ -671,6 +814,142 @@ export default agentPaneEntry({
             ],
             1.5,
           ),
+        ],
+        { isWorking: true },
+      ),
+    },
+    "steer-continuous": {
+      note: "A message sent now while the turn ran, to an agent that cannot steer: acpmux stopped that turn and ran the message next, yet it reads as one turn. The message draws inline with no mark of its own, the line counts from the first prompt, and nothing says the turn was stopped.",
+      snapshot: chat(
+        [
+          user("Fix the flaky login test", 1.5),
+          activity(
+            [
+              thought("The login test fails one run in five; check how the retry waits for the session."),
+              tool("bun test src/auth/login", "execute", "completed", { command: "bun test src/auth/login" }),
+            ],
+            1.3,
+          ),
+          assistant("The retry races the session refresh: it reads the old token before the refresh lands.", 0.9),
+          summary(0.58, { status: "cancelled", durationMs: 55_000, continued: true }),
+          user("Also check the logout path, it uses the same retry", 0.58, { continues: true }),
+          activity(
+            [
+              tool("bun test src/auth/logout", "execute", "in_progress", {
+                command: "bun test src/auth/logout",
+                startedAt: minutesAgo(0.3),
+              }),
+            ],
+            0.3,
+          ),
+        ],
+        { isWorking: true },
+      ),
+    },
+    "working-tokens": {
+      note: "A live Claude turn says its tokens so far after its time, as Claude desktop does: Working for 5m 54s · 2.1M tokens, with no blinking dots before it. A harness that does not report each call shows the time alone. Play: the line holds still.",
+      snapshot: chat(
+        [
+          user(prompt, 5.9),
+          activity(
+            [
+              thought("The helper lives in src/net/client.ts; check how errors are parsed first."),
+              tool("Read client.ts", "read", "completed", {
+                locations: [{ path: "/Users/you/src/atlas-web/src/net/client.ts" }],
+              }),
+              tool("Search for parseError", "search", "completed"),
+            ],
+            5.85,
+          ),
+          assistant("The parser drops the status code; I'll keep it and retry only on 5xx.", 5.5),
+        ],
+        { isWorking: true, turnTokens: 2_140_000 },
+      ),
+      play: runningLineStill(/^Working for/),
+    },
+    "working-counts": {
+      note: "A live turn with background work: the line counts the two agents still running and the dev server still up, not the agent that finished. A count opens what it counts.",
+      snapshot: chat(
+        [
+          user("Start the dev server", 9),
+          activity(
+            [
+              tool("npm run dev", "execute", "completed", {
+                command: "npm run dev",
+                inputSummary: JSON.stringify({ command: "npm run dev", run_in_background: true }),
+              }),
+            ],
+            8.9,
+          ),
+          assistant("The dev server is up on port 5173.", 8.8),
+          summary(8.8, { status: "completed" }),
+          user(prompt, 3),
+          row(SUBAGENTS, 2.8, {
+            subagents: [
+              { id: "agent-retries", parent: null, name: "Retry policy", state: "running", startedAt: minutesAgo(2.8) },
+              { id: "agent-tests", parent: null, name: "Test coverage", state: "running", startedAt: minutesAgo(2.8) },
+              {
+                id: "agent-errors",
+                parent: null,
+                name: "Error parsing",
+                state: "completed",
+                startedAt: minutesAgo(2.8),
+                endedAt: minutesAgo(1.6),
+              },
+            ],
+          }),
+          activity([tool("Read client.ts", "read", "in_progress")], 1.5),
+        ],
+        { isWorking: true },
+      ),
+    },
+    "dense-live-run": {
+      note: "A running turn lists each call on its own line: the latest five commands under Ran 7 commands with +2 more, then the read, and the running MCP call named by server and action.",
+      snapshot: chat(
+        [
+          user("Find why the sidebar drag drops tabs, and hand the fix to a sub-session.", 3),
+          assistant("I'll look at the drag handlers and the recent changes first.", 2.9),
+          activity(
+            [
+              ...DENSE_COMMANDS.map((command) => shellTool(command)),
+              tool("Read SidebarDrag.tsx", "read", "completed"),
+              tool("mcp__cmux-subsessions__start_session", "other", "in_progress", {
+                inputSummary: JSON.stringify({ name: "sidebar-drag-bugs", prompt: "Fix the sidebar drag bugs" }),
+              }),
+            ],
+            2.8,
+          ),
+        ],
+        { isWorking: true },
+      ),
+    },
+    "dense-ended-run": {
+      note: "An ended turn folds under Worked for; opened, its commentary, each group and each call keep their own lines, with no Used tools summary to click through.",
+      snapshot: chat([
+        user("Find why the sidebar drag drops tabs, and hand the fix to a sub-session.", 6),
+        assistant("I'll look at the drag handlers and the recent changes first.", 5.9),
+        activity(
+          [
+            ...DENSE_COMMANDS.map((command) => shellTool(command)),
+            tool("Read SidebarDrag.tsx", "read", "completed"),
+            tool("mcp__cmux-subsessions__start_session", "other", "completed", {
+              inputSummary: JSON.stringify({ name: "sidebar-drag-bugs", prompt: "Fix the sidebar drag bugs" }),
+              output: JSON.stringify({ ok: true }),
+            }),
+          ],
+          5.8,
+        ),
+        assistant("The drop target loses its index when the list re-sorts. A sub-session is fixing it.", 3),
+        summary(3, { status: "completed", toolCount: 9, durationMs: 174_000 }),
+      ]),
+      play: openWorked,
+    },
+    "mcp-calls": {
+      note: "MCP calls read as what they did: four sends to one chat are one line, the read names the chat.",
+      snapshot: chat(
+        [
+          user("Post the lane updates to the Coordination hub and read it back.", 1),
+          activity([...MCP_SENDS, MCP_READ], 0.8),
         ],
         { isWorking: true },
       ),
@@ -722,7 +1001,10 @@ export default agentPaneEntry({
       note: "A turn the agent ended with an error.",
       snapshot: chat([
         user(prompt, 6),
-        summary(5.5, { status: "failed", error: "The agent stopped: model overloaded (529). Try again in a moment." }),
+        summary(5.5, {
+          status: "failed",
+          error: "The agent stopped: model overloaded (529). Try again in a moment.",
+        }),
       ]),
     },
     "turn-error-with-pdf": {
@@ -741,7 +1023,10 @@ export default agentPaneEntry({
             },
           ],
         }),
-        summary(5.5, { status: "failed", error: "The model stopped before reading the document. Try again." }),
+        summary(5.5, {
+          status: "failed",
+          error: "The model stopped before reading the document. Try again.",
+        }),
       ]),
     },
     "turn-error-long": {
@@ -801,7 +1086,10 @@ export default agentPaneEntry({
       snapshot: chat(
         [
           user(prompt, 6),
-          summary(5.5, { status: "failed", error: "API Error: 401 authentication_error: invalid x-api-key" }),
+          summary(5.5, {
+            status: "failed",
+            error: "API Error: 401 authentication_error: invalid x-api-key",
+          }),
         ],
         { harness: "claude" },
       ),
@@ -886,12 +1174,55 @@ export default agentPaneEntry({
         }),
       ]),
     },
+    rhythm: {
+      note: "The transcript's vertical rhythm: two prompts in one turn, each meta row right under its bubble, a reply's footer right under the reply, turns a fixed gap apart, and a Worked for turn.",
+      snapshot: chat([
+        user("Is the hosted test run done?", 20),
+        assistant("Checking the hosted run now.", 19.8),
+        user("Also check the PR checks.", 19.7),
+        assistant("Not yet: the hosted test run is still queued, and the PR checks wait on it.", 19.5),
+        summary(19.5, { status: "completed", durationMs: 17_000 }),
+        ...workedTurnRows(minutesAgo(15)),
+        summary(14, { status: "completed", toolCount: 3 }),
+      ]),
+    },
+    "prompt-delivery": {
+      note: "Each sent prompt's way to the agent: the read check once it started, unread once acpmux took it, a clock and Still sending while it waits, and one that failed with Retry, Edit, Remove and Details.",
+      snapshot: chat([
+        user("Add retries to the client", 6, {
+          delivery: { state: "read", promptId: "p1", sessionId: "s", sentAt: 0, acceptedAt: 40, readAt: 90 },
+        }),
+        assistant("Added.", 5.5),
+        summary(5.5, { status: "completed" }),
+        user("And a test for it", 3, {
+          delivery: { state: "delivered", promptId: "p2", sessionId: "s", sentAt: 0, acceptedAt: 60 },
+        }),
+        user("Then open a PR", 2, {
+          pending: true,
+          delivery: { state: "sending", promptId: "p3", sessionId: "s", sentAt: 0, slow: true },
+        }),
+        user("Ship it", 1, {
+          failed: true,
+          error: "Not sent: no answer from acpmux.",
+          delivery: {
+            state: "failed",
+            promptId: "p4",
+            sessionId: "s",
+            sentAt: 0,
+            failedAt: 60000,
+            hop: "acpmux",
+            code: "timeout",
+            error: "Not sent: no answer from acpmux.",
+          },
+        }),
+      ]),
+    },
     "edited-files": {
       note: "A turn that edited three files: the edited-files card with Undo.",
       snapshot: chat([...workedTurnRows(minutesAgo(15)), summary(14, { status: "completed", toolCount: 3 })]),
     },
     "preview-card": {
-      note: "A turn that started a local server: the preview card.",
+      note: "A turn that started a local server. Its address stays a link in the reply; the preview card under the answer shows only with the Debug toggle agentPane.debug.turnPreviewCards (data-turn-preview-cards on <html>).",
       snapshot: chat([
         user("Start the dev server", 9),
         activity(
@@ -908,6 +1239,17 @@ export default agentPaneEntry({
         summary(8.8, { status: "completed", toolCount: 1 }),
       ]),
     },
+    "token-link": {
+      note: "An agent's bare local address with a token (Leo 2026-10-20): plain link text with the token as •••, no card under the answer; hovering it offers Open and Open in.",
+      snapshot: chat([
+        user("Open the dashboard", 6),
+        assistant(
+          "The dashboard is up at http://127.0.0.1:47811?token=0f3c9a7d51e2b8846a0c3f9e1d7b2a5c6e8f0a1b and reloads on save.",
+          5.9,
+        ),
+        summary(5.9, { status: "completed" }),
+      ]),
+    },
     "chips-and-previews": {
       note: "Markdown mixing URL/path chips, host-mediated images, an oversized image guard, and a local preview.",
       chipHost: CHIP_HOST,
@@ -918,7 +1260,10 @@ export default agentPaneEntry({
       chipHost: {
         paths: {
           "/Users/you/src/atlas-web/out/build-times.png": { place: "root" as const, folder: false },
-          "/Users/you/src/atlas-web/out/build-report.pdf": { place: "root" as const, folder: false },
+          "/Users/you/src/atlas-web/out/build-report.pdf": {
+            place: "root" as const,
+            folder: false,
+          },
         },
         images: {
           "/Users/you/src/atlas-web/out/build-times.png": `data:image/png;base64,${BUILD_TIMES_PNG}`,
@@ -956,8 +1301,12 @@ export default agentPaneEntry({
     "tool-video": {
       note: "A terminal recording a tool saved plays inline with controls (muted while hovered); Expand shows it over the pane.",
       chipHost: {
-        paths: { "/Users/you/src/atlas-web/out/login-tests.mp4": { place: "root" as const, folder: false } },
-        media: { "/Users/you/src/atlas-web/out/login-tests.mp4": `data:video/mp4;base64,${LOGIN_TESTS_MP4}` },
+        paths: {
+          "/Users/you/src/atlas-web/out/login-tests.mp4": { place: "root" as const, folder: false },
+        },
+        media: {
+          "/Users/you/src/atlas-web/out/login-tests.mp4": `data:video/mp4;base64,${LOGIN_TESTS_MP4}`,
+        },
       },
       snapshot: chat([
         user("Record the login tests running so I can attach it to the PR", 4),
@@ -1023,7 +1372,14 @@ export default agentPaneEntry({
       snapshot: chat(
         [
           user("Install the tree package", 1),
-          activity([tool("bun add @pierre/trees", "execute", "pending", { command: "bun add @pierre/trees" })], 0.9),
+          activity(
+            [
+              tool("bun add @pierre/trees", "execute", "pending", {
+                command: "bun add @pierre/trees",
+              }),
+            ],
+            0.9,
+          ),
         ],
         {
           isWorking: true,
@@ -1045,7 +1401,11 @@ export default agentPaneEntry({
       note: "Play: an agent asks for a secret (cx-ncc.42). The value is typed in the private field and Provide sends it to acpmux only; the card closes and the chat never shows the value.",
       snapshot: chat([user("Create the Stripe test webhook", 1), assistant("I need your Stripe key for that.", 0.9)], {
         isWorking: true,
-        secret: { secretId: "gallery-secret", name: "STRIPE_API_KEY", reason: "Create the test webhook" },
+        secret: {
+          secretId: "gallery-secret",
+          name: "STRIPE_API_KEY",
+          reason: "Create the test webhook",
+        },
       }),
       afterCall: {
         "chat.secret": chat(
@@ -1060,6 +1420,13 @@ export default agentPaneEntry({
         await ctx.type("sk-test-51Hx9", { selector: ".acpmux-secret-card-field" });
         await ctx.click({ role: "button", name: "Provide" });
         await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-secret-card"));
+      },
+      checks: {
+        layoutShiftMax: {
+          value: 0.08,
+          reason:
+            "The card leaves the bottom stack, which lies over the transcript's foot (bottomStack.css): the stack's unpainted wrapper (div.acpmux-dock, the only source) shrinks from its top, 0.062 measured; the composer and the rows do not move.",
+        },
       },
     },
     queued: {
@@ -1222,6 +1589,18 @@ export default agentPaneEntry({
       snapshot: chat(groupedShellRows),
       play: openGroupedShells,
     },
+    "fold-holds-clicked-line": {
+      note: "Play: at the latest row, open Worked for, then a command, then close it; each line stays where it was clicked while its fold plays (height and opacity, the chevron turning).",
+      checks: shellDisclosureChecks,
+      snapshot: chat([...longChatRows.slice(-12), ...groupedShellRows]),
+      play: async (ctx) => {
+        await clickHoldsLine(ctx, ".cv-worked", true);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-command").length === 2);
+        await clickHoldsLine(ctx, ".cv-command", true);
+        await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-shell__command")));
+        await clickHoldsLine(ctx, ".cv-command", false);
+      },
+    },
   },
 });
 
@@ -1231,7 +1610,10 @@ async function forkEarlierTurn(ctx: PlayContext) {
   const page = ctx.document.defaultView as unknown as {
     cmuxGalleryLog: { method: string; params?: { throughSeq?: number } }[];
   };
-  const forks = () => [...ctx.document.querySelectorAll<HTMLButtonElement>('button[aria-label="Fork from here"]')];
+  // The answers' footers: a prompt's own row has a Fork too (UserBubble.tsx).
+  const forks = () => [
+    ...ctx.document.querySelectorAll<HTMLButtonElement>('.cv-turn-actions button[aria-label="Fork from here"]'),
+  ];
   await ctx.focus({ selector: "[contenteditable='true']" });
   await ctx.waitFor(() => forks().length === 2);
   forks()[0]!.click();

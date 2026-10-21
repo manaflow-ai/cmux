@@ -3,12 +3,20 @@
 // and opens through the host (`link.openPath`: the deny list and the session's folders after
 // symlinks, then a user gesture; outside the folders, `agentPane.links.outsideRoots` decides and
 // the host's own sheet asks). A web chip is an ordinary link, which the host opens outside the
-// pane after a real click; its icon is the site's favicon when cmux already has one.
-import type { ReactNode } from "react";
+// pane after a real click. It reads as plain link text (Claude Code desktop's links): the site's
+// favicon only beside a title cmux already has, a local or private address never dressed as a
+// site, and a secret-looking query value as `•••` (linkDisplay.ts). Hovering it opens the shared
+// link card (LinkHoverCard.tsx): Open and Open in, and a pull request's title, state, author and
+// checks.
+import { useState, type ReactNode } from "react";
 import { callChipHost } from "./host";
-import { FileDoc, Folder, Globe, Lock } from "../conversation/icons";
+import { FileDoc, Folder, GitHubMark, Globe, Lock } from "../conversation/icons";
 import { usePathInfo, useSiteInfo } from "./linkStore";
+import { isPrivateUrl, redactUrlText } from "./linkDisplay";
 import { isDeniedPath, pathName, textLinks } from "./paths";
+import { LinkHoverCard } from "./LinkHoverCard";
+import { pullRequestRef } from "./PullRequestCard";
+import { useHoverCard } from "./useHoverCard";
 
 /// A path chip. `label` is the link's text, else the file name; `written` is the reply's own
 /// text, which a path that gets no chip draws as.
@@ -40,20 +48,60 @@ function HostPathChip({ path, label, written }: { path: string; label?: ReactNod
   );
 }
 
-/// A web chip: the site's favicon when cmux has one, else `icon` (GitHub, arXiv) or a globe; the
-/// link text; the full URL in the tooltip. The anchor keeps the host's link-click path.
+/// A web link: its text, `icon` (GitHub, arXiv) when given, and the site's favicon only when cmux
+/// has the site's title too (a bare address then reads as that title). The hover card names the
+/// site and the address and offers Open and Open in. The anchor keeps the host's link-click path.
 export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNode; children: ReactNode }) {
-  const site = useSiteInfo(href);
-  const mark = site?.icon ? (
+  const privateHost = isPrivateUrl(href);
+  const known = useSiteInfo(href);
+  // A dev server's or a device's page is never dressed as a site, whatever cmux browsed there.
+  const site = privateHost ? undefined : known;
+  // The link text is the address itself (a bare URL in a reply, or an autolink).
+  const bare = typeof children === "string" && (children === href || /^[a-z][\w+.-]*:\/\//i.test(children));
+  const shown = bare ? redactUrlText(children as string) : children;
+  // A pull request or issue is a reference chip (Leo 2026-10-19, as Claude desktop draws them): a
+  // pill with the GitHub mark, `owner/repo#N`, and the title cmux already has for it.
+  const ref = githubRefLabel(href);
+  const refTitle = ref ? githubRefTitle(site?.title) : undefined;
+  const titled = !ref && Boolean(site?.title);
+  const favicon = site?.icon ? (
     <img className="cv-chip__icon cv-chip__favicon" src={site.icon} alt="" width={14} height={14} />
+  ) : undefined;
+  const mark = ref ? (
+    <GitHubMark size={13} className="cv-chip__icon cv-chip__icon--gh" />
+  ) : titled && favicon ? (
+    favicon
   ) : (
-    (icon ?? <Globe size={15} strokeWidth={1.1} className="cv-chip__icon" />)
+    icon
   );
+  // The hover card always has an icon to show.
+  const cardMark = mark ?? favicon ?? <Globe size={15} strokeWidth={1.1} className="cv-chip__icon" />;
+  const label = titled && bare ? site!.title : shown;
+  const hover = useHoverCard();
+  const [anchor, setAnchor] = useState<HTMLAnchorElement | null>(null);
+  const pullRequest = pullRequestRef(href);
   return (
-    <a className="cv-link cv-chip is-web" href={href} rel="noreferrer">
-      {mark}
-      <span className="cv-chip__label">{children}</span>
-    </a>
+    <>
+      <a
+        ref={setAnchor}
+        className={`cv-link cv-chip is-web${ref ? " is-ref" : ""}${titled ? " is-titled" : ""}`}
+        href={href}
+        rel="noreferrer"
+        {...hover.trigger}
+      >
+        {mark}
+        <span className="cv-chip__label">{label}</span>
+        {refTitle && <span className="cv-chip__title">{refTitle}</span>}
+      </a>
+      <LinkHoverCard
+        href={href}
+        anchor={anchor}
+        hover={hover}
+        mark={cardMark}
+        siteTitle={site?.title}
+        pullRequest={pullRequest && { ...pullRequest, title: refTitle }}
+      />
+    </>
   );
 }
 
@@ -70,7 +118,7 @@ export function linkedText(text: string, key: string): ReactNode[] {
         <PathChip key={`${key}-${index}`} path={link.path!} written={link.value} />
       ) : (
         <UrlChip key={`${key}-${index}`} href={link.value}>
-          {link.value}
+          {githubRefLabel(link.value) ?? link.value}
         </UrlChip>
       ),
     );
@@ -78,4 +126,23 @@ export function linkedText(text: string, key: string): ReactNode[] {
   });
   if (at < text.length) out.push(text.slice(at));
   return out;
+}
+
+const GITHUB_REF = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/(?:pull|issues)\/(\d+)\/?(?:[?#].*)?$/;
+
+/// `owner/repo#N` for a GitHub pull request or issue address, else undefined.
+export function githubRefLabel(href: string): string | undefined {
+  const match = GITHUB_REF.exec(href);
+  return match ? `${match[1]}#${match[2]}` : undefined;
+}
+
+/// A pull request's or issue's own title from GitHub's page title ("Fix the thing by leo ·
+/// Pull Request #12 · owner/repo · GitHub"), or undefined when cmux has no title for it.
+export function githubRefTitle(page: string | undefined): string | undefined {
+  if (!page) return undefined;
+  const title = page
+    .split(" · ")[0]!
+    .replace(/ by [\w-]+$/, "")
+    .trim();
+  return title && !/^(GitHub|Pull Request|Issue)\b/.test(title) ? title : undefined;
 }

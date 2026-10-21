@@ -19,6 +19,9 @@ public final class AgentTurnStateFeed {
 
     private let socket: String
     private let turns: AgentTurnStateStore
+    /// The store's source of this watch (``AgentTurnStateStore/localSource`` for the app's
+    /// own acpmux, else the mirrored host).
+    private let source: String
     private let lanes: AgentLaneStore
     private var subscription: AgentActivityLineConnection?
     private var directoryWatch: (any DispatchSourceFileSystemObject)?
@@ -27,16 +30,30 @@ public final class AgentTurnStateFeed {
     private var backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(30))
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-turn-states")
 
-    public init(socketPath: String, turns: AgentTurnStateStore = .shared, lanes: AgentLaneStore = .shared) {
+    /// - Parameters:
+    ///   - socketPath: The acpmux socket to watch.
+    ///   - turns: The store the watch writes.
+    ///   - lanes: The activity lanes the watch writes; a mirrored acpmux's watch passes its own
+    ///     store, since a page replaces every lane.
+    ///   - mirroring: Nil for this Mac's own acpmux; else the host (`chief:<id>`) of another
+    ///     acpmux on this Mac whose chats the store also mirrors.
+    public init(socketPath: String, turns: AgentTurnStateStore = .shared, lanes: AgentLaneStore = .shared,
+                mirroring host: String? = nil) {
         socket = socketPath
         self.turns = turns
         self.lanes = lanes
+        lanes.socketPath = socketPath
+        source = host ?? AgentTurnStateStore.localSource
+        if let host { turns.mirroredHosts.insert(host) }
     }
+
+    /// Whether this watch mirrors another acpmux than the app's own (it leaves `watching` alone).
+    private var isMirror: Bool { source != AgentTurnStateStore.localSource }
 
     /// Starts the watch (idempotent). `localHost` is this Mac's
     /// `install:<id>`: only its chat tabs read these states.
     public func start(localHost: @autoclosure () -> String?) {
-        if turns.localHost == nil { turns.localHost = localHost() }
+        if !isMirror, turns.localHost == nil { turns.localHost = localHost() }
         if subscription == nil, directoryWatch == nil, reconnect == nil { connect() }
     }
 
@@ -93,11 +110,11 @@ public final class AgentTurnStateFeed {
     nonisolated enum Message: Sendable {
         /// The watch result: every session's state, last message and the muted sessions.
         case page(AgentTurnStates, lastMessages: [String: String], muted: Set<String>, titles: [String: String],
-                  details: [String: AgentChatDetail], lanes: [String: AgentActivityLane])
+                  generatedTitles: [String: String], details: [String: AgentChatDetail], lanes: [String: AgentActivityLane])
         /// One `_acpmux/session_changed`: the session's new state (nil: none, or purged), last
         /// message and mute.
         case change(session: String, state: AgentTurnState?, lastMessage: String?, muted: Bool, title: String?,
-                    detail: AgentChatDetail?, lane: AgentActivityLane?)
+                    generatedTitle: String?, detail: AgentChatDetail?, lane: AgentActivityLane?)
 
         init?(line: Data) {
             guard let message = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return nil }
@@ -105,14 +122,15 @@ public final class AgentTurnStateFeed {
                 var states = AgentTurnStates()
                 states.reset(result)
                 self = .page(states, lastMessages: AgentTurnStates.lastMessages(result), muted: AgentTurnStates.muted(result: result),
-                             titles: AgentTurnStates.titles(result), details: AgentChatDetail.details(result), lanes: Self.lanes(result))
+                             titles: AgentTurnStates.titles(result), generatedTitles: AgentTurnStates.titles(result, includingPrompt: false),
+                             details: AgentChatDetail.details(result), lanes: Self.lanes(result))
             } else if message["method"] as? String == "_acpmux/session_changed", let params = message["params"] as? [String: Any],
                       let change = AgentTurnStates.change(params) {
                 let summary = params["kind"] as? String == "purged" ? nil : params["session"] as? [String: Any]
                 self = .change(session: change.session, state: change.state, lastMessage: change.lastMessage, muted: change.muted,
-                               title: change.title,
+                               title: change.title, generatedTitle: change.generatedTitle,
                                detail: (params["session"] as? [String: Any]).flatMap(AgentChatDetail.of(summary:)),
-                               lane: summary.flatMap { AgentActivityLane.of(summary: $0, id: change.session, title: change.title) })
+                               lane: summary.flatMap { AgentActivityLane.of(summary: $0, id: change.session) })
             } else {
                 return nil
             }
@@ -122,7 +140,7 @@ public final class AgentTurnStateFeed {
         static func lanes(_ result: [String: Any]) -> [String: AgentActivityLane] {
             var lanes: [String: AgentActivityLane] = [:]
             for summary in (result["sessions"] as? [Any] ?? []).compactMap({ $0 as? [String: Any] }) {
-                if let lane = AgentActivityLane.of(summary: summary, title: AgentTurnStates.title(summary)) { lanes[lane.id] = lane }
+                if let lane = AgentActivityLane.of(summary: summary) { lanes[lane.id] = lane }
             }
             return lanes
         }
@@ -130,25 +148,18 @@ public final class AgentTurnStateFeed {
 
     private func handle(_ message: Message) {
         switch message {
-        case .page(let states, let lastMessages, let muted, let titles, let details, let lanes):
+        case .page(let states, let lastMessages, let muted, let titles, let generatedTitles, let details, let lanes):
             backoff.reset()
-            if !turns.watching { turns.watching = true }
-            if turns.states != states { turns.states = states }
-            if turns.lastMessages != lastMessages { turns.lastMessages = lastMessages }
-            if turns.muted != muted { turns.muted = muted }
-            if turns.titles != titles { turns.titles = titles }
-            if turns.details != details { turns.details = details }
+            if !isMirror, !turns.watching { turns.watching = true }
+            turns.replace(states: states, lastMessages: lastMessages, muted: muted, titles: titles,
+                          generatedTitles: generatedTitles, details: details, source: source)
             if self.lanes.lanes != lanes { self.lanes.lanes = lanes }
-        case .change(let session, let state, let lastMessage, let muted, let title, let detail, let lane):
-            // Most session records leave the indicator as it was: write (and so redraw the
-            // tabs and rows that observe the store) only when the state differs.
-            if turns.states[session] != state { turns.states.set(session, state) }
-            if turns.lastMessages[session] != lastMessage { turns.lastMessages[session] = lastMessage }
-            if turns.muted.contains(session) != muted {
-                if muted { turns.muted.insert(session) } else { turns.muted.remove(session) }
-            }
-            if turns.titles[session] != title { turns.titles[session] = title }
-            if turns.details[session] != detail { turns.details[session] = detail }
+            if !self.lanes.live { self.lanes.live = true }
+        case .change(let session, let state, let lastMessage, let muted, let title, let generatedTitle, let detail, let lane):
+            // Most session records leave the indicator as it was: the store writes (and so
+            // redraws the tabs and rows that read this session) only what differs.
+            turns.apply(session: session, state: state, lastMessage: lastMessage, muted: muted, title: title,
+                        generatedTitle: generatedTitle, detail: detail, source: source)
             if lanes.lanes[session] != lane { lanes.lanes[session] = lane }
         }
     }
@@ -157,13 +168,11 @@ public final class AgentTurnStateFeed {
         guard subscription === connection else { return }
         subscription = nil
         // A closed watch knows nothing: no stale working dots until it reconnects.
-        turns.watching = false
-        turns.states.clear()
-        turns.lastMessages = [:]
-        turns.details = [:]
-        turns.muted = []
-        lanes.lanes = [:]
+        if !isMirror { turns.watching = false }
         // Titles stay: a tab keeps reading as its chat while the watch reconnects.
+        turns.clearLive(source: source)
+        lanes.lanes = [:]
+        lanes.live = false
         logger.info("agent turn states: watch closed")
         reconnect?.cancel()
         reconnect = Task { [weak self] in

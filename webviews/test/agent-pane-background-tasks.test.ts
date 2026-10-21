@@ -1,8 +1,11 @@
 // l10n-allow-file: test fixture prompts, replies and commands, not shipped UI.
 // A chat's background shells (cx-ncc.84, Claude parity). Claude's Bash calls that run in the
-// background end with acpmux's `background_task_update`. The transcript notes each end where it
-// happened ("Background task stopped · <reason>: <command>"), and the header's summary lists the
-// chat's background tasks with how each stands. The page is the pane's dev entry with its browser
+// background end with acpmux's `background_task_update`. The call's own "Ran" row says how its
+// shell stands (running in the background, then stopped or finished), in whichever turn it ended;
+// a shell whose call is not in the transcript is noted where it ended, in a few words
+// ("Background task finished: pytest -x"). The header's summary lists the chat's background tasks
+// with how each stands. A click on a note or a summary row opens the task's terminal
+// (`chat.processTerminal`, background-task-terminal-DESIGN.md). The page is the pane's dev entry with its browser
 // host, talking JSON-RPC to a stand-in acpmux daemon.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -68,6 +71,8 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
     ["mux", "turn_started", {}],
     ...background("bg1", "npm run dev"),
     ...background("bg2", "cargo watch -x test"),
+    // acpmux reports a shell that went on in the background as running (claude_stdio `running()`).
+    ended("bg2", "cargo watch -x test", "running"),
     ["in", "agent_message_chunk", say("Both are running.")],
     ["mux", "turn_result", { status: "completed" }],
     ["mux", "user_message", { text: "Stop the dev server" }],
@@ -165,38 +170,141 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  test("a background shell's end is noted where it happened", async () => {
+  test("a background shell ends on its own Ran row; one without its call is one short line", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url(CHAT));
     await page.getByText("Dev server stopped.").waitFor();
-    const note = page.getByText("Background task stopped · Stopped by the agent: npm run dev");
+    // No second row for a shell whose call is in the transcript.
+    expect(await page.getByText(/Background task .*npm run dev/).count()).toBe(0);
+    // The one whose call is not loaded is noted in the turn it ended, before its reply.
+    const note = page.getByText("Background task finished: pytest -x");
     expect(await note.isVisible()).toBe(true);
-    // In the turn that stopped it, before its reply.
     const top = (text: string) => page.getByText(text).evaluate((node) => node.getBoundingClientRect().top);
     const at = await note.evaluate((node) => node.getBoundingClientRect().top);
     expect(await top("Stop the dev server")).toBeLessThan(at);
     expect(at).toBeLessThan(await top("Dev server stopped."));
+    // The first turn's calls, under its fold: the dev server stopped (a later turn said so), the
+    // watcher still runs in the background.
+    await page
+      .getByRole("button", { name: /^Worked for/ })
+      .first()
+      .click();
+    const row = (command: string) => page.locator(".cv-tool", { hasText: command }).first();
+    await row("npm run dev").waitFor({ timeout: 5_000 });
+    const stopped = row("npm run dev").locator(".cv-command__stopped");
+    expect(await stopped.textContent()).toBe("Stopped");
+    expect(await stopped.getAttribute("title")).toBe("Stopped by the agent");
+    expect(await row("cargo watch -x test").locator(".cv-command__bg-state").getAttribute("title")).toBe(
+      "Running in background",
+    );
     await page.close();
   });
 
-  test("the summary lists the chat's background tasks and how each stands", async () => {
+  /// A page whose native host records what the page asks of it (CmuxNextAgentPane's `agentSession`).
+  const recordingPage = async () => {
+    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await page.addInitScript(() => {
+      // The dev host installs its native shims on `window.webkit` (dev-host/host.ts); each one is
+      // wrapped as it is installed, so the page talks to the dev host as before and every call is
+      // recorded. `chat.processTerminal` is answered here, as the App answers it.
+      type Call = { method: string; params: Record<string, unknown> };
+      const posted: Call[] = [];
+      const ask = "chat.processTerminal";
+      const wrap = (handlers: Record<string, any> | undefined) => {
+        const page = handlers?.cmuxPage;
+        if (page && !page.recorded) {
+          const post = page.postMessage.bind(page);
+          page.postMessage = (message: any) => {
+            if (message?.t !== "call") return post(message);
+            const method = String(message.op ?? "").replace(/^cmux\.agent\./, "");
+            posted.push({ method, params: message.params ?? {} });
+            return method === ask
+              ? Promise.resolve({ t: "ok", id: message.id, value: { opened: true } })
+              : post(message);
+          };
+          page.recorded = true;
+        }
+        const session = handlers?.agentSession;
+        if (session && !session.recorded) {
+          const post = session.postMessage.bind(session);
+          session.postMessage = (message: any) => {
+            posted.push({ method: message.method, params: message.params ?? {} });
+            return message.method === ask ? Promise.resolve({ ok: true, value: { opened: true } }) : post(message);
+          };
+          session.recorded = true;
+        }
+      };
+      let webkit: any;
+      Object.defineProperty(window, "webkit", {
+        configurable: true,
+        get: () => webkit,
+        set: (next) => {
+          wrap(next?.messageHandlers);
+          webkit = next;
+        },
+      });
+      Object.assign(window, { __posted: posted });
+    });
+    await page.goto(url(CHAT));
+    await page.getByText("Dev server stopped.").waitFor();
+    return page;
+  };
+  const opened = (page: Awaited<ReturnType<typeof recordingPage>>) =>
+    page.evaluate(() =>
+      ((window as any).__posted as { method: string; params: Record<string, unknown> }[])
+        .filter((post) => post.method === "chat.processTerminal")
+        .map((post) => post.params),
+    );
+
+  test("clicking a background task's end opens its terminal beside the chat", async () => {
+    const page = await recordingPage();
+    const note = page.getByRole("button", { name: /Background task finished: pytest -x/ });
+    await note.click();
+    await page.waitForFunction(() =>
+      ((window as any).__posted as { method: string }[]).some((post) => post.method === "chat.processTerminal"),
+    );
+    expect(await opened(page)).toEqual([{ toolCallId: "bg3" }]);
+    await page.close();
+  });
+
+  test("clicking a background task in the summary opens its terminal, a running one included", async () => {
+    const page = await recordingPage();
+    await page.getByRole("button", { name: "Chat summary" }).click();
+    const section = page.getByRole("region", { name: "Background tasks" });
+    await section.waitFor({ timeout: 5_000 });
+    await section.getByRole("button", { name: /cargo watch -x test/ }).click();
+    await page.waitForFunction(() =>
+      ((window as any).__posted as { method: string }[]).some((post) => post.method === "chat.processTerminal"),
+    );
+    expect(await opened(page)).toEqual([{ toolCallId: "bg2" }]);
+    await page.close();
+  });
+
+  test("the summary lists the chat's background tasks: running ones first, the finished folded", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url(CHAT));
     await page.getByText("Dev server stopped.").waitFor();
     await page.getByRole("button", { name: "Chat summary" }).click();
     const section = page.getByRole("region", { name: "Background tasks" });
     await section.waitFor({ timeout: 5_000 });
-    const rows = await section
-      .locator(".acpmux-summary-row")
-      .evaluateAll((items) =>
-        items.map((item) => [
-          item.querySelector(".acpmux-summary-text")?.textContent,
-          item.querySelector(".acpmux-summary-meta")?.textContent,
-        ]),
-      );
-    expect(rows).toEqual([
+    const rows = () =>
+      section
+        .locator(".acpmux-summary-task")
+        .evaluateAll((items) =>
+          items.map((item) => [
+            item.querySelector(".acpmux-summary-text")?.textContent,
+            item.querySelector(".acpmux-summary-meta")?.textContent,
+          ]),
+        );
+    // The running one says how long it has run; the ended ones wait behind one row.
+    const running = await rows();
+    expect(running.map(([command]) => command)).toEqual(["cargo watch -x test"]);
+    expect(running[0]![1]).toMatch(/^\d+[smh]/);
+    const finished = section.getByRole("button", { name: "2 finished" });
+    await finished.click();
+    expect(await finished.getAttribute("aria-expanded")).toBe("true");
+    expect((await rows()).slice(1)).toEqual([
       ["npm run dev", "Stopped"],
-      ["cargo watch -x test", "Running"],
       ["pytest -x", "Finished"],
     ]);
     await page.close();

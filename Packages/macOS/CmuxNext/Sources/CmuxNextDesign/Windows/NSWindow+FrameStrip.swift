@@ -75,6 +75,15 @@ extension NSWindow {
         return report.merging(motion.mapValues { $0 as Any }) { first, _ in first }
     }
 
+    /// `host`'s rect as fractions of the window's captured image (top-left origin), for `WindowFrame.record(crop:)`.
+    public func unitRect(of host: NSView) -> CGRect? {
+        guard host.window === self, frame.width > 0,
+              let windowHeight = contentView?.superview?.bounds.height ?? contentView?.bounds.height, windowHeight > 0
+        else { return nil }
+        let rect = host.convert(host.bounds, to: nil)
+        return CGRect(x: rect.minX / frame.width, y: (windowHeight - rect.maxY) / windowHeight, width: rect.width / frame.width, height: rect.height / windowHeight)
+    }
+
     /// `host`'s bounds in `frame` pixels (top-left origin).
     private func pixelRect(of host: NSView, frame: WindowFrame) -> CGRect? {
         guard host.window === self,

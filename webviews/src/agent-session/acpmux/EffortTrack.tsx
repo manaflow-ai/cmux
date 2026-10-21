@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from "react";
 import type { Choice } from "./ComposerPickers";
+import type { ReasoningSliderStyle } from "./composerSettings";
 import { useT } from "./i18n";
 
 /// The effort's stepped slider: a native range input (arrow keys, Home and End step it), drawn
@@ -15,6 +16,7 @@ export function EffortTrack({
   fallback,
   onRangeKey,
   onRangeClick,
+  sliderStyle = "accent",
 }: {
   efforts: Choice[];
   current?: string;
@@ -29,6 +31,8 @@ export function EffortTrack({
   /// A click on the slider, after any change it made (the reasoning menu commits the resting level).
   onRangeClick?(): void;
   autoFocus?: boolean;
+  /// Visual treatment for the opt-in reasoning slider.
+  sliderStyle?: ReasoningSliderStyle;
 }) {
   const t = useT();
   const range = useRef<HTMLInputElement>(null);
@@ -46,7 +50,11 @@ export function EffortTrack({
   const share = efforts.length > 1 ? level / (efforts.length - 1) : 0;
   return (
     <>
-      <div className="acpmux-effort-track" style={{ "--acpmux-effort": share } as React.CSSProperties}>
+      <div
+        className="acpmux-effort-track"
+        data-slider-style={sliderStyle}
+        style={{ "--acpmux-effort": share } as React.CSSProperties}
+      >
         <span className="acpmux-effort-fill" />
         {efforts.map((choice, index) =>
           index === level ? null : (

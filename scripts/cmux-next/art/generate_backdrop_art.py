@@ -129,7 +129,8 @@ def render_entries(works: list[dict]) -> str:
             f"museum: {swift_string(work['museum'])}, collection: .{work['collection']}, "
             f"source: {swift_string(work['source'])}, license: {swift_string(work['license'])}, "
             f"sha256: {swift_string(work['sha256'])}, bundled: {'true' if work['bundled'] else 'false'}, "
-            f"focal: ({work['focal'][0]}, {work['focal'][1]}), tone: .{work['tone']}, palette: [{palette}], "
+            f"focal: ({work['focal'][0]}, {work['focal'][1]}), "
+            f"subject: ({', '.join(str(v) for v in work['subject'])}), tone: .{work['tone']}, palette: [{palette}], "
             f"quietLeft: {'true' if work['quiet'] == 'left' else 'false'}, tint: {work['tint']}, "
             f"darkest: {hex_literal(work['darkest'])}, lightest: {hex_literal(work['lightest'])})"
         )

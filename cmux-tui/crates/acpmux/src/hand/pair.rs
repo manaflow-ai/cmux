@@ -49,7 +49,8 @@ pub async fn pair(
     let profile = Profile::parse(profile)?;
     let roots = match (profile, roots.is_empty()) {
         (Profile::Sandbox, true) => vec![PathBuf::from("/")],
-        (Profile::Mac, true) => bail!("a mac hand needs at least one --root folder"),
+        // Broad by default (#13742): the person's home; the classifier and the hard denies guard it.
+        (Profile::Mac, true) => vec![dirs::home_dir().context("no home folder")?],
         (_, false) => roots
             .into_iter()
             .map(|r| std::fs::canonicalize(&r).with_context(|| format!("root {}", r.display())))

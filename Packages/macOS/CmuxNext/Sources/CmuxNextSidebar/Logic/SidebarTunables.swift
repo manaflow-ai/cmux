@@ -1,6 +1,46 @@
 public import CmuxNextDesign
 public import CoreGraphics
 
+/// Prototype variants for the sidebar's width transition (Debug Settings
+/// `sidebar.collapseMotion`). The default keeps the existing slide-only
+/// behavior; the fade variant is opt-in so the two looks can be compared
+/// without changing a user's normal configuration.
+public nonisolated enum SidebarCollapseMotionVariant: String, Sendable, CaseIterable, Hashable, TunableChoice {
+    /// The current sidebar transition: the panel stays opaque while its clip
+    /// width moves to (or from) zero.
+    case slide
+    /// The panel's content fades with the width transition, keeping the
+    /// geometry unchanged while avoiding a hard edge at the end of a hide.
+    case slideFade
+
+    public var tunableTitle: String {
+        switch self {
+        case .slide: "Slide"
+        case .slideFade: "Slide and fade"
+        }
+    }
+
+    var fadesPanel: Bool { self == .slideFade }
+}
+
+/// Prototype variants for a workspace's generated/display title changing after
+/// a new tab or agent chat becomes identifiable (`sidebar.workspaceTitleMotion`).
+/// The title keeps its measured slot in every variant, so a late name never
+/// causes a row reflow or a one-frame blank replacement.
+public nonisolated enum SidebarWorkspaceTitleMotionVariant: String, Sendable, CaseIterable, Hashable, TunableChoice {
+    case instant
+    case crossfade
+    case lift
+
+    public var tunableTitle: String {
+        switch self {
+        case .instant: "Instant"
+        case .crossfade: "Crossfade"
+        case .lift: "Lift"
+        }
+    }
+}
+
 /// Debug Settings tunables of sidebar drag and drop (`DropResolver`).
 /// Sidebar sizes come from `Metrics` (`MetricTunables`).
 public nonisolated enum SidebarTunables {
@@ -25,6 +65,12 @@ public nonisolated enum SidebarTunables {
         help: "Where the middle band of a loose workspace row ends. Equal to the start turns grouping on drop off.",
         default: 0.7, range: 0.5...1, step: 0.01, unit: .fraction, code: "SidebarTunables.workspaceOntoEnd")
 
+    /// How far a press moves before it drags (`SidebarPress.dragThreshold`; Leo 2026-10-20: a click never drags).
+    public static let dragThreshold = Tunable<CGFloat>.number(
+        "sidebar.drag.threshold", .sidebar, "Drag start distance",
+        help: "How far a press on a sidebar row, tab row or tile moves before it drags; a shorter move stays a click.",
+        default: 6, range: 2...16, step: 0.5, unit: .points, code: "SidebarTunables.dragThreshold")
+
     public static let agentMark = Tunable<SidebarAgentMarkVariant>.choice(
         "sidebar.agentMark", .sidebar, "Agent mark",
         help: "Where a workspace row draws the brand mark of an agent running in it (R79 prototype).",
@@ -37,13 +83,74 @@ public nonisolated enum SidebarTunables {
         help: "A round dot per agent acting right now, in the agent's theme color: on its workspace row (hover lists what each one touches) and on its tab chip (prototype).",
         default: false, code: "SidebarTunables.presenceDots")
 
+    /// Rows show their agent sessions' acpmux lane state (`SidebarLaneStatus`): working, waiting
+    /// on you, failed, idle, even when no turn state reached the row. Off by default.
+    public static let laneStatus = Tunable<Bool>.toggle(
+        "sidebar.laneStatus", .sidebar, "Rows show acpmux lane status",
+        help: "A workspace row's status mark also follows the acpmux lane of each agent chat in it on this Mac: waiting on you or failed wins, then working, then the row's own status.",
+        default: false, code: "SidebarTunables.laneStatus")
+
+    /// The pull requests' hover card on a row's pull request badge (`SidebarPullRequestCard`,
+    /// `sidebar.sessionTree`); on by default.
+    public static let pullRequestCard = Tunable<Bool>.toggle(
+        "sidebar.pullRequestCard", .sidebar, "Pull request hover card",
+        help: "Hovering a row's pull request badge (with the session tree on) lists each pull request with its state, repository and size; a click opens it.",
+        default: true, code: "SidebarTunables.pullRequestCard")
+
     /// Sample rows with 1 to 7 pending items (`SidebarSection.rowBadgePreview()`).
     public static let rowBadgePreview = Tunable<Bool>.toggle(
         "sidebar.rowBadgePreview", .sidebar, "Row badge preview rows",
         help: "Adds sample rows with 1 to 7 pending items to the sidebar, to compare the row badges without real sessions.",
         default: false, code: "SidebarTunables.rowBadgePreview")
 
+    /// A detail line adds exactly its own height to a row, so one-line and two-line rows keep the
+    /// same room above and below their text (Leo 2026-10-20). Off: the app's fixed 12 pt step.
+    public static let evenRowText = Tunable<Bool>.toggle(
+        "sidebar.evenRowText", .sidebar, "Even row text spacing",
+        help: "A row's detail line adds its own height, so rows with one line and rows with two keep the same space above and below their text.",
+        default: true, code: "SidebarTunables.evenRowText")
+
+    /// The width transition used when the sidebar is collapsed or expanded.
+    /// `.slide` is the shipped behavior; `.slideFade` is a DEV/NIGHTLY
+    /// prototype for comparing a fast opacity fade against the same geometry.
+    public static let collapseMotion = Tunable<SidebarCollapseMotionVariant>.choice(
+        "sidebar.collapseMotion", .sidebar, "Sidebar collapse motion",
+        help: "Prototype for hiding and showing the sidebar: slide keeps the panel opaque; slide and fade fades its content with the same width motion.",
+        default: .slide, code: "SidebarTunables.collapseMotion")
+
+    /// The transition used when a workspace row receives its generated or
+    /// agent-derived title after creation. Crossfade is the shipped default (#21242).
+    public static let workspaceTitleMotion = Tunable<SidebarWorkspaceTitleMotionVariant>.choice(
+        "sidebar.workspaceTitleMotion", .sidebar, "Workspace title motion",
+        help: "Prototype for a late workspace or agent-chat title: instant, crossfade, or a short upward lift in the existing title slot.",
+        default: .instant, code: "SidebarTunables.workspaceTitleMotion")
+
+    /// Every sidebar tunable, one per line in alphabetical order, so two pull requests that each add
+    /// one insert different lines and merge cleanly (#21946). Debug Settings lists them in this order.
     public static var all: [TunableDescriptor] {
-        [groupEdgeFraction, groupExitFraction, sectionTopFraction, workspaceOntoStart, workspaceOntoEnd].map(\.descriptor) + [agentMark.descriptor, presenceDots.descriptor, SidebarRowBadgeStyle.tunable.descriptor, SidebarRowBadgeStackCap.tunable.descriptor, rowBadgePreview.descriptor, NotificationBadgeLook.tunable.descriptor, NotificationIconLook.tunable.descriptor, updateCardButton.descriptor, SidebarChatsDesign.tunable.descriptor] + SidebarSectionTunables.all
+        [
+            agentMark.descriptor,
+            collapseMotion.descriptor,
+            dragThreshold.descriptor,
+            evenRowText.descriptor,
+            groupEdgeFraction.descriptor,
+            groupExitFraction.descriptor,
+            laneStatus.descriptor,
+            NotificationBadgeLook.tunable.descriptor,
+            NotificationIconLook.tunable.descriptor,
+            presenceDots.descriptor,
+            pullRequestCard.descriptor,
+            rowBadgePreview.descriptor,
+            sectionTopFraction.descriptor,
+            SidebarChatsDesign.tunable.descriptor,
+            SidebarGroupHeaderStyle.tunable.descriptor,
+            SidebarGroupPalette.tunable.descriptor,
+            SidebarRowBadgeStackCap.tunable.descriptor,
+            SidebarRowBadgeStyle.tunable.descriptor,
+            updateCardButton.descriptor,
+            workspaceOntoEnd.descriptor,
+            workspaceOntoStart.descriptor,
+            workspaceTitleMotion.descriptor,
+        ] + SidebarSectionTunables.all
     }
 }

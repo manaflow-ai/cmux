@@ -1,12 +1,15 @@
 import { DurableObject } from "cloudflare:workers"
 import type { Env } from "../env.ts"
-import { ackWake, chiefPrincipal, typing } from "../chief-brain/brain-io.ts"
+import { assertFaultHooks } from "../chief-fault.ts"
+import { ackWake, chiefPrincipal, readConversation, typing } from "../chief-brain/brain-io.ts"
+import { turnFailedNotice } from "../chief-brain/brain-gateway.ts"
 import type { Admission } from "../chief-brain/brain-do.ts"
 import type { Step } from "../chief-brain/brain-runs.ts"
-import { HOLDER, signedFetch } from "../chief-brain/claude-auth.ts"
+import { signedFetch, turnsObject } from "../chief-brain/claude-auth.ts"
 import { claudeRoute, isMetered } from "../model-gateway/routes.ts"
 import { gatewayMessages } from "../model-gateway/http.ts"
 import { payerTeam } from "../credits.ts"
+import { messagesEffectAuthorized } from "../chief-brain/effect-policy.ts"
 import type { CpNote, CpRun, CpWake } from "./contract.ts"
 import { brainModel, hostCall, HostRefused, type Who } from "./host.ts"
 import { LiveRuns } from "./live-runs.ts"
@@ -45,7 +48,7 @@ const PLUGIN_DIR = "/opt/cmux-chief/plugin"
 
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS oc_config (name TEXT PRIMARY KEY, value TEXT NOT NULL)`,
-  `CREATE TABLE IF NOT EXISTS oc_wake (n INTEGER PRIMARY KEY AUTOINCREMENT, wake_id TEXT UNIQUE NOT NULL, conversation TEXT NOT NULL, seq INTEGER NOT NULL, reason TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'queued', tries INTEGER NOT NULL DEFAULT 0, run TEXT)`,
+  `CREATE TABLE IF NOT EXISTS oc_wake (n INTEGER PRIMARY KEY AUTOINCREMENT, wake_id TEXT UNIQUE NOT NULL, conversation TEXT NOT NULL, seq INTEGER NOT NULL, reason TEXT NOT NULL, effect_authorized INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL DEFAULT 'queued', tries INTEGER NOT NULL DEFAULT 0, run TEXT)`,
   `CREATE TABLE IF NOT EXISTS oc_cursor (conversation TEXT PRIMARY KEY, seq INTEGER NOT NULL)`,
   // The P tables the run readers use (brain-runs.ts): one row per run, one per step.
   `CREATE TABLE IF NOT EXISTS cb_turn (id TEXT PRIMARY KEY, conversation TEXT NOT NULL, trigger_message TEXT NOT NULL, trigger_kind TEXT NOT NULL, trigger_thread_root TEXT, last_seq INTEGER NOT NULL, status TEXT NOT NULL, reason TEXT, model TEXT NOT NULL, started INTEGER NOT NULL, ended INTEGER, submitted INTEGER NOT NULL DEFAULT 0, input TEXT, reply TEXT, post TEXT, posted_message TEXT, turn_key TEXT, post_tries INTEGER NOT NULL DEFAULT 0, post_key INTEGER NOT NULL DEFAULT 0)`,
@@ -88,6 +91,9 @@ export class OpencodeBrainDO extends DurableObject<Env> {
   private schema(): void {
     if (this.schemaReady) return
     for (const q of SCHEMA) this.sql.exec(q)
+    if (!this.sql.exec<{ name: string }>(`PRAGMA table_info(oc_wake)`).toArray().some((c) => c.name === "effect_authorized")) {
+      this.sql.exec(`ALTER TABLE oc_wake ADD COLUMN effect_authorized INTEGER NOT NULL DEFAULT 0`)
+    }
     this.schemaReady = true
   }
   private hasSchema(): boolean {
@@ -136,9 +142,13 @@ export class OpencodeBrainDO extends DurableObject<Env> {
     if (this.get("agent") !== w.agent) return { skipped: "other_chief" }
     this.set("owner", w.owner)
     const cursor = this.sql.exec<{ seq: number }>(`SELECT seq FROM oc_cursor WHERE conversation = ?`, w.conversation).toArray()[0]?.seq
+    // A resent wake whose message a later turn already read is answered: nothing to do (MuxDO redelivery).
+    if (cursor !== undefined && w.seq <= cursor) return { queued: 0 }
     // A conversation this brain never answered starts just before the wake: older history is context, not a question.
     if (cursor === undefined) this.sql.exec(`INSERT INTO oc_cursor (conversation, seq) VALUES (?, ?)`, w.conversation, w.seq - 1)
-    const fresh = this.sql.exec(`INSERT INTO oc_wake (wake_id, conversation, seq, reason) VALUES (?, ?, ?, ?) ON CONFLICT (wake_id) DO NOTHING RETURNING n`, `${w.conversation}:${w.seq}`, w.conversation, w.seq, w.reason).toArray()
+    const view = await readConversation(this.env, w.conversation, chiefPrincipal(w.agent, w.owner))
+    const author = "refused" in view ? undefined : view.messages.find((m) => m.seq === w.seq)?.author
+    const fresh = this.sql.exec(`INSERT INTO oc_wake (wake_id, conversation, seq, reason, effect_authorized) VALUES (?, ?, ?, ?, ?) ON CONFLICT (wake_id) DO NOTHING RETURNING n`, `${w.conversation}:${w.seq}`, w.conversation, w.seq, w.reason, author === w.owner ? 1 : 0).toArray()
     this.kick(w.conversation)
     return { queued: fresh.length }
   }
@@ -165,12 +175,15 @@ export class OpencodeBrainDO extends DurableObject<Env> {
     }
   }
 
-  private async who(): Promise<Who | { refused: string }> {
+  private async who(turnWake?: number): Promise<Who | { refused: string }> {
     const agent = this.get("agent")
     const owner = this.get("owner")
     if (!agent || !owner) return { refused: "unbound" }
     const a = (await this.settings(agent).admit(agent, owner, false)) as Admission
-    return a.ok ? { agent, owner, config: { ...a.config, model: brainModel(a.config.model) } } : { refused: a.reason }
+    const effects = this.hasSchema() && turnWake !== undefined
+      ? this.sql.exec<{ effect_authorized: number }>(`SELECT effect_authorized FROM oc_wake WHERE n = ? AND state = 'running'`, turnWake).toArray()
+      : []
+    return a.ok ? { agent, owner, effects_authorized: effects.length > 0 && effects.every((r) => r.effect_authorized === 1), config: { ...a.config, model: brainModel(a.config.model) } } : { refused: a.reason }
   }
 
   private async turn(conversation: string, row: { n: number; seq: number; reason: string; tries: number }): Promise<void> {
@@ -183,8 +196,15 @@ export class OpencodeBrainDO extends DurableObject<Env> {
     // A metered model counts against the deployment's daily Claude cap, as on P (the holder decides).
     const model = brainModel(admitted.config.model)
     if (row.tries === 0 && isMetered(model)) {
-      const holder = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(HOLDER))
-      if (!(await holder.claudeTurn(owner, model).catch(() => false))) return this.endWake(row.n, run, "skipped", "the deployment's daily Claude cap is reached")
+      // The owner's turns object counts it (no global object; claude-auth.ts ownerTurn). Only "ok" runs.
+      const turns = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(turnsObject(owner)))
+      const verdict = await turns.claudeTurn(owner, model).catch(() => "unreachable")
+      if (verdict !== "ok") {
+        this.endWake(row.n, run, "skipped", `no paid turn (${verdict})`)
+        // A paid model this owner may not use: the same notice as on P, never a silent wake (its own key: P run ids use run_<n> too).
+        if (verdict === "owner_not_allowed" || verdict === "model_not_offered") await turnFailedNotice(this.env, this.sql, admitted.config, conversation, `oc_${run}`, `no paid turn (${verdict})`, undefined)
+        return
+      }
     }
     this.sql.exec(`UPDATE oc_wake SET state = 'running', run = ?, tries = tries + 1 WHERE n = ?`, run, row.n)
     // An eviction mid-turn loses the in-memory loop: the alarm picks the running row up again.
@@ -369,12 +389,15 @@ export class OpencodeBrainDO extends DurableObject<Env> {
     const id = (body?.id ?? null) as string | number | null
     const reply = (r: { result: unknown } | { error: { code: number; message: string } }) => Response.json({ jsonrpc: "2.0", id, ...r })
     if (!body || typeof body.method !== "string") return reply({ error: { code: -32600, message: "invalid request" } })
-    // Brain requests are served only for a running turn, and only for that turn's conversation.
-    const running = new Set(this.sql.exec<{ conversation: string }>(`SELECT conversation FROM oc_wake WHERE state = 'running'`).toArray().map((r) => r.conversation))
     let params = (body.params ?? {}) as Record<string, unknown>
-    if (body.method !== "initialize" && running.size === 0) return reply({ error: { code: -32003, message: "no turn is running" } })
-    if ("conversation" in params && !running.has(String(params.conversation))) return reply({ error: { code: -32003, message: "not this turn's conversation" } })
-    const who = await this.who()
+    const turnWake = Number(params._turn_wake)
+    const running = Number.isSafeInteger(turnWake) && turnWake > 0
+      ? this.sql.exec<{ conversation: string }>(`SELECT conversation FROM oc_wake WHERE n = ? AND state = 'running'`, turnWake).toArray()[0]
+      : undefined
+    if (body.method !== "initialize" && !running) return reply({ error: { code: -32003, message: "no matching turn is running" } })
+    if (running && "conversation" in params && String(params.conversation) !== running.conversation) return reply({ error: { code: -32003, message: "not this turn's conversation" } })
+    delete params._turn_wake
+    const who = await this.who(running ? turnWake : undefined)
     if ("refused" in who) return reply({ error: { code: -32003, message: who.refused } })
     if (body.method === "chief/ack") {
       // The wake id names the conversation; the brain reports the newest message it read.
@@ -385,7 +408,16 @@ export class OpencodeBrainDO extends DurableObject<Env> {
       params = { conversation: wake.conversation, cursor }
     }
     try {
-      return reply({ result: await hostCall(this.env, who, body.method, params) })
+      const result = await hostCall(this.env, who, body.method, params)
+      // The returned view is the exact prompt input. Taint the bound turn before the brain can
+      // make a tool call when any participant other than the owner contributed to that view.
+      if (body.method === "conversation/read" && running) {
+        const messages = (result as { messages?: ReadonlyArray<{ author?: { id?: unknown; kind?: unknown } }> }).messages ?? []
+        if (!messagesEffectAuthorized(messages, who.owner)) {
+          this.sql.exec(`UPDATE oc_wake SET effect_authorized = 0 WHERE n = ? AND state = 'running'`, turnWake)
+        }
+      }
+      return reply({ result })
     } catch (e) {
       return reply({ error: { code: e instanceof HostRefused ? e.code : -32000, message: e instanceof Error ? e.message.slice(0, 500) : String(e) } })
     }
@@ -401,6 +433,14 @@ export class OpencodeBrainDO extends DurableObject<Env> {
     if ("refused" in who) return Response.json({ type: "error", error: { type: "permission_error", message: who.refused } }, { status: 403 })
     // The host model gateway (model-gateway/http.ts): allow-list, prepaid credits of the owner's team, the Claude route.
     return gatewayMessages(this.env, { team: payerTeam(who.owner), chief: who.agent, owner: who.owner, run: "opencode" }, request)
+  }
+
+  /** Test-only (chief-fault.ts, CHIEF_FAULT_HOOKS, never staging or production): stop the container at once, as a crash. */
+  async fault(): Promise<{ stopped: boolean }> {
+    assertFaultHooks(this.env)
+    if (!this.ctx.container?.running) return { stopped: false }
+    this.ctx.container.signal(9)
+    return { stopped: true }
   }
 
   // ------------------------------------------------------------------ retries, turn guard and idle sleep

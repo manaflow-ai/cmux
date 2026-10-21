@@ -8,4 +8,15 @@ extension PageWebView {
         get { webView.contextMenuEditor }
         set { webView.contextMenuEditor = newValue }
     }
+
+    /// Keeps WebKit's desktop default items in `menu` (Copy on a selection): what a page without a
+    /// ``contextMenuEditor`` shows. An editor that adds items calls it first.
+    public static func keepDefaultMenuItems(in menu: NSMenu) {
+        PageWKWebView.keepDesktopItems(in: menu)
+    }
+
+    /// A menu item titled `title` that runs `handler` (the item keeps the handler alive).
+    public static func menuItem(_ title: String, handler: @escaping () -> Void) -> NSMenuItem {
+        PageMenuAction.item(title, handler: handler)
+    }
 }

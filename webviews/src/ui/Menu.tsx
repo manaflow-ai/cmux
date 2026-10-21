@@ -3,6 +3,8 @@
 import {
   createContext,
   use,
+  useCallback,
+  useLayoutEffect,
   useRef,
   useState,
   type ComponentProps,
@@ -18,6 +20,7 @@ import { cx } from "./cx";
 import { UI_ANCHOR_GAP } from "./anchor";
 import { isMousePress, trackPressRelease } from "./pressRelease";
 import { focusAfterEscape } from "./escapeFocus";
+import { focusWithRing } from "./focusWithRing";
 
 export interface MenuProps {
   open?: boolean;
@@ -32,6 +35,10 @@ interface MenuContextValue {
   isOpen: boolean;
   /** The menu button, where Escape hands the keyboard back. */
   trigger: RefObject<HTMLButtonElement | null>;
+  /** What had focus when the menu opened, where a pointer close puts it back. */
+  opener: RefObject<Element | null>;
+  /** The last input in the open menu was a key (Base UI's close type names how it opened). */
+  keyed: RefObject<boolean>;
   beginPointer(event: PointerEvent<HTMLElement>): void;
   movePointer(event: PointerEvent<HTMLElement>): void;
   activatePointer(event: PointerEvent<HTMLElement>, activate: () => void): boolean;
@@ -45,14 +52,24 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, children }: Men
   const session = useRef<PointerSession | null>(null);
   const pointerCleanup = useRef<(() => void) | null>(null);
   const trigger = useRef<HTMLButtonElement | null>(null);
+  const opener = useRef<Element | null>(null);
+  const keyed = useRef(false);
+  const captured = useRef(false);
   const isOpen = open ?? internalOpen;
   const setMenuOpen = (next: boolean) => {
+    if (next && !isOpen) {
+      opener.current = trigger.current?.ownerDocument.activeElement ?? null;
+      keyed.current = false;
+      captured.current = true;
+    }
     if (open === undefined) setInternalOpen(next);
     onOpenChange?.(next);
   };
   const context: MenuContextValue = {
     isOpen,
     trigger,
+    opener,
+    keyed,
     beginPointer(event) {
       if (!isMousePress(event)) return;
       const wasOpen = isOpen;
@@ -105,6 +122,19 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, children }: Men
       // remains selectable while the original trigger still owns pointer capture.
     },
   };
+  // A menu opened through `open` (automation, a parent's state) skips setMenuOpen: record what has
+  // focus now, unless the popup already took it, so a close never returns to a past session's opener.
+  useLayoutEffect(() => {
+    if (!isOpen) {
+      captured.current = false;
+      return;
+    }
+    if (captured.current) return;
+    captured.current = true;
+    keyed.current = false;
+    const active = trigger.current?.ownerDocument.activeElement ?? null;
+    opener.current = active?.closest(".ui-popup") ? null : active;
+  }, [isOpen]);
   return (
     <MenuContext value={context}>
       <BaseMenu.Root modal={false} open={isOpen} onOpenChange={setMenuOpen} onOpenChangeComplete={onOpenChangeComplete}>
@@ -125,6 +155,8 @@ export interface MenuButtonProps {
   "aria-labelledby"?: string;
   /** The name automation finds the menu by (`button[data-menu]`), whatever the UI language. */
   "data-menu"?: string;
+  /** Also holds the button, for a caller that anchors other UI to it. */
+  buttonRef?: RefObject<HTMLButtonElement | null>;
   children: ReactNode;
 }
 
@@ -136,12 +168,16 @@ export function MenuButton({
   "aria-haspopup": ariaHasPopup,
   "aria-labelledby": ariaLabelledBy,
   "data-menu": dataMenu,
+  buttonRef,
   children,
 }: MenuButtonProps) {
   const context = use(MenuContext);
   return (
     <BaseMenu.Trigger
-      ref={context?.trigger}
+      ref={(node: HTMLButtonElement | null) => {
+        if (context) context.trigger.current = node;
+        if (buttonRef) buttonRef.current = node;
+      }}
       className={cx("ui-button", className)}
       aria-label={label}
       title={title}
@@ -197,6 +233,12 @@ export interface MenuPopupProps {
   finalFocus?: boolean | RefObject<HTMLElement | null>;
   /** Keys the menu takes beyond Base UI's own (a mode menu's number keys). */
   onKeyDown?: (event: KeyboardEvent<HTMLDivElement>) => void;
+  /**
+   * A selector for the box the menu (and its submenus) stays inside, found from the menu button
+   * (the agent pane's chat column). Base UI sizes `--available-width` and `--available-height` to
+   * it; without one, or when the button has no such ancestor, the box is the window.
+   */
+  boundary?: string;
   children: ReactNode;
 }
 
@@ -205,6 +247,8 @@ export interface MenuPopupProps {
 const PopupSurface = createContext<string | undefined>(undefined);
 /// Inside a menu's popup: a submenu's popup leaves its focus return to Base UI (its own item).
 const InPopup = createContext(false);
+/// The box a menu's popups stay inside (`MenuPopupProps.boundary`), so its submenus keep to it too.
+const PopupBoundary = createContext<Element | undefined>(undefined);
 
 export function MenuPopup({
   id,
@@ -216,6 +260,7 @@ export function MenuPopup({
   anchor,
   finalFocus,
   onKeyDown,
+  boundary,
   children,
 }: MenuPopupProps) {
   const container = usePortalContainer();
@@ -223,7 +268,25 @@ export function MenuPopup({
   const host = usePopupHost();
   const menu = use(MenuContext);
   const nested = use(InPopup);
+  // The boundary box, found from the menu button as the menu opens; a submenu inherits it.
+  const inherited = use(PopupBoundary);
+  const [own, setOwn] = useState<Element | undefined>(undefined);
+  const triggerRef = menu?.trigger;
+  const menuOpen = menu?.isOpen ?? false;
+  useLayoutEffect(() => {
+    if (menuOpen) setOwn(boundary ? (triggerRef?.current?.closest(boundary) ?? undefined) : undefined);
+  }, [boundary, triggerRef, menuOpen]);
+  const collisionBoundary = boundary ? own : inherited;
   const [popup, setPopup] = useState<HTMLElement | null>(null);
+  // The popup's last node: Base UI asks where focus goes after the close fade, as it unmounts.
+  const popupNode = useRef<HTMLElement | null>(null);
+  const attachPopup = useCallback(
+    (node: HTMLElement | null) => {
+      if (node) popupNode.current = node;
+      if (host) setPopup(node);
+    },
+    [host],
+  );
   // No room above or below in the page: past the window's edge (popupHost.ts). Side menus stay.
   useEscapingPopup(side === "top" || side === "bottom" ? host : null, popup, () => anchorElement(anchor, popup), {
     side: side === "top" ? "top" : "bottom",
@@ -238,17 +301,24 @@ export function MenuPopup({
         anchor={anchor}
         side={side}
         collisionAvoidance={flip ? undefined : { side: "none" }}
+        {...(collisionBoundary ? { collisionBoundary } : {})}
         align={align}
         sideOffset={UI_ANCHOR_GAP}
       >
         <BaseMenu.Popup
           // Only a page with a host measures its menus; the others render as they did.
-          ref={host ? setPopup : undefined}
+          ref={attachPopup}
           id={id}
           aria-label={label}
           className={cx("ui-popup ui-menu", className)}
-          finalFocus={finalFocus}
+          finalFocus={
+            finalFocus ?? (nested ? undefined : (closeType) => focusAfterClose(closeType, menu, popupNode.current))
+          }
+          onPointerDown={() => {
+            if (menu) menu.keyed.current = false;
+          }}
           onKeyDown={(event) => {
+            if (menu) menu.keyed.current = true;
             // Escape puts the keyboard back on the menu button (escapeFocus.ts). Its own Escape
             // only, not a submenu's (React carries that one up through the portal).
             if (
@@ -262,12 +332,40 @@ export function MenuPopup({
           }}
         >
           <InPopup value>
-            <PopupSurface value={className}>{children}</PopupSurface>
+            <PopupBoundary value={collisionBoundary}>
+              <PopupSurface value={className}>{children}</PopupSurface>
+            </PopupBoundary>
           </InPopup>
         </BaseMenu.Popup>
       </BaseMenu.Positioner>
     </BaseMenu.Portal>
   );
+}
+
+/// Where focus goes when a top-level menu closes. A keyboard close puts it on the trigger, with its
+/// ring. A pointer close (a pick or a press outside) puts focus back where it was when the menu
+/// opened (the prompt), else on the trigger, never with a focus ring: a ring left on a chip after a
+/// click away read as a stuck focus state (Leo 2026-10-18). Focus the close left elsewhere on purpose
+/// (another chip's menu opened by the same press, a field clicked into) stays there.
+function focusAfterClose(
+  closeType: string,
+  menu: MenuContextValue | null,
+  popup: HTMLElement | null,
+): boolean | HTMLElement | null {
+  if (!menu) return true;
+  const active = menu.trigger.current?.ownerDocument.activeElement;
+  if (active && active !== active.ownerDocument.body && !popup?.contains(active)) return false;
+  if (closeType === "keyboard" || menu.keyed.current) return menu.trigger.current ?? true;
+  const opener = menu.opener.current;
+  const target =
+    opener instanceof HTMLElement &&
+    opener.isConnected &&
+    opener !== opener.ownerDocument.body &&
+    !opener.closest("[inert]")
+      ? opener
+      : menu.trigger.current;
+  if (target?.isConnected) focusWithRing(target, { preventScroll: true, focusVisible: false });
+  return false;
 }
 
 /** What a menu opened from: its `anchor` (an element or a virtual anchor), else its open trigger. */
@@ -375,17 +473,25 @@ export function MenuRadioItem({
   disabled,
   shortcut,
   closeOnClick,
+  label,
+  title,
   children,
 }: {
   value: string;
   /** Close the menu when picked (Base UI keeps a radio menu open by default). */
   closeOnClick?: boolean;
+  /** The row's accessible name, for a row that draws only an icon. */
+  label?: string;
+  /** The row's tooltip. */
+  title?: string;
 } & Omit<MenuItemProps, "onSelect">) {
   const context = use(MenuContext);
   return (
     <BaseMenu.RadioItem
       className={cx("ui-menu-item", className)}
       value={value}
+      aria-label={label}
+      title={title}
       disabled={disabled}
       closeOnClick={closeOnClick}
       onPointerMove={(event) => context?.movePointer(event)}

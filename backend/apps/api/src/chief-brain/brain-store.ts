@@ -24,13 +24,14 @@ const EFFORTS = Effort.literals
 export const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS cb_config (name TEXT PRIMARY KEY, value TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS cb_cursor (conversation TEXT PRIMARY KEY, seq INTEGER NOT NULL)`,
-  `CREATE TABLE IF NOT EXISTS cb_inbox (n INTEGER PRIMARY KEY AUTOINCREMENT, message TEXT UNIQUE NOT NULL, conversation TEXT NOT NULL, seq INTEGER NOT NULL, kind TEXT NOT NULL, thread_root TEXT, text TEXT NOT NULL, woke INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL DEFAULT 'queued', turn TEXT)`,
-  `CREATE TABLE IF NOT EXISTS cb_turn (id TEXT PRIMARY KEY, conversation TEXT NOT NULL, trigger_message TEXT NOT NULL, trigger_kind TEXT NOT NULL, trigger_thread_root TEXT, last_seq INTEGER NOT NULL, status TEXT NOT NULL, reason TEXT, model TEXT NOT NULL, started INTEGER NOT NULL, ended INTEGER, submitted INTEGER NOT NULL DEFAULT 0, input TEXT, reply TEXT, post TEXT, posted_message TEXT, turn_key TEXT, post_tries INTEGER NOT NULL DEFAULT 0, post_key INTEGER NOT NULL DEFAULT 0)`,
+  `CREATE TABLE IF NOT EXISTS cb_inbox (n INTEGER PRIMARY KEY AUTOINCREMENT, message TEXT UNIQUE NOT NULL, conversation TEXT NOT NULL, seq INTEGER NOT NULL, kind TEXT NOT NULL, thread_root TEXT, text TEXT NOT NULL, effect_authorized INTEGER NOT NULL DEFAULT 0, woke INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL DEFAULT 'queued', turn TEXT)`,
+  `CREATE TABLE IF NOT EXISTS cb_turn (id TEXT PRIMARY KEY, conversation TEXT NOT NULL, trigger_message TEXT NOT NULL, trigger_kind TEXT NOT NULL, trigger_thread_root TEXT, last_seq INTEGER NOT NULL, effect_authorized INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL, reason TEXT, model TEXT NOT NULL, started INTEGER NOT NULL, ended INTEGER, submitted INTEGER NOT NULL DEFAULT 0, input TEXT, reply TEXT, post TEXT, posted_message TEXT, turn_key TEXT, post_tries INTEGER NOT NULL DEFAULT 0, post_key INTEGER NOT NULL DEFAULT 0)`,
   `CREATE TABLE IF NOT EXISTS cb_step (turn TEXT NOT NULL, step TEXT NOT NULL, seq INTEGER NOT NULL, body TEXT NOT NULL, PRIMARY KEY (turn, step))`,
   `CREATE INDEX IF NOT EXISTS cb_turn_conversation ON cb_turn (conversation, started)`,
   `CREATE TABLE IF NOT EXISTS oc_logged (key TEXT PRIMARY KEY)`,
   // Model usage per run (the model gateway's terminal messages): tokens, cache, cost; Run.usage / Run.cost_usd.
   `CREATE TABLE IF NOT EXISTS cb_timing (turn TEXT PRIMARY KEY, request_at INTEGER, first_token_at INTEGER)`,
+  `CREATE TABLE IF NOT EXISTS cb_run_error (turn TEXT PRIMARY KEY, text TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS cb_marks (turn TEXT NOT NULL, mark TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (turn, mark))`,
   `CREATE TABLE IF NOT EXISTS cb_usage (turn TEXT PRIMARY KEY, calls INTEGER NOT NULL, input INTEGER NOT NULL, output INTEGER NOT NULL, cache_read INTEGER NOT NULL, cache_write INTEGER NOT NULL, cost_usd REAL NOT NULL)`
 ]

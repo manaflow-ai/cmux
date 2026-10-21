@@ -409,7 +409,10 @@ fn surface_event_scope_filters_before_remote_cache_invalidation() {
 
     session.handle_line(json!({"event": "layout-changed", "screen": 2}));
     assert!(session.tree_is_stale());
-    assert!(matches!(events.recv_timeout(Duration::from_secs(1)), Ok(MuxEvent::LayoutChanged(2))));
+    assert!(matches!(
+        events.recv_timeout(Duration::from_secs(1)),
+        Ok(MuxEvent::LayoutChanged(2, _))
+    ));
     session.tree_stale.store(false, Ordering::Release);
 
     session.handle_line(json!({

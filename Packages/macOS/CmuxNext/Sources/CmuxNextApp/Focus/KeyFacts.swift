@@ -11,12 +11,20 @@ nonisolated struct KeyFacts: Equatable, Sendable {
     /// The focused screen has a primary input and none of its text
     /// fields has the keyboard (`PrimaryInputTarget`).
     var primaryInputReady = false
+    /// The focused screen's primary input claims this key wherever in the
+    /// screen the keyboard is (`PrimaryInputTarget.routesToPrimaryInput`):
+    /// printable and dead keys, plus any key the screen adds (Home's history
+    /// arrows). Read only for a key that is not a Command or Control chord.
+    var primaryInputClaimsKey = false
     /// The focused page cannot take typing yet: its document has not
     /// focused its primary input, or keys typed before still wait.
     var pageInputPending = false
     /// The focused React page's id (`cmux.markdown`): context key
     /// `pageId`; the markdown page also sets `markdownFocused`.
     var pageID: String?
+    /// The focused markdown page shows a file it cannot save
+    /// (`markdownReadOnlyFocused`, else `markdownEditorFocused`).
+    var markdownReadOnly = false
     /// A list-like control in the focused page has the keyboard (R85;
     /// the sidebar list and its field imply it without this).
     var listFocus = false
@@ -35,4 +43,12 @@ nonisolated struct KeyFacts: Equatable, Sendable {
     /// The top page the window shows (`home`), which fills the content
     /// area without a pane: its `surfaceKind`.
     var topPage: String?
+    /// The focused code editor waits for the second key of its own key sequence (Monaco's
+    /// Cmd-K Cmd-0): the next key goes to it, not to an app binding (`cmux.editor.keySequence`).
+    var pageKeySequencePending = false
+    /// A terminal's TextBox composer has the keyboard (`textBoxFocused`): its Shift-Tab cycles the
+    /// submit action instead of reaching the terminal.
+    var textBoxFocused = false
+    /// The window's sidebar has two or more rows selected (`sidebar.multiSelection` while it has the keyboard).
+    var sidebarMultiSelection = false
 }

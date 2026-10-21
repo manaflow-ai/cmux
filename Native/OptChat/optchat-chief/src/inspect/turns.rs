@@ -86,7 +86,7 @@ pub fn turn_prompt(chat: &OptChat, start: &Value, system_text: &str) -> TurnProm
     let images = start["layout"]["images"].as_u64().unwrap_or(0);
     if images > 0 && note.is_none() {
         note = Some(format!(
-            "This turn also sent {images} image block(s) before its messages; they are not shown."
+            "This turn also sent {images} image block(s) after its delta; they are not shown."
         ));
     }
     if ids.is_empty() && note.is_none() {
@@ -114,8 +114,86 @@ pub fn turn_prompt(chat: &OptChat, start: &Value, system_text: &str) -> TurnProm
                 "blocks".to_owned()
             }
         });
+    // Spec 5a turns: the frozen view (its unbuilt parts as the
+    // placeholder), the delta (its log range), then the per-turn tail.
+    let frozen_input = start["layout"]["delta"].as_object().and_then(|d| {
+        let n = |k: &str| d.get(k).and_then(Value::as_u64).unwrap_or(0);
+        let names = |k: &str| -> Vec<String> {
+            d.get(k)
+                .and_then(Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(str::to_owned))
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        let frozen = optchat_core::Frozen {
+            parts: parts.clone(),
+            front: n("front"),
+            unbuilt: crate::state::parse_nodes(&names("unbuilt"))?,
+            cuts: d
+                .get("cuts")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(Value::as_u64).collect())
+                .unwrap_or_default(),
+            starts: d
+                .get("starts")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(Value::as_u64).collect())
+                .unwrap_or_default(),
+        };
+        Some(chat.turn_input_at(&frozen, n("new_from"), n("end")))
+    });
+    let (view, view_matches) = match &frozen_input {
+        Some((text, _)) => (
+            Some(text.clone()),
+            Some(hash(text).as_str()) == view_ev["hash"].as_str(),
+        ),
+        None => (view, view_matches),
+    };
+    let delta = frozen_input.map(|(_, delta)| delta);
     let view_text = view.as_deref().unwrap_or("");
-    let (system, blocks) = if layout == "cached" {
+    let input_tail = || {
+        at_work
+            .into_iter()
+            .chain(home)
+            .chain(
+                start["layout"]["resumes"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str),
+            )
+            .collect::<Vec<_>>()
+            .join("\n\n")
+    };
+    let (system, blocks) = if let Some(delta) = &delta {
+        let marker = start["layout"]["marker"].as_bool().unwrap_or(false);
+        let ttl = start["layout"]["ttl"]
+            .as_str()
+            .and_then(crate::prompt::CacheTtl::parse)
+            .unwrap_or(crate::prompt::CacheTtl::FiveMinutes);
+        if layout == "cached" {
+            let l = crate::prompt::input_layout(
+                system_text,
+                view_text,
+                delta,
+                start["layout"]["delta"]["prev_end_block"]
+                    .as_u64()
+                    .map(|b| b as usize),
+                &[],
+                &input_tail(),
+                marker.then_some(ttl),
+            );
+            (l.system, l.blocks)
+        } else {
+            (
+                system_text.to_owned(),
+                crate::prompt::input_blocks(view_text, delta, &[], &input_tail()),
+            )
+        }
+    } else if layout == "cached" {
         let marker = start["layout"]["marker"].as_bool().unwrap_or(true);
         // The traced mark and TTL; a trace from before them: the last whole
         // block at 5 minutes.

@@ -38,6 +38,10 @@ export const isClaude = (name: string | undefined | null): name is string => typ
 export const isOpenRouter = (name: string | undefined | null): name is string => typeof name === "string" && name.startsWith(OPENROUTER_PREFIX)
 /** A model billed to a deployment account (Claude route or OpenRouter): allow-list, holder cap, never the compactor. */
 export const isMetered = (name: string | undefined | null): name is string => isClaude(name) || isOpenRouter(name)
+/** The model a Chief's turns use on O (opencode): the profile's model when the gateway serves it, else Claude Opus 5.5. */
+export const brainModel = (model: string): string => (model.startsWith("claude-") || model.startsWith("openrouter:") ? model : "claude-opus-5-5")
+/** Where O turns really run (a container): only then does an opencode Chief's turn use brainModel; else the pi brain answers on the profile's model. */
+export const opencodeRuns = (env: Env): boolean => env.CHIEF_OPENCODE_ENABLED === "1" && env.CHIEF_OPENCODE_CONTAINER === "1" && env.OPENCODE_BRAIN_DO !== undefined
 
 export type RouteAuth = "stack-session" | "service-key" | "bearer"
 /** The Bedrock model id a `service-key` route takes in the body's `model`. */
@@ -132,7 +136,9 @@ export const pickTurnModel = async (model: string, fallback: string | undefined,
   const verdict = isMetered(model) ? await allowed(model) : "ok"
   if (verdict === "ok") return { model }
   const reason = `${model}: ${verdict}`
-  if (!fallback) return { model: null, reason }
-  const second = isMetered(fallback) ? await allowed(fallback) : "ok"
+  // A paid Chief falls back only to a paid model the route serves and the same gate allows (Haiku):
+  // never silently to a different, unmetered model (parity run 2026-10-16: a rate-limited Workers AI model).
+  if (!fallback || !isMetered(fallback)) return { model: null, reason: fallback ? `${reason}; no paid fallback (${fallback} is not one)` : reason }
+  const second = await allowed(fallback)
   return second === "ok" ? { model: fallback, reason } : { model: null, reason: `${reason}; ${fallback}: ${second}` }
 }

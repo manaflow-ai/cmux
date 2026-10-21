@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextSettings
 
@@ -20,6 +21,11 @@ nonisolated enum NewTabKind: Equatable, Sendable {
         if selectedKind == .browser { return .browser(engine: engine) }
         if isLocalBrowser { return .browser(engine: nil) }
         return .terminal
+    }
+
+    /// `tabs.terminalFirst` (#23021): a person's Cmd-T, Cmd-D and Cmd-Shift-D open a terminal, as in cmux classic.
+    @MainActor static func terminalFirst(_ services: AppServices) -> Bool {
+        services.settings?.snapshot.terminalFirst ?? TerminalFirstSetting.fallback
     }
 
     /// The action that opens this kind on its own, whose title New <Kind> Tab takes in a tab's menu.

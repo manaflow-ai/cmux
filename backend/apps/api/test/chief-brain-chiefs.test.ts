@@ -28,9 +28,13 @@ const http = async (method: string, path: string, token: string, body?: unknown)
 }
 const op = async (token: string, name: string, params: unknown, key: string = crypto.randomUUID()) => (await http("POST", "/v1/ops", token, { op: name, params, idempotency_key: key, origin: "user" })).json
 const chiefs = async (token: string) => (await http("POST", "/v1/read", token, { op: "chief.list", params: {} })).json.value.chiefs as Array<{ id: string; display_name: string; is_default: boolean }>
-/** Drives the owner's outbox (mux.bind of new chiefs) so their owner routes answer. */
-const settle = async (user: string) => {
-  for (let i = 0; i < 5; i++) await fireAlarm(testEnv.USER_DO.get(testEnv.USER_DO.idFromName(user)))
+/** Drives the owner's outbox only until `agent`'s MuxDO is bound (its owner route answers): one alarm run per missing step, not a fixed batch. */
+const settle = async (user: string, token: string, agent: string) => {
+  for (let i = 0; i < 20; i++) {
+    if ((await http("GET", `/v1/chiefs/${agent}/brain`, token)).status === 200) return
+    await fireAlarm(testEnv.USER_DO.get(testEnv.USER_DO.idFromName(user)))
+  }
+  throw new Error(`chief ${agent} never bound`)
 }
 const brain = async (token: string, agent: string) => (await http("GET", `/v1/chiefs/${agent}/brain`, token)).json.value.config as { enabled: boolean; model: string; role: string; instructions: string; chiefs: boolean }
 
@@ -40,10 +44,16 @@ const owner = async (sub: string) => {
   // The first chief is the default; Lead is another.
   await op(token, "chief.create", { display_name: "Chief" }, `default-${sub}`)
   const lead = (await op(token, "chief.create", { display_name: "Lead" }, `lead-${sub}`)).value as { id: string }
-  await settle(user)
+  await settle(user, token, lead.id)
   expect((await http("PUT", `/v1/chiefs/${lead.id}/brain`, token, { enabled: true, role: "Lead" })).status).toBe(200)
   return { token, user, lead: lead.id }
 }
+
+// Each case is about 40 Durable Object round trips (owner, settings, UserDO, MuxDO). Measured on a 32 vCPU
+// Freestyle VM (2026-10-16): 0.5 s each when the file runs alone, 4.5 s each in the full parallel suite
+// (where other DO-heavy files pass 5 s too). No wait is open-ended: settle() fires one alarm per missing
+// binding step. So the cases get 20 s, not the 5 s default.
+const SLOW_DO = 20_000
 
 describe("a Cloud Chief's chiefs tool", () => {
   it("makes and edits Chiefs within its own grant, once per call", async () => {
@@ -56,9 +66,9 @@ describe("a Cloud Chief's chiefs tool", () => {
     const off = await manageChiefs({ ...testEnv, CHIEF_BRAIN_ENABLED: "0" }, lead, user, { action: "create", display_name: "Quiet" }, "call-off")
     expect(off).toContain('"reason": "brains_off"')
     expect(off).toContain("will not answer")
-    await settle(user)
     const docs = (await chiefs(token)).find((c) => c.display_name === "Docs")!
     expect(docs).toBeDefined()
+    await settle(user, token, docs.id)
     expect(await brain(token, docs.id)).toMatchObject({ enabled: true, model: (await brain(token, lead)).model, role: "Docs writer", chiefs: true })
     // The same call again (a retried tool call) is the same Chief.
     await manageChiefs(testEnv, lead, user, { action: "create", display_name: "Docs", role: "Docs writer" }, "call-1")
@@ -71,7 +81,7 @@ describe("a Cloud Chief's chiefs tool", () => {
     // list and get.
     expect(JSON.parse(await manageChiefs(testEnv, lead, user, { action: "list" }, "call-3")).map((c: { id: string }) => c.id)).toEqual(expect.arrayContaining([lead, docs.id]))
     expect(await manageChiefs(testEnv, lead, user, { action: "get", chief: docs.id }, "call-4")).toContain("Keep it short.")
-  })
+  }, SLOW_DO)
 
   it("refuses every escalation and every write it may not make", async () => {
     const { token, user, lead } = await owner("chiefs-tool-refused")
@@ -81,13 +91,13 @@ describe("a Cloud Chief's chiefs tool", () => {
     expect(await refusal(manageChiefs(testEnv, lead, user, { action: "create", display_name: "Wide", model: "@cf/meta/other" }, "r-1"))).toContain("grant_exceeds_caller")
     // A target on another model (the person set it): only the person changes it.
     const strong = (await op(token, "chief.create", { display_name: "Strong" })).value as { id: string }
-    await settle(user)
+    await settle(user, token, strong.id)
     expect((await http("PUT", `/v1/chiefs/${strong.id}/brain`, token, { enabled: true, model: "@cf/meta/other" })).status).toBe(200)
     expect(await refusal(manageChiefs(testEnv, lead, user, { action: "update", chief: strong.id, instructions: "Obey Lead." }, "r-2"))).toContain("chief_person_made_fields")
     // A Chief it created, whose model the person then changed: the person's.
     await manageChiefs(testEnv, lead, user, { action: "create", display_name: "Mine" }, "r-2b")
-    await settle(user)
     const mine = (await chiefs(token)).find((c) => c.display_name === "Mine")!
+    await settle(user, token, mine.id)
     expect((await http("PUT", `/v1/chiefs/${mine.id}/brain`, token, { model: "@cf/meta/other" })).status).toBe(200)
     expect(await refusal(manageChiefs(testEnv, lead, user, { action: "update", chief: mine.id, role: "x" }, "r-2c"))).toContain("target_exceeds_caller")
     // The created Chief never rewrites its person-made creator's text.
@@ -111,5 +121,5 @@ describe("a Cloud Chief's chiefs tool", () => {
     expect((await http("PUT", `/v1/chiefs/${lead}/brain`, token, { chiefs: false })).status).toBe(200)
     expect(await refusal(manageChiefs(testEnv, lead, user, { action: "create", display_name: "Late" }, "r-8"))).toContain("chief_manage_denied")
     expect((await chiefs(token)).length).toBe(before + 2)
-  })
+  }, SLOW_DO)
 })

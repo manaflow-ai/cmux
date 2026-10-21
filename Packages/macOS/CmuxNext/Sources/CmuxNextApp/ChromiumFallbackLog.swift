@@ -52,7 +52,20 @@ final class ChromiumFallbackLog {
     static func notice(for reason: CEFUnavailableReason) -> String {
         switch reason {
         case .notBundled: BrowserEngineStrings.fallbackNotBundled
+        case .downloading: BrowserEngineStrings.fallbackDownloading
+        case .downloadFailed: BrowserEngineStrings.fallbackDownloadFailed
         case .startFailed, .shutDown: BrowserEngineStrings.fallbackStartFailed
+        }
+    }
+
+    /// Why an explicit Chromium request is refused (localized). A download in
+    /// progress or retrying gets its own text; the other reasons keep their
+    /// failure detail.
+    static func refusal(for reason: CEFUnavailableReason) -> String? {
+        switch reason {
+        case .downloading(let fraction): BrowserEngineStrings.downloading(fraction)
+        case .downloadFailed: BrowserEngineStrings.downloadFailed
+        case .notBundled, .startFailed, .shutDown: nil
         }
     }
 }
@@ -61,6 +74,22 @@ final class ChromiumFallbackLog {
 enum BrowserEngineStrings {
     static var fallbackNotBundled: String {
         String(localized: "browser.engine.fallback.notBundled", defaultValue: "Chromium isn’t in this build, so this tab uses WebKit.", bundle: .module)
+    }
+    static var fallbackDownloading: String {
+        String(localized: "browser.engine.fallback.downloading",
+               defaultValue: "Chromium is downloading, so this tab uses WebKit. New tabs use Chromium when it’s ready.", bundle: .module)
+    }
+    static var fallbackDownloadFailed: String {
+        String(localized: "browser.engine.fallback.downloadFailed",
+               defaultValue: "Chromium couldn’t download yet, so this tab uses WebKit. cmux will try again.", bundle: .module)
+    }
+    /// The refusal while the download runs; `fraction` (0...1) shows as a percentage, 0 before bytes flow.
+    static func downloading(_ fraction: Double?) -> String {
+        let percent = (fraction ?? 0).formatted(.percent.precision(.fractionLength(0)))
+        return String(localized: "browser.engine.downloading", defaultValue: "Chromium is downloading (\(percent)). Try again when it’s ready.", bundle: .module)
+    }
+    static var downloadFailed: String {
+        String(localized: "browser.engine.downloadFailed", defaultValue: "Chromium couldn’t download yet. cmux will try again.", bundle: .module)
     }
     static var fallbackStartFailed: String {
         String(localized: "browser.engine.fallback.startFailed", defaultValue: "Chromium couldn’t start, so this tab uses WebKit.", bundle: .module)

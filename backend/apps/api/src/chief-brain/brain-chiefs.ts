@@ -3,7 +3,8 @@ import type { ToolRegistration } from "@earendil-works/pi-durable"
 import type { OwnerFrame } from "@cmux/ownership"
 import type { Env } from "../env.ts"
 import { signInRules } from "../policy-gate.ts"
-import type { BrainConfig } from "./brain-store.ts"
+import { type BrainConfig, patchError } from "./brain-store.ts"
+import { effectRefusal } from "./effect-policy.ts"
 
 /**
  * The `chiefs` tool of a Cloud Chief (Lawrence 2026-10-14: Chiefs make and edit other Chiefs; the
@@ -22,10 +23,11 @@ import type { BrainConfig } from "./brain-store.ts"
 const Args = Type.Object({
   action: Type.Union([Type.Literal("list"), Type.Literal("get"), Type.Literal("create"), Type.Literal("update")]),
   chief: Type.Optional(Type.String({ description: "The Chief's id (agent_...) or its name; for get and update." })),
-  display_name: Type.Optional(Type.String({ minLength: 1, maxLength: 100 })),
-  role: Type.Optional(Type.String({ maxLength: 200 })),
-  personality: Type.Optional(Type.String({ maxLength: 4000 })),
-  instructions: Type.Optional(Type.String({ maxLength: 32000 })),
+  // Lengths are checked where they are stored (chief.create/update, configure's patchError), not in the schema the model reads.
+  display_name: Type.Optional(Type.String()),
+  role: Type.Optional(Type.String()),
+  personality: Type.Optional(Type.String()),
+  instructions: Type.Optional(Type.String()),
   model: Type.Optional(Type.String())
 })
 type ArgsT = { action: "list" | "get" | "create" | "update"; chief?: string; display_name?: string; role?: string; personality?: string; instructions?: string; model?: string }
@@ -92,6 +94,9 @@ export const manageChiefs = async (env: Env, agent: string, owner: string, args:
   }
   if (args.model !== undefined && args.model !== me.model) throw new ChiefsRefused("grant_exceeds_caller", "a Chief gives another Chief only the model it runs itself [model]")
   const profile = { role: args.role, personality: args.personality, instructions: args.instructions }
+  // The limits are checked before any write, so a refused profile never leaves a half-made or half-renamed Chief.
+  const invalid = patchError(profile, () => true) ?? (args.display_name !== undefined && (args.display_name.trim().length === 0 || [...args.display_name].length > 100) ? "display_name must be 1 to 100 characters" : null)
+  if (invalid) throw new ChiefsRefused("validation.invalid", invalid)
   if (args.action === "create") {
     if (!args.display_name) throw new Error("chiefs: create needs display_name")
     // agents.allowedClasses (P17-4): the /v1/ops create checks the session's team; a Chief has none, so every team of the owner must allow chiefs.
@@ -127,13 +132,14 @@ export const manageChiefs = async (env: Env, agent: string, owner: string, args:
 }
 
 /** The tool, for a brain whose `who()` names its chief and owner (null: not bound yet). */
-export const chiefsTools = (env: Env, who: () => { agent: string | null; owner: string | null }): [ToolRegistration<typeof Args>] => [
+export const chiefsTools = (env: Env, who: () => { agent: string | null; owner: string | null }, effectsAuthorized: () => boolean = () => true): [ToolRegistration<typeof Args>] => [
   {
     name: "chiefs",
     description: CHIEFS_DESCRIPTION,
     parameters: Args,
     replay: "unsafe",
     execute: async (args, api) => {
+      if (!effectsAuthorized()) return effectRefusal()
       const { agent, owner } = who()
       // The call id keys the writes: a retried call commits once.
       const text = !agent || !owner

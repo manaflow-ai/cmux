@@ -2,7 +2,7 @@ public import CmuxNextDesign
 import CmuxNextIcons
 public import SwiftUI
 
-/// The App Store window's content: a toolbar row (Discover / Installed,
+/// The App Store window's content: a toolbar row (Discover / Features / Installed,
 /// search, prototype label), the disconnected banner while the supervisor
 /// is unreachable, and the selected tab.
 public struct AppStoreRootView: View {
@@ -21,9 +21,12 @@ public struct AppStoreRootView: View {
         VStack(spacing: 0) {
             toolbar
             Rectangle().fill(colors.separator).frame(height: Borders.width(1))
-            if let reason = model.client.unavailableReason { AppsDisconnectedBanner(reason: reason) }
+            if let reason = model.client.unavailableReason {
+                AppsDisconnectedBanner(reason: reason, recovery: reason.daemonUnreachable ? model.recovery?() : nil)
+            }
             switch model.tab {
             case .discover: AppDiscoverView(model: model)
+            case .features: AppFeaturesView(model: model)
             case .installed: AppInstalledView(model: model)
             }
         }
@@ -35,6 +38,7 @@ public struct AppStoreRootView: View {
         HStack(spacing: Metrics.space4) {
             HStack(spacing: 2) {
                 tab(.discover, AppsStrings.discover)
+                if model.features != nil { tab(.features, AppsStrings.features) }
                 tab(.installed, AppsStrings.installed)
             }
             .padding(2)
@@ -42,7 +46,7 @@ public struct AppStoreRootView: View {
             Spacer()
             HStack(spacing: Metrics.space2) {
                 Icon(.search, size: CGFloat.iconFloor).foregroundStyle(colors.tertiary)
-                ThemedField(text: Binding(get: { model.query }, set: { model.query = $0 }), placeholder: AppsStrings.search,
+                ThemedField(text: Binding(get: { model.query }, set: { model.query = $0 }), placeholder: model.tab == .features ? AppsStrings.searchFeatures : AppsStrings.search,
                             height: 18, boxed: false, identifier: "appStore.search")
                     .frame(width: 200)
             }

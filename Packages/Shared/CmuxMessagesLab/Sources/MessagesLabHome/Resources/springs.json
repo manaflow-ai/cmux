@@ -1922,5 +1922,65 @@
    6.8167
   ],
   "os": "macOS 26 (the original recording, its own fit); macOS 27 uses the shared TRUTH.md curve. The shared curve on macOS 26 moved the motion gate's parity from fail 33 / max 2.96 to fail 39 / max 4.01 (Read 6.717 s excess 4.01, Delivered 5.700 s 2.31)"
+ },
+ "bubble.width.fieldShrinkMac3": {
+  "event": "send",
+  "unit": "px@2x",
+  "from": 1052.0,
+  "to": 300.0,
+  "note": "cx-3cb width-model2 (TRUTH.md section 8, branch spring-truth): macOS 27, a draft that shrinks the field, by the sent balloon's text line count (3, 4; 5+ use 4; 1- and 2-line texts keep bubble.width.fieldShrink): ONE width spring, start +50 ms, damping ratio 0.788 (bounce 0.212), duration 0.213 / 0.236 s. Empirical fit (laptop replay of the parity27 frame-box measure on the 8 field-shrink takes of ref27.json, minimax against main 5fbd289); NO known physical cause for the line-count dependence: the corner radius is 15 pt at every height, and per take 2-line narrow and wide balloons differ (0.241-0.244 vs 0.259-0.268 s). The 2-line rule (0.248 s) was dropped: it made the motion gate's fitted scale of 2 wide takes worse than the take-to-take spread (refused, 9ef7761). The height keeps bubble.width.fieldShrink.",
+  "components": [
+   {
+    "delay": 0.05,
+    "duration": 0.213,
+    "bounce": 0.212,
+    "delta": -752.0
+   }
+  ]
+ },
+ "bubble.width.fieldShrinkMac4": {
+  "event": "send",
+  "unit": "px@2x",
+  "from": 1052.0,
+  "to": 300.0,
+  "note": "cx-3cb width-model2 (TRUTH.md section 8, branch spring-truth): macOS 27, a draft that shrinks the field, by the sent balloon's text line count (3, 4; 5+ use 4; 1- and 2-line texts keep bubble.width.fieldShrink): ONE width spring, start +50 ms, damping ratio 0.788 (bounce 0.212), duration 0.213 / 0.236 s. Empirical fit (laptop replay of the parity27 frame-box measure on the 8 field-shrink takes of ref27.json, minimax against main 5fbd289); NO known physical cause for the line-count dependence: the corner radius is 15 pt at every height, and per take 2-line narrow and wide balloons differ (0.241-0.244 vs 0.259-0.268 s). The 2-line rule (0.248 s) was dropped: it made the motion gate's fitted scale of 2 wide takes worse than the take-to-take spread (refused, 9ef7761). The height keeps bubble.width.fieldShrink.",
+  "components": [
+   {
+    "delay": 0.05,
+    "duration": 0.236,
+    "bounce": 0.212,
+    "delta": -752.0
+   }
+  ]
+ },
+ "bubble.width.fieldShrinkMac2": {
+  "event": "send",
+  "unit": "px@2x",
+  "from": 1052.0,
+  "to": 300.0,
+  "note": "cx-3cb send-width-typed, refit in typed-drafts: macOS 27, a 2-line text that shrinks the field. The components are bubble.width.fieldShrink's; travelLaw puts them on a clock k = k0 (travel / refPt)^q times slower and d0 + d1 ln(travel / refPt) s later, travel = field width - balloon width (pt), clamped to [minPt, maxPt] (no extrapolation). Fitted through the motion gate's parity27 measure (frame boxes) by a laptop replay of the gate's own captures (only the unscaled width changed, W' = W x w_new / w_now; right edge, height, scale kept; morph2 refit), each take against the capture of its own draft: 158.6 pt (2-line wide; send-2line-take2, send-typed-take1, send-typed-media-take1) k 1.00, +8 ms (Messages starts the width 8 ms later, same speed; the per-take best starts are +1.5, +5.7 and +39 ms); 472.2 pt (2-line narrow; send-2line-break-take3/4) k 0.87, +12.8 ms. The first fit (k 1.12, -13.5 ms at 158.6 pt) was made against send-2line-take2's draft for all three wide takes and compensated the draft mismatch. Between 158 and 472 pt the law is an interpolation with no take (UNVERIFIED). The height keeps bubble.width.fieldShrink.",
+  "components": [
+   {
+    "delay": -0.0021,
+    "duration": 0.4296,
+    "bounce": 0.1272,
+    "delta": -419.9
+   },
+   {
+    "delay": 0.0658,
+    "duration": 0.2336,
+    "bounce": 0.5084,
+    "delta": -332.1
+   }
+  ],
+  "travelLaw": {
+   "refPt": 300.0,
+   "k0": 0.92184,
+   "q": -0.12761,
+   "d0": 0.0108,
+   "d1": 0.0044,
+   "minPt": 158.6,
+   "maxPt": 472.2
+  }
  }
 }

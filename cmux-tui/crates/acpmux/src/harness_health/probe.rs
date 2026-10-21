@@ -37,6 +37,10 @@ pub(super) fn run_for(
     }
     let (program, args) = argv.split_first().ok_or("no command")?;
     let mut cmd = Command::new(program);
+    // The daemon starter's turn values are not this command's (config::TURN_SCOPED_ENV).
+    for k in crate::config::inherited_caller_scoped_keys() {
+        cmd.env_remove(k);
+    }
     crate::login_env::apply_std_for(&mut cmd, family, Some(env));
     crate::config::scrub_nested_claude_env_for(&mut cmd, family);
     cmd.envs(env).args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
@@ -148,13 +152,19 @@ pub fn codex_login_status(env: &BTreeMap<String, String>) -> Option<bool> {
 /// Whether `latest` is newer than `installed`, by their numeric parts. A
 /// version that does not parse is never called outdated.
 pub fn is_newer(latest: &str, installed: &str) -> bool {
+    compare_versions(latest, installed) == Some(std::cmp::Ordering::Greater)
+}
+
+/// Numeric version ordering, retaining the difference between equality and
+/// a version that cannot be compared. Missing evidence is not equality.
+pub fn compare_versions(left: &str, right: &str) -> Option<std::cmp::Ordering> {
     fn parts(v: &str) -> Option<Vec<u64>> {
         let core = v.trim().trim_start_matches('v').split(['-', '+', ' ']).next()?;
         core.split('.').map(|p| p.parse().ok()).collect()
     }
-    let (Some(mut a), Some(mut b)) = (parts(latest), parts(installed)) else { return false };
+    let (mut a, mut b) = (parts(left)?, parts(right)?);
     let n = a.len().max(b.len());
     a.resize(n, 0);
     b.resize(n, 0);
-    a > b
+    Some(a.cmp(&b))
 }

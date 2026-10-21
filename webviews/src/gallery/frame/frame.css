@@ -1,0 +1,32 @@
+/* Frame-only status surfaces. Use the shared gallery type tokens so direct stages satisfy the same
+   type-scale contract as the shell and do not invent a second set of raw UI sizes. */
+.gallery-frame-loading {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding: 16px;
+  color: var(--cmux-text-secondary, #888);
+  font-family: var(--font-ui, system-ui);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}
+
+.gallery-frame-error,
+.gallery-frame-native {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 16px;
+  white-space: pre-wrap;
+  font-family: var(--font-mono, ui-monospace);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}
+
+.gallery-frame-error {
+  color: var(--cmux-color-red, #c33);
+}
+
+.gallery-frame-native {
+  color: var(--cmux-text-secondary);
+}

@@ -114,3 +114,13 @@ extension HomeStore {
         }
     }
 }
+
+extension HomeStore {
+    /// A message permalink as the conversation's owner resolves it (nil: no resolver, or a failure).
+    public func resolveLink(_ id: ConversationID, message: MessageID) async -> HomeLinkTarget? {
+        try? await source.resolveLink(conversation: id, message: message)
+    }
+
+    /// The seq of the oldest loaded message of `id` (nil: nothing loaded).
+    public func oldestLoadedSeq(in id: ConversationID) -> Seq? { mirror.windows[id]?.firstSeq }
+}

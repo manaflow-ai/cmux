@@ -7,10 +7,18 @@ import Testing
 /// ink once, while the dialog was built outside any window, so a dialog shown in a light
 /// window (or one whose theme turned light while it showed) kept another theme's text over the
 /// light surface. The labels must re-read their ink in the scope they draw in, in an inactive
-/// (never key) window too, and the surface must stay a light card, not a grey slab.
+/// (never key) window too, and the surface must stay a light card, not a grey slab. These
+/// check the solid card a dialog draws under Reduce Transparency; on glass the tint carries it.
 @MainActor @Suite(.serialized) struct CmuxDialogLightContrastTests {
     private static let light = ThemeInput(background: ThemeRGB(hex: 0xFFFFFF), foreground: ThemeRGB(hex: 0x1D1D1F))
     private static let dark = ThemeInput(background: ThemeRGB(hex: 0x1E1E1E), foreground: ThemeRGB(hex: 0xE6E6E6))
+
+    /// Pins the solid popup surface for one test; returns the setting to restore.
+    private static func pinOpaque() -> Bool? {
+        let pinned = ReduceTransparency.shared.override
+        ReduceTransparency.shared.override = true
+        return pinned
+    }
 
     private static func scope(_ input: ThemeInput, _ name: String) throws -> ThemeScope {
         let scope = ThemeScope(level: .room)
@@ -42,6 +50,8 @@ import Testing
     }
 
     @Test func aDialogMovedIntoALightWindowDrawsReadableText() throws {
+        let pinned = Self.pinOpaque()
+        defer { ReduceTransparency.shared.override = pinned }
         let darkWindow = try Self.window(in: try Self.scope(Self.dark, "Contrast Dark"))
         let lightScope = try Self.scope(Self.light, "Contrast Light")
         let lightWindow = try Self.window(in: lightScope)
@@ -56,6 +66,8 @@ import Testing
     /// The mirror case: whichever theme the app scope has when the dialog is built, one of the
     /// two moves lands it in the other one.
     @Test func aDialogMovedIntoADarkWindowDrawsReadableText() throws {
+        let pinned = Self.pinOpaque()
+        defer { ReduceTransparency.shared.override = pinned }
         let lightWindow = try Self.window(in: try Self.scope(Self.light, "Contrast Light First"))
         let darkScope = try Self.scope(Self.dark, "Contrast Dark Second")
         let darkWindow = try Self.window(in: darkScope)
@@ -67,6 +79,8 @@ import Testing
     }
 
     @Test func aDialogWhoseThemeTurnsLightDrawsReadableText() throws {
+        let pinned = Self.pinOpaque()
+        defer { ReduceTransparency.shared.override = pinned }
         let scope = try Self.scope(Self.dark, "Contrast Switch")
         let window = try Self.window(in: scope)
         defer { window.close() }
@@ -78,6 +92,8 @@ import Testing
     }
 
     @Test func aDarkDialogDrawsItsWindowsInk() throws {
+        let pinned = Self.pinOpaque()
+        defer { ReduceTransparency.shared.override = pinned }
         let scope = try Self.scope(Self.dark, "Contrast Dark Only")
         let window = try Self.window(in: scope)
         defer { window.close() }
@@ -129,9 +145,10 @@ import Testing
     }
 
     /// The dialog's text labels; a button's own title view is the button's (checked by `buttons`).
-    private static func labels(in view: NSView) -> [NSTextField] {
+    private static func labels(in view: NSView) -> [any ShownText] {
         if view is NSButton { return [] }
-        var found: [NSTextField] = []
+        var found: [any ShownText] = []
+        if let label = view as? ChromeLabel, !label.stringValue.isEmpty { found.append(label) }
         if let field = view as? NSTextField, !field.isEditable, !field.stringValue.isEmpty { found.append(field) }
         for subview in view.subviews { found += labels(in: subview) }
         return found

@@ -66,7 +66,7 @@ final class CaptureSceneRegistry {
                 // A display frame alone is not evidence that the fixture is visible.
                 self.services.showcase.workspaces.count >= 3
                     && self.services.windows.registry.members(of: targetWindowID).count >= 3
-                    && self.services.windows.controller(for: targetWindowID)?.sidebar.model.sections.flatMap(\.workspaces).contains { $0.rowState != .placeholder } == true
+                    && self.services.windows.controller(for: targetWindowID)?.sidebar.model.sections.flatMap(\.workspaces).contains { !$0.rowState.isPending } == true
                     && self.services.showcase.agentTabs.values.contains {
                     guard let view = self.services.agentTabs.existingView($0) else { return false }
                     return view.webView.window != nil && !view.webView.isLoading

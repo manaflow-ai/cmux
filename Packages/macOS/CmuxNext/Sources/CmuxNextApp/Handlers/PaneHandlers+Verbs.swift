@@ -6,7 +6,7 @@ import CmuxNextDesign
 import CmuxNextLayout
 
 // Swap, close, rename, flash, workspace font size, and pane kinds this
-// build does not have (canvas, simulator, sidebar-as-pane), which are bound
+// build does not have (simulator, sidebar-as-pane), which are bound
 // with a typed reason instead of left unbound.
 extension PaneHandlers {
     static func bindPaneVerbs(into registry: ActionRegistry, context ctx: AppActionContext) {
@@ -40,9 +40,27 @@ extension PaneHandlers {
 
     private static func bindLifecycle(_ registry: ActionRegistry, _ ctx: AppActionContext) {
         registry.bind("closePane", invoke: { invocation in
-            guard let pane = ctx.daemonPane(invocation) else { return }
+            // While the focus a split asked for is on its way, the focused pane is its new pane: the
+            // split is cancelled, never the old pane closed (CancelledCreation); so is a provisional pane named.
+            if invocation.target == nil, let content = ctx.focusedContent, case .tab(let id)? = content.focus.state.expectation?.key, content.daemon.cancelSplit(showing: id) { return ctx.services.keyRouter.creationInputCoordinator.drop(tab: id, in: content.contentView.window) }
+            guard let pane = ctx.daemonPane(invocation), !ctx.services.daemon(for: pane).cancelCreation(pane: pane.handle) else { return }
+            // A person's close in the Home Chief pane does nothing, silently; the CLI and MCP still ask
+            // and get the daemon's `dock-column-pinned` refusal (home-chief-pane.md).
+            if invocation.origin == .user, ctx.services.paneController(for: pane)?.isPinnedDockPane == true { return }
             let handle = pane.handle
-            ctx.send("close-pane") { try await $0.closePane(handle) }
+            // The pane leaves its window now and its neighbours spring into its space
+            // (close-animation DESIGN.md); a refused close brings it back.
+            let controller = ctx.services.paneController(for: pane)
+            let shown = ctx.services.activeDaemon.connection == nil ? nil : controller?.showPaneClose()
+            ctx.send("close-pane") { connection in
+                do {
+                    try await connection.closePane(handle)
+                    await MainActor.run { controller?.finishPaneClose(shown, failed: false) }
+                } catch {
+                    await MainActor.run { controller?.finishPaneClose(shown, failed: true) }
+                    throw error
+                }
+            }
         })
         // Every other pane of the right-clicked pane's screen closes with its
         // tabs, as a user's tab close does: no question, the closed history
@@ -50,7 +68,11 @@ extension PaneHandlers {
         registry.bind("pane.closeOthers", invoke: { invocation in
             guard let pane = ctx.daemonPane(invocation) else { return }
             let screens = ctx.services.machines.daemons.lazy.flatMap(\.store.workspaces).flatMap(\.screens)
-            let others = (screens.first { $0.panes.contains { $0 === pane } }?.panes ?? []).filter { $0 !== pane }
+            let screen = screens.first { $0.panes.contains { $0 === pane } }
+            // The Home Chief pane (a pinned dock) never closes: Close Other Panes leaves it out
+            // rather than asking the daemon for a refusal (home-chief-pane.md).
+            let kept = Set((screen?.columns ?? []).filter { $0.dock?.isPinned == true }.flatMap(\.layout.paneIDs))
+            let others = (screen?.panes ?? []).filter { $0 !== pane && !kept.contains($0.handle) }
             guard !others.isEmpty else { return ctx.refuse(HandlerStrings.noOtherPanes) }
             // One gesture: one question and one toast decision over every closing tab (cx-lb4al).
             CloseUndoToasts.close(others.compactMap { ctx.services.paneController(for: $0) }.map { (pane: $0, ids: $0.stripModel.orderedTabs.map(\.id)) })
@@ -81,7 +103,7 @@ extension PaneHandlers {
     /// (`Motion.flashAnimation`), one fade under Reduce Motion, none when
     /// animations are off.
     private static func flash(_ view: NSView) {
-        guard let host = view.layer, let fade = Motion.flashAnimation() else { return }
+        guard let host = view.layer, let fade = Motion.indicators.flashAnimation() else { return }
         let ring = CALayer()
         ring.frame = host.bounds.insetBy(dx: 2, dy: 2)
         ring.cornerRadius = 8
@@ -124,21 +146,14 @@ extension PaneHandlers {
     }
 
     private static func bindUnported(_ registry: ActionRegistry) {
-        let canvas = RefusalStrings.canvasUnported
-        for id: ActionID in ["toggleCanvasLayout", "canvasOverview", "canvasTidy", "canvasRevealFocusedPane", "canvasZoomIn",
-                             "canvasZoomOut", "canvasZoomReset", "canvasAlignLeft", "canvasAlignRight", "canvasAlignTop",
-                             "canvasAlignBottom", "canvasEqualizeWidths", "canvasEqualizeHeights",
-                             "canvasDistributeHorizontally", "canvasDistributeVertically"] {
-            registry.bindUnavailable(id, reason: canvas)
-        }
         let simulator = RefusalStrings.simulatorUnported
-        for id: ActionID in ["palette.newSimulatorPane", "simulatorHome", "simulatorRotateLeft", "simulatorRotateRight",
+        // palette.newSimulatorPane opens the phone tab (PhoneHandlers). The keyboard-only simulator
+        // actions wait for a focused-phone context (simulatorFocused; plans/cmux-next/simulators-DESIGN.md).
+        for id: ActionID in ["simulatorHome", "simulatorRotateLeft", "simulatorRotateRight",
                              "simulatorToggleAppearance", "simulatorToggleSoftwareKeyboard"] {
             registry.bindUnavailable(id, reason: simulator)
         }
         registry.bindUnavailable("palette.openFilesPane", reason: RefusalStrings.filesPaneUnported)
         registry.bindUnavailable("palette.openFindPane", reason: RefusalStrings.findPaneUnported)
-        registry.bindUnavailable("palette.openVaultPane", reason: RefusalStrings.vaultPaneUnported)
-        registry.bindUnavailable("palette.openCloudPane", reason: RefusalStrings.cloudPaneUnported)
     }
 }

@@ -43,14 +43,14 @@ export const readConversation = async (env: Env, id: string, principal: Principa
   return { head: snap.state, messages: (snap.rows?.rows ?? []).map((x) => x.row).sort((a, b) => a.seq - b.seq) }
 }
 
-export type SendOutcome = { readonly ok: true; readonly message: string | null } | { readonly ok: false; readonly code: string; readonly message: string }
+export type SendOutcome = { readonly ok: true; readonly message: string | null; readonly seq?: number } | { readonly ok: false; readonly code: string; readonly message: string }
 
 const outcome = (frames: ReadonlyArray<OwnerFrame>): SendOutcome => {
   const f = frames.find((x) => x.t === "result" || x.t === "reject")
   if (!f) return { ok: false, code: "owner.unreachable", message: "no reply from the owner" }
   if (f.t === "reject") return { ok: false, code: f.code, message: f.message }
-  const value = (f as { value?: { message_id?: string } }).value
-  return { ok: true, message: value?.message_id ?? null }
+  const value = (f as { value?: { message_id?: string; seq?: number } }).value
+  return { ok: true, message: value?.message_id ?? null, ...(typeof value?.seq === "number" ? { seq: value.seq } : {}) }
 }
 
 export interface Reply {
@@ -80,6 +80,20 @@ export const postReply = async (env: Env, principal: Principal, r: Reply): Promi
   const res = await conv(env, r.conversation).submit(r.conversation, principal, { t: "op", op: "message.send", params, idempotency_key: r.key, origin: "script" })
   return outcome(res.frames)
 }
+
+/**
+ * A subagent's report as the chief: a text-less `work` card (session = the child run), so the loop
+ * guard's turn budget and 2 s gap do not apply (home-core budget.ts); idempotent by `key`.
+ */
+export const postWork = async (env: Env, principal: Principal, w: { conversation: string; key: string; session: string; host: string; status: "done" | "failed"; preview: string; thread_root?: string }): Promise<SendOutcome> => {
+  const params = { conversation: w.conversation, client_msg_id: w.key, parts: [{ type: "work", session: w.session, host: w.host, status: w.status, preview: w.preview }], ...(w.thread_root ? { thread_root: w.thread_root } : {}) }
+  const res = await conv(env, w.conversation).submit(w.conversation, principal, { t: "op", op: "message.send", params, idempotency_key: w.key, origin: "script" })
+  return outcome(res.frames)
+}
+
+/** One live frame (contract.ts LiveFrame) for every member's socket, outside a turn's model stream. Best effort. */
+export const liveFrame = (env: Env, conversation: string, agent: string, frame: unknown): Promise<void> =>
+  (conv(env, conversation) as unknown as { agentFrame(e: string, a: string, f: { live: unknown }): Promise<void> }).agentFrame(conversation, agent, { live: frame }).catch(() => undefined)
 
 /** A plain text message as the chief (a notice: the out-of-credits line), idempotent by `key`. */
 export const postText = async (env: Env, principal: Principal, conversation: string, text: string, key: string): Promise<SendOutcome> => {

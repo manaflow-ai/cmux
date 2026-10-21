@@ -9,19 +9,29 @@ on:
   push:
     branches: [main, feat-cmux-next]
     paths:
+      - scripts/ci/**/*.sh
       - scripts/ci/signing-keychain.sh
       - scripts/ci/lib/signing-runtime-guard.sh
       - scripts/import-apple-developer-id-intermediates.sh
       - scripts/apple-developer-id-certs/**
       - tests/test_signing_keychain_real_import.sh
+      - tests/test_bash32_parse_guard.sh
+      - scripts/*.sh
+      - scripts/cmux-next/*.sh
+      - .github/workflows/nightly.yml
       - .github/workflows/signing-keychain-macos.yml
   pull_request:
     paths:
+      - scripts/ci/**/*.sh
       - scripts/ci/signing-keychain.sh
       - scripts/ci/lib/signing-runtime-guard.sh
       - scripts/import-apple-developer-id-intermediates.sh
       - scripts/apple-developer-id-certs/**
       - tests/test_signing_keychain_real_import.sh
+      - tests/test_bash32_parse_guard.sh
+      - scripts/*.sh
+      - scripts/cmux-next/*.sh
+      - .github/workflows/nightly.yml
       - .github/workflows/signing-keychain-macos.yml
   workflow_dispatch:
 
@@ -51,3 +61,24 @@ jobs:
 
       - name: Import, sign and delete with a throwaway identity
         run: bash tests/test_signing_keychain_real_import.sh
+
+  # macOS runs scripts/ci with /bin/bash 3.2, which rejects some scripts that
+  # bash 5 accepts (a heredoc inside $(...) with an apostrophe broke nightly-next
+  # run 39011132580). Linux CI uses bash 5, so this check runs here.
+  bash32-syntax:
+    name: scripts/ci parse under /bin/bash 3.2
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Parse every scripts/ci shell script with /bin/bash
+        run: ./scripts/ci/check-bash32-parse.sh .github/workflows/nightly.yml
+
+      - name: Parse guards fail on a script bash 3.2 cannot parse
+        run: /bin/bash tests/test_bash32_parse_guard.sh

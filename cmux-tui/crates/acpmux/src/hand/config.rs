@@ -63,6 +63,18 @@ pub fn home() -> PathBuf {
     dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".cmux-hand")
 }
 
+/// The folder an exec or an agent runs in when the request names none:
+/// `$CMUX_HAND_WORKDIR`, else `~/proj` when it exists (a sandbox image makes
+/// it), else the home folder. It is checked by the policy like any cwd.
+pub fn default_workdir() -> PathBuf {
+    if let Some(w) = std::env::var_os("CMUX_HAND_WORKDIR").filter(|w| !w.is_empty()) {
+        return PathBuf::from(w);
+    }
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
+    let proj = home.join("proj");
+    if proj.is_dir() { proj } else { home }
+}
+
 pub fn path() -> PathBuf {
     home().join("hand.json")
 }

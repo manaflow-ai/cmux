@@ -62,6 +62,11 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     /// (`permissionDismissed`).
     case permissionPrompt(browser: Int32, token: Int32, permissions: Int64, origin: String)
     case permissionDismissed(browser: Int32, token: Int32)
+    /// The page's beforeunload asks before it unloads (BEFORE_UNLOAD_DIALOG);
+    /// answered with `cmux_shim_before_unload_reply(token, …)`.
+    case beforeUnloadDialog(browser: Int32, token: Int32, isReload: Bool)
+    /// Chromium ended the waiting beforeunload question itself.
+    case beforeUnloadDismissed(browser: Int32)
     /// Chromium's password manager asks to save or update a sign-in, or its
     /// prompt is gone (PASSWORD_PROMPT, fork API 20), answered with
     /// `cmux_shim_password_prompt_answer(promptID, …)`.
@@ -140,6 +145,8 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 41: self = .permissionPrompt(browser: browser, token: request, permissions: a, origin: s1)
         case 42: self = .permissionDismissed(browser: browser, token: request)
         case 43: self = .passwordPrompt(browser: browser, promptID: request, json: s1)
+        case 44: self = .beforeUnloadDialog(browser: browser, token: request, isReload: a != 0)
+        case 45: self = .beforeUnloadDismissed(browser: browser)
         default: self = .unknown(kind: kind)
         }
     }
@@ -172,6 +179,10 @@ nonisolated enum CEFForkTabEvent: Int32, Sendable {
     /// The window's side panel was shown, hidden, resized or changed
     /// (fork API 13); value = 1 when visible.
     case sidePanelChanged = 12
+    /// The tab's DevTools turned device mode on (value 1) or off (0), or
+    /// moved the device's screen area (fork API 24,
+    /// `cmux_devtools_inspected_bounds`).
+    case devToolsDeviceMode = 13
     case unknown = -1
 }
 

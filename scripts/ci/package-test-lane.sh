@@ -113,6 +113,10 @@ sanitize_link_flags=(-Xlinker -no_compact_unwind)
 # builds and the test runs below share it (scripts/ci/swift-test-debug-info.sh).
 # shellcheck source=scripts/ci/swift-test-debug-info.sh
 source "$(dirname "${BASH_SOURCE[0]}")/swift-test-debug-info.sh" || exit 2
+# A reused .build drops its build outputs when a binary target's headers
+# change (CCmuxAppFFI or GhosttyNextKit pin): scripts/ci/swiftpm-binary-module-guard.sh.
+# shellcheck source=scripts/ci/swiftpm-binary-module-guard.sh
+source "$(dirname "${BASH_SOURCE[0]}")/swiftpm-binary-module-guard.sh" || exit 2
 
 lane_script="${BASH_SOURCE[0]}"
 work="${RUNNER_TEMP:-}"
@@ -134,7 +138,11 @@ ensure_parent() {
   fi
   local remote
   remote="$(git remote get-url origin 2>/dev/null || echo https://github.com/manaflow-ai/cmux.git)"
-  git fetch --no-tags --no-write-fetch-head --depth=2 "$remote" "$(git rev-parse HEAD)" || true
+  # Depth 2 only in a shallow checkout: in a full clone --depth writes
+  # .git/shallow and truncates history for every worktree sharing it.
+  local depth=()
+  [ "$(git rev-parse --is-shallow-repository)" = true ] && depth=(--depth=2)
+  git fetch --no-tags --no-write-fetch-head ${depth[@]+"${depth[@]}"} "$remote" "$(git rev-parse HEAD)" || true
 }
 
 # A package whose manifest names GhosttyKit.xcframework has a binaryTarget on
@@ -362,6 +370,7 @@ package_args() {
     swift_test_args+=(--sanitize="$CMUX_SWIFT_SANITIZE" --scratch-path "$pkgdir/.build-sanitize-$CMUX_SWIFT_SANITIZE"
       "${sanitize_link_flags[@]}")
   fi
+  swiftpm_binary_module_guard "$pkgdir" "$pkgdir/.build${CMUX_SWIFT_SANITIZE:+-sanitize-$CMUX_SWIFT_SANITIZE}"
 }
 
 # record_built_ref PKGDIR: after a complete build of PKGDIR, name the commit in
@@ -618,6 +627,33 @@ ensure_web_bundles() {
   echo "::endgroup::"
 }
 
+# The live-daemon suites (FirstLaunchTests, ClassicImportTests,
+# ClassicMigrationTests, ...) start this tree's hosted cmux-tui; without it
+# they skip. Fetch it once, as run-swift-testing-suites.sh does: this head's
+# tree, else the newest published tree when the head changes no cmux-tui input.
+# Never waits for an unpublished tree, and a failed fetch only means those
+# suites skip. CMUX_NEXT_TUI_TREE_PATH names the binary for the tests.
+ensure_cmux_tui_tree() {
+  [ -z "${CMUX_NEXT_TUI_TREE_PATH:-}" ] || return 0
+  local pin=scripts/cmux-next/pin-cmux-tui.sh tree_path key
+  [ -f "$pin" ] || return 0
+  echo "::group::cmux-tui for the live-daemon suites"
+  export CMUX_TUI_TREE_WAIT_SECONDS="${CMUX_TUI_TREE_WAIT_SECONDS:-0}"
+  if tree_path="$(bash "$pin" path 2>/dev/null)" && [ -n "$tree_path" ]; then
+    if [ ! -x "$tree_path" ] && ! bash "$pin" fetch >&2; then
+      tree_path=""
+      if key="$(bash "$pin" fallback-key 2>/dev/null)" && [ -n "$key" ] && CMUX_TUI_TREE_KEY="$key" bash "$pin" fetch >&2; then
+        tree_path="$(CMUX_TUI_TREE_KEY="$key" bash "$pin" path 2>/dev/null)" || tree_path=""
+        echo "This head's cmux-tui tree is not published; the live-daemon suites use the newest published tree $key."
+      else
+        echo "pin-cmux-tui.sh fetch failed; the live-daemon suites will skip."
+      fi
+    fi
+    [ -z "$tree_path" ] || [ ! -x "$tree_path" ] || export CMUX_NEXT_TUI_TREE_PATH="$tree_path"
+  fi
+  echo "::endgroup::"
+}
+
 run_suite() {
   select_xcode
   echo "Xcode: $DEVELOPER_DIR"
@@ -641,9 +677,26 @@ run_suite() {
   fi
   if [ "$suite_package" = Packages/macOS/CmuxNext ]; then
     ensure_web_bundles
+    ensure_cmux_tui_tree
   fi
+  local scratch="$suite_package/.build${CMUX_SWIFT_SANITIZE:+-sanitize-$CMUX_SWIFT_SANITIZE}"
+  swiftpm_binary_module_guard "$suite_package" "$scratch"
   echo "::group::swift build --build-tests ${configuration[*]} $suite_package"
-  swift build --build-tests "${configuration[@]}" --package-path "$suite_package" < /dev/null
+  local build_log build_status=0
+  build_log="$(mktemp -t swift-suite-build.XXXXXX)"
+  swift build --build-tests "${configuration[@]}" --package-path "$suite_package" < /dev/null 2>&1 \
+    | tee "$build_log" || build_status=$?
+  # Backstop for a stale module the guard did not see (a header outside a
+  # binary target): one build from clean outputs, as a cold slot would do.
+  if [ "$build_status" -ne 0 ] && swiftpm_stale_module_failure "$build_log"; then
+    echo "::warning title=Stale precompiled module::$suite_package: the warm build read a stale explicit module; building again from clean outputs"
+    swiftpm_purge_build_outputs "$scratch"
+    swiftpm_binary_module_guard "$suite_package" "$scratch"
+    build_status=0
+    swift build --build-tests "${configuration[@]}" --package-path "$suite_package" < /dev/null || build_status=$?
+  fi
+  rm -f "$build_log"
+  [ "$build_status" -eq 0 ] || exit "$build_status"
   record_built_ref "$suite_package"
   echo "::endgroup::"
   # swift build copies String Catalogs into the resource bundles uncompiled; without the

@@ -21,7 +21,7 @@ use super::{GlobalArgs, OutputMode, UsageError};
 const DELIVERY_STATES: [&str; 8] =
     ["held", "queued", "delivered", "acknowledged", "failed", "unsent", "retracted", "declined"];
 /// UTF-8 bytes of one body; the daemon enforces the same limit.
-const MAX_BODY_BYTES: usize = 32 * 1024;
+pub(super) const MAX_BODY_BYTES: usize = 32 * 1024;
 /// Queued messages one send hands a Codex terminal agent, oldest first.
 const DELIVERY_BATCH: u32 = 50;
 /// How long a send waits for the daemon's pump to hand its message to each
@@ -256,7 +256,7 @@ fn resolve_target(connection: &mut Connection, target: &str) -> Result<String, F
     })
 }
 
-fn read_body(body: Body) -> Result<String, UsageError> {
+pub(super) fn read_body(body: Body) -> Result<String, UsageError> {
     let text = match body {
         Body::Text(text) => text,
         Body::Stdin => {
@@ -309,14 +309,16 @@ pub(super) fn run_message(global: GlobalArgs, plan: MessagePlan) -> i32 {
 /// A sent message as it ends up, what went wrong delivering it or the
 /// recipients' older queued messages, and whether it failed itself.
 #[derive(Debug, Default)]
-struct Sent {
-    message: Value,
-    problems: Vec<String>,
-    failed: bool,
+pub(super) struct Sent {
+    pub message: Value,
+    pub problems: Vec<String>,
+    pub failed: bool,
 }
 
 /// Store the message, then report how it reached its recipients.
-fn send_and_deliver(
+/// `cmux agents chat send` and the `agents_chat_send` tool send through here
+/// too (agents/chat.rs).
+pub(super) fn send_and_deliver(
     global: &GlobalArgs,
     plan: &MessagePlan,
     body: String,
