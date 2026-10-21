@@ -337,8 +337,7 @@ final class NotificationCenterService {
         if notification.isFinishedTurn, shown.isVisible, !located.tab.holdsUnreadAsk(besides: notification) {
             guard NotificationPolicy(prefs: preferences).clears(.focus, for: source) else {
                 // Seen finishing, so no banner; the ring waits for a click in the pane.
-                note("finished turn visible: kept unread, no banner")
-                return
+                return keepSeenUnread(located, decision: decision, note: "finished turn visible: kept unread, no banner")
             }
             note("finished turn visible: read at once")
             acknowledge(located.tab)
@@ -355,6 +354,15 @@ final class NotificationCenterService {
         deliver(notification, source: source, located: located, decision: decision, program: program, visibility: shown)
     }
 
+    /// An arrival the user saw land, kept unread for a click in its pane: it posts nothing, the
+    /// feed hears it did not alert here (so it is not mirrored to the iPhone), and the timeout
+    /// dismissal still gets its deadline.
+    private func keepSeenUnread(_ located: LocatedTab, decision: NotificationPolicy.Decision, note line: String) {
+        note(line)
+        feedDriver?.noteArrival(terminal: located.tab.terminalResourceID?.rawValue, alerted: false)
+        if let seconds = decision.timeout { scheduleTimeout(seconds, tabID: located.tab.id) }
+    }
+
     /// The rest of an arrival once its OSC 7501 record (if any) is known.
     func deliver(_ notification: DaemonNotification, source: NotificationSource, located: LocatedTab,
                  decision: NotificationPolicy.Decision, program: ProgramStatusNotification?,
@@ -364,8 +372,7 @@ final class NotificationCenterService {
         // until the pane is clicked or typed in.
         if let program, !program.notifies(visibility: visibility ?? self.visibility(of: located)) {
             guard NotificationPolicy(prefs: preferences).clears(.focus, for: source) else {
-                note("program status \(program.reason.rawValue) visible: kept unread, no banner")
-                return
+                return keepSeenUnread(located, decision: decision, note: "program status \(program.reason.rawValue) visible: kept unread, no banner")
             }
             note("program status \(program.reason.rawValue) visible: read at once")
             acknowledge(located.tab)
@@ -431,6 +438,7 @@ final class NotificationCenterService {
     }
 
     private func scheduleTimeout(_ seconds: Double, tabID: String) {
+        note("timeout \(tabID) in \(seconds)s")
         let timer = timeouts[tabID] ?? DemandTimer(owner: "notifications.timeout", clock: clock)
         timeouts[tabID] = timer
         timer.schedule(after: .seconds(seconds)) { @MainActor [weak self] in

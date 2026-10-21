@@ -84,6 +84,15 @@ struct WatchedDoneReadTests {
         #expect(arrival.service.desktop.posted.isEmpty, "a watched done posted a banner")
     }
 
+    /// The timeout dismissal keeps a watched finish unread and still clears it at its deadline.
+    @Test func aWatchedTurnUnderTheTimeoutModeGetsItsDeadline() throws {
+        let arrival = try Self.arrive(source: "agent", level: "info", title: "Claude finished", visibility: Self.watched,
+                                      dismissal: .timeout)
+        #expect(!arrival.read)
+        #expect(arrival.service.log.contains { $0.hasPrefix("timeout \(arrival.located.tab.id) ") }, "no deadline was scheduled")
+        #expect(arrival.service.desktop.posted.isEmpty)
+    }
+
     @Test(arguments: [("warning", "Claude needs approval"), ("warning", "Claude asked a question"),
                       ("warning", "Claude requested plan review"), ("error", "Claude reported an error")])
     func anAskOrAnErrorStaysUnreadInAWatchedPane(_ level: String, _ title: String) throws {
