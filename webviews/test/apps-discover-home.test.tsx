@@ -92,3 +92,11 @@ test("Discover shows a skeleton grid while the catalog loads", () => {
   const page = render(snapshot({ loading: true, visible: [] }));
   expect(page.querySelector(".apps-grid-loading")).not.toBeNull();
 });
+
+test("a card keeps Preview and Install together when its footer wraps", () => {
+  const page = render(snapshot({}));
+  for (const card of page.querySelectorAll(".apps-card")) {
+    const actions = card.querySelector(".apps-card-actions");
+    expect(actions?.querySelectorAll("button").length).toBe(2);
+  }
+});
