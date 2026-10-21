@@ -281,7 +281,8 @@ export type AcpmuxCatalogModel = {
 };
 
 /// A change to a waiting prompt (`_acpmux/queue_edit`): its text, its place (0 runs next), send it
-/// now (steered into the running turn when its agent steers), or stop the turn and send it next.
+/// now (steered into the running turn, whose step stops, when its agent steers), or `interrupt`:
+/// stop the running turn and run it next.
 export type QueueEdit =
   | { op: "update"; text: string }
   | { op: "move"; index: number }

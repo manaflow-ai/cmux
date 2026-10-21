@@ -1,6 +1,6 @@
 // A queued prompt's row shows its actions (Leo, 2026-10-20: "where the hell is the edit button?"):
-// Edit, Remove, Stop & send and Send now, each a button named by its tooltip, and each does what
-// it says through `_acpmux/queue_edit` or the withdraw.
+// Edit, Remove and Send now, each a button named by its tooltip, and each does what it says through
+// `_acpmux/queue_edit` or the withdraw.
 import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -64,25 +64,20 @@ function actions(container: HTMLElement, id: string) {
   return [...row.querySelectorAll<HTMLButtonElement>(".acpmux-queued-action")];
 }
 
-test("every queued row shows Edit, Remove, Stop & send and Send now, each with its tooltip", async () => {
+test("every queued row shows Edit, Remove and Send now, each with its tooltip", async () => {
   const container = await render(
     async () => true,
     async () => true,
   );
   for (const entry of queue) {
     const buttons = actions(container, entry.id);
-    expect(buttons.map((b) => b.dataset.action)).toEqual(["edit", "remove", "stop", "send"]);
-    expect(buttons.map((b) => b.title)).toEqual([
-      "composer.queueEdit",
-      "composer.queueRemove",
-      "composer.queueStopAndSend",
-      "composer.queueSendNow",
-    ]);
+    expect(buttons.map((b) => b.dataset.action)).toEqual(["edit", "remove", "send"]);
+    expect(buttons.map((b) => b.title)).toEqual(["composer.queueEdit", "composer.queueRemove", "composer.queueSendNow"]);
     for (const b of buttons) expect(b.getAttribute("aria-label")).toBe(b.title);
   }
 });
 
-test("Stop & send stops the turn for the prompt, Send now steers it, Remove withdraws it", async () => {
+test("Send now sends the prompt now, Remove withdraws it", async () => {
   const edits: [string, QueueEdit][] = [];
   const removed: string[] = [];
   const container = await render(
@@ -95,15 +90,11 @@ test("Stop & send stops the turn for the prompt, Send now steers it, Remove with
       return true;
     },
   );
-  const [, , stop, send] = actions(container, "p-2");
-  await act(async () => stop.click());
+  const [, , send] = actions(container, "p-2");
   await act(async () => send.click());
   const [, remove] = actions(container, "p-1");
   await act(async () => remove.click());
-  expect(edits).toEqual([
-    ["p-2", { op: "interrupt" }],
-    ["p-2", { op: "send_now" }],
-  ]);
+  expect(edits).toEqual([["p-2", { op: "send_now" }]]);
   expect(removed).toEqual(["p-1"]);
 });
 

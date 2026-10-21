@@ -8,8 +8,8 @@
 // ⌘Return sends it now and Delete removes it. Esc goes back to the prompt.
 //
 // Every row shows its actions (Leo, 2026-10-20: "where the hell is the edit button?"): Edit,
-// Remove, Stop & send (the running turn stops and it runs next) and Send now (steered into the
-// running turn at its next step, or next when its agent cannot steer). The menu has them too.
+// Remove and Send now (steered into the running turn, whose current step stops so the agent reads
+// it at once; next, when its agent cannot steer). The menu has them too.
 //
 // After a failed turn acpmux pauses the queue: a note above the rows says so, with Resume.
 //
@@ -237,14 +237,12 @@ export function ComposerQueue({
     }, 1000);
   };
   const remove = onRemove && ((entry: QueuedEntry) => act(entry.id, () => onRemove(entry.id)));
-  // A prompt sent now stays in place: acpmux marks it next (`queue_order`), so its row reads
-  // Steering until it runs; to an agent that steers it leaves once acpmux takes it (`dequeued`).
-  // Hiding it as leaving showed nothing until the turn it stopped had ended (live run 2026-10-14).
+  // A prompt sent now stays in place: to an agent that cannot steer acpmux marks it next
+  // (`queue_order`), so its row reads Steering until it runs; to an agent that steers it leaves
+  // once acpmux takes it (`dequeued`). Hiding it as leaving showed nothing until it ran (live run
+  // 2026-10-14).
   const sendNow =
     onChange && ((entry: QueuedEntry) => void onChange(entry.id, { op: "send_now" }).catch(() => undefined));
-  // Stop & send: acpmux puts it next and stops the running turn, which a steer would not.
-  const stopAndSend =
-    onChange && ((entry: QueuedEntry) => void onChange(entry.id, { op: "interrupt" }).catch(() => undefined));
   // A move to the place of the row shown at `index` (acpmux counts rows still leaving too); the
   // moved row keeps focus once acpmux's new order draws.
   const move =
@@ -313,20 +311,19 @@ export function ComposerQueue({
     else onLeave?.();
   };
   // The row's menu names each action's key on the row.
-  const item = (id: string, label: string, key: string | undefined, onSelect: () => void): ContextMenuItem => ({
+  const item = (id: string, label: string, key: string, onSelect: () => void): ContextMenuItem => ({
     id,
     ariaLabel: label,
     label: (
       <>
         {label}
-        {key && <span className="ui-menu-shortcut">{key}</span>}
+        <span className="ui-menu-shortcut">{key}</span>
       </>
     ),
     onSelect,
   });
   const menu = (entry: QueuedEntry, index: number): ContextMenuItem[] => [
     ...(sendNow ? [item("send", t("composer.queueSendNow"), "⌘↩", () => sendNow(entry))] : []),
-    ...(stopAndSend ? [item("stop", t("composer.queueStopAndSend"), undefined, () => stopAndSend(entry))] : []),
     ...(onChange ? [item("edit", t("composer.queueEdit"), "↩", () => setEditing(entry.id))] : []),
     ...(move
       ? [
@@ -418,7 +415,6 @@ export function ComposerQueue({
         <span className="acpmux-queued-actions">
           {onChange && action("edit", "action.edit", t("composer.queueEdit"), () => setEditing(entry.id))}
           {remove && action("remove", "action.close", t("composer.queueRemove"), () => remove(entry))}
-          {stopAndSend && action("stop", "action.stop", t("composer.queueStopAndSend"), () => stopAndSend(entry))}
           {sendNow && action("send", "composer.send", t("composer.queueSendNow"), () => sendNow(entry))}
         </span>
       )}

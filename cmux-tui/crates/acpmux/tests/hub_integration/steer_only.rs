@@ -4,7 +4,7 @@
 //! (the fake agent advertises no steering).
 //!
 //! Also the queue's steering ops (`hub/queue_edit.rs`): `_acpmux/queue_edit`
-//! moves, edits, sends a queued prompt now or stops the turn for it, and a steer with
+//! moves, edits, sends a queued prompt now or stops the turn for it (`interrupt`), and a steer with
 //! `_meta.acpmux.interrupt` stops a turn its agent cannot steer and runs next.
 
 use super::*;
@@ -165,7 +165,7 @@ async fn queue_ops_move_and_rewrite_queued_prompts_before_their_turn() {
     assert_eq!(gone["ok"], false, "a prompt that ran no longer waits: {gone}");
 }
 
-/// Send now never stops a turn (Stop & send does): to an agent that cannot steer, the prompt goes
+/// Send now never stops a turn (`interrupt` does): to an agent that cannot steer, the prompt goes
 /// next and runs once the turn ends. A send now that stopped the turn cut the running tool call
 /// off as "rejected" (claude-sr2, 2026-10-20).
 #[tokio::test]
@@ -261,8 +261,8 @@ async fn queue_ops_send_now_steers_into_a_turn_its_agent_can_steer() {
     assert_ne!(answer["_meta"]["acpmux"]["withdrawn"], true, "{answer}");
 }
 
-/// Stop & send (`interrupt`): the queued prompt goes next and the running turn stops, even when
-/// its agent could take it as a steer; send now would have steered it in.
+/// `interrupt`: the queued prompt goes next and the running turn stops, even when its agent could
+/// take it as a steer; send now would have steered it in.
 #[tokio::test]
 async fn queue_ops_interrupt_stops_a_turn_its_agent_can_steer() {
     let env = BTreeMap::from([("FAKE_CLAUDE_STEER".to_owned(), "1".to_owned())]);

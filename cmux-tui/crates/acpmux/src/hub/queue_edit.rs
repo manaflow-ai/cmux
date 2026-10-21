@@ -162,8 +162,8 @@ impl Hub {
     /// (`steer`) by the task that waits with it, so its `session/prompt` answers how it ran, and
     /// the agent's current step stops so it reads it at once (Claude Code; another agent reads it
     /// when its step ends); otherwise it goes next (`next`) and runs once the turn ends. It never
-    /// stops the turn: that is Stop & send (`interrupt`). `None` when it no longer waits. A failed
-    /// turn no longer holds it.
+    /// stops the turn: `interrupt` does. `None` when it no longer waits. A failed turn no longer
+    /// holds it.
     fn send_queued_now(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -202,7 +202,7 @@ impl Hub {
         Ok(self.put_next(session, prompt_id).then_some("next"))
     }
 
-    /// Stop & send: a waiting prompt goes next and the running turn stops, whether or not its
+    /// `interrupt`: a waiting prompt goes next and the running turn stops, whether or not its
     /// agent could take the prompt as a steer (`next` with no turn running). `None` when it no
     /// longer waits.
     async fn interrupt_for_queued(
