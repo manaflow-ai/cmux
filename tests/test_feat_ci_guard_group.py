@@ -70,6 +70,27 @@ class TheBaseIsCheckedOutOnPullRequests(unittest.TestCase):
         self.assertNotIn(f"github.event.before != '{'0' * 40}'", step["if"])
 
 
+class OneBaseForTheDiffTheCheckoutAndTheGuards(unittest.TestCase):
+    """GitHub's pull_request.base.sha lags the merge commit's first parent once the base moves: #23534's
+    second run judged its head against a base 40 commits old, so the iOS conventions diff blamed the PR for
+    a violation the base had taken since. The routing diff, the base checkout and CMUX_GUARDS_BASE_SHA use
+    one sha: HEAD^1 for a pull request, the previous tip for a push."""
+
+    def test_the_base_checkout_and_the_guards_use_the_diff_base(self):
+        workflow = yaml.safe_load((WORKFLOWS / "cmux-next-guards.yml").read_text(encoding="utf-8"))
+        steps = workflow["jobs"]["ci-guard-group"]["steps"]
+        by_name = {step.get("name"): step for step in steps}
+        changes = by_name["Changed files"]
+        self.assertEqual(changes.get("id"), "changes")
+        self.assertIn("git rev-parse HEAD^1", changes["run"])
+        self.assertIn("base=", changes["run"])
+        expression = "${{ steps.changes.outputs.base }}"
+        self.assertEqual(by_name["Checkout the base"]["with"]["ref"], expression)
+        runs = [step for step in steps if "guards-local.sh" in str(step.get("run", ""))]
+        self.assertEqual(len(runs), 1)
+        self.assertEqual(runs[0]["env"]["CMUX_GUARDS_BASE_SHA"], expression)
+
+
 class TheRoutedGroupsHaveTheirTools(unittest.TestCase):
     """run_ci_guards.py skips `uses:` steps, so the job itself provides what ci-guards.yml's setup steps do:
     bun for preflight-agent-chat, and python3.9 (beside the default python3) for release-tooling's nightly
