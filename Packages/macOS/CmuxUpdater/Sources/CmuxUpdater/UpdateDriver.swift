@@ -35,6 +35,8 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     var downloadsInBackground = true
     /// Replaces the baked feed when set (``UpdateController/feedOverride``).
     var feedOverride: String?
+    /// The release ring whose `sparkle:channel` tags are accepted (``UpdateController/ring``).
+    var ring: UpdateRing = .nightly
     /// Builds at or below this are not offered (``UpdateController/skipsBuildsThrough``).
     var skipsBuildsThrough: String?
     /// The update a background check accepted, and its held install once it is ready.
@@ -43,6 +45,9 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     /// Cancels the held installer (Skip on the ready prompt: no skipped version is recorded).
     var stagedCancel: (() -> Void)?
     var installsWhenStaged = false
+    /// The update Sparkle's own silent driver staged (`willInstallUpdateOnQuit`), which never
+    /// reaches ``backgroundItem``; read only while its "Restart to Complete Update" state holds.
+    var quitInstallItem: SUAppcastItem?
     /// Holds a ready update's relaunch while agents are mid-turn or commands are running.
     let relaunchGate: UpdateRelaunchGate
 

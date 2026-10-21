@@ -2412,6 +2412,40 @@ jobs:
             echo "::warning title=No Chromium engine::The CEF artifact was not readable (secrets CMUX_CEF_R2_*); this build ships the browser as unavailable."
           fi
 
+      - name: Upload dSYMs to Sentry
+        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.build_only != 'true')
+        # A missing or broken uploader never blocks a publish either: run 37568319518 ran this
+        # workflow over an older build_sha checkout without the script.
+        continue-on-error: true
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: manaflow
+          SENTRY_PROJECT: cmuxterm-macos
+        # Retried, and only a warning when Sentry stays down: a nightly is never lost to symbolication.
+        # The fast build also uploads the Rust client's dSYMs (cmux-tui, cmux-tui-host; acpmux is
+        # linked into cmux-tui), when the build step above made them.
+        # It runs in the background while the unsigned app and the kept dSYMs upload (it held
+        # this serialized warm slot 38-39 s after them in runs 39509829525, 39519824930); "Finish
+        # the dSYM upload to Sentry" waits for it. The FIFO write blocks until that step reads
+        # it, so the status is never lost and nothing polls.
+        run: |
+          set -uo pipefail
+          paths=(build-universal/Build/Products/Release/)
+          for dsym in cmux-tui/target/aarch64-apple-darwin/release/cmux-tui.dSYM \
+                      cmux-tui/target/aarch64-apple-darwin/release/cmux-tui-host.dSYM; do
+            [ -d "$dsym" ] && paths+=("$dsym")
+          done
+          state="$RUNNER_TEMP/sentry-dsyms"
+          rm -rf "$state"
+          mkdir -p "$state"
+          mkfifo "$state/status.fifo"
+          (
+            status=0
+            ./scripts/upload-sentry-dsyms.sh "${paths[@]}" || status=$?
+            echo "$status" >"$state/status.fifo"
+          ) >"$state/upload.log" 2>&1 </dev/null &
+          echo "dSYM upload to Sentry started (PID $!)"
+
       - name: Archive unsigned nightly app
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.build_only != 'true')
         run: |
@@ -2434,27 +2468,6 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-      - name: Upload dSYMs to Sentry
-        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.build_only != 'true')
-        # A missing or broken uploader never blocks a publish either: run 37568319518 ran this
-        # workflow over an older build_sha checkout without the script.
-        continue-on-error: true
-        env:
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SENTRY_ORG: manaflow
-          SENTRY_PROJECT: cmuxterm-macos
-        # Retried, and only a warning when Sentry stays down: a nightly is never lost to symbolication.
-        # The fast build also uploads the Rust client's dSYMs (cmux-tui, cmux-tui-host; acpmux is
-        # linked into cmux-tui), when the build step above made them.
-        run: |
-          set -uo pipefail
-          paths=(build-universal/Build/Products/Release/)
-          for dsym in cmux-tui/target/aarch64-apple-darwin/release/cmux-tui.dSYM \
-                      cmux-tui/target/aarch64-apple-darwin/release/cmux-tui-host.dSYM; do
-            [ -d "$dsym" ] && paths+=("$dsym")
-          done
-          ./scripts/upload-sentry-dsyms.sh "${paths[@]}"
-
       # The dSYMs of every nightly-next build, kept 90 days next to the build: a crash or hang
       # report symbolicates from here when the Sentry download is not available (2026-10-10:
       # a read with a scoped token got 403 for nightly 38005665577; the upload above works).
@@ -2468,6 +2481,19 @@ jobs:
           if-no-files-found: warn
           retention-days: 90
           compression-level: 6
+
+      - name: Finish the dSYM upload to Sentry
+        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.build_only != 'true')
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          state="$RUNNER_TEMP/sentry-dsyms"
+          [ -p "$state/status.fifo" ] || { echo "the dSYM upload to Sentry was never started" >&2; exit 1; }
+          status=""
+          read -r status <"$state/status.fifo" || true
+          cat "$state/upload.log"
+          rm -rf "$state"
+          [ "$status" = 0 ] || { echo "the dSYM upload to Sentry failed (status ${status:-none})" >&2; exit 1; }
 
   # Runs beside build-nightly-app. Deepening the shallow clone to find the
   # newest published cmux-tui commit took 1.5 to 11 minutes after the Xcode
@@ -2770,11 +2796,33 @@ jobs:
       # Computer Use helper, cmux-symbols.bin), which is the bundle that ships.
       # The password-reader proof reads symbols with nm, which the strip
       # removes, so it stays right after the compile in build-nightly-app.
+      # The scan reads every file of the bundle (93-121 s in runs 39508830200,
+      # 39509829525, 39519824930), so it runs in the background on an APFS
+      # clone of the bundle as it is here, while the steps below change the
+      # original; "Finish the browser-data import proof" waits for it before
+      # the prepared app is uploaded. The FIFO write blocks until that step
+      # reads it, so the status is never lost and nothing polls.
       - name: Prove the browser-data import is compiled out (cx-f58x notary test)
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.notary_test_browser_data == 'true')
         run: |
           set -euo pipefail
-          scripts/ci/check-browser-data-import-absent.sh "build-universal/Build/Products/Release/cmux.app"
+          state="$RUNNER_TEMP/browser-data-proof"
+          rm -rf "$state"
+          mkdir -p "$state/snapshot"
+          # clonefile(2) is instant on APFS; ditto is the copy elsewhere.
+          app="build-universal/Build/Products/Release/cmux.app"
+          if ! cp -cR "$app" "$state/snapshot/cmux.app" 2>"$state/clone.err"; then
+            echo "cp -c failed ($(head -c 200 "$state/clone.err")); copying with ditto"
+            rm -rf "$state/snapshot/cmux.app"
+            ditto "$app" "$state/snapshot/cmux.app"
+          fi
+          mkfifo "$state/status.fifo"
+          (
+            status=0
+            scripts/ci/check-browser-data-import-absent.sh "$state/snapshot/cmux.app" || status=$?
+            echo "$status" >"$state/status.fifo"
+          ) >"$state/proof.log" 2>&1 </dev/null &
+          echo "browser-data import proof started on a clone of the bundle (PID $!)"
 
 
       - name: Inject universal Ghostty CLI helper
@@ -2959,6 +3007,22 @@ jobs:
           digest="$(shasum -a 256 prepared-app-handoff/cmux-prepared-app.tar.gz | awk '{print $1}')"
           [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || { echo "no sha256 for the prepared app" >&2; exit 1; }
           echo "::notice title=nightly-prepared-app::variant=${NIGHTLY_VARIANT} artifact=${PREPARED_APP_ARTIFACT} sha256=${digest} publish=${NIGHTLY_SHOULD_PUBLISH} fast=${NIGHTLY_FAST_BUILD}"
+
+      - name: Finish the browser-data import proof
+        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.notary_test_browser_data == 'true')
+        run: |
+          set -euo pipefail
+          state="$RUNNER_TEMP/browser-data-proof"
+          [ -p "$state/status.fifo" ] || { echo "the browser-data import proof was never started" >&2; exit 1; }
+          status=""
+          read -r status <"$state/status.fifo" || true
+          cat "$state/proof.log"
+          rm -rf "$state"
+          case "$status" in
+            0) ;;
+            "") echo "the browser-data import proof ended without a status" >&2; exit 1 ;;
+            *) echo "the browser-data import proof failed (status $status)" >&2; exit 1 ;;
+          esac
 
       - name: Upload prepared app for signing
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
