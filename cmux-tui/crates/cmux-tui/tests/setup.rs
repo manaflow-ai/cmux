@@ -275,15 +275,16 @@ done
 impl World {
     /// Fake `claude` and `codex` CLIs whose `mcp add` and `mcp remove` write
     /// the user-scope config the real ones write (`~/.claude.json`,
-    /// `$CODEX_HOME/config.toml`), holding only that one server. Every call
-    /// goes to `mcp.log` under the world.
+    /// `$CODEX_HOME/config.toml`), holding only that one server. Every `mcp`
+    /// call goes to `mcp.log` under the world (the harness check's
+    /// `--version` does not).
     fn with_fake_mcp_clients(self) -> Self {
         let log = self.mcp_log();
         let claude = format!(
             r#"#!/bin/sh
-echo "claude $*" >>'{log}'
 f="${{CLAUDE_CONFIG_DIR:-$HOME}}/.claude.json"
 [ "$1" = mcp ] || exit 2
+echo "claude $*" >>'{log}'
 op=$2; shift 2
 [ "$1" = --scope ] && [ "$2" = user ] || {{ echo "not user scope" >&2; exit 3; }}
 shift 2
@@ -301,10 +302,10 @@ esac
         );
         let codex = format!(
             r#"#!/bin/sh
-echo "codex $*" >>'{log}'
 f="${{CODEX_HOME:-$HOME/.codex}}/config.toml"
 mkdir -p "$(dirname "$f")"
 [ "$1" = mcp ] || exit 2
+echo "codex $*" >>'{log}'
 case $2 in
 add)
   shift 2; name=$1; shift; [ "$1" = -- ] || exit 3; shift

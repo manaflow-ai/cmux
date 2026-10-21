@@ -427,17 +427,23 @@ fn plan(client: Client, named: bool, path: Option<&OsStr>) -> (Plan, Option<Entr
 }
 
 /// Adds the cmux server to `client`, removing `old` (the `cmux` entry whose
-/// command is gone) first, and answers the line that undoes it.
+/// command is gone) first, and answers the line that undoes it. When the add
+/// fails after the remove, the error names the line that puts `old` back.
 fn apply(client: Client, command: &str, old: Option<&Entry>) -> Result<String, String> {
     let remove = client.remove();
-    if old.is_some() {
-        run_cli(client, &remove)?;
-    }
-    run_cli(client, &client.add(command, &["mcp".into(), "serve".into()]))?;
-    let undo = client.line(&remove);
     let restore = old.and_then(|old| {
         old.command.as_deref().map(|command| client.line(&client.add(command, &old.args)))
     });
+    if old.is_some() {
+        run_cli(client, &remove)?;
+    }
+    run_cli(client, &client.add(command, &["mcp".into(), "serve".into()])).map_err(|error| {
+        match &restore {
+            Some(restore) => format!("{error}; `{restore}` puts the old entry back"),
+            None => error,
+        }
+    })?;
+    let undo = client.line(&remove);
     Ok(match restore {
         Some(restore) => format!("{undo} && {restore}"),
         None => undo,
@@ -455,6 +461,15 @@ fn run_cli(client: Client, args: &[String]) -> Result<(), String> {
         .stderr(std::process::Stdio::piped())
         .spawn()
         .map_err(|error| format!("`{line}`: {error}"))?;
+    // Read on its own thread, so a CLI that writes more than the pipe holds
+    // never blocks on it.
+    let stderr = child.stderr.take().map(|mut pipe| {
+        std::thread::spawn(move || {
+            let mut text = String::new();
+            let _ = pipe.read_to_string(&mut text);
+            text
+        })
+    });
     let deadline = Instant::now() + CLI_TIMEOUT;
     let status = loop {
         match child.try_wait() {
@@ -475,11 +490,9 @@ fn run_cli(client: Client, args: &[String]) -> Result<(), String> {
     if status.success() {
         return Ok(());
     }
-    let mut stderr = String::new();
-    if let Some(pipe) = child.stderr.take() {
-        let _ = pipe.take(4096).read_to_string(&mut stderr);
-    }
-    Err(format!("`{line}` failed ({status}): {}", stderr.trim()))
+    let text = stderr.and_then(|reader| reader.join().ok()).unwrap_or_default();
+    let text: String = text.trim().chars().take(2000).collect();
+    Err(format!("`{line}` failed ({status}): {text}"))
 }
 
 /// The person's switch for MCP clients outside cmux, and why the settings

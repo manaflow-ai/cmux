@@ -95,5 +95,5 @@ one.
   `needs_user` with `user_action.kind` `setting` means the person turns on
   `"mcp": {"enabled": true}` in the settings file the text names; hand them
   that line, do not edit the file. Kind `conflict` means their own server
-  is named `cmux`: ask before removing it. The undo is the `mcp remove`
-  line in `undo`.
+  is named `cmux`: ask before removing it. `undo` is the shell line that
+  puts each changed config back.

@@ -310,7 +310,7 @@ pub(super) fn refusal(path: &std::path::Path) -> Option<String> {
 /// The settings file, and whether it turns `serve` on for a client outside
 /// a cmux agent chat (Claude Code or Codex started in a terminal), or why
 /// it cannot be read (`cmux setup mcp`).
-pub(super) fn outside_chats() -> (std::path::PathBuf, Result<bool, String>) {
+pub(super) fn outside_chats() -> (PathBuf, Result<bool, String>) {
     let path = config::path();
     let on = config::setting(&path).map(|setting| setting == Some(true));
     (path, on)
