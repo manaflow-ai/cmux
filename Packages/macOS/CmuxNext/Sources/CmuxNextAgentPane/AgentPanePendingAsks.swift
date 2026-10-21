@@ -41,12 +41,15 @@ public final class AgentPanePendingAsks {
 
     /// The op's answer: `{pending: [entry]}`, or null when the chat could not be read (a chat on
     /// another machine, which this Mac's acpmux does not hold; no acpmux). Throws for params that
-    /// are not exactly a session id.
-    static func reply(_ params: JSONValue, op: String) async throws -> JSONValue {
+    /// are not exactly a session id. `local`: the calling pane serves a chat on this Mac
+    /// (``AgentPaneModel/readsThisMacsAcpmux``). A pane on another machine's chat
+    /// (``RemoteAcpmuxWire``, scoped to that one session) answers null for every id: this read goes
+    /// to this Mac's acpmux, and would show it the requests of any chat here.
+    static func reply(_ params: JSONValue, op: String, local: Bool) async throws -> JSONValue {
         guard let body = params.foundationObject as? [String: Any], Set(body.keys) == ["sessionId"],
               let session = body["sessionId"] as? String, !session.isEmpty, session.utf8.count <= maximumSession
         else { throw PageError.invalidParams(op) }
-        guard let reader = shared else { return .null }
+        guard local, let reader = shared else { return .null }
         return await reader.pending(of: session)
     }
 
@@ -56,4 +59,11 @@ public final class AgentPanePendingAsks {
         let entries = pending.prefix(Self.maximumEntries).map { entry in entry.filter { Self.entryKeys.contains($0.key) } }
         return JSONValue(foundation: ["pending": entries]) ?? .null
     }
+}
+
+extension AgentPaneModel {
+    /// The pane serves a chat on this Mac: neither made for a chat on another machine
+    /// (``remoteChat``) nor connected through ``RemoteAcpmuxWire``. Only such a pane reads this
+    /// Mac's acpmux for Needs you (`chat.asks.pending`).
+    var readsThisMacsAcpmux: Bool { !remoteChat && !transport.remoteWire }
 }

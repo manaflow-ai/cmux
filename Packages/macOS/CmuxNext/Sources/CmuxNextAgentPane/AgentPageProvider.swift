@@ -76,6 +76,9 @@ public final class AgentPageProvider: PageProvider {
     public var replay: (@MainActor () -> [AgentPageEvent])?
     /// Runs a composer menu edit (`pane.edit`) in the page view; ``AgentPanePageHost`` sets it.
     public var onEdit: (@MainActor (AgentPaneEditCommand) -> Void)?
+    /// Whether the pane serves a chat on this Mac (``AgentPaneModel/readsThisMacsAcpmux``), asked at
+    /// each `chat.asks.pending`. ``AgentPaneView`` sets it; until then the op answers null.
+    public var servesLocalChat: @MainActor () -> Bool = { false }
 
     public init(prepare: @escaping Prepare) {
         self.prepare = prepare
@@ -108,7 +111,7 @@ public final class AgentPageProvider: PageProvider {
         if method == "pane.edit" { return try edit(params, op: op, context: context) }
         if method.hasPrefix("chat.scrollAnchor") { return try Self.scrollAnchor(method, params: params, op: op) }
         // Needs you's read of a chat's open requests: the host's, never the relay's (AgentPanePendingAsks).
-        if method == "chat.asks.pending" { return try await AgentPanePendingAsks.reply(params, op: op) }
+        if method == "chat.asks.pending" { return try await AgentPanePendingAsks.reply(params, op: op, local: servesLocalChat()) }
         let request = AgentPaneRequest(body: ["method": method, "params": params.foundationObject])
         if case .unsupported = request { throw PageError.invalidParams(op) }
         guard let model = prepare(request) else { throw PageError.closed }

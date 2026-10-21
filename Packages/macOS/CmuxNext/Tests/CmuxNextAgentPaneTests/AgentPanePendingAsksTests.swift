@@ -19,8 +19,16 @@ struct AgentPanePendingAsksTests {
 
     static let context = PageCallContext(page: PageDescriptor.agent.id)
 
-    static func call(_ params: [String: JSONValue]) async throws -> JSONValue {
+    private actor NoHost: AgentPaneHostProviding {
+        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
+    }
+
+    /// The op from a pane wired as ``AgentPaneView`` wires it, on `model`'s chat (a chat on this Mac
+    /// by default).
+    static func call(_ params: [String: JSONValue], model: AgentPaneModel? = nil) async throws -> JSONValue {
+        let model = model ?? AgentPaneModel(host: NoHost())
         let provider = AgentPageProvider { _ in nil }
+        provider.servesLocalChat = { model.readsThisMacsAcpmux }
         return try await provider.call(AgentPageOps.namespace + "chat.asks.pending", params: .object(params), context: context)
     }
 
@@ -57,6 +65,31 @@ struct AgentPanePendingAsksTests {
         #expect(try await Self.call(["sessionId": .string("s-remote")]) == .null)
         AgentPanePendingAsks.shared = nil
         #expect(try await Self.call(["sessionId": .string("s-1")]) == .null)
+    }
+
+    /// A pane on another machine's chat (``RemoteAcpmuxWire``) reaches only that one session; this
+    /// read goes to this Mac's acpmux, so it never runs there, whatever chat it names (PR #22646 review).
+    @Test func aPaneOnAnotherMachinesChatGetsNullAndNeverReadsThisMac() async throws {
+        let asked = Asked()
+        AgentPanePendingAsks.shared = AgentPanePendingAsks { session in
+            asked.sessions.append(session)
+            return ["sessionId": session, "pending": [["permissionId": "p1"]]]
+        }
+        defer { AgentPanePendingAsks.shared = nil }
+
+        let remote = AgentPaneModel(host: NoHost())
+        remote.remoteChat = true
+        #expect(try await Self.call(["sessionId": .string("a-chat-on-this-mac")], model: remote) == .null)
+        // A provider no pane has wired fails closed too.
+        let unwired = AgentPageProvider { _ in nil }
+        let reply = try await unwired.call(AgentPageOps.namespace + "chat.asks.pending",
+                                           params: .object(["sessionId": .string("a-chat-on-this-mac")]), context: Self.context)
+        #expect(reply == .null)
+        #expect(asked.sessions.isEmpty)
+
+        // The same read from a pane on this Mac's chat goes through.
+        #expect(try await Self.call(["sessionId": .string("a-chat-on-this-mac")]) != .null)
+        #expect(asked.sessions == ["a-chat-on-this-mac"])
     }
 
     @Test func paramsOtherThanOneSessionIdAreRefused() async throws {
