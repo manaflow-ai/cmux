@@ -186,3 +186,36 @@ fn git_state_absent_from_an_old_session_json_still_loads() {
     let back = serde_json::to_value(&old).unwrap();
     assert!(back.get("gitBranch").is_none() && back.get("gitHead").is_none(), "{back}");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn git_state_of_a_held_chat_follows_a_checkout_mid_session() {
+    let dir = scratch("live");
+    repo(&dir, "first");
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    hub.start_harness_watch();
+    let id = new_session(&mut c, &dir).await;
+    let attach = json!({"sessionId": id, "limit": 0});
+    let attached = c.request(method::MUX_ATTACH, attach).await.unwrap();
+    assert_eq!(attached["session"]["gitBranch"], "first", "{attached}");
+    c.request(method::MUX_WATCH, json!({})).await.unwrap();
+    let git_changed = |p: &Value| p["kind"] == "git" && p["sessionId"] == id.as_str();
+
+    // The agent, or the person in a terminal, switches branch mid-session:
+    // a client holding the chat hears it without a turn ending.
+    let switched = std::time::Instant::now();
+    git(&dir, &["checkout", "-q", "-b", "second"]);
+    let changed = c.wait_for(method::MUX_SESSION_CHANGED, git_changed).await;
+    assert_eq!(changed["session"]["gitBranch"], "second", "{changed}");
+    // About a second is the goal; the bound leaves a loaded runner room.
+    let took = switched.elapsed();
+    assert!(took < Duration::from_secs(3), "the checkout took {took:?} to reach the watcher");
+    let info = c.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(info["gitBranch"], "second", "{info}");
+    // The branch it started on stays, for the stats and its pull request.
+    assert_eq!(saved(&hub, &id)["gitBranch"], "first");
+
+    // A detached HEAD has no branch.
+    git(&dir, &["checkout", "-q", "--detach"]);
+    let changed = c.wait_for(method::MUX_SESSION_CHANGED, git_changed).await;
+    assert!(changed["session"]["gitBranch"].is_null(), "{changed}");
+}
