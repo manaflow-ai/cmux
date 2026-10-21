@@ -403,6 +403,10 @@ fn finish_start(started: Option<Started>) {
 /// [`SPAWN_LIMIT`].
 const START_WAIT: Duration = Duration::from_secs(65);
 
+/// A stop began ([`take_started`]): a start waiting in [`spawn`] for an
+/// older daemon's lock starts no daemon.
+static STOP_ASKED: AtomicBool = AtomicBool::new(false);
+
 /// How long `acpmux daemon shutdown` may take (it ends every agent host,
 /// with its own SIGTERM-to-SIGKILL grace).
 const SHUTDOWN_LIMIT: Duration = Duration::from_secs(20);
@@ -412,6 +416,8 @@ const SHUTDOWN_LIMIT: Duration = Duration::from_secs(20);
 /// begins after this. None: it started none (a daemon it found running
 /// belongs to the app, a supervisor or another Chief, and is left alone).
 pub fn take_started() -> Option<Started> {
+    // A start that waits for an older daemon's lock gives up now.
+    STOP_ASKED.store(true, Ordering::SeqCst);
     let (mut starts, _) = START_DONE
         .wait_timeout_while(starts(), START_WAIT, |s| s.starting > 0)
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -534,7 +540,7 @@ fn await_lock_release(path: &Path, wait: Duration) -> bool {
     let deadline = Instant::now() + wait;
     let mut step = Duration::from_millis(10);
     while lock_held(path) {
-        if Instant::now() >= deadline {
+        if Instant::now() >= deadline || STOP_ASKED.load(Ordering::SeqCst) {
             return false;
         }
         std::thread::sleep(step);
@@ -576,8 +582,21 @@ fn spawn(
     if reachable(socket) {
         return Ok(None);
     }
+    if STOP_ASKED.load(Ordering::SeqCst) {
+        return Err("the host is stopping; it starts no acpmux".into());
+    }
+    if Instant::now() >= limit {
+        return Err(format!(
+            "acpmux daemon exited before its socket was ready: {status}; no time is left to start it again"
+        ));
+    }
     match spawn_once(socket, bin, log, limit)? {
         Spawned::Ready(child) => Ok(Some(child)),
+        // Another starter's daemon took the lock first: use it once it answers.
+        Spawned::Exited(_) if lock_held(&lock) => {
+            await_socket(socket, limit.saturating_duration_since(Instant::now()))?;
+            Ok(None)
+        }
         Spawned::Exited(status) => Err(format!(
             "acpmux daemon exited before its socket was ready: {status}"
         )),
