@@ -9,7 +9,28 @@ protocol HomePasteboardContents {
     func hasType(_ types: [NSPasteboard.PasteboardType]) -> Bool
     func data(forType type: NSPasteboard.PasteboardType) -> Data?
     func string(forType type: NSPasteboard.PasteboardType) -> String?
+    /// A drag's file promises, in order (the screenshot thumbnail, Photos, a
+    /// browser's picture): files the source writes only when the drop asks.
+    var filePromises: [any HomeFilePromise] { get }
 }
+
+extension HomePasteboardContents {
+    var filePromises: [any HomeFilePromise] { [] }
+}
+
+/// A file a drag's source writes when the drop asks: `NSFilePromiseReceiver`
+/// (or a value in tests: a ci-step mini has no pasteboard server). Asked on
+/// the main thread; the files arrive on the queue given.
+protocol HomeFilePromise: AnyObject {
+    /// The promised files' type identifiers (one per file for a legacy promise).
+    var fileTypes: [String] { get }
+    /// Asks the source to write its files into `destinationDir`; `reader` runs on
+    /// `operationQueue` once per file.
+    func receivePromisedFiles(atDestination destinationDir: URL, options: [AnyHashable: Any], operationQueue: OperationQueue,
+                              reader: @escaping (URL, (any Error)?) -> Void)
+}
+
+extension NSFilePromiseReceiver: HomeFilePromise {}
 
 extension NSPasteboard: HomePasteboardContents {
     var fileURLs: [URL] {

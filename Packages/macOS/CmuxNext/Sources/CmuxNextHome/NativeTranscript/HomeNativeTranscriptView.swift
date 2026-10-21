@@ -42,6 +42,9 @@ public final class HomeNativeTranscriptView: NSView {
     /// The chain of attachment preparations, in the order they arrived.
     // task-owner: replaced by the next intake; awaited by attachmentsReady
     var intake: Task<Void, Never>?
+    /// What a drag's pasteboard holds, as the intake reads it (the pasteboard itself; a value in
+    /// tests: a ci-step mini has no pasteboard server).
+    var dropContents: (NSPasteboard) -> any HomePasteboardContents = { $0 }
     private var stopped = false
     /// The composer rect toasts last moved clear of (posted on change).
     private var lastToastAvoidance = NSRect.zero

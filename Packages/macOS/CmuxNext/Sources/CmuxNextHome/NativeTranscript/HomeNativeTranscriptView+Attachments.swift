@@ -158,12 +158,12 @@ extension HomeNativeTranscriptView {
 
     public override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
         // Types and the plain string only: the picture bytes are read once, on drop.
-        guard attachmentPreparer != nil, HomeAttachmentIntake.offers(sender.draggingPasteboard) else { return [] }
+        guard attachmentPreparer != nil, HomeAttachmentIntake.offers(dropContents(sender.draggingPasteboard)) else { return [] }
         return .copy
     }
 
     public override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        guard handleDrop(sender.draggingPasteboard) else { return false }
+        guard handleDrop(dropContents(sender.draggingPasteboard)) else { return false }
         // A drop aimed at Home (the first-run panel, the margins): type at once.
         transcript.focusPrimaryInputForTyping()
         return true
