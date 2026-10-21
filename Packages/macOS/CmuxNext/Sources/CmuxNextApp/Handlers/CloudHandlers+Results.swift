@@ -71,9 +71,11 @@ extension CloudHandlers {
     /// `work`'s answer if it comes within `wait`, else nil (the work keeps
     /// running). Both sides yield into one stream and the first value wins:
     /// awaiting an unstructured task's `value` ignores cancellation, so a
-    /// task group racing it would wait for the work to end anyway.
+    /// task group racing it would wait for the work to end anyway. The stream
+    /// keeps only the first of its two values.
     static func firstAnswer(_ work: ActionResultWork, within wait: Duration) async -> Result<[String: ActionResultValue], ActionWorkFailure>? {
-        let (answers, continuation) = AsyncStream<Result<[String: ActionResultValue], ActionWorkFailure>?>.makeStream()
+        let (answers, continuation) = AsyncStream<Result<[String: ActionResultValue], ActionWorkFailure>?>
+            .makeStream(bufferingPolicy: .bufferingOldest(1))
         // task-owner: relays the work's answer; it ends with the work (a yield after finish is dropped).
         Task { continuation.yield(await work.value) }
         // task-owner: the answer deadline; cancelled below once an answer is in.
