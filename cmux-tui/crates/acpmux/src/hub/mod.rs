@@ -83,6 +83,7 @@ mod stream;
 mod tags;
 mod tap;
 mod titles;
+mod tool_paths;
 mod tools;
 mod watch;
 pub use new_request::{
