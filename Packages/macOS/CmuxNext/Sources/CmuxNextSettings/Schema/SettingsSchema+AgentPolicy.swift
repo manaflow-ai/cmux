@@ -328,6 +328,7 @@ extension SettingsSchema {
         // What reaches this Mac from outside and what leaves it: only the person opens phone access.
         "phone.allowConnections": .network,
         "phone.startSessions": .network,
+        "phone.newDevices": .network,
         "phone.keepAwake": .userOnly,
         // Workspace names leave this Mac for the Cloud service: only the person turns it on.
         "phone.cloudReplica": .privacy,

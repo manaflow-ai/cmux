@@ -9,6 +9,9 @@ enum IPhoneHostStrings {
     static func registered(as email: String) -> String {
         String(format: String(localized: "iphone.account.registered", defaultValue: "Registered as %@", table: "IPhone", bundle: .module), email)
     }
+    /// The app a phone row is for: the cmux iOS app (through hostd) or cmux next (the Iroh link).
+    static var appIOS: String { String(localized: "iphone.phone.app.ios", defaultValue: "cmux (iOS)", table: "IPhone", bundle: .module) }
+    static var appNext: String { String(localized: "iphone.phone.app.next", defaultValue: "cmux next", table: "IPhone", bundle: .module) }
     static var notConnected: String { String(localized: "iphone.phone.notConnected", defaultValue: "Not connected", table: "IPhone", bundle: .module) }
     static var remove: String { String(localized: "iphone.phone.remove", defaultValue: "Remove", table: "IPhone", bundle: .module) }
     static var removeHelp: String {
