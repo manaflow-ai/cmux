@@ -402,6 +402,10 @@ jobs:
           python3 scripts/whats-new/test_community.py
           python3 tests/test_cmux_next_release_notes.py
 
+      - name: Test the server bootstrap candidate renderer
+        if: ${{ !cancelled() && matrix.group == 'preflight' }}
+        run: python3 scripts/server-release/test_render.py
+
       - name: Test the /release changelog line classifier
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: python3 tests/test_release_changelog_lines.py
