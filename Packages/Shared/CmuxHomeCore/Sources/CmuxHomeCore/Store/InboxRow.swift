@@ -68,7 +68,8 @@ extension HomeMirror {
         }
         let rows = summaries.values.map { summary -> InboxRow in
             let pending = pendingSend[summary.id]
-            let last = summary.lastMessage?.isRetracted == true ? nil : summary.lastMessage
+            // A done marker is no content: no preview of its session name (Message.isDoneMarker).
+            let last = summary.lastMessage.flatMap { $0.isRetracted || $0.isDoneMarker ? nil : $0 }
             var preview = last.map { Self.previewText($0.parts) } ?? ""
             var attachments: AttachmentPreview? = if let last {
                 AttachmentPreview.of(last.parts)
@@ -106,8 +107,8 @@ extension HomeMirror {
         return rows.orderedForInbox()
     }
 
-    /// The text of every part but attachments (the owner's preview rule) and done markers (a session name).
+    /// The text of every part but attachments (the owner's preview rule).
     static func previewText(_ parts: [MessagePart]) -> String {
-        parts.compactMap { if case .attachment = $0 { nil } else if $0.isDoneMarker { nil } else { $0.plainText } }.joined(separator: "\n")
+        parts.compactMap { if case .attachment = $0 { nil } else { $0.plainText } }.joined(separator: "\n")
     }
 }

@@ -42,10 +42,9 @@ public enum MessagePart: Hashable, Sendable, Codable {
     }
 
     /// A finished agent session with nothing to show: its only text is the session name
-    /// (`optchat-b902d10e-816`). A Chief turn that said nothing posts one to close the
-    /// messages it answered (optchat-chief brain/turns.rs, "a done marker"); a view does
-    /// not draw it, and the inbox preview skips it.
-    public var isDoneMarker: Bool {
+    /// (`optchat-b902d10e-816`). Only a message of these under a turn key is a done marker
+    /// (``Message/isDoneMarker(key:parts:)``).
+    public var isDoneWorkWithoutPreview: Bool {
         if case .work(let work) = self { work.status == .done && work.preview == nil } else { false }
     }
 }
@@ -307,4 +306,15 @@ public struct Message: Hashable, Sendable, Codable, Identifiable {
 
     public var plainText: String { parts.map(\.plainText).joined(separator: "\n") }
     public var isRetracted: Bool { retractedAt != nil }
+    /// See ``isDoneMarker(key:parts:)``.
+    public var isDoneMarker: Bool { Self.isDoneMarker(key: clientMessageID, parts: parts) }
+
+    /// A Chief turn that said nothing posts a done marker to close the messages it answered
+    /// (optchat-chief brain/turns.rs): under its turn key (`turn:optchat:816:…`), a done work part
+    /// with no preview, named by the turn's session. It is a signal, not content: the transcript
+    /// shows no row for it and the inbox no preview. A subagent's card (`work:<session>`, cmux-chief
+    /// children.rs) can look the same once done, and still shows.
+    public static func isDoneMarker(key: IdempotencyKey, parts: [MessagePart]) -> Bool {
+        key.rawValue.hasPrefix("turn:") && !parts.isEmpty && parts.allSatisfy(\.isDoneWorkWithoutPreview)
+    }
 }
