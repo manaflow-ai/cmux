@@ -94,9 +94,11 @@ final class ComposeInlineAttachment: NSTextAttachment {
     func drawnImage(_ size: CGSize) -> NSImage {
         let fill = Fixture.isLight ? Fixture.chipFill : NSColor(white: 1, alpha: 0.08)
         let corner = ComposeAttachmentStrip.corner
-        let image = isImage ? thumbnail : nil
         let labels = isImage ? nil : FileLabels(model, width: size.width - 60)
-        return NSImage(size: size, flipped: false) { r in
+        // The thumbnail is read when the image draws, not when it is made: the field may keep this
+        // image from before the thumbnail decoded.
+        let drawn = NSImage(size: size, flipped: false) { [weak self] r in
+            let image = self?.isImage == true ? self?.thumbnail : nil
             NSBezierPath(roundedRect: r, xRadius: corner, yRadius: corner).addClip()
             fill.setFill()
             r.fill()
@@ -107,6 +109,8 @@ final class ComposeInlineAttachment: NSTextAttachment {
             labels?.draw(in: r)
             return true
         }
+        drawn.cacheMode = .never
+        return drawn
     }
 
     /// IMAGE's rect scaled to cover BOX, centred (the view's `resizeAspectFill`).
@@ -147,6 +151,8 @@ final class ComposeInlineAttachment: NSTextAttachment {
     func loadThumbnailNow(scale: CGFloat) {
         guard isImage, let asset = model.asset else { return }
         thumbnail = ComposeAttachmentStrip.thumbnail(asset, maxPixels: thumbnailPixels(scale))
+        shownView?.show(thumbnail)
+        redrawField()
     }
 
     override func viewProvider(for parentView: NSView?, location: any NSTextLocation, textContainer: NSTextContainer?) -> NSTextAttachmentViewProvider? {
