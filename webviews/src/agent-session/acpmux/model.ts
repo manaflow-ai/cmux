@@ -495,6 +495,9 @@ export type AcpmuxSnapshot = {
   /// `turnTokens`); unset when the harness does not report each call or the client missed the
   /// turn's start.
   turnTokens?: number;
+  /// The running turn's agent has said nothing since its prompt, past acpmux's `silentTurnMs`
+  /// (direct.ts `silentTurn`): the turn's line says the model has not answered.
+  silentTurn?: true;
   /// This computer's clock minus the session's, for a session on a peer (SSH, Cloud) whose
   /// events carry the peer's clock; unset when they share a clock or it is not known yet.
   clockOffsetMs?: number;
