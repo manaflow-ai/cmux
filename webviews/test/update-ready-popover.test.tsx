@@ -164,9 +164,11 @@ test("the popup and the card read notes published before the readable rules as t
       <UpdatedCard data={data} strings={createStrings(table)} actions={{ openChangelog: () => undefined }} />,
     ),
   );
-  expect([...host.querySelectorAll(".wn-card-changes li")].map((li) => li.textContent)).toEqual([
-    "Keep the Mac awake while agents work",
-  ]);
+  // The card summarizes by area (#22810): one row, made only of the readable change.
+  const rows = [...host.querySelectorAll(".wn-card-areas li")].map((li) => li.textContent ?? "");
+  expect(rows).toHaveLength(1);
+  expect(rows[0]).toMatch(/keep the mac awake while agents work/i);
+  expect(rows[0]).not.toMatch(/perf-fanout|backdrop/i);
   expect(host.querySelector(".wn-card-line")).toBeNull();
 });
 
