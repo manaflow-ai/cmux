@@ -39,6 +39,7 @@ def app_call(tag, method, params=None):
 
 
 def raw(tag, op, params, key=None):
+    params = {"machine": "current", "session": "current", **params}
     args = ["raw", "operation", op, "--params-json", json.dumps(params)]
     if key:
         args += ["--mutation", "--idempotency-key", key]
@@ -48,7 +49,8 @@ def raw(tag, op, params, key=None):
 
 
 def result(reply):
-    return (reply or {}).get("result") or (reply or {}).get("data") or reply
+    reply = reply or {}
+    return reply.get("value") or reply.get("result") or reply.get("data") or reply
 
 
 def seed(tag):
@@ -57,18 +59,34 @@ def seed(tag):
         params = {"name": name}
         if color:
             params["color"] = color
-        reply = result(raw(tag, "workspace_group.create", params, f"sweep-group-{name}"))
+        reply = result(raw(tag, "workspace_group.create", params, f"sweep2-group-{name}"))
         groups[name] = (reply or {}).get("id")
     placements = [("api-server", "Work"), ("web-client", "Work"), ("docs", "Work"),
                   ("deploy", "Infra"), ("scratch", None), ("a workspace with a rather long name that truncates", None)]
     for name, group in placements:
-        created = result(raw(tag, "workspace.create", {"name": name, "initial_content": "terminal"}, f"sweep-ws-{name}"))
+        created = result(raw(tag, "workspace.create", {"name": name, "initial_content": "terminal"}, f"sweep2-ws-{name}"))
         workspace = (created or {}).get("workspace_id") or (created or {}).get("id")
         if isinstance(created, dict) and isinstance(created.get("workspace"), dict):
             workspace = created["workspace"].get("workspace_id") or created["workspace"].get("id")
         if group and workspace and groups.get(group):
-            raw(tag, "workspace.place", {"workspace": workspace, "group": groups[group]}, f"sweep-place-{name}")
+            raw(tag, "workspace.place", {"workspace": workspace, "group": groups[group]}, f"sweep2-place-{name}")
     return groups
+
+
+def place_existing(tag):
+    """Groups and workspaces by name from the daemon, then the placements."""
+    groups = {g.get("name"): g.get("id") for g in (result(raw(tag, "workspace_group.list", {})) or []) if isinstance(g, dict)}
+    listed = result(raw(tag, "workspace.list", {})) or []
+    if isinstance(listed, dict):
+        listed = listed.get("workspaces") or listed.get("items") or []
+    ids = {}
+    for w in listed:
+        if isinstance(w, dict):
+            ids[w.get("name") or w.get("title") or w.get("display_name")] = w.get("workspace_id") or w.get("id")
+    for name, group in [("api-server", "Work"), ("web-client", "Work"), ("docs", "Work"), ("deploy", "Infra")]:
+        if ids.get(name) and groups.get(group):
+            raw(tag, "workspace.place", {"workspace": ids[name], "group": groups[group]}, f"sweep3-place-{name}")
+    return groups, ids
 
 
 def snap(tag, name):
@@ -91,22 +109,14 @@ def mouse(tag, **params):
 
 
 def find_rows(report):
-    """(kind, title, frame) for each sidebar row the report names, best effort over its shape."""
-    found = []
-
-    def walk(node):
-        if isinstance(node, dict):
-            frame = node.get("frame") or node.get("window_frame")
-            title = node.get("title") or node.get("name") or node.get("label")
-            if frame and title:
-                found.append((node.get("kind") or node.get("type") or "", str(title), frame))
-            for value in node.values():
-                walk(value)
-        elif isinstance(node, list):
-            for value in node:
-                walk(value)
-
-    walk(report)
+    """(kind, title, window_frame) per sidebar row; groups are named in seed order."""
+    found, group_names = [], iter(["Work", "Infra", "Empty group"])
+    for row in (report.get("windows") or [{}])[0].get("rows", []):
+        key = row.get("key") or ""
+        if key.startswith("workspace("):
+            found.append(("workspace", row.get("title") or "", row.get("window_frame")))
+        elif key.startswith("group("):
+            found.append(("group", next(group_names, key), row.get("window_frame")))
     return found
 
 
@@ -118,11 +128,9 @@ def center(frame):
     return None
 
 
-def sweep_variant(tag, variant, config, modes):
-    with open(os.path.join(tag.scratch, "cmux.json"), "w") as out:
+def sweep_variant(tag, variant, config, config_path, modes):
+    with open(config_path, "w") as out:
         json.dump(config, out)
-    launch = Launch(tag)
-    launch.wait_for(["workspace_content_shown", "sidebar_rows_shown"], 60)
     time.sleep(3)
     for mode in modes:
         app_call(tag, "debug.appearance", {"mode": mode})
@@ -142,7 +150,7 @@ def sweep_variant(tag, variant, config, modes):
             mouse(tag, action="move", x=x, y=y)
             time.sleep(1.6)
             snap(tag, f"{prefix}-02-{label}")
-            app_call(tag, "debug.hover_cards", {})
+            log("hover_cards", label=label, report=app_call(tag, "debug.hover_cards", {}).get("result"))
             if label == "row-hover":
                 # The overflow button sits at the row's trailing edge.
                 mouse(tag, action="click", x=frame["x"] + frame["width"] - 14, y=y)
@@ -166,23 +174,47 @@ def sweep_variant(tag, variant, config, modes):
             snap(tag, f"{prefix}-05-work-toggled")
             mouse(tag, action="click", x=x, y=y)
             time.sleep(0.6)
-    launch.quit_keep_sessions()
+
+
+class SlotTag:
+    """An app capture-host launched: its socket, bundle and the slot's config file."""
+
+    def __init__(self, app, tag, socket_path, home, session, tmpdir):
+        self.app, self.tag, self.socket = app, tag, socket_path
+        self.session = session
+        self.tmpdir = tmpdir
+        self.tui = os.path.join(app, "Contents/Resources/bin/cmux-tui")
+        self.state = os.path.join(home, f"Library/Application Support/cmux/tags/{tag}/tui")
+        self.home = home
+
+    def daemon_env(self):
+        env = dict(os.environ)
+        env.update({"HOME": self.home, "TMPDIR": self.tmpdir})
+        env.pop("XDG_RUNTIME_DIR", None)
+        return env
+
+    tui_json = Tag.tui_json
 
 
 def main():
-    tag = Tag(Args)
-    first = Launch(tag)
-    first.wait_for(["workspace_content_shown"], 90)
-    time.sleep(2)
-    groups = seed(tag)
-    log("seeded", groups=groups)
-    time.sleep(2)
-    first.quit_keep_sessions()
-    sweep_variant(tag, "opaque", {}, ["light", "dark"])
-    sweep_variant(tag, "glass", {"appearance": {"glassTransparency": 0.35, "backgroundBlur": "glass"}}, ["dark", "light"])
-    stop = os.environ.get("NX_APP_STOP")
-    if stop:
-        subprocess.run([stop], timeout=180)
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--app", required=True)
+    parser.add_argument("--tag", required=True)
+    parser.add_argument("--socket", required=True)
+    parser.add_argument("--home", required=True)
+    parser.add_argument("--config", required=True)
+    parser.add_argument("--session", required=True)
+    parser.add_argument("--tmpdir", required=True)
+    parser.add_argument("--no-seed", action="store_true")
+    args = parser.parse_args()
+    tag = SlotTag(args.app, args.tag, args.socket, args.home, args.session, args.tmpdir)
+    log("tui", status=tag.tui_json("server", "status"))
+    if not args.no_seed:
+        log("seeded", groups=seed(tag))
+        time.sleep(3)
+    sweep_variant(tag, "opaque", {}, args.config, ["light", "dark"])
+    sweep_variant(tag, "glass", {"appearance": {"glassTransparency": 0.35, "backgroundBlur": "glass"}}, args.config, ["dark", "light"])
 
 
 if __name__ == "__main__":
