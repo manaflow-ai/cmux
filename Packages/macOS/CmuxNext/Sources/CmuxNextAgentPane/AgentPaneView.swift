@@ -157,6 +157,7 @@ public final class AgentPaneView: NSView {
             // page made 55 tabs cost 54 processes and 4 GB (plans/cmux-next/sequoia-lag.md).
             // webview-allow: agent chat needs WebKit (native context menu, file drops, input hooks)
             webView = Self.processGroups.webView(for: configuration) { AgentPaneWKWebView(frame: .zero, configuration: $0) }
+            Self.warmupNoLongerNeeded = true
             #if DEBUG
             // Automation launches (capture slots) keep a covered window's page drawing, as
             // PageWebView does: WebKit hid the covered New Tab page, so it never drew (cx-zjtn.6).

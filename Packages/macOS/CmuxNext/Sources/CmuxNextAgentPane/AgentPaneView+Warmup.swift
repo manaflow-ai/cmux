@@ -3,10 +3,11 @@ import WebKit
 
 /// Starts WebKit for the agent pages once the first window frame is committed
 /// (cx-z9kz0): its first-use setup and the shared pool's first web content
-/// process then run before most agent pages load. It used to run before
-/// NSApplication.run, where it held the main thread 80-350 ms ahead of the
-/// first frame. The empty page goes once an agent page has loaded or the
-/// launch settled (`LaunchSettle`).
+/// process then run before an agent page opened after that frame loads. It
+/// used to run before NSApplication.run, where it held the main thread
+/// 80-350 ms ahead of the first frame. It does not start once an agent page
+/// was made (that page started WebKit) or the launch settled; the empty page
+/// goes once an agent page has loaded or the launch settled (`LaunchSettle`).
 ///
 /// It no longer has the pool prewarm a second, page-less web content process
 /// (`-[WKProcessPool _warmInitialProcess]`, cx-z9kz0, #19847). On some Macs
@@ -23,13 +24,16 @@ import WebKit
 /// understood.
 extension AgentPaneView {
     private static var warmupView: WKWebView?
+    /// Set once an agent page was made or the launch settled, so a later start cannot leave
+    /// the empty page (and its web content process) alive for the whole session.
+    static var warmupNoLongerNeeded = false
     /// The in-memory data store every agent page shares. WebKit gives each store its own web
     /// processes, so a fresh store per page could not use the one started here. Storage the
     /// page keys per chat (drafts) stays per chat; the rest is app-wide choices.
     static let sharedDataStore = WKWebsiteDataStore.nonPersistent()
 
     public static func startWarmup() {
-        guard warmupView == nil else { return }
+        guard warmupView == nil, !warmupNoLongerNeeded else { return }
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = sharedDataStore
         configuration.processPool = processPool
@@ -40,6 +44,7 @@ extension AgentPaneView {
     }
 
     public static func finishWarmup() {
+        warmupNoLongerNeeded = true
         warmupView = nil
     }
 }
