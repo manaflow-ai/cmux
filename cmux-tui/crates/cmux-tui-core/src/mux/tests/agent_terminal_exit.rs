@@ -48,7 +48,7 @@ fn assert_terminal_end_ends_its_working_agent(
         mux.workspace_registry
             .lock()
             .unwrap()
-            .terminal_relaunch_record(terminal.as_str())
+            .terminal_relaunch_record(TERMINAL)
             .unwrap()
             .and_then(|record| record.agent)
     };
@@ -82,7 +82,8 @@ fn assert_terminal_end_ends_its_working_agent(
     hook("SessionStart", "exit-3");
     hook("UserPromptSubmit", "exit-4");
     let working = mux.list_agents(None, Some(AgentState::Working));
-    assert!(working.iter().all(|record| record.terminal_id == terminal), "{case}");
+    assert_eq!(working.len(), 1, "{case}: {working:?}");
+    assert_eq!(working[0].terminal_id, terminal, "{case}");
 
     mux.shutdown();
     drop(mux);
