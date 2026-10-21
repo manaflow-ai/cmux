@@ -2239,6 +2239,27 @@ def _evaluate_concurrency_group(template: str, context: dict[str, object]) -> st
     return re.sub(r"\$\{\{(.*?)\}\}", evaluate, template)
 
 
+def test_daemon_gate_tests_only_the_newest_published_feat_tree() -> None:
+    # 2026-10-21: 26 feat-cmux-next daemon-test jobs queued for 2 h, one per
+    # key, and nightly-next did not move. When the job gets a Mac, attempt 1 of
+    # a feat-cmux-next push skips its tests if the branch head has a different
+    # key whose tree is published (the head's run tests that one). A rerun and
+    # any read failure test as before, and the skip reuses the superseded
+    # output, so publish-tree-tested acts on no key.
+    daemon = workflow_job(workflow("cmux-tui-artifacts.yml"), "cmux-next-daemon-tests")
+    assert 'if [[ "$REF" == refs/heads/feat-cmux-next && "$RUN_ATTEMPT" == 1 ]]' in daemon
+    assert "git fetch --quiet --no-tags --depth=1 origin refs/heads/feat-cmux-next" in daemon
+    assert 'scripts/cmux-next/pin-cmux-tui.sh key --rev FETCH_HEAD' in daemon
+    assert '"$head_sha" != "$SHA"' in daemon and '"$head_key" != "$KEY"' in daemon
+    assert "https://files.cmux.com/cmux-tui/tree/$head_key/completion.json" in daemon
+    assert 'echo "stale=true" >> "$GITHUB_OUTPUT"' in daemon
+    assert "superseded: ${{ steps.current.outputs.stale }}" in daemon
+    assert "key: ${{ steps.key.outputs.key }}" in daemon
+    assert "if: steps.current.outputs.stale != 'true'" in daemon
+    # No branch-wide group: an older push arriving late must never replace the head's job.
+    assert "feat-cmux-next-gate" not in daemon
+
+
 def test_cmux_tui_artifacts_never_drops_a_feat_cmux_next_push() -> None:
     # 2026-10-10 (cx-73f2): one group for every feat-cmux-next push let GitHub
     # replace each pending run with the next push, so merge train tips such as
