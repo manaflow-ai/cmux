@@ -4,6 +4,7 @@ import { sections } from "../schema";
 import { text } from "../strings";
 import { AccountsSection } from "./AccountsSection";
 import { AgentHarnesses } from "./AgentHarnesses";
+import { AgentIntegrations } from "./AgentIntegrations";
 import { CHIEF_PET_ROWS, ChiefPetCard } from "./ChiefPetCard";
 import { ChiefsCard } from "./ChiefsCard";
 import { ComputerUseCard } from "./ComputerUseCard";
@@ -36,6 +37,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   machines: () => <MachinesSection title={machinesTitle()} />,
   accounts: () => <AccountsSection />,
   agentHarnesses: (focus) => <AgentHarnesses focus={focus} />,
+  agentIntegrations: (focus) => <AgentIntegrations focus={focus} />,
   chiefs: () => <ChiefsCard />,
   advancedInfo: () => <AdvancedInfo />,
   advancedActions: () => <PlaceholderSection section="advanced" />,
