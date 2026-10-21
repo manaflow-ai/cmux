@@ -200,9 +200,9 @@ test("a markdown data: image already written into a prompt's text goes as an ima
   const typed = `![Screenshot · 778×696](${dataUri} "Screenshot · 778×696")what the heck`;
   const blocks = promptBlocks(typed, []);
   expect(blocks.filter((block) => block.type === "text")).toEqual([{ type: "text", text: "what the heck" }]);
-  expect(
-    blocks.filter((block) => block.type === "image").map((block) => (block.type === "image" ? block.data : "")),
-  ).toEqual([pngBase64]);
+  expect(blocks.filter((block) => block.type === "image").map((block) => ("data" in block ? block.data : ""))).toEqual([
+    pngBase64,
+  ]);
   // A title right after the base64, with no space (as Leo's prompt had), is part of the image.
   expect(liftInlineImages(`![a](${dataUri}"a")ok`).text).toBe("ok");
 });

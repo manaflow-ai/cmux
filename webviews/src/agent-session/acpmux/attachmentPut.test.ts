@@ -42,6 +42,11 @@ test("a kept image is named by acpmux's id, an image not kept goes inline", () =
   ]);
 });
 
+/// Yields a macrotask at a time until `done`, at most `tries` times.
+const settle = async (done: () => boolean, tries = 500) => {
+  for (let n = 0; n < tries && !done(); n += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+};
+
 type Hooks = { answer: (method: string, params: any) => Promise<unknown> };
 type Sent = { method: string; params: any };
 
@@ -111,9 +116,10 @@ test("a prompt still putting its images goes before a prompt sent after it", asy
   const { client, sent } = await connect(true, new Promise<void>((resolve) => (open = resolve)));
   try {
     const first = client.send("look at this", [shot("a")], "p-first");
-    await new Promise((resolve) => setTimeout(resolve, 5));
+    await settle(() => sent.some((frame) => frame.method === "_acpmux/attachment_put"));
     const second = client.send("and fix it", [], "p-second");
-    await new Promise((resolve) => setTimeout(resolve, 5));
+    // Long enough for a prompt with nothing to put to be written, were it not waiting.
+    await settle(() => false, 20);
     // The second waits for the first, whose put has no answer yet.
     expect(sent.filter((frame) => frame.method === "session/prompt")).toEqual([]);
     open();
