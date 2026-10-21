@@ -116,16 +116,12 @@ function Card({ card, onAction }: { card: ImportCardData; onAction: (id: string,
       {card.reason && <p className="import-card-reason">“{card.reason}”</p>}
       {card.benefit && <p className="import-card-benefit">{card.benefit}</p>}
       {card.progress !== undefined && (card.state === "running" || card.state === "paused") && (
-        <div
+        <progress
           className="import-card-progress"
-          role="progressbar"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={Math.round(card.progress * 100)}
+          max={100}
+          value={Math.round(card.progress * 100)}
           aria-label={card.status ?? card.title}
-        >
-          <div className="import-card-progress-fill" style={{ width: `${Math.round(card.progress * 100)}%` }} />
-        </div>
+        />
       )}
       {card.status && (
         <p className="import-card-status" role={card.state === "failed" ? "alert" : "status"}>
