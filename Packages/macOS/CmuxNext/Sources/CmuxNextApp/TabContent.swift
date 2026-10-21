@@ -96,6 +96,8 @@ final class TerminalEntry {
     let themeBinding: TerminalThemeBinding
     /// Tab `dead` and connection changes for this view.
     private var watch: TerminalLinkWatch
+    /// The TextBox composer under this terminal, made the first time a TextBox action runs on it.
+    var textBox: TextBoxController?
 
     // cx-qxxu: released with its terminal, which Cmd-T's New Tab page can withdraw while its
     // action runs; a main-actor deinit's hop traps there (cx-t7hu).

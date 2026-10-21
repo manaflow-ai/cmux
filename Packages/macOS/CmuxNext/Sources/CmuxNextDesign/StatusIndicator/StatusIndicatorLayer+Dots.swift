@@ -41,7 +41,7 @@ extension StatusIndicatorLayer {
     /// The pulse on the first dot; the copies follow a third of a cycle
     /// apart. Nil when loops are stopped (`Motion.period`).
     func waveAnimation() -> CAAnimation? {
-        guard let period = Motion.period(.pulse), let pulse = Motion.pulseAnimation(low: Float(config.pulseLow)) else { return nil }
+        guard let period = Motion.indicators.period(.pulse), let pulse = Motion.indicators.pulseAnimation(low: Float(config.pulseLow)) else { return nil }
         dotsLayer?.instanceDelay = period / Double(Self.dotsCount)
         return pulse
     }

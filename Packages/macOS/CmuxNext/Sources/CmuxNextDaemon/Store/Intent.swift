@@ -51,6 +51,12 @@ public enum Intent: Sendable, Hashable {
     /// fails (Cmd-N, instant-new-surfaces). Its first tab is a provisional tab, so the
     /// conservation check does not count it.
     case createWorkspace(provisional: ProvisionalWorkspace, index: Int?)
+    /// `close-surface` / `close-tabs` of daemon tabs the person closed (Cmd-W, a close button,
+    /// close others): they leave the visible records in the input's turn and stay out until the
+    /// daemon's records drop them (the reply's sequence is applied and the records no longer hold
+    /// them, or a snapshot), or come back when the close fails. One mechanism with the creates,
+    /// so a reply that beats its `tab-closed` event never shows the tab again (tab-spam-race).
+    case closeTabs(surfaces: [SurfaceID])
 }
 
 /// One row's height in permille (`set-row-heights` `heights[]`).

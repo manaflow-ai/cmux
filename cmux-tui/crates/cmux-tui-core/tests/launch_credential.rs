@@ -92,16 +92,6 @@ impl Client {
         }
         self.v2("workspace.create", json!({"name": key, "initial_content": "empty"}), extra)
     }
-
-    fn mint(&mut self, acp_session: &str, extra: Value) -> Value {
-        self.v2("credential.mint", json!({"acp_session": acp_session}), extra)
-    }
-
-    fn rotate(&mut self, key: &str, extra: Value) -> Value {
-        let mut extra = extra;
-        extra["idempotency_key"] = json!(key);
-        self.v2("credential.rotate", json!({}), extra)
-    }
 }
 
 fn refusal(reply: &Value) -> (String, String) {
@@ -212,44 +202,17 @@ fn a_caller_can_never_send_an_actor() {
 }
 
 #[test]
-fn mint_verify_and_rotate_keep_their_rules() {
+fn a_plain_local_connection_cannot_mint_or_rotate() {
     let dir = temp_dir("lc-rotate");
     let mux = Mux::new(unique("lc-rotate"), SurfaceOptions::default());
     let socket = serve(&mux, &dir);
-    let mut owner = Client::connect(&socket);
+    let mut client = Client::connect(&socket);
 
-    let minted = owner.mint("acp-test-1", json!({}));
-    assert_eq!(minted["ok"], true, "{minted}");
-    let first = minted["result"]["credential"].as_str().unwrap().to_string();
-    let verified = owner.verify(&first);
-    assert_eq!(verified["valid"], true, "{verified}");
-    assert_eq!(verified["actor"], "acp_session:acp-test-1", "{verified}");
-
-    // An agent (any request that carries a credential) mints and rotates nothing.
-    let by_agent = owner.mint("acp-test-2", json!({"credential": first}));
-    assert_eq!(refusal(&by_agent).0, "origin.forbidden");
-    let by_agent = owner.rotate("lc-rotate-agent", json!({"credential": first}));
-    assert_eq!(refusal(&by_agent).0, "origin.forbidden");
-
-    // One rotation keeps the previous key; a retry of the same key rotates once.
-    let rotated = owner.rotate("lc-rotate-1", json!({}));
-    assert_eq!(rotated["ok"], true, "{rotated}");
-    let kid = rotated["result"]["value"]["kid"].as_str().unwrap().to_string();
-    assert_eq!(rotated["result"]["replayed"], false, "{rotated}");
-    let retried = owner.rotate("lc-rotate-1", json!({}));
-    assert_eq!(retried["result"]["value"]["kid"], kid, "{retried}");
-    assert_eq!(retried["result"]["replayed"], true, "{retried}");
-    assert_eq!(owner.verify(&first)["valid"], true, "one previous key still verifies");
-
-    // A second rotation drops the first key: its credential counts as absent.
-    let again = owner.rotate("lc-rotate-2", json!({}));
-    assert_eq!(again["ok"], true, "{again}");
-    assert_ne!(again["result"]["value"]["kid"], kid, "{again}");
-    let stale = owner.verify(&first);
-    assert_eq!(stale["valid"], false, "{stale}");
-    assert_eq!(stale["reason"], "unknown_key", "{stale}");
-    let as_user = owner.create_workspace("lc-rotate-stale", Some(&first));
-    assert_eq!(as_user["ok"], true, "a dropped key falls back to the user: {as_user}");
+    let mint = client.v2("credential.mint", json!({"acp_session": "acp-test"}), json!({}));
+    assert_eq!(refusal(&mint), ("origin.forbidden".into(), "credential_owner_only".into()));
+    let rotate =
+        client.v2("credential.rotate", json!({}), json!({"idempotency_key": "lc-rotate-plain"}));
+    assert_eq!(refusal(&rotate), ("origin.forbidden".into(), "credential_owner_only".into()));
 
     mux.shutdown();
     server::cleanup(&socket);
@@ -307,14 +270,23 @@ fn the_key_file_is_private_and_a_readable_one_is_replaced() {
         json!({"current": "kleaked", "keys": {"kleaked": URL_SAFE_NO_PAD.encode(leaked)}});
     std::fs::write(&planted, contents.to_string()).unwrap();
     std::fs::set_permissions(&planted, std::fs::Permissions::from_mode(0o644)).unwrap();
-    let mux = Mux::open_persistent(session, SurfaceOptions::default(), &second_root).unwrap();
+    let out = second_root.join("credential");
+    let script = format!(
+        "printf %s \"$CMUX_LAUNCH_CREDENTIAL\" > '{0}.tmp' && mv '{0}.tmp' '{0}'; exec sleep 60",
+        out.display()
+    );
+    let options = SurfaceOptions {
+        command: Some(vec!["/bin/sh".into(), "-c".into(), script]),
+        ..Default::default()
+    };
+    let mux = Mux::open_persistent(session, options, &second_root).unwrap();
     assert_eq!(registry_session_dir(&second_root).join(KEY_FILE[0]), planted_dir);
     assert_eq!(mode(&planted), 0o600);
     assert!(!std::fs::read_to_string(&planted).unwrap().contains("kleaked"), "the key was kept");
+    mux.new_workspace_as(&Actor::Daemon, None, Some((80, 24))).unwrap();
+    let real = wait_for_file(&out);
     let socket = serve(&mux, &second_root);
     let mut owner = Client::connect(&socket);
-    let minted = owner.mint("acp-keys", json!({}));
-    let real = minted["result"]["credential"].as_str().unwrap().to_string();
     let forged = owner.verify(&resign(&real, "kleaked", &leaked));
     assert_eq!(forged["valid"], false, "{forged}");
     mux.shutdown();

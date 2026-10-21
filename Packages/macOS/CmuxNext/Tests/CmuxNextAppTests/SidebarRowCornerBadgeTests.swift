@@ -9,8 +9,8 @@ import Testing
 /// when the row has the user's icon or a favicon (Lawrence 2026-10-19: nothing but the icon on the
 /// left); a row without one is text only (WORKSPACE-ROWS-NO-DEFAULT-ICON, Lawrence: no kind icon or
 /// agent logo): a blue dot when unread, a grey ring while working, the waiting
-/// and error glyphs when it needs the user, the most urgent first. The right side shows the dim
-/// time since the last change. The count reads in the row's hover card and its accessibility label.
+/// and error glyphs when it needs the user, the most urgent first. No time draws on the right
+/// unless `sidebar.showTimestamps` is on (`SidebarNoTimestampsTests`). The count reads in the row's hover card and its accessibility label.
 @MainActor @Suite(.serialized) struct SidebarRowCornerBadgeTests {
     private static let agent = WorkspaceID("ws-agent")
     private static let terminal = WorkspaceID("ws-terminal")
@@ -82,8 +82,7 @@ import Testing
                 #expect(row.debugIcon == nil, "\(id): debug icon \(row.debugIcon ?? "")")
             }
             #expect(Self.visible(UnreadBadgeView.self, in: row).isEmpty, "\(id): a count badge still draws")
-            #expect(!row.timeLabel.isHidden && !row.timeLabel.stringValue.isEmpty, "\(id): no time on the right")
-            #expect(row.timeLabel.frame.minX > row.title.frame.minX, "\(id): the time is not on the right")
+            #expect(row.timeLabel.isHidden || row.timeLabel.stringValue.isEmpty, "\(id): a time draws by default (sidebar.showTimestamps)")
         }
     }
 

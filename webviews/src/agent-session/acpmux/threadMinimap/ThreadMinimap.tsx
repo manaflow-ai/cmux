@@ -1,37 +1,80 @@
-// The thread minimap: one tick per user message at the transcript's left edge. Hovering the
-// column grows the ticks near the pointer and, after a short pause, shows the prompt and the
-// start of its reply beside the tick; a click scrolls the transcript to that prompt. The
-// bookmark in the popover marks the turn (bookmarks.ts). Geometry comes from the transcript's
-// layout (`tops`), so nothing here measures a row; the only element read is the popover itself.
-// Motion is transforms and opacity only (threadMinimap.css). Spec: minimap-spec.md in the lane notes.
-import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+// The thread minimap, as the Codex desktop app's prompt rail: one 10 px row per user prompt, 16 px in
+// from the transcript's left edge and centered on it. Hovering magnifies the rows near the pointer
+// like the Dock and, after the app's hover delay (ui/hoverIntent.ts), opens a preview card (the prompt, its bookmark and
+// the start of the reply) beside the hovered row. A click scrolls the transcript so the prompt
+// lands near the top and flashes its bubble; dragging scrubs; Tab walks the rows. Bookmarks show
+// as a dot past the tick, and clicking the dot's spot toggles one. Geometry comes from the
+// transcript's layout (`tops`), so nothing here measures a transcript row; the rail reads only its
+// own list (during a scrub) and the card's height. Motion is transform only (threadMinimap.css);
+// the numbers are in model.ts.
+import React, { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { transcriptColumn, type AcpmuxRow, type ConversationLayout } from "../model";
 import { useT } from "../i18n";
-import { promptSeq, useBookmarks } from "./bookmarks";
 import { MinimapTick } from "../../../ui/MinimapTick";
+import { usePromptMarks } from "./promptMarks";
 import { useHoverIntent } from "../../../ui/hoverIntent";
+import { useEscapeCloses } from "../../../ui/escapeDismiss";
+import { animateScroll, highlightBubble, reducedMotion, settleScroll, stopScroll } from "./scrollMotion";
+import { BookmarkIcon } from "./BookmarkIcon";
 import {
-  currentTurn,
+  CARD_DELAY,
+  cardOffset,
+  JUMP_CURVE,
+  jumpDuration,
+  LANDING_OFFSET,
+  MIN_GUTTER,
+  MIN_PROMPTS,
   minimapTurns,
-  popoverOffset,
-  tickLayout,
-  tickWidth,
-  TICK_CURRENT_WIDTH,
-  TICK_LEFT,
-  TICK_MAX_WIDTH,
-  POPOVER_LEFT,
+  RAIL_LEFT,
+  railHeight,
+  ROW_PITCH,
+  ROW_WIDTH,
+  SETTLE_FRAMES,
+  SHIFT_MS,
+  STEP_CURVE,
+  STEP_MS,
+  TICK_BOX,
+  tickLength,
+  tickProgress,
   turnScrollTop,
   visibleTurns,
   type MinimapTurn,
   type MinimapTurns,
 } from "./model";
 
-/// The narrowest gutter (the space left of the rows) the column draws in; narrower panes hide it.
-const MIN_GUTTER = 28;
-/// How long a Previous or Next Turn step's smooth scroll counts as under way for the next step.
-const STEP_PENDING_MS = 800;
+/// How long a step's scroll counts as under way for the next step, so repeats keep stepping.
+const STEP_PENDING_MS = STEP_MS + 150;
+/// A pointer that moves this far after pressing a row scrubs instead of clicking.
+const SCRUB_SLOP = 3;
 /// The space left of the rows (`.acpmux-row`'s left).
 const gutter = (width: number) => transcriptColumn(width).inset;
+
+type Jump = "click" | "step" | "scrub" | "bookmark";
+
+/// The band's first turn at the last commit: its key and row, where its prompt was in the layout,
+/// and where its row drew in the rail; and the first turn's key, which older turns change.
+type Anchor = { key: string; firstKey: string; index: number; layoutTop: number; y: number };
+
+/// How many turns arrived above `anchor`'s since it was taken (undefined: none, or it is gone).
+function prependedBy(anchor: Anchor | undefined, turns: readonly MinimapTurn[]): number | undefined {
+  if (!anchor || !turns.length || turns[0]!.key === anchor.firstKey) return undefined;
+  for (let index = anchor.index; index < turns.length; index += 1)
+    if (turns[index]!.key === anchor.key) return index - anchor.index;
+  return undefined;
+}
+
+/// The prompt row's element, when the virtualized transcript has it mounted.
+function mountedRow(scroller: HTMLElement, id: string): HTMLElement | undefined {
+  for (const node of scroller.querySelectorAll<HTMLElement>(".acpmux-row")) if (node.dataset.rowId === id) return node;
+  return undefined;
+}
+
+/// Whether the pointer went to `to` inside `element` (a leave's `relatedTarget` may be no node: the window, or null).
+const within = (element: Element | null, to: EventTarget | null) =>
+  !!element && !!to && "nodeType" in to && element.contains(to as Node);
+
+const bubbleOf = (row: HTMLElement | undefined) => row?.querySelector<HTMLElement>(".cv-user__bubble");
 
 export function ThreadMinimap({
   rows,
@@ -41,6 +84,7 @@ export function ThreadMinimap({
   scrollTop,
   viewportHeight,
   width,
+  placed,
 }: {
   rows: AcpmuxRow[];
   sessionId?: string;
@@ -49,280 +93,587 @@ export function ThreadMinimap({
   scrollTop: number;
   viewportHeight: number;
   width: number;
+  /// The transcript calls what the rail puts here once each commit's placement pass has set its
+  /// offset (VirtualTranscript), so the band reads where the transcript put the reader.
+  placed?: React.MutableRefObject<(() => void) | undefined>;
 }) {
   const t = useT();
-  const bookmarks = useBookmarks(sessionId);
+  const marks = usePromptMarks(sessionId);
   const lastTurns = useRef<MinimapTurns | undefined>(undefined);
   const turns = useMemo(() => {
     const next = minimapTurns(rows, sessionId, lastTurns.current);
     lastTurns.current = next;
     return next.turns;
   }, [rows, sessionId]);
-  /// The tick under the pointer or keyboard focus.
+  /// The row under the pointer, or the one a scrub is on.
   const [hovered, setHovered] = useState<number | undefined>(undefined);
-  // The turn preview's hover intent (ui/hoverIntent.ts): the first waits the hover delay, then it
-  // follows the pointer from tick to tick at once, and cools a moment after the pointer leaves.
-  const preview = useHoverIntent<"rail">();
-  const shown = preview.shown !== null;
-  const root = useRef<HTMLElement>(null);
-  const popover = useRef<HTMLDivElement>(null);
-  const [popoverHeight, setPopoverHeight] = useState(0);
-  const { first, pitch } = tickLayout(turns.length, viewportHeight);
-  const current = turns.length ? currentTurn(turns, layout.tops, scrollTop, viewportHeight) : 0;
-  const onScreen = visibleTurns(turns, layout.tops, layout.totalHeight, scrollTop, viewportHeight);
-  const active = hovered ?? current;
-  const turn: MinimapTurn | undefined = hovered === undefined ? undefined : turns[hovered];
-
+  /// The row keyboard focus is on.
+  const [focused, setFocused] = useState<number | undefined>(undefined);
+  /// The row the card shows (it stays while the pointer is in the card).
+  const [cardRow, setCardRow] = useState<number | undefined>(undefined);
+  // The card's hover intent (ui/hoverIntent.ts): the first waits Codex's 250 ms (CARD_DELAY), then
+  // the card follows the pointer from row to row at once, and the rail cools a moment after it goes.
+  // Keyboard focus shows it at once.
+  const preview = useHoverIntent<"rail">({ delay: CARD_DELAY });
+  const cardOpen = preview.shown !== null;
   const intend = preview.hover;
-  const close = useCallback(() => {
-    setHovered(undefined);
-    intend(null);
-  }, [intend]);
-  /// Hovers tick `index`. The first popover waits the hover delay (keyboard focus shows it at once);
-  /// once one shows, the next tick's replaces it on the same frame.
-  const hover = useCallback(
-    (index: number, immediately: boolean) => {
-      setHovered(index);
-      intend("rail", immediately ? 0 : undefined);
-    },
-    [intend],
-  );
-  // The popover's own height, for centering it on the tick and keeping it inside the viewport.
-  useLayoutEffect(() => {
-    const node = popover.current;
-    if (shown && node) setPopoverHeight(node.offsetHeight);
-  }, [shown, turn?.key, turn?.reply]);
-  // Previous Turn and Next Turn (the app's Ctrl-Opt-Up and Ctrl-Opt-Down, bridge commands that raise
-  // these events) step the transcript from prompt to prompt, as a tick's click does. They work while the column is hidden too (a narrow pane, one turn).
-  const stepping = useRef({
+  const dismiss = preview.dismiss;
+  const [scrubbing, setScrubbing] = useState(false);
+  const [, setBandMoves] = useState(0);
+  const [reduce, setReduce] = useState(false);
+  const [listTop, setListTop] = useState(0);
+  const [cardHeight, setCardHeight] = useState(0);
+  const rail = useRef<HTMLElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const card = useRef<HTMLDivElement>(null);
+  const cardId = useId();
+  /// A press is under way: the focus it brings is not keyboard focus.
+  const pressing = useRef(false);
+  const scrub = useRef<{ pointer: number; y: number; moved: boolean; at?: number } | undefined>(undefined);
+  const swallowClick = useRef(false);
+  const windowHeight = globalThis.innerHeight || viewportHeight;
+  /// The scroller's offset as of its last scroll event. The transcript hands `scrollTop` down a
+  /// frame or two late (React schedules a scroll's render), so the band of lit rows read it here
+  /// instead and follows the reader on the scroll's own frame.
+  /// Another session's transcript starts from its own offset.
+  const domTop = useRef<{ sessionId?: string; top: number } | undefined>(undefined);
+  /// The band's first turn as of the last commit (the older-turns effect below keeps it).
+  const anchor = useRef<Anchor | undefined>(undefined);
+  /// When a commit adds turns above the anchored one, the rows' offsets move by how far its prompt
+  /// did, and the transcript restores the reader's place only after that commit, with a scroll. Until
+  /// that scroll arrives, the band reads the offset as it will be.
+  const restoring = useRef<{ from: number; by: number } | undefined>(undefined);
+  const added = prependedBy(anchor.current, turns);
+  const anchored = added === undefined ? undefined : turns[anchor.current!.index + added];
+  const seen = domTop.current && domTop.current.sessionId === sessionId ? domTop.current.top : undefined;
+  if (anchored && seen !== undefined)
+    restoring.current = { from: seen, by: (layout.tops[anchored.index] ?? 0) - anchor.current!.layoutTop };
+  const shift = restoring.current && restoring.current.from === seen ? restoring.current.by : 0;
+  const top = (seen ?? scrollTop) + shift;
+  const onScreen = visibleTurns(turns, layout.tops, layout.totalHeight, top, viewportHeight);
+  const shown = turns.length >= MIN_PROMPTS && gutter(width) >= MIN_GUTTER;
+  const height = railHeight(turns.length, windowHeight, viewportHeight);
+  const overflow = turns.length * ROW_PITCH > height;
+
+  /// What the handlers below read: the turns and layout as of the last commit.
+  const live = useRef({
     turns,
     tops: layout.tops,
     total: layout.totalHeight,
-    /// Where the last step's smooth scroll goes, and until when that counts (STEP_PENDING_MS).
-    target: undefined as number | undefined,
-    until: 0,
+    marks,
+    viewportHeight,
+    onScreen,
+    sessionId,
   });
+  useLayoutEffect(() => {
+    live.current = { turns, tops: layout.tops, total: layout.totalHeight, marks, viewportHeight, onScreen, sessionId };
+  });
+
+  // The band follows the scroll on its own frame: a scroll that moves it renders the rail at once
+  // (only the rows whose state changed draw again); one that does not renders nothing.
   useEffect(() => {
-    stepping.current.turns = turns;
-    stepping.current.tops = layout.tops;
-    stepping.current.total = layout.totalHeight;
-  }, [turns, layout.tops, layout.totalHeight]);
-  useEffect(() => {
-    const step = (by: -1 | 1) => {
-      const node = scroller.current;
-      const { turns: all, tops, total, target, until } = stepping.current;
-      if (!node || !all.length) return;
-      // A step during its smooth scroll counts from where that scroll goes, so repeats keep stepping.
-      // Only then: once it has passed or the reader scrolled, the view is where they are.
-      const pending = target !== undefined && performance.now() < until && Math.abs(node.scrollTop - target) > 1;
-      const from = pending ? target : node.scrollTop;
-      // From the turn being read: Next goes to the turn after it; Previous to its own prompt when
-      // that is above the viewport, else to the turn before it.
-      const reading = currentTurn(all, tops, from, node.clientHeight);
-      const index = by > 0 || turnScrollTop(all[reading], tops) >= from - 1 ? reading + by : reading;
-      if (index < 0 || index >= all.length) return;
-      // The last turns' prompts can sit below the furthest the transcript scrolls.
-      const next = Math.min(turnScrollTop(all[index], tops), Math.max(0, total - node.clientHeight));
-      stepping.current.target = next;
-      stepping.current.until = performance.now() + STEP_PENDING_MS;
-      const reduce = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-      node.scrollTo({ top: next, behavior: reduce ? "auto" : "smooth" });
+    const node = scroller.current;
+    if (!node) return;
+    const scrolled = () => {
+      const { turns: all, tops, total, viewportHeight: height, onScreen: drawn, sessionId: session } = live.current;
+      domTop.current = { sessionId: session, top: node.scrollTop };
+      restoring.current = undefined;
+      const next = visibleTurns(all, tops, total, node.scrollTop, height);
+      if (next.first !== drawn.first || next.last !== drawn.last) flushSync(() => setBandMoves((count) => count + 1));
     };
-    const previous = () => step(-1);
-    const following = () => step(1);
+    // Captured, so it runs before the transcript's own scroll handler and that one's render finds the
+    // band already drawn.
+    node.addEventListener("scroll", scrolled, { capture: true, passive: true });
+    return () => node.removeEventListener("scroll", scrolled, { capture: true });
+  }, [scroller]);
+
+  // The transcript's placement pass (its layout effect, after this rail's) has set the offset for
+  // this commit: restored the reader's place over older turns, or left it. The band reads that
+  // offset before the frame paints, whether or not a scroll event follows.
+  useLayoutEffect(() => {
+    if (!placed) return;
+    placed.current = () => {
+      const node = scroller.current;
+      if (!node) return;
+      const { turns: all, tops, total, viewportHeight: height, onScreen: drawn, sessionId: session } = live.current;
+      domTop.current = { sessionId: session, top: node.scrollTop };
+      restoring.current = undefined;
+      const next = visibleTurns(all, tops, total, node.scrollTop, height);
+      if (next.first !== drawn.first || next.last !== drawn.last) setBandMoves((count) => count + 1);
+    };
+    return () => {
+      placed.current = undefined;
+    };
+  }, [placed, scroller]);
+
+  // A jump still under way belongs to the chat it started in: another chat in the reused scroller,
+  // or the rail going away, ends it. In the commit itself, before the jump's next frame can run.
+  useLayoutEffect(() => {
+    const node = scroller.current;
+    return () => {
+      if (node) stopScroll(node);
+    };
+  }, [scroller, sessionId]);
+
+  /// Scrolls the transcript to turn `index`: smoothly on the measured curve when its row is mounted,
+  /// at once when it is not (or under Reduce Motion, or while scrubbing). A click or a bookmark jump
+  /// flashes the prompt's bubble where it lands. Returns where the scroll goes.
+  const [jump] = useState(() => (index: number, how: Jump): number | undefined => {
+    const node = scroller.current;
+    const turn = live.current.turns[index];
+    if (!node || !turn) return undefined;
+    const target = () =>
+      Math.min(turnScrollTop(turn, live.current.tops), Math.max(0, live.current.total - node.clientHeight));
+    const row = mountedRow(node, turn.id);
+    const to = target();
+    // The layout's tops are estimates for rows never drawn, so a long jump can land off its mark
+    // once the rows it reaches mount and measure (297 px off for 50 turns up). Where it lands is then
+    // corrected from the bubble itself, frame by frame, until it holds.
+    const settle = () =>
+      settleScroll(
+        node,
+        () => {
+          const box = bubbleOf(mountedRow(node, turn.id))?.getBoundingClientRect();
+          // Not drawn yet, or no layout to measure (a hidden pane).
+          if (!box || box.height === 0) return undefined;
+          return box.top - node.getBoundingClientRect().top - LANDING_OFFSET;
+        },
+        SETTLE_FRAMES,
+      );
+    if (how === "scrub" || !row || reducedMotion()) {
+      stopScroll(node);
+      node.scrollTop = to;
+      if (how !== "scrub") settle();
+    } else if (how === "step") animateScroll(node, target, STEP_MS, STEP_CURVE, settle);
+    else animateScroll(node, target, jumpDuration(to - node.scrollTop), JUMP_CURVE, settle);
+    if (how === "click" || how === "bookmark") {
+      if (row) highlightBubble(bubbleOf(row));
+      // An unmounted row mounts once the transcript draws its new place.
+      else
+        requestAnimationFrame(() => requestAnimationFrame(() => highlightBubble(bubbleOf(mountedRow(node, turn.id)))));
+    }
+    return to;
+  });
+
+  // Previous Turn and Next Turn (the app's Ctrl-Opt-Up and Ctrl-Opt-Down) and Previous and Next
+  // Bookmarked Prompt (palette actions) are bridge commands that raise these events. They work
+  // while the rail is hidden too (a narrow pane, few prompts).
+  useEffect(() => {
+    /// An earlier step's turn, by its key (older turns arriving renumber the rows), while its scroll
+    /// and landing are under way.
+    const pending = { key: undefined as string | undefined, until: 0 };
+    /// From the turn being read (an earlier step's while it is under way, else the last whose
+    /// landing is at or above the view's top): forward goes to the next match after it; back to its
+    /// own prompt when that is above the view and matches, else to the match before it.
+    const target = (by: -1 | 1, matches: (index: number) => boolean) => {
+      const node = scroller.current;
+      const { turns: all, tops, total } = live.current;
+      if (!node || !all.length) return undefined;
+      const stepping =
+        pending.key !== undefined && performance.now() < pending.until
+          ? all.findIndex((turn) => turn.key === pending.key)
+          : -1;
+      const top = Math.min(node.scrollTop, Math.max(0, total - node.clientHeight));
+      let reading = 0;
+      if (stepping >= 0) reading = stepping;
+      else
+        for (let index = 0; index < all.length; index += 1)
+          if (turnScrollTop(all[index]!, tops) <= top + 1) reading = index;
+      const start = by > 0 || stepping >= 0 || turnScrollTop(all[reading]!, tops) >= top - 1 ? reading + by : reading;
+      for (let index = start; index >= 0 && index < all.length; index += by) if (matches(index)) return index;
+      return undefined;
+    };
+    const go = (index: number | undefined, how: Jump) => {
+      if (index === undefined) return;
+      const to = jump(index, how);
+      if (to === undefined) return;
+      pending.key = live.current.turns[index]?.key;
+      pending.until = performance.now() + STEP_PENDING_MS;
+    };
+    const any = () => true;
+    const marked = (index: number) => live.current.marks.has(live.current.turns[index]!);
+    const handlers: Array<[string, () => void]> = [
+      ["cmux-acpmux-previousTurn", () => go(target(-1, any), "step")],
+      ["cmux-acpmux-nextTurn", () => go(target(1, any), "step")],
+      ["cmux-acpmux-previousBookmarkedPrompt", () => go(target(-1, marked), "bookmark")],
+      ["cmux-acpmux-nextBookmarkedPrompt", () => go(target(1, marked), "bookmark")],
+    ];
     // The reader's own scroll ends a pending step.
     const reader = () => {
-      stepping.current.target = undefined;
+      pending.key = undefined;
     };
     const node = scroller.current;
     const inputs = ["wheel", "pointerdown", "touchstart", "keydown"] as const;
     for (const name of inputs) node?.addEventListener(name, reader, { passive: true });
-    window.addEventListener("cmux-acpmux-previousTurn", previous);
-    window.addEventListener("cmux-acpmux-nextTurn", following);
+    for (const [name, handler] of handlers) window.addEventListener(name, handler);
     return () => {
-      window.removeEventListener("cmux-acpmux-previousTurn", previous);
-      window.removeEventListener("cmux-acpmux-nextTurn", following);
+      for (const [name, handler] of handlers) window.removeEventListener(name, handler);
       for (const name of inputs) node?.removeEventListener(name, reader);
     };
-  }, [scroller]);
+  }, [scroller, jump]);
 
-  const indexAt = useCallback(
-    (clientY: number) => {
-      const box = root.current?.getBoundingClientRect();
-      if (!box || !turns.length) return undefined;
-      const index = Math.floor((clientY - box.top) / pitch);
-      return Math.max(0, Math.min(turns.length - 1, index));
-    },
-    [pitch, turns.length],
-  );
-  // Keep the tick callbacks stable while scrolling. The rail itself needs to rerender so the
-  // current marker follows the reader, but stable handlers let memoized Tick rows skip that work.
-  const jump = useCallback(
-    (index: number) => {
-      const node = scroller.current;
-      const target = turns[index];
-      if (!node || !target) return;
-      const reduce = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-      node.scrollTo({ top: turnScrollTop(target, layout.tops), behavior: reduce ? "auto" : "smooth" });
-    },
-    [layout.tops, scroller, turns],
-  );
-  const focusTick = useCallback(
-    (index: number) => {
-      const next = Math.max(0, Math.min(turns.length - 1, index));
-      root.current?.querySelector<HTMLButtonElement>(`[data-tick="${next}"]`)?.focus();
-    },
-    [turns.length],
+  // The card's own height, for centering it on its row and keeping it inside the viewport.
+  const cardTurn: MinimapTurn | undefined = cardRow === undefined ? undefined : turns[cardRow];
+  const showCard = cardOpen && cardTurn !== undefined;
+  /// Focus is inside the card (its bookmark button): Escape there closes it, as on a row.
+  const [cardFocus, setCardFocus] = useState(false);
+  // A card closed with focus in it (Escape, a click elsewhere) takes no blur: it starts unfocused.
+  if (!showCard && cardFocus) setCardFocus(false);
+  useEscapeCloses(showCard && cardFocus, dismiss);
+  useLayoutEffect(() => {
+    const node = card.current;
+    if (showCard && node) setCardHeight(node.offsetHeight);
+  }, [showCard, cardTurn]);
+
+  // Older turns that load above the reader (the transcript pages them in as it nears the top) add
+  // rows above the band and would move it on screen in one frame: 150 px for a 30-turn page. The
+  // band holds where it was instead. A rail that scrolls takes the new rows into its own scroll; one
+  // that grows glides back to center from where the band was, over SHIFT_MS (a second page during
+  // the glide starts from where the first one has got to). The hovered, focused and scrubbed rows
+  // and the card's stay on their prompts. Where the band's first row sits comes from the rail's
+  // geometry, so no commit reads layout for it.
+  const glide = useRef<Animation | undefined>(undefined);
+  const holding = useRef(false);
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- runs after every commit on purpose (the band tracks every frame); its setState calls are guarded by `added`.
+  useLayoutEffect(() => {
+    const was = anchor.current;
+    anchor.current = undefined;
+    holding.current = false;
+    if (!shown || !turns.length) return;
+    const railTop = Math.round((viewportHeight - height) / 2);
+    let scrolled = listTop;
+    if (added !== undefined && was) {
+      holding.current = true;
+      const index = was.index + added;
+      const node = list.current;
+      const shell = rail.current;
+      if (added > 0) {
+        const by = (row: number | undefined) => (row === undefined ? row : row + added);
+        setHovered(by);
+        setFocused(by);
+        setCardRow(by);
+        if (scrub.current?.at !== undefined) scrub.current.at += added;
+      }
+      if (node && shell) {
+        let moved = railTop + index * ROW_PITCH - scrolled - was.y;
+        const room = Math.max(0, turns.length * ROW_PITCH - height);
+        const next = Math.max(0, Math.min(room, scrolled + moved));
+        if (next !== scrolled) {
+          node.scrollTop = next;
+          moved -= next - scrolled;
+          scrolled = next;
+          setListTop(next);
+        }
+        // Where a glide still under way has the rail now.
+        let from = 0;
+        const running = glide.current;
+        if (running && running.playState === "running") {
+          from = new DOMMatrixReadOnly(getComputedStyle(shell).transform).f;
+          running.cancel();
+        }
+        glide.current = undefined;
+        const start = from - moved;
+        if (Math.abs(start) >= 0.5 && typeof shell.animate === "function" && !reducedMotion())
+          glide.current = shell.animate([{ transform: `translateY(${start}px)` }, { transform: "translateY(0)" }], {
+            duration: SHIFT_MS,
+            easing: `cubic-bezier(${STEP_CURVE.join(", ")})`,
+          });
+      }
+    }
+    const first = turns[onScreen.first];
+    if (first)
+      anchor.current = {
+        key: first.key,
+        firstKey: turns[0]!.key,
+        index: onScreen.first,
+        layoutTop: layout.tops[first.index] ?? 0,
+        y: railTop + onScreen.first * ROW_PITCH - scrolled,
+      };
+  });
+
+  // A rail longer than its room keeps the first prompt on screen in view while the reader scrolls.
+  useLayoutEffect(() => {
+    const node = list.current;
+    // The commit that added older turns placed the list itself, around the band.
+    if (!node || !overflow || hovered !== undefined || focused !== undefined || holding.current) return;
+    const rowTop = onScreen.first * ROW_PITCH;
+    if (rowTop >= node.scrollTop && rowTop + ROW_PITCH <= node.scrollTop + height) return;
+    node.scrollTop = Math.max(0, rowTop - height / 3);
+    setListTop(node.scrollTop);
+  }, [onScreen.first, overflow, height, hovered, focused]);
+
+  /// The rows' actions: stable for the memoized rows, reading the latest state through `live`.
+  const actions = useMemo<TickActions>(
+    () => ({
+      enter(index) {
+        if (scrub.current?.moved) return;
+        setReduce(reducedMotion());
+        setHovered(index);
+        setCardRow(index);
+        intend("rail");
+      },
+      focus(index) {
+        if (pressing.current) return;
+        setReduce(reducedMotion());
+        setFocused(index);
+        setCardRow(index);
+        intend("rail", 0);
+      },
+      blur(index) {
+        setFocused((current) => (current === index ? undefined : current));
+      },
+      escape() {
+        dismiss();
+      },
+      click(index, target) {
+        if (swallowClick.current) {
+          swallowClick.current = false;
+          return;
+        }
+        const turn = live.current.turns[index];
+        if (!turn) return;
+        // A clicked row takes focus, as a clicked button does in Chromium (WebKit focuses none), so
+        // Tab goes on from the rail. Like a pointer's focus there, it neither grows the row nor
+        // holds the card open.
+        const row = target instanceof Element ? target.closest<HTMLElement>("[data-tick]") : null;
+        if (row && row.ownerDocument.activeElement !== row) {
+          pressing.current = true;
+          row.focus({ preventScroll: true });
+          pressing.current = false;
+        }
+        // The bookmark dot's spot past the tick (the row's right end) toggles the mark.
+        if (target instanceof Element && target.closest("[data-dot-hit]") && live.current.marks.can(turn)) {
+          live.current.marks.toggle(turn);
+          return;
+        }
+        setCardRow(index);
+        jump(index, "click");
+      },
+    }),
+    [intend, dismiss, jump],
   );
 
-  if (turns.length < 2 || gutter(width) < MIN_GUTTER) return null;
-  const center = first + active * pitch;
-  /// The column's top edge: the first tick's band starts half a pitch above its center.
-  const railTop = first - pitch / 2;
-  /// The hovered prompt's seq in acpmux's log; a prompt not logged yet has no bookmark.
-  const seq = turn ? promptSeq(turn.id) : undefined;
-  const marked = seq !== undefined && bookmarks.marks.has(seq);
+  if (!shown) return null;
+  const indexAt = (clientY: number) => {
+    const node = list.current;
+    if (!node) return 0;
+    const index = Math.floor((clientY - node.getBoundingClientRect().top + node.scrollTop) / ROW_PITCH);
+    return Math.max(0, Math.min(turns.length - 1, index));
+  };
+  const endScrub = (event: React.PointerEvent<HTMLElement>) => {
+    pressing.current = false;
+    const state = scrub.current;
+    scrub.current = undefined;
+    if (!state?.moved) return;
+    // The click a drag ends with never jumps. The next press clears it, not a timer: a slow frame
+    // can run a timer between the pointerup and its click.
+    swallowClick.current = true;
+    setScrubbing(false);
+    if (event.currentTarget.hasPointerCapture?.(state.pointer))
+      event.currentTarget.releasePointerCapture(state.pointer);
+  };
+  const railTop = Math.round((viewportHeight - height) / 2);
+  const active = hovered ?? focused;
+  const cardMarked = cardTurn ? marks.has(cardTurn) : false;
+  const cardTop =
+    cardRow === undefined
+      ? 0
+      : cardOffset(railTop + cardRow * ROW_PITCH + ROW_PITCH / 2 - listTop, cardHeight, viewportHeight);
   return (
     <div className="acpmux-minimap">
       <nav
-        ref={root}
+        ref={rail}
         className="acpmux-minimap__rail"
         aria-label={t("minimap.label")}
-        style={{ transform: `translate3d(0, ${railTop}px, 0)`, height: pitch * turns.length }}
+        style={{ left: RAIL_LEFT, top: railTop, width: ROW_WIDTH, height }}
         data-hovering={hovered !== undefined || undefined}
-        onPointerMove={(event) => {
-          if (event.pointerType === "touch") return;
-          if ((event.target as Element).closest(".acpmux-minimap__popover")) return;
-          const index = indexAt(event.clientY);
-          if (index !== undefined && index !== hovered) hover(index, false);
+        data-scrubbing={scrubbing || undefined}
+        data-reduce={reduce || undefined}
+        onPointerLeave={(event) => {
+          if (scrub.current?.moved) return;
+          setHovered(undefined);
+          // Into the card keeps it; anywhere else it goes on this frame.
+          if (!within(card.current, event.relatedTarget)) intend(null);
         }}
-        onPointerLeave={close}
         onBlur={(event) => {
-          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) close();
+          const next = event.relatedTarget as Node | null;
+          if (event.currentTarget.contains(next) || card.current?.contains(next)) return;
+          if (hovered === undefined) intend(null);
         }}
       >
-        {turns.map((entry, index) => (
-          <Tick
-            key={entry.key}
-            index={index}
-            top={index * pitch}
-            pitch={pitch}
-            width={Math.max(
-              tickWidth(hovered === undefined ? undefined : index - hovered),
-              index === current ? TICK_CURRENT_WIDTH : 0,
-            )}
-            tone={
-              hovered === index
-                ? "active"
-                : hovered === undefined && index >= onScreen.first && index <= onScreen.last
-                  ? "current"
-                  : "rest"
+        <div
+          ref={list}
+          className="acpmux-minimap__list"
+          data-fade-top={listTop > 0 || undefined}
+          data-fade-bottom={(overflow && listTop + height < turns.length * ROW_PITCH - 1) || undefined}
+          onScroll={(event) => setListTop(event.currentTarget.scrollTop)}
+          onPointerDown={(event) => {
+            if (event.button !== 0 || event.pointerType === "touch") return;
+            pressing.current = true;
+            swallowClick.current = false;
+            const state = { pointer: event.pointerId, y: event.clientY, moved: false };
+            scrub.current = state;
+            // A press released off the rail (before it moved far enough to capture the pointer) sends
+            // its pointerup elsewhere: the window sees it bubble (after the list's own, which ends a drag)
+            // and ends the press, so a later hover cannot scrub.
+            const page = event.currentTarget.ownerDocument.defaultView ?? window;
+            const released = () => {
+              page.removeEventListener("pointerup", released);
+              page.removeEventListener("pointercancel", released);
+              if (scrub.current !== state) return;
+              scrub.current = undefined;
+              pressing.current = false;
+              if (state.moved) setScrubbing(false);
+            };
+            page.addEventListener("pointerup", released);
+            page.addEventListener("pointercancel", released);
+          }}
+          onPointerMove={(event) => {
+            const state = scrub.current;
+            if (!state) return;
+            if (!state.moved) {
+              if (Math.abs(event.clientY - state.y) < SCRUB_SLOP) return;
+              state.moved = true;
+              setScrubbing(true);
+              // Captured only once it is a drag, so a plain click still lands on its row.
+              // A synthetic pointer (the gallery's, a test's) has no capture to take.
+              try {
+                event.currentTarget.setPointerCapture?.(state.pointer);
+              } catch {}
             }
-            tabbable={index === active}
-            current={index === current}
-            label={t(isMarked(bookmarks.marks, entry.id) ? "minimap.tickBookmarked" : "minimap.tick", {
-              index: index + 1,
-              count: turns.length,
-              prompt: entry.prompt,
-            })}
-            onJump={jump}
-            onFocusTick={hover}
-            onMove={focusTick}
-            last={turns.length - 1}
-          />
-        ))}
-        {turn && (
-          <div
-            ref={popover}
-            className="acpmux-minimap__popover"
-            hidden={!shown}
-            style={{
-              transform: `translate3d(${POPOVER_LEFT}px, ${popoverOffset(center, popoverHeight, viewportHeight) - railTop}px, 0)`,
-            }}
-          >
-            <div className="acpmux-minimap__title">
-              <span className="acpmux-minimap__prompt">{turn.prompt}</span>
-              {seq !== undefined && (
-                <button
-                  type="button"
-                  className="acpmux-minimap__bookmark"
-                  aria-pressed={marked}
-                  aria-label={t(marked ? "minimap.bookmarkRemove" : "minimap.bookmarkAdd")}
-                  title={t(marked ? "minimap.bookmarkRemove" : "minimap.bookmarkAdd")}
-                  onClick={() => bookmarks.toggle(seq)}
-                >
-                  <BookmarkIcon filled={marked} />
-                </button>
-              )}
-            </div>
-            {turn.reply.length > 0 && (
-              <div className="acpmux-minimap__reply">
-                {turn.reply.map((block, blockIndex) => (
-                  <p key={blockIndex} className={block.kind === "item" ? "acpmux-minimap__item" : undefined}>
-                    {block.spans.map((span, spanIndex) =>
-                      span.bold ? <strong key={spanIndex}>{span.text}</strong> : span.text,
-                    )}
-                  </p>
-                ))}
-              </div>
+            const index = indexAt(event.clientY);
+            if (index === state.at) return;
+            state.at = index;
+            setHovered(index);
+            setCardRow(index);
+            jump(index, "scrub");
+          }}
+          onPointerUp={endScrub}
+          onPointerCancel={endScrub}
+        >
+          {turns.map((turn, index) => (
+            <Tick
+              key={turn.key}
+              index={index}
+              last={turns.length - 1}
+              progress={hovered !== undefined ? tickProgress(index - hovered) : index === focused ? 1 : 0}
+              active={index === active}
+              current={index >= onScreen.first && index <= onScreen.last}
+              marked={marks.has(turn)}
+              describedBy={showCard && cardRow === index ? cardId : undefined}
+              label={t(marks.has(turn) ? "minimap.tickBookmarked" : "minimap.tick", {
+                index: index + 1,
+                count: turns.length,
+                prompt: turn.prompt,
+              })}
+              actions={actions}
+            />
+          ))}
+        </div>
+      </nav>
+      {showCard && (
+        <div
+          ref={card}
+          id={cardId}
+          className="acpmux-minimap__card"
+          style={{ transform: `translate3d(${RAIL_LEFT + ROW_WIDTH}px, ${cardTop}px, 0)` }}
+          onPointerLeave={(event) => {
+            // Back onto the rail keeps it (its row takes over); anywhere else it goes.
+            if (!within(rail.current, event.relatedTarget)) intend(null);
+          }}
+          onFocus={() => setCardFocus(true)}
+          onBlur={(event) => {
+            // Focus leaving the card for anywhere but the rail closes it, as leaving the rail does.
+            const next = event.relatedTarget;
+            if (within(event.currentTarget, next)) return;
+            setCardFocus(false);
+            if (within(rail.current, next)) return;
+            if (hovered === undefined) intend(null);
+          }}
+        >
+          <div className="acpmux-minimap__title">
+            <span className="acpmux-minimap__prompt">{cardTurn.prompt}</span>
+            {marks.can(cardTurn) && (
+              <button
+                type="button"
+                className="acpmux-minimap__bookmark"
+                aria-pressed={cardMarked}
+                aria-label={t(cardMarked ? "minimap.bookmarkRemove" : "minimap.bookmarkAdd")}
+                title={t(cardMarked ? "minimap.bookmarkRemove" : "minimap.bookmarkAdd")}
+                onClick={() => marks.toggle(cardTurn)}
+              >
+                <BookmarkIcon filled={cardMarked} />
+              </button>
             )}
           </div>
-        )}
-      </nav>
+          {cardTurn.reply.length > 0 && (
+            <div className="acpmux-minimap__reply">
+              {cardTurn.reply.map((block, blockIndex) => (
+                <p key={blockIndex} className={block.kind === "item" ? "acpmux-minimap__item" : undefined}>
+                  {block.spans.map((span, spanIndex) =>
+                    span.bold ? <strong key={spanIndex}>{span.text}</strong> : span.text,
+                  )}
+                </p>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
-function isMarked(marks: ReadonlySet<number>, rowId: string): boolean {
-  const seq = promptSeq(rowId);
-  return seq !== undefined && marks.has(seq);
-}
+type TickActions = {
+  enter(index: number): void;
+  focus(index: number): void;
+  blur(index: number): void;
+  escape(): void;
+  click(index: number, target: EventTarget): void;
+};
 
+/// One prompt's row: a 10 px by 36 px button with its tick and, past the tick, the bookmark dot.
 const Tick = memo(function Tick({
   index,
-  top,
-  pitch,
-  width,
-  tone,
-  tabbable,
-  current,
-  label,
-  onJump,
-  onFocusTick,
-  onMove,
   last,
+  progress,
+  active,
+  current,
+  marked,
+  describedBy,
+  label,
+  actions,
 }: {
   index: number;
-  top: number;
-  pitch: number;
-  width: number;
-  tone: "rest" | "current" | "active";
-  tabbable: boolean;
-  current: boolean;
-  label: string;
-  onJump: (index: number) => void;
-  onFocusTick: (index: number, immediately: boolean) => void;
-  onMove: (index: number) => void;
   last: number;
+  progress: number;
+  active: boolean;
+  current: boolean;
+  marked: boolean;
+  describedBy?: string;
+  label: string;
+  actions: TickActions;
 }) {
+  const length = tickLength(progress);
   return (
     <MinimapTick
       type="button"
       index={index}
       last={last}
+      // Every row is a tab stop, as the Codex rail's buttons are.
+      active
       data-tick={index}
       className="acpmux-minimap__tick"
-      data-tone={tone}
+      data-tone={active ? "active" : current ? "current" : "rest"}
+      data-bookmarked={marked || undefined}
       aria-label={label}
-      aria-current={current ? "location" : undefined}
-      data-current={current ? "" : undefined}
-      active={tabbable}
-      style={{ transform: `translate3d(0, ${top}px, 0)`, height: pitch }}
-      onClick={() => onJump(index)}
-      onFocus={(event) => {
-        if (event.currentTarget.matches(":focus-visible")) onFocusTick(index, true);
-      }}
+      aria-current={current ? "true" : undefined}
+      aria-describedby={describedBy}
+      onPointerEnter={() => actions.enter(index)}
+      onFocus={() => actions.focus(index)}
+      onBlur={() => actions.blur(index)}
+      onClick={(event) => actions.click(index, event.target)}
       keyboard={(event) => {
+        if (event.key === "Escape") actions.escape();
         const to =
           event.key === "ArrowUp"
             ? index - 1
@@ -333,27 +684,15 @@ const Tick = memo(function Tick({
                 : event.key === "End"
                   ? last
                   : undefined;
-        if (to !== undefined) onMove(to);
+        if (to !== undefined)
+          event.currentTarget.parentElement
+            ?.querySelector<HTMLButtonElement>(`[data-tick="${Math.max(0, Math.min(last, to))}"]`)
+            ?.focus();
       }}
     >
-      <span
-        className="acpmux-minimap__bar"
-        style={{ transform: `translateX(${TICK_LEFT}px) scaleX(${width / TICK_MAX_WIDTH})` }}
-      />
+      <span className="acpmux-minimap__bar" style={{ transform: `scaleX(${length / TICK_BOX})` }} />
+      <span className="acpmux-minimap__dot" style={{ transform: `translateX(${length}px)` }} />
+      <span className="acpmux-minimap__dot-hit" data-dot-hit="" />
     </MinimapTick>
   );
 });
-
-function BookmarkIcon({ filled }: { filled: boolean }) {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-      <path
-        d="M3 3.5a1.75 1.75 0 0 1 1.75-1.75h6.5A1.75 1.75 0 0 1 13 3.5v10.15a.4.4 0 0 1-.64.32L8 10.9l-4.36 3.07a.4.4 0 0 1-.64-.32Z"
-        fill={filled ? "currentColor" : "none"}
-        stroke="currentColor"
-        strokeWidth="1.1"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}

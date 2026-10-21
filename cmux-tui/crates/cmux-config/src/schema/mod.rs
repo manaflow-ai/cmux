@@ -126,6 +126,9 @@ pub enum DomainKind {
     /// A custom search engine address with a `%s` or `{searchTerms}`
     /// placeholder (Swift `BrowserOmnibarSetting.isSearchTemplate`).
     SearchTemplate,
+    /// `appearance.customDensities`: a list of density objects, each with a
+    /// lowercase id and a name (Swift `CustomDensitiesSetting.accepts`).
+    CustomDensities,
 }
 
 /// One descriptor row.
@@ -292,6 +295,7 @@ fn row(raw: Value) -> Result<Row, String> {
         "domain:backdrop_selection" => Validation::Domain(DomainKind::BackdropSelection),
         "domain:chat_roots" => Validation::Domain(DomainKind::ChatRoots),
         "domain:search_template" => Validation::Domain(DomainKind::SearchTemplate),
+        "domain:custom_densities" => Validation::Domain(DomainKind::CustomDensities),
         other => return Err(format!("{}: unknown validation {other}", parsed.key)),
     };
     Ok(Row {

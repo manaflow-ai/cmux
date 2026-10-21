@@ -1,4 +1,5 @@
 import React, { type ReactNode } from "react";
+import { openProcessTerminal } from "../processTerminal";
 import { Counts } from "../changes/Counts";
 import { changedByTools } from "../changes/turnCheckpoint";
 import { useT, type StringKey } from "../i18n";
@@ -43,6 +44,7 @@ export function SummaryBody({
   onOpenOutput,
   onOpenGallery,
   onFollow,
+  onAttach,
   subagents,
 }: {
   summary: SessionSummary;
@@ -53,6 +55,8 @@ export function SummaryBody({
   onOpenOutput?: (path: string) => void;
   onOpenGallery?: () => void;
   onFollow?: () => void;
+  /// Sources' +: files or folders on this computer for the next prompt (a local chat's).
+  onAttach?: () => void;
   /// The Subagents section, when acpmux reports the chat's subagents.
   subagents?: ReactNode;
 }) {
@@ -115,6 +119,19 @@ export function SummaryBody({
         title={t("summary.sources")}
         fixed
         items={summary.sources}
+        action={
+          onAttach && (
+            <button
+              type="button"
+              className="acpmux-summary-add"
+              aria-label={t("summary.sources.attach")}
+              title={t("summary.sources.attach")}
+              onClick={onAttach}
+            >
+              <Icon name="action.add" size={ROW_ICON} />
+            </button>
+          )
+        }
         row={(source) => (
           <li key={source.url ?? source.label}>
             {source.url ? (
@@ -189,10 +206,21 @@ export function SummaryBody({
         title={t("summary.backgroundTasks")}
         items={summary.backgroundTasks}
         row={(task) => (
-          <li key={task.id} className="acpmux-summary-row" data-state={task.state}>
-            <Icon name="terminal" size={ROW_ICON} row />
-            <span className="acpmux-summary-text">{task.command}</span>
-            <span className="acpmux-summary-meta">{t(TASK_STATES[task.state])}</span>
+          <li key={task.id}>
+            {/* A click opens its terminal beside the chat (processTerminal.ts). */}
+            <button
+              type="button"
+              className="acpmux-summary-row acpmux-summary-link"
+              data-state={task.state}
+              onClick={() => {
+                onFollow?.();
+                void openProcessTerminal(task.id);
+              }}
+            >
+              <Icon name="terminal" size={ROW_ICON} row />
+              <span className="acpmux-summary-text">{task.command}</span>
+              <span className="acpmux-summary-meta">{t(TASK_STATES[task.state])}</span>
+            </button>
           </li>
         )}
       />

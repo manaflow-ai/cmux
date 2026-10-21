@@ -47,7 +47,8 @@
 }
 
 .content {
-  padding: calc(26px * var(--settings-scale)) var(--page-edge) calc(56px * var(--settings-scale));
+  --content-pad-end: calc(56px * var(--settings-scale));
+  padding: calc(26px * var(--settings-scale)) var(--page-edge) var(--content-pad-end);
 }
 
 .column {
@@ -182,6 +183,20 @@
 }
 
 .rows > .row:last-child {
+  border-bottom-left-radius: var(--card-radius);
+  border-bottom-right-radius: var(--card-radius);
+}
+
+/* Search wraps each row in `.collapse > .collapse-body` (SearchResults), so the first and last
+   shown rows take the card's edges here. The last one's divider drew a second line under the
+   card's rounded edge. */
+.rows > .collapse[data-open]:not(.collapse[data-open] ~ .collapse) .row {
+  border-top-left-radius: var(--card-radius);
+  border-top-right-radius: var(--card-radius);
+}
+
+.rows > .collapse[data-open]:not(:has(~ .collapse[data-open])) .row {
+  box-shadow: none;
   border-bottom-left-radius: var(--card-radius);
   border-bottom-right-radius: var(--card-radius);
 }
@@ -763,7 +778,8 @@
   }
 
   .content {
-    padding: 14px var(--page-edge) 40px;
+    --content-pad-end: 40px;
+    padding: 14px var(--page-edge) var(--content-pad-end);
     --content-fade-top: 12px;
   }
 }

@@ -11,13 +11,32 @@ import os
 nonisolated final class TabAccessibilityElement: NSAccessibilityElement, @unchecked Sendable {
     nonisolated(unsafe) var onPress: (@MainActor () -> Void)?
     nonisolated(unsafe) var onClose: (@MainActor () -> Void)?
+    /// "Mute tab" or "Unmute tab" and its handler while the tab shows a speaker (`updateAccessibility`).
+    nonisolated(unsafe) var audioAction: (name: String, run: @MainActor () -> Void)? // crash-allow: set in updateAccessibility and read in accessibilityCustomActions, both on the main thread only (onMain guard), as onClose
     /// VoiceOver moved its focus onto (true) or off (false) this element.
     nonisolated(unsafe) var onFocus: (@MainActor (Bool) -> Void)?
+    /// The tab's x as a pressable child: its press runs ``onClose``. It is a child while the tab
+    /// can close and has room for it (the cell's layout gives it a nonzero frame). The x draws
+    /// only on hover, but it is exposed while hidden too: an agent presses it with AXPress, and a
+    /// pointer moving to its frame hovers the tab, which shows it there.
+    let closeButton = TabCloseAccessibilityElement()
 
     override init() {
         super.init()
         setAccessibilityRole(.radioButton)
         setAccessibilitySubrole(NSAccessibility.Subrole(rawValue: "AXTabButton"))
+        closeButton.setAccessibilityParent(self)
+    }
+
+    override func accessibilityChildren() -> [Any]? {
+        onClose != nil && closeButton.accessibilityFrameInParentSpace() != .zero ? [closeButton] : nil
+    }
+
+    /// Closes the tab for its x's AXPress.
+    func performClose() -> Bool {
+        guard let onClose, Self.onMain("close") else { return false }
+        MainActor.assumeIsolated { onClose() } // main-proof: guarded by Self.onMain (Thread.isMainThread) above
+        return true
     }
 
     override func accessibilityPerformPress() -> Bool {
@@ -33,13 +52,18 @@ nonisolated final class TabAccessibilityElement: NSAccessibilityElement, @unchec
     }
 
     override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
-        guard let onClose, Self.onMain("custom actions") else { return nil }
-        let name = MainActor.assumeIsolated { Strings.axClose } // main-proof: guarded by Self.onMain (Thread.isMainThread) above
-        return [NSAccessibilityCustomAction(name: name) {
-            guard Self.onMain("close") else { return false }
-            MainActor.assumeIsolated { onClose() } // main-proof: guarded by Self.onMain (Thread.isMainThread) above
-            return true
-        }]
+        guard Self.onMain("custom actions") else { return nil }
+        var named: [(name: String, run: @MainActor () -> Void)] = []
+        if let audioAction { named.append(audioAction) }
+        if let onClose { named.append((MainActor.assumeIsolated { Strings.axClose }, onClose)) } // main-proof: guarded by Self.onMain (Thread.isMainThread) above
+        guard !named.isEmpty else { return nil }
+        return named.map { action in
+            NSAccessibilityCustomAction(name: action.name) {
+                guard Self.onMain("custom action") else { return false }
+                MainActor.assumeIsolated { action.run() } // main-proof: guarded by Self.onMain (Thread.isMainThread) above
+                return true
+            }
+        }
     }
 
     /// Faults from accessibility callbacks that arrive off the main thread.
@@ -75,7 +99,30 @@ extension TabCell {
         case .none: if item.isUnread { parts.append(Strings.axUnread) }
         }
         accessibility.setAccessibilityLabel(parts.joined(separator: ", "))
+        accessibility.setAccessibilityIdentifier("cmux.tabs.tab.\(item.id.rawValue)")
+        accessibility.closeButton.setAccessibilityLabel(Strings.axClose)
+        accessibility.closeButton.setAccessibilityIdentifier("cmux.tabs.tab.\(item.id.rawValue).close")
+        accessibility.audioAction = item.audio.flatMap { audio in
+            accessibilityToggleAudio.map { (audio == .muted ? Strings.unmuteTab : Strings.muteTab, $0) }
+        }
         accessibility.setAccessibilityValue(isSelected ? 1 : 0)
         accessibility.setAccessibilityHelp([item.machineBadgeHelp, item.subtitle].compactMap(\.self).joined(separator: ", "))
+    }
+
+    /// Records where the x draws (`drawn`, nil when hidden) and exposes it to accessibility
+    /// clients there, or, on a closable tab that draws it only on hover, where hovering would
+    /// draw it in `pill`; hides it otherwise. Agents press the x by its place. Rects are in the
+    /// cell's flipped coordinates; the child's frame is in its tab's (unflipped) space.
+    func setCloseButtonRect(_ drawn: CGRect?, pill: CGRect) {
+        closeButtonRect = drawn
+        let m = metrics, side = m.closeButtonSize
+        let hoverRect = item.isClosable && !item.isPinned && visibility != .hidden
+            ? CGRect(x: pixel(pill.width - m.contentTrailingInset - side), y: pixel(pill.height / 2 - side / 2), width: side, height: side)
+            : nil
+        let rect = drawn ?? hoverRect
+        guard let rect else { return accessibility.closeButton.setAccessibilityFrameInParentSpace(.zero) }
+        let height = layer.bounds.height
+        accessibility.closeButton.setAccessibilityFrameInParentSpace(
+            CGRect(x: rect.minX, y: height - rect.maxY, width: rect.width, height: rect.height))
     }
 }
