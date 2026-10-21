@@ -94,3 +94,11 @@ the workflow changes):
 ```sh
 CMUX_GALLERY_IN_VM=1 bun health.ts --manifest manifest.json --gallery-dir ../../webviews/dist/gallery
 ```
+
+Each state also has a ready-time budget: navigation start to the stage's first ready report
+(mount, play and settle; the runner records it as `readyMs`). `ready-budgets.json` holds a default
+and a row for each state slower than it. A state past its budget by half again plus 500 ms is
+rendered again, and fails only when its fastest run is still past it. A state that beats its row by
+a fifth is printed with the lower value. Rows only go down: download a run's `gallery-health-*`
+artifacts and run `bun ready-budgets.ts --from <dir>` to lower every row the run beat. It never
+raises a row; `--add` writes rows for slow states that have none, a raise the diff shows.

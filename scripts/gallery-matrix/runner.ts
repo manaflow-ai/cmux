@@ -220,6 +220,17 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
       await page.screenshot({ path: join(outputDir, name), fullPage: true });
       stills.push({ index: step.index, step: String(step.step).slice(0, 200), screenshot: name });
     });
+    // When the stage first says it is ready, from navigation start (mount, play and settle; no
+    // screenshot): gallery health holds each state to a ready-time budget (health.ts). The script runs
+    // before <html> exists, so it watches the document.
+    await page.addInitScript(() => {
+      const stamp = window as unknown as { cmuxGalleryReadyMs?: number };
+      new MutationObserver((_records, observer) => {
+        if (document.documentElement?.dataset.galleryReady === undefined) return;
+        stamp.cmuxGalleryReadyMs = Math.round(performance.now());
+        observer.disconnect();
+      }).observe(document, { subtree: true, attributes: true, attributeFilter: ["data-gallery-ready"] });
+    });
     const target = /^https?:\/\//.test(item.path_or_url) ? item.path_or_url : `${baseUrl}/${item.path_or_url.replace(/^\/+/, "")}`;
     const url = queryUrl(target, params);
     // The gallery stage reports its own settled/ready state below. Waiting for networkidle here
@@ -229,6 +240,7 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     // A gallery stage says when it has painted and gone still (frame/main.ts `data-gallery-ready`).
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady !== undefined || !document.querySelector("script[src*='gallery-frame']"), null, { timeout: 20_000 }).catch(() => undefined);
     const ready = await page.evaluate(() => document.documentElement.dataset.galleryReady ?? null);
+    const readyMs = await page.evaluate(() => (window as unknown as { cmuxGalleryReadyMs?: number }).cmuxGalleryReadyMs ?? null);
     const revision = await page.evaluate(() => {
       const root = document.documentElement;
       return {
@@ -248,7 +260,7 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     await page.screenshot({ path: join(outputDir, `${safeFilePart(item.id)}-${engine}.png`), fullPage: true });
     const screenshotName = `${safeFilePart(item.id)}-${engine}.png`;
     const screenshotPath = join(outputDir, screenshotName);
-    const result: Record<string, unknown> = { id: item.id, engine, screenshot: screenshotName, params, ready, revision, play, ...(experiment ? { experiment } : {}) };
+    const result: Record<string, unknown> = { id: item.id, engine, screenshot: screenshotName, params, ready, readyMs, revision, play, ...(experiment ? { experiment } : {}) };
     if (stills.length) result.steps = stills.sort((a, b) => a.index - b.index);
     if (baselineDir) {
       const baselinePath = join(baselineDir, screenshotName);
