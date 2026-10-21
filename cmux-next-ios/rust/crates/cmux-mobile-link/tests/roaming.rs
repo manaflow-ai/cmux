@@ -30,6 +30,9 @@ struct Run {
     /// The Mac's label of the same path before the change and at the end.
     mac_before: Option<LinkPath>,
     mac_after: Option<LinkPath>,
+    /// The endpoints the phone told the Mac before the change and at the end.
+    endpoints_before: Vec<String>,
+    endpoints_after: Vec<String>,
     marks: Vec<(String, Duration)>,
 }
 
@@ -154,6 +157,8 @@ async fn stream_across(
     let before = *connected.path.borrow();
     let mac_label = || mac_path.lock().unwrap().as_ref().map(|path| *path.borrow());
     let mac_before = mac_label();
+    let endpoints_of = || wireguard::session_endpoints(&session_id, true).unwrap_or_default();
+    let endpoints_before = endpoints_of();
     let changed_at = Instant::now();
     let mut _new_phone = None;
     let roam_task = match change {
@@ -219,12 +224,15 @@ async fn stream_across(
     }
     let after = *connected.path.borrow();
     let mac_after = mac_label();
+    let endpoints_after = endpoints_of();
     Run {
         stall,
         before,
         after,
         mac_before,
         mac_after,
+        endpoints_before,
+        endpoints_after,
         marks: timeline.map(|t| t.marks()).unwrap_or_default(),
     }
 }
@@ -395,6 +403,9 @@ async fn wireguard_takes_the_turn_allocation_its_roam_missed() {
     assert_eq!(run.after, LinkPath::Turn);
     assert_eq!(run.mac_after, Some(LinkPath::Turn));
     assert!(!names(&run).contains(&"roam_turn_allocated"), "the roam was meant to miss: {:?}", run.marks);
+    // The old network's relayed address is dead: the phone no longer offers it.
+    assert!(!run.endpoints_before.is_empty(), "{run:?}");
+    assert!(run.endpoints_before.iter().all(|old| !run.endpoints_after.contains(old)), "{run:?}");
 }
 
 /// The TLS stream to the TURN server dies (a middlebox resets it) without

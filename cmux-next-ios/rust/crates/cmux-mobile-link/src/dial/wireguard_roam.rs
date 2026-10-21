@@ -803,6 +803,12 @@ pub async fn roam_session(session_id: &str, dialer: bool) -> Option<Timeline> {
     Some(session.roam().await)
 }
 
+/// Test support: the endpoints one side of `session_id` last told its peer.
+#[doc(hidden)]
+pub fn session_endpoints(session_id: &str, dialer: bool) -> Option<Vec<String>> {
+    find(session_id, dialer).map(|session| lock(&session.endpoints).clone())
+}
+
 /// Debug and tests: the current network of one side of `session_id` (or of
 /// every session when `None`) goes away without a roam: nothing its socket
 /// or TURN allocation sends arrives, and nothing reaches it. Returns how
