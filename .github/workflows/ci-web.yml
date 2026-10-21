@@ -392,7 +392,7 @@ jobs:
           bun run acpmux-protocol:check || status=1
           # A key named twice in a string catalog silently drops one of its texts: data, not style.
           bun run check:catalog-keys || status=1
-          for check in check:layers check:type-scale check:status-glyphs check:system-blue check:text-focus check:dialog-keys check:switch-fetches; do
+          for check in check:layers check:type-scale check:motion-scale check:status-glyphs check:system-blue check:text-focus check:dialog-keys check:switch-fetches; do
             bun run "$check" || echo "::warning title=webviews $check (warn-only)::see the step log"
           done
           # Lint, format and types together; a type error already failed `typecheck` above.
@@ -421,13 +421,17 @@ jobs:
       # ui-rules, gallery coverage, hairline rims, tooltip rules, theme colors and
       # system blue report through test/support/prScope.ts, which only warns
       # under CMUX_NEXT_STYLE_GUARDS=warn (feat-cmux-next).
+      # A pull request fails only on tests red on it and not on its base (the merge
+      # parent): the red files run again there, and the base's reds are warnings
+      # (scripts/ci/webviews-tests-new-reds.sh). A push keeps every red.
       - name: Test webviews
         working-directory: webviews
         env:
           CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
           CMUX_WEB_TEST_SHARD: ${{ matrix.shard }}
           CMUX_WEB_TEST_SHARD_COUNT: ${{ matrix.shard_count }}
-        run: ../scripts/ci/run-webviews-tests.sh
+          BASE_REF: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
+        run: ../scripts/ci/webviews-tests-new-reds.sh "$BASE_REF"
 
       - name: Fail on the gate checks
         if: ${{ !cancelled() }}

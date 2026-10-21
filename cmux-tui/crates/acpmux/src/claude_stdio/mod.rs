@@ -191,6 +191,7 @@ mod inbound;
 mod outbound;
 #[cfg(test)]
 mod steer_now_tests;
+mod subagent_route;
 #[cfg(test)]
 mod subagent_tests;
 #[cfg(test)]

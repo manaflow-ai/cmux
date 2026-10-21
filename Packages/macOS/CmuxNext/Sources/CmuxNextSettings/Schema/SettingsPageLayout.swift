@@ -12,9 +12,11 @@ public nonisolated struct SettingsPageLayout: Sendable {
     /// studio, file actions). Raw values are the export's card ids.
     public nonisolated enum Card: String, Sendable, Hashable, CaseIterable {
         case themeStudio, terminalInfo, ghosttyDiagnostics, computerUse, harnesses, spaces, browserProfiles
-        case machines, accounts, agentHarnesses, chiefs, advancedInfo, advancedActions, backdrops, mobile, chiefPet
+        case machines, accounts, agentHarnesses, agentIntegrations, chiefs, advancedInfo, advancedActions, backdrops, mobile, chiefPet
         /// The density tiles, preview and custom density editor (plans/cmux-next/density-DESIGN.md).
         case density
+        /// What this Mac has that cmux can bring over (CmuxNextImportCards), every card found.
+        case importSuggestions
     }
 
     /// A group card as the layout states it: the rows of a schema group
@@ -154,8 +156,9 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 group("settings.group.folderTrust"),
             ],
             // Harnesses lists every harness; Your Agents (BRING-YOUR-OWN-HARNESS) adds, checks and
-            // removes the ones you added.
-            trail: [.harnesses, .agentHarnesses, .computerUse]),
+            // removes the ones you added. Agent integrations (optional help, collapsed) installs the
+            // hooks that report an agent's state, through `cmux agent hook`.
+            trail: [.harnesses, .agentHarnesses, .computerUse, .agentIntegrations]),
         // Every Chief setting on one page (Leo 2026-10-20: the name pill's popover is the quick
         // version; its All Chief Settings link opens this): Chiefs lists every Chief, each opening
         // its editor (name, picture, backend; u2586); the Chief Pet card (ChatGPT's Mini & Pets)
@@ -188,6 +191,10 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 group("settings.group.memory"), group("settings.group.remote"),
             ],
             trail: [.browserProfiles], actions: [.browser], aliases: [.browser]),
+        // Bring things over from other browsers, agents and terminals on this Mac.
+        CategorySpec(
+            id: "import", title: SettingsText.keyed("settings.category.import", "Import"), symbol: "square.and.arrow.down",
+            groups: [], lead: [.importSuggestions]),
         CategorySpec(
             id: "keyboard", title: section(.keyboard), symbol: "keyboard",
             groups: [
