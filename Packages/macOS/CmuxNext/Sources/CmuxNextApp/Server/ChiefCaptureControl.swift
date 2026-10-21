@@ -1,5 +1,6 @@
 #if DEBUG
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextSettings
 import CmuxNextSidebar
@@ -12,9 +13,9 @@ import Foundation
 /// path as a sidebar machine's New Workspace (`createWorkspace(on:)`), folds its group, and shows
 /// a row's hover card.
 ///
-/// Params, each optional: `open: [name]` opens them (waits up to 30 s for the Chief owner), each
-/// running `command` in `cwd` when given (a capture's still must not show the mini's shell prompt
-/// or its home path);
+/// Params, each optional: `open: [name]` opens them (waits for the Chief owner until the 60 s
+/// deadline), each running `command` in `cwd` when given (a capture's still must not show the
+/// mini's shell prompt or its home path);
 /// `collapse: Bool` folds or opens the Chief group in the active window; `card: Int` shows the
 /// hover card of the opened workspace at that index. Answers the opened workspace ids.
 enum ChiefCaptureControl {
@@ -26,7 +27,7 @@ enum ChiefCaptureControl {
                 let command = call.params["command"]?.stringValue
                 let cwd = call.params["cwd"]?.stringValue
                 guard let chief = await localChief(services) else {
-                    throw ControlError(code: "unavailable", message: "no local Chief machine connected within 30 s")
+                    throw ControlError(code: "unavailable", message: "no local Chief machine connected")
                 }
                 let machineID = await MainActor.run { chief.machineID }
                 var ids: [String] = []
@@ -46,14 +47,12 @@ enum ChiefCaptureControl {
         ]
     }
 
-    /// The local Chief machine once its daemon is connected; nil after 30 s.
+    /// The local Chief machine once its daemon is connected; nil when the call's deadline cancels
+    /// the wait (`ControlDeadline`).
     @MainActor
     private static func localChief(_ services: AppServices) async -> ServerMachineSession? {
-        let deadline = ContinuousClock.now + .seconds(30)
-        while ContinuousClock.now < deadline {
-            if let chief = services.machines.servers.first(where: { $0.reach.isLocalChief && $0.isConnected }) { return chief }
-            do { try await Task.sleep(for: .milliseconds(250)) } catch { return nil }
-        }
+        for await chief in ObservationStream({ services.machines.servers.first { $0.reach.isLocalChief && $0.isConnected } })
+        where chief != nil { return chief }
         return nil
     }
 
