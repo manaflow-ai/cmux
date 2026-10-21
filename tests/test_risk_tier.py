@@ -256,6 +256,43 @@ class ClassifyTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertEqual(self.tier(path), expected)
 
+    def test_an_update_channel_setting_is_normal_and_the_update_path_stays_high(self):
+        # Leo, 2026-10-21: a settings-only channel toggle that reuses the signed feeds is normal;
+        # updater install, signing and feed-verification code stays high.
+        setting = ("Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateRing.swift",
+                   NEXT + "CmuxNextUpdater/UpdatePreferences.swift",
+                   NEXT + "CmuxNextSettings/UpdatesSettings.swift",
+                   NEXT + "CmuxNextSettings/Schema/SettingsSchema+Updates.generated.swift",
+                   "schemas/settings/source/updates.json", "schemas/settings/settings-schema.json",
+                   NEXT + "CmuxNextSettings/Localizable.xcstrings")
+        self.assertEqual(self.tier(*setting), "normal")
+        # UpdateTrack decides whether Sparkle runs at all, so it is the update path, not a setting.
+        for path in ("UpdateTrack.swift", "AppcastParser.swift", "AppcastSelector.swift", "UpdateProber.swift",
+                     "UpdaterService+Flow.swift",
+                     "UpdateInstallPreflight.swift", "RollbackSwap.swift", "UpdateTransfer.swift"):
+            with self.subTest(path=path):
+                self.assertEqual(self.tier(*setting, NEXT + "CmuxNextUpdater/" + path), "high")
+
+    def test_the_cmux_updater_package_is_the_update_path(self):
+        # Signature verification, the feed resolver, the Sparkle driver and the install code must never
+        # grade normal; only the ring above is a setting. Its tests stay low.
+        updater = "Packages/macOS/CmuxUpdater/"
+        for path in ("Sources/CmuxUpdater/ChannelSwitch/AppSignatureVerification.swift",
+                     "Sources/CmuxUpdater/ChannelSwitch/SecurityAppSignatureInspector.swift",
+                     "Sources/CmuxUpdater/ChannelSwitch/AppChannelSwitcher.swift",
+                     "Sources/CmuxUpdater/UpdateFeedResolver.swift",
+                     "Sources/CmuxUpdater/UpdateDriver.swift",
+                     "Sources/CmuxUpdater/UpdateDriver+SPUUpdaterDelegate.swift",
+                     "Sources/CmuxUpdater/UpdateDriver+BackgroundInstall.swift",
+                     "Sources/CmuxUpdater/UpdateController+InstallAttempt.swift",
+                     "Sources/CmuxUpdater/UpdateController+BackgroundInstall.swift",
+                     "Sources/CmuxUpdater/InstallWatchdog.swift",
+                     "Package.swift"):
+            with self.subTest(path=path):
+                self.assertEqual(self.tier(updater + path), "high")
+        self.assertEqual(self.tier(updater + "Sources/CmuxUpdater/UpdateRing.swift"), "normal")
+        self.assertEqual(self.tier(updater + "Tests/CmuxUpdaterTests/UpdateFeedResolverTests.swift"), "low")
+
     def test_highest_path_wins(self):
         self.assertEqual(self.tier("docs/x.md", NEXT + "CmuxNextSidebar/A.swift",
                                    NEXT + "CmuxNextUpdater/Feed.swift"), "high")
