@@ -39,12 +39,15 @@ struct SidebarPriorityRemoteChatsTests {
         return store
     }
 
-    static func feed(local: [AgentActivityLane], machines: SidebarPriorityFeed.Machines) -> SidebarPriorityFeed {
+    /// The view's rows (`panel`) and the chats its row actions write through.
+    static func feed(local: [AgentActivityLane], machines: AgentPriorityChats.Machines)
+        -> (panel: @MainActor () -> SidebarPriorityPanel?, chats: AgentPriorityChats) {
         let store = AgentLaneStore()
         store.lanes = Dictionary(uniqueKeysWithValues: local.map { ($0.id, $0) })
-        return SidebarPriorityFeed(settings: .init(enabled: { true }, shown: { true }),
-                                   hooks: .init(shortcut: { nil }, open: { _ in }, archive: { _, _ in }, toggleShown: {}),
-                                   marks: AgentPriorityMarks(defaults: nil), stores: [store], machines: machines)
+        let chats = AgentPriorityChats(marks: AgentPriorityMarks(defaults: nil), stores: [store], machines: machines) { _, _ in }
+        let feed = SidebarPriorityFeed(settings: .init(enabled: { true }, shown: { true }),
+                                       hooks: .init(shortcut: { nil }, open: { _ in }, rowAction: { _ in }, toggleShown: {}), chats: chats)
+        return ({ feed.panel() }, chats)
     }
 
     @Test func aChatOnACloudOrSSHMachineIsRankedWithThisMacsChats() throws {
@@ -75,14 +78,15 @@ struct SidebarPriorityRemoteChatsTests {
         #expect(entries.first { $0.id == "box-asks" }?.machine == "big-blue")
         #expect(entries.first { $0.id == "vm-asks" }?.title == "Fix the relay")
         #expect(entries.first { $0.id == "mac-working" }?.machine == nil)
-        #expect(feed.lane("vm-asks")?.state == .input, "a remote row's actions find its chat")
+        #expect(feed.chats.lane("vm-asks")?.state == .input, "a remote row's actions find its chat")
+        #expect(feed.chats.entries().map(\.id) == ids, "the row actions rank the same rows")
     }
 
     @Test func aPeerChatNamesItsMachineAndThisMacIsTaggedOnlyWhenAsked() throws {
         var localTag: String?
         // The peer's chat also shows on that machine's own tree: one row, named once.
         let mini = Self.tree([Self.chatTab(1, session: "peer-asks", host: "install:mini", title: "Mirror", notice: (31, .warning, unread: true))])
-        let machines = SidebarPriorityFeed.Machines(remote: { [SidebarPriorityMachine(name: "Studio Mini", store: mini)] },
+        let machines = AgentPriorityChats.Machines(remote: { [SidebarPriorityMachine(name: "Studio Mini", store: mini)] },
                                                     peer: { $0 == "mini" ? "Studio Mini" : nil }, local: { localTag })
         let feed = Self.feed(local: [Self.lane("peer-asks", .input, ago: 1, peer: "mini"),
                                      Self.lane("other-peer", .working, ago: 2, peer: "lab-box"),
