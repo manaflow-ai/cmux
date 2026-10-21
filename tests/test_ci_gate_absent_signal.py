@@ -419,7 +419,9 @@ class ExpressionSemantics(unittest.TestCase):
         self.assertFalse(verdict.selected(jobs["c"], needs, context, jobs=jobs))
         self.assertEqual(verdict.problems(jobs, "gate", needs, context), [])
         ran = {**needs, "a": {"result": "success"}}
-        self.assertTrue(verdict.problems(jobs, "gate", ran, {"inputs": {"x": "true", "y": "true"}}))
+        found = verdict.problems(jobs, "gate", ran, {"inputs": {"x": "true", "y": "true"}})
+        self.assertEqual(len(found), 1)
+        self.assertTrue(found[0].startswith("c: skipped, though its own `if:` selected it"), found)
 
     def test_implicit_success_without_a_status_function(self):
         job = verdict.Job("j", ("a",), "${{ inputs.x == 'true' }}")

@@ -450,7 +450,9 @@ def selected(job: Job, needs: dict[str, Any], context: dict[str, Any], *,
     """Whether the job's own `if:` says it should have run, given what the gate sees.
 
     With `tolerate_variable_flips` off this is plain routing: the `if:` as
-    GitHub evaluates it with these variables."""
+    GitHub evaluates it with these variables. Pass `jobs`: without it the
+    status functions see only direct needs, and a skipped grandparent can make
+    a job look selected when GitHub skipped it."""
     results = {}
     for name in _ancestors(job, jobs):
         if name not in needs:
