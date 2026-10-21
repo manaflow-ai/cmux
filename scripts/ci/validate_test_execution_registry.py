@@ -20,7 +20,8 @@ enough to register it.
 
 `--pr-lanes BRANCH` also fails on a test no pull request into BRANCH runs
 (scripts/ci/pr_test_lanes.py reads the workflows as that event runs them),
-unless tests/pr-lane-exemptions.json lists it with a reason. cmux-next
+unless tests/pr-lane-exemptions.json lists it with a reason. With --base-sha
+only what this change adds fails; what the base already has warns. cmux-next
 guards / tooling-tests runs it for feat-cmux-next. It needs PyYAML, so the
 pre-commit hook's copy never takes this path.
 
@@ -34,12 +35,15 @@ from __future__ import annotations
 
 import argparse
 import ast
+import io
 import json
 import os
 import re
 import shlex
 import subprocess
 import sys
+import tarfile
+import tempfile
 from collections import Counter
 from pathlib import Path
 
@@ -76,6 +80,8 @@ RECIPE_STEP_NAME_RE = re.compile(r"\s*(-\s+)?name:")
 RECIPE_VALUE_OPTIONS = {"--only", "--timeout", "--receipt", "--jobs"}
 # The reviewed list of tests no pull request lane runs on purpose (--pr-lanes).
 PR_LANE_EXEMPTIONS = Path("tests") / "pr-lane-exemptions.json"
+# What validate_pr_lanes reads, extracted from the base to judge it there too.
+PR_LANE_BASE_PATHS = (".github", "tests", "scripts/ci", "scripts/verify-local.py")
 
 
 def runner_lanes_from_workflow_text(text: str) -> set[str]:
@@ -524,6 +530,52 @@ def validate_pr_lanes(root: Path, branch: str) -> list[str]:
     return errors
 
 
+def base_pr_lane_errors(root: Path, branch: str, base_sha: str) -> set[str]:
+    """validate_pr_lanes on the base's tree (this checkout's code, the base's workflows and tests)."""
+    point = comparison_point(base_sha, root)
+    present = [
+        path for path in PR_LANE_BASE_PATHS
+        if subprocess.run(["git", "cat-file", "-e", f"{point}:{path}"], cwd=root, capture_output=True).returncode == 0
+    ]
+    if "tests" not in present:
+        return set()
+    archive = subprocess.run(["git", "archive", "--format=tar", point, "--", *present],
+                             cwd=root, capture_output=True, check=True).stdout
+    with tempfile.TemporaryDirectory(prefix="pr-lanes-base-") as directory:
+        with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
+            try:
+                tar.extractall(directory, filter="data")
+            except TypeError:  # Python without extraction filters
+                tar.extractall(directory)  # noqa: S202 - our own repository's archive
+        base = Path(directory)
+        if not (base / "tests" / "test-execution.toml").is_file():
+            return set()
+        return set(validate_pr_lanes(base, branch))
+
+
+def pr_lane_findings(root: Path, branch: str, base_sha: str = "") -> tuple[list[str], list[str]]:
+    """(errors, warnings) of the pull request lane check, judged against the base.
+
+    feat-cmux-next takes direct-pushed main syncs and safe-push commits that skip pull request
+    checks. A test such a push left unrun, or an exemption it made stale, is in the base's
+    findings too: it warns, so it does not turn every later pull request red. Only a finding
+    this change adds fails. With no base every finding fails.
+    """
+    errors = validate_pr_lanes(root, branch)
+    if not base_sha:
+        return errors, []
+    try:
+        on_base = base_pr_lane_errors(root, branch, base_sha)
+    except (OSError, ValueError, ImportError, tarfile.TarError, subprocess.CalledProcessError) as error:
+        note = (f"could not judge the pull request lanes at the base {base_sha}: {error}; "
+                "every finding below is a warning")
+        return [], [note, *errors]
+    return (
+        [error for error in errors if error not in on_base],
+        [f"{error} (already so on the base, so this warns)" for error in errors if error in on_base],
+    )
+
+
 def report_warnings(warnings: list[str]) -> None:
     """Print warnings, annotate them in Actions, and note them in the step summary."""
     if not warnings:
@@ -549,8 +601,9 @@ def report_warnings(warnings: list[str]) -> None:
     lines.extend(
         [
             "",
-            "These tests are unregistered but were not added by this pull request, "
-            "so they do not fail it. Register them in `tests/test-execution.toml`.",
+            "These were already so on the base, so they do not fail this pull request. "
+            "Register unregistered tests in `tests/test-execution.toml`; route or exempt "
+            "(`tests/pr-lane-exemptions.json`) tests no pull request runs.",
             "",
         ]
     )
@@ -595,7 +648,9 @@ def main(argv: list[str]) -> int:
 
     if args.pr_lanes:
         try:
-            errors += validate_pr_lanes(root, args.pr_lanes)
+            lane_errors, lane_warnings = pr_lane_findings(root, args.pr_lanes, args.base_sha)
+            errors += lane_errors
+            warnings += lane_warnings
         except (OSError, ValueError, ImportError) as error:
             errors.append(f"could not read the pull request lanes into {args.pr_lanes}: {error}")
 
