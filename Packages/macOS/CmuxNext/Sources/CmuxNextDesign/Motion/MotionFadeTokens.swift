@@ -65,6 +65,8 @@ public nonisolated enum MotionLoop: String, Sendable, CaseIterable {
     case sweep
     /// Agent work's dot, one breath (bright, dim and back; `StatusWorkingLook.breathe`).
     case breath
+    /// Edit mode's wiggle (the sidebar's items, as an iPhone's home screen): one turn either way and back.
+    case wiggle
 
     /// Seconds per period, never under `minimumPeriod` (a Debug Settings
     /// override included).
@@ -86,6 +88,7 @@ public nonisolated enum MotionLoop: String, Sendable, CaseIterable {
         case .sweep: Self.shortestFlashCycle
         // A breath is calm: never quicker than one a second.
         case .breath: Self.shortestFlashCycle * 2
+        case .wiggle: 0.1
         }
     }
 }

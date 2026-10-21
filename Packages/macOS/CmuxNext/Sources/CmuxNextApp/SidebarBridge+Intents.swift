@@ -126,6 +126,8 @@ extension SidebarBridge {
             PinCommands(context: AppActionContext(services: services)).userDrop(ids.map(\.rawValue), on: section, at: index)
         case .toggleLayoutSection:
             model.apply(intent)
+        case .addItems:
+            services.apps.showStore(tab: .features, category: .sidebar)
         case .setIcon, .setGroupPinned, .setGroupIcon, .openGroup, .groupEditorEnded:
             // Needs daemon fields this build does not map yet; apply locally
             // so the UI responds, the next store change restores truth.

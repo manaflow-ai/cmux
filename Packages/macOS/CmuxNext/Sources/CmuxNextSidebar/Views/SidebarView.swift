@@ -72,6 +72,8 @@ public final class SidebarView: NSView {
     var minimalHiddenBands: (top: Bool, bottom: Bool) = (false, false)
     var accessories: [SidebarAccessorySlot: NSView] = [:]
     let footer = NSView()
+    /// Edit mode's Add Items and Done (`SidebarView+EditItems`); nil out of edit mode.
+    var editBar: SidebarEditBar?
     let updateCardView = SidebarUpdateCardView(), nowPlayingCardView = SidebarNowPlayingCardView(), updatedCardView = SidebarUpdatedCardHost(), noticeCardView = SidebarNoticeCardView()
     /// The card slot's height as the list lays out: springs when a card comes or goes.
     let cardSlotMotion = SidebarCardSlotMotion()
@@ -328,6 +330,7 @@ public final class SidebarView: NSView {
         footerBand.layoutFooter(visibleSlots)
         footerBand.placeSpaces(top: y, height: spacesHeight)
         edgeFade.frame = listFrame
+        layoutEditBar(over: listFrame)
         scrollView.tile()
         syncListSize()
         // Everything above may have moved under a still pointer (cx-3wu5).

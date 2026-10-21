@@ -40,6 +40,12 @@ final class SidebarRegionView: NSView {
     /// A press the list's drag ended early (a cancel): it drags nothing more until its release.
     var docSpentPress: LayoutItemID?
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?
+    /// The sidebar's edit mode (`SidebarView.isEditingItems`): every item but a client-only one
+    /// wiggles and shows its ✕, which asks `onRemoveItem` to take it out.
+    var isEditing = false {
+        didSet { if isEditing != oldValue { for (id, view) in itemViews { edit(view, id) } } }
+    }
+    var onRemoveItem: ((LayoutItemID) -> Void)?
     /// The region's height changed outside its host's layout (a drag's
     /// preview, a landed drop): the host lays its bands out again.
     var onHeightChange: (() -> Void)?
@@ -280,6 +286,7 @@ final class SidebarRegionView: NSView {
                 view.activatesOnPress = item.ref.activatesOnPress
                 place(view, row.frame, new: new)
                 if id == SidebarListBlocks.gapID { view.alphaValue = 0 } // a drag's gap: the slot the others make way for
+                edit(view, id)
             }
         }
         // A dragged item's view owns the press (AppKit sends it the drags
@@ -365,6 +372,7 @@ final class SidebarRegionView: NSView {
         guard !id.isTransient else { return view }
         view.onDragged = { [weak self] start, event in self?.dragMoved(.item(id), from: start, event) ?? false }
         view.onDragEnded = { [weak self] in self?.finishDrag() }
+        view.onRemove = { [weak self] in self?.onRemoveItem?(id) }
         view.onContextMenu = { [weak self] event, view in
             guard let menu = self?.contextMenuProvider?(.layoutItem(id)) else { return }
             NSMenu.popUpContextMenu(menu, with: event, for: view)
@@ -416,6 +424,11 @@ final class SidebarRegionView: NSView {
         var info = info
         info.isActive = id == activeItem
         return info
+    }
+
+    /// Edit mode on an item: never on a client-only item (What's New) or a drag's gap.
+    private func edit(_ view: SidebarItemRowView, _ id: LayoutItemID) {
+        view.isEditing = isEditing && !id.isTransient && id != SidebarListBlocks.gapID
     }
 
     /// The item view for `id` (tests, hover cards).

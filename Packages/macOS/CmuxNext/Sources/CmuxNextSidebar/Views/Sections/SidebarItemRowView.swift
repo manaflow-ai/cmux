@@ -42,6 +42,12 @@ class SidebarItemRowView: NSView {
     var activatesOnPress = false
     /// The current press already ran the action on mouse-down; its release does not run it again.
     private var activatedOnPress = false
+    /// The sidebar's edit mode (`SidebarItemRowView+Editing`): the item wiggles and shows its ✕
+    /// (`onRemove`), and a press only drags it.
+    var isEditing = false { didSet { if isEditing != oldValue { editingChanged() } } }
+    var onRemove: (() -> Void)?
+    var removeButton: SidebarIconButton?
+    var wiggleSize: CGSize = .zero
 
     private(set) var info = SidebarItemInfo(title: "", symbol: "circle")
     private(set) var style = Style.builtIn
@@ -196,6 +202,7 @@ class SidebarItemRowView: NSView {
     override func layout() {
         super.layout()
         let b = bounds
+        layoutEditing()
         if style == .favorite { return layoutFavorite(b) }
         defer { layoutActivity(in: b) }
         let inset = SidebarStyle.horizontalInset
@@ -398,8 +405,8 @@ class SidebarItemRowView: NSView {
         pressLocation = event.locationInWindow
         pressModifiers = event.modifierFlags
         didDrag = false
-        activatedOnPress = activatesOnPress
-        guard activatesOnPress else { return }
+        activatedOnPress = activatesOnPress && !isEditing
+        guard activatedOnPress else { return }
         activate(with: pressModifiers)
         // The profile control's menu runs its own tracking loop and takes the release: no mouseUp
         // follows, so the pressed fill must not stay.
@@ -425,7 +432,7 @@ class SidebarItemRowView: NSView {
         activatedOnPress = false
         guard isPressed else { return super.mouseUp(with: event) }
         isPressed = false
-        guard !dragged, !activated, pill.frame.contains(convert(event.locationInWindow, from: nil)) else { return }
+        guard !dragged, !activated, !isEditing, pill.frame.contains(convert(event.locationInWindow, from: nil)) else { return }
         activate(with: pressModifiers)
     }
 
@@ -444,6 +451,7 @@ class SidebarItemRowView: NSView {
     }
 
     override func accessibilityPerformPress() -> Bool {
+        if isEditing { return false }
         if let onPressWithModifiers { onPressWithModifiers([]) } else { onPress?() }
         return true
     }
@@ -477,6 +485,7 @@ class SidebarItemRowView: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
+        if editingKeyDown(event) { return }
         guard event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.function).isEmpty,
               [" ", "\r", "\u{3}"].contains(event.charactersIgnoringModifiers ?? "") else { return super.keyDown(with: event) }
         _ = accessibilityPerformPress()
