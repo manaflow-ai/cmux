@@ -111,6 +111,8 @@ struct AgentBypassBadgeTests {
     @Test func anAdoptsOwnRefusalsSayWhatHappened() throws {
         let unknown = try #require(AgentSessionAdoptRefusal.message(code: "agent_session.unknown_session", machine: "huge-blue"))
         #expect(unknown.contains("huge-blue") && !unknown.contains("refused"))
+        // An adopt matches the exact session id, never a name: the advice says id.
+        #expect(unknown.contains("session id") && !unknown.contains("session name"), "\(unknown)")
         #expect(AgentSessionAdoptRefusal.message(code: "agent_session.bound", machine: "huge-blue") != nil)
         #expect(AgentSessionAdoptRefusal.message(code: "agent_session.limit", machine: "huge-blue") == nil)
     }
