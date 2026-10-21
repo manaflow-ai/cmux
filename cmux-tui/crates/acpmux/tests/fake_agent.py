@@ -732,7 +732,9 @@ def stdin_lines(early):
     if early:
         if not early.endswith(b"\n"):
             early += sys.stdin.buffer.readline()
-        yield from early.decode().splitlines(keepends=True)
+        # Split and decoded as stdin is: only at newlines (serde_json leaves U+2028 unescaped).
+        import io
+        yield from io.TextIOWrapper(io.BytesIO(early), encoding=sys.stdin.encoding, errors=sys.stdin.errors)
     yield from sys.stdin
 
 
