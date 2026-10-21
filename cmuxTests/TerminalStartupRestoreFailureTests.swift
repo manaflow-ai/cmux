@@ -426,6 +426,97 @@ struct TerminalStartupRestoreFailureTests {
         )
     }
 
+    @Test("Dock restore keeps an overflow agent deferred and manually recoverable")
+    func dockCapacityDeferredAgentRetainsResumeCandidate() throws {
+        let defaults = try makeAutoResumeDefaults()
+        defer { defaults.store.removePersistentDomain(forName: defaults.name) }
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil },
+            agentSessionAutoResumeDefaults: defaults.store,
+            restorableAgentIndexProvider: { .empty }
+        )
+        defer { dock.closeAllPanels() }
+
+        let workingDirectory = "/tmp/capacity-deferred-codex"
+        let panelIDs = (0..<SurfaceResumeRunPromptBatch.maximumAutomaticAgentRestores + 1)
+            .map { _ in UUID() }
+        func panel(_ id: UUID, index: Int) -> SessionPanelSnapshot {
+            let sessionID = "capacity-deferred-codex-(index)-\(UUID().uuidString)"
+            let agent = SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: sessionID,
+                workingDirectory: workingDirectory,
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: "codex",
+                    executablePath: "/usr/local/bin/codex",
+                    arguments: ["/usr/local/bin/codex", "resume", sessionID],
+                    workingDirectory: workingDirectory,
+                    environment: [:],
+                    capturedAt: 1_800_000_307 + TimeInterval(index),
+                    source: "process"
+                )
+            )
+            return SessionPanelSnapshot(
+                id: id,
+                type: .terminal,
+                title: "Codex capacity (index)",
+                directory: workingDirectory,
+                isPinned: false,
+                isManuallyUnread: false,
+                gitBranch: nil,
+                listeningPorts: [],
+                ttyName: nil,
+                terminal: SessionTerminalPanelSnapshot(
+                    workingDirectory: workingDirectory,
+                    agent: agent,
+                    wasAgentRunning: true
+                )
+            )
+        }
+
+        let snapshot = SessionSplitContainerSnapshot(
+            focusedPanelId: panelIDs[0],
+            layout: .pane(SessionPaneLayoutSnapshot(
+                panelIds: panelIDs,
+                selectedPanelId: panelIDs[0]
+            )),
+            panels: panelIDs.enumerated().map { panel($0.element, index: $0.offset) }
+        )
+
+        let restoreBatch = SurfaceResumeRunPromptBatch.shared
+        restoreBatch.reset()
+        restoreBatch.beginRestorePass()
+        defer {
+            restoreBatch.endRestorePass()
+            restoreBatch.reset()
+        }
+
+        let restoredIDs = dock.restoreSessionSnapshot(snapshot)
+        let overflowPanelID = try #require(restoredIDs[panelIDs.last!])
+        let overflowPanel = try #require(dock.panels[overflowPanelID] as? TerminalPanel)
+
+        #expect(
+            dock.deferredAgentResumeRestoresByPanelId[overflowPanelID]?.restorableAgent?.sessionId
+                != nil
+        )
+        #expect(
+            dock.restoredAgentLifecycle.resumeStatesByPanelId[overflowPanelID]
+                == .awaitingAutoResumeCommand
+        )
+        #expect(
+            dock.deferredAgentResumeRestoresByPanelId[overflowPanelID]?.restorableAgent?.resumeCommand
+                ?.contains("capacity-deferred") == true
+        )
+        let admittedCount = panelIDs.dropLast().compactMap { panelID in
+            restoredIDs[panelID]
+        }.filter { panelID in
+            dock.panels[panelID] is TerminalPanel &&
+                dock.panels[panelID].flatMap { ($0 as? TerminalPanel)?.surface.debugInitialInputForTesting() } != nil
+        }.count
+        #expect(admittedCount == SurfaceResumeRunPromptBatch.maximumAutomaticAgentRestores)
+    }
+
     @Test("Workspace restore claims one duplicate Codex checkpoint owner")
     func duplicateCodexCheckpointClaimsOneWorkspaceRestoreOwner() throws {
         let defaults = try makeAutoResumeDefaults()
