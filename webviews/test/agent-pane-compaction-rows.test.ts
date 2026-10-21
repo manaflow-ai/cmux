@@ -343,3 +343,45 @@ test("a compaction that says it failed keeps its reason", async () => {
       .map((row) => [row.seq, row.compaction]),
   ).toEqual([[3, { state: "failed", error: "Prompt is too long" }]]);
 });
+
+// Leo's chat, 2026-10-20: two "Compacting the conversation…" rows stacked, both spinning. A row
+// the next turn's start noted as failed is taken back only by a running note that comes on time
+// (Claude Code repeats it every 30s); a compaction long after is a new one, below the turns since.
+test("a compaction that went quiet is not taken back by a later compaction", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "go on" }],
+      ["mux", "turn_started", {}],
+      ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+      ["mux", "user_message", { text: "and on", steer: true }],
+      ["mux", "turn_started", {}],
+    ]),
+  );
+  const { rows } = await connect(daemon);
+  const compactions = () =>
+    rows()
+      .filter((row) => row.kind === "compaction")
+      .map((row) => [row.seq, row.compaction?.state]);
+  expect(compactions()).toEqual([[3, "failed"]]);
+  // Five minutes later (seq 300 is 300s after the start): the next turn compacts.
+  daemon.push(
+    record(
+      [
+        ["mux", "user_message", { text: "next" }],
+        ["mux", "turn_started", {}],
+        ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+        ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+        [
+          "in",
+          "compaction",
+          update({ sessionUpdate: "compaction", state: "completed", preTokens: 300_000, postTokens: 20_000 }),
+        ],
+      ],
+      300,
+    ),
+  );
+  expect(compactions()).toEqual([
+    [3, "failed"],
+    [302, "completed"],
+  ]);
+});

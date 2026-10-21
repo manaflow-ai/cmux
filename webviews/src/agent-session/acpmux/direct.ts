@@ -799,9 +799,10 @@ export class AcpmuxDirectClient {
   private streamingActivity?: string;
   /// The open turn's plan row: its later `plan` updates redraw this one list (cx-ncc.80).
   private planRow?: string;
-  /// Compaction rows noted as failed while Claude may still be compacting (the next turn started,
-  /// or acpmux forced a Stop): the compaction's next running note takes the row back.
-  private readonly compactionsMayGoOn = new Set<string>();
+  /// When each compaction row last heard "still compacting": a running note within
+  /// COMPACTION_REPEAT_WINDOW of it is the same compaction, even after the next turn's start or a
+  /// forced Stop noted the row as failed. A row whose turn ended for good, or that ended, has none.
+  private compactionHeardAt = new Map<string, number>();
   private supersededMessageIds = new Set<string>();
   /// The rows each message streamed into; tool calls split one message into several.
   private messageRows = new Map<string, string[]>();
@@ -1104,7 +1105,7 @@ export class AcpmuxDirectClient {
     this.toolRows.clear();
     this.planCalls.clear();
     this.planRow = undefined;
-    this.compactionsMayGoOn.clear();
+    this.compactionHeardAt.clear();
     this.subagents = new SubagentFold();
     this.pendingPermission = undefined;
     this.waitingPermissions.clear();
@@ -1757,7 +1758,7 @@ export class AcpmuxDirectClient {
     this.messageRows.clear();
     this.offerRows.clear();
     this.receivedOffers.clear();
-    this.compactionsMayGoOn.clear();
+    this.compactionHeardAt.clear();
     this.toolRows.clear();
     this.planCalls.clear();
     this.subagents = new SubagentFold();
@@ -2289,13 +2290,15 @@ export class AcpmuxDirectClient {
           row.kind === "compaction" &&
           (row.compaction?.state === "running" ||
             (row.compaction?.inferred === true &&
-              (compaction.state !== "running" || this.compactionsMayGoOn.has(row.id)))) &&
+              (compaction.state !== "running" ||
+                event.at - (this.compactionHeardAt.get(row.id) ?? -Infinity) <= COMPACTION_REPEAT_WINDOW))) &&
           (row.seq ?? 0) < event.seq &&
           (row.seq ?? 0) > (running?.seq ?? -1)
         )
           running = row;
       const id = running?.id ?? `compaction-${event.seq}`;
-      this.compactionsMayGoOn.delete(id);
+      if (compaction.state === "running") this.compactionHeardAt.set(id, event.at);
+      else this.compactionHeardAt.delete(id);
       this.rows.set(id, {
         id,
         version: (running?.version ?? 0) + 1,
@@ -2399,11 +2402,11 @@ export class AcpmuxDirectClient {
   /// relaunch) or the next turn starts may never send how it ended: it is noted as failed, so
   /// the row stops spinning, live and when the history is read again. `inferred` lets an end
   /// that does come later (a forced Stop the compaction outlived) take the row back, and
-  /// `mayGoOn` lets its next running note do so too.
+  /// `mayGoOn` lets its next running note do so too, while it comes on time.
   private settleCompactions(seq: number, mayGoOn = false) {
     for (const row of this.rows.values())
       if (row.kind === "compaction" && row.compaction?.state === "running" && (row.seq ?? 0) < seq) {
-        if (mayGoOn) this.compactionsMayGoOn.add(row.id);
+        if (!mayGoOn) this.compactionHeardAt.delete(row.id);
         this.rows.set(row.id, {
           ...row,
           version: row.version + 1,
@@ -3597,6 +3600,7 @@ export class AcpmuxDirectClient {
       optimisticPromptRows: this.optimisticPromptRows,
       optimisticPromptTexts: this.optimisticPromptTexts,
       promptAccepts: this.promptAccepts,
+      compactionHeardAt: this.compactionHeardAt,
     };
     const held = new Map(this.rows);
     this.turnOpen = false;
@@ -3616,6 +3620,7 @@ export class AcpmuxDirectClient {
     this.optimisticPromptRows = new Map();
     this.optimisticPromptTexts = new Map();
     this.promptAccepts = new Map();
+    this.compactionHeardAt = new Map();
     this.foldingBelow = this.firstSeq ?? Infinity;
     try {
       for (const event of [...older].sort((a, b) => a.seq - b.seq)) {
@@ -3748,6 +3753,10 @@ export function harnessBlock(error: unknown): HarnessBlock | undefined {
   if (!reason || typeof data?.harness !== "string" || typeof data.folder !== "string") return undefined;
   return { reason, harness: data.harness, folder: data.folder };
 }
+
+/// Claude Code says it is still compacting every 30 seconds (2.1.305): a running note this soon
+/// after a row's last one is that compaction going on; a later one is a new compaction.
+const COMPACTION_REPEAT_WINDOW = 90_000;
 
 /// A compaction's next running note on its row: what the row knew (a wrapper's reason), still running.
 function stillRunning(prior: AcpmuxCompaction, next: AcpmuxCompaction): AcpmuxCompaction {
