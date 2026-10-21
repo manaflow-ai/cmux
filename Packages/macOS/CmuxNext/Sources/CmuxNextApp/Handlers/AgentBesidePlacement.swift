@@ -37,10 +37,20 @@ enum AgentBesidePlacement {
         // A person's click: the pane they clicked in, which the tab's close focuses again.
         let clicked = invocation.besideTakesFocus ? (controller?.workspace ?? services.paneController(for: anchor)?.workspace) : nil
         let intent = clicked?.beginFocusIntent(), from = clicked?.focusedPane?.layoutPaneID
+        // An agent's open: what the person does meanwhile (a link clicked mid-turn) wins over it.
+        let watched = clicked == nil ? (controller?.workspace ?? services.paneController(for: anchor)?.workspace) : nil
+        let asked = watched?.focus.state.generation
+        let personActed: @MainActor () -> Bool = { [weak watched] in
+            guard let asked, let watched else { return false }
+            return watched.focus.state.generation != asked
+        }
         guard invocation.newColumnBeside else {
             return { [weak controller, weak clicked, weak services] surface in
                 then?(surface)
-                controller?.selectWhenReportedKeepingFocus(surface: surface)
+                // Never swaps out the tab the person has in front of them since the run began.
+                if let controller, !(personActed() && controller.workspace?.focusedPane === controller) {
+                    controller.selectWhenReportedKeepingFocus(surface: surface)
+                }
                 if let services, let clicked { focus(surface, returningTo: from, in: clicked, generation: intent, services: services) }
             }
         }
@@ -81,7 +91,8 @@ enum AgentBesidePlacement {
                 }
                 guard docked else { return "beside-caller: the chat did not dock (see the app log)" }
                 // Keyboard focus stays in the chat, now in its dock; a person's click focuses the tab.
-                if chatHadFocus || content.focusedPane?.pane === anchor {
+                // Not when the person acted since the run began: their focus stays where they put it.
+                if (chatHadFocus || content.focusedPane?.pane === anchor) && !personActed() {
                     let chatID = chat.id
                     let listed = Task { @MainActor () -> Bool in
                         // The store lists the chat in its new dock pane (the window's controller may come later;
@@ -108,7 +119,9 @@ enum AgentBesidePlacement {
                         }
                     }
                 }
-                services.paneController(for: anchor)?.selectWhenReportedKeepingFocus(surface: surface)
+                if let left = services.paneController(for: anchor), !(personActed() && content.focusedPane === left) {
+                    left.selectWhenReportedKeepingFocus(surface: surface)
+                }
                 return nil
             }
             // Home's pinned dock alone takes no tab: the daemon made it in a new column right of

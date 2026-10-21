@@ -117,6 +117,8 @@ final class LinkOpener {
     @discardableResult
     func openWeb(_ url: URL, from source: PaneController?, background: Bool, cmdClick: Bool = false) -> Bool {
         let from = source ?? services?.windows.active?.focusedPane
+        // The person's intent: an agent's open in flight (AgentBesidePlacement) yields to it.
+        if !background { _ = from?.workspace?.beginFocusIntent() }
         return open(from: from, background: background, cmdClick: cmdClick) { [weak self, weak from] pane, placed in
             let here = pane === from && placed == nil
             let opener = here ? from?.selectedTab?.surface : nil
