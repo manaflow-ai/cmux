@@ -220,8 +220,9 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
 /// minute and two readers of one link share one read.
 ///
 /// A card reads the cache (``answer(_:)``) and never waits for gh, so hovering a link is never a
-/// call to GitHub; the links a reply shows are registered when the page inspects them
-/// (``register(_:)``), which is once per reply, not once per hover. A read that fails — no gh, no
+/// call to GitHub; the links a page shows are registered when it inspects them
+/// (``register(_:)``), which is once per host request — the page gathers every reply's links
+/// into one — not once per reply and never once per hover. A read that fails — no gh, no
 /// network, a rate limit — leaves the last good answer and its age in place, and is not tried
 /// again for `retry`, so a rate-limited GitHub never replaces the pull request with an error.
 @MainActor
