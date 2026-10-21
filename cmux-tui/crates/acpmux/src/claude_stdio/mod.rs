@@ -205,6 +205,14 @@ mod workflows;
 /// the task's end arrives as its own event.
 pub const STOP_TASK: &str = "_acpmux/claude/stop_task";
 
+/// The internal ACP request that moves Claude Code's running work to the
+/// background (Ctrl-B, `hub/processes.rs`), `{sessionId, toolCallId?}`:
+/// Claude Code's `background_tasks` control request, for the task the tool
+/// call started or, without one, every foreground task. Answers
+/// `{backgrounded}`; the shells it moved arrive as their own events, with
+/// origin `user_backgrounded`.
+pub const BACKGROUND_TASKS: &str = "_acpmux/claude/background_tasks";
+
 /// The refusal of a steered prompt when no turn is running (the turn ended
 /// between the hub's check and the adapter).
 pub const STEER_NO_TURN: &str = "steer: no turn is running";
@@ -397,6 +405,9 @@ struct BackgroundShell {
     background: bool,
     /// Started in the background (`run_in_background`), not moved there.
     launched: bool,
+    /// The person asked for it to go to the background (`BACKGROUND_TASKS`):
+    /// once it moves, its origin is `user_backgrounded`.
+    asked: bool,
     /// Its `running` update went out (`inbound.rs` `running`).
     announced: bool,
     /// The file Claude Code writes its output to (`output_file`), once a
@@ -413,6 +424,11 @@ enum Pending {
     Control(Setting, String),
     /// A `stop_task` (`STOP_TASK`), answered when claude takes it.
     StopTask,
+    /// A `background_tasks` (`BACKGROUND_TASKS`), with the shells it marked
+    /// `asked` and when the hub stops waiting for it (its `timeoutMs`):
+    /// `end_background_asks` unmarks them when nothing moved, at that
+    /// deadline, or when the turn ends.
+    Background(Vec<String>, Option<std::time::Instant>),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -492,6 +508,45 @@ impl Translator {
                 )
             })
             .collect()
+    }
+
+    /// Ends the `background_tasks` requests `ended` picks by ACP id and
+    /// deadline (Ctrl-B). When Claude Code `moved` their work, their shells
+    /// stay the person's: no other request's end unmarks them. Otherwise
+    /// each loses its `asked` mark, unless it is in the background already
+    /// (it moved while asked) or a request still waiting names it.
+    async fn end_background_asks(
+        &self,
+        moved: bool,
+        ended: impl Fn(&str, Option<std::time::Instant>) -> bool,
+    ) {
+        let mut pending = self.pending.lock().await;
+        let mut shells = Vec::new();
+        pending.retain(|id, p| match p {
+            Pending::Background(asked, deadline) if ended(id.as_str(), *deadline) => {
+                shells.append(asked);
+                false
+            }
+            _ => true,
+        });
+        let waiting = pending.values_mut().filter_map(|p| match p {
+            Pending::Background(asked, _) => Some(asked),
+            _ => None,
+        });
+        if moved {
+            for asked in waiting {
+                asked.retain(|tool| !shells.contains(tool));
+            }
+            return;
+        }
+        let waiting: HashSet<String> = waiting.flat_map(|asked| asked.iter().cloned()).collect();
+        drop(pending);
+        let mut all = self.background_shells.lock().await;
+        for tool in shells.iter().filter(|tool| !waiting.contains(*tool)) {
+            if let Some(shell) = all.get_mut(tool).filter(|s| !s.background) {
+                shell.asked = false;
+            }
+        }
     }
 
     pub async fn take_stdin_replies(&self) -> Vec<Value> {

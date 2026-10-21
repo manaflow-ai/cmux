@@ -17,6 +17,7 @@ extension SidebarListViewComponents {
         workspaces = [:]
         tabs = [:]
         groups = [:]
+        groupSubtrees = [:]
         sections = [:]
         listItems = [:]
         for section in listSections {
@@ -26,6 +27,13 @@ extension SidebarListViewComponents {
                 case let .workspace(ws): workspaces[ws.id] = ws
                 case let .group(group):
                     groups[group.id] = group
+                    if groupSubtrees[group.id] == nil { groupSubtrees[group.id] = [group.id] }
+                    var ancestor = group.parent, seen: Set<GroupID> = [group.id]
+                    // A malformed parent chain (a cycle) stops at the first group seen again.
+                    while let id = ancestor, groupSubtrees[id] != nil, seen.insert(id).inserted {
+                        groupSubtrees[id]?.append(group.id)
+                        ancestor = groups[id]?.parent
+                    }
                     for ws in group.workspaces { workspaces[ws.id] = ws }
                     for member in group.items { listItems[member.item.id] = member.item } // a group's link, tab or app member row
                 case let .item(item): listItems[item.id] = item
@@ -56,6 +64,9 @@ extension SidebarListViewComponents {
     func options(includeGap: Bool) -> SidebarLayoutOptions {
         var o = model.listOptions()
         o.showsSoleMachineHeader = true
+        if let tree = SidebarSessionTree.shared.state {
+            (o.sessionTree, o.keycaps) = (tree, model.workspaceKeycaps(DesignSettings.shared.sidebarSections.navigation))
+        }
         o.excludedWorkspaces.formUnion(leaving)
         if includeGap, case let .newWorkspace(section, group, index)? = external?.proposal {
             o.gap = DropPosition(section: section, group: group, index: index)
@@ -112,6 +123,7 @@ extension SidebarListViewComponents {
         defer { updateHover() }
         let old = displayed
         displayed = layout
+        onApply?(layout)
         groupEditing.adoptReidentified(from: old, to: layout)
         selectedRowKey = layout.selectedRowKey(for: model.selectedItem, in: model.sections)
         updateDocumentHeight()
