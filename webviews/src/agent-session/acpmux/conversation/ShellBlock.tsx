@@ -1,6 +1,6 @@
 // An opened shell call: a "Shell" card with the folder it ran in (a leading `cd ~/wt/lanes/x &&`
 // reads as "x" beside the label), Wrap lines and Copy, the command line, its output (the end of a
-// long one, with Show all output) and, when the command failed, its exit code. Past eight lines it
+// long one) and, when the command failed, its exit code. Past eight lines it
 // shows its first ones under a fade, with Show all N lines (BlockParts.tsx). Output wraps by
 // default, each line hanging under its start; unwrapped, its right edge fades while more lies past.
 import { useT } from "../i18n";
@@ -32,8 +32,9 @@ export function ShellBlock({
   const shown = useOutput(output, reveal);
   const { folder, rest } = command ? commandFolder(command) : { folder: undefined, rest: undefined };
   const [wrap] = useBlockWrap("output");
-  // The command's lines and the output's, as the body draws them (none to cut when whole).
-  const preview = usePreview(whole ? 0 : (rest ? lineCount(rest) : 0) + lineCount(shown.shown), reveal);
+  // The command's lines and all the output's, though a long output draws only its end until opened
+  // (none to cut when whole).
+  const preview = usePreview(whole ? 0 : (rest ? lineCount(rest) : 0) + lineCount(shown.text), reveal);
   const body = useSidewaysRef<HTMLPreElement>();
   return (
     <div className="cv-shell" id={id} ref={menuPartRef({ command, output: shown.text })}>
@@ -73,8 +74,8 @@ export function ShellBlock({
           </span>
         )}
       </pre>
-      <PreviewMore preview={preview} />
-      {!preview.cut && <OutputMore output={shown} />}
+      <PreviewMore preview={preview} output={shown} />
+      {!preview.long && <OutputMore output={shown} />}
       {exitCode !== undefined && exitCode !== 0 && (
         <div className="cv-shell__exit">{t("shell.exit", { code: exitCode })}</div>
       )}

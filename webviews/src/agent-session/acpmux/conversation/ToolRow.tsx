@@ -147,7 +147,7 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
           ) : files.length > 0 ? (
             <div id={detailsId}>
               {files.map((file) => (
-                <EditDiff key={file.path} file={file} />
+                <EditDiff key={file.path} file={file} reveal={reveal} />
               ))}
             </div>
           ) : (
@@ -167,7 +167,8 @@ function ToolOutput({ id, output, reveal }: { id: string; output: string; reveal
   const t = useT();
   const shown = useOutput(output, reveal);
   const [wrap] = useBlockWrap("output");
-  const preview = usePreview(lineCount(shown.shown), reveal);
+  // All the output's lines, though a long one draws only its end until opened.
+  const preview = usePreview(lineCount(shown.text), reveal);
   const body = useSidewaysRef<HTMLPreElement>();
   return (
     <div id={id} className="cv-tool-output-card" ref={menuPartRef({ output: shown.text })}>
@@ -187,8 +188,8 @@ function ToolOutput({ id, output, reveal }: { id: string; output: string; reveal
           {shown.shown && <Lines text={shown.shown} />}
         </pre>
       </div>
-      <PreviewMore preview={preview} />
-      {!preview.cut && <OutputMore output={shown} />}
+      <PreviewMore preview={preview} output={shown} />
+      {!preview.long && <OutputMore output={shown} />}
     </div>
   );
 }

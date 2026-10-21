@@ -54,12 +54,19 @@ export function useOutput(output: string | undefined, reveal = 0) {
   };
 }
 
-/// Show all output / Show less under an output long enough to have been cut.
+/// Show all output / Show less under an output long enough to have been cut (and too few lines for
+/// a preview, which opens it instead: BlockParts.tsx `PreviewMore`). Find skips its words.
 export function OutputMore({ output }: { output: ReturnType<typeof useOutput> }) {
   const t = useT();
   if (!output.long) return null;
   return (
-    <button type="button" className="cv-output-more" aria-expanded={output.all} onClick={output.toggle}>
+    <button
+      type="button"
+      className="cv-output-more"
+      aria-expanded={output.all}
+      data-find-skip=""
+      onClick={output.toggle}
+    >
       {output.all ? t("shell.showLess") : t("shell.showAll")}
     </button>
   );

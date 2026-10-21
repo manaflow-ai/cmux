@@ -158,7 +158,8 @@ function AskRow({
         </div>
       )}
       {files.map((file) => (
-        <EditDiff key={file.path} file={file} />
+        // An edit awaiting approval shows whole: never under a fade.
+        <EditDiff key={file.path} file={file} whole />
       ))}
     </>
   );
