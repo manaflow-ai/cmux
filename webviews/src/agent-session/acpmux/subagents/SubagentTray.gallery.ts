@@ -93,8 +93,8 @@ export default agentPaneEntry({
       ),
     },
     "several-running": {
-      note: "Three subagents and a background command: a header with the counts and the time since the first started, a line each. The one that ended left its line in the transcript.",
-      play: trayLines(4),
+      note: "Two subagents and a background command: a header with the counts and the time since the first started, a line each (up to three show open). The one that ended left its line in the transcript.",
+      play: trayLines(3),
       snapshot: chat(
         [
           user(prompt, 2),
@@ -103,12 +103,11 @@ export default agentPaneEntry({
               agent("Read the updater", 1.9, "running", { kind: "Explore", action: "Read Sources/Updater.swift" }),
               agent("Check the docs", 1.9, "running", { kind: "general-purpose", action: "Read docs/updates.md" }),
               agent("Find the release script", 1.9, "completed", { kind: "Explore", ran: 0.6 }),
-              agent("Review naming", 1.9, "running", { kind: "code-reviewer", action: "Search for updateChannel" }),
             ],
             1.9,
           ),
           devServer,
-          assistant("Three reviewers are on it, and the dev server is up.", 1.2),
+          assistant("Two subagents are on it, and the dev server is up.", 1.2),
         ],
         { isWorking: true },
       ),
