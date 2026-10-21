@@ -16,6 +16,7 @@ on:
       - "Packages/macOS/CmuxNext/Package.swift"
       - "scripts/cmux-next/check-concurrency.sh"
       - "scripts/cmux-next/check-main-actor-work.py"
+      - "tests/test_check_concurrency_generic_deinit.py"
       - "scripts/ci/crash-class-gate.sh"
       - "scripts/ci/pr_owned_findings.py"
       - "scripts/cmux-next/check-objc-selectors.py"
@@ -32,6 +33,7 @@ on:
       - "Packages/macOS/CmuxNext/Package.swift"
       - "scripts/cmux-next/check-concurrency.sh"
       - "scripts/cmux-next/check-main-actor-work.py"
+      - "tests/test_check_concurrency_generic_deinit.py"
       - "scripts/ci/crash-class-gate.sh"
       - "scripts/ci/pr_owned_findings.py"
       - "scripts/cmux-next/check-objc-selectors.py"
@@ -67,12 +69,18 @@ jobs:
             scripts/cmux-next
             scripts/ci/crash-class-gate.sh
             scripts/ci/pr_owned_findings.py
+            tests/test_check_concurrency_generic_deinit.py
           sparse-checkout-cone-mode: false
 
       - name: Crash-class concurrency rules
         env:
           GATE_SCOPE: ${{ github.event_name == 'pull_request' && '--pr' || '' }}
         run: scripts/ci/crash-class-gate.sh ${GATE_SCOPE:+"$GATE_SCOPE"}
+
+      # The generic-class rule is red on #23050's shape and green with `nonisolated deinit`.
+      - name: Crash-class rule tests
+        if: ${{ !cancelled() }}
+        run: python3 -I tests/test_check_concurrency_generic_deinit.py
 
       # Every `super.<member>` must reach a selector its framework superclass
       # answers on each macOS recorded in the table, or be guarded.

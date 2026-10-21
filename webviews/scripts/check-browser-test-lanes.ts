@@ -1,7 +1,8 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
 import { fileURLToPath } from "node:url";
+import { checkFrameReadsSource } from "./check-frame-reads";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const helper = path.join(root, "test/support/requireBrowserLane");
@@ -87,10 +88,46 @@ export function checkDevServerWarmSource(file: string, text: string): string[] {
   if (!inProcess && !spawned) return [];
   // A server no browser loads (dev-server-stop: starting and stopping it) has nothing to warm.
   if (!/from "playwright"/.test(text)) return [];
-  if (/\bwarm(?:Vite|Dev)Server\(/.test(text)) return [];
+  if (/\bwarm(?:Vite|Dev)Server\(|\bwarmGalleryFrame\(/.test(text)) return [];
   return [
-    `${path.relative(root, file)}: starts a Vite dev server without warming it; call ${inProcess ? "warmViteServer(vite, page)" : "warmDevServer(base, page)"} from ./support/warmDevServer once it listens`,
+    `${path.relative(root, file)}: starts a Vite dev server without warming it; call ${inProcess ? "warmViteServer(vite, page)" : "warmDevServer(base, page)"} from ./support/warmDevServer (or warmGalleryFrame from ./support/galleryFrame) once it listens`,
   ];
+}
+
+/**
+ * Browser tests that still open a frame for every entry, each with why; remove a line when its test
+ * moves to galleryFrame. Narrowed in batches by area; the files other lanes' open PRs change wait
+ * for those PRs.
+ */
+export const EVERY_ENTRY_PENDING = new Map<string, string>([
+  // Files other lanes' open PRs change.
+  ["test/transcript-thought.test.ts", "#23084 (thought-rows) changes this file"],
+]);
+
+/**
+ * A browser test opens a gallery frame for its own entry alone (test/support/galleryFrame.ts):
+ * `/gallery/frame.html` without `entryPath` loads every gallery entry first, about 2,300 modules a
+ * test file, and timed tests out on a busy CI runner (#23080). A test that needs the whole registry
+ * says why in a `// gallery-frame-every-entry: <reason>` comment.
+ */
+export function checkGalleryFrameSource(file: string, text: string): string[] {
+  const name = path.relative(root, file);
+  const pending = EVERY_ENTRY_PENDING.has(name);
+  if (!/^import\b[^;]*\bfrom "playwright";/m.test(text))
+    return pending ? [`${name}: opens no browser now; remove it from EVERY_ENTRY_PENDING`] : [];
+  if (/^\s*\/\/ gallery-frame-every-entry: \S/m.test(text))
+    return pending ? [`${name}: says why it opens every entry; remove it from EVERY_ENTRY_PENDING`] : [];
+  const errors = text
+    .split("\n")
+    .flatMap((line, index) =>
+      /frame\.html/.test(line) && !/entryPath/.test(line)
+        ? [
+            `${name}:${index + 1}: opens a gallery frame without entryPath, so it loads every gallery entry; use galleryFrame(entry, params) and warmGalleryFrame(vite, entry) from ./support/galleryFrame, or say why it needs them all in a "// gallery-frame-every-entry: <reason>" comment`,
+          ]
+        : [],
+    );
+  if (!pending) return errors;
+  return errors.length ? [] : [`${name}: opens its frames narrowed now; remove it from EVERY_ENTRY_PENDING`];
 }
 
 if (import.meta.main) {
@@ -101,12 +138,19 @@ if (import.meta.main) {
       if (entry.isDirectory()) scan(file);
       else if (/[._](?:test|spec)\.[cm]?[jt]sx?$/.test(entry.name)) {
         const text = readFileSync(file, "utf8");
-        errors.push(...checkBrowserLaneSource(file, text), ...checkDevServerWarmSource(file, text));
+        errors.push(
+          ...checkBrowserLaneSource(file, text),
+          ...checkDevServerWarmSource(file, text),
+          ...checkGalleryFrameSource(file, text),
+          ...checkFrameReadsSource(file, text),
+        );
       }
     }
   }
   scan(path.join(root, "test"));
   scan(path.join(root, "src"));
+  for (const name of EVERY_ENTRY_PENDING.keys())
+    if (!existsSync(path.join(root, name))) errors.push(`${name}: is gone; remove it from EVERY_ENTRY_PENDING`);
   for (const error of errors) console.error(error);
   if (errors.length) process.exitCode = 1;
   else console.log("Browser test lane imports checked.");

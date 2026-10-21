@@ -19,6 +19,11 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
     /// rows on either side, so rows tile and the pointer is never between
     /// two of them (Leo 2026-10-13: the hover flickered off in the gaps).
     public var rowSpacing: CGFloat = 0
+    /// The session tree's Pinned chats (`SidebarChatHistoryState.pinnedHeight`): where the block
+    /// starts, above the workspaces; nil without one. No row: the list draws the block itself.
+    public var pinnedChatsY: CGFloat?
+    /// The Earlier chats block's top, under the workspaces; nil without one.
+    public var earlierChatsY: CGFloat?
 
     public init(rows: [SidebarRow], totalHeight: CGFloat, gapY: CGFloat?, gapHeight: CGFloat, gapShift: CGFloat) {
         self.rows = rows
@@ -171,8 +176,13 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             y += gapHeight + m.rowSpacing
         }
 
+        // The session tree's chat history, never while filtering.
+        var chats = SidebarChatHistoryPlacement(filtering ? nil : o.chatHistory, metrics: m)
+        let lastMachine = sections.lastIndex { $0.machine != nil }
+
         var firstSection = true
-        for section in sections {
+        for (sectionIndex, section) in sections.enumerated() {
+            if let lastMachine, sectionIndex > lastMachine { chats.placeEarlier(&y) }
             // Nodes that remain, with their visible children.
             var nodes: [(node: SidebarNode, children: [SidebarWorkspace])] = []
             // Nested groups (remote-groups-DESIGN.md slice 2) list flat, a group before its
@@ -232,16 +242,23 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             let emptyDropZone = docID != nil && o.showEmptyPinned && !filtering // any document section takes a drop during a drag
             if isDocSection && nodes.isEmpty && blockHeight == 0 && !gapHere && !emptyDropZone { continue }
 
-            // A remote group (remote-groups-DESIGN.md slice 4) is a section of its own in one list too.
-            let flat = o.flattensMachines && section.machine != nil && !section.isHostGroup
+            // The Chief's workspaces are a group only while it has some: nobody made the section, so an
+            // empty one draws nothing (a drop still opens it).
+            if section.machine?.id.isLocalChief == true && nodes.isEmpty && !gapHere { continue }
+            // A remote group (remote-groups-DESIGN.md slice 4) and the Chief's workspaces are a section of
+            // their own in one list too.
+            let flat = o.flattensMachines && section.machine != nil && !Self.keepsHeaderInOneList(section)
             if flat && nodes.isEmpty && !gapHere && (listsAnyMachineRow || shownEmptyMachine) { continue }
             if flat && nodes.isEmpty { shownEmptyMachine = true }
             // Consecutive computers in one list read as one list: no gap. A block brings its own padding.
             if firstSection && blockHeight > 0 { y -= m.topPadding }
             if !firstSection && !(flat && previousWasMachine) && blockHeight == 0 { y += previousWasBlock ? m.topPadding : m.sectionSpacing }
             firstSection = false
+            if section.machine != nil { chats.placePinned(&y) }
             previousWasBlock = blockHeight > 0 && nodes.isEmpty
-            previousWasMachine = section.machine != nil
+            // Only a headerless computer joins the next one: rows after a headed section (a remote group,
+            // the Chief's) never read as its members.
+            previousWasMachine = section.machine != nil && flat
             if let docID, blockHeight > 0 {
                 rows.append(SidebarRow(
                     key: .block(docID), y: y, height: blockHeight, section: section.id,
@@ -252,7 +269,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             }
             // Headers stay for the pinned area and for one section per
             // computer (`sidebar.groupByComputer`, opt-in), never in one list.
-            let showsHeader = !isDocSection && (section.machine == nil || section.isHostGroup
+            let showsHeader = !isDocSection && (section.machine == nil || Self.keepsHeaderInOneList(section)
                 || (!flat && (machineCount > 1 || o.showsSoleMachineHeader)))
             // The computer a row names in one list (never this Mac), with its
             // status when it cannot connect.
@@ -443,6 +460,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             }
             openGapIfNeeded(section: section.id, group: nil, index: nodes.count)
         }
+        chats.placeEarlier(&y)
         y += m.bottomPadding
         var layout = SidebarLayout(
             rows: rows, totalHeight: y, gapY: gapY,
@@ -450,6 +468,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             gapShift: gapY == nil ? 0 : gapHeight + m.rowSpacing
         )
         layout.rowSpacing = m.rowSpacing
+        (layout.pinnedChatsY, layout.earlierChatsY) = (chats.pinnedY, chats.earlierY)
         return layout
     }
 }

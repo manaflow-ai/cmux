@@ -1,7 +1,7 @@
 public import AppKit
 import Darwin
 
-/// How ``NSWindow/writeSnapshot(to:)`` captured a window.
+/// How ``NSWindow/snapshotImage()`` captured a window.
 public nonisolated enum WindowSnapshotMethod: String, Sendable {
     /// The window server's composited image of the window (vibrancy,
     /// Liquid Glass and Metal layers as on screen).
@@ -11,6 +11,16 @@ public nonisolated enum WindowSnapshotMethod: String, Sendable {
 }
 
 extension NSWindow {
+    /// Encodes an immutable capture as PNG and writes it atomically, off the
+    /// main actor: AppKit capture stays on the main actor, the compression
+    /// and the file write do not.
+    public static func encodeSnapshotPNG(_ image: CGImage, to url: URL) async throws {
+        try await Task.detached(priority: .userInitiated) {
+            guard let data = image.pngData() else { throw CocoaError(.fileWriteUnknown) }
+            try data.write(to: url, options: .atomic)
+        }.value
+    }
+
     /// This window as AppKit draws it, without screen capture (no Screen
     /// Recording permission): the frame view (titlebar, traffic lights and
     /// content) rendered through `cacheDisplay(in:to:)` at the backing scale.
@@ -78,20 +88,60 @@ extension NSWindow {
         return image
     }
 
-    /// This app's visible windows above this window's level that overlap it
-    /// and are not its children (an open context menu), as the window server
-    /// composited them on a transparent image the size of this window, with
-    /// their count; nil without one. A snapshot of the window then shows the
-    /// menu a right click opened, as on screen.
+    /// This app's windows the window server shows above this window and over its frame that
+    /// are not the child windows a snapshot already composites (an open context menu, a hover
+    /// card or popover not attached to it), as the window server composited them on a
+    /// transparent image the size of this window, with their count; nil without one. A snapshot
+    /// of the window then shows them as on screen. Menus are not in AppKit's window list, so
+    /// the window server's list chooses (``ownWindows(above:pid:region:layer:skipping:ordinary:)``).
     public func floatingWindowsSnapshot() -> (image: CGImage, count: Int)? {
-        let children = Set(visibleChildWindows.map(\.windowNumber))
-        let floating = NSApp.windows.filter {
-            $0 !== self && $0.isVisible && $0.windowNumber > 0 && $0.alphaValue > 0 && $0.level > level
-                && !children.contains($0.windowNumber) && $0.frame.intersects(frame)
-        }
-        guard !floating.isEmpty, let image = Self.windowServerImage(of: floating, croppedTo: self),
+        guard windowNumber > 0, isOnActiveSpace, let primary = NSScreen.screens.first else { return nil }
+        let above = (CGWindowListCopyWindowInfo([.optionOnScreenAboveWindow], CGWindowID(windowNumber)) as? [[String: Any]] ?? [])
+            .compactMap(ListedWindow.init)
+        let numbers = Self.ownWindows(above: above, pid: getpid(), region: Self.globalRect(of: frame, primaryHeight: primary.frame.maxY),
+                                      layer: level.rawValue, skipping: Set(visibleChildWindows.map(\.windowNumber)),
+                                      ordinary: Self.ordinaryWindowTrees(besides: self))
+        guard !numbers.isEmpty, let image = Self.windowServerImage(ofNumbers: numbers, croppedTo: self),
               image.width > 0, image.height > 0, !Self.isBlank(image) else { return nil }
-        return (image, floating.count)
+        return (image, numbers.count)
+    }
+
+    /// From `above` (the windows the window server shows above a window, topmost first), the
+    /// numbers of this process's visible windows over `region` that a snapshot paints over it:
+    /// not the `skipping` ones (its child windows, composited already), and not the ones that
+    /// belong to another of the app's ordinary windows at the window's own `layer` (`ordinary`
+    /// maps each window of such a tree to its ordinary window's layer), so a window behind
+    /// another of the app's windows still comes out whole.
+    nonisolated static func ownWindows(above: [ListedWindow], pid: pid_t, region: CGRect, layer: Int,
+                                       skipping: Set<Int>, ordinary: [Int: Int]) -> [Int] {
+        above.filter { window in
+            window.pid == pid && window.alpha > 0 && !skipping.contains(window.number)
+                && window.bounds.intersection(region).width > 0 && window.bounds.intersection(region).height > 0
+                && ordinary[window.number] != layer
+        }.map(\.number)
+    }
+
+    /// `frame` (AppKit screen coordinates) in global display coordinates: origin at the top
+    /// left of the primary screen, which is `primaryHeight` points tall.
+    nonisolated static func globalRect(of frame: NSRect, primaryHeight: CGFloat) -> CGRect {
+        CGRect(x: frame.minX, y: primaryHeight - frame.maxY, width: frame.width, height: frame.height)
+    }
+
+    /// The app's ordinary (titled, non-panel, top-level) windows other than `window`, each with
+    /// the windows that belong to it (child windows and attached sheets, with theirs), by
+    /// number, to the ordinary window's level.
+    private static func ordinaryWindowTrees(besides window: NSWindow) -> [Int: Int] {
+        var result: [Int: Int] = [:]
+        for root in NSApp.windows where root !== window && root.windowNumber > 0 && !(root is NSPanel)
+            && root.styleMask.contains(.titled) && root.parent == nil && root.sheetParent == nil {
+            var pending = [root]
+            while let member = pending.popLast() {
+                result[member.windowNumber] = root.level.rawValue
+                pending += member.childWindows ?? []
+                if let sheet = member.attachedSheet { pending.append(sheet) }
+            }
+        }
+        return result
     }
 
     /// The visible child windows of this window and of its children, the
@@ -127,17 +177,19 @@ extension NSWindow {
     /// `windows` composited together (`CGWindowListCreateImageFromArray`),
     /// cropped to `frameWindow`'s frame.
     private static func windowServerImage(of windows: [NSWindow], croppedTo frameWindow: NSWindow) -> CGImage? {
+        windowServerImage(ofNumbers: frontToBack(windows.map(\.windowNumber)), croppedTo: frameWindow)
+    }
+
+    /// The windows `numbers` (topmost first) composited together, cropped to `frameWindow`'s frame.
+    private static func windowServerImage(ofNumbers numbers: [Int], croppedTo frameWindow: NSWindow) -> CGImage? {
         typealias CreateImage = @convention(c) (CGRect, CFArray, UInt32) -> Unmanaged<CGImage>?
         guard frameWindow.windowNumber > 0, let primary = NSScreen.screens.first,
               let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImageFromArray") else { return nil }
         let create = unsafeBitCast(symbol, to: CreateImage.self)
         // The array holds CGWindowID values (not CFNumbers), topmost first.
-        var ids: [UnsafeRawPointer?] = frontToBack(windows.map(\.windowNumber)).map { UnsafeRawPointer(bitPattern: UInt($0)) }
+        var ids: [UnsafeRawPointer?] = numbers.map { UnsafeRawPointer(bitPattern: UInt($0)) }
         guard let array = CFArrayCreate(nil, &ids, ids.count, nil) else { return nil }
-        // Global display coordinates: origin at the primary screen's top left.
-        let frame = frameWindow.frame
-        let bounds = CGRect(x: frame.minX, y: primary.frame.maxY - frame.maxY, width: frame.width, height: frame.height)
-        return create(bounds, array, imageOptions)?.takeRetainedValue()
+        return create(globalRect(of: frameWindow.frame, primaryHeight: primary.frame.maxY), array, imageOptions)?.takeRetainedValue()
     }
 
     /// `numbers` topmost first, as the window server orders them on screen.
@@ -157,23 +209,47 @@ extension NSWindow {
         image.isFullyTransparent
     }
 
-    /// Writes the window as PNG to `url`: composited when the window server
-    /// gives an image (``compositedSnapshot()``), else AppKit drawing
-    /// (``renderSnapshot()``). Returns the pixel size and the method used.
-    public func writeSnapshot(to url: URL) throws -> (size: CGSize, method: WindowSnapshotMethod) {
-        let rep: NSBitmapImageRep
-        let method: WindowSnapshotMethod
+    /// Captures the window image: composited when the window server gives one,
+    /// else AppKit drawing. The capture itself must stay on the main actor
+    /// because it reads AppKit state. Callers that already have an async
+    /// boundary should encode the returned image away from the main actor.
+    public func snapshotImage() throws -> (image: CGImage, method: WindowSnapshotMethod) {
         if let image = compositedSnapshot() {
-            rep = NSBitmapImageRep(cgImage: image)
-            method = .composited
-        } else if let drawn = renderSnapshot() {
-            rep = drawn
-            method = .appkit
-        } else {
-            throw CocoaError(.fileWriteUnknown)
+            return (image, .composited)
         }
-        guard let data = rep.representation(using: .png, properties: [:]) else { throw CocoaError(.fileWriteUnknown) }
-        try data.write(to: url, options: .atomic)
-        return (CGSize(width: rep.pixelsWide, height: rep.pixelsHigh), method)
+        if let image = renderSnapshot()?.cgImage {
+            return (image, .appkit)
+        }
+        throw CocoaError(.fileWriteUnknown)
+    }
+}
+
+/// A window as the window server lists it (`CGWindowListCopyWindowInfo`): menus included,
+/// which AppKit's window list leaves out. `bounds` is in global display coordinates (origin at
+/// the primary screen's top left).
+nonisolated struct ListedWindow: Equatable, Sendable {
+    let number: Int
+    let pid: pid_t
+    let layer: Int
+    let bounds: CGRect
+    let alpha: Double
+
+    init(number: Int, pid: pid_t, layer: Int, bounds: CGRect, alpha: Double) {
+        self.number = number
+        self.pid = pid
+        self.layer = layer
+        self.bounds = bounds
+        self.alpha = alpha
+    }
+
+    /// One entry of the window server's list; nil without a number, owner or bounds. An
+    /// entry without an alpha is opaque.
+    init?(_ info: [String: Any]) {
+        guard let number = (info[kCGWindowNumber as String] as? NSNumber)?.intValue,
+              let pid = (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value,
+              let bounds = (info[kCGWindowBounds as String] as? NSDictionary).flatMap({ CGRect(dictionaryRepresentation: $0 as CFDictionary) })
+        else { return nil }
+        self.init(number: number, pid: pid, layer: (info[kCGWindowLayer as String] as? NSNumber)?.intValue ?? 0, bounds: bounds,
+                  alpha: (info[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1)
     }
 }

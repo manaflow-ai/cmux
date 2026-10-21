@@ -7,8 +7,8 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("composer-type-scale.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -27,7 +27,7 @@ await requireBrowserLane("composer-type-scale.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
   const url = (entry: string, variant: string) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=${entry}&variant=${variant}`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(entry, { variant })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -37,21 +37,11 @@ await requireBrowserLane("composer-type-scale.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
     // Warm the gallery stage once, as composer-location-side.test.ts does: the first load can
     // trigger Vite's dependency optimizer and reload its context mid-compile.
-    const warm = await browser.newPage({ viewport: { width: 760, height: 560 } });
-    await warm.goto(url("agent-pane.composer", "new-chat"));
-    for (;;) {
-      try {
-        await warm.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 0 });
-        break;
-      } catch (error) {
-        if (!/context was destroyed|navigat/i.test(String(error))) throw error;
-      }
-    }
-    await warm.close();
+    await warmGalleryFrame(vite, "agent-pane.composer", { browser, params: { variant: "new-chat" } });
+    await warmGalleryFrame(vite, ["agent-pane.composer-context", "agent-pane.composer-pickers"], { browser });
   });
 
   afterAll(async () => {
@@ -169,11 +159,39 @@ await requireBrowserLane("composer-type-scale.test.ts", async () => {
     "agent-pane.composer-context": ["closed", "folder-menu", "computer-menu", "ssh-chat"],
     "agent-pane.composer-pickers": ["closed", "model-menu", "effort-menu"],
   };
-  for (const [entry, variants] of Object.entries(ENTRIES)) {
-    for (const variant of variants) {
-      test(`${entry} ${variant} draws its text on the type scale`, async () => {
-        expect(await offScale(entry, variant)).toEqual([]);
-      });
+  // One variant at a time spends most of its ~2.2 s loading the stage (each page is a fresh
+  // context, so it fetches its ~700 dev-server modules again), and 41 of them in a row ran past the
+  // runner's 120 s file limit. So a few pages read variants at once, each variant still in its own
+  // page, and each test awaits its own result.
+  const PAGES = 4;
+  const states = Object.entries(ENTRIES).flatMap(([entry, variants]) =>
+    variants.map((variant) => ({ entry, variant })),
+  );
+  const results = new Map<string, Promise<string[]>>();
+  beforeAll(() => {
+    let free = PAGES;
+    const waiting: (() => void)[] = [];
+    const inPage = async (work: () => Promise<string[]>) => {
+      if (free > 0) free--;
+      else await new Promise<void>((resolve) => waiting.push(resolve));
+      try {
+        return await work();
+      } finally {
+        const next = waiting.shift();
+        if (next) next();
+        else free++;
+      }
+    };
+    for (const { entry, variant } of states) {
+      const result = inPage(() => offScale(entry, variant));
+      // A test left out by a filter never awaits its result; its failure is not the run's.
+      result.catch(() => {});
+      results.set(`${entry} ${variant}`, result);
     }
+  });
+  for (const { entry, variant } of states) {
+    test(`${entry} ${variant} draws its text on the type scale`, async () => {
+      expect(await results.get(`${entry} ${variant}`)!).toEqual([]);
+    });
   }
 });
