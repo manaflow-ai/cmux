@@ -22,6 +22,9 @@ nonisolated struct KeyFacts: Equatable, Sendable {
     /// The focused React page's id (`cmux.markdown`): context key
     /// `pageId`; the markdown page also sets `markdownFocused`.
     var pageID: String?
+    /// The focused markdown page shows a file it cannot save
+    /// (`markdownReadOnlyFocused`, else `markdownEditorFocused`).
+    var markdownReadOnly = false
     /// A list-like control in the focused page has the keyboard (R85;
     /// the sidebar list and its field imply it without this).
     var listFocus = false
