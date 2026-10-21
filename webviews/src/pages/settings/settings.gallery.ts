@@ -214,6 +214,13 @@ Object.assign(variants, {
     ],
     note: "Appearance's floating bar at the bottom right after picking Shuffle Paintings: Undo names the step, Redo waits, Reset offers Restore How It Was or Reset to Defaults.",
   }),
+  // The terminal font list open: recent fonts first under a Recent tag, every family in its own face.
+  "font-picker-open": variant("appearance", {
+    focus: "terminal.fontFamily",
+    options: { values: { "terminal.fontFamily": "JetBrains Mono" } },
+    steps: [click(`${row("terminal.fontFamily")} [data-font-picker]`), wait("[data-font-option]")],
+    note: "Terminal Font Family's list: the default first, then the fonts picked lately with a Recent tag, then every installed family, each drawn in its own face. Arrow keys preview live; Return picks, Escape reverts.",
+  }),
   // Unset surface rows rest on the window's values, dimmed under an "Inherits window" badge.
   "surfaces-inherit-window": variant("appearance", {
     focus: "appearance.surfaces.sidebar.opacity",
@@ -889,6 +896,7 @@ export default settingsPageEntry({
     "pages/settings/components/BackdropLink.tsx",
     "pages/settings/components/BackdropScope.tsx",
     "pages/settings/components/ChiefPetCard.tsx",
+    "pages/settings/components/FontPicker.tsx",
     "pages/settings/components/GhosttyDiagnostics.tsx",
     "pages/settings/components/GroupList.tsx",
     "pages/settings/components/Highlight.tsx",
