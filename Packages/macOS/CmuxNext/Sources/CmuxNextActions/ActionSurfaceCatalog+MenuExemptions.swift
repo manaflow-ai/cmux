@@ -58,6 +58,7 @@ nonisolated extension ActionSurfaceCatalog {
             "layout.centerFocusedColumn.onOverflow", "focusRing.toggle", "focusRing.style.ring",
             "focusRing.style.glow", "focusRing.singlePane.toggle", "appearance.paneBorderWidth.toggle",
             "appearance.paneBorderColor.reset", "appearance.titlebar.minimal", "appearance.titlebar.standard",
+            "appearance.glass.lens.toggle",
             "browser.hibernation.off", "browser.hibernation.moderate", "browser.hibernation.aggressive",
             "browser.keepNeighborTabsAwake.0", "browser.keepNeighborTabsAwake.1", "browser.keepNeighborTabsAwake.2",
             "browser.keepNeighborTabsAwake.3",

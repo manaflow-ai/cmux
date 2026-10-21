@@ -1,13 +1,14 @@
 public import CmuxNextDesign
 
 /// `appearance.glass` in cmux.json (`GlassLensMode`, plans/cmux-next/glass-lens-DESIGN.md):
-/// "lens" (the default) bends the wallpaper at the rim of web glass surfaces, "plain" only blurs
-/// it, "spectrum" adds a chromatic split at the rim. Reduce Transparency and Low Power Mode draw
+/// "plain" (the default, the glass from before the lens) only blurs the wallpaper behind web glass
+/// surfaces, "lens" (opt-in while Leo tries it) bends it at their rim, "spectrum" adds a chromatic
+/// split at the rim. Reduce Transparency and Low Power Mode draw
 /// plain glass whatever it says. A missing key is the default; a bad value is the default plus a
 /// diagnostic.
 public nonisolated struct GlassSetting: Sendable {
     public let configPath = ["appearance", "glass"]
-    public let fallback: GlassLensMode = .lens
+    public let fallback: GlassLensMode = .plain
 
     public init() {}
 

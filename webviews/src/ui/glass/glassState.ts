@@ -64,10 +64,10 @@ export function mergeBackdrop(state: BackdropState, partial: unknown): BackdropS
 }
 
 /** The mode the page draws: plain under Reduce Transparency (the system's or the host's), else the
- * host's `data-glass`, else lens (the default; with no backdrop image it draws only CSS glass). */
+ * host's `data-glass`, else plain (the default; the lens is opt-in). */
 export function resolveGlassMode(attribute: string | null, reduceTransparency: boolean): GlassMode {
   if (reduceTransparency) return "plain";
-  return attribute === "plain" || attribute === "spectrum" ? attribute : "lens";
+  return attribute === "lens" || attribute === "spectrum" ? attribute : "plain";
 }
 
 /** The lens's cross-section: 1 at the rim (t = 0), 0 from the band's inner edge (t = 1) on, with a

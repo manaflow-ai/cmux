@@ -56,12 +56,12 @@ describe("mergeBackdrop", () => {
 });
 
 describe("resolveGlassMode", () => {
-  test("the host's mode, lens by default", () => {
-    expect(resolveGlassMode(null, false)).toBe("lens");
+  test("the host's mode, plain by default (the lens is opt-in)", () => {
+    expect(resolveGlassMode(null, false)).toBe("plain");
     expect(resolveGlassMode("lens", false)).toBe("lens");
     expect(resolveGlassMode("spectrum", false)).toBe("spectrum");
     expect(resolveGlassMode("plain", false)).toBe("plain");
-    expect(resolveGlassMode("bogus", false)).toBe("lens");
+    expect(resolveGlassMode("bogus", false)).toBe("plain");
   });
 
   test("Reduce Transparency is always plain", () => {

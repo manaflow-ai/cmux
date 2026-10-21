@@ -9,9 +9,10 @@ specular rim) on as many cmux NEXT surfaces as possible, so the wallpaper shines
 through. That means the composer, message bubbles, the queued-prompt card, menus and
 popovers, hover cards, link cards, the Updated card, and the thinking dots. The look
 comes first, but scrolling a long transcript on a laptop must not drop frames.
-Settings > Appearance gets a "Glass" control: Lens (the default), Plain glass (blur
-only, the look before this change) and Spectrum (lens plus chromatic dispersion at
-the rim).
+Settings > Appearance gets a "Glass" control: Plain glass (the default: blur only,
+the look before this change), Lens and Spectrum (lens plus chromatic dispersion at
+the rim). Leo (2026-10-21): the lens is a toggle to see and feel first; the palette's
+Toggle Liquid Glass Lens flips it live. Making it the default comes later.
 
 ## Why the lens can't be a backdrop filter
 
@@ -31,7 +32,7 @@ lenses its own copy of it.
 
 ### Host (Swift)
 
-- **Setting.** `appearance.glass` is one of `lens` (the default), `plain` or
+- **Setting.** `appearance.glass` is one of `plain` (the default), `lens` or
   `spectrum`, and lives in cmux-next.json like the other appearance keys. The
   effective mode is `plain` under Reduce Transparency or Low Power Mode. `WebTheme`
   sends the effective mode, and the bootstrap sets it as `data-glass` on `<html>`.

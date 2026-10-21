@@ -1,6 +1,7 @@
 /// `appearance.glass` in cmux.json: how web glass surfaces bend the wallpaper behind them
-/// (plans/cmux-next/glass-lens-DESIGN.md). `lens` (the default) refracts it at the rim, `plain`
-/// only blurs it (the look before the lens), `spectrum` adds a chromatic split at the rim.
+/// (plans/cmux-next/glass-lens-DESIGN.md). `plain` (the default, the look before the lens) only
+/// blurs it, `lens` (opt-in, Leo 2026-10-21) refracts it at the rim, `spectrum` adds a chromatic
+/// split at the rim.
 public nonisolated enum GlassLensMode: String, Sendable, CaseIterable, Codable {
     case lens
     case plain
@@ -13,6 +14,9 @@ public nonisolated enum GlassLensMode: String, Sendable, CaseIterable, Codable {
 
     /// Whether pages refract a wallpaper still (the host feeds them one, `GlassBackdropFeed`).
     public var refracts: Bool { self != .plain }
+
+    /// The palette's Toggle Liquid Glass Lens: plain turns the lens on; lens or spectrum turn it off.
+    public var lensToggled: GlassLensMode { self == .plain ? .lens : .plain }
 }
 
 extension GlassLensMode {

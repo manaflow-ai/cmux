@@ -301,7 +301,7 @@ class GlassLens {
   private readonly root: HTMLElement;
   private readonly glass: HTMLCollectionOf<Element>;
   private readonly reduceQuery: MediaQueryList | null;
-  private mode: GlassMode = "lens";
+  private mode: GlassMode = "plain";
   private backdrop: BackdropState;
   /** WebGL failed once in this document: CSS glass only from then on. */
   private capable = true;

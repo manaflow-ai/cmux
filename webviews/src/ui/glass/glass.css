@@ -2,13 +2,13 @@
    surface of every first-party page and the agent pane: a surface adds `.ui-glass` and may override
    any token below on itself. desktop.ts loads this sheet and starts the lens (lens.ts) everywhere.
 
-   - Lens (data-glass="lens", and the default before the host says anything): the tint, a light
-     frost and a thin top-lit specular rim. While the lens draws the host's wallpaper still behind
+   - Lens (data-glass="lens", opt-in: Settings > Appearance > Glass or the palette's Toggle Liquid
+     Glass Lens): the tint, a light frost and a thin top-lit specular rim. While the lens draws the host's wallpaper still behind
      the glass (data-glass-lens on the root), the frost and the edge bend come from the lens, so the
      surface drops its own backdrop blur; with no still (no art, a moving wallpaper) it keeps it.
    - Spectrum: the lens plus a faint red and cyan fringe at the rim.
-   - Plain (data-glass="plain"): the blur glass from before the lens: tint, the shared blur and the
-     thin rim, no specular.
+   - Plain (data-glass="plain", the default, and what a page draws before the host says anything):
+     the blur glass from before the lens: tint, the shared blur and the thin rim, no specular.
    - Reduce Transparency (the system's, or data-reduce-transparency from the host): the opaque
      surface, no blur, the rim only.
    The tint is a translucent mix of the theme's surface: never opaque, never the accent.
@@ -70,8 +70,8 @@
   ); /* theme-fixed: red's complement, the other side of the split; never the accent */
 }
 
-/* Plain glass: today's blur glass. */
-:root[data-glass="plain"] {
+/* Plain glass: today's blur glass, the default (any root that is not lens or spectrum). */
+:root:not([data-glass="lens"], [data-glass="spectrum"]) {
   --glass-tint: color-mix(in srgb, var(--glass-surface) 60%, transparent);
   --glass-backdrop: var(--surface-blur);
   --glass-rim-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge);
@@ -79,7 +79,7 @@
 
 /* The lens draws the bend and its frost behind the glass; the surface keeps only a light frost
    for the page content between the canvas and the glass. */
-:root[data-glass-lens]:not([data-glass="plain"]) {
+:root[data-glass-lens]:is([data-glass="lens"], [data-glass="spectrum"]) {
   --glass-tint: color-mix(in srgb, var(--glass-surface) 40%, transparent);
   --glass-backdrop: blur(var(--glass-frost)) saturate(1.3);
 }

@@ -7,6 +7,14 @@ import Testing
 /// `appearance.glass` unless Reduce Transparency or Low Power Mode make it plain, sent as `glass`
 /// in the theme payload and set as `data-glass` by the bootstrap, which also defines the backdrop push.
 @MainActor @Suite struct GlassLensTests {
+    /// Leo 2026-10-21: the lens is a toggle to see and feel; the palette flips it on and off.
+    @Test func theToggleTurnsTheLensOnFromPlainAndOffFromEitherRefractingMode() {
+        #expect(GlassLensMode.plain.lensToggled == .lens)
+        #expect(GlassLensMode.lens.lensToggled == .plain)
+        #expect(GlassLensMode.spectrum.lensToggled == .plain)
+        #expect(GlassLensMode.plain.lensToggled.lensToggled == .plain)
+    }
+
     @Test func reduceTransparencyAndLowPowerModeDrawPlainGlass() {
         for mode in GlassLensMode.allCases {
             #expect(mode.effective(reduceTransparency: false, lowPowerMode: false) == mode)
@@ -18,7 +26,7 @@ import Testing
 
     @Test func theCurrentModeReadsTheSettingAndBothSystemSwitches() {
         let settings = DesignSettings()
-        #expect(settings.glass == .lens)
+        #expect(settings.glass == .plain)
         settings.glass = .spectrum
         let clear = ReduceTransparency(system: { false }, changes: NotificationCenter())
         let reduced = ReduceTransparency(system: { true }, changes: NotificationCenter())
