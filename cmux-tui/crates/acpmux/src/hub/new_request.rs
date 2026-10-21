@@ -89,6 +89,9 @@ pub struct NewRequest {
     /// The new session is a sub-session (`hub/subsessions.rs`): its parent,
     /// short name and depth, checked against the parent's limits by the caller.
     pub subsession: Option<crate::store::SubsessionLink>,
+    /// A sub-session's folder as its start checked it (`subsession_guard.rs`): its harness
+    /// spawns only while `cwd` still leads to that very folder.
+    pub checked_cwd: Option<super::subsession_guard::CheckedFolder>,
 }
 
 /// Why the Claude conversation `sid` cannot be resumed on `profile` (None:
