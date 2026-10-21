@@ -2,7 +2,8 @@
 // simulator, an Android emulator or a real phone in a pane tab, with live
 // input, screenshots, recordings, logs and one-click feedback to Chief.
 // Titles live in PhoneActions.xcstrings. Every action is a `cmux phone ...`
-// verb and an MCP tool, so agents drive the phone the way a person does.
+// verb and an MCP tool, so agents drive the phone the way a person does;
+// raw views and screenshots stay person-only until callers have device-scoped identity.
 // `device` takes a phone id (`sim:<udid>`, `dev:<udid>`, `avd:<name>`,
 // `adb:<serial>`) or a name; without it the recorded phone, else the first
 // booted simulator. Points are the phone's own (iOS points, Android dp), the
@@ -22,19 +23,26 @@ nonisolated enum PhoneActionCatalog: ActionCatalogGroup {
                 // Not tied to a right-clicked object: each acts on a phone, named by `device`.
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject))
         }
+        func personOnly(_ descriptor: ActionDescriptor) -> ActionDescriptor {
+            var descriptor = descriptor
+            descriptor.isPersonOnly = true
+            return descriptor
+        }
         return [
-            phone("phone.show", "action.phone.show", "Open Phone", symbol: "iphone",
-                  keywords: ["open", "device", "mirror", "screen"], cliName: "phone open", arguments: [device]),
+            // Opening starts the raw frame stream; screenshots and recordings persist the same
+            // pixels. Keep every raw-pixel action in-app until callers have authenticated device scope.
+            personOnly(phone("phone.show", "action.phone.show", "Open Phone", symbol: "iphone",
+                             keywords: ["open", "device", "mirror", "screen"], cliName: "phone open", arguments: [device])),
             phone("phone.boot", "action.phone.boot", "Boot Phone", symbol: "power",
                   keywords: ["boot", "start"], cliName: "phone boot", arguments: [device]),
-            phone("phone.screenshot", "action.phone.screenshot", "Take Phone Screenshot", symbol: "camera",
-                  keywords: ["screenshot", "capture", "png"], cliName: "phone screenshot", arguments: [device, path]),
-            phone("phone.recordStart", "action.phone.recordStart", "Record Phone", symbol: "record.circle",
-                  keywords: ["record", "video", "feedback", "bug"], cliName: "phone record", arguments: [device]),
-            phone("phone.recordStop", "action.phone.recordStop", "Stop Phone Recording", symbol: "stop.circle",
-                  keywords: ["record", "stop", "video"], cliName: "phone stop", arguments: [notes]),
-            phone("phone.sendFeedback", "action.phone.sendFeedback", "Send Phone Recording to Chief", symbol: "paperplane",
-                  keywords: ["feedback", "bug", "report", "chief", "send", "clip"], cliName: "phone feedback", arguments: [notes]),
+            personOnly(phone("phone.screenshot", "action.phone.screenshot", "Take Phone Screenshot", symbol: "camera",
+                             keywords: ["screenshot", "capture", "png"], cliName: "phone screenshot", arguments: [device, path])),
+            personOnly(phone("phone.recordStart", "action.phone.recordStart", "Record Phone", symbol: "record.circle",
+                             keywords: ["record", "video", "feedback", "bug"], cliName: "phone record", arguments: [device])),
+            personOnly(phone("phone.recordStop", "action.phone.recordStop", "Stop Phone Recording", symbol: "stop.circle",
+                             keywords: ["record", "stop", "video"], cliName: "phone stop", arguments: [notes])),
+            personOnly(phone("phone.sendFeedback", "action.phone.sendFeedback", "Send Phone Recording to Chief", symbol: "paperplane",
+                             keywords: ["feedback", "bug", "report", "chief", "send", "clip"], cliName: "phone feedback", arguments: [notes])),
             phone("phone.openURL", "action.phone.openURL", "Open URL on Phone", symbol: "link",
                   keywords: ["url", "link", "deep link", "open"], cliName: "phone open-url",
                   arguments: [ActionArgument(name: "url", title: t("argument.phone.url", "URL"), kind: .string), device]),

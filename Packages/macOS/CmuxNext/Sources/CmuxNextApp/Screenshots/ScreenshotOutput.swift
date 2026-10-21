@@ -3,7 +3,7 @@ import Foundation
 
 /// Where `cmux window|pane|tab screenshot` puts the PNG: its `out` argument.
 enum ScreenshotOutput: Equatable {
-    /// An absolute file path (`~` expanded); parent folders are created.
+    /// An absolute new file path (`~` expanded); its parent folder must exist.
     case file(URL)
     /// `-`: the PNG inline in the result as `png_base64`, or in a temporary
     /// file (`path`) when it is too large for one control-socket answer.

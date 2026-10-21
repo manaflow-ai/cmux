@@ -302,12 +302,18 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .keyboard], requires: [.canvasLayout], targets: [.pane],
                 cliName: "pane distribute-vertically"
             ),
-            ActionDescriptor(
-                id: "palette.newSimulatorPane",
-                title: String(localized: "action.palette.newSimulatorPane", defaultValue: "New Simulator Pane", bundle: .module),
-                keywords: ["ios", "simulator", "xcode"], category: .pane, symbol: "iphone", surfaces: [.palette, .menu],
-                targets: [.pane], cliName: "pane new-simulator", mainMenu: .view
-            ),
+            {
+                var simulator = ActionDescriptor(
+                    id: "palette.newSimulatorPane",
+                    title: String(localized: "action.palette.newSimulatorPane", defaultValue: "New Simulator Pane", bundle: .module),
+                    keywords: ["ios", "simulator", "xcode"], category: .pane, symbol: "iphone", surfaces: [.palette, .menu],
+                    targets: [.pane], cliName: "pane new-simulator", mainMenu: .view
+                )
+                // The handler delegates to phone.show, so this outer socket descriptor must carry
+                // the same policy; ActionRegistry.perform is an internal dispatch, not a second gate.
+                simulator.isPersonOnly = true
+                return simulator
+            }(),
             ActionDescriptor(
                 id: "simulatorHome",
                 title: String(localized: "action.simulatorHome", defaultValue: "Simulator: Home", bundle: .module),

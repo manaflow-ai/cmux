@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
-"""Live check: a booted iOS simulator streams into the phone tab and takes input.
+"""Live check: phone automation controls a booted iOS simulator without raw-pixel access.
   scripts/cmux-next/phone-simulator-live.py --app PATH --tag <tag> [--udid UDID] [--out DIR]
 Launches the tagged app (no activation, automation socket), boots a simulator when none is
 booted (the newest iPhone; shut down again at the end), and through the same actions the
 CLI and MCP use (plans/cmux-next/simulators-DESIGN.md):
   1. `phone list` answers the booted simulator with the live capabilities (touch, live);
-  2. `phone open` shows the phone tab; a window snapshot shows the simulator screen;
-  3. `phone button home`, `phone appearance dark`, `phone tap` and `phone screenshot` succeed;
-  4. a snapshot after dark mode differs from the light one (the live screen follows the phone).
-Snapshots go to --out. GUI host only. Exits 1 when a check fails.
+  2. automated open, screenshot and recording actions are refused as raw-pixel paths;
+  3. `phone button home`, `phone appearance dark` and `phone swipe` still succeed.
+Artifacts go to --out. GUI host only. Exits 1 when a check fails.
 """
 import argparse
 import json
@@ -39,6 +38,11 @@ def check(ok, what):
     print(("PASS " if ok else "FAIL ") + what, flush=True)
     if not ok:
         failures.append(what)
+
+
+def is_person_only(reply):
+    error = (reply or {}).get("error") if isinstance(reply, dict) else None
+    return isinstance(error, dict) and error.get("code") == "unavailable"
 
 
 def rpc(method, params=None, timeout=60):
@@ -106,13 +110,6 @@ def pick_simulator():
     return (candidates[0][2], True) if candidates else (None, False)
 
 
-def snapshot(name):
-    path = os.path.join(opts.out, f"{name}.png")
-    rpc("debug.window_snapshot", {"path": path})
-    print(f"snapshot {path} {os.path.exists(path)}", flush=True)
-    return path
-
-
 udid, booted_here = (opts.udid, False) if opts.udid else pick_simulator()
 if not udid:
     print("no iPhone simulator is installed", flush=True)
@@ -150,21 +147,19 @@ try:
     row = next((r for r in rows if r.get("id") == device), None)
     check(row is not None and row.get("ready"), f"phone list has the booted simulator {device}")
     check(row is not None and {"touch", "live"} <= set(row.get("capabilities", [])), "the simulator offers live touch input")
-    check("error" not in (action("phone.show", {"device": device}, focus=True) or {}), "phone open shows the phone tab")
-    quiet_wait(lambda: False, 2.0)  # capture harness: first frames reach the layer before the snapshot
-    light = snapshot("phone-tab-light")
+    check(is_person_only(action("phone.show", {"device": device}, focus=True)), "automated phone open is refused")
+    check(is_person_only(action("palette.newSimulatorPane", focus=True)), "automated New Simulator Pane is refused")
     check("error" not in (action("phone.button", {"button": "home", "device": device}) or {}), "phone button home")
     check("error" not in (action("phone.appearance", {"appearance": "dark", "device": device}) or {}), "phone appearance dark")
     check("error" not in (action("phone.swipe", {"fromX": "200", "fromY": "500", "toX": "60", "toY": "500", "device": device}) or {}),
           "phone swipe")
-    quiet_wait(lambda: False, 1.5)  # capture harness: the guest redraws in dark mode
-    dark = snapshot("phone-tab-dark")
-    if os.path.exists(light) and os.path.exists(dark):
-        with open(light, "rb") as a, open(dark, "rb") as b:
-            check(a.read() != b.read(), "the live screen changed after dark mode and a swipe")
-    shot = action("phone.screenshot", {"device": device, "path": os.path.join(opts.out, "phone-screenshot.png")})
+    shot_path = os.path.join(opts.out, "phone-screenshot.png")
+    shot = action("phone.screenshot", {"device": device, "path": shot_path})
     print("phone.screenshot", json.dumps(shot)[:300], flush=True)
-    check(os.path.exists(os.path.join(opts.out, "phone-screenshot.png")), "phone screenshot wrote its PNG")
+    check(is_person_only(shot) and not os.path.exists(shot_path), "automated phone screenshot is refused without a file")
+    check(is_person_only(action("phone.recordStart", {"device": device})), "automated phone recording is refused")
+    check(is_person_only(action("phone.recordStop")), "automated phone recording stop is refused")
+    check(is_person_only(action("phone.sendFeedback")), "automated phone recording feedback is refused")
     action("phone.appearance", {"appearance": "light", "device": device})
 finally:
     app.terminate()
