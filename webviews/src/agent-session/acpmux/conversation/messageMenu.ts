@@ -39,6 +39,18 @@ export const canFork = (snapshot: AcpmuxSnapshot) =>
   snapshot.connection !== "disconnected" &&
   !snapshot.connection.startsWith("connecting");
 
+/// Why Fork Conversation from the app (the palette's step, the chat's right-click menu, its
+/// shortcut: `chat.forkTo`) cannot fork the chat now, or undefined when it can: "busy" while a turn
+/// runs, "unavailable" when acpmux, the connection or the chat's machine does not serve the fork,
+/// "nothingYet" before the chat's first finished turn (a Claude chat with none has no
+/// conversation to copy).
+export function forkRefusal(snapshot: AcpmuxSnapshot): "busy" | "unavailable" | "nothingYet" | undefined {
+  if (snapshot.isWorking) return "busy";
+  if (!canFork(snapshot)) return "unavailable";
+  if (latestForkSeq(snapshot.rows) === undefined) return "nothingYet";
+  return undefined;
+}
+
 /// Whether every completed turn can be forked: acpmux forks a Claude or Codex chat through any of
 /// them (`hub/fork_at.rs`, cx-yqiv, cx-a7r); other agents fork only at a chat's end.
 export const forksAnyTurn = (family: string | undefined) => family === "claude" || family === "codex";

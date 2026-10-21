@@ -378,7 +378,7 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "workspaceGroup.editConfig",
-                title: String(localized: "action.workspaceGroup.editConfig", defaultValue: "Edit Group Config…", bundle: .module),
+                title: String(localized: "action.workspaceGroup.editConfig", defaultValue: "Edit Group Config", bundle: .module),
                 keywords: ["group", "config", "cmux.json"], category: .workspace, symbol: "slider.horizontal.3",
                 surfaces: [.palette, .contextMenu], targets: [.workspaceGroup], cliName: "workspace-group edit-config"
             ),
