@@ -89,16 +89,29 @@ import Testing
     /// The joined outline's own writes never animate on their own: Core Animation's implicit
     /// 0.25 s action on a standalone mask ignores the motion switches and Reduce Motion, so a
     /// non-animated reload (a scroll reusing the header, a resize) would tween it. Only the gated
-    /// springs (`Motion.sidebar.set`, which add their animation explicitly) may move it.
-    @Test func aJoinedOutlineHasNoImplicitAnimations() throws {
-        let (sidebar, _) = Self.sidebar(joined: true)
+    /// springs (`Motion.sidebar.set`) may move it. Core Animation adds implicit animations only to
+    /// layers it has committed on screen: a window with a screen.
+    @Test(.enabled("a window with no screen applies its changes at once") { await SidebarCalmMotionTests.hasDisplay() })
+    func aJoinedOutlineChangesAtOnceWithoutAnimating() throws {
+        let (sidebar, model) = Self.sidebar(joined: true)
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 240, height: 600), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        defer { window.orderOut(nil) }
+        window.contentView?.addSubview(sidebar)
+        window.orderFrontRegardless()
+        try #require(window.screen != nil)
+        sidebar.layoutSubtreeIfNeeded()
         let header = try #require(sidebar.list.rowViews[.group(Self.group)] as? GroupHeaderRowView)
         header.layoutSubtreeIfNeeded()
+        CATransaction.flush()
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        model.sections = Self.sections(Array(Self.members.dropLast()))
+        sidebar.list.reload(animated: false)
+        header.layoutSubtreeIfNeeded()
         let outline = try #require(header.barLayer.mask, "the joined bar has no outline")
-        for key in ["bounds", "position", "anchorPoint", "path"] {
-            #expect(outline.action(forKey: key) == nil, "the outline's \(key) animates on its own")
-        }
-        #expect(header.barLayer.action(forKey: "cornerRadius") == nil, "the bar's corners animate on their own")
+        #expect(outline.animationKeys() ?? [] == [], "the outline animates on its own: \(outline.animationKeys() ?? [])")
+        #expect(header.barLayer.animation(forKey: "cornerRadius") == nil, "the bar's corners animate on their own")
     }
 
     /// A layout during the rows' spring (a hover, a focus change) keeps the outline on that spring:
