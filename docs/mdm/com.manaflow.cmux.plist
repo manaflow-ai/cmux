@@ -183,13 +183,14 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>cards</string>
+			<string>minimal</string>
 			<key>pfm_description</key>
 			<string>The layout of the New Tab page. Terminal skips the page and opens a terminal. The dots at the bottom of the page also change it.</string>
 			<key>pfm_name</key>
 			<string>tabs.newTabTemplate</string>
 			<key>pfm_range_list</key>
 			<array>
+				<string>minimal</string>
 				<string>cards</string>
 				<string>default</string>
 				<string>composer</string>
@@ -4838,6 +4839,66 @@
 			<string>tabs.newTabNowPlaying</string>
 			<key>pfm_title</key>
 			<string>Show Now Playing on New Tab</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>A short greeting over the composer.</string>
+			<key>pfm_name</key>
+			<string>tabs.newTabWidgets.greeting</string>
+			<key>pfm_title</key>
+			<string>Show Greeting on New Tab</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A card of this Mac and its recent projects over the composer.</string>
+			<key>pfm_name</key>
+			<string>tabs.newTabWidgets.projects</string>
+			<key>pfm_title</key>
+			<string>Show Projects on New Tab</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Chats that need you, and New Terminal, New Browser Tab and New Chat.</string>
+			<key>pfm_name</key>
+			<string>tabs.newTabWidgets.actions</string>
+			<key>pfm_title</key>
+			<string>Show Quick Actions on New Tab</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Your recent chats under the composer. The palette finds any chat.</string>
+			<key>pfm_name</key>
+			<string>tabs.newTabWidgets.chats</string>
+			<key>pfm_title</key>
+			<string>Show Recent Chats on New Tab</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Dots under the page that switch its template.</string>
+			<key>pfm_name</key>
+			<string>tabs.newTabWidgets.styleDots</string>
+			<key>pfm_title</key>
+			<string>Show Template Dots on New Tab</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>

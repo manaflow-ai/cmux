@@ -63,6 +63,7 @@ import { heldPick, withDraftFolder } from "./newtab/draftFolder";
 import { rememberRecentFolders } from "./newtab/recentProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
 import { StyleSwitch } from "./newtab/StyleSwitch";
+import { shownPageWidgets } from "./newtab/pageWidgets";
 import { pageStyle, pickNewTabStyle, screenTemplate, shownTemplate } from "./newtab/templates";
 import { newTabPageSubmit } from "./newtab/pageSubmit";
 import { isAgentHome, projectLabel, sessionTitle, type AcpmuxSessionEntry } from "./sessionList";
@@ -7578,19 +7579,23 @@ function AcpmuxPane() {
           data-dock={!reviewing && !freshView && !diffView && !inspectorOpen ? "float" : undefined}
           data-summary={summaryCard.column ? "inline" : "popover"}
         >
-          {!harnessesOpen && showNewTab && !newTab.history && (
-            // The page's style, under it; a pick shows in place at once.
-            <StyleSwitch
-              current={pageStyle(shownTemplate(newTab))}
-              onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
-              onPick={(style) =>
-                pickNewTabStyle(style, {
-                  callNative,
-                  show: (next) => setNewTab((current) => current && { ...current, template: next }),
-                })
-              }
-            />
-          )}
+          {!harnessesOpen &&
+            showNewTab &&
+            !newTab.history &&
+            shownPageWidgets(shownTemplate(newTab), newTab.pageWidgets).has("styleDots") && (
+              // The page's style, under it (on Minimal a widget, off by default: newtab/pageWidgets.ts);
+              // a pick shows in place at once.
+              <StyleSwitch
+                current={pageStyle(shownTemplate(newTab))}
+                onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
+                onPick={(style) =>
+                  pickNewTabStyle(style, {
+                    callNative,
+                    show: (next) => setNewTab((current) => current && { ...current, template: next }),
+                  })
+                }
+              />
+            )}
           {harnessesOpen ? (
             <HarnessesScreen
               catalog={pickerCatalog}
@@ -7638,6 +7643,7 @@ function AcpmuxPane() {
               {...(!quick ? { localPaths } : {})}
               template={screenTemplate(shownTemplate(newTab))}
               {...(newTab.widgets ? { widgets: true } : {})}
+              pageWidgets={shownPageWidgets(shownTemplate(newTab), newTab.pageWidgets)}
               {...(newTab.allChats === false ? { allChats: false } : {})}
               snapshot={newTabSnapshot}
               omnibar={newTab.omnibar}
