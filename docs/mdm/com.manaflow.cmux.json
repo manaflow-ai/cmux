@@ -4110,6 +4110,17 @@
       "title" : "Animations",
       "type" : "string"
     },
+    "ui.calm" : {
+      "default" : "off",
+      "description" : "Calm: nothing slides, springs or spins, hover cards stay closed and the pointer leaves no highlight on tabs, rows and buttons. Still: Calm, and every animation is instant. Your other motion and hover card settings come back when it is off.",
+      "enum" : [
+        "off",
+        "calm",
+        "still"
+      ],
+      "title" : "Calm Mode",
+      "type" : "string"
+    },
     "ui.paneAnimations" : {
       "default" : true,
       "description" : "Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once.",

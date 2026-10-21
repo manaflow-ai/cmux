@@ -699,6 +699,7 @@
     "setting.ui.animations.sidebar": true,
     "setting.ui.animations.tabs": true,
     "setting.ui.animations.web": true,
+    "setting.ui.calm": "off",
     "setting.ui.paneAnimations": true,
     "setting.updates.channel": "nightly",
     "setting.updates.checkAutomatically": true,

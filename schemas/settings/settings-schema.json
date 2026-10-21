@@ -311,6 +311,7 @@
           {
             "key" : "settings.group.motion",
             "rows" : [
+              "ui.calm",
               "ui.animations.enabled",
               "ui.animations.sidebar",
               "ui.animations.tabs",
@@ -798,17 +799,6 @@
               "key" : "settings.group.subsessions",
               "text" : "Sub-sessions"
             }
-          },
-          {
-            "key" : "settings.group.chiefPet",
-            "rows" : [
-              "home.chiefPetEnabled",
-              "home.chiefPetMascot"
-            ],
-            "title" : {
-              "key" : "settings.group.chiefPet",
-              "text" : "Chief Pet"
-            }
           }
         ],
         "id" : "agents",
@@ -825,6 +815,39 @@
           "agentHarnesses",
           "chiefs",
           "computerUse"
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.chiefPet",
+            "rows" : [
+              "home.chiefPetEnabled",
+              "home.chiefPetMascot"
+            ],
+            "title" : {
+              "key" : "settings.group.chiefPet",
+              "text" : "Chief Pet"
+            }
+          }
+        ],
+        "id" : "chief-pet",
+        "lead" : [
+          "chiefPet"
+        ],
+        "symbol" : "pawprint",
+        "title" : {
+          "key" : "settings.category.chiefPet",
+          "text" : "Chief Pet"
+        },
+        "trail" : [
+
         ]
       },
       {
@@ -12909,6 +12932,87 @@
       "title" : {
         "key" : "settings.focusRing.showWhenSinglePane",
         "text" : "Show With One Pane"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "off",
+        "calm",
+        "still"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.calm",
+            "text" : "Calm"
+          },
+          "value" : "calm"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.still",
+            "text" : "Still"
+          },
+          "value" : "still"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "off",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.calm.help",
+        "text" : "Calm: nothing slides, springs or spins, hover cards stay closed and the pointer leaves no highlight on tabs, rows and buttons. Still: Calm, and every animation is instant. Your other motion and hover card settings come back when it is off."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.calm",
+      "keywords" : [
+        "calm",
+        "quiet",
+        "focus",
+        "zen",
+        "reduce motion",
+        "reduced motion",
+        "hover",
+        "no hover",
+        "highlight",
+        "distraction",
+        "busy",
+        "noise",
+        "minimal",
+        "still"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "calm"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.calm",
+        "text" : "Calm Mode"
       },
       "validation" : "portable"
     },
