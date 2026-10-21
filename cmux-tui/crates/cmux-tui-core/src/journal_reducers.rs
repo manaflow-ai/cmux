@@ -111,11 +111,7 @@ pub(crate) fn hook_event_state(
     observed_at_ms: Option<u64>,
     fence: Option<&HookFence>,
 ) -> Option<AgentState> {
-    let event = semantic_key(native_event.unwrap_or_default());
-    // Journals written before a failed tool call stopped being an error report keep that kind.
-    if !(kind == "agent.error.reported" && is_post_tool_event(&event))
-        && let Some(state) = state_for_hook_kind(kind)
-    {
+    if let Some(state) = hook_lifecycle_state(kind, native_event) {
         return Some(state);
     }
     if !hook_event_may_set_state(kind, native_event) {
@@ -126,6 +122,18 @@ pub(crate) fn hook_event_state(
         && wait.tool == tool.map(semantic_key)
         && observed_at_ms? > wait.observed_at_ms;
     resumes.then_some(AgentState::Working)
+}
+
+/// The state a hook event's lifecycle kind sets whatever its fence, or `None` for a tool call
+/// (which can only resume a wait, [`hook_event_state`]) and other kinds.
+pub(crate) fn hook_lifecycle_state(kind: &str, native_event: Option<&str>) -> Option<AgentState> {
+    // Journals written before a failed tool call stopped being an error report keep that kind.
+    if kind == "agent.error.reported"
+        && is_post_tool_event(&semantic_key(native_event.unwrap_or_default()))
+    {
+        return None;
+    }
+    state_for_hook_kind(kind)
 }
 
 /// Whether a hook event can set a state at all ([`hook_event_state`] with some fence): a cheap

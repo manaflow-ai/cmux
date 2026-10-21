@@ -124,6 +124,10 @@ pub(super) fn parse_projection_agent_state(value: &str) -> AgentState {
 pub(super) struct AgentRosterHost {
     pub(super) roster: crate::journal_reducers::AgentRoster,
     pub(super) cursor: u64,
+    /// The journal sequence the startup restore folded through. The roster forgets the hook
+    /// waits of that replay, so the hook projector records no wait for a row at or below it
+    /// (a pending row it retries after the restart): both views agree on every wait.
+    pub(super) restored_through: u64,
 }
 
 pub(super) fn agent_provider_identity(ingress: &crate::JournalIngress) -> Option<String> {

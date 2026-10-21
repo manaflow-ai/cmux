@@ -799,6 +799,24 @@ impl WorkspaceRegistry {
             .collect()
     }
 
+    /// Whether `terminal_id` still has a hook row older than `sequence` to project: a later
+    /// event that depends on the terminal's hook state waits behind it.
+    pub(crate) fn agent_hook_pending_before(
+        &self,
+        terminal_id: &TerminalPublicId,
+        sequence: u64,
+    ) -> anyhow::Result<bool> {
+        let sequence = i64::try_from(sequence).context("hook sequence exceeds int64")?;
+        Ok(self.connection.get().query_row(
+            "SELECT EXISTS(
+               SELECT 1 FROM resource_agent_hook_pending
+               WHERE terminal_id = ?1 AND event_sequence < ?2 AND attempt < ?3
+             )",
+            params![terminal_id.as_str(), sequence, AGENT_HOOK_MAX_ATTEMPTS],
+            |row| row.get::<_, bool>(0),
+        )?)
+    }
+
     pub(crate) fn pending_agent_hook_projections_for_terminal(
         &self,
         terminal_id: &TerminalPublicId,
