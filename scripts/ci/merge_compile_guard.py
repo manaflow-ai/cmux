@@ -106,6 +106,7 @@ def run(args: list[str], cwd: str | None = None) -> str | None:
     # (~/.local/lib/cmux-local-build-guards/gh): the hook shares the session's CLAUDE_SESSION_ID, and after a lane's
     # own `gh pr view N` that throttle held the hook's identical read past its timeout (#23611, 2026-10-21).
     env = {**os.environ, "CMUX_GH_GUARD_DISABLE": "1"} if os.path.basename(args[0]) == "gh" else None
+    FAILED.clear()
     left = BUDGET - (time.monotonic() - STARTED)
     if left < 1:
         FAILED[:] = [f"the guard's {BUDGET} s for GitHub reads was spent"]
@@ -329,9 +330,10 @@ def verdict(pr: dict, files: list[str], checks: list[dict], fleet_passed: bool =
         return ""
     # No compile result on the head yet: the default path is the fleet's dev-build workers (COMMON.md), not
     # waiting on the Mac Release compile.
-    return (f"{why.split(' and ', 1)[0]} and {pr['head'][:12]} has no compile result yet. Compile-check it on the "
-            f"fleet dev-build workers: `cmux-ci compile-check --ref {pr['head']} --app`, then merge again; the guard "
-            f"reads that job. ({why[len(why.split(' and ', 1)[0]) + 5:]})")
+    what = changes_what(pr, swift)
+    return (f"{what} and {pr['head'][:12]} has no compile result yet. Compile-check it on the fleet dev-build "
+            f"workers: `cmux-ci compile-check --ref {pr['head']} --app`, then merge again; the guard reads that job. "
+            f"({why.removeprefix(what + ' and ')})")
 
 
 def compile_wait(checks: list[dict]) -> bool:
@@ -346,10 +348,14 @@ def compile_wait(checks: list[dict]) -> bool:
             or (len(finished) == len(named) and set(finished) - NOT_RUN == {"cancelled"}))
 
 
+def changes_what(pr: dict, swift: list[str]) -> str:
+    return f"#{pr['number']} changes Swift ({swift[0]}{' and more' if len(swift) > 1 else ''})"
+
+
 def compile_refusal(pr: dict, swift: list[str], checks: list[dict]) -> str:
     named = [c for c in checks if c.get("name") == COMPILE]
     head = pr["head"][:12]
-    what = f"#{pr['number']} changes Swift ({swift[0]}{' and more' if len(swift) > 1 else ''})"
+    what = changes_what(pr, swift)
     if not checks:
         return f"{what} and {head} has no checks yet; merge once its {COMPILE} passes."
     if any(c.get("status") in RUNNING for c in named):
