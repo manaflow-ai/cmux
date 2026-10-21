@@ -11,6 +11,7 @@ Behaviour per prompt text:
   "deaf-to-cancel" -> streams "running", ignores session/cancel, answers end_turn after 20 s
   "answer-then-exit" -> answers, then the agent exits between turns
   "gate: <p>"  -> streams before-gate, waits for a write to FIFO <p>, then after-gate
+  image blocks -> the echo ends with " image:<sha256 of its bytes>" for each
   anything     -> echoes the text as one agent_message_chunk
 
 FAKE_CODEX_STEER=1: steering as codex-acp 1.10.0 does it. The agent
@@ -43,6 +44,8 @@ start takes it: its one mode is "ask" (an acpmux config.json `webAskingModes` en
 {"sample": ["ask"]} lists it), and a prompt naming "hostname" runs `hostname` as a tool
 call through the ACP permission flow: announced, asked, run only after an allow.
 """
+import base64
+import hashlib
 import json
 import sys
 import os
@@ -345,6 +348,13 @@ def handle_prompt(rid, params):
                 uri=b.get("uri", "")
             )
             for b in links
+        )
+    # Each image block the agent got, by the SHA-256 of its bytes (acpmux's attachment id).
+    images = [b for b in blocks if isinstance(b, dict) and b.get("type") == "image"]
+    if images:
+        text += " " + " ".join(
+            "image:" + hashlib.sha256(base64.b64decode(b.get("data", ""))).hexdigest()
+            for b in images
         )
     if text.startswith("permission-batch:"):
         with open(os.path.join(os.path.dirname(__file__), "fixtures", "permission-batches.json")) as f:
