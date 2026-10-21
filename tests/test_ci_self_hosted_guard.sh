@@ -1075,6 +1075,10 @@ check_no_github_hosted_runners() {
     # (continue-on-error, so a billing block cannot stop CI).
     "cmux-tui-artifacts.yml:    runs-on: macos-15-intel # github-hosted-required: x86_64 run-time check; Blacksmith has no Intel Mac image"
     "macos-cross-parity.yml:    runs-on: macos-15-intel # github-hosted-required: x86_64 run-time check; Blacksmith has no Intel Mac image"
+    # The cmux-next fast tier overflows to hosted macos-26 (scripts/ci/next_macos_cascade.py),
+    # and its cache key holds the checkout path, so that pool needs a seed built there. The
+    # seed runs only on feat-cmux-next pushes and gates nothing, so a billing block cannot stop CI.
+    'cmux-next-fast-tier-seed.yml:        [{"pool": "hosted", "runner": "macos-26", "workspace": "/Users/runner/work/cmux/cmux", "timeout": 50},'
   )
   local probe
   for probe in 'runs-on: ubuntu-24.04' 'runs-on: ubuntu-latest # github-hosted-required: x' \
