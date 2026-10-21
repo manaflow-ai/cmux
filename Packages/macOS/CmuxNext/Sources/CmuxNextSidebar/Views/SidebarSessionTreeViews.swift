@@ -74,14 +74,14 @@ final class SidebarPullRequestBadgeView: NSView {
     override func mouseEntered(with event: NSEvent) {
         guard let items = badge?.items, !items.isEmpty, SidebarPullRequestCardController.isEnabled else { return }
         pointedAt = true
-        // The workspace card steps aside: one card beside the row at a time.
-        ancestor(SidebarListView.self)?.hoverCard.coordinator.dismiss(.action)
         showCard(items)
     }
 
+    /// In the app's one card window: a workspace card that shows morphs into this one.
     private func showCard(_ items: [SidebarPullRequestItem]) {
+        guard let cards = ancestor(SidebarListView.self)?.hoverCard.coordinator else { return }
         let sidebar = ancestor(SidebarView.self)
-        hoverCard.badgeEntered(self, items: items) { [weak sidebar] url in sidebar?.model.send(.openUpdateLink(url)) }
+        hoverCard.badgeEntered(self, items: items, cards: cards) { [weak sidebar] url in sidebar?.model.send(.openUpdateLink(url)) }
     }
 
     private func ancestor<T: NSView>(_ type: T.Type) -> T? {
