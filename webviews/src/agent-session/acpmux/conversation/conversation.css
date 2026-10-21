@@ -461,9 +461,9 @@
   border: 0;
   background: transparent;
 }
-/* Copy and Edit under a prompt (cx-ncc.60): shown while the pointer is over the prompt or a key
-   reached them, as Claude's. The row is one compact line right under the bubble; hidden, it keeps
-   only that line, so pointing at a prompt moves nothing. */
+/* A prompt's action row under its bubble's right edge (UserBubble.tsx), as Claude Code desktop's:
+   shown while the pointer is over the prompt or a key reached it. Hidden, it keeps its one compact
+   line, so pointing at a prompt moves nothing. */
 .cv-user__actions {
   display: flex;
   align-items: center;
@@ -472,15 +472,45 @@
   margin-top: var(--cv-meta-gap);
   padding-right: 2px;
   opacity: 0;
-  transition: opacity 120ms ease-out;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-user__actions {
+    transition: opacity 120ms ease-out;
+  }
 }
 .cv-user:hover .cv-user__actions,
-.acpmux-row[data-last-prompt] .cv-user__actions,
 .cv-user__actions:focus-within,
 .cv-user__actions--versions {
   opacity: 1;
 }
-/* The prompt's age and its two ticks lead the row, quiet, as Claude Code desktop's. */
+/* At the end of another agent's message line (MessageActions.tsx ReceivedActions): the same row,
+   on hover or focus only, no box. */
+.cv-received-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-inline-start: 8px;
+  white-space: nowrap;
+  opacity: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-received-actions {
+    transition: opacity 120ms ease-out;
+  }
+}
+.cv-received:hover .cv-received-actions,
+.cv-received-actions:focus-within {
+  opacity: 1;
+}
+/* Retry sends the last ended turn's prompt again (VirtualTranscript marks its row; MessageActions.tsx). */
+.cv-message-retry {
+  display: none;
+}
+.acpmux-row[data-retryable] .cv-message-retry {
+  display: inline-flex;
+  align-items: center;
+}
+/* The prompt's age and its read receipt lead the row, quiet, as Claude Code desktop's. */
 .cv-user__time {
   margin-inline-end: 4px;
   color: var(--cv-text-dim);
@@ -998,6 +1028,11 @@ pre.cv-math-source {
   outline-offset: -1.5px;
   border-radius: 8px;
 }
+/* An answer's footer row draws no box around itself (Leo, 2026-10-20: the outline read as a box
+   around the message); its action row shows while it holds focus instead. */
+.acpmux-row.acpmux-turnSummary[data-transcript-active="true"]:focus-visible {
+  outline: none;
+}
 /* A pointer click can focus an article without asking for keyboard focus. Keep that path quiet;
    the active row above is the only transcript outline, and it is intentionally :focus-visible. */
 .acpmux-row:focus:not(:focus-visible) {
@@ -1498,6 +1533,23 @@ pre.cv-math-source {
 .cv-shell__label .cv-codeblock__action {
   margin-right: -6px;
 }
+.cv-shell__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+/* The folder the command ran in, by its last part ("cg-next-reds" for ~/wt/lanes/cg-next-reds). */
+.cv-shell__folder {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cv-text-dim);
+  font-family: var(--cv-mono);
+  font-size: var(--text-detail);
+  line-height: 18px;
+}
 .cv-shell__body {
   display: flex;
   flex-direction: column;
@@ -1714,6 +1766,19 @@ pre.cv-math-source {
   -webkit-line-clamp: 2;
   overflow: hidden;
 }
+/* How far the message got: a glyph and one line, always shown (Sending…, Sent, Delivered to …). */
+.cv-message__receipt {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: -3px 10px 7px 32.5px;
+  color: var(--cv-text-dim);
+  font-size: var(--text-detail);
+  line-height: 16px;
+}
+.cv-message[data-delivery="failed"] .cv-message__receipt {
+  color: var(--agent-danger);
+}
 .cv-message__more {
   all: unset;
   display: inline-flex;
@@ -1925,7 +1990,7 @@ button.cv-received__name:focus-visible {
 }
 
 /* The answer's action row; its height is reserved. One quiet line under the answer, where its text
-   starts, as Claude Code desktop's: the time, then Copy, Retry and Fork. */
+   starts, as Claude Code desktop's: Copy, Fork, Pin and Read aloud, then the answer's age. */
 .cv-turn-actions {
   display: flex;
   align-items: center;
@@ -2012,13 +2077,13 @@ button.cv-received__name:focus-visible {
   color: var(--cv-text-dim);
   font-variant-numeric: tabular-nums;
 }
-/* Hidden, its space kept, but for the last turn, a failed one, the turn the reader points at
-   (data-turn-revealed, VirtualTranscript) or keyboard focus. */
+/* Hidden, its space kept, but for a failed turn, the turn the reader points at (data-turn-revealed,
+   VirtualTranscript) or keyboard focus. */
 .acpmux-turnSummary .cv-turn-actions {
   opacity: 0;
 }
-.acpmux-turnSummary[data-last-turn] .cv-turn-actions,
 .acpmux-turnSummary[data-turn-revealed] .cv-turn-actions,
+.acpmux-turnSummary:focus-visible .cv-turn-actions,
 .acpmux-turnSummary:hover .cv-turn-actions,
 .acpmux-turnSummary .cv-turn-actions:focus-within,
 .acpmux-turnSummary .cv-turn-actions--failed {
@@ -3139,11 +3204,6 @@ button.cv-received__name:focus-visible {
   padding-bottom: var(--cv-message-gap);
 }
 
-/* A steer under its bubble (SteerMark.tsx): "Steered" once the agent read it, nothing before. */
-.cv-user__steer-label {
-  color: var(--cv-text);
-  font-weight: 500;
-}
 /* A steer the agent has not read yet (PendingSteer.tsx): a faint clock, then Send now. */
 .cv-user__pending {
   display: flex;
@@ -3222,10 +3282,6 @@ button.cv-received__name:focus-visible {
 .cv-received__reply:hover,
 .cv-received__reply:focus-visible {
   color: var(--cv-text);
-}
-/* A steer's read state under another agent's message, in line with its text (App.tsx). */
-.cv-incoming > .cv-user__steer {
-  padding-left: 32.5px;
 }
 /* The running turn's line while the chat waits on the person (waitingOn.ts): full text color, so it
    reads as a call to act, not the muted "Thinking" it replaces. It holds still: no mark, no clock. */

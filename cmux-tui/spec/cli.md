@@ -591,10 +591,12 @@ target terminal and submits with Return); `--window`
 and `--id-format` are accepted and ignored. The target defaults to the caller's own terminal
 (`CMUX_TUI_TERMINAL_ID`, which the daemon injects into every PTY); `--surface
 current` says the same, `--surface <term_id>` names another terminal of this
-session, and `--workspace` alone posts a session-level row with no terminal.
-A machine can only address its own session. `--clear` removes the retained
-rows for that target on the machine (`notification.clear`), so every attached
-client drops them. A reply goes only to the notification's target
+session, `--workspace <ws_id>` posts a row with no terminal that belongs to
+that workspace (`workspace_id`; the app's banner names it), and `--workspace
+current` posts a session-level row. A machine can only address its own
+session. `--clear` removes the retained rows for that target on the machine
+(`notification.clear`), so every attached client drops them; `--clear
+--workspace <ws_id>` removes that workspace's rows and those of its terminals. A reply goes only to the notification's target
 terminal, while that notification is still unread, as text the user typed into its banner, over the same link the
 app's terminal input uses. Every row is bounded because each
 one is pushed to every attached client.

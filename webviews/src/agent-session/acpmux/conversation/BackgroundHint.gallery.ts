@@ -39,7 +39,7 @@ export default agentPaneEntry({
       note: "A Codex chat's running command: no hint, Ctrl-B stays the composer's.",
       snapshot: running("codex"),
     },
-    claudeAcp: {
+    "claude-acp": {
       note: "An ACP agent a user named `claude-acp`: acpmux refuses its Ctrl-B, so no hint.",
       snapshot: running("claude-acp", false),
     },

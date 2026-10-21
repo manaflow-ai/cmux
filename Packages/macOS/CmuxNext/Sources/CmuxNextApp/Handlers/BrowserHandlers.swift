@@ -155,6 +155,10 @@ enum BrowserHandlers {
             throw ActionFailure(message: reason)
         case .tab(let strip):
             return try browserTab(in: strip, url: url, profile: profile, context: context)
+        case .besideDock(let dock):
+            // Home's pinned dock alone: the daemon makes a browser tab aimed at it in a new column right of it.
+            _ = dock.newBrowserTab(url: url, profile: profile)
+            return
         }
         if let refusal = browserTabs.refusal(in: model) { throw ActionFailure(message: refusal) }
         // The split goes to the pane's own machine (cx-2cob); `refusal` named a disconnected one.

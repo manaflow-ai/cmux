@@ -91,6 +91,17 @@ const finished = [
   summary(9, { status: "completed" }),
 ];
 
+/// Pastes files into the prompt as the browser does: a paste event whose clipboardData is a real
+/// DataTransfer, so the prompt's paste handler can read it (getData) as it reads a person's paste.
+function pasteFiles(ctx: PlayContext, files: File[]): void {
+  const view = ctx.document.defaultView!;
+  const data = new view.DataTransfer();
+  for (const file of files) data.items.add(file);
+  const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, "clipboardData", { value: data });
+  ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
+}
+
 // A side session `/btw` opened: the question and its answer, its composer replying in it.
 const sideSession = (() => {
   const side = chat(
@@ -285,7 +296,6 @@ export default agentPaneEntry({
   covers: [
     "agent-session/acpmux/Composer.tsx#Composer",
     "agent-session/acpmux/ComposerFoot.tsx#ComposerFoot",
-    "agent-session/acpmux/conversation/SteerMark.tsx#SteerMark",
     "agent-session/acpmux/conversation/PendingSteer.tsx#PendingSteer",
     "agent-session/acpmux/conversation/icons.tsx#Clock",
     "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
@@ -418,18 +428,16 @@ export default agentPaneEntry({
     },
     // Leo 2026-10-19: no composer button draws a pill at rest (test/composer-quiet-chips.test.ts).
     // Fast mode is on, and shows only in the model button's menu (Leo 2026-10-20: no bolt).
-    // The + is a bare glyph: its tooltip says what its menu adds (files, screenshots, mentions...).
+    // The + is a bare glyph: its tooltip is Codex's short "Add files and more" (Leo, 2026-10-21).
     "plus-tooltip": {
-      note: "Play: hover the +; the tooltip says what its menu adds.",
+      note: 'Play: hover the +; the tooltip reads "Add files and more".',
       snapshot: chat(finished),
       play: async (ctx) => {
         const selector = ".acpmux-composer-plus .acpmux-picker-button";
         await ctx.waitFor(() => ctx.document.querySelector(selector));
         await ctx.hover({ selector });
         await ctx.waitFor(
-          () =>
-            ctx.document.querySelector(".ui-title-tooltip:not([hidden])")?.textContent?.startsWith("Add files") ??
-            false,
+          () => ctx.document.querySelector(".ui-title-tooltip:not([hidden])")?.textContent === "Add files and more",
         );
       },
     },
@@ -502,10 +510,7 @@ export default agentPaneEntry({
         const file = new view.File([await canvas.convertToBlob({ type: "image/png" })], "screenshot.png", {
           type: "image/png",
         });
-        const field = ctx.find({ selector: ".acpmux-md" });
-        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
-        Object.defineProperty(paste, "clipboardData", { value: { files: [file], types: ["Files"] } });
-        field.dispatchEvent(paste);
+        pasteFiles(ctx, [file]);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img[src^='data:image/png']"));
         await ctx.hover({ selector: ".acpmux-attachment-image" });
       },
@@ -528,10 +533,7 @@ export default agentPaneEntry({
         const file = new view.File([await canvas.convertToBlob({ type: "image/png" })], "image.png", {
           type: "image/png",
         });
-        const field = ctx.find({ selector: ".acpmux-md" });
-        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
-        Object.defineProperty(paste, "clipboardData", { value: { files: [file], types: ["Files"] } });
-        field.dispatchEvent(paste);
+        pasteFiles(ctx, [file]);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img[src^='data:image/png']"));
         await ctx.hover({ selector: ".acpmux-attachment-image" });
       },
@@ -546,10 +548,7 @@ export default agentPaneEntry({
         const file = new view.File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4])], "image.png", {
           type: "image/png",
         });
-        const field = ctx.find({ selector: ".acpmux-md" });
-        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
-        Object.defineProperty(paste, "clipboardData", { value: { files: [file], types: ["Files"] } });
-        field.dispatchEvent(paste);
+        pasteFiles(ctx, [file]);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment"));
         await new Promise((resolve) => setTimeout(resolve, 300));
       },
@@ -571,10 +570,7 @@ export default agentPaneEntry({
         const file = new view.File([await canvas.convertToBlob({ type: "image/png" })], "quick-screenshot.png", {
           type: "image/png",
         });
-        const field = ctx.find({ selector: ".acpmux-md" });
-        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
-        Object.defineProperty(paste, "clipboardData", { value: { files: [file], types: ["Files"] } });
-        field.dispatchEvent(paste);
+        pasteFiles(ctx, [file]);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img[src^='data:image/png']"));
         await ctx.click({ selector: ".acpmux-attachment-open" });
         await ctx.waitFor(() => ctx.document.querySelector('[role="dialog"]'));
@@ -587,10 +583,7 @@ export default agentPaneEntry({
         const view = ctx.document.defaultView!;
         const pdf = `%PDF-1.4\n1 0 obj << /Type /Page >> endobj\n2 0 obj << /Type /Page >> endobj\n%%EOF`;
         const file = new view.File([pdf], "design-notes.pdf", { type: "application/pdf" });
-        const field = ctx.find({ selector: ".acpmux-md" });
-        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
-        Object.defineProperty(paste, "clipboardData", { value: { files: [file], types: ["Files"] } });
-        field.dispatchEvent(paste);
+        pasteFiles(ctx, [file]);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-document"));
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-document[data-page-count='2']"));
         await ctx.click({ selector: ".acpmux-attachment-document-open" });
@@ -676,6 +669,44 @@ export default agentPaneEntry({
         Object.defineProperty(paste, "clipboardData", { value: { files: [file], types: ["Files"] } });
         field.dispatchEvent(paste);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-link[data-saved]"));
+      },
+    },
+    "folder-dropped-as-link": {
+      note: "A folder and a zip dropped from Finder on a chat whose folder is on this Mac: the host knows where they are (chat.attach.dropped), so each chip links to the real path (the folder's name ends in a slash) and nothing is copied or uploaded. The screenshot beside them is an image as before.",
+      snapshot: chat(finished),
+      native: {
+        "chat.attach.dropped": {
+          items: [
+            { path: `${CWD}/assets`, folder: true },
+            { path: "/Users/dev/Downloads/build-logs.zip", folder: false },
+            { path: "/Users/dev/Desktop/Screenshot.png", folder: false },
+          ],
+        },
+      },
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        const png = Uint8Array.from(
+          atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="),
+          (char) => char.charCodeAt(0),
+        );
+        // A dropped folder: WebKit hands a File whose bytes cannot be read.
+        const folder = new view.File([], "assets", { type: "" });
+        Object.defineProperty(folder, "arrayBuffer", { value: () => Promise.reject(new Error("a folder")) });
+        const files = [
+          folder,
+          new view.File([new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0xff])], "build-logs.zip", {
+            type: "application/zip",
+          }),
+          new view.File([png], "Screenshot.png", { type: "image/png" }),
+        ];
+        const drop = new view.Event("drop", { bubbles: true, cancelable: true });
+        Object.defineProperty(drop, "dataTransfer", { value: { files, types: ["Files"] } });
+        ctx.find({ selector: ".acpmux-md" }).dispatchEvent(drop);
+        await ctx.waitFor(
+          () => ctx.document.querySelectorAll(".acpmux-attachment-link:not([data-saved])").length === 2,
+        );
+        if (ctx.document.querySelector("output.acpmux-attachment-note"))
+          throw new Error("a folder dropped in a chat on this Mac must link, not be refused");
       },
     },
     draft: {

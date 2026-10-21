@@ -12,6 +12,7 @@ import Testing
     static let ambientFades: [MotionFade: String] = [
         .highlight: "a found Settings row's highlight fading out over a reading pause",
         .hibernateRing: "a hibernated tab's dotted ring fading in (Chromium TabIcon, 1 s)",
+        .focusFlash: "the ring flashed where focus moved without a click, fading out slowly enough to be seen",
     ]
 
     static func onScale(_ seconds: TimeInterval) -> Bool {

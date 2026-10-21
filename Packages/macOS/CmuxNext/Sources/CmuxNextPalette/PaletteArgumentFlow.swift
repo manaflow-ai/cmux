@@ -43,7 +43,7 @@ struct PaletteArgumentFlow {
             return .push(withPreview(listPage(for: argument, options: options, collected: collected), argument, collected))
         case .target(let kind):
             guard let targets else { return .textInput(textSpec(for: argument, collected: collected)) }
-            return .push(listPage(for: argument, options: targets.targets(of: kind), collected: collected))
+            return .push(listPage(for: argument, options: targets.targets(of: kind, for: descriptor.id), collected: collected))
         }
     }
 

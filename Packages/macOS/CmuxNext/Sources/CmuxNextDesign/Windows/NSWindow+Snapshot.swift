@@ -1,7 +1,7 @@
 public import AppKit
 import Darwin
 
-/// How ``NSWindow/writeSnapshot(to:)`` captured a window.
+/// How ``NSWindow/snapshotImage()`` captured a window.
 public nonisolated enum WindowSnapshotMethod: String, Sendable {
     /// The window server's composited image of the window (vibrancy,
     /// Liquid Glass and Metal layers as on screen).
@@ -11,6 +11,16 @@ public nonisolated enum WindowSnapshotMethod: String, Sendable {
 }
 
 extension NSWindow {
+    /// Encodes an immutable capture as PNG and writes it atomically, off the
+    /// main actor: AppKit capture stays on the main actor, the compression
+    /// and the file write do not.
+    public static func encodeSnapshotPNG(_ image: CGImage, to url: URL) async throws {
+        try await Task.detached(priority: .userInitiated) {
+            guard let data = image.pngData() else { throw CocoaError(.fileWriteUnknown) }
+            try data.write(to: url, options: .atomic)
+        }.value
+    }
+
     /// This window as AppKit draws it, without screen capture (no Screen
     /// Recording permission): the frame view (titlebar, traffic lights and
     /// content) rendered through `cacheDisplay(in:to:)` at the backing scale.
@@ -157,23 +167,17 @@ extension NSWindow {
         image.isFullyTransparent
     }
 
-    /// Writes the window as PNG to `url`: composited when the window server
-    /// gives an image (``compositedSnapshot()``), else AppKit drawing
-    /// (``renderSnapshot()``). Returns the pixel size and the method used.
-    public func writeSnapshot(to url: URL) throws -> (size: CGSize, method: WindowSnapshotMethod) {
-        let rep: NSBitmapImageRep
-        let method: WindowSnapshotMethod
+    /// Captures the window image: composited when the window server gives one,
+    /// else AppKit drawing. The capture itself must stay on the main actor
+    /// because it reads AppKit state. Callers that already have an async
+    /// boundary should encode the returned image away from the main actor.
+    public func snapshotImage() throws -> (image: CGImage, method: WindowSnapshotMethod) {
         if let image = compositedSnapshot() {
-            rep = NSBitmapImageRep(cgImage: image)
-            method = .composited
-        } else if let drawn = renderSnapshot() {
-            rep = drawn
-            method = .appkit
-        } else {
-            throw CocoaError(.fileWriteUnknown)
+            return (image, .composited)
         }
-        guard let data = rep.representation(using: .png, properties: [:]) else { throw CocoaError(.fileWriteUnknown) }
-        try data.write(to: url, options: .atomic)
-        return (CGSize(width: rep.pixelsWide, height: rep.pixelsHigh), method)
+        if let image = renderSnapshot()?.cgImage {
+            return (image, .appkit)
+        }
+        throw CocoaError(.fileWriteUnknown)
     }
 }

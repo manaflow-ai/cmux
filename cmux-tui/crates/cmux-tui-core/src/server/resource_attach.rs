@@ -293,11 +293,16 @@ pub(super) fn prepare_terminal_resource_attach(
         initial_size,
     )?;
     if read_only {
-        let lease = marked.lease.as_deref().expect("resource attach always mints a lease");
-        if let Err(error) = mux.control_clients.mark_view_lease_read_only(client, surface.id, lease)
-        {
+        let marked_read_only = match marked.lease.as_deref() {
+            Some(lease) => mux
+                .control_clients
+                .mark_view_lease_read_only(client, surface.id, lease)
+                .map_err(|error| error.to_string()),
+            None => Err("resource attach minted no lease".to_owned()),
+        };
+        if let Err(error) = marked_read_only {
             cleanup_resource_attach(mux, client, &common);
-            return Err(ResourceError::operation_failed(operation, error.to_string(), json!({})));
+            return Err(ResourceError::operation_failed(operation, error, json!({})));
         }
     }
     let attach = match surface.attach_render_stream() {

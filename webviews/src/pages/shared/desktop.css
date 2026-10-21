@@ -168,6 +168,11 @@ select {
 }
 
 /* A shortcut hint after the text, in the secondary ink, at the tooltip's top right. */
+.ui-tooltip-detail {
+  display: block;
+  color: var(--cmux-text-secondary, color-mix(in srgb, var(--cmux-text, CanvasText) 64%, transparent));
+}
+
 .ui-tooltip-hint {
   float: inline-end;
   margin-inline-start: 8px;
