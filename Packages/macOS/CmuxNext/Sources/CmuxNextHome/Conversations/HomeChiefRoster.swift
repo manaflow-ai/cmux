@@ -1,0 +1,63 @@
+public import CmuxHomeCore
+import Foundation
+
+/// The user's Chiefs as the Home list shows them: every Chief on every host
+/// at once (Lawrence 2026-10-20: "we need to be able to support both local
+/// chiefs and cloud chiefs and mac mini chiefs etc all at the same time"),
+/// one of them pinned first and tagged "Main" (2026-10-19: "i dont like that
+/// i have a ton of chiefs, idk which is main one"), each tagged with where it
+/// runs. No host's Chief is hidden: this Mac's Chief keeps running after its
+/// history is copied to the Hosted Chief, and the list is the only way back to it.
+public struct HomeChiefRoster: Hashable, Sendable {
+    /// The main Chief's conversation on the host it runs on now; nil when none is known.
+    public var main: ConversationID?
+    /// Where each Chief conversation's brain runs.
+    public var places: [ConversationID: HomeChiefPlace]
+
+    /// - Parameters:
+    ///   - main: The main Chief's conversation.
+    ///   - places: Where each Chief conversation runs.
+    public init(main: ConversationID? = nil, places: [ConversationID: HomeChiefPlace] = [:]) {
+        self.main = main
+        self.places = places
+    }
+
+    /// The roster from the list's rows and the user's cloud Chiefs.
+    ///
+    /// The main Chief runs where the user picked (`showsPlaced`: the paired
+    /// server's Chief, else the Hosted Chief), else on this Mac. Every Chief
+    /// row stays listed; it runs in the cloud when `cloud` lists it, else on
+    /// this Mac.
+    ///
+    /// - Parameters:
+    ///   - rows: The list's rows; only Chief rows count.
+    ///   - local: This Mac's default Chief conversation.
+    ///   - hosted: The Hosted Chief's main conversation.
+    ///   - placed: The main conversation of the Chief placed on a paired server.
+    ///   - server: That server's name.
+    ///   - showsPlaced: The user picked the server's Chief.
+    ///   - cloud: The cloud owner's conversations.
+    /// - Returns: The roster.
+    public static func make(rows: [InboxRow], local: ConversationID?, hosted: ConversationID?, placed: ConversationID?,
+                            server: String?, showsPlaced: Bool, cloud: Set<ConversationID> = []) -> HomeChiefRoster {
+        let chiefRows = rows.filter { $0.kind == .chief }.map(\.id)
+        let listed = Set(chiefRows)
+        let local = local.flatMap { listed.contains($0) ? $0 : nil }
+        let main = (showsPlaced ? placed ?? hosted : hosted ?? placed) ?? local
+        var places: [ConversationID: HomeChiefPlace] = [:]
+        for id in chiefRows { places[id] = cloud.contains(id) ? .cloud : .thisMac }
+        if let local { places[local] = .thisMac }
+        if let hosted { places[hosted] = .cloud }
+        if let placed { places[placed] = server.map(HomeChiefPlace.server) ?? .server(HomeConversationStrings.placeServer) }
+        return HomeChiefRoster(main: main, places: places)
+    }
+
+    /// The list's tag after a Chief's name: where it runs, after "Main" for
+    /// the main Chief ("Main · Cloud"), since the same Chief can be listed
+    /// on more than one host; a non-default engine follows ("This Mac · UniiChat").
+    public func tag(for id: ConversationID, engine: String?) -> String? {
+        let parts = [id == main ? HomeConversationStrings.mainChief : nil, places[id]?.label, engine]
+            .compactMap { $0 }.filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: " \u{00B7} ")
+    }
+}

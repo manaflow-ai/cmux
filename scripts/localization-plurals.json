@@ -609,5 +609,53 @@
     "arguments": [
       1
     ]
+  },
+  "home.engine.toolCalls": {
+    "source": "%lld tool calls",
+    "arguments": [
+      1
+    ]
+  },
+  "home.engine.toolFailures": {
+    "source": "%lld failed",
+    "arguments": [
+      1
+    ]
+  },
+  "home.turn.ranCommands": {
+    "source": "Ran %lld commands",
+    "arguments": [
+      1
+    ]
+  },
+  "home.turn.readFiles": {
+    "source": "Read %lld files",
+    "arguments": [
+      1
+    ]
+  },
+  "home.turn.editedFiles": {
+    "source": "Edited %lld files",
+    "arguments": [
+      1
+    ]
+  },
+  "home.turn.ranSearches": {
+    "source": "Ran %lld searches",
+    "arguments": [
+      1
+    ]
+  },
+  "home.turn.steps": {
+    "source": "%lld steps",
+    "arguments": [
+      1
+    ]
+  },
+  "home.turn.moreSteps": {
+    "source": "%lld more steps",
+    "arguments": [
+      1
+    ]
   }
 }

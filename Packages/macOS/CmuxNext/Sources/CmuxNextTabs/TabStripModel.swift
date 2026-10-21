@@ -28,6 +28,9 @@ public final class TabStripModel {
     public var allowsMultiSelection: Bool
     public var style: TabStripStyle
     public var showsNewTabButton: Bool
+    /// Full Width Tab mode: the strip shows only the selected tab, across its whole width
+    /// (``TabLayoutEngine/layout(items:availableWidth:style:metrics:closingModeWidth:fullWidthTab:)``).
+    public var showsSelectedFullWidth = false
 
     /// Receives every intent. Set by the App (or the demo).
     @ObservationIgnored public var intentHandler: ((TabStripIntent) -> Void)?

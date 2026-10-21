@@ -15,6 +15,7 @@
 pub mod adopt;
 pub mod adopt_live;
 pub mod adopt_replay;
+pub mod adopt_tools;
 pub mod agent;
 pub mod agent_displays;
 pub mod agent_host;
@@ -54,6 +55,7 @@ pub mod offer_mcp;
 #[cfg(windows)]
 mod owner_only;
 pub mod peer;
+pub mod peer_link;
 #[cfg(not(unix))]
 mod platform;
 pub mod probe_cleanup;
@@ -63,6 +65,8 @@ pub mod protected_folders;
 pub mod protocol;
 pub mod question_answer;
 pub mod registry;
+pub mod route_account;
+mod route_probe;
 mod router_socket;
 pub mod routes;
 pub mod rpc;
@@ -78,12 +82,15 @@ pub mod sha256;
 pub mod stats;
 pub mod store;
 pub mod subagents;
+pub mod subrouter_session;
 pub mod subsession_mcp;
 pub mod subsession_worktree;
 pub mod transcript;
 pub mod trust;
+pub mod trust_auto;
 pub mod tui;
 pub mod user_settings;
 pub mod web_modes;
+pub mod worktree_sessions;
 
 pub mod model_catalog;

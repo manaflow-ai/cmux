@@ -6,6 +6,8 @@ each push cancelled the running Mac export job and the autofix job, and autofix 
 base had moved. With merges minutes apart, 9 runs in a row were cancelled and the repair never landed.
 A repair generated at an older head may be re-applied on the moved tip only when nothing in between touched
 that repair's areas; otherwise the newer run regenerates it (a revert in between would make it wrong).
+That is judged file by file (2026-10-20): the files of untouched areas land even when another area moved,
+and the run still fails so the next run's "since" covers what was left out.
 """
 from __future__ import annotations
 
@@ -25,6 +27,8 @@ EXPORT = "schemas/settings/settings-schema.json"
 SNAPSHOT = "schemas/defaults/cmux-next.json"
 SHORTCUTS = "web/data/cmux-shortcuts.generated.json"
 SURFACES = "plans/cmux-next/action-surfaces.json"
+WEBVIEWS = "webviews/src/generated.ts"
+APP = "first-party-apps/app/fragment.json"
 
 
 def git(cwd, *args):
@@ -50,7 +54,7 @@ class BaseAutofixFinishes(unittest.TestCase):
         seed = work / "seed"
         git(work, "clone", "-q", "remote.git", "seed")
         git(seed, "checkout", "-q", "-b", "feat-cmux-next")
-        files = {SETTINGS: "k1", EXPORT: "old", SNAPSHOT: "old", SHORTCUTS: "old", SURFACES: "old",
+        files = {SETTINGS: "k1", EXPORT: "old", SNAPSHOT: "old", SHORTCUTS: "old", SURFACES: "old", WEBVIEWS: "old", APP: "a1",
                  "README.md": "r", "unlisted/output.txt": "old",
                  "scripts/cmux-next/autofix-areas.sh": (ROOT / "scripts/cmux-next/autofix-areas.sh").read_text()}
         for path, text in files.items():
@@ -109,6 +113,51 @@ class BaseAutofixFinishes(unittest.TestCase):
         self.assertEqual(done.returncode, 1)
         self.assertEqual(landed[EXPORT], "old")
         self.assertIn("newer run", out)
+
+    def test_the_unaffected_part_of_a_repair_lands_while_the_affected_part_waits(self):
+        # 2026-10-20: 4 of ~50 runs landed in a day. Packages/ (the graph area) moves on nearly every push,
+        # so a repair that also carried the graph, settings or webviews never landed any of it. Each file
+        # whose areas are untouched since HEAD_SHA is exactly right at the tip, so it lands alone.
+        done, landed, out = self.push({SETTINGS: "k0"}, repair={EXPORT: "new", SHORTCUTS: "new"})
+        self.assertEqual(landed[SHORTCUTS], "new")
+        self.assertEqual(landed[EXPORT], "old")
+        self.assertIn(EXPORT, out)
+        self.assertIn("next run", out)
+        # The run still fails, so the next run's "since" stays at the last whole repair.
+        self.assertEqual(done.returncode, 1, out)
+
+    def test_a_partial_repair_stays_partial_when_the_base_moves_again(self):
+        done, landed, out = self.push({SETTINGS: "k0"}, repair={EXPORT: "new", SHORTCUTS: "new"},
+                                      move_again={"README.md": "r3"})
+        self.assertEqual(landed[SHORTCUTS], "new")
+        self.assertEqual(landed[EXPORT], "old")
+        self.assertIn("attempt 3", out)
+        self.assertEqual(done.returncode, 1, out)
+
+    def test_a_partial_repair_never_overwrites_an_output_changed_meanwhile(self):
+        # web/data/ is no input area: the tip's own edit of the output keeps it out of the partial repair.
+        done, landed, out = self.push({SETTINGS: "k0", SHORTCUTS: "someone else's"},
+                                      repair={EXPORT: "new", SHORTCUTS: "new", WEBVIEWS: "new"})
+        self.assertEqual(landed[SHORTCUTS], "someone else's")
+        self.assertEqual(landed[EXPORT], "old")
+        self.assertEqual(landed[WEBVIEWS], "new")
+        self.assertEqual(done.returncode, 1, out)
+
+    def test_outputs_built_from_a_left_out_export_wait_with_it(self):
+        # Greptile on #22474: an app-host input change leaves the action export out, and the shortcuts
+        # file built from that export must not land without it.
+        done, landed, out = self.push({APP: "changed"}, repair={SURFACES: "new", SHORTCUTS: "new", WEBVIEWS: "new"})
+        self.assertEqual(landed[SURFACES], "old")
+        self.assertEqual(landed[SHORTCUTS], "old")
+        self.assertEqual(landed[WEBVIEWS], "new")
+        self.assertEqual(done.returncode, 1, out)
+
+    def test_the_defaults_snapshot_never_lands_in_a_partial_repair(self):
+        # defaults_guard.py also reads *Enabled flags and keybind lines across the sources, outside any area.
+        done, landed, out = self.push({SETTINGS: "k0"}, repair={SNAPSHOT: "new", SHORTCUTS: "new"})
+        self.assertEqual(landed[SNAPSHOT], "old")
+        self.assertEqual(landed[SHORTCUTS], "new")
+        self.assertEqual(done.returncode, 1, out)
 
     def test_the_defaults_snapshot_waits_when_the_action_exports_moved(self):
         # The snapshot is built from the settings and the action exports (coord-2 review of c30bfe5).

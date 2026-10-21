@@ -17,6 +17,24 @@ public nonisolated enum ChiefHostStop {
         return pid
     }
 
+    /// An update: asks the host that holds the home's lock to hand off when idle (SIGUSR1). Its
+    /// running turn goes on to its end, then it exits without ending its acpmux, and the restart
+    /// (`ChiefBrainWatch` at a relaunch, `ChiefAcpmuxHeal` while the app runs) hands acpmux off and
+    /// starts the next host, so an update never cuts a Chief turn. Only a host whose
+    /// `state/host.handoff` names its own pid takes the signal (an older host would end at once on
+    /// SIGUSR1); returns the pid it asked, nil when it asked none.
+    @discardableResult
+    static func askToHandOffWhenIdle(home: ChiefHome, isChiefHost: (pid_t) -> Bool = ChiefHostStop.isChiefHost,
+                                     signal: (pid_t, Int32) -> Bool = { kill($0, $1) == 0 }) -> pid_t? {
+        guard let pid = runningHostPID(home: home, isChiefHost: isChiefHost) else { return nil }
+        let mark = home.root.appendingPathComponent("state/host.handoff")
+        // concurrency-allow: a small local file read; callers run off the main actor
+        guard let text = try? String(contentsOf: mark, encoding: .utf8),
+              let named = text.split(separator: "\n").first.flatMap({ pid_t($0.trimmingCharacters(in: .whitespaces)) }),
+              named == pid, signal(pid, SIGUSR1) else { return nil }
+        return pid
+    }
+
     /// The pid of the host that holds the home's lock: the pid in the lock's
     /// text while that process runs an `optchat-chief`. A host writes the
     /// text only after it holds the flock, so a live host named there holds

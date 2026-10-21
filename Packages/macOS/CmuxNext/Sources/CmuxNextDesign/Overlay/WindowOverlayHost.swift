@@ -73,6 +73,10 @@ public final class WindowOverlayHost {
     public var onOccludersChange: (() -> Void)?
     /// Carries `agentCursorLayer` (made on first use; `WindowOverlayHost+AgentCursor`).
     var agentCursorCarrier: AgentCursorCarrierView?
+    /// The window's clickable agent cursor tags (the app's source).
+    public weak var agentCursorTags: (any AgentCursorTagSource)? {
+        didSet { agentCursorCarrier?.tags = agentCursorTags }
+    }
 
     private static var hosts: [ObjectIdentifier: WindowOverlayHost] = [:]
     private static var app: WindowOverlayHost?
@@ -209,7 +213,8 @@ public final class WindowOverlayHost {
         guard !isReordering, let window, panel.parent === window else { return }
         isReordering = true
         defer { isReordering = false }
-        let children = window.childWindows ?? []
+        // AppKit places its own children (the full screen titlebar); they are never re-added.
+        let children = (window.childWindows ?? []).filter { !Self.isAppKitChrome($0) }
         guard let index = children.firstIndex(where: { $0 === panel }) else { return }
         let visible = children.enumerated().filter { $0.element.isVisible || $0.element === panel }
         let pageAbove = visible.contains { $0.offset > index && Self.isPageWindow($0.element) }
@@ -237,9 +242,28 @@ public final class WindowOverlayHost {
 
     /// Page windows are the child windows that are not panels (Chromium),
     /// and content panels (`ContentChildPanel`: remote browser popups).
+    /// AppKit's own child windows are not pages (`isAppKitChrome`).
     public nonisolated static func isPageWindow(_ child: NSWindow) -> Bool {
-        !(child is NSPanel) || child is ContentChildPanel
+        if child is ContentChildPanel { return true }
+        return !(child is NSPanel) && !isAppKitChrome(child)
     }
+
+    /// A child window AppKit adds by itself: the full screen titlebar
+    /// (`NSToolbarFullScreenWindow`, a plain `NSWindow` that is a child of
+    /// every full screen window for as long as it stays in full screen).
+    /// Counted as a page, it put the window in page mode for the whole of
+    /// full screen: overlay planes moved into the panel, mouse-catcher panels
+    /// covered every divider, pages re-synced on every layout, and the child
+    /// order was checked on every event, so divider drags, sidebar hovers,
+    /// group toggles and tab switches lagged (fullscreen-lag, user 2026-10-20).
+    public nonisolated static func isAppKitChrome(_ child: NSWindow) -> Bool {
+        appKitChromeClassNames.contains { name in
+            NSClassFromString(name).map { child.isKind(of: $0) } ?? false
+        }
+    }
+
+    /// AppKit's private child window classes (`isAppKitChrome`).
+    public nonisolated static let appKitChromeClassNames = ["NSToolbarFullScreenWindow"]
 
     private func observeWindow(_ window: NSWindow) {
         stopObservingWindow()

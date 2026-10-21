@@ -141,7 +141,9 @@ pub(crate) struct SessionJournalSubjectPage {
     pub(crate) records: Vec<SessionJournalRecord>,
 }
 
-/// One retained `terminal.output` record's content and stream coverage.
+/// One retained `terminal.output` record's content and stream coverage
+/// (test-only: shipped builds read output from output_store.rs).
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct TerminalOutputChunk {
     pub(crate) stream_offset_start: u64,
@@ -150,6 +152,7 @@ pub(crate) struct TerminalOutputChunk {
 }
 
 /// A record-boundary window over one terminal generation's output stream.
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct TerminalOutputRecordsWindow {
     pub(crate) chunks: Vec<TerminalOutputChunk>,
@@ -205,6 +208,17 @@ impl SessionJournalReader {
         revision: u64,
     ) -> anyhow::Result<ResourceEventPage> {
         resource_store::query_resource_events_after(&self.connection, generation, revision)
+    }
+
+    /// [`WorkspaceRegistry::session_journal_without_output_after`] on this
+    /// reader's own read-only connection (no registry lock).
+    pub(crate) fn without_output_after(
+        &self,
+        sequence: u64,
+        through: u64,
+        limit: usize,
+    ) -> anyhow::Result<(Vec<SessionJournalRecord>, u64)> {
+        query_session_journal_without_output_after(&self.connection, sequence, through, limit)
     }
 
     pub(crate) fn after_subjects(
@@ -340,7 +354,7 @@ impl JournalRestoreCursor {
             "SELECT segment_id, start_sequence
              FROM journal_segments
              WHERE end_sequence > ?1 AND start_sequence > ?2
-             ORDER BY start_sequence ASC
+             ORDER BY end_sequence ASC
              LIMIT 1",
         )?;
         let segment = statement
@@ -1232,6 +1246,7 @@ impl WorkspaceRegistry {
 
     /// The most recently started journal output stream for one terminal:
     /// its generation and the exclusive end offset of its journaled bytes.
+    #[cfg(test)]
     pub(crate) fn terminal_stream_latest(
         &self,
         terminal_id: &str,
@@ -1265,6 +1280,7 @@ impl WorkspaceRegistry {
     /// retained vt-replay snapshot (a checkpoint blob for live terminals, the
     /// terminal exit snapshot for exited ones) and readers see the coverage
     /// clamp through the window's start offset.
+    #[cfg(test)]
     pub(crate) fn terminal_output_records_after(
         &self,
         terminal_id: &str,
@@ -1505,7 +1521,7 @@ fn archived_non_output_after(
         "SELECT segment_id, start_sequence, end_sequence
          FROM journal_segments
          WHERE end_sequence > ?1 AND start_sequence <= ?2
-         ORDER BY start_sequence ASC",
+         ORDER BY end_sequence ASC",
     )?;
     let rows = statement
         .query_map(params![i64::try_from(sequence)?, i64::try_from(through)?], |row| {
@@ -1578,7 +1594,10 @@ fn backfill_legacy_journal_segment_kinds(connection: &Connection) -> anyhow::Res
             |row| row.get(0),
         )
         .optional()?;
-    if complete.as_deref() == Some("1") {
+    // A read-only reader (the history feed's, off the registry lock) cannot
+    // write the backfill; segments without kind rows take the validating
+    // legacy decoder instead, and the registry connection backfills later.
+    if complete.as_deref() == Some("1") || connection.is_readonly(rusqlite::MAIN_DB)? {
         return Ok(());
     }
     connection.execute(
@@ -1883,6 +1902,14 @@ fn decode_journal_segment(row: JournalSegmentRow) -> anyhow::Result<DecodedJourn
     Ok(DecodedJournalSegment { start_sequence, end_sequence, records })
 }
 
+/// Sealed segments never overlap (sealing appends them in sequence order and
+/// the readers below reject a gap or overlap), so `ORDER BY end_sequence`
+/// is the same order as `ORDER BY start_sequence`. Ordering by the column
+/// the range filters on lets SQLite seek its unique index to the cursor.
+/// Ordering by `start_sequence` scanned every segment row on every read: the
+/// journal fanout tailer reads after each commit, and on a registry with 5 353
+/// segments that took about 10 ms per read, about 100% CPU at 100 commits/s
+/// (NIGHTLY 2026-10-20). The seek takes about 0.02 ms on the same file.
 fn archived_records_after(
     connection: &Connection,
     sequence: u64,
@@ -1893,7 +1920,7 @@ fn archived_records_after(
                 content, uncompressed_bytes, sha256
          FROM journal_segments
          WHERE end_sequence > ?1
-         ORDER BY start_sequence ASC
+         ORDER BY end_sequence ASC
          LIMIT ?2",
     )?;
     let mut segments = statement

@@ -1,5 +1,6 @@
 import React, { useCallback, useImperativeHandle, useLayoutEffect, useRef } from "react";
 import { COMPOSER_READY_EVENT } from "./composerFocus";
+import { liftInlineImages } from "./inlineImages";
 import { isImeKeyEvent } from "../../pages/shared/imeKeys";
 import { activeFormats, applyFormat, type MarkdownFormat } from "./markdownFormat";
 import "./markdownField.css";
@@ -92,6 +93,10 @@ export type MarkdownFieldProps = {
   onBeforeInput?(data: string, state: { empty: boolean; composing: boolean }): boolean;
   /// Enter (with `cmd` for Cmd-Enter) that `onKeyDown` did not take; unset, Enter is the editor's.
   onSubmit?(markdown: string, modifiers: { cmd: boolean }): void;
+  /// A new paragraph or line the browser inserts on its own, not from a key the field handled: the
+  /// Return an input method or Dictation passes on (keyCode 229, which every key handler leaves to
+  /// it). Set, the field never adds that line and this runs instead, as Return would.
+  onReturnInput?(): void;
   /// The user's first edit (the new tab's `newTab.touched`).
   onFirstInput?(): void;
   /// The surface's own key handling, which runs before the editor's keys (the omnibar word rules).
@@ -99,6 +104,8 @@ export type MarkdownFieldProps = {
   /// Shift-Enter adds a line (default true).
   multiline?: boolean;
   placeholder?: string;
+  /// A muted keycap after the placeholder, naming the key that takes it (the composer's "Tab").
+  placeholderKey?: string;
   className?: string;
   /// Attributes for the editable element (aria-label, role=combobox, aria-expanded...).
   attributes?: Record<string, string | undefined>;
@@ -117,6 +124,8 @@ const clean = (markdown: string) =>
 /** Spaces at the end of the prompt: markdown drops them, but "/review " needs its space. */
 const trailingSpaces = (view: EditorView) => /[ \t]+$/.exec(view.state.doc.lastChild?.textContent ?? "")?.[0] ?? "";
 
+/// Whether pasted HTML holds an image of its own data (an <img> with a `data:` source).
+const htmlHasDataImage = (html: string) => /<img\b[^<>]*\ssrc\s*=\s*["']?\s*data:/i.test(html);
 /** HTML/JSX copied from a code editor is plain text, even when its clipboard advertises HTML. */
 const looksLikeMarkupText = (text: string) => /<>|<\/?[A-Za-z][\w.-]*(?:\s[^<>]*)?\/?>(?=\s|$|[.,;:!?)]|<)/.test(text);
 
@@ -208,10 +217,12 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
     onCompositionChange,
     onBeforeInput,
     onSubmit,
+    onReturnInput,
     onFirstInput,
     plugins = [],
     multiline = true,
     placeholder,
+    placeholderKey,
     className,
     attributes,
   },
@@ -222,8 +233,26 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
   const remark = useRef<RemarkParser | undefined>(undefined);
   // The markdown the field last emitted or applied; a different `value` comes from outside.
   const known = useRef(value);
-  const latest = useRef({ onChange, onCaret, onKeyDown, onCompositionChange, onBeforeInput, onSubmit, onFirstInput });
-  latest.current = { onChange, onCaret, onKeyDown, onCompositionChange, onBeforeInput, onSubmit, onFirstInput };
+  const latest = useRef({
+    onChange,
+    onCaret,
+    onKeyDown,
+    onCompositionChange,
+    onBeforeInput,
+    onSubmit,
+    onReturnInput,
+    onFirstInput,
+  });
+  latest.current = {
+    onChange,
+    onCaret,
+    onKeyDown,
+    onCompositionChange,
+    onBeforeInput,
+    onSubmit,
+    onReturnInput,
+    onFirstInput,
+  };
   const composing = useRef(false);
   const touched = useRef(false);
   // Focus asked for before the editor exists is applied once it does.
@@ -254,6 +283,11 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
   const mount = useCallback((root: HTMLDivElement | null) => {
     if (!root) return;
     let disposed = false;
+    // A paste shows its end, the caret right after it (Leo 2026-10-20, as in Claude Code desktop).
+    // Milkdown's clipboard plugin dispatches the paste without asking ProseMirror to scroll, so a
+    // long paste left the field (it scrolls past eight lines) at the top. Set while a paste the
+    // surface did not consume runs; the paste's dispatch is synchronous inside it.
+    let pasting = false;
     // Keys reach the composer first, as a textarea's keydown would.
     const composerKeys = $prose(
       () =>
@@ -271,6 +305,16 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
                 }
                 return false;
               },
+              // Shift-Return's line comes from the keymap (a transaction), never from this input.
+              beforeinput: (_view, event) => {
+                const returnInput = latest.current.onReturnInput;
+                const input = event as InputEvent;
+                if (!returnInput || (input.inputType !== "insertParagraph" && input.inputType !== "insertLineBreak"))
+                  return false;
+                event.preventDefault();
+                returnInput();
+                return true;
+              },
               compositionstart: () => {
                 composing.current = true;
                 latest.current.onCompositionChange?.(true);
@@ -281,13 +325,25 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
                 latest.current.onCompositionChange?.(false);
                 return false;
               },
-              // A paste of only files (images) has no text for the field: the composer attaches them
-              // (its document paste listener). ProseMirror would move focus to a stand-in element
-              // for 50 ms to capture it, and the keys typed then came back stripped of spaces.
-              paste: (_view, event) => {
+              // A paste that carries images (files, or a data: <img> in its HTML: Chrome's Copy Image
+              // puts both; or `![…](data:…)` text, a prompt copied from a bubble that went out with
+              // them) gives the field only its plain text without them: the composer attaches the
+              // images as chips (its document paste listener). Left to ProseMirror (or Milkdown's
+              // markdown paste), each became an image node drawn full size in the field and sent as
+              // `![…](data:…)` text (Leo 2026-10-20).
+              // With no text, ProseMirror would also move focus to a stand-in element for 50 ms to
+              // capture the paste, and the keys typed then came back stripped of spaces.
+              paste: (editorView, event) => {
                 const data = event.clipboardData;
-                if (!data?.files.length || data.getData("text/plain") || data.getData("text/html")) return false;
+                if (!data) return false;
+                const lifted = liftInlineImages(data.getData("text/plain"));
+                if (!data.files.length && !htmlHasDataImage(data.getData("text/html")) && !lifted.attachments.length)
+                  return false;
                 event.preventDefault();
+                const plain = lifted.text;
+                if (!plain.trim() || beforeInput(editorView, plain)) return true;
+                const { from, to } = editorView.state.selection;
+                editorView.dispatch(editorView.state.tr.insertText(plain, from, to).scrollIntoView());
                 return true;
               },
             },
@@ -297,11 +353,23 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
               if (plain && looksLikeMarkupText(plain)) {
                 if (beforeInput(editorView, plain)) return true;
                 const { from, to } = editorView.state.selection;
-                editorView.dispatch(editorView.state.tr.insertText(plain, from, to));
+                editorView.dispatch(editorView.state.tr.insertText(plain, from, to).scrollIntoView());
                 return true;
               }
-              return beforeInput(editorView, slice.content.textBetween(0, slice.content.size, "\n", "\n"));
+              if (beforeInput(editorView, slice.content.textBetween(0, slice.content.size, "\n", "\n"))) return true;
+              pasting = true;
+              queueMicrotask(() => {
+                pasting = false;
+              });
+              return false;
             },
+          },
+          // Whichever plugin inserts the paste (Milkdown's or ProseMirror's own), the selection ends
+          // after the pasted content; this scrolls the field to it.
+          appendTransaction: (transactions, _previous, state) => {
+            if (!pasting || !transactions.some((tr) => tr.docChanged)) return null;
+            pasting = false;
+            return transactions.some((tr) => tr.scrolledIntoView) ? null : state.tr.scrollIntoView();
           },
           // Report every document and caret change; the composer's menu follows the caret.
           view: () => ({
@@ -345,9 +413,12 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
         }));
         // The field fills a box (the composer, a prompt editor) and its caret shows focus: a text
         // field is :focus-visible on every focus, so desktop.css's ring drew a rectangle inside it.
+        // The scroll margin covers the field's own padding, so a long draft scrolls the caret's
+        // whole line into view, not to 5px under the field's edge.
         ctx.update(editorViewOptionsCtx, (options) => ({
           ...options,
           attributes: { class: "acpmux-md", "data-focus-ring": "none" },
+          scrollMargin: 16,
         }));
       })
       .use(composerKeys)
@@ -538,8 +609,13 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
           Object.defineProperty(element, "acpmuxMarkdownField", { get: () => handle.current, configurable: true });
       }}
     >
-      <span ref={empty} className="acpmux-md-placeholder" aria-hidden="true">
-        {placeholder}
+      <span
+        ref={empty}
+        className={placeholderKey ? "acpmux-md-placeholder has-key" : "acpmux-md-placeholder"}
+        aria-hidden="true"
+      >
+        {placeholderKey ? <span className="acpmux-md-placeholder-text">{placeholder}</span> : placeholder}
+        {placeholderKey && <kbd className="acpmux-md-placeholder-key">{placeholderKey}</kbd>}
       </span>
       <div ref={mount} className="acpmux-md-root" />
     </div>

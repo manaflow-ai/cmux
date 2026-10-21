@@ -27,6 +27,7 @@ final class BrowserDeviceSearch: NSObject, NSSearchFieldDelegate {
     /// The menu item holding the search field (the first item of All Devices).
     func fieldItem() -> NSMenuItem {
         let field = NSSearchField(frame: NSRect(x: 12, y: 4, width: 216, height: 22))
+        field.focusRingType = .none
         field.placeholderString = BrowserDeviceMenu.Strings.search
         field.sendsSearchStringImmediately = true
         field.delegate = self

@@ -23,7 +23,8 @@ extension SidebarListViewComponents {
         }
         var sections = listSections
         switch drag.payload {
-        case let .workspaces(ids): SidebarEdits.apply(.reorder(ids, to: position), to: &sections) // a group's index counts member rows
+        // A group's index counts member rows. A group the drag empties keeps its header: it is still a drop target.
+        case let .workspaces(ids): _ = SidebarEdits.reorder(ids, to: position, in: &sections, prunes: false)
         case let .group(group): SidebarEdits.apply(.reorderGroup(group, index: position.index), to: &sections)
         case let .item(item): Self.move(item, to: position, in: &sections)
         }

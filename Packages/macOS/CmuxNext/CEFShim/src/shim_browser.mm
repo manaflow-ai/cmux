@@ -160,8 +160,23 @@ void cmux_shim_stop_finding(int browser_id, int clear_selection) {
 void cmux_shim_close(int browser_id) {
   if (CefRefPtr<CefBrowserHost> host = HostOf(browser_id)) {
     MarkHostClose(browser_id);
+    // A Chrome-style close still runs beforeunload (TabStripModel): the host
+    // close never asks, so a question already showing is answered Leave, and
+    // one the page asks during the close too (OnBeforeUnloadDialog).
+    AnswerBeforeUnload(browser_id, true);
     host->CloseBrowser(true);
   }
+}
+
+int cmux_shim_try_close(int browser_id) {
+  CefRefPtr<CefBrowserHost> host = HostOf(browser_id);
+  if (!host) return 1;
+  // False: beforeunload runs first; the page may ask (BEFORE_UNLOAD_DIALOG)
+  // and BEFORE_CLOSE follows only when the close goes on.
+  if (!host->TryCloseBrowser()) return 0;
+  // Closing now, without a question: the host's own close (DoClose).
+  MarkHostClose(browser_id);
+  return 1;
 }
 
 int cmux_shim_devtools_call(int browser_id, const char* method, const char* params_json) {

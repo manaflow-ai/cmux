@@ -437,6 +437,49 @@ wire_errors! {
 }
 
 wire_op! {
+    /// Bind the calling client install's own host to a network device using a fresh policy read signed by that install key. Verify the authoritative team tenant and both public keys. This records identity only; current transport policy and serving permissions remain separate.
+    HostNetworkBindOp {
+        name: "host.network.bind",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-own",
+        principals: [Install],
+        params: HostNetworkBindParams,
+        result: HostNetworkBindResult,
+        error: HostNetworkBindError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HostNetworkBindParams {
+    pub host: HostId,
+    pub mesh: NativeMeshId,
+    pub device: NativeDeviceId,
+    pub wg_public_key: WgPublicKey,
+    pub proof: ServerNetworkProof,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HostNetworkBindResult {
+    pub host: HostId,
+    pub network: ServerNetworkBinding,
+}
+
+wire_errors! {
+    /// The error codes host.network.bind declares.
+    HostNetworkBindError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// Remove a host from the team directory (its owner or a team admin).
     HostRemoveOp {
         name: "host.remove",
@@ -853,45 +896,4 @@ wire_op! {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct InstallRevokeParams {
     pub install: InstallId,
-}
-
-wire_errors! {
-    /// The error codes install.revoke declares.
-    InstallRevokeError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Sign this install out: revokes the calling install (its token, grant, push targets and presence key) so a signed-out device keeps nothing usable.
-    InstallSignOutOp {
-        name: "install.sign_out",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "mutate-own",
-        principals: [Install],
-        params: InstallSignOutParams,
-        result: Install,
-        error: InstallSignOutError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct InstallSignOutParams {}
-
-wire_errors! {
-    /// The error codes install.sign_out declares.
-    InstallSignOutError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
 }

@@ -252,3 +252,35 @@ test("a key typed while a toolbar hint waits drops it: it does not pop up mid-ty
   clock.advance(2000);
   expect(hint).toEqual([]);
 });
+
+// Leo, 2026-10-20: the chat header's "Chat summary" tooltip, at the window's right edge, read
+// "Chat summar / y". The fixed tooltip kept the place of the last one shown (a shorter one, further
+// right) while it was measured, so its shrink-to-fit width was only the room right of that place,
+// and the text broke inside a word.
+test("a tooltip near the right edge is measured at its full width, wherever the last one stood", async () => {
+  const doc = page(`<button id="close" title="Close"></button><button id="summary" title="Chat summary"></button>`);
+  const close = doc.getElementById("close")!;
+  const summary = doc.getElementById("summary")!;
+  close.getBoundingClientRect = () => ({ left: 970, top: 10, width: 24, height: 24 }) as DOMRect;
+  summary.getBoundingClientRect = () => ({ left: 940, top: 10, width: 26, height: 26 }) as DOMRect;
+  // Laid out on one line its text is 7 px a letter, but a fixed box only gets the room right of its `left`.
+  const proto = dom!.window.HTMLElement.prototype;
+  const original = proto.getBoundingClientRect;
+  proto.getBoundingClientRect = function (this: HTMLElement) {
+    if (!this.classList.contains("ui-title-tooltip")) return original.call(this);
+    const left = parseFloat(this.style.left) || 0;
+    return { left, top: 0, width: Math.min(7 * (this.textContent ?? "").length, 1000 - left), height: 16 } as DOMRect;
+  };
+  try {
+    const tip = doc.querySelector<HTMLElement>(".ui-title-tooltip")!;
+    await hover(close);
+    expect(tip.style.left).toBe(`${1000 - 6 - 35}px`);
+    close.dispatchEvent(new dom!.window.MouseEvent("pointerout", { bubbles: true }));
+    await hover(summary);
+    expect(tip.textContent).toBe("Chat summary");
+    // As wide as its text (84 px), not squeezed into the 41 px right of the last tooltip's place.
+    expect(tip.style.left).toBe(`${1000 - 6 - 84}px`);
+  } finally {
+    proto.getBoundingClientRect = original;
+  }
+});

@@ -60,14 +60,20 @@ impl DerivedVariant {
     }
 }
 
-/// The allow list. SVG, HTML and XML are never on it.
+/// The type of a file with no listed type: bytes that do not read as UTF-8
+/// text. Clients send UTF-8 text of any name (HTML, source code, dotfiles) as
+/// `text/plain`, and every other file as this type, so any file attaches.
+pub const GENERIC_FILE_TYPE: &str = "application/octet-stream";
+
+/// The owner's types. SVG, HTML and XML are never sent as their own type (a
+/// client sends them as `text/plain`), so no download renders them.
 pub fn attachment_class(mime_type: &str) -> Option<AttachmentClass> {
     Some(match mime_type {
         "image/jpeg" | "image/png" | "image/gif" | "image/webp" | "image/heic" => {
             AttachmentClass::Image
         }
         "application/pdf" | "text/plain" | "text/markdown" | "text/csv" | "application/json"
-        | "application/zip" => AttachmentClass::File,
+        | "application/zip" | GENERIC_FILE_TYPE => AttachmentClass::File,
         "video/mp4" | "video/quicktime" => AttachmentClass::Video,
         "audio/mp4" | "audio/mpeg" | "audio/aac" | "audio/wav" => AttachmentClass::Audio,
         _ => return None,
@@ -77,25 +83,6 @@ pub fn attachment_class(mime_type: &str) -> Option<AttachmentClass> {
 /// A derived image is JPEG or WebP.
 pub fn is_derived_image_type(mime_type: &str) -> bool {
     matches!(mime_type, "image/jpeg" | "image/webp")
-}
-
-#[rustfmt::skip]
-const DENIED_EXTENSIONS: &[&str] = &[
-    "exe", "dll", "msi", "msp", "msix", "appx", "bat", "cmd", "com", "scr", "pif", "cpl", "msc",
-    "hta", "gadget", "lnk", "reg", "inf", "ps1", "psm1", "vbs", "vbe", "js", "jse", "mjs", "cjs",
-    "wsf", "wsh", "jar", "class", "app", "dmg", "pkg", "mpkg", "command", "workflow", "action",
-    "scpt", "applescript", "terminal", "tool", "kext", "dylib", "so", "sh", "bash", "zsh", "csh",
-    "fish", "ksh", "run", "bin", "elf", "apk", "aab", "ipa", "deb", "rpm", "appimage", "snap",
-    "flatpak", "html", "htm", "xhtml", "shtml", "svg", "svgz", "xml", "xsl", "mht", "mhtml",
-    "webloc", "url", "desktop", "iso", "img", "vhd", "vhdx",
-];
-
-/// True when the name's extension is refused whatever the declared type
-/// (executables, installers, scripts, active documents).
-pub fn is_denied_name(name: &str) -> bool {
-    name.rsplit_once('.').is_some_and(|(_, extension)| {
-        DENIED_EXTENSIONS.contains(&extension.to_lowercase().as_str())
-    })
 }
 
 /// 64 lowercase hex characters.
@@ -127,7 +114,7 @@ pub fn valid_attachment_name(name: &str) -> bool {
 pub enum AttachmentReject {
     /// Malformed hash, name, size, dimensions or duration.
     Invalid,
-    /// Not on the allow list, or a denied extension.
+    /// Not one of the owner's types.
     TypeRefused,
     /// Over the class's size cap.
     TooLarge,
@@ -176,9 +163,6 @@ pub fn validate_attachment_meta(
         return Err(AttachmentReject::Invalid);
     }
     let class = attachment_class(mime_type).ok_or(AttachmentReject::TypeRefused)?;
-    if is_denied_name(name) {
-        return Err(AttachmentReject::TypeRefused);
-    }
     if byte_count > MAX_ATTACHMENT_BYTES {
         return Err(AttachmentReject::TooLarge);
     }
