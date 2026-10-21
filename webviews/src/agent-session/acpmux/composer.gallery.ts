@@ -5,7 +5,33 @@
 import { agentPaneEntry } from "../../gallery/format";
 import { minutesAgo } from "../../gallery/clock";
 import { assistant, CATALOG, chat, CWD, noChat, session, summary, user } from "../../gallery/fixtures/acpmux";
+import type { PlayContext } from "../../gallery/play";
 import { composerStatePlays } from "./composerStatePlays";
+
+/// The one model button (Leo 2026-10-20: "Opus 5.5  Medium"): it names the model and its effort and
+/// opens the one menu, whose Effort row opens the levels beside it.
+const MODEL_BUTTON = { selector: ".acpmux-model .acpmux-picker-button" };
+const MODEL_DETAIL = ".acpmux-model .acpmux-model-detail:not(.acpmux-fit-label)";
+
+async function openModelMenu(ctx: PlayContext) {
+  await ctx.click(MODEL_BUTTON);
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-quick-menu [role="menuitemradio"]'));
+}
+
+/// Opens the model menu, then its Effort submenu; resolves with the submenu's popup.
+async function openEffortMenu(ctx: PlayContext): Promise<HTMLElement> {
+  await openModelMenu(ctx);
+  await ctx.click({ role: "menuitem", name: /^Effort/ });
+  let levels: HTMLElement | undefined;
+  await ctx.waitFor(() => {
+    levels = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-quick-menu")].find(
+      // The submenu is the quick menu with no submenu rows of its own (the main one has Effort's).
+      (menu) => !menu.querySelector(".acpmux-quick-sub") && menu.querySelector('[role="menuitemradio"]') !== null,
+    );
+    return levels;
+  });
+  return levels!;
+}
 
 const working = [user("Add retries", 1), assistant("Reading the helper…", 0.5, { streaming: true })];
 // Three prompts waiting for the running turn.
@@ -173,7 +199,6 @@ export default agentPaneEntry({
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
     "agent-session/acpmux/composer/PromptEditor.tsx",
     "agent-session/acpmux/MarkdownField.tsx",
-    "agent-session/acpmux/EffortPicker.tsx",
     "agent-session/acpmux/EmptyState.tsx",
     "agent-session/acpmux/ComposerQueue.tsx#ComposerQueue",
     "agent-session/acpmux/MentionMenu.tsx#MentionMenu",
@@ -197,9 +222,7 @@ export default agentPaneEntry({
       }),
       play: async (ctx) => {
         await ctx.click({ selector: "[contenteditable='true']" });
-        await ctx.waitFor(
-          () => ctx.document.querySelector(".acpmux-chips .acpmux-effort")?.textContent?.trim() === "Medium",
-        );
+        await ctx.waitFor(() => ctx.document.querySelector(MODEL_DETAIL)?.textContent?.trim() === "Medium");
       },
     },
     "agent-home": {
@@ -262,10 +285,10 @@ export default agentPaneEntry({
       note: "Full access keeps its name in the bar: a mode that is not the default always says what it is.",
       snapshot: footerChat("full-access"),
     },
-    // Leo 2026-10-19: no composer button draws a pill at rest, the bolt on included
-    // (test/composer-quiet-chips.test.ts).
+    // Leo 2026-10-19: no composer button draws a pill at rest (test/composer-quiet-chips.test.ts).
+    // Fast mode is on, and shows only in the model button's menu (Leo 2026-10-20: no bolt).
     "quiet-chips": {
-      note: "Every footer button at rest: +, the model, effort and mode chips and the fast bolt on. None draws a pill until it is hovered, keyboard-focused, pressed or open.",
+      note: "Every footer button at rest: +, the one model button (model and effort) and the mode, with Fast mode on and no bolt. None draws a pill until it is hovered, keyboard-focused, pressed or open.",
       snapshot: quietChips(),
     },
     // The composer's states, the New Tab page's beside them (agent-pane.new-tab composer-*):
@@ -1093,7 +1116,7 @@ export default agentPaneEntry({
       },
     },
     "reasoning-claude": {
-      note: "Play: Claude's reasoning menu: Low to Max with Extra High, then Ultracode On/Off (its line beside it, on one row) and Fast Mode On/Off; the chip reads Medium (the bolt beside the mic shows Fast).",
+      note: "Play: the model button reads Medium with no Fast word; its menu ends on a checked Fast mode row, and its Effort submenu lists Low to Max with Extra High, then Ultracode.",
       snapshot: withSummary(chat(finished, { title: "Claude reasoning" }), {
         configOptions: [
           {
@@ -1124,12 +1147,21 @@ export default agentPaneEntry({
         ],
       }),
       play: async (ctx) => {
-        await ctx.click({ selector: ".acpmux-effort .acpmux-picker-button" });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-effort-menu"));
+        await ctx.waitFor(() => ctx.document.querySelector(MODEL_DETAIL)?.textContent?.trim() === "Medium");
+        if (ctx.document.querySelector(".acpmux-fast")) throw new Error("the composer must draw no speed bolt");
+        await openModelMenu(ctx);
+        const fast = ctx.document.querySelector(".acpmux-quick-menu .acpmux-quick-fast");
+        if (fast?.getAttribute("aria-checked") !== "true")
+          throw new Error("Fast mode must be a checked row of the menu");
+        const levels = await openEffortMenu(ctx);
+        const names = [...levels.querySelectorAll(".acpmux-menu-label")].map((node) => node.textContent?.trim());
+        const expected = ["Low", "Medium", "High", "Extra High", "Max", "Ultracode"];
+        if (names.join("|") !== expected.join("|")) throw new Error(`Effort lists ${names.join(", ")}`);
+        if (levels.textContent?.includes("Fast")) throw new Error("Fast mode must live in one place, not in Effort");
       },
     },
     "reasoning-claude-default": {
-      note: "Play: a chat on Claude Code's own level (default) on Opus 5.5 [1m]: the chip names the level it resolves to, Medium; the menu checks Medium with a Default hint and lists no Ultrathink.",
+      note: "Play: a chat on Claude Code's own level (default) on Opus 5.5 [1m]: the model button names the level it resolves to, Medium; the Effort submenu checks Medium and lists no Ultrathink.",
       snapshot: withSummary(chat(finished, { title: "Claude default reasoning" }), {
         model: "claude-opus-5-5[1m]",
         configOptions: [
@@ -1145,23 +1177,16 @@ export default agentPaneEntry({
         ],
       }),
       play: async (ctx) => {
-        const chip = () => ctx.document.querySelector(".acpmux-effort .acpmux-picker-button");
-        await ctx.waitFor(() => chip()?.textContent?.trim() === "Medium");
-        await ctx.click({ selector: ".acpmux-effort .acpmux-picker-button" });
-        await ctx.waitFor(() => {
-          const checked = ctx.document.querySelectorAll(
-            '.acpmux-effort-menu [role="menuitemradio"][aria-checked="true"]',
-          );
-          const level = checked[0]?.textContent ?? "";
-          return level.includes("Medium") && level.includes("Default");
-        });
-        await ctx.waitFor(
-          () => !ctx.document.querySelector(".acpmux-effort-menu")?.textContent?.includes("Ultrathink"),
+        await ctx.waitFor(() => ctx.document.querySelector(MODEL_DETAIL)?.textContent?.trim() === "Medium");
+        const levels = await openEffortMenu(ctx);
+        await ctx.waitFor(() =>
+          levels.querySelector('[role="menuitemradio"][aria-checked="true"]')?.textContent?.includes("Medium"),
         );
+        if (levels.textContent?.includes("Ultrathink")) throw new Error("Effort lists Ultrathink");
       },
     },
     "reasoning-codex": {
-      note: "Play: open Codex's reasoning menu, choose Service Tier Fast, and close it; the snapshot shows Low to Ultra (Xhigh reads Extra High) plus Standard (Default) and Fast.",
+      note: "Play: open Codex's model button menu and check Fast mode (Codex's Fast service tier), its one place; Effort lists Low to Ultra (Xhigh reads Extra High).",
       snapshot: withSummary(chat(finished, { harness: "codex", model: "gpt-6-astra", title: "Codex reasoning" }), {
         configOptions: [
           {
@@ -1182,14 +1207,15 @@ export default agentPaneEntry({
         ],
       }),
       play: async (ctx) => {
-        await ctx.click({ selector: ".acpmux-effort .acpmux-picker-button" });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-effort-menu"));
-        await ctx.click({ role: "menuitemradio", name: /^Fast/ });
-        await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-effort-menu"));
+        await openModelMenu(ctx);
+        const fast = { selector: ".acpmux-quick-menu .acpmux-quick-fast" };
+        await ctx.waitFor(() => ctx.document.querySelector(fast.selector));
+        if (ctx.find(fast).getAttribute("aria-checked") !== "false") throw new Error("Fast mode must start unchecked");
+        await ctx.click(fast);
       },
     },
     "model-menu-keyboard": {
-      note: "Play: open the model picker and move its highlight with the keyboard.",
+      note: "Play: open the model button's menu, then More models (the full picker), and move its highlight with the keyboard.",
       checks: {
         layoutShiftMax: {
           value: 0.03,
@@ -1203,8 +1229,9 @@ export default agentPaneEntry({
         title: "Model picker interaction",
       }),
       play: async (ctx) => {
-        const picker = ".acpmux-model .acpmux-picker-button";
-        await ctx.click({ selector: picker });
+        // A started chat's menu has no rail, so More models opens the full picker (Leo 2026-10-20).
+        await openModelMenu(ctx);
+        await ctx.click({ role: "menuitem", name: /^More models/ });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-model .acpmux-mp"));
         const search = ctx.find({ selector: ".acpmux-mp input[role=combobox]" });
         await ctx.waitFor(() => ctx.document.activeElement === search);
@@ -1245,7 +1272,7 @@ export default agentPaneEntry({
       },
     },
     "reasoning-menu": {
-      note: "Play: open Reasoning; a small menu lists only the model's levels and checks the current one.",
+      note: "Play: open the model button's Effort submenu; it lists only the model's levels and checks the current one.",
       snapshot: chat(finished, {
         summary: {
           sessionId: "gallery-reasoning",
@@ -1270,12 +1297,14 @@ export default agentPaneEntry({
         },
       }),
       play: async (ctx) => {
-        await ctx.click({ selector: '[data-menu="Effort"]' });
-        await ctx.waitFor(() => ctx.document.querySelector('[role="menu"] [role="menuitemradio"]'));
+        const levels = await openEffortMenu(ctx);
+        await ctx.waitFor(() =>
+          levels.querySelector('[role="menuitemradio"][aria-checked="true"]')?.textContent?.includes("High"),
+        );
       },
     },
     "reasoning-none": {
-      note: "A model whose only level is the agent's default shows no reasoning control, never Default / Default.",
+      note: "A model whose only level is the agent's default: the model button names the model alone and its menu has no Effort row, never Default / Default.",
       snapshot: chat(finished, {
         summary: {
           sessionId: "gallery-reasoning-none",
@@ -1296,7 +1325,7 @@ export default agentPaneEntry({
       }),
     },
     "model-menu-starred": {
-      note: "Play: open the model picker, star Sonnet, then open the rail's Starred tab: it lists the starred models of every harness.",
+      note: "Play: open the model button's menu before the first send: its harness rail lists each harness, and a tab shows that harness's models in place.",
       checks: {
         layoutShiftMax: {
           value: 0.055,
@@ -1311,25 +1340,13 @@ export default agentPaneEntry({
         summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5", effort: "high" },
       }),
       play: async (ctx) => {
-        const { translate } = await import("./i18n");
-        const starred = { role: "option", name: translate("picker.starred") };
-        const favorite = { selector: '.acpmux-mp-favorite[aria-label$="Sonnet 5.5"]' };
-        await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-model .acpmux-mp"));
-        // A full provider catalog places Sonnet below the visible rows. Filter it into view
-        // before pointer input, then reveal the row's hover-only favorite control.
-        await ctx.type("Sonnet 5.5", { selector: ".acpmux-mp input[role=combobox]" });
-        await ctx.hover(favorite);
-        // Replay retains the pane's favorites. Keep Sonnet starred instead of toggling it off.
-        if (ctx.find(favorite).getAttribute("aria-pressed") !== "true") await ctx.click(favorite);
-        // Tooltips consume title on hover; the translated accessible name stays available.
-        await ctx.click(starred);
+        await openModelMenu(ctx);
+        // The rail's tabs draw a mark alone; each names its harness.
+        await ctx.click({ selector: '.acpmux-quick-rail-tab[aria-label="Codex"]' });
         await ctx.waitFor(
           () =>
-            ctx.find(starred).getAttribute("aria-selected") === "true" &&
-            [...ctx.document.querySelectorAll(".acpmux-mp-models .acpmux-menu-label")].some((row) =>
-              row.textContent?.endsWith("Sonnet 5.5"),
-            ),
+            ctx.find({ selector: '.acpmux-quick-rail-tab[aria-label="Codex"]' }).getAttribute("aria-pressed") ===
+              "true" && ctx.document.querySelector('.acpmux-quick-body [role="menuitemradio"]') !== null,
         );
       },
     },
@@ -1413,7 +1430,7 @@ export default agentPaneEntry({
         await ctx.press("ArrowDown");
         await ctx.press("Escape");
         await ctx.waitFor(() => !ctx.document.querySelector('.ui-popup[role="menu"]'));
-        await ctx.click({ selector: '[data-menu="Effort"]' });
+        await openModelMenu(ctx);
         await ctx.waitFor(() => ctx.document.querySelector('.ui-popup[role="menu"] [role="menuitemradio"]'));
       },
     },
@@ -1432,8 +1449,8 @@ function withSummary(
   return { ...snapshot, summary: { ...snapshot.summary!, ...summary } };
 }
 
-/// Every footer button (+, the model, effort and mode chips, the fast bolt on), for the quiet-chips
-/// and composer-state variants.
+/// Every footer button (+, the one model button with its effort, the mode; Fast mode on, which only
+/// the model button's menu shows), for the quiet-chips and composer-state variants.
 function quietChips(): ReturnType<typeof chat> {
   return withSummary(chat(finished, { title: "Quiet chips" }), {
     modes: {

@@ -9,7 +9,8 @@
 //   - only a new chat has the strip, before its first send: a started chat's card stands alone,
 //     with nothing drawn and no gap above it, and its queued prompts sit on the card;
 //   - while the session has not reported effort and access, no skeleton or placeholder draws, and
-//     the controls keep their places when the values arrive;
+//     the controls keep their places when the values arrive (the effort is the model button's own
+//     label since Leo 2026-10-20, not a chip of its own);
 //   - the folder popover filters with its search field and tells duplicate names apart;
 //   - the strip and the card read as one surface: no hairline draws across the seam where the
 //     strip stands on the card (Leo: the card's top hairline showed under the strip).
@@ -199,7 +200,7 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
           ).length,
           plus: left(".acpmux-composer-plus"),
           model: left(".acpmux-model"),
-          effort: left(".acpmux-effort"),
+          effort: left(".acpmux-model .acpmux-model-detail"),
           access: left(".acpmux-access"),
           send: left(".acpmux-send"),
         };
