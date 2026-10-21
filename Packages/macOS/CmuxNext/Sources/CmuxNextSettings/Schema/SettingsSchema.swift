@@ -64,7 +64,7 @@ public nonisolated enum SettingsSchema {
         case .notifications: []
         case .accounts: ["accounts.refresh", "openTeamPicker"]
         case .rooms: ["space.new", "space.switch", "space.rename", "space.setTheme", "space.clearTheme"]
-        case .machines: ["remote.connect", "newCloudMachine", "palette.auth.signIn"]
+        case .machines: ["machine.add", "remote.connect", "newCloudMachine", "palette.auth.signIn"]
         // The page draws Open <settings file> itself, named from the loaded path.
         case .advanced: ["reloadConfiguration"]
         }
