@@ -3,7 +3,7 @@
 // for a Refresh). The host sends it again on the next connection; the sender waits for it there.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { clientWaiter, isLostConnection, lostPrompt } from "./lostPrompt";
+import { clientWaiter, isLostConnection, lostPrompt, lostPromptSlot } from "./lostPrompt";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -52,6 +52,17 @@ test("the next connected client is the one after the client that lost the prompt
   expect(await clients.next("first", 1_000)).toBe("second");
   // None comes.
   expect(await clients.next("second", 10)).toBeUndefined();
+});
+
+test("only the prompt Not sent named goes again under its id; another prompt gets its own", () => {
+  const slot = lostPromptSlot();
+  slot.keep("p-lost", "fix it", ["img-1"]);
+  // Another prompt: acpmux would answer the lost id as a duplicate and never run it.
+  expect(slot.take("something else", ["img-1"])).toBeUndefined();
+  expect(slot.take("fix it", [])).toBeUndefined();
+  // The same prompt sent again: acpmux runs the id at most once, with the host's resend.
+  expect(slot.take("fix it", ["img-1"])).toBe("p-lost");
+  expect(slot.take("fix it", ["img-1"])).toBeUndefined();
 });
 
 test("a prompt lost with its connection says so to its sender, with no Not sent line", async () => {

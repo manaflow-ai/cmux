@@ -50,3 +50,24 @@ export function clientWaiter<Client>() {
     },
   };
 }
+
+/// The prompt a sender gave up on ("Not sent"). The host's journal may still send it once acpmux
+/// is back, so the person's next send of the same text and attachments goes under its promptId,
+/// and acpmux runs it at most once. Any other prompt gets its own id: one that took a lost
+/// prompt's id would be answered as that prompt's duplicate and never run.
+export function lostPromptSlot() {
+  const keyOf = (text: string, attachmentIds: readonly string[]) => JSON.stringify([text, attachmentIds]);
+  let kept: { promptId: string; key: string } | undefined;
+  return {
+    keep(promptId: string, text: string, attachmentIds: readonly string[]): void {
+      kept = { promptId, key: keyOf(text, attachmentIds) };
+    },
+    /// The lost prompt's id when this send is that prompt, once.
+    take(text: string, attachmentIds: readonly string[]): string | undefined {
+      if (kept?.key !== keyOf(text, attachmentIds)) return undefined;
+      const { promptId } = kept;
+      kept = undefined;
+      return promptId;
+    },
+  };
+}

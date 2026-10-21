@@ -40,7 +40,7 @@ import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBl
 import { postNative } from "./native";
 import { NativeError } from "./nativeError";
 import { errorMessage } from "./transportErrors";
-import { LOST_PROMPT_CONNECT_MS, LOST_PROMPT_SHOW_MS, clientWaiter, lostPrompt } from "./lostPrompt";
+import { LOST_PROMPT_CONNECT_MS, LOST_PROMPT_SHOW_MS, clientWaiter, lostPrompt, lostPromptSlot } from "./lostPrompt";
 import { pageHostClient, startHostEvents } from "./pageHost";
 import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabHost } from "./NewTabPage";
 import { setDeviceChats } from "./newtab/deviceChats";
@@ -4705,6 +4705,8 @@ function AcpmuxPane() {
     /// Sessions a switch started whose first summary has not arrived: it names the model a new
     /// chat on that harness starts on.
     const startedSessions = new Set<string>();
+    /// The prompt a send gave up on after its connection went, for the person's resend (lostPrompt.ts).
+    const lostPrompts = lostPromptSlot();
     /// Prompts a failed or cancelled switch held go back into the composer with their
     /// attachments, before what was typed since; while no composer is mounted they wait for one.
     /// The gesture of a send acpmux held for the folder trust answer (heldPrompt.ts).
@@ -4970,6 +4972,19 @@ function AcpmuxPane() {
           steer = false,
           promptId?: string,
         ) => {
+          // Whether the composer let go of the prompt (acpmux took it, or a switch row holds it).
+          let released = !accepted;
+          const accept =
+            accepted &&
+            (() => {
+              released = true;
+              accepted();
+            });
+          // The person sends a prompt "Not sent" named again: it goes under its first promptId.
+          const again = lostPrompts.take(
+            text,
+            attachments.map((attachment) => attachment.id),
+          );
           // acpmux holds the prompt while the folder's trust question is open (on session/new
           // or session/prompt): the question shows for the folder acpmux named, and Trust sends
           // the prompt the composer kept. `inComposer`: the composer still holds the prompt (or got it back); else it goes back.
@@ -4993,18 +5008,22 @@ function AcpmuxPane() {
           };
           // The connection went before acpmux took the prompt: the host sends it again on the next
           // one. The sender (the composer) holds it until it shows there; "Not sent" only when it
-          // never does. The host may still send it later (acpmux back after the wait), so a
-          // composer that kept the prompt sends it again under the same promptId, which acpmux
-          // runs at most once.
-          const resent = async (error: unknown, inComposer: boolean): Promise<string | undefined> => {
+          // never does. The host may still send it later (acpmux back after the wait), so the
+          // prompt stays in the composer and its resend goes under the same promptId.
+          const resent = async (error: unknown): Promise<string | undefined> => {
             const lost = lostPrompt(error);
             if (!lost) throw error;
             const next = await connectedClients.next(client, LOST_PROMPT_CONNECT_MS);
             if (next && (await next.awaitResent(lost.sessionId, lost.promptId, LOST_PROMPT_SHOW_MS))) {
-              accepted?.();
+              accept?.();
               return lost.sessionId;
             }
-            if (inComposer) void heldPrompt.hold(lost.promptId);
+            lostPrompts.keep(
+              lost.promptId,
+              text,
+              attachments.map((attachment) => attachment.id),
+            );
+            if (released) restorePrompt(text, attachments);
             (next ?? directClient.current ?? client).notice(
               translate("prompt.notSent", { reason: errorMessage(error) }),
             );
@@ -5012,11 +5031,11 @@ function AcpmuxPane() {
           };
           // A harness switch holds the prompt in its own row until its session is ready, and
           // hands it back to the composer when the switch fails.
-          const held = harnessSwitch.send(text, attachments, () => promptLanded.current(), promptId);
+          const held = harnessSwitch.send(text, attachments, () => promptLanded.current(), promptId ?? again);
           if (held) {
-            accepted?.();
+            accept?.();
             return held
-              .catch((error: unknown) => resent(error, false))
+              .catch(resent)
               .catch((error: unknown) => refused(error, (error as { handedBack?: unknown }).handedBack === true));
           }
           // A prompt acpmux held goes with the gesture its first send kept.
@@ -5031,8 +5050,8 @@ function AcpmuxPane() {
           });
           await persistSession(sessionId);
           const turn = client
-            .send(text, attachments, kept?.promptId, accepted, kept?.ticket, steer)
-            .catch((error: unknown) => resent(error, Boolean(accepted)))
+            .send(text, attachments, kept?.promptId ?? again, accept, kept?.ticket, steer)
+            .catch(resent)
             .catch((error: unknown) => refused(error, Boolean(accepted)));
           // The prompt is written; a Quick Composer hand-off can close this page now.
           promptLanded.current();
