@@ -76,6 +76,10 @@ final class PaneOverlayView: NSView {
     nonisolated override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
+    /// The attention ring's running animations and model opacity (for tests and `debug.layers`).
+    var attentionAnimationKeys: [String] { attention.animationKeys() ?? [] }
+    var attentionOpacity: Float { attention.opacity }
+
     /// Whether the focus ring or glow is showing (for `debug.layers`).
     var showsRing: Bool { ring.opacity > 0 || glowClip.opacity > 0 }
     /// Whether the hairline border is showing (for `debug.layers`).
@@ -188,7 +192,8 @@ final class PaneOverlayView: NSView {
     }
 
     func update(showsRing: Bool, dim: CGFloat, dimFill: DimFill = .pane, focusRing: FocusRingSettings, ringAlphaOverride: CGFloat? = nil,
-                border borderStyle: Border, attention mark: AttentionMark?, attentionSettings: AttentionSettings, animated: Bool) {
+                border borderStyle: Border, attention mark: AttentionMark?, attentionSettings: AttentionSettings,
+                focused: Bool = false, animated: Bool) {
         self.dimFill = dimFill
         let shapeChanged = focusRing != self.focusRing || attentionSettings != self.attentionSettings
             || borderStyle.width != self.borderStyle.width

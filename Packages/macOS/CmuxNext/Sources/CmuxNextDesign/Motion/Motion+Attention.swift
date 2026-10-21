@@ -98,3 +98,11 @@ extension MotionGate {
         }
     }
 }
+
+extension MotionGate {
+    /// The flash a ring plays as it goes away because the person went into its pane, or nil.
+    public func attentionDismissAnimation(_ settings: AttentionSettings,
+                                          look: AttentionHighlightLook = AttentionHighlightLook.tunable.value) -> CAAnimation? {
+        nil
+    }
+}
