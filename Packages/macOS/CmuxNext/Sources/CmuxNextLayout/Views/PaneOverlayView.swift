@@ -228,7 +228,7 @@ final class PaneOverlayView: NSView {
             for ((layer, value), leaves) in zip(targets, leaving) where !leaves { layer.opacity = value }
         }
         Motion.feedback.transaction(animated ? .paneDim : nil) { dimLayer.opacity = Float(dim) }
-        applyAttention(mark, animated: animated)
+        applyAttention(mark, focused: focused, animated: animated)
         applyColors()
     }
 
@@ -253,15 +253,28 @@ final class PaneOverlayView: NSView {
         applyColors()
     }
 
-    private func applyAttention(_ mark: AttentionMark?, animated: Bool) {
+    /// `focused`: the pane has focus, so a mark that goes away was read by
+    /// going into the pane (a click, a key): the ring blinks out, as cmux
+    /// classic's dismiss flash did. A mark read elsewhere just fades.
+    private func applyAttention(_ mark: AttentionMark?, focused: Bool, animated: Bool) {
         let previous = attentionMark
         attentionMark = mark
         attentionLook = observedAttentionLook()
         guard let mark, attentionSettings.style != .none else {
             attention.removeAnimation(forKey: "attention")
+            if previous != nil, focused, animated,
+               let flash = Motion.indicators.attentionDismissAnimation(attentionSettings, look: attentionLook) {
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                attention.opacity = 0
+                attention.add(flash, forKey: "attention-dismiss")
+                CATransaction.commit()
+                return
+            }
             Motion.feedback.transaction(animated ? .focus : nil) { attention.opacity = 0 }
             return
         }
+        attention.removeAnimation(forKey: "attention-dismiss")
         guard previous?.generation != mark.generation else { return }
         // A new notification: run the style's animation from the start and
         // rest at its final opacity (the steady ring swells from its rest when

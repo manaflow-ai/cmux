@@ -100,9 +100,24 @@ extension MotionGate {
 }
 
 extension MotionGate {
-    /// The flash a ring plays as it goes away because the person went into its pane, or nil.
+    /// The flash a ring plays as it goes away because the person went into its pane (cmux
+    /// classic's dismiss flash): `blinkCount` blinks at the peak, ending with no ring. Reduce
+    /// Motion gets one fade out; no ring style, or animations off, gets none.
     public func attentionDismissAnimation(_ settings: AttentionSettings,
                                           look: AttentionHighlightLook = AttentionHighlightLook.tunable.value) -> CAAnimation? {
-        nil
+        guard animatesFades, settings.style != .none else { return nil }
+        let peak = look.peakOpacity
+        let flash = CAKeyframeAnimation(keyPath: "opacity")
+        guard animatesLoops else {
+            flash.values = [peak, 0]
+            flash.duration = duration(.fadeIn)
+            return flash
+        }
+        let count = min(max(settings.blinkCount, AttentionSettings.blinkRange.lowerBound), AttentionSettings.blinkRange.upperBound)
+        var values: [Float] = []
+        for _ in 0..<count { values += [peak, 0] }
+        flash.values = values
+        flash.duration = MotionLoop.flash.period / 2 * Double(count) * speed.timeScale
+        return flash
     }
 }
