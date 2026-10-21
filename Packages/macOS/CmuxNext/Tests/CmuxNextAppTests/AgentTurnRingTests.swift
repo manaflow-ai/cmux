@@ -56,4 +56,16 @@ struct AgentTurnRingTests {
         #expect(service.attentionMarks(for: workspace).isEmpty)
         #expect(!service.entryReads.contains(tab.id))
     }
+
+    /// Mark Workspace Read, Mark All Read and Clear All read a finished chat's ring with the
+    /// notifications, without the dismiss flash.
+    @Test func workspaceAndAllReadsClearTheRing() throws {
+        let (service, workspace, tab) = try Self.chatTab()
+        service.readAgentTurns(in: [workspace])
+        #expect(service.attentionMarks(for: workspace).isEmpty, "Mark Workspace Read left the ring")
+        #expect(!service.entryReads.contains(tab.id))
+        service.agentFinished[tab.id] = 1 << 62
+        service.readAgentTurns()
+        #expect(service.attentionMarks(for: workspace).isEmpty, "Mark All Read left the ring")
+    }
 }

@@ -306,14 +306,33 @@ final class NotificationCenterService {
     }
 
     /// An agent chat's turn ended: ring the panes that show its tab until the person goes in.
+    /// Only this Mac's (or a mirrored) acpmux chats: another host's session ids are its own.
+    /// Under the `focus` dismissal a chat the person is viewing is already seen.
     func agentTurnEnded(session: String) {
         guard let services else { return }
+        let turns = AgentTurnStateStore.shared
+        let readsOnSight = NotificationPolicy(prefs: preferences).clears(.focus, for: .agent)
         for workspace in services.daemon.store.workspaces {
             for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs) where tab.agentSession?.session == session {
+                guard let host = tab.agentSession?.host, host == turns.localHost || turns.mirroredHosts.contains(host) else { continue }
+                if readsOnSight, isViewed(tab.id) { continue }
                 agentFinishGeneration &+= 1
                 agentFinished[tab.id] = agentFinishGeneration
                 note("agent turn ended \(tab.id)")
             }
+        }
+    }
+
+    /// Clears the agent chat rings of `workspaces` (nil: every workspace): Mark Workspace Read,
+    /// Mark All Read and Clear All read them with the notifications, without the dismiss flash.
+    func readAgentTurns(in workspaces: [WorkspaceModel]? = nil) {
+        guard !agentFinished.isEmpty else { return }
+        guard let workspaces else {
+            agentFinished = [:]
+            return
+        }
+        for tab in workspaces.flatMap({ $0.screens.flatMap(\.panes).flatMap(\.tabs) }) where agentFinished[tab.id] != nil {
+            agentFinished[tab.id] = nil
         }
     }
 

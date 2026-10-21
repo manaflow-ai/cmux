@@ -89,6 +89,7 @@ enum WorkspaceMetadataHandlers {
         try context.require(DaemonCapabilities.shared.notificationAck)
         let machines = context.services.machines
         WorkspaceUnreadMark.set(false, on: workspaces, machines: machines)
+        context.services.notifications.readAgentTurns(in: workspaces)
         // A group's members can live on different machines.
         for (workspace, daemon) in WorkspaceUnreadMark.routes(workspaces, machines: machines)
         where daemon.supports(DaemonCapabilities.shared.notificationAck) {

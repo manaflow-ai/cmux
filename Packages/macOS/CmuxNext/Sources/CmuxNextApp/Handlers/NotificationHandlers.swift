@@ -21,6 +21,7 @@ enum NotificationHandlers {
         services.pages.register(services.feedPage)
         registry.bind("clearAllNotifications", requires: ack, daemon: context.daemon, run: { _ in
             _ = try context.requireConnection()
+            context.services.notifications.readAgentTurns()
             context.daemon.send("notification.clear") { connection in
                 try await connection.clearNotifications()
                 await MainActor.run { panel.reload() }
@@ -45,7 +46,12 @@ enum NotificationHandlers {
         })
         registry.bind("markAllNotificationsRead", requires: ack, daemon: context.daemon, run: { _ in
             let tabs = unread(context)
-            guard !tabs.isEmpty else { throw ActionFailure(message: MiscHandlerStrings.noUnread) }
+            let rang = !context.services.notifications.agentFinished.isEmpty
+            context.services.notifications.readAgentTurns()
+            guard !tabs.isEmpty else {
+                if rang { return }
+                throw ActionFailure(message: MiscHandlerStrings.noUnread)
+            }
             try acknowledge(tabs.map(\.tab.surface), context)
         })
         // Toggle Tab Unread: reads an unread tab, else marks it unread (any tab, no notification needed).

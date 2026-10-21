@@ -166,16 +166,21 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     private func observeAttention() {
         let notifications = services.notifications, workspace = workspace
         let marks = notifications.attentionMarks(for: workspace)
+        // A read taken before this workspace showed (an open of a parked one) blinks nothing.
+        _ = notifications.takeEntryReads(removed: [], in: workspace)
         if layoutModel.attention != marks { layoutModel.attention = marks }
         attentionObservation?.cancel()
         attentionObservation = Task { [weak self] in
             for await marks in ObservationStream({ notifications.attentionMarks(for: workspace) }) {
                 guard let self else { return }
-                guard self.layoutModel.attention != marks else { continue }
                 // A ring read by going into its pane blinks out (classic's dismiss flash); one
-                // cleared any other way fades. Set first, so the change that removes it sees it.
+                // cleared any other way fades. Taken on every change, so a read that left the ring
+                // (a newer notification in the pane still holds it) cannot blink a later Mark Read.
                 let removed = Set(self.layoutModel.attention.keys).subtracting(marks.keys)
-                self.layoutModel.attentionReadByEntry = notifications.takeEntryReads(removed: removed, in: workspace)
+                let entered = notifications.takeEntryReads(removed: removed, in: workspace)
+                guard self.layoutModel.attention != marks else { continue }
+                // Set first, so the change that removes the ring sees it.
+                self.layoutModel.attentionReadByEntry = entered
                 self.layoutModel.attention = marks
             }
         }
