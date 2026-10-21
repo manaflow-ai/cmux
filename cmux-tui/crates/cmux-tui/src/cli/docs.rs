@@ -108,6 +108,9 @@ pub(super) const GUIDES: &[Guide] = &[
             "enroll",
             "machine",
             "ssh",
+            "mcp",
+            "computer",
+            "grant",
         ],
         text: "`cmux setup list` names every setup task (folder trust, harness install and sign-in, \
         ssh machines, peer updates, accounts, Cloud machines, Tailscale, MCP wiring, Computer \
@@ -122,9 +125,15 @@ pub(super) const GUIDES: &[Guide] = &[
         back as needs_user with the ssh command to try. `cmux setup harness [ID ...]` reports \
         whether each harness (default: every configured or found one) is installed, signed in \
         and outdated; a missing CLI or sign-in is needs_user with the install docs or `cmux \
-        harness login ID`. `cmux setup status` lists every peer with connected and outdated, \
-        and every harness. Every `cmux setup` command prints one JSON object: state is ok, \
-        changed, planned, needs_user or failed.",
+        harness login ID`. `cmux setup mcp [claude|codex ...]` gives Claude Code and Codex \
+        started outside cmux the cmux MCP server through their own `mcp add`; until the \
+        person turns on `mcp.enabled` (\"mcp\": {\"enabled\": true}) in the settings file, \
+        it writes nothing and names that switch. `cmux setup computer-use` turns Computer Use \
+        on once the person allows it on the sheet cmux shows, and names each missing macOS \
+        grant with the command that opens its System Settings pane. `cmux setup status` lists \
+        every peer with connected and outdated, every harness, the MCP wiring and Computer \
+        Use. Every `cmux setup` command prints one JSON object: state is ok, changed, planned, \
+        needs_user or failed.",
     },
 ];
 

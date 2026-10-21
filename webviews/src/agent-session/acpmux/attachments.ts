@@ -44,8 +44,11 @@ export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 export const MAX_IMAGE_SIDE = 2000;
 /** The bytes one attached image may have: past this it is re-encoded (as JPEG) or scaled down. */
 export const IMAGE_BUDGET_BYTES = 1536 * 1024;
-/** Keep PDF prompts bounded while leaving room for the rest of the request. */
-export const MAX_DOCUMENT_BYTES = 20 * 1024 * 1024;
+/** The bytes a PDF may have to go as a document block: its base64 (13.4 MiB) stays under acpmux's
+ * 15 MiB bound on one message (#23247), below the WebSocket's 16 MiB frame, with room for the rest
+ * of the prompt; the same cap as a file sent to an ssh peer (`_acpmux/file_put`). A larger PDF goes
+ * as a link to its copy (intakeFiles.ts). */
+export const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
 /** A text file this large is already a lot of prompt. */
 export const MAX_TEXT_BYTES = 256 * 1024;
 export const MAX_ATTACHMENTS = 10;

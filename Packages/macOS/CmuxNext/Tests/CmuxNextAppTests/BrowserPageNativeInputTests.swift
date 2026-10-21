@@ -175,7 +175,7 @@ typealias NativeInputJSON = CmuxNextSettings.JSONValue
         let fixture = try await Fixture()
         defer { fixture.close() }
         let at = try await fixture.center("list")
-        let refreshes = fixture.window.screen != nil && fixture.window.occlusionState.contains(.visible)
+        let refreshes = fixture.window.screen != nil
         let result = try await fixture.call("wheel", ["x": at.x, "y": at.y, "dy": 120])
         try await fixture.until("the list scrolled") {
             (try await fixture.read("document.getElementById('list').scrollTop").doubleValue ?? 0) > 0
@@ -184,6 +184,33 @@ typealias NativeInputJSON = CmuxNextSettings.JSONValue
         #expect(wheels.count == 1, "\(wheels)")
         #expect(result["native"] == .bool(refreshes))
         #expect(wheels.first?["trusted"] == .bool(refreshes))
+    }
+
+    /// An occluded window still on a screen (an agent's background tab) gets the native wheel:
+    /// WebKit delivers it there, so the page sees one trusted wheel. Needs a host with a display.
+    @Test(.enabled(if: !NSScreen.screens.isEmpty, "needs a display"))
+    func anOccludedWindowOnAScreenGetsOneTrustedNativeWheel() async throws {
+        let fixture = try await Fixture()
+        defer { fixture.close() }
+        try #require(fixture.window.screen != nil)
+        let cover = NSWindow(contentRect: fixture.window.frame.insetBy(dx: -40, dy: -40), styleMask: [.borderless],
+                             backing: .buffered, defer: false)
+        cover.isReleasedWhenClosed = false
+        cover.isOpaque = true
+        cover.backgroundColor = .black
+        cover.level = .floating
+        cover.orderFrontRegardless()
+        defer { cover.orderOut(nil) }
+        try await fixture.until("the window is occluded") { !fixture.window.occlusionState.contains(.visible) }
+        let at = try await fixture.center("list")
+        let result = try await fixture.call("wheel", ["x": at.x, "y": at.y, "dy": 120])
+        #expect(result["native"] == true)
+        try await fixture.until("the list scrolled") {
+            (try await fixture.read("document.getElementById('list').scrollTop").doubleValue ?? 0) > 0
+        }
+        let wheels = try await fixture.events("wheel")
+        #expect(wheels.count == 1, "\(wheels)")
+        #expect(wheels.first?["trusted"] == true)
     }
 
     /// A window on no screen cannot refresh: the wheel is page events at once (no wait for WebKit),
