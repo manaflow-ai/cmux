@@ -76,8 +76,16 @@ public final class ControlSnapshotStore: Sendable {
     }
 
     private let state = Mutex(State())
+    private let waiterHook = Mutex<(@Sendable () -> Void)?>(nil)
 
     public init() {}
+
+    /// Called (on the thread that waits, outside the store's lock) each time a reader starts
+    /// waiting for a snapshot the current one does not satisfy, so a publisher that holds a
+    /// throttled publish can publish at once. nil removes it.
+    public func setWaiterHook(_ hook: (@Sendable () -> Void)?) {
+        waiterHook.withLock { $0 = hook }
+    }
 
     /// The latest published snapshot.
     public var current: ControlSnapshot { state.withLock { $0.snapshot } }
@@ -146,7 +154,7 @@ public final class ControlSnapshotStore: Sendable {
                     state.waiters.append(Waiter(id: id, isReady: isReady, continuation: continuation))
                     return .none
                 }
-                if case .some(let result) = now { continuation.resume(returning: result) }
+                if case .some(let result) = now { continuation.resume(returning: result) } else { waiterHook.withLock { $0 }?() }
             }
         } onCancel: {
             resolve(id, with: nil)
