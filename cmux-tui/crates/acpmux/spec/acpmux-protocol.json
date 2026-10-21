@@ -948,6 +948,14 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/protocol",
+      "params": {
+        "$ref": "#/types/ProtocolParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/shutdown",
       "params": true,
       "result": true
@@ -961,6 +969,12 @@
     {
       "kind": "request",
       "name": "_acpmux/peer_add",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/peer_lease",
       "params": true,
       "result": true
     },
@@ -2046,6 +2060,11 @@
       ],
       "type": "object"
     },
+    "ProtocolParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/protocol` takes no params.",
+      "type": "object"
+    },
     "PurgedSession": {
       "description": "A purged session: only its id is left.",
       "properties": {
@@ -2202,6 +2221,10 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "backgroundsWork": {
+          "description": "`_acpmux/process/background` (Ctrl-B) moves its foreground work: its\nharness is Claude Code (claude-stdio), whatever the harness's name.\nClients offer Ctrl-B from this, not from `harness`.",
+          "type": "boolean"
         },
         "children": {
           "description": "Its sub-sessions that are not closed.",
@@ -2516,6 +2539,7 @@
         "queuePaused",
         "moving",
         "steering",
+        "backgroundsWork",
         "queue",
         "pendingPermissions",
         "enforcement",

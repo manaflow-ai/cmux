@@ -9,7 +9,8 @@
 // - The chat's Send comes in after the mic with a draft; an empty chat draft draws the mic alone
 //   (Claude desktop's box: no Send until there is a draft, Leo 2026-10-20). The New Tab page keeps Send.
 // - The mic never leaves, at a roomy width or a narrow one.
-// - + is its glyph, named "Add" for screen readers, with no tooltip (Leo, 2026-10-20: a plain + needs none).
+// - + is its glyph, named "Add" for screen readers, with Codex's short tooltip "Add files and more"
+//   (Leo, 2026-10-21; it overrides 2026-10-20's "a plain + needs none").
 // - The mode menu marks the chosen mode with a check at the row's trailing edge, where the other
 //   rows show their number, as Claude's model menu does.
 // - The + menu's and the @ file picker's rows highlight under the pointer, one row at a time.
@@ -239,7 +240,7 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
           expect(at.send!.right, "Send inside the box").toBeLessThanOrEqual(at.box.right);
         });
 
-    test(`${engine}: + is its glyph, named Add with no tooltip`, async () => {
+    test(`${engine}: + is its glyph, named Add, its tooltip "Add files and more"`, async () => {
       const page = await open(engine, COMPOSERS[0]!);
       const plus = await page
         .locator(".acpmux-composer-plus .acpmux-picker-button")
@@ -250,7 +251,7 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
           tooltip: element.getAttribute("data-tooltip") ?? element.getAttribute("title") ?? "",
         }));
       await page.close();
-      expect(plus).toEqual({ text: "", name: "Add", tooltip: "" });
+      expect(plus).toEqual({ text: "", name: "Add", tooltip: "Add files and more" });
     });
 
     // The New Tab stage has no chat yet, so no mode menu; both pages draw the same AccessMenu.
