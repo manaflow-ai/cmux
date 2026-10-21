@@ -93,6 +93,19 @@ extension AppFeature {
                        name: t("store.feature.hoverCards.name", "Hover Cards"),
                        summary: t("store.feature.hoverCards.summary", "Hold the pointer on a workspace to see its agents, branch and ports."),
                        keywords: ["hover", "preview", "card"]),
+            // Sidebar views, so they need no command palette to find (Leo 2026-10-21). Compact is
+            // the default, so Remove on either card goes back to it.
+            AppFeature(id: "sidebar.comfortable", setting: "sidebar.density", on: .choice("comfortable"),
+                       category: .sidebar, preview: .sidebarRows(.comfortable),
+                       name: t("store.feature.comfortableSidebar.name", "Comfortable Sidebar"),
+                       summary: t("store.feature.comfortableSidebar.summary", "Taller sidebar rows with more room around them, still one line each."),
+                       keywords: ["density", "view", "spacious", "rows"]),
+            AppFeature(id: "sidebar.expanded", setting: "sidebar.density", on: .choice("expanded"),
+                       category: .sidebar, preview: .sidebarRows(.expanded),
+                       name: t("store.feature.expandedSidebar.name", "Expanded Sidebar"),
+                       summary: t("store.feature.expandedSidebar.summary",
+                                  "Each workspace shows its status or folder, its age and its pull request under its name."),
+                       keywords: ["density", "view", "two lines", "detail", "rows"]),
             // The sidebar's own items, which Add Items in its edit mode opens on (Leo 2026-10-20).
             AppFeature(id: "sidebar.homeItem", setting: "sidebar.layout", on: .sidebarItem("home"),
                        category: .sidebar, preview: .icon(.home),

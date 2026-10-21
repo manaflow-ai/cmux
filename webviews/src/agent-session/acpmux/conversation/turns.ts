@@ -9,10 +9,11 @@
 // a field-for-field mapping of them and nothing else in the pane changes.
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { continuesTurn, opensTurn } from "../turnStart";
+import { findRowIndex } from "./chatFind";
 import { turnPreviewCardsOn, turnPreviewUrl } from "./previewUrl";
 import { renderCall } from "./renderCall";
 import { showsTimestamp, type TurnTimes } from "./timestamps";
-import { isSubagentGroup } from "../subagents/subagentRows";
+import { isSubagentGroup, SUBAGENT_DONE } from "../subagents/subagentRows";
 import { STARTED_SESSIONS } from "../started/startedSessions";
 import { QUESTION_RECORD } from "../question/record";
 import type { Translate } from "../i18n";
@@ -511,6 +512,8 @@ const staysOut = (row: AcpmuxRow) =>
   isSubagentGroup(row) ||
   (row.kind === "plan" && row.plan !== undefined) ||
   row.kind === "backgroundTask" ||
+  // Where a subagent ended (the tray showed it while it ran, subagents/runningTray.ts).
+  row.kind === SUBAGENT_DONE ||
   // A compaction or a move to the fallback harness changes what the rest of the turn knows or
   // who answers it; folded, nobody would see it happened.
   row.kind === "compaction" ||
@@ -852,6 +855,25 @@ export function turnFoldFor(rows: readonly AcpmuxRow[], index: number): string |
   for (let at = Math.min(index, rows.length - 1); at >= 0; at -= 1)
     if (opensTurn(rows[at]!)) return `${WORKED}-${rows[at]!.id}`;
   return undefined;
+}
+
+/// Where to bring one message of the chat into view (a link's `message=<id>`, links.ts): the first
+/// of the message's rows the transcript already draws, else its first row and the "Worked for" fold
+/// that hides it. A tool call ends the reply it interrupts, so one message is several rows and only
+/// a turn's last one stays outside the fold: a link to a message that worked lands on a folded row,
+/// and the fold has to open before the transcript can scroll to it. Undefined when the chat's rows
+/// hold none of `messageRows` (another machine's transcript, or history not loaded yet).
+export function messageRevealTarget(
+  rows: readonly AcpmuxRow[],
+  drawn: readonly AcpmuxRow[],
+  messageRows: readonly string[],
+): { rowId: string; fold?: string } | undefined {
+  const places = messageRows.map((id) => rows.findIndex((row) => row.id === id)).filter((at) => at >= 0);
+  if (places.length === 0) return undefined;
+  const shown = places.find((at) => findRowIndex(drawn, rows[at]!.id) >= 0);
+  if (shown !== undefined) return { rowId: rows[shown]!.id };
+  const at = places[0]!;
+  return { rowId: rows[at]!.id, fold: turnFoldFor(rows, at) };
 }
 
 /// The footer of the drawn turn that `rows[from]` is in (the turn's summary row), looking forward
