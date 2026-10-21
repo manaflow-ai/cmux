@@ -67,7 +67,8 @@ enum TabLifecycle {
 
     /// `newTab.default` (Cmd-T, the strip's +): a person always gets the New
     /// Tab page, where a terminal, browser or chat is picked; nothing is
-    /// opened for them (Leo 2026-10-12). Scripts (CLI, MCP) get a tab of the
+    /// opened for them (Leo 2026-10-12), unless `tabs.terminalFirst` asks
+    /// for a terminal, as in cmux classic (#23021). Scripts (CLI, MCP) get a tab of the
     /// kind of the pane's selected tab (`NewTabKind`), through the New
     /// Terminal Tab, New Browser Tab and New Agent Chat paths, so focus and
     /// options match them, and so does `newTab.ofKind` (New <Kind> Tab,
@@ -93,7 +94,9 @@ enum TabLifecycle {
                   let connection = daemon.connection else { ctx.registry.refuse(MiscHandlerStrings.noPane); return }
             let repair = ctx.services.machines.emptyWorkspaceRepair(daemon.machineID, local: ctx.services.emptyWorkspaces)
             guard repair.states[key] == nil else { return }
-            let services = ctx.services, page = invocation.origin == .user && followsSetting && services.agentTabs.opensFirstPage(on: daemon)
+            let services = ctx.services
+            let page = invocation.origin == .user && followsSetting && !NewTabKind.terminalFirst(services)
+                && services.agentTabs.opensFirstPage(on: daemon)
             ctx.registry.track(Task { @MainActor in
                 do {
                     _ = try await repair.fillFirstTab(key) {
@@ -129,7 +132,8 @@ enum TabLifecycle {
         // The position action's slot, else a person's `tabs.newTabPosition` (right after `tab` by default), else the end (NewTabSlot).
         let slot = NewTabSlot.target(current: tab, pane: pane.tabs, explicit: position, user: user,
                                      setting: ctx.services.settings?.snapshot.newTabPosition)
-        var kind = user && followsSetting ? NewTabKind.page : sameKind
+        // `tabs.terminalFirst` (#23021): a person's Cmd-T opens a terminal, as in cmux classic.
+        var kind = user && followsSetting ? (NewTabKind.terminalFirst(ctx.services) ? .terminal : .page) : sameKind
         // Agent tabs and the page live in a shown pane whose daemon holds agent tabs; elsewhere,
         // a terminal. A build without the agent page has no new tab page either.
         if kind == .agent || kind == .page, !(controller.map { ctx.services.agentTabs.canHost(on: $0.daemon) } ?? false) { kind = .terminal }
