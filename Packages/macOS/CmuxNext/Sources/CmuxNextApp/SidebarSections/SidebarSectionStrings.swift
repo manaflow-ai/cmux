@@ -13,6 +13,7 @@ enum SidebarSectionStrings {
         case .unsupported: notInDocument
         case .workspaceList: workspaceListStays
         case .unknownItem: noSuchItem
+        case .rejected(let reject): rejected(reject.rawValue)
         }
     }
     static var notInDocument: String {

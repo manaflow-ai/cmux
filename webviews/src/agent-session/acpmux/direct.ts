@@ -5,6 +5,7 @@ import type {
   AcpmuxSecretAsk,
   AcpmuxSessionOffer,
   AcpmuxOfferResult,
+  AcpmuxBackgroundState,
   AcpmuxBackgroundTask,
   AcpmuxCompaction,
   AcpmuxPlanEntry,
@@ -21,6 +22,7 @@ import { continuesTurn } from "./turnStart";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
 import { promptBlocks, promptText, takesAudio, type ComposerAttachment } from "./attachments";
+import { liftInlineImages } from "./inlineImages";
 import { peerConnectedFromStatus, peerKindsFromStatus } from "./environments";
 import { hostKind, sessionEntry, summaryActivityAt, text, type AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
@@ -459,6 +461,8 @@ export function mergeToolItem(
       exitCode: exitCode(update.rawOutput) ?? before?.exitCode,
       startedAt: before?.startedAt ?? at,
       endedAt: before?.endedAt ?? (ended ? at : undefined),
+      // A shell that went to the background stays there as its call's result comes in.
+      ...(before?.background ? { background: before.background } : {}),
       locations: Array.isArray(update.locations) ? update.locations : before?.locations,
       images: update.content === undefined ? before?.images : imagesFromContent(update.content),
       diffs:
@@ -833,6 +837,8 @@ export class AcpmuxDirectClient {
   private replyAccepts = new Map<string, () => void>();
   /// A prompt that was not sent, by its row: what Retry sends again.
   private failedPrompts = new Map<string, { input: string; attachments: ComposerAttachment[]; promptId?: string }>();
+  /// The promptIds a Retry is sending: a refusal of one says "Still not sent".
+  private retriedPrompts = new Set<string>();
   /// Where each prompt this pane sent is on its way, by prompt id, and the row that shows it.
   private deliveries = new Map<
     string,
@@ -943,7 +949,7 @@ export class AcpmuxDirectClient {
   /// profile written, live model lists refreshed); the catalog re-reads (catalog.ts
   /// followHarnessChanges).
   onHarnessesChanged?: () => void;
-  /// `_acpmux/process_update` listeners (summary/sessionProcesses.ts).
+  /// `_acpmux/process_update` listeners (inspector/processes.ts).
   private readonly processListeners = new Set<(process: unknown) => void>();
   /// A prompt carrying the workspace context is on its way (send).
   private contextInFlight = false;
@@ -2546,6 +2552,12 @@ export class AcpmuxDirectClient {
     } else if (event.kind === "background_task_update") {
       const task = backgroundTask(update);
       if (!task) return;
+      // The shell's state goes on the call that started it: its "Ran" row turns from running in
+      // the background to finished where it is, in whichever turn (Leo 2026-10-20: never a
+      // second row).
+      if (this.markBackgroundCall(task, event.at)) return;
+      // Without its call (on a page not loaded) only how it ended is noted.
+      if (task.state === "running") return;
       // Noted where it ended: the text and tool fold before it close, as a tool call's would.
       this.endAssistantSegment();
       this.streamingActivity = undefined;
@@ -2555,7 +2567,7 @@ export class AcpmuxDirectClient {
         version: 1,
         at: event.at,
         kind: "backgroundTask",
-        backgroundTask: task,
+        backgroundTask: { ...task, state: task.state },
       });
     } else if (event.kind === "compaction") {
       const compaction = compactionOf(update);
@@ -2619,6 +2631,51 @@ export class AcpmuxDirectClient {
         ...(plan.length > 0 ? { plan } : { text: text || JSON.stringify(update.entries ?? update.content ?? "") }),
       });
     }
+  }
+
+  /// Puts a background shell's update on the call that started it, and says whether it found the
+  /// call. The row's version moves, so the row draws its new state wherever it is, an ended turn's
+  /// included (conversation/turns.ts reshapes the turn whose row changed). A shell ends once: a
+  /// late `running` leaves an ended one as it is.
+  private markBackgroundCall(task: BackgroundUpdate, at: number): boolean {
+    const found = this.backgroundCall(task);
+    if (!found) return false;
+    const [row, index] = found;
+    const items = [...(row.items ?? [])];
+    const item = items[index]!;
+    const tool = item.tool!;
+    const ended = task.state !== "running";
+    if (!ended && tool.background && tool.background.state !== "running") return true;
+    const background: AcpmuxBackgroundState = {
+      state: task.state,
+      ...(task.reason ? { reason: task.reason } : {}),
+      ...(ended ? { endedAt: at } : {}),
+    };
+    items[index] = { ...item, tool: { ...tool, background } };
+    this.rows.set(row.id, { ...row, version: row.version + 1, items });
+    return true;
+  }
+
+  /// The call a background shell's update is about: the newest call with its tool call id (an
+  /// adapter that numbers calls per process reuses one, cx-jzhka). An update without one goes on
+  /// the newest shell call that ran the same command and has not ended in the background.
+  private backgroundCall(task: BackgroundUpdate): [AcpmuxRow, number] | undefined {
+    let found: [AcpmuxRow, number] | undefined;
+    for (const row of this.rows.values()) {
+      if (row.kind !== "activity") continue;
+      (row.items ?? []).forEach((item, index) => {
+        const tool = item.tool;
+        if (!tool) return;
+        const same = task.toolCallId
+          ? tool.id === task.toolCallId
+          : tool.kind === "execute" &&
+            !!task.command &&
+            tool.command === task.command &&
+            (tool.background?.state ?? "running") === "running";
+        if (same) found = [row, index];
+      });
+    }
+    return found;
   }
 
   /// A call that asks before it runs waits on its permission ("pending") until it completes or
@@ -2771,7 +2828,8 @@ export class AcpmuxDirectClient {
             host: text(summary.host),
             peer: text(summary.peer),
             hostKind: hostKind(summary.hostKind),
-            branch: text(summary.branch),
+            // acpmux's session detail names the folder's branch `gitBranch` (when the session started).
+            branch: text(summary.branch) ?? text(summary.gitBranch),
             worktree: text(summary.worktree),
             title: summary.title,
             name: summary.name,
@@ -2786,6 +2844,7 @@ export class AcpmuxDirectClient {
               audio: takesAudio(summary.agentCapabilities.promptCapabilities, summary.configOptions),
             },
             steering: summary.steering === true,
+            backgroundsWork: summary.backgroundsWork === true,
             queuePaused: summary.queuePaused === true,
             ...(Array.isArray(summary.mcpServers) ? { mcpServers: summary.mcpServers } : {}),
             status: summary.status,
@@ -2887,6 +2946,9 @@ export class AcpmuxDirectClient {
     steer = false,
     resend = false,
   ): Promise<string | undefined> {
+    // A `data:` image written into the prompt goes as an image, never as text: the bubble, the
+    // agent and the chat's compaction never see base64 (inlineImages.ts, Leo 2026-10-20).
+    ({ text: input, attachments } = liftInlineImages(input, attachments));
     // A chat opening (a switch) is drawn first: the prompt goes to it once it shows, never while the
     // pane still draws the chat before.
     while (this.snapshotHold && this.shownSessionId !== this.selectedSessionId) await this.snapshotHold.released;
@@ -3110,15 +3172,18 @@ export class AcpmuxDirectClient {
       const row = this.rows.get(rowId);
       if (row) {
         // A new row object: the transcript's rows are memoized on identity and version. The
-        // bubble says why it got no reply; a refusal for want of a gesture asks for Retry.
+        // bubble says why it got no reply, in the words of whoever refused it. A refusal for want
+        // of a gesture names that (the generic refusal's text is about a pick): posted input (a
+        // script, a computer-use agent) is never the person's (cx-ocdz), and the Retry click is
+        // (hq#2569 item 5). A Retry refused again says "Still", so the click visibly did something.
+        const reason = code === "transport.gesture_required" ? translate("prompt.gestureReason") : errorMessage(error);
         this.rows.set(rowId, {
           ...row,
           pending: false,
           failed: true,
-          error:
-            code === "transport.gesture_required"
-              ? translate("prompt.notSentGesture")
-              : translate("prompt.notSent", { reason: errorMessage(error) }),
+          error: translate(this.retriedPrompts.has(promptId) ? "prompt.stillNotSent" : "prompt.notSent", {
+            reason: reason || translate("transport.refused"),
+          }),
           version: row.version + 1,
         });
         this.failedPrompts.set(rowId, { input, attachments, promptId });
@@ -3208,15 +3273,22 @@ export class AcpmuxDirectClient {
       this.rows.delete(rowId);
       this.emit();
     }
-    return this.send(
-      failed.input,
-      failed.attachments,
-      failed.promptId,
-      undefined,
-      ticket,
-      false,
-      failed.promptId !== undefined,
-    );
+    // A Retry refused again says "Still not sent", so the click visibly did something (hq#2569 item 5).
+    const promptId = failed.promptId ?? crypto.randomUUID();
+    this.retriedPrompts.add(promptId);
+    try {
+      return await this.send(
+        failed.input,
+        failed.attachments,
+        promptId,
+        undefined,
+        ticket,
+        false,
+        failed.promptId !== undefined,
+      );
+    } finally {
+      this.retriedPrompts.delete(promptId);
+    }
   }
   /// Edit on a prompt that was not sent: its row goes and what it held comes back, for the composer.
   takeFailedPrompt(rowId: string): { input: string; attachments: ComposerAttachment[] } | undefined {
@@ -4022,15 +4094,16 @@ export class AcpmuxDirectClient {
       this.forking = false;
     }
   }
-  /// Asks a side question about the open session (`/btw`). acpmux answers it in a throwaway copy
-  /// of the chat (`_acpmux/ask`), so the chat never holds it. Resolves to the answer's text.
-  async ask(question: string): Promise<string> {
-    if (!this.actingSessionId) return "";
-    const result = await this.request("_acpmux/ask", {
-      sessionId: this.actingSessionId,
-      text: question,
-    });
-    return typeof result?.text === "string" ? result.text : "";
+  /// `/btw <question>`: acpmux starts a read-only side session about the open chat, on a fast model,
+  /// asks it `question` and answers with its id at once (`_acpmux/btw`). The chat is not touched,
+  /// so this works while its turn runs. Rejects with acpmux's message when it refuses.
+  async btw(question: string): Promise<string> {
+    const sessionId = this.actingSessionId;
+    if (!sessionId) throw new Error(translate("error.notOpen"));
+    const result = await this.request("_acpmux/btw", { sessionId, question });
+    // No id: the caller says the side session did not start, without a reason it does not have.
+    if (typeof result?.sessionId !== "string" || !result.sessionId) throw new Error("");
+    return result.sessionId;
   }
   async setModel(modelId: string): Promise<void> {
     if (this.actingSessionId) await this.request("session/set_model", { sessionId: this.actingSessionId, modelId });
@@ -4275,6 +4348,13 @@ export class AcpmuxDirectClient {
             compaction: { ...row.compaction, state: "failed", inferred: true },
           });
       }
+    // A background shell the held events saw end while its call was not loaded ends on that call's
+    // row now that this page brought it, and its own row goes.
+    for (const row of held.values())
+      if (row.backgroundTask && this.markBackgroundCall(row.backgroundTask, row.at)) {
+        held.delete(row.id);
+        this.rows.delete(row.id);
+      }
     // A fork older than every held event is only in this page.
     const forkedAtSeq = live.forkedAtSeq ?? this.forkedAtSeq;
     Object.assign(this, live, { forkedAtSeq });
@@ -4312,10 +4392,13 @@ export class AcpmuxDirectClient {
   private rejectPending(): void {
     for (const request of this.pending.values()) {
       if (request.timer) clearTimeout(request.timer);
+      // The timeout code stays (git writes, checkpoints and permissions read it); `reason` tells a
+      // closed connection from a deadline (conversation/backgroundNotice.ts).
       request.reject(
         Object.assign(new Error(translate("error.interrupted")), {
           code: "native.timed_out",
           origin: "native",
+          reason: "interrupted",
         }),
       );
     }
@@ -4463,9 +4546,13 @@ function offerResult(msg: any): AcpmuxOfferResult | undefined {
   return { offerId, childSessionId, title };
 }
 
-function backgroundTask(update: any): AcpmuxBackgroundTask | undefined {
+/// A background shell's update: running in the background, or how it ended.
+type BackgroundUpdate = Omit<AcpmuxBackgroundTask, "state"> & { state: AcpmuxBackgroundState["state"] };
+
+function backgroundTask(update: any): BackgroundUpdate | undefined {
   const state = update.state;
-  if (typeof update.toolCallId !== "string" || !["completed", "failed", "stopped"].includes(state)) return undefined;
+  if (typeof update.toolCallId !== "string" || !["running", "completed", "failed", "stopped"].includes(state))
+    return undefined;
   return {
     toolCallId: update.toolCallId,
     command: typeof update.command === "string" ? update.command : "",

@@ -106,4 +106,16 @@ import Testing
             == ["id-optchat-sub-6b68ac4a-a2", "id-optchat-sub-6b68ac4a-a3"])
         #expect(runs.allSatisfy { $0.arguments.isEmpty })
     }
+
+    /// Chief Actions is the app's one more button (⋮, OverflowButton): VoiceOver's press opens the
+    /// same menu a pointer press does.
+    @Test func chiefActionsIsTheOverflowButton() {
+        let registry = ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases)
+        let tools = ChiefPaneTools(chief: ChiefSidebar(lanes: AgentLaneStore()), registry: registry)
+        var shown: NSMenu?
+        tools.actionsButton.presentMenu = { menu, _ in shown = menu }
+        #expect(tools.actionsButton.accessibilityPerformPress())
+        #expect(shown?.items.count == ChiefPaneTools.actions.count)
+        #expect(tools.actionsButton.accessibilityLabel() == tools.actionsButton.label)
+    }
 }

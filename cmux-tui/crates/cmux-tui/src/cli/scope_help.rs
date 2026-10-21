@@ -38,11 +38,12 @@ pub(super) const NOTIFICATION_HELP: &str = "\
 USAGE
   cmux notification list [--limit <1..256>]
   cmux notification create --title <value> --body <value> [--subtitle <value>]
-    [--level info|warning|error] [--terminal <term_id>]
-  cmux notification clear [--terminal <term_id>]
+    [--level info|warning|error] [--terminal <term_id> | --workspace <ws_id>]
+  cmux notification clear [--terminal <term_id> | --workspace <ws_id>]
   cmux notification ack --client <id> <notification_id>...
 
-clear without --terminal clears every notification of the session. `cmux
+clear without --terminal or --workspace clears every notification of the
+session; --workspace clears that workspace's rows and those of its terminals. `cmux
 notify` takes the flags of the macOS `cmux notify` (`cmux notify --help`).
 ";
 
@@ -51,11 +52,13 @@ USAGE
   cmux notify [--title <text>] [--subtitle <text>] [--body <text>]
     [--surface <term_id>|current] [--workspace <ws_id>|current]
     [--reply] [--desktop true|false]
-  cmux notify --clear [--surface <term_id>|current] [--workspace current]
+  cmux notify --clear [--surface <term_id>|current] [--workspace <ws_id>|current]
 
 The flags of the macOS `cmux notify`. The notification belongs to the caller's
-terminal unless --surface names another terminal or --workspace asks for a
-session-level row. --title defaults to \"Notification\". --reply asks for a
+terminal unless --surface names another terminal or --workspace names a
+workspace (--workspace current asks for a session-level row). --clear
+--workspace <ws_id> clears that workspace's notifications and those of its
+terminals; --workspace current clears the whole session. --title defaults to \"Notification\". --reply asks for a
 banner with a Reply field when the notification belongs to a terminal: its
 text is typed into that terminal, then Return. --desktop false posts no
 banner. --window and --id-format are accepted and ignored.

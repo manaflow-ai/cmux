@@ -1145,6 +1145,7 @@ export function Picker({
   warnUnrestricted = false,
   returnFocus = true,
   heading,
+  tooltip,
 }: {
   label: string;
   className: string;
@@ -1156,6 +1157,9 @@ export function Picker({
   returnFocus?: boolean;
   /// A question over the choices, as an approval menu asks it.
   heading?: string;
+  /// What the menu holds, as the trigger's tooltip: only a trigger that draws an icon and no text
+  /// passes one (a picker showing its choice's name needs none).
+  tooltip?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
@@ -1290,6 +1294,8 @@ export function Picker({
         className="acpmux-picker-button"
         data-menu={label}
         aria-label={label}
+        // tooltip-allow: only an icon-only trigger (the composer's +) passes a tooltip.
+        title={tooltip}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}

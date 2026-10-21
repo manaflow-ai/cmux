@@ -341,9 +341,26 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
     },
   );
 
-  /// How far the last row sits above the bottom stack's top.
+  /// How far the last row sits above the bottom stack's top, once the transcript is at rest. A new row
+  /// rises in (cv-enter) and growth glides in (GLIDE_MS); a read mid-way put the row up to 41px low
+  /// in Chromium on a loaded machine, though scrollTop never moved. Infinite ones (a spinner) aside.
   const gapAbove = (page: Page) =>
-    page.evaluate(() => {
+    page.evaluate(async () => {
+      const scroller = document.querySelector(".acpmux-scroll")!;
+      for (;;) {
+        const moving = document
+          .getAnimations()
+          .filter(
+            (animation) =>
+              animation.playState === "running" &&
+              Number.isFinite(animation.effect?.getComputedTiming().endTime) &&
+              animation.effect instanceof KeyframeEffect &&
+              animation.effect.target instanceof Node &&
+              scroller.contains(animation.effect.target),
+          );
+        if (moving.length === 0) break;
+        await Promise.allSettled(moving.map((animation) => animation.finished));
+      }
       const rows = [...document.querySelectorAll<HTMLElement>(".acpmux-scroll .acpmux-row")];
       const last = rows.reduce((a, b) =>
         Number(b.getAttribute("aria-posinset")) > Number(a.getAttribute("aria-posinset")) ? b : a,
