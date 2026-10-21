@@ -289,7 +289,7 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  width: min(100%, 360px);
+  width: min(100%, 480px);
   aspect-ratio: 16 / 10;
   margin: 6px 0;
   padding: 4px;
@@ -345,7 +345,7 @@ button.cv-thumb:focus-visible {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 8px;
-  width: min(100%, 728px);
+  width: min(100%, 968px);
   margin: 6px 0;
 }
 .cv-thumbs.is-row .cv-thumb {
