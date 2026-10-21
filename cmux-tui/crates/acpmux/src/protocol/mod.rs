@@ -12,6 +12,7 @@
 pub mod inventory;
 pub mod mailbox;
 pub mod permission;
+pub mod process;
 pub mod session;
 #[cfg(test)]
 mod tests;
@@ -107,6 +108,7 @@ pub fn registry() -> Vec<MethodDecl> {
     use Kind::*;
     use mailbox::*;
     use permission::*;
+    use process::*;
     use session::*;
     vec![
         // Standard ACP.
@@ -162,6 +164,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_PROCESS_LIST, Request),
         untyped(method::MUX_PROCESS_TAIL, Request),
         untyped(method::MUX_PROCESS_KILL, Request),
+        request::<ProcessBackgroundParams, ProcessBackgroundResult>(method::MUX_PROCESS_BACKGROUND),
         untyped(method::MUX_WORKTREE_REPORT, Request),
         untyped(method::MUX_WORKTREE_CLEAN, Request),
         untyped(method::MUX_WORKTREE_RESTORE, Request),
@@ -273,6 +276,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_SHUTDOWN, Request),
         untyped("_acpmux/peers", Request),
         untyped("_acpmux/peer_add", Request),
+        untyped("_acpmux/peer_lease", Request),
         untyped("_acpmux/peer_reconnect", Request),
         untyped("_acpmux/peer_remove", Request),
         // Notifications.

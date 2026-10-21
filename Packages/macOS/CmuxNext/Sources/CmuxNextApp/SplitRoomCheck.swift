@@ -70,10 +70,13 @@ extension AppServices {
     /// Right/Down, from the chat header's Terminal and Browser buttons, the palette, menus,
     /// shortcuts and the CLI) (cx-yihq). A person's split from the docked agent chat opens the tool
     /// as a tab in the scrolling strip, as New Terminal and New Browser do there (cx-ic0); a script's
-    /// split there is refused, so its result stays predictable. Elsewhere it splits when the pane
-    /// has room, and is refused when it has none: a split never opens a column (column-sizing.md).
+    /// split there is refused, so its result stays predictable. From Home's pinned dock alone
+    /// (`pinned-dock-alone-v1`), which has no strip, a person's split opens the tool in a new column
+    /// right of the dock, as New Tab does there (Lawrence 2026-10-20: "Command-D in home does not
+    /// work"). Elsewhere it splits when the pane has room, and is refused when it has none: a split
+    /// never opens a column (column-sizing.md).
     func toolSplit(from pane: PaneModel, edge: PaneEdge, byPerson: Bool) -> ToolSplitDecision {
-        if byPerson, let strip = chatDockStripPane(for: pane) { return .tab(in: strip) }
+        if byPerson, let route = chatDockRoute(for: pane) { return route }
         switch splitRoom(for: pane, edge: edge) {
         case .split: return .split
         case .refused(let reason): return .refused(reason)
@@ -81,13 +84,17 @@ extension AppServices {
         }
     }
 
-    /// The strip pane a tool opened from `pane` goes to when `pane` is the chat dock, else nil. A
-    /// chat dock with no strip to send to (a zoomed screen, a daemon without dock roles) gives nil,
-    /// and `splitRoom` then refuses with `chatDockCannotSplit`.
-    private func chatDockStripPane(for pane: PaneModel) -> PaneController? {
-        guard ChatDockRules.isChatDock(pane, services: self), let controller = paneController(for: pane),
-              case .tab(let target) = ChatColumnPlacement.resolve(from: controller, services: self) else { return nil }
-        return controller.workspace?.panes[target]
+    /// Where a tool opened from `pane` goes when `pane` is the chat dock: a tab in the strip pane, or
+    /// a new column beside Home's pinned dock alone; else nil. A chat dock with nowhere to send it (a
+    /// zoomed screen, a daemon without dock roles) gives nil, and `splitRoom` then refuses with
+    /// `chatDockCannotSplit`.
+    private func chatDockRoute(for pane: PaneModel) -> ToolSplitDecision? {
+        guard ChatDockRules.isChatDock(pane, services: self), let controller = paneController(for: pane) else { return nil }
+        switch ChatColumnPlacement.resolve(from: controller, services: self) {
+        case .tab(let target): return controller.workspace?.panes[target].map { .tab(in: $0) }
+        case .besideDock: return .besideDock(controller)
+        case .here, .dockChat: return nil
+        }
     }
 
     /// The width to send with a new column next to `pane`, from every path
@@ -114,6 +121,9 @@ enum ToolSplitDecision {
     case split
     /// Open the tool as a tab in this strip pane (the pane was the chat dock).
     case tab(in: PaneController)
+    /// Open the tool in a new column right of this pane: Home's pinned chat dock alone, which takes
+    /// no tabs and has no strip beside it (`pinned-dock-alone-v1`).
+    case besideDock(PaneController)
     /// No split; the localized reason for the caller to report.
     case refused(String)
 }

@@ -11,7 +11,8 @@
  * daemon is bound to this instance; daemon identity and SSH host key differ
  * between the clones (machine-id is reported); the idle-wakeup check
  * (devboxIdleWakeupCheckCommand) and idle CPU-s/min; every program in the
- * lock runs from /opt/cmux/current/bin; `cr capabilities --json`; Postgres
+ * lock runs from /opt/cmux/current/bin (`acpmux --version` too: cmux-tui's acpmux name);
+ * `acpmux ls --json` starts and lists the machine's acpmux; `cr capabilities --json`; Postgres
  * binaries present with no cluster; docker.socket active and docker.service
  * inactive; no secret patterns (paths and pattern kinds only); /tmp empty;
  * sshd trusts only the bound CA on loopback (empty CA refuses, throwaway CA
@@ -83,6 +84,28 @@ export function programChecksCommand(lock: InputsLock): string {
     }
   }
   return rows.join("; ");
+}
+
+/**
+ * `acpmux ls --json` as the work user from a login shell. The image's `acpmux` is cmux-tui under
+ * another name (argv0 dispatch), so this proves the name reaches acpmux, which starts the
+ * machine's acpmux daemon (agent launches denied: no harness probe on a smoke clone) and lists
+ * its sessions; the daemon is stopped again. Automation agent steps run `acpmux run` this way.
+ */
+export function acpmuxListCommand(): string {
+  const script = "export ACPMUX_AGENT_LAUNCH=deny; acpmux ls --json; rc=$?; acpmux daemon shutdown >/dev/null 2>&1; exit $rc";
+  return `sudo -n -u ${DEVBOX_WORK_USER} -H bash -lc ${sq(script)} </dev/null`;
+}
+
+/** Problems with `acpmuxListCommand`'s answer: it must exit 0 with a JSON session list. */
+export function acpmuxListProblems(code: number, stdout: string, stderr: string): string[] {
+  if (code !== 0) return [`acpmux ls --json: exit ${code}: ${(stderr.trim() || stdout.trim()).slice(-200)}`];
+  try {
+    const listed = JSON.parse(stdout) as { sessions?: unknown };
+    return Array.isArray(listed?.sessions) ? [] : [`acpmux ls --json: no sessions list: ${stdout.trim().slice(0, 200)}`];
+  } catch {
+    return [`acpmux ls --json: not JSON: ${stdout.trim().slice(0, 200)}`];
+  }
 }
 
 export function programProblems(lock: InputsLock, stdout: string): string[] {
@@ -204,6 +227,9 @@ async function functionalChecks(vm: Vm, lock: InputsLock, report: Report): Promi
   check(report, "postgres-binaries-no-cluster", pg.code === 0, pg.stdout.trim() || pg.stderr.slice(-300));
   const docker = await run(vm, DOCKER_CHECK);
   check(report, "docker-socket-only", docker.code === 0, docker.stdout.trim() || docker.stderr.slice(-300));
+  const acpmux = await run(vm, acpmuxListCommand(), 120_000);
+  const acpmuxProblems = acpmuxListProblems(acpmux.code, acpmux.stdout, acpmux.stderr);
+  check(report, "acpmux-ls", acpmuxProblems.length === 0, acpmuxProblems.join("\n") || `acpmux ls --json from ${CURRENT_BIN}: ${acpmux.stdout.trim().slice(0, 120)}`);
   const env = await run(vm, `pid=$(pgrep -f 'cmux-tui server [s]tart' | head -1) && tr '\\0' '\\n' < /proc/$pid/environ | grep -E '^PATH=' && test "$(readlink -f ${DEVBOX_WORK_HOME}/.cmux/bin/cmux-tui)" = "$(readlink -f ${CURRENT_BIN}/cmux-tui)" && echo daemon-from-store`);
   check(report, "daemon-from-store", env.code === 0 && env.stdout.includes(CURRENT_BIN), env.stdout.trim());
 }
