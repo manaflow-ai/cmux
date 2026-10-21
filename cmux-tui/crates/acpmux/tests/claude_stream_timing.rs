@@ -4,7 +4,10 @@
 //! `session/update` records carry their content. optchat-chief times each model
 //! request from the log (`fold.rs` `time_request`: `message_start` and the first
 //! `content_block_delta` after it give headers_ms and ttft_ms), so those two
-//! stay in the log; every later delta of the request does not.
+//! stay in the log; every later delta of the request does not. A subagent's
+//! lines (`parent_tool_use_id`) are not timed, so none of them stays, and one
+//! streaming between a request's start and its first token does not take that
+//! request's first delta.
 
 #![cfg(unix)]
 
@@ -132,6 +135,6 @@ async fn a_claude_log_keeps_each_requests_start_and_first_delta_only() {
             pair("message_start", "msg_t2"),
             pair("content_block_delta", "msg_t2 one "),
         ],
-        "the log keeps each request's message_start and first delta, and no later delta"
+        "the log keeps each main request's message_start and first delta, no later delta and no subagent line"
     );
 }
