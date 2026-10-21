@@ -2116,7 +2116,7 @@ class Sweeper(unittest.TestCase):
     def test_a_run_with_no_free_overflow_is_watched_for_refusals_only(self):
         # Run 39615562861, 2026-10-21: placement found no free Blacksmith slot, so the scheme compile
         # stayed on the side label and a re-run could only rejoin that queue. The sweeper cancelled
-        # and re-ran it twice while it waited. Its marker says so; the bot's re-run inherits it.
+        # and re-ran it twice while it waited. Its marker says so; the bot's re-runs inherit it.
         path = ".github/workflows/cmux-next.yml"
         bot = {"login": rescue.RESCUE_ACTOR}
         api = SweepAPI([listed(1, path=path), listed(2, path=path),
@@ -2126,18 +2126,54 @@ class Sweeper(unittest.TestCase):
 
         def fake_follow(client, target, **kwargs):
             targets.append((target.run_id, target.attempt, target.refusals_only))
+            if target.run_id == 1 and target.attempt == 1:
+                # The rescue re-ran a refused job: attempt 2 is found among the re-runs next tick.
+                api.runs[1].update(run_attempt=2, triggering_actor=bot)
+            return "stopped: the run finished"
+        with unittest.mock.patch.object(rescue, "follow", fake_follow):
+            rescue.sweep(api, "manaflow-ai/cmux", seconds=90, queue_rounds="0", now=clock.now,
+                         log=lambda text: None, sweep_seconds=180, tick_seconds=60, wait=clock.sleep)
+        self.assertEqual(sorted(targets), [(1, 1, True), (1, 2, True), (2, 1, False), (3, 2, True)])
+
+    def test_a_marker_older_than_the_watch_still_marks_a_re_run(self):
+        # A new sweeper finds attempt 2 of a run whose attempt-1 marker is past SWEEP_MAX_AGE_SECONDS.
+        bot = {"login": rescue.RESCUE_ACTOR}
+        api = SweepAPI([listed(1, path=".github/workflows/cmux-next.yml", run_attempt=2, triggering_actor=bot)],
+                       refusals=[1], created=-rescue.SWEEP_MAX_AGE_SECONDS - 60)
+        clock, targets = Clock(), []
+
+        def fake_follow(client, target, **kwargs):
+            targets.append((target.run_id, target.attempt, target.refusals_only))
+            return "stopped: the run finished"
+        with unittest.mock.patch.object(rescue, "follow", fake_follow):
+            rescue.sweep(api, "manaflow-ai/cmux", seconds=90, queue_rounds="0", now=clock.now,
+                         log=lambda text: None, sweep_seconds=60, tick_seconds=60, wait=clock.sleep)
+        self.assertEqual(targets, [(1, 2, True)])
+
+    def test_a_cmux_next_re_run_waits_for_the_refusals_listing(self):
+        # The refusals listing failed: a cmux-next re-run is adopted on a later tick, with its mark;
+        # a ci.yml re-run, which has none, is adopted at once.
+        bot = {"login": rescue.RESCUE_ACTOR}
+        api = SweepAPI([listed(1, path=".github/workflows/cmux-next.yml", run_attempt=2, triggering_actor=bot),
+                        listed(2, run_attempt=2, triggering_actor=bot)], refusals=[1])
+        listings = {"failed": False}
+        real = api.marked_runs
+
+        def flaky(name, count, oldest=None, pages=1, log=None):
+            if name == rescue.REFUSALS_WATCH_MARKER and not listings["failed"]:
+                listings["failed"] = True
+                raise OSError("timed out")
+            return real(name, count, oldest, pages, log)
+        api.marked_runs = flaky
+        clock, targets = Clock(), []
+
+        def fake_follow(client, target, **kwargs):
+            targets.append((target.run_id, target.attempt, target.refusals_only, int(clock.seconds)))
             return "stopped: the run finished"
         with unittest.mock.patch.object(rescue, "follow", fake_follow):
             rescue.sweep(api, "manaflow-ai/cmux", seconds=90, queue_rounds="0", now=clock.now,
                          log=lambda text: None, sweep_seconds=120, tick_seconds=60, wait=clock.sleep)
-        self.assertEqual(sorted(targets), [(1, 1, True), (2, 1, False), (3, 2, True)])
-        # Attempt 2 of run 1 appears among the re-runs on a later tick: still refusals only.
-        api.runs[1].update(run_attempt=2, triggering_actor=bot)
-        targets.clear()
-        with unittest.mock.patch.object(rescue, "follow", fake_follow):
-            rescue.sweep(api, "manaflow-ai/cmux", seconds=90, queue_rounds="0", now=clock.now,
-                         log=lambda text: None, sweep_seconds=120, tick_seconds=60, wait=clock.sleep)
-        self.assertIn((1, 2, True), targets)
+        self.assertEqual(sorted(targets), [(1, 2, True, 60), (2, 2, False, 0)])
 
     def test_a_finished_run_only_when_it_failed_since_the_last_sweeper(self):
         recent, old = stamp(-10 * 60), stamp(-rescue.SWEEP_FINISHED_SECONDS - 60)

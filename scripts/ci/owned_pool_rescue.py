@@ -1584,13 +1584,20 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
             key = outcome.split(":")[0]
             outcomes[key] = outcomes.get(key, 0) + 1
 
-    def adopt(run_id: int, late: bool) -> None:
+    def adopt(run_id: int, late: bool, *, refusals_known: bool = True) -> None:
+        was_seen = run_id in seen
         seen.add(run_id)
         try:
             run = read(lambda: client.run(run_id), wait, log)
         except READ_ERRORS as error:
             seen.discard(run_id)  # the next tick tries again
             log(f"[run {run_id}] could not read the run ({error})")
+            return
+        if not refusals_known and run.get("path") == CMUX_NEXT_WORKFLOW_PATH:
+            # Without this tick's refusals listing a cmux-next re-run could lose its mark.
+            if not was_seen:
+                seen.discard(run_id)
+            log(f"[run {run_id}] not adopted yet: the refusals markers were not listed; next tick")
             return
         rerun_seen.add((run_id, int(run.get("run_attempt") or 0)))
         full_rerun = False
@@ -1629,22 +1636,20 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
                 continue
             refusals_listed = refusals_listed or name == REFUSALS_WATCH_MARKER
             for run_id, created in marked:
-                if created is not None and created < oldest:
-                    continue
                 if name == REFUSALS_WATCH_MARKER:
-                    refusals_runs.add(run_id)
-                if run_id not in seen:
-                    adopt(run_id, late)
+                    refusals_runs.add(run_id)  # at any age: a later re-run inherits it
+                if run_id in seen or (created is not None and created < oldest):
+                    continue
+                adopt(run_id, late)
         # A re-run of failed jobs goes back to the minis with no marker of its own; two listings a tick.
         try:
-            # Without the refusals listing a re-run could lose its mark: wait a tick.
-            reruns = client.owned_reruns(SWEEP_LISTING) if refusals_listed else []
+            reruns = client.owned_reruns(SWEEP_LISTING)
         except READ_ERRORS as error:
             log(f"could not list re-runs ({error}); next tick")
             reruns = []
         for run_id, attempt in reruns:
             if (run_id, attempt) not in rerun_seen:
-                adopt(run_id, False)
+                adopt(run_id, False, refusals_known=refusals_listed)
         threads = [thread for thread in threads if thread.is_alive()]
         log(f"tick: {len(threads)} run(s) watched, {client.remaining or '?'} of "
             f"{client.limit or '?'} API requests left this hour")
