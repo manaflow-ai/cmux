@@ -48,7 +48,7 @@ import Testing
         SidebarCardFeed.handle(.noticeAction(card: "another-card", action: "yes"), services: services)
         #expect(services.machineAsks.card == card)
 
-        let create = try #require(card.actions.first(where: \.prominent))
+        let create = try #require(card.actions.first { $0.prominent })
         SidebarCardFeed.handle(.noticeAction(card: card.id, action: create.id), services: services)
         #expect(await answer.value, "Create on the card did not approve the request")
         #expect(services.machineAsks.card == nil, "the answered card stays")
@@ -89,7 +89,8 @@ import Testing
         defer { window.close() }
         _ = try DebugUpdater.run(["action": .string("stage"), "version": .string("1.0.0-nightly.3845050428001"), "changes": JSONValue(3)], services, terminate: {})
         let model = SidebarModel()
-        model.updateCard = try #require(SidebarCardFeed.updateCard(services.updater), "no staged update card")
+        model.updateCard = SidebarCardFeed.updateCard(services.updater)
+        #expect(model.updateCard != nil, "no staged update card")
         let sidebar = SidebarView(model: model, design: DesignSettings())
         window.contentView = sidebar
         sidebar.frame = NSRect(x: 0, y: 0, width: Metrics.sidebarWidth, height: 640)
