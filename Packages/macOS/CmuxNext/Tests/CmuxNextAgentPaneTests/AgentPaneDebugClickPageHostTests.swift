@@ -17,19 +17,8 @@ struct AgentPaneDebugClickPageHostTests {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
     }
 
-    /// The page both tests show. The agent page's root is registered once per process (the first
-    /// registration wins, `PageID.registerBundledRoot`), so every page-host pane here shares it.
-    private static let page: URL? = {
-        let directory = FileManager.default.temporaryDirectory.appending(path: "debug-click-\(UUID().uuidString)")
-        let file = directory.appending(path: "index.html")
-        let html = #"<html><body><textarea style="box-sizing:border-box;margin:0;padding:0;border:0;width:200px;height:40px"></textarea><button aria-label="Remove red.png" style="position:absolute;left:300px;top:10px;width:16px;height:16px"></button></body></html>"#
-        guard (try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)) != nil,
-              (try? Data(html.utf8).write(to: file)) != nil else { return nil }
-        return file
-    }()
-
     @Test func clickFindsAnElementOfThePageTheChatShows() async throws {
-        let file = try #require(Self.page)
+        let file = try #require(AgentPageTestRoot.page)
         let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), pageHost: true,
                                               chromium: nil))
         view.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
@@ -56,7 +45,7 @@ struct AgentPaneDebugClickPageHostTests {
     /// The default: the chat shows in Chromium and the pane's own WebKit view is hidden and empty. The
     /// element is found by a script in the Chromium page and pressed with DevTools input there.
     @Test func clickFindsAndPressesAnElementOfAChromiumChat() async throws {
-        let file = try #require(Self.page)
+        let file = try #require(AgentPageTestRoot.page)
         let hosting = LocatingHosting()
         let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), pageHost: true,
                                               chromium: hosting))
