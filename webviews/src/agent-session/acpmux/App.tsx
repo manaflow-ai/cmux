@@ -1001,17 +1001,16 @@ const transcriptHasFloatingCopy = (row: AcpmuxRow) =>
 
 /// Slides the thread from `step` px below (above, when negative) to its place over 180 ms, so
 /// content that grew at the latest row glides in. Glides stack (`composite: "add"`): two started
-/// before one paint move the text by their sum. None under Reduce Motion; false when none started.
-function glide(node: HTMLElement | null, step: number): boolean {
+/// before one paint move the text by their sum. None under Reduce Motion (undefined).
+function glide(node: HTMLElement | null, step: number): Animation | undefined {
   // Content that grew while the chat was hidden, or as it shows again, is drawn in place.
-  if (isAgentMotionOff() || !entranceAllowed() || !node || typeof node.animate !== "function") return false;
-  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return false;
-  node.animate([{ transform: `translateY(${step}px)` }, { transform: "translateY(0px)" }], {
+  if (isAgentMotionOff() || !entranceAllowed() || !node || typeof node.animate !== "function") return undefined;
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return undefined;
+  return node.animate([{ transform: `translateY(${step}px)` }, { transform: "translateY(0px)" }], {
     duration: GLIDE_MS,
     easing: "cubic-bezier(0.2, 0, 0, 1)",
     composite: "add",
   });
-  return true;
 }
 const GLIDE_MS = 180;
 /// How many rows from the end a glide looks for the row it holds.
@@ -1025,10 +1024,10 @@ function trailingRowTop(layout: ConversationLayout, rows: readonly { id: string 
 }
 
 /// What a followed view's glides hold still: the latest row as the reader last saw it (`id`, drawn
-/// `top` px down the view, its glides aside), and the glides added since then (`added`). A frame can
-/// lay the rows out several times before it paints (each streamed snapshot, then its drawn heights):
-/// each glide is measured from what was painted, not from a layout nobody saw.
-type GlideHold = { id: string; top: number; added: number };
+/// `top` px down the view, its glides aside), and the glides started since then (`added` px in all).
+/// A frame can lay the rows out several times before it paints (each streamed snapshot, then its
+/// drawn heights): each glide is measured from what was painted, not from a layout nobody saw.
+type GlideHold = { id: string; top: number; added: number; glides: Animation[] };
 
 /// Whether `updates` change any drawn height in `current`.
 function changesDrawn(current: Map<string, DrawnHeight>, updates: Map<string, DrawnHeight>): boolean {
@@ -2165,8 +2164,11 @@ export function VirtualTranscript({
       // the new end; the offset recorded before this commit is where the reader was.
       // A clamp lands exactly on the scroller's own end, which rounds the layout's
       // fractional height, so compare with that rather than allow for the rounding.
+      // A viewport that grew clamps at the end the content had then: the room a queued prompt's
+      // card leaves (`floor`) can make the content taller again in this same commit.
       const live = node.scrollTop;
-      const clamped = live < scrolledTo.current.top - 0.5 && live >= node.scrollHeight - node.clientHeight - 0.5;
+      const end = Math.min(node.scrollHeight, Math.ceil(old.totalHeight)) - node.clientHeight;
+      const clamped = live < scrolledTo.current.top - 0.5 && live >= end - 0.5;
       // An offset that has not moved since it was recorded was at the latest row if it was
       // then; a shorter viewport alone would otherwise read as scrolled up.
       const unmoved = Math.abs(live - scrolledTo.current.top) <= 0.5;
@@ -2205,7 +2207,7 @@ export function VirtualTranscript({
         if (!glideHold.current && lastSeen) {
           const was = trailingRowTop(old, oldRows, lastSeen.id);
           if (was !== undefined) {
-            glideHold.current = { id: lastSeen.id, top: was - before, added: 0 };
+            glideHold.current = { id: lastSeen.id, top: was - before, added: 0, glides: [] };
             // After this frame paints (a task queued from its animation frame runs after it).
             requestAnimationFrame(() => setTimeout(() => (glideHold.current = undefined), 0));
           }
@@ -2224,15 +2226,17 @@ export function VirtualTranscript({
         // flight ends, so the text sits at the end of the view on every frame.
         if (rewrapped) for (const animation of thread.current?.getAnimations?.() ?? []) animation.finish();
         const glided =
-          settled &&
-          Math.abs(step) >= 0.5 &&
-          Math.abs(step) < node.clientHeight &&
-          !resized &&
-          !reflowing.current &&
-          glide(thread.current, step);
-        if (glided) hold!.added += step;
-        else if (settled || resized) {
-          // The view moved without a glide: what it holds is placed again from here.
+          settled && Math.abs(step) >= 0.5 && Math.abs(step) < node.clientHeight && !resized && !reflowing.current
+            ? glide(thread.current, step)
+            : undefined;
+        if (glided) {
+          hold!.added += step;
+          hold!.glides.push(glided);
+        } else if (settled || resized) {
+          // The view moved without a glide: what it holds is placed again from here. A resize also
+          // takes back this frame's glides: they slid toward a layout the resize has replaced (a
+          // queued prompt's card leaving clamps the offset, which the room it leaves then restores).
+          if (resized) for (const each of hold?.glides ?? []) each.cancel();
           glideHold.current = undefined;
         }
       } else if (top > 0 || rows[0]?.id !== oldRows[0]?.id) {
