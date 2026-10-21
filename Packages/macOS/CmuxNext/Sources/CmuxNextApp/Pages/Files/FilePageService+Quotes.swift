@@ -17,7 +17,7 @@ extension FilePageService {
                 if let page { self?.quoteSelection(of: key, page: page, askComment: false) }
             },
         ]
-        // Send to Chief and Send to… (the terminal's and pages' rows): they run on the selected text.
+        // Send to Chief and Send To… (the terminal's and pages' rows): they run on the selected text.
         let registry = services.registry
         for id in ["home.sendSelectionToChief", "home.sendSelectionTo"] as [ActionID] {
             guard let title = registry.title(for: id) else { continue }
