@@ -39,9 +39,16 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     public let harness: String?
     /// What it is doing now, one line (hq#2509): the lane's `step`, which acpmux masks secrets in.
     public let step: String?
+    /// The folder it runs in (the summary's `cwd`), when the summary carries one.
+    public let cwd: String?
+    /// When the session last changed (its last output), when the summary carries it.
+    public let updatedAt: Date?
+    /// When the session started, when the summary carries it.
+    public let createdAt: Date?
 
     public init(id: String, name: String, title: String, peer: String?, parent: String?, state: State, since: Date?, error: String?,
-                workspaceID: String? = nil, harness: String? = nil, step: String? = nil) {
+                workspaceID: String? = nil, harness: String? = nil, step: String? = nil,
+                cwd: String? = nil, updatedAt: Date? = nil, createdAt: Date? = nil) {
         self.id = id
         self.name = name
         self.title = title
@@ -53,6 +60,9 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
         self.error = error
         self.harness = harness
         self.step = step
+        self.cwd = cwd
+        self.updatedAt = updatedAt
+        self.createdAt = createdAt
     }
 
     /// A person should look: it waits on them, failed or was lost.
@@ -78,8 +88,17 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
         // Never the raw prompt beside it: only acpmux's masked step and title are shown.
         let step = (lane["step"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         let title = (lane["title"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let cwd = (summary["cwd"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         return AgentActivityLane(id: id, name: name, title: title ?? name, peer: summary["peer"] as? String, parent: parent,
                                  state: state, since: since, error: error, workspaceID: workspaceID,
-                                 harness: harness, step: step)
+                                 harness: harness, step: step, cwd: cwd,
+                                 updatedAt: date(summary["updatedMs"] ?? summary["updatedAt"]),
+                                 createdAt: date(summary["createdMs"] ?? summary["createdAt"]))
+    }
+
+    /// A summary's epoch-milliseconds field as a date; nil when absent or not a number.
+    private static func date(_ value: Any?) -> Date? {
+        guard let value = value as? NSNumber, value.doubleValue > 0 else { return nil }
+        return Date(timeIntervalSince1970: value.doubleValue / 1000)
     }
 }

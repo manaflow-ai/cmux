@@ -323,6 +323,7 @@ const DEV_PAGES = [
   "files",
   "stats",
   "chief-usage",
+  "chief-views",
   "mobile-pairing",
 ];
 
