@@ -2,7 +2,7 @@ import { exportPKCS8, generateKeyPair, decodeProtectedHeader } from "jose"
 import { describe, expect, it } from "vitest"
 import { env } from "cloudflare:workers"
 import { apnsPayload, apnsRequest, clean, collapseId, sendApns, turnPushKey } from "../src/push.ts"
-import type { TeamHub } from "../src/team-hub.ts"
+import { userHubName, type TeamHub } from "../src/team-hub.ts"
 import type { PushRegistration } from "../src/store.ts"
 import { call, connect, PROD_PROJECT, register, token } from "./helpers.ts"
 
@@ -147,15 +147,16 @@ describe("APNs payload and sender", () => {
     expect(turnPushKey("mac1", event)).toBeNull()
     expect(turnPushKey("mac1", { kind: "completed" })).toBeNull()
     const ns = (env as unknown as { TEAM_HUB: DurableObjectNamespace<TeamHub> }).TEAM_HUB
-    const hub = ns.get(ns.idFromName("user:turn-push-test"))
-    expect(await hub.turnPushAllowed("mac1:s1:done", 60_000)).toBe(true)
-    expect(await hub.turnPushAllowed("mac1:s1:done", 60_000)).toBe(false)
+    const owner = "turn-push-test"
+    const hub = ns.get(ns.idFromName(userHubName(owner)))
+    expect(await hub.turnPushAllowed(owner, "mac1:s1:done", 60_000)).toBe(true)
+    expect(await hub.turnPushAllowed(owner, "mac1:s1:done", 60_000)).toBe(false)
     // An error right after a finished turn is its own news.
-    expect(await hub.turnPushAllowed("mac1:s1:failed", 60_000)).toBe(true)
-    expect(await hub.turnPushAllowed("mac1:s2:done", 60_000)).toBe(true)
-    expect(await hub.turnPushAllowed("mac2:s1:done", 60_000)).toBe(true)
+    expect(await hub.turnPushAllowed(owner, "mac1:s1:failed", 60_000)).toBe(true)
+    expect(await hub.turnPushAllowed(owner, "mac1:s2:done", 60_000)).toBe(true)
+    expect(await hub.turnPushAllowed(owner, "mac2:s1:done", 60_000)).toBe(true)
     // Past the window (0 ms here) the key passes again.
-    expect(await hub.turnPushAllowed("mac1:s1:done", 0)).toBe(true)
+    expect(await hub.turnPushAllowed(owner, "mac1:s1:done", 0)).toBe(true)
   })
 
   it("signs a provider token, routes by environment and classifies answers", async () => {

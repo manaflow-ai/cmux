@@ -252,7 +252,8 @@ export class TeamHub extends DurableObject<Env> {
    * go now, at most one per `windowMs`. Here and not in a Workers rate limit, which counts per location and lags:
    * a burst passed it whole in the 2026-10-21 check.
    */
-  async turnPushAllowed(key: string, windowMs: number): Promise<boolean> {
+  async turnPushAllowed(ownerKey: string, key: string, windowMs: number): Promise<boolean> {
+    this.bind(ownerKey)
     const now = Date.now()
     this.sql.exec(`DELETE FROM turn_pushes WHERE at <= ?`, now - windowMs)
     if (this.sql.exec(`SELECT 1 FROM turn_pushes WHERE key = ?`, key).toArray().length > 0) return false

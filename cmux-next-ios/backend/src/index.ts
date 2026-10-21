@@ -398,7 +398,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
       // A burst of turn ends from one session is one notification (a Mac on an older host sends every one).
       // Checked only once some phone wants this kind, so an unwanted kind never uses up the window.
       const key = turnPushKey(deviceId, { kind, ...(typeof b.sessionId === "string" ? { sessionId: b.sessionId } : {}) })
-      if (key && !(await userHub(env, caller).turnPushAllowed(key, TURN_PUSH_WINDOW_MS)))
+      if (key && !(await userHub(env, caller).turnPushAllowed(me, key, TURN_PUSH_WINDOW_MS)))
         return json({ configured: true, sent: 0, failed: 0, dropped: 0, coalesced: true })
       const results = await sendApns(config, targets, {
         eventId: b.eventId,

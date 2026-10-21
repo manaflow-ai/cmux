@@ -196,6 +196,8 @@ impl Classifier {
                 if !self.first_time(&id) || self.sessions.get(session_id).is_some_and(|s| s.internal) {
                     return None;
                 }
+                // The agent now waits on the person: a held "finished" would say otherwise.
+                self.drop_held(session_id);
                 let kind =
                     if params.get("request").is_some_and(is_question) { "question" } else { "permission" };
                 Some(self.event(id, kind, session_id))
@@ -210,6 +212,15 @@ impl Classifier {
                 }
                 let record = params.get("recordKind").or_else(|| params.get("kind")).and_then(Value::as_str);
                 if record != Some("turn_result") {
+                    // Working again, or waiting on the person: a held "finished" is out of date.
+                    if let Some(id) = session.get("sessionId").and_then(Value::as_str)
+                        && matches!(
+                            session.get("status").and_then(Value::as_str),
+                            Some("running" | "waiting")
+                        )
+                    {
+                        self.drop_held(id);
+                    }
                     return None;
                 }
                 let session_id = session.get("sessionId")?.as_str()?;
@@ -233,10 +244,8 @@ impl Classifier {
                     _ if chief => "chief",
                     _ => "completed",
                 };
-                let scope =
-                    label.chief_home.map_or_else(|| session_id.to_owned(), |home| format!("chief:{home}"));
                 let event = self.event(id, kind, session_id);
-                self.gate((scope, kind == "failed"), event, now)
+                self.gate((self.scope(session_id), kind == "failed"), event, now)
             }
             _ => None,
         }
@@ -256,6 +265,24 @@ impl Classifier {
             self.turns.retain(|_, g| g.held.is_some() || now.saturating_duration_since(g.sent) < TURN_WINDOW);
         }
         Some(event)
+    }
+
+    /// What a session's turns coalesce under: the session, or its Chief.
+    fn scope(&self, session_id: &str) -> String {
+        match self.sessions.get(session_id).and_then(|l| l.chief_home.as_deref()) {
+            Some(home) => format!("chief:{home}"),
+            None => session_id.to_owned(),
+        }
+    }
+
+    /// Forgets the session's held turns (finished and error).
+    fn drop_held(&mut self, session_id: &str) {
+        let scope = self.scope(session_id);
+        for failed in [false, true] {
+            if let Some(gate) = self.turns.get_mut(&(scope.clone(), failed)) {
+                gate.held = None;
+            }
+        }
     }
 
     /// When the next held turn is due (its window ends).
@@ -311,7 +338,19 @@ pub async fn run(base_url: String, device_id: String, tokens: Arc<Tokens>, acpmu
                 backoff = (backoff * 2).min(Duration::from_secs(30));
             }
         }
-        tokio::time::sleep(backoff).await;
+        // Held turns still go while acpmux is away.
+        let until = tokio::time::Instant::now() + backoff;
+        loop {
+            match classifier.next_due().map(tokio::time::Instant::from_std) {
+                Some(at) if at < until => {
+                    tokio::time::sleep_until(at).await;
+                    for event in classifier.due(Instant::now()) {
+                        report(&base_url, &device_id, &tokens, event);
+                    }
+                }
+                _ => break tokio::time::sleep_until(until).await,
+            }
+        }
     }
 }
 
@@ -566,6 +605,17 @@ mod tests {
                 .is_some()
         );
         assert_eq!(c.next_due(), None);
+        // A held "finished" is dropped once the agent works again or waits on the person.
+        assert!(c.handle_at(&turn_msg(s("s3", "a", "completed")), at(100)).is_some());
+        assert!(c.handle_at(&turn_msg(s("s3", "b", "completed")), at(101)).is_none());
+        let ask = json!({"method":"_acpmux/permission_pending","params":{"sessionId":"s3","permissionId":"q3","request":{}}});
+        assert!(c.handle_at(&ask, at(102)).is_some());
+        assert!(c.due(at(200)).is_empty());
+        assert!(c.handle_at(&turn_msg(s("s4", "a", "completed")), at(100)).is_some());
+        assert!(c.handle_at(&turn_msg(s("s4", "b", "completed")), at(101)).is_none());
+        let running = json!({"method":"_acpmux/session_changed","params":{"recordKind":"prompt","session":{"sessionId":"s4","harness":"claude-code","cwd":"/x/repo","status":"running"}}});
+        assert!(c.handle_at(&running, at(102)).is_none());
+        assert!(c.due(at(200)).is_empty());
         // Asks are never coalesced: each one needs an answer.
         for (i, id) in ["p1", "p2", "p3"].iter().enumerate() {
             let ask = json!({"method":"_acpmux/permission_pending","params":{"sessionId":"s1","permissionId":id,"request":{}}});
