@@ -57,6 +57,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `updates.installOnQuit` | boolean | `true` |  | Install Updates When Quitting. A downloaded update installs as cmux quits. Terminals keep running. |
 | `updates.notify` | string | `"badge"` | `badge`, `silent` | When an Update Is Ready |
 | `updates.keepPreviousVersions` | real | `1` | 0 to 5 | Keep Previous Versions. Earlier builds kept so you can roll back. Uses almost no disk until files change. |
+| `updates.updateEverythingServers` | boolean | `false` |  | Include Paired Servers in Update Everything. Update Everything also updates the agent CLIs on your paired servers and restarts their chats. A server's cmux is never reinstalled; its own installer updates it. |
 | `updates.showWhatsNew` | boolean | `true` |  | Show What's New After Updates. After an update, a card at the bottom of the sidebar links to What's New until you open or dismiss it. |
 | `announcements.enabled` | boolean | `true` |  | Show Announcements. Short cards from the cmux team above Settings, shown when the pointer is over the sidebar. |
 | `announcements.fetch` | boolean | `true` |  | Download Announcements. Off: cmux never asks the network for announcements. The request carries no identifiers. |

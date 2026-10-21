@@ -146,7 +146,7 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.palette.applyUpdateIfAvailable", defaultValue: "Install Available Update", bundle: .module),
                 keywords: ["update", "install"], category: .settings, symbol: "arrow.down.circle.fill",
                 surfaces: [.palette, .menu], cliName: "settings install-available-update", mainMenu: .app
-            ),
+            ), updateEverything, // SettingsActionCatalog+UpdateEverything.swift
             ActionDescriptor(
                 id: "palette.attemptUpdate",
                 title: String(localized: "action.palette.attemptUpdate", defaultValue: "Attempt Update", bundle: .module),
