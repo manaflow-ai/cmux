@@ -83,7 +83,8 @@ test("URL chips expose a safe hover card with a browser Open action", async () =
   // A pull request link's card also asked gh about it (chips/PullRequestCard.tsx).
   expect(calls).toEqual([
     { method: "pr.inspect", params: { url: "https://github.com/manaflow-ai/cmux/pull/21180" } },
-    { method: "browser.open", params: { url: "https://github.com/manaflow-ai/cmux/pull/21180" } },
+    // Not `browser.open`, which the host takes only for a turn's local preview page.
+    { method: "browser.openIn", params: { url: "https://github.com/manaflow-ai/cmux/pull/21180", browserId: "cmux" } },
   ]);
   await act(async () => {
     card.querySelector<HTMLButtonElement>("button")!.blur();
@@ -167,8 +168,10 @@ test("link inspection bounds burst requests and coalesces store notifications", 
   expect(rootElement.querySelector("output")?.getAttribute("data-state")).toBe("root|outside|First|Last");
 
   const beforeSeedRenders = renders;
-  seedLinkStore({ paths: { "/workspace/seed-a.md": { place: "root", folder: false } } });
-  seedLinkStore({ sites: { "https://example.com/seed": { title: "Seed" } } });
+  // Two answers for keys the probe reads, in one tick: one render. (A key no hook reads renders
+  // nothing: each hook's snapshot is its own key.)
+  seedLinkStore({ paths: { [paths[1]]: { place: "root", folder: false } } });
+  seedLinkStore({ sites: { [urls[1]]: { title: "Seed" } } });
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
