@@ -14,7 +14,6 @@ All notable changes to cmux are documented here.
 
 ### Changed
 - Cloud errors say what failed and what to try next ([#18673](https://github.com/manaflow-ai/cmux/pull/18673))
-- A verified cmux company email puts you on the Team plan with no machine limit ([#21276](https://github.com/manaflow-ai/cmux/pull/21276))
 - The CLI reference matches this build ([#20817](https://github.com/manaflow-ai/cmux/pull/20817))
 
 ### Fixed
@@ -26,7 +25,7 @@ All notable changes to cmux are documented here.
 - Images from the command buffer reach Cloud terminals ([#16757](https://github.com/manaflow-ai/cmux/pull/16757))
 - Cloud browser tabs follow navigation and drag between workspaces on the same machine ([#20957](https://github.com/manaflow-ai/cmux/pull/20957))
 - New Display works again ([#21294](https://github.com/manaflow-ai/cmux/pull/21294))
-- A slow terminal download resumes instead of starting over ([#16305](https://github.com/manaflow-ai/cmux/pull/16305))
+- The Cloud terminal client download resumes instead of starting over ([#16305](https://github.com/manaflow-ai/cmux/pull/16305))
 - Agents on Cloud machines can use computer use, and your MCP settings stay ([#20818](https://github.com/manaflow-ai/cmux/pull/20818))
 - Pro, including Founder's Edition, upgrades to Max from any billing source, and Pro turns on right after checkout ([#20889](https://github.com/manaflow-ai/cmux/pull/20889), [#20852](https://github.com/manaflow-ai/cmux/pull/20852))
 - Welcome clips are no longer cropped ([#20848](https://github.com/manaflow-ai/cmux/pull/20848))
@@ -35,7 +34,7 @@ All notable changes to cmux are documented here.
 - `claude --worktree`: the sidebar, new splits and Files follow Claude's worktree, and switch back when Claude exits ([#20292](https://github.com/manaflow-ai/cmux/pull/20292))
 - Claude status from SSH and Cloud panes lands on the right pane ([#16178](https://github.com/manaflow-ai/cmux/pull/16178))
 - Claude Teams keeps its layout and works with a custom Claude path ([#20830](https://github.com/manaflow-ai/cmux/pull/20830), [#20804](https://github.com/manaflow-ai/cmux/pull/20804)) -- thanks @wbratz for the report!
-- A finished background subagent stops showing as running ([#20346](https://github.com/manaflow-ai/cmux/pull/20346))
+- A Claude background subagent keeps showing as running after the parent turn ends, until it finishes ([#20346](https://github.com/manaflow-ai/cmux/pull/20346))
 - Antigravity resumes with its hooks ([#20352](https://github.com/manaflow-ai/cmux/pull/20352))
 - OpenCode no longer reports duplicate plugins ([#20819](https://github.com/manaflow-ai/cmux/pull/20819)) -- thanks @apoorvdarshan for the report!
 - Pi's own commands and `--no-extensions` run clean ([#20359](https://github.com/manaflow-ai/cmux/pull/20359)) -- thanks @henjuese for the report!
@@ -55,7 +54,7 @@ All notable changes to cmux are documented here.
 - The welcome screen lists shortcuts again ([#20843](https://github.com/manaflow-ai/cmux/pull/20843))
 - Each installed build keeps its own search index ([#16195](https://github.com/manaflow-ai/cmux/pull/16195)) -- thanks @azooz2003-bit for the report!
 - Worktree setup no longer copies a symlink that points outside the repository ([#21627](https://github.com/manaflow-ai/cmux/pull/21627))
-- The app inside the DMG is notarized on its own, so it opens offline ([#21217](https://github.com/manaflow-ai/cmux/pull/21217))
+- The app inside the DMG is stapled, so it opens offline ([#21217](https://github.com/manaflow-ai/cmux/pull/21217))
 
 ## [0.65.2] - 2026-10-14
 
