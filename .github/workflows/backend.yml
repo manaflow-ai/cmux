@@ -31,6 +31,8 @@ on:
       - scripts/cmux-next/check-acpmux-guest-commands.ts
       - .github/workflows/backend.yml
       - .github/workflows/backend-migrations.yml
+      - scripts/cmux-next/release/prod-promote.ts
+      - scripts/cmux-next/release/production-approvals.json
   push:
     branches: [feat-cmux-next, main]
     paths:

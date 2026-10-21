@@ -54,12 +54,30 @@ pub struct Session {
     pub(super) asks_in_flight: std::sync::atomic::AtomicUsize,
     pub(super) asks_landed: Notify,
     pub(super) rehydrate: AtomicBool,
+    /// The agent's context was emptied (`/clear`, `/compact`): its next
+    /// prompt is told every forum rule again (`hub/forum.rs`).
+    pub(super) forum_retell: AtomicBool,
+    /// The posts already told again since the context was emptied, while a
+    /// retell takes more than one prompt (agents' posts past one block's
+    /// share, `hub/forum.rs`).
+    pub(super) forum_retold: std::sync::Mutex<std::collections::HashSet<String>>,
+    /// The forum posts the running turn's prompt tells, until it ends: an
+    /// urgent retirement of their key reaches this session too.
+    pub(super) forum_telling: std::sync::Mutex<Vec<String>>,
+    /// Whether its running agent was launched with cmux's tools (0: not
+    /// launched yet, 1: with, 2: without), so forum rules follow the launch,
+    /// not a profile reloaded since (`hub/tools.rs`).
+    pub(super) launched_with_tools: std::sync::atomic::AtomicU8,
     /// The chat's route changed during a turn: restart the harness on it when
     /// the turn ends (`route_switch.rs`).
     pub(super) route_switch: AtomicBool,
     pub(super) inbound_tx: mpsc::Sender<Inbound>,
     pub(super) inbound_rx: Mutex<Option<mpsc::Receiver<Inbound>>>,
     pub(super) steering: AtomicBool,
+    /// Ctrl-B moves its work: decided by the harness kind it last started as
+    /// (`processes.rs` `backgrounds_work`), or by what an adopted host runs
+    /// (`hosts.rs`), never by the config read later.
+    pub(super) backgrounds_work: AtomicBool,
     /// Steers into the running turn by prompt id (`steer_end.rs`): Send now stops the agent's
     /// step for one that waits (`queue_edit.rs`).
     pub(super) steer_now: StdMutex<SteerNow>,
@@ -85,8 +103,8 @@ pub struct Session {
     /// Last stderr lines of the current turn, quoted when the agent
     /// process dies without an answer ("Not logged in", a launcher error).
     pub(super) stderr_tail: StdMutex<std::collections::VecDeque<String>>,
-    /// Recent client prompt ids and their outcomes, newest last: a prompt
-    /// sent again with the same id never runs a second turn.
+    /// All pending client prompt ids and a bounded cache of completed outcomes,
+    /// newest last: retries wait for the original prompt while it is pending.
     pub(super) prompts: StdMutex<std::collections::VecDeque<(String, PromptOutcome)>>,
     /// Bumped when a record failed to reach the store; an agent host entry
     /// is acknowledged only when its record was stored.
@@ -108,6 +126,8 @@ pub struct Session {
     /// Tool calls that run `gh pr create`, and the URL each printed so far, until they end
     /// (`pull_requests.rs`).
     pub(super) pr_creates: StdMutex<std::collections::HashMap<String, Option<String>>>,
+    /// The places typing into it, and who sent its prompts (`composers.rs`).
+    pub(super) composers: StdMutex<super::composers::Composers>,
 }
 
 impl Session {

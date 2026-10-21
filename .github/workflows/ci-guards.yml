@@ -151,7 +151,7 @@ jobs:
         run: python3 tests/test_pr_proof_section.py
 
       - name: Validate the PR capture check
-        if: ${{ matrix.group == 'ci' }}
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_pr_capture_check.py
 
       - name: Validate gh-merge-green --revert
@@ -402,6 +402,10 @@ jobs:
           python3 scripts/whats-new/test_community.py
           python3 tests/test_cmux_next_release_notes.py
 
+      - name: Test the server bootstrap candidate renderer
+        if: ${{ !cancelled() && matrix.group == 'preflight' }}
+        run: python3 scripts/server-release/test_render.py
+
       - name: Test the /release changelog line classifier
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: python3 tests/test_release_changelog_lines.py
@@ -579,6 +583,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_install_git_hooks.py
 
+      - name: Validate the advisory post-edit checks
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_post_edit_checks.py
+
       - name: Validate post-edit formatting touches only the edited file
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_format_post_edit.py
@@ -626,6 +634,26 @@ jobs:
       - name: Validate workflow_run triggers name workflows that exist
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_run_sources.py
+
+      - name: Validate every build-fleet client call checks the client is installed
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_cmux_ci_client_guarded.py
+
+      - name: Validate published cmux-tui manifests carry acpmux
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_cmux_tui_latest_acpmux.py
+
+      - name: Validate feat-cmux-next pushes run the web and cmux-next checks
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_next_web_base_push.py
+
+      - name: Validate the cmux-next web-bundle cache contract
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_next_web_bundle_cache.py
+
+      - name: Validate the nightly builder
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_nightly_builder.py
 
       - name: Validate shallow complexity comparison fetching
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1145,12 +1173,16 @@ jobs:
         run: python3 tests/test_cmux_tui_superseded_push.py
 
       - name: Validate a feat-cmux-next push stops deferring to a publisher whose daemon tests are stuck
-        if: ${{ matrix.group == 'release-notary' }}
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_publisher_testing.py
 
-      - name: Validate the cmux-next tour runs on merges and media-tour pull requests only
+      - name: Validate when the cmux-next tour runs (merges, media-tour, Swift UI a tour covers)
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_next_media_tour_gate.py
+
+      - name: Validate which pull requests get a native media tour
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_media_auto_tour.py
 
       - name: Validate webview-only changes tour on Linux, not a Mac
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
