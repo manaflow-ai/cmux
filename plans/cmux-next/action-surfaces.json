@@ -1102,7 +1102,8 @@
       "cli_name" : "workspace reopen-closed",
       "context_menu" : "offered",
       "context_menus" : [
-        "sidebarBackground"
+        "sidebarBackground",
+        "workspaceRow"
       ],
       "default_aliases" : [
 
@@ -1895,7 +1896,17 @@
         "workspaceRow"
       ],
       "default_aliases" : [
-
+        {
+          "keys" : [
+            {
+              "key" : "w",
+              "modifiers" : [
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "sidebar.multiSelection"
+        }
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -29556,6 +29567,35 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "media picture-in-picture",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "tab",
+        "nowPlayingCard"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "tab.pictureInPicture",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Picture in Picture",
+      "title_key" : "action.tab.pictureInPicture",
+      "title_table" : "MusicActions"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "media hide-card",
       "context_menu" : "offered",
       "context_menus" : [
@@ -35988,15 +36028,28 @@
           }
         },
         {
+          "enabled_when" : "can_perform",
+          "id" : "tab.pictureInPicture",
+          "kind" : "action",
+          "order" : 1,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
           "kind" : "separator",
-          "order" : 1
+          "order" : 2
         },
         {
           "enabled_when" : "can_perform",
           "id" : "nowPlaying.hideCard",
           "kind" : "action",
           "label" : "Hide",
-          "order" : 2,
+          "order" : 3,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -36010,7 +36063,7 @@
           "id" : "nowPlaying.hideCardUntilRelaunch",
           "kind" : "action",
           "label" : "Hide Until Relaunch",
-          "order" : 3,
+          "order" : 4,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -36021,13 +36074,13 @@
         },
         {
           "kind" : "separator",
-          "order" : 4
+          "order" : 5
         },
         {
           "enabled_when" : "can_perform",
           "id" : "nowPlaying.disableCard",
           "kind" : "action",
-          "order" : 5,
+          "order" : 6,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -39961,14 +40014,27 @@
                   }
                 },
                 {
+                  "enabled_when" : "can_perform",
+                  "id" : "tab.pictureInPicture",
+                  "kind" : "action",
+                  "order" : 10,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
                   "kind" : "separator",
-                  "order" : 10
+                  "order" : 11
                 },
                 {
                   "enabled_when" : "can_perform",
                   "id" : "palette.toggleFullWidthTab",
                   "kind" : "action",
-                  "order" : 11,
+                  "order" : 12,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -39979,24 +40045,11 @@
                 },
                 {
                   "kind" : "separator",
-                  "order" : 12
+                  "order" : 13
                 },
                 {
                   "enabled_when" : "can_perform",
                   "id" : "hibernateTab",
-                  "kind" : "action",
-                  "order" : 13,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                },
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "wakeTab",
                   "kind" : "action",
                   "order" : 14,
                   "visible_when" : {
@@ -40009,9 +40062,22 @@
                 },
                 {
                   "enabled_when" : "can_perform",
-                  "id" : "disconnectRemoteTab",
+                  "id" : "wakeTab",
                   "kind" : "action",
                   "order" : 15,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "disconnectRemoteTab",
+                  "kind" : "action",
+                  "order" : 16,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : "remoteHosts",
@@ -40022,13 +40088,13 @@
                 },
                 {
                   "kind" : "separator",
-                  "order" : 16
+                  "order" : 17
                 },
                 {
                   "enabled_when" : "can_perform",
                   "id" : "tab.showResources",
                   "kind" : "action",
-                  "order" : 17,
+                  "order" : 18,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -41781,7 +41847,7 @@
           "enabled_when" : "can_perform",
           "id" : "workspaceGroup.closeWorkspaces",
           "kind" : "action",
-          "label" : "Close Group",
+          "label" : "Close All in Group",
           "order" : 13,
           "visible_when" : {
             "debug_only" : false,
@@ -42998,6 +43064,19 @@
               "id" : "workspace.closeAll",
               "kind" : "action",
               "order" : 34,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "reopenClosedWorkspace",
+              "kind" : "action",
+              "order" : 35,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,

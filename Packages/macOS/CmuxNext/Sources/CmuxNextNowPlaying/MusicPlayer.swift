@@ -120,6 +120,8 @@ public final class MusicPlayer: NowPlayingSource {
         case .previous:
             if index > 0, currentPosition() < Self.restartAfter { load(index - 1) } else { seek(to: 0) }
         case .seek(let seconds): seek(to: seconds)
+        // The player plays sound only.
+        case .pictureInPicture: break
         }
     }
 
