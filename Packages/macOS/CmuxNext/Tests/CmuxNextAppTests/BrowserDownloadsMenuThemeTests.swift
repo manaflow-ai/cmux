@@ -25,10 +25,15 @@ import Testing
             #expect(item.image != nil, "\(item.title) has no icon")
         }
 
-        NSPasteboard.general.clearContents()
-        // As a click does (`performActionForItem` needs a running NSApplication).
-        let copy = try #require(menu.items.first { $0.title == BrowserHitStrings.downloadCopyLink })
-        _ = try #require(copy.target as? NSObject).perform(try #require(copy.action), with: copy)
-        #expect(NSPasteboard.general.string(forType: .string) == "https://example.com/report.pdf")
+        // A chosen row runs, as a click does (`performActionForItem` needs a running
+        // NSApplication; the fleet's test hosts have no general pasteboard, so Cancel shows it).
+        let running = BrowserDownload(sourceURL: URL(string: "https://example.com/big.zip"), filename: "big.zip")
+        list.add(running, tab: "tab-a") { _ in }
+        let runningRow = BrowserDownloadRowEventView()
+        runningRow.menuProvider = { BrowserDownloadsMenu.actions(running, list: list) }
+        let cancel = try #require(runningRow.themedMenu()?.items.first { $0.title == BrowserHitStrings.downloadCancel })
+        #expect(cancel.view is ThemedMenuRowView)
+        _ = try #require(cancel.target as? NSObject).perform(try #require(cancel.action), with: cancel)
+        #expect(running.status == .cancelled)
     }
 }
