@@ -9,6 +9,7 @@
 // Then the call's locations, a path field in a cut-off input, and a path in the title. A row never
 // shows the raw input: no path found is an empty list (the card says "Unknown file").
 import { mcpCall, mcpPlainName } from "./conversation/mcpCalls";
+import { shortCommand } from "./conversation/shortCommand";
 import type { AcpmuxActivity } from "./model";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
@@ -73,48 +74,6 @@ export function toolLabel(
   }
   return title || fallbackName;
 }
-
-/// A command line as a short label: the setup a script starts with (`export PATH=…;`, `B=~/x;`,
-/// `cd dir &&`) and the environment set in front of a command (`PATH="…" acpmux ls`) dropped, so
-/// "export PATH=\"/Applications/…\"; gh run list" reads "gh run list". The whole line stays in the
-/// call's Shell block. A line that is only setup keeps its last part; one that runs more after its
-/// first command ends in "…".
-export function shortCommand(command: string): string {
-  const parts = commandParts(command.trim());
-  for (const [index, part] of parts.entries()) {
-    if (/^cd(?:\s|$)/.test(part)) continue;
-    const bare = part.replace(ASSIGNMENTS, "").trim();
-    // Commands after it are marked, so "make && rm -rf build" never reads as just "make".
-    if (bare) return index < parts.length - 1 ? `${bare} …` : bare;
-  }
-  return (parts.at(-1) ?? command).trim();
-}
-
-/// A command line's parts between `&&`, `;` and line breaks outside quotes, so
-/// `python -c "import x; print(1)"` stays one part.
-function commandParts(line: string): string[] {
-  const parts: string[] = [];
-  let quote = "";
-  let start = 0;
-  for (let at = 0; at < line.length; at += 1) {
-    const char = line[at]!;
-    if (quote) {
-      if (char === "\\" && quote === '"') at += 1;
-      else if (char === quote) quote = "";
-    } else if (char === '"' || char === "'") quote = char;
-    else if (char === "\\") at += 1;
-    else if (char === ";" || char === "\n" || (char === "&" && line[at + 1] === "&")) {
-      parts.push(line.slice(start, at).trim());
-      if (char === "&") at += 1;
-      start = at + 1;
-    }
-  }
-  parts.push(line.slice(start).trim());
-  return parts.filter(Boolean);
-}
-
-/// `export A=1 B="x y" ` in front of a command: the assignments a shell line sets before it runs.
-const ASSIGNMENTS = /^(?:(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|\S*)\s*)+/;
 
 /// A shell tool's own name standing in for a label: "Bash", "Shell", "Terminal", `exec_command`.
 const BARE_SHELL_NAMES = /^(bash|shell|terminal|exec|exec_command|run_shell_command|local_shell|command)$/i;

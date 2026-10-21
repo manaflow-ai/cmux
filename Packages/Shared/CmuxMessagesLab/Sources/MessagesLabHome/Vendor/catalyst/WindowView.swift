@@ -433,14 +433,25 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
 
     // MARK: Window activity
 
-    /// Inactive-window appearance (Messages lightens the window and greys its
-    /// lights when it is not key). One palette switch: cached bitmaps are
-    /// dropped and visible rows redraw.
+    /// This view's inactive-window state (cx-3cb inactive-per-view): true while its own window is not key (or the
+    /// app is not active). Each view has its own, as each Messages window: a non-key window draws inactive while
+    /// another one is key. It sets the typing indicator's colours (RowCell.inactive -> Fixture.typingColors) and
+    /// the drawn traffic lights (ChromeView.inactive). No process-wide value: a view's change touches no other view.
+    private(set) var inactive = false
+
+    /// Inactive-window appearance (Messages greys its lights and the typing indicator when the window is not key),
+    /// for this view only. The host calls it from this view's own window: didBecomeKey -> false, didResignKey ->
+    /// true, and `!window.isKeyWindow` when the view joins a window (appkit-native Host.swift; an app that is not
+    /// active has no key window, and its key window resigns key when it deactivates; cmux Home: per PaneHost,
+    /// observing that pane's window only). The catalyst app sets it from its own scene's activation instead (a key
+    /// change between two scenes of the active app is not seen there). Its visible rows repaint (decorate hands the state to
+    /// each cell); no cached bitmap depends on it (the row bitmaps are the same in both states on macOS 27), so the
+    /// shared bitmap cache stays. Not part of a display change (a scale or colour space move does not call it).
     func setInactive(_ inactive: Bool) {
-        guard Fixture.inactive != inactive else { return }
-        Fixture.inactive = inactive
+        guard self.inactive != inactive else { return }
+        self.inactive = inactive
+        chrome.inactive = inactive
         backgroundColor = Fixture.background
-        RowBitmaps.shared.removeAll()
         chrome.setNeedsDisplay()
         chrome.subviews.forEach { $0.setNeedsDisplay() }
         refreshVisibleCells()
@@ -1907,6 +1918,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         defer { step(2) }
         cell.fillSpan = fillSpan
         cell.renderScale = renderScale
+        cell.inactive = inactive
         cell.crispEdge = crispSends[r.spec.key] != nil
         cell.configure(r.spec)
         step(0)

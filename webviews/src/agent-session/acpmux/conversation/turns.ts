@@ -16,7 +16,8 @@ import { isSubagentGroup } from "../subagents/subagentRows";
 import { STARTED_SESSIONS } from "../started/startedSessions";
 import { QUESTION_RECORD } from "../question/record";
 import type { Translate } from "../i18n";
-import { editedPaths, isBareShellName, shortCommand, toolLabel } from "../toolPaths";
+import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
+import { shortCommand } from "./shortCommand";
 import { GROUP_TAIL } from "./ToolGroupRow";
 import { isRunning, toolGroups } from "./toolGroups";
 

@@ -14,7 +14,7 @@ import { BackgroundMark } from "./BackgroundMark";
 import { Check, ChevronRight, Spinner, TerminalSquare } from "./icons";
 import { isFailed, isRunning, toolDuration } from "./toolGroups";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
-import { shortCommand } from "../toolPaths";
+import { shortCommand } from "./shortCommand";
 import { useFold } from "./fold";
 
 export function CommandRow({ item }: { item: AcpmuxActivity }) {

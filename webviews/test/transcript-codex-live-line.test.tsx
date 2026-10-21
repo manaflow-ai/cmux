@@ -8,7 +8,7 @@ import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/mode
 import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
 import { ToolRows } from "../src/agent-session/acpmux/conversation/TurnRows";
 import { THINKING, turnView, WORKING } from "../src/agent-session/acpmux/conversation/turns";
-import { shortCommand } from "../src/agent-session/acpmux/toolPaths";
+import { shortCommand } from "../src/agent-session/acpmux/conversation/shortCommand";
 
 let at = 0;
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
