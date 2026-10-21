@@ -88,4 +88,29 @@ struct SidebarListTilePressTests {
         #expect(shown.alphaValue == 1, "Home's tile stays hidden after the stale drag ended (alpha \(shown.alphaValue))")
         #expect(!shown.isHidden, "Home's tile is hidden after the stale drag ended")
     }
+
+    /// The live press landed where App Store rested before the drag: the drag had moved App Store up into
+    /// Home's slot, so the press hit the list, not a tile. The list's own press ends the stale drag
+    /// (`endPointerGesture`) and the tile the drag hid must show again then too.
+    @Test func aPressOnTheListShowsTheTileAStaleDragHid() throws {
+        defer { Motion.reduceMotionOverride = nil }
+        let h = Harness()
+        defer { h.window.orderOut(nil) }
+        let restingStore = try h.event(.leftMouseDown, on: h.tile(Self.store))
+        let home = try h.tile(Self.home)
+        home.mouseDown(with: try h.event(.leftMouseDown, on: home))
+        home.mouseDragged(with: try h.event(.leftMouseDragged, on: home, dy: 40))
+        #expect(h.list.drag != nil, "the fixture's tile drag did not start")
+
+        h.list.mouseDown(with: restingStore)
+        h.list.mouseUp(with: try #require(NSEvent.mouseEvent(with: .leftMouseUp, location: restingStore.locationInWindow, modifierFlags: [],
+                                                             timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: h.window.windowNumber,
+                                                             context: nil, eventNumber: 0, clickCount: 1, pressure: 0)))
+        h.settle()
+
+        #expect(h.list.drag == nil, "the stale drag is still held under the new press")
+        let shown = try h.tile(Self.home)
+        #expect(shown.isDescendant(of: h.window.contentView!), "Home's tile left the window")
+        #expect(shown.alphaValue == 1, "Home's tile stays hidden after the list's press ended the stale drag (alpha \(shown.alphaValue))")
+    }
 }
