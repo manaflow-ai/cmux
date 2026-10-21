@@ -12,6 +12,7 @@ check files match; a pull request's ordinary source files do not.
 from __future__ import annotations
 
 import fnmatch
+import re
 import subprocess
 import unittest
 from pathlib import Path
@@ -60,6 +61,19 @@ class CheckPaths(unittest.TestCase):
                      ".github/workflows/cmux-next-fast-gates.yml", "scripts/ci/cmux_next_fast_gates.py",
                      "scripts/ci/fast_gate_webviews_checks.py"):
             self.assertEqual(matching([path]), [path], path)
+
+    def test_every_fast_gate_script_is_a_check_path(self):
+        # A change to a gate on the base changes what the gate enforces on every open pull request.
+        source = (ROOT / "scripts/ci/cmux_next_fast_gates.py").read_text(encoding="utf-8")
+        scripts = sorted(set(re.findall(r'"(scripts/[\w./-]+\.(?:py|sh))"', source)))
+        self.assertGreaterEqual(len(scripts), 7, scripts)
+        self.assertEqual(matching(scripts), scripts)
+        self.assertEqual(matching(["scripts/ci/crash-class-gate.sh", "webviews/src/protocol/codegen/ir.ts",
+                                   "webviews/scripts/acpmux-protocol-codegen.ts", "scripts/cmux-next/lint/swiftlint.yml",
+                                   "web/.oxlintrc.json", "scripts/lint-namespace-types-baseline.txt"]),
+                         ["scripts/ci/crash-class-gate.sh", "webviews/src/protocol/codegen/ir.ts",
+                          "webviews/scripts/acpmux-protocol-codegen.ts", "scripts/cmux-next/lint/swiftlint.yml",
+                          "web/.oxlintrc.json", "scripts/lint-namespace-types-baseline.txt"])
 
     def test_only_the_workflows_a_dispatch_reruns(self):
         # Another workflow's change is churn a dispatch cannot catch: the fast gates rerun only their own gates.

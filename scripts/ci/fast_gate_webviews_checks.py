@@ -9,7 +9,8 @@ checks. tests/test_cmux_next_fast_gates.py keeps CHECKS equal to ci-web.yml's fa
 
 Only findings the pull request adds fail, as in the other diff-scoped gates: a check that fails on the merge runs
 again on BASE (a worktree of it, sharing the merge's node_modules), and the gate fails only on output lines BASE
-does not print (with `path:line` numbers ignored, since the pull request may move lines; counts still compare). A
+does not print as often (with the checkout root, `path:line` numbers and timings ignored, since the pull request
+may move lines; a check's own counts still compare). A
 check red on the base and no worse here is the base's red, which this gate never charges to a pull request.
 Runs every check and exits 1 when any adds a finding.
 
@@ -23,6 +24,7 @@ the new check:fixed-waits; replayed, #22975 merged with 01ea78b3 adds
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import re
 import shutil
 import subprocess
@@ -32,6 +34,7 @@ from pathlib import Path
 
 CHECKS = ("check:browser-lanes", "check:fixed-waits", "acpmux-protocol:check", "check:catalog-keys")
 LINE_REF = re.compile(r"(\S):\d+(?::\d+)?\b")
+TIMING = re.compile(r"\b\d+(?:\.\d+)?\s?(?:ms|s)\b")
 
 
 def run_check(webviews: Path, check: str) -> tuple[int, str]:
@@ -39,20 +42,25 @@ def run_check(webviews: Path, check: str) -> tuple[int, str]:
     return result.returncode, result.stdout + result.stderr
 
 
-def findings(output: str) -> set[str]:
-    """The output's lines, stripped, with `path:line[:col]` numbers dropped."""
-    return {LINE_REF.sub(r"\1", line.strip()) for line in output.splitlines() if line.strip()}
+def key(line: str, root: str = "") -> str:
+    """A line as a finding: stripped, its checkout root, `path:line[:col]` numbers and timings dropped."""
+    if root:
+        line = line.replace(root, "<root>")
+    return TIMING.sub("<time>", LINE_REF.sub(r"\1", line.strip()))
 
 
-def added(merge_output: str, base_output: str) -> list[str]:
-    """Lines of the merge's output that the base's output does not have, in the merge's order."""
-    base = findings(base_output)
-    seen: set[str] = set()
+def added(merge_output: str, base_output: str, merge_root: str = "", base_root: str = "") -> list[str]:
+    """Lines of the merge's output beyond the base's, in the merge's order. Counted, not a set: a second finding
+    that reads like one the base already has is still new."""
+    left = Counter(key(line, base_root) for line in base_output.splitlines() if line.strip())
     out = []
     for line in merge_output.splitlines():
-        key = LINE_REF.sub(r"\1", line.strip())
-        if key and key not in base and key not in seen:
-            seen.add(key)
+        found = key(line, merge_root)
+        if not found:
+            continue
+        if left[found] > 0:
+            left[found] -= 1
+        else:
             out.append(line.rstrip())
     return out
 
@@ -109,7 +117,8 @@ def main(argv: list[str] | None = None) -> int:
                 failed.append(check)
                 continue
             base_code, base_output = run_check(base_webviews, check)
-            new = added(output, base_output) if base_code != 0 else output.splitlines()
+            new = (added(output, base_output, str(repo), str(base_webviews.parent)) if base_code != 0
+                   else output.splitlines())
             if not new:
                 print(f"webviews checks: {check} fails on the base {args.base[:12]} too and this adds nothing to it",
                       flush=True)

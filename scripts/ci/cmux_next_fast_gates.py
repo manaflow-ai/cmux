@@ -11,7 +11,8 @@ result is fresh for the tip they merge into.
                                                   fetch the PR head and the tip, merge them here
       The workflow's resolve job names HEAD and BASE without running this checkout's code;
       prepare fails unless the merge it gates is exactly BASE + HEAD. Writes merge=, web=
-      (true when web lint has something to lint) and checks= (true on a dispatch) to --output
+      (true when web lint has something to lint) and checks= (true on a dispatch, or for a
+      string catalog or protocol spec change, which ci-web's routing does not check) to --output
       (GITHUB_OUTPUT).
   run --base BASE [--web true|false] [--checks true|false]
                                                   every gate on BASE..HEAD (the merge); exit 1
@@ -26,7 +27,8 @@ The gates, each the same invocation as its push-time job:
                   (cmux-next-crash-class.yml: concurrency crash classes, super-call selectors and the
                   Chromium Objective-C contract; only findings the PR adds)
   webviews checks scripts/ci/fast_gate_webviews_checks.py --base BASE (ci-web.yml's fail-mode webviews
-                  checks; only findings the PR adds), on a dispatch only: on a pull_request event ci-web runs them on this same merge. A merger
+                  checks; only findings the PR adds), on a dispatch, or for a pull request that changes a string catalog or
+                  the acpmux protocol spec: otherwise ci-web runs them for a webviews/ change on this same merge. A merger
                   dispatches when a check path (scripts/ci/check-paths.txt) changed on the base after the
                   pull request's last fast-gates base, so a check that landed since runs before the merge.
 """
@@ -87,6 +89,20 @@ def web_needed(repo: Path, base: str, merge: str) -> bool:
     exists, _ = web_lint_prepush.snapshot(repo, merge)
     plan = web_lint_prepush.make_plan(repo, files, guard_executed=False, exists=exists)
     return bool(plan.script_packages or plan.eslint_files)
+
+
+# Inputs of the webviews checks outside webviews/, where ci-web's react-apps routing does not run them on a pull
+# request: check:catalog-keys reads every string catalog, acpmux-protocol:check the protocol spec.
+CHECK_INPUTS_OUTSIDE_WEBVIEWS = re.compile(r"\.xcstrings$|^cmux-tui/crates/acpmux/spec/")
+
+
+def checks_needed(repo: Path, event: str, base: str, merge: str) -> bool:
+    """Whether the webviews checks gate runs: on a dispatch, or a pull request that changes one of their inputs
+    outside webviews/ (on a pull request ci-web runs them for a webviews/ change, on this same merge)."""
+    if event == "workflow_dispatch":
+        return True
+    changed = git(repo, "diff", "--name-only", base, merge).stdout.split()
+    return any(CHECK_INPUTS_OUTSIDE_WEBVIEWS.search(path) for path in changed)
 
 
 def fetch_for_merge(repo: Path, remote: str, pr: str, base: str) -> None:
@@ -155,7 +171,7 @@ def prepare(args: argparse.Namespace) -> int:
             log(f"fast-gates: the merge ref's first parent {first} is not the resolved base {base}")
             return 1
     write_outputs(args.output, {"merge": merge, "web": "true" if web_needed(repo, base, merge) else "false",
-                                "checks": "true" if args.event == "workflow_dispatch" else "false"})
+                                "checks": "true" if checks_needed(repo, args.event, base, merge) else "false"})
     return 0
 
 
@@ -169,7 +185,8 @@ def export_tree(repo: Path, ref: str, into: Path) -> None:
 
 
 SKIPPED = {"web lint": "no web path changed",
-           "webviews checks": "a pull_request event: ci-web runs them on this merge"}
+           "webviews checks": "a pull_request event with no catalog or protocol spec change: ci-web runs them "
+                              "for a webviews/ change on this merge"}
 
 
 def gates(repo: Path, base: str, merge: str, base_tree: Path, web: bool,

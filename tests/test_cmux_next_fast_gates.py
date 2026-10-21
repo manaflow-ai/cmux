@@ -193,6 +193,16 @@ class WorkflowShape(unittest.TestCase):
         self.assertIn('--checks "$CHECKS"', run["run"])
         self.assertEqual(run["env"]["CHECKS"], "${{ steps.prepare.outputs.checks }}")
 
+    def test_a_dispatch_never_saves_a_cache(self):
+        # A dispatch runs on feat-cmux-next's ref after pull request code ran: a cache it saved would be the base's.
+        steps = job(workflow())["steps"]
+        for step in steps:
+            if step.get("uses", "").startswith("actions/cache@"):
+                self.assertIn("github.event_name == 'pull_request'", step["if"], step.get("name"))
+        restore = step_named(steps, "Restore the Bun package cache")
+        self.assertTrue(restore["uses"].startswith("actions/cache/restore@"))
+        self.assertIn("github.event_name == 'workflow_dispatch'", restore["if"])
+
     def test_the_webviews_checks_are_ci_webs_fail_mode_checks(self):
         # The gate reruns what a pull request's ci-web fails on, so a check that landed after the PR's CI
         # (2026-10-21: check:fixed-waits, past which #22967, #22975 and #23094 merged) runs before the merge.
@@ -388,6 +398,26 @@ class ScriptBehavior(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("not the pull request head", result.stderr)
 
+    def test_a_catalog_or_protocol_spec_change_runs_the_webviews_checks_on_a_pull_request(self):
+        # ci-web runs them only for a webviews/ change; check:catalog-keys and acpmux-protocol:check read these.
+        seed = self.seed
+        for path in ("Resources/Localizable.xcstrings", "cmux-tui/crates/acpmux/spec/acpmux-protocol.json"):
+            with self.subTest(path=path):
+                git(seed, "checkout", "-q", "pr")
+                head = commit(seed, {path: f"{path}\n"}, f"change {path}")
+                git(seed, "push", "-q", "-f", str(self.remote), "pr:refs/pull/7/head")
+                work = self.tmp / f"work-{path.count('/')}"
+                subprocess.run(["git", "clone", "-q", "-b", "feat-cmux-next", f"file://{self.remote}", str(work)],
+                               check=True)
+                git(work, "fetch", "-q", "origin", "refs/pull/7/head")
+                git(work, "-c", "user.name=t", "-c", "user.email=t@example.com", "merge", "-q", "--no-ff",
+                    "--no-edit", "FETCH_HEAD")
+                (self.tmp / "out.txt").unlink(missing_ok=True)
+                result = self.script(work, "prepare", "--event", "pull_request", "--head", head,
+                                     "--base", self.tip, "--output", str(self.tmp / "out.txt"))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.outputs()["checks"], "true")
+
     def test_a_web_change_asks_for_the_web_tools(self):
         seed = self.seed
         git(seed, "checkout", "-q", "feat-cmux-next")
@@ -550,6 +580,23 @@ class WebviewsChecksGate(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         for check in self.module.CHECKS:
             self.assertIn(f"{check}: found", result.stdout)
+
+    def test_a_second_finding_that_reads_like_a_base_one_is_new(self):
+        base = self.findings({"check:catalog-keys": "  Localizable: key ok_button twice\n"}, "red base")
+        self.findings({"check:catalog-keys": "  Localizable: key ok_button twice\n" * 2}, "the merge")
+        self.assertEqual(self.gate(base).returncode, 1)
+
+    def test_a_base_that_cannot_be_checked_out_charges_the_red_here(self):
+        self.findings({}, "base")
+        self.findings({"check:fixed-waits": "  x\n"}, "red")
+        result = self.gate("f" * 40)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("could not check out the base", result.stdout)
+
+    def test_the_checkout_root_and_timings_are_not_findings(self):
+        added = self.module.added("  /w/merge/webviews/a.ts: bad (12.5s)\n", "  /w/base/webviews/a.ts: bad (3s)\n",
+                                  "/w/merge", "/w/base")
+        self.assertEqual(added, [])
 
     def test_the_base_worktree_is_removed(self):
         base = self.findings({}, "base")

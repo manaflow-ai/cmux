@@ -146,9 +146,19 @@ jobs:
         with:
           bun-version: "1.4.2"
 
+      # A dispatch runs on feat-cmux-next's ref, so a cache it saved would sit in
+      # the base branch's scope after pull request code (bun install scripts)
+      # ran: a dispatch only restores.
       - name: Cache Bun package cache
-        if: ${{ steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true' }}
+        if: ${{ github.event_name == 'pull_request' && (steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true') }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-web-lint-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock', 'web/bun.lock', 'cmux-tui/frontends/web/bun.lock') }}
+
+      - name: Restore the Bun package cache (dispatch)
+        if: ${{ github.event_name == 'workflow_dispatch' && (steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true') }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
           key: bun-web-lint-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock', 'web/bun.lock', 'cmux-tui/frontends/web/bun.lock') }}
