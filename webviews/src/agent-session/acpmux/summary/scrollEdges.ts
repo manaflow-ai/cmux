@@ -10,19 +10,18 @@ export function followScrollEdges(node: HTMLElement): () => void {
     node.toggleAttribute("data-fade-top", node.scrollTop > 0.5);
     node.toggleAttribute("data-fade-bottom", below > 0.5);
   };
-  // DOM stand-ins without layout (the jsdom and happy-dom unit tests) have no ResizeObserver.
-  const resize = typeof ResizeObserver === "function" ? new ResizeObserver(mark) : undefined;
-  resize?.observe(node);
-  for (const child of node.children) resize?.observe(child);
+  const resize = new ResizeObserver(mark);
+  resize.observe(node);
+  for (const child of node.children) resize.observe(child);
   const content = new MutationObserver(() => {
-    for (const child of node.children) resize?.observe(child);
+    for (const child of node.children) resize.observe(child);
     mark();
   });
   content.observe(node, { childList: true });
   node.addEventListener("scroll", mark, { passive: true });
   mark();
   return () => {
-    resize?.disconnect();
+    resize.disconnect();
     content.disconnect();
     node.removeEventListener("scroll", mark);
   };

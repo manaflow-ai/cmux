@@ -579,8 +579,15 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
 
   const wrapper = useRef<HTMLDivElement | null>(null);
   // A long draft scrolls inside this box past its cap (markdownField.css): the edge with more draft
-  // past it is marked, and the CSS fades it (Leo 2026-10-21).
-  useEffect(() => (wrapper.current ? followScrollEdges(wrapper.current) : undefined), []);
+  // past it is marked, and the CSS fades it (Leo 2026-10-21). A DOM with no layout (the jsdom and
+  // happy-dom unit tests) has no observers and nothing scrolls there.
+  useEffect(
+    () =>
+      wrapper.current && typeof ResizeObserver === "function" && typeof MutationObserver === "function"
+        ? followScrollEdges(wrapper.current)
+        : undefined,
+    [],
+  );
   const handle = useRef<MarkdownFieldHandle>(undefined);
   useImperativeHandle(
     ref,
