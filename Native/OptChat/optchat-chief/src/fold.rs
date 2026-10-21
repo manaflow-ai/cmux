@@ -322,7 +322,8 @@ impl TurnFold {
         // before the main agent's next chunk.
         let subagent_update = event
             .msg
-            .pointer("/params/sessionId")
+            .get("params")
+            .and_then(|p| p.get("sessionId"))
             .and_then(Value::as_str)
             .is_some_and(|id| id.contains('/'));
         if subagent_update
