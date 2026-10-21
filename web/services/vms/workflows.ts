@@ -2191,29 +2191,31 @@ export function snapshotVm(input: {
       }
     }
     const finish = repo.finishSnapshotRequest;
+    const releaseRejectedKey = key && finish
+      ? Effect.suspend(() => finish({ vmId: vm.id, idempotencyKey: key, outcome: { kind: "rejected" } })).pipe(
+        Effect.retry({ times: 2 }),
+      )
+      : Effect.void;
     if (!providers.snapshot) {
-      if (key && finish) {
-        yield* Effect.ignore(finish({ vmId: vm.id, idempotencyKey: key, outcome: { kind: "rejected" } }));
-      }
+      yield* releaseRejectedKey;
       return yield* Effect.fail(new VmOperationUnsupportedError({
         provider: vm.provider,
         operation: "snapshot",
       }));
     }
     const takeSnapshot = providers.snapshot(vm.provider, vm.providerVmId ?? input.providerVmId, input.name);
-    const releaseRejectedKey = (error: VmProviderOperationError): Effect.Effect<void> =>
-      key && finish && snapshotProviderDefinitelyRejected(error)
-        ? Effect.ignore(finish({ vmId: vm.id, idempotencyKey: key, outcome: { kind: "rejected" } }))
-        : Effect.void;
     const snapshot = yield* measureVmEffect(
       input.timing,
       "provider_snapshot",
-      Effect.tapError(takeSnapshot, releaseRejectedKey),
+      Effect.tapError(takeSnapshot, (error) => snapshotProviderDefinitelyRejected(error) ? releaseRejectedKey : Effect.void),
     );
     if (key && finish) {
-      // The snapshot exists now. A failed write leaves a permanent pending
-      // fence; retries cannot duplicate the ambiguous provider result.
-      yield* Effect.ignore(finish({ vmId: vm.id, idempotencyKey: key, outcome: { kind: "succeeded", snapshot } }));
+      // Persist the provider result before the ownership event. Retrying a
+      // transient write prevents one snapshot from counting as both a pending
+      // request and a created snapshot.
+      yield* Effect.suspend(() => finish({ vmId: vm.id, idempotencyKey: key, outcome: { kind: "succeeded", snapshot } })).pipe(
+        Effect.retry({ times: 2 }),
+      );
     }
     const recordCreated = recordSnapshotCreated(snapshot);
     // Idempotent requests must durably record ownership before returning. A
