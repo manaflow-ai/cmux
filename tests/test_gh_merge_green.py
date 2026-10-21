@@ -7,6 +7,7 @@ import json
 import importlib.util
 from pathlib import Path
 import unittest
+from unittest import mock
 import signal
 import subprocess
 import tempfile
@@ -1731,6 +1732,21 @@ class HelperCheckoutUpdateRegression(unittest.TestCase):
             marker = directory / "updated"
             diagnostics = (result, marker.exists(), marker.read_text() if marker.exists() else "", log.read_text() if log.exists() else "", result.stderr)
             return diagnostics
+
+    def test_the_installers_environment_does_not_skip_the_update(self):
+        """install-gh-merge-green.sh runs these tests with GH_MERGE_GREEN_NO_AUTO_UPDATE=1 (its pinned snapshot must
+        not move), and a session may export GH_REPO or GH_HOST. Inheriting them skipped the update under test, so
+        the helper went on to read the PR: cosmic-gray's installer refused every main from 538ade5724 (2026-10-21)
+        with "not green: cannot read manaflow-ai/cmux#42" while a bare run passed."""
+        caller = {"GH_MERGE_GREEN_NO_AUTO_UPDATE": "1", "GH_MERGE_GREEN_HOME": "/nonexistent",
+                  "GH_REPO": "someone/else", "GH_HOST": "github.example.com"}
+        with mock.patch.dict(os.environ, caller):
+            result, marker_exists, marker_content, log, stderr = self.invoke("behind")
+            self.assertEqual(result.returncode, 0, stderr + "\n" + log)
+            self.assertTrue(marker_exists, stderr + "\n" + log)
+            result, marker_exists, marker_content, log, stderr = self.invoke("dirty")
+            self.assertIn("dirty", stderr)
+            self.assertNotIn("cannot read", stderr)
 
     def test_clean_main_checkout_fast_forwards_and_reexecutes(self):
         result, marker_exists, marker_content, log, stderr = self.invoke("behind")
