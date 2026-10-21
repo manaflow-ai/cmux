@@ -240,7 +240,7 @@ import UniformTypeIdentifiers
         hover.pointerMoved(to: CGPoint(x: picture.rect.maxX + 40, y: picture.rect.midY))
         #expect(hover.button.isHidden, "and hides off it")
         hover.pointerMoved(to: CGPoint(x: picture.rect.midX, y: picture.rect.midY))
-        hover.button.performClick(nil)
+        #expect(hover.button.accessibilityPerformPress())
         #expect(h.inline.isEmpty, "the button takes the picture out of the text")
         #expect(h.view.transcript.draftAttachments.isEmpty, "and out of the draft")
         #expect(h.field.string == "hi")

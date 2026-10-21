@@ -1150,6 +1150,7 @@ final class ComposeView: UIView {
                 tv.textStorage?.setAttributedString(ComposeInlineText.build(d.text, attachments: d.attachments, cache: &inlineAttachments,
                                                                             scale: renderScale, onRemove: { [weak self] in self?.removeInline($0) }))
                 tv.typingAttributes = ComposeInlineText.attributes(inline: !d.attachments.isEmpty)
+                inlineHover.hide()  // cmux: the attachments moved; the pointer shows the button again
                 tv.setSelectedRange(ComposeView.caretAfterRebuild(old: old, new: tv.string as NSString, selection: sel,
                                                                   added: ComposeView.addedMark(d, before: chips)))
                 if !DeferredSpellChecker.useAppKit { tv.spell.textDidChange() }

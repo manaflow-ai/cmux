@@ -5,29 +5,20 @@ import AppKit
 /// the field's attachments itself and did not place `ComposeInlineAttachmentView` (with its own
 /// hover button) in the field, so the field tracks the pointer over its attachments instead
 /// (Austin 2026-10-20: hovering a pasted picture showed no remove button).
-@MainActor final class ComposeInlineRemoveHover: NSObject {
+@MainActor final class ComposeInlineRemoveHover: NSResponder {
     private weak var field: NSTextView?
-    let button = NSButton()
+    let button = ComposeInlineRemoveButton()
     /// The attachment the button removes (under the pointer).
     private(set) weak var hovered: ComposeInlineAttachment?
 
     /// Adds the button and the pointer tracking to FIELD.
     func install(on field: NSTextView) {
         self.field = field
-        button.isBordered = false
-        button.bezelStyle = .regularSquare
-        button.image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: CmuxStrings.removeAttachment)
-        button.contentTintColor = NSColor(white: 1, alpha: 0.95)
-        button.imageScaling = .scaleProportionallyUpOrDown
-        button.setAccessibilityLabel(CmuxStrings.removeAttachment)
-        button.toolTip = CmuxStrings.removeAttachment
-        button.target = self
-        button.action = #selector(removeClicked)
+        button.onPress = { [weak self] in self?.removeClicked() }
         button.isHidden = true
         field.addSubview(button)
         field.addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
                                              owner: self))
-        NotificationCenter.default.addObserver(self, selector: #selector(textChanged), name: NSText.didChangeNotification, object: field)
     }
 
     /// The field's attachments with their boxes in the field's coordinates, in text order.
@@ -68,20 +59,42 @@ import AppKit
         hovered = nil
     }
 
-    @objc func mouseMoved(with event: NSEvent) {
+    override func mouseMoved(with event: NSEvent) {
         guard let field else { return }
         pointerMoved(to: field.convert(event.locationInWindow, from: nil))
     }
 
-    @objc func mouseEntered(with event: NSEvent) { mouseMoved(with: event) }
-    @objc func mouseExited(with event: NSEvent) { hide() }
+    override func mouseEntered(with event: NSEvent) { mouseMoved(with: event) }
+    override func mouseExited(with event: NSEvent) { hide() }
 
-    /// An edit moved or took away the attachments: the button waits for the pointer to move again.
-    @objc private func textChanged() { hide() }
-
-    @objc func removeClicked() {
+    func removeClicked() {
         guard let hovered else { return }
         hide()
         hovered.onRemove(hovered.attachmentID)
     }
+}
+
+/// The remove button: the xmark symbol, pressed by a click or by accessibility.
+final class ComposeInlineRemoveButton: NSImageView {
+    var onPress: () -> Void = {}
+
+    init() {
+        super.init(frame: .zero)
+        image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: CmuxStrings.removeAttachment)
+        contentTintColor = NSColor(white: 1, alpha: 0.95)
+        imageScaling = .scaleProportionallyUpOrDown
+        toolTip = CmuxStrings.removeAttachment
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+        setAccessibilityLabel(CmuxStrings.removeAttachment)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func mouseDown(with event: NSEvent) { onPress() }
+    override func accessibilityPerformPress() -> Bool {
+        onPress()
+        return true
+    }
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .arrow) }
 }

@@ -87,14 +87,14 @@
      }
      /// Self-test: the caret's rects at INDICES from the layout as `caretRect` keeps it, then after the
      /// whole text is laid out again from scratch (equal when no layout input went stale).
-@@ -424,9 +460,66 @@
+@@ -424,8 +460,65 @@
  
      override func paste(_ sender: Any?) {
          let pb = pasteboard
 +        if onPastePasteboard(pb) { return }  // cmux
          if pb.string(forType: .string) == nil, let img = NSImage(pasteboard: pb) { onPasteImage(img); return }
          super.paste(sender)
-     }
++    }
 +
 +    /// cmux: Paste and Match Style (Edit menu, Cmd+Shift+V): the clipboard's
 +    /// plain text only, at the caret (replacing the selection), as its own undo
@@ -150,10 +150,9 @@
 +        dragAnswer = nil
 +        if takes { return onDropPasteboard(sender.draggingPasteboard) }
 +        return super.performDragOperation(sender)
-+    }
+     }
  }
  
- /// The caret's view: drawn only, never hit (clicks at the caret reach the text view).
 @@ -632,10 +725,15 @@
      var onAttachmentsChanged: (() -> Void)?
      /// The send's field opacity pulse (begin), for the live glass view.
@@ -321,7 +320,7 @@
      /// The attachment whose remove control is at p (window coordinates).
      func chip(at p: CGPoint) -> ID? {
          let f = fieldRect
-@@ -984,12 +1140,18 @@
+@@ -984,12 +1140,19 @@
          let d = state.ui.draft
          let hadDraft = !text.isEmpty || !chips.isEmpty
          let tv = textView.view
@@ -338,12 +337,13 @@
 +                tv.textStorage?.setAttributedString(ComposeInlineText.build(d.text, attachments: d.attachments, cache: &inlineAttachments,
 +                                                                            scale: renderScale, onRemove: { [weak self] in self?.removeInline($0) }))
 +                tv.typingAttributes = ComposeInlineText.attributes(inline: !d.attachments.isEmpty)
++                inlineHover.hide()  // cmux: the attachments moved; the pointer shows the button again
 +                tv.setSelectedRange(ComposeView.caretAfterRebuild(old: old, new: tv.string as NSString, selection: sel,
 +                                                                  added: ComposeView.addedMark(d, before: chips)))
                  if !DeferredSpellChecker.useAppKit { tv.spell.textDidChange() }
              }
          }
-@@ -1044,6 +1206,7 @@
+@@ -1044,6 +1207,7 @@
              Animate.sampledUntilMinimum(veil, "opacity", Springs.fieldOpacity, base: 1, begin: begin)
              onSendPulse?(begin)
          }
