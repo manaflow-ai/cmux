@@ -67,14 +67,19 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         observeAttention()
     }
 
+    /// Parked but on screen beside the shown workspace (`sidebar.multiView`): its attention rings draw, so it follows them.
+    func followAttention() { observeAttention() }
+
     /// Installed: one topology (the coordinator restores its pane), whose ring draws in this frame.
     func didShow() {
         sendTopology()
         layoutView.syncWithModel()
     }
 
-    init(workspace: WorkspaceModel, daemon: DaemonService, services: AppServices, state: WindowState) {
+    /// `parked`: mounted beside the shown workspace (`sidebar.multiView`), so its first apply sends the window no topology.
+    init(workspace: WorkspaceModel, daemon: DaemonService, services: AppServices, state: WindowState, parked: Bool = false) {
         self.workspace = workspace
+        isParked = parked
         self.daemon = daemon
         self.services = services
         self.state = state
@@ -107,7 +112,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         )
         themeScope.root(contentView)
         contentView.backgroundMenu = { [weak services, weak self] in
-            services?.registry.makeContextMenu(for: .windowBackground, target: self.map { ActionTargetRef(kind: .workspace, id: $0.workspace.id) })
+            self.flatMap { services?.registry.makeContextMenu(for: .windowBackground, target: ActionTargetRef(kind: .workspace, id: $0.workspace.id)).themeRows(in: $0.themeScope.fullStrength) }
         }
         contentView.showsBar = screenBar.isVisible
         screenBar.onVisibilityChange = { [weak self] visible in self?.contentView.showsBar = visible }
@@ -162,16 +167,23 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         }
     }
 
-    /// Panes with an unread notification draw the attention ring.
+    /// Panes whose shown tab holds an unread notification draw the attention
+    /// ring; this window's tab selection decides which tab a pane shows.
     private func observeAttention() {
         let notifications = services.notifications, workspace = workspace
-        let marks = notifications.attentionMarks(for: workspace)
+        let shownTab: @MainActor @Sendable (PaneModel) -> String? = { [weak self] pane in self?.panes[LayoutPaneID(pane.id)]?.stripModel.selectedID?.rawValue }
+        let marks = notifications.attentionMarks(for: workspace, shownTab: shownTab)
         if layoutModel.attention != marks { layoutModel.attention = marks }
         attentionObservation?.cancel()
         attentionObservation = Task { [weak self] in
-            for await marks in ObservationStream({ notifications.attentionMarks(for: workspace) }) {
+            for await marks in ObservationStream({ notifications.attentionMarks(for: workspace, shownTab: shownTab) }) {
                 guard let self else { return }
-                if self.layoutModel.attention != marks { self.layoutModel.attention = marks }
+                guard self.layoutModel.attention != marks else { continue }
+                // A ring read by going into its pane blinks out (classic's dismiss flash); one
+                // cleared any other way fades. Set first, so the change that removes it sees it.
+                let removed = Set(self.layoutModel.attention.keys).subtracting(marks.keys)
+                self.layoutModel.attentionReadByEntry = notifications.takeEntryReads(removed: removed, in: workspace)
+                self.layoutModel.attention = marks
             }
         }
     }

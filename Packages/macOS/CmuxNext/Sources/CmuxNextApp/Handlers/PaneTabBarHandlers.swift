@@ -11,7 +11,8 @@ enum PaneTabBarHandlers {
 
     static func bind(into registry: ActionRegistry, context ctx: AppActionContext) {
         registry.bind(toggle, invoke: { invocation in
-            guard let controller = ctx.paneController(invocation), !controller.isAppPane else { return }
+            guard let controller = ctx.paneController(invocation) else { return }
+            if let reason = noTabBarReason(controller) { return ctx.refuse(reason) }
             controller.showTabBar(controller.view.hidesStrip)
         })
         // The row reads as the change it makes (cx-5425v): Hide Tab Bar while the pane shows it,
@@ -23,7 +24,8 @@ enum PaneTabBarHandlers {
             ctx.services.windows.active?.focusedPane.flatMap { $0.view.hidesStrip ? nil : PaneTabBarStrings.hide }
         }
         registry.bind(newTab, invoke: { invocation in
-            guard let controller = ctx.paneController(invocation), !controller.isAppPane else { return }
+            guard let controller = ctx.paneController(invocation) else { return }
+            if let reason = noTabBarReason(controller) { return ctx.refuse(reason) }
             if controller.view.hidesStrip { controller.showTabBar(true) }
             TabLifecycle.newTabOfPaneKind(ctx, invocation, inStrip: true)
         })
@@ -34,7 +36,16 @@ enum PaneTabBarHandlers {
             ActionTargetVisibility.hide(id, in: registry) { invocation in
                 ctx.paneController(invocation).map { $0.isAppPane || $0.isPinnedDockPane } ?? false
             }
+            // The palette, the CLI and MCP say why instead of reporting a run that did nothing.
+            ctx.setTargetReason(id) { invocation in ctx.paneController(invocation).flatMap(noTabBarReason) }
         }
+    }
+
+    /// Why `controller` takes no tab bar change and no new tab, or nil.
+    static func noTabBarReason(_ controller: PaneController) -> String? {
+        if controller.isPinnedDockPane { return RefusalStrings.chiefPaneHasNoTabBar }
+        if controller.isAppPane { return RefusalStrings.appPaneHasNoTabBar }
+        return nil
     }
 }
 

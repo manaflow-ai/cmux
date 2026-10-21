@@ -103,6 +103,62 @@ const worktreeProps = {
   summary: { sessionId: "", harness: "claude", cwd: worktrees[0]!.cwd, host: "This Mac", hostKind: "local" as const },
 };
 
+// Austin's list (2026-10-20): cmux's agent worktrees each listed as a project of its own. The host
+// reads each folder's repository (`project.list` `repos`), so they fold under one cmux row.
+const cmuxRepo = (branch: string) => ({
+  root: "/Users/you/src/cmux",
+  name: "cmux",
+  branch,
+  github: "manaflow-ai/cmux",
+});
+const lane = (name: string): Project => ({
+  cwd: `/Users/you/.cmux/worktrees/cmux/${name}`,
+  label: name,
+  repo: cmuxRepo(name),
+});
+const repoProjects: Project[] = [
+  lane("issue-22273-runaway-children"),
+  {
+    cwd: "/Users/you/src/atlas-web",
+    label: "atlas-web",
+    repo: { root: "/Users/you/src/atlas-web", name: "atlas-web", branch: "main" },
+  },
+  lane("feat-cmux-next-unread-ring-classic"),
+  { cwd: "/Users/you/src/cmux", label: "cmux", repo: cmuxRepo("feat-cmux-next") },
+  lane("agent-caller-scoped-current-selector"),
+  {
+    cwd: "/Users/you/src/relay",
+    label: "relay",
+    repo: { root: "/Users/you/src/relay", name: "relay", branch: "main" },
+  },
+  lane("agent-21352-sidebar-drag"),
+  { cwd: "/Users/you/src/notes", label: "notes" },
+];
+
+const repoProps = {
+  ...baseProps,
+  projectChoices: repoProjects,
+  onNewWorktree: () => undefined,
+  summary: {
+    sessionId: "",
+    harness: "claude",
+    cwd: repoProjects[0]!.cwd,
+    host: "This Mac",
+    hostKind: "local" as const,
+  },
+};
+
+// No icon file of their own: cmux draws its GitHub owner's avatar (here a drawn stand-in), atlas-web
+// its framework, relay its language.
+const ownerAvatar =
+  "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iMTYiIGZpbGw9IiMxZjIzMjgiLz48cGF0aCBkPSJNOSAyMlYxMWw3IDcgNy03djExIiBmaWxsPSJub25lIiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iMyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+PC9zdmc+";
+const repoHost = {
+  projectIcons: Object.fromEntries(
+    repoProjects.filter((project) => project.repo?.github).map((project) => [project.cwd, ownerAvatar]),
+  ),
+  projectGlyphs: { "/Users/you/src/atlas-web": "react", "/Users/you/src/relay": "rust" },
+};
+
 const openComputer: Play = async (ctx) => {
   await ctx.click({ role: "button", name: /^Computer/ });
   await ctx.waitFor(() => ctx.document.querySelector('[role="menu"] [role="menuitemradio"]'));
@@ -174,6 +230,41 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         );
       },
     },
+    "repo-worktrees": {
+      note: "Worktrees fold under their repository: one cmux row (the current worktree's branch dimmed, its other worktrees counted), avatars and framework glyphs before letters.",
+      props: repoProps,
+      chipHost: repoHost,
+      play: openFolder,
+    },
+    "repo-worktrees-open": {
+      note: "→ (or the count) opens a repository's other worktrees under its row, newest first, each by its branch.",
+      props: repoProps,
+      chipHost: repoHost,
+      play: async (ctx) => {
+        await openFolder(ctx);
+        await ctx.press("ArrowDown");
+        await ctx.press("ArrowRight");
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-row[data-worktree]"));
+      },
+    },
+    "repo-worktrees-search": {
+      note: "A search by branch lists the worktree it names under its repository; typing the repository's name lists it once.",
+      props: repoProps,
+      chipHost: repoHost,
+      play: async (ctx) => {
+        await openFolder(ctx);
+        await ctx.type("unread");
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-row[data-worktree]"));
+      },
+    },
+    "repo-worktrees-guessed": {
+      note: "An older host sends no repositories: worktrees under ~/.cmux/worktrees/<repo>/ still fold under that repository by their path.",
+      props: {
+        ...repoProps,
+        projectChoices: repoProjects.map(({ repo: _repo, ...project }) => project),
+      },
+      play: openFolder,
+    },
     "computer-menu": {
       note: "The computer menu keeps local and Cloud destinations together with SSH and cmux Cloud actions.",
       props: baseProps,
@@ -232,6 +323,48 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
           host: "gpu-box",
           peer: "gpu-box",
         },
+      },
+    },
+    "started-move-to-cloud": {
+      note: "Preview, a started chat on this Mac: the picker shows where it runs and Move to Cloud, the tab menu's same action, saying it reuses a Cloud machine or makes one.",
+      props: {
+        ...baseProps,
+        environments: true,
+        started: true,
+        onOffload: () => undefined,
+        offloads: ["move"],
+        summary: {
+          sessionId: "gallery-started-local",
+          harness: "claude",
+          cwd: projects[0]!.cwd,
+          host: "This Mac",
+          hostKind: "local",
+        },
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-env-popover .acpmux-env-new"));
+      },
+    },
+    "started-bring-back": {
+      note: "Preview, a started Cloud chat a move from this Mac put there: the picker shows its machine and Bring Back Local, which merges the machine's changes into the folder here.",
+      props: {
+        ...baseProps,
+        environments: true,
+        started: true,
+        onOffload: () => undefined,
+        offloads: ["bringBack"],
+        summary: {
+          sessionId: "gallery-started-cloud",
+          harness: "claude",
+          cwd: "/home/you/project",
+          host: "Cloud machine",
+          hostKind: "cloud",
+        },
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-env-popover .acpmux-env-new"));
       },
     },
     "started-branch": {

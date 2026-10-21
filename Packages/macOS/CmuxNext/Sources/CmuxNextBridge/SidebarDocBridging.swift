@@ -83,6 +83,11 @@ public final class DaemonSidebarDocRemote: SidebarDocRemote {
 @MainActor
 public final class SidebarDocSections {
     private var groups: [String: WorkspaceGroupModel] = [:]
+    /// Whether the daemon puts a new workspace first in its machine section (`workspaces.newPlacement`
+    /// `top`, the default); false lists it last, as `bottom` does (`afterCurrent` keeps a pending row
+    /// at the window's slot meanwhile). A live workspace the document does not place
+    /// yet lists at that slot, so its item's arrival moves nothing (plans/cmux-next/sidebar-ordering-DESIGN.md).
+    public var placesNewRowsFirst: @MainActor () -> Bool = { true }
 
     public init() {}
 
@@ -94,12 +99,13 @@ public final class SidebarDocSections {
 
     /// `session`'s sections in document order over `workspaces` (the ones
     /// the window's room shows). Consecutive loose rows share a section; a
-    /// live workspace the document does not place yet follows last (its
-    /// adopt is on the way); one placed in another section (Pinned, a
-    /// custom section) lists only as a member of its group there.
-    /// `unplacedOrder` orders those last rows (the App's personal order: a new
-    /// workspace keeps its press slot while its adopt is on the way); it runs
-    /// only when there are some.
+    /// live workspace the document does not place yet (a new one: its item
+    /// comes on `session.events`, after `workspace-added`) lists where the
+    /// daemon's create puts it: first in the machine section, below a leading
+    /// Home row and above every group (``placesNewRowsFirst``), else last. One
+    /// placed in another section (Pinned, a custom section) lists only as a
+    /// member of its group there. `unplacedOrder` orders those rows (the App's
+    /// personal order, newest first under `top`); it runs only when there are some.
     public func sections(_ projection: SidebarDocProjection, session: String, workspaces: [WorkspaceModel],
                          unplacedOrder: ([WorkspaceModel]) -> [WorkspaceModel] = { $0 }) -> [CmuxNextDaemon.SidebarSection] {
         let byResource = Dictionary(workspaces.compactMap { w in w.resourceID.map { ($0.rawValue, w) } }, uniquingKeysWith: { first, _ in first })
@@ -131,6 +137,7 @@ public final class SidebarDocSections {
         // A group of Pinned or a custom section is mapped with its machine's rows; the sidebar
         // model lists it in that section (`SidebarDocProjection.arrange`).
         flush()
+        let machineSections = sections.count
         // A band group lists with this machine's rows when it or a group under it holds one of them.
         let bandMembers = projection.bandGroups.map { group in
             group.members.filter { $0.sessionID == session }.compactMap { byResource[$0.workspaceID] }
@@ -148,10 +155,36 @@ public final class SidebarDocSections {
         }
         let placed = Set(projection.items.keys.filter { $0.sessionID == session }.map(\.workspaceID))
         let unplaced = workspaces.filter { w in !listed.contains(w.id) && !(w.resourceID.map { placed.contains($0.rawValue) } ?? false) }
-        if !unplaced.isEmpty { loose += unplacedOrder(unplaced) }
+        if !unplaced.isEmpty {
+            if placesNewRowsFirst() {
+                // Newest first, as the daemon places them: the store lists a new workspace last, and its
+                // personal row comes with its item, so the unplaced ones have none to order them by yet.
+                Self.insertFirst(unplacedOrder(Array(unplaced.reversed())), into: &sections, machineSections: machineSections)
+            } else {
+                loose += unplacedOrder(unplaced)
+            }
+        }
         flush()
         if sections.isEmpty { sections.append(CmuxNextDaemon.SidebarSection(group: nil, workspaces: [])) }
         return sections
+    }
+
+    /// Puts `rows` first among the machine's rows (the first `machineSections` of `sections`): after a
+    /// leading Home row, in the first loose run, or as a loose run of their own above a leading group.
+    ///
+    /// - Parameters:
+    ///   - rows: The new workspaces, in the order they list (newest first under `top`).
+    ///   - sections: One machine's sections; the machine's own come first.
+    ///   - machineSections: How many of `sections` are the machine's own (band groups follow them).
+    public static func insertFirst(_ rows: [WorkspaceModel], into sections: inout [CmuxNextDaemon.SidebarSection], machineSections: Int) {
+        if machineSections > 0, sections[0].group == nil {
+            var workspaces = sections[0].workspaces
+            let skip = workspaces.first?.kind == SidebarMapping.homeKind ? 1 : 0
+            workspaces.insert(contentsOf: rows, at: skip)
+            sections[0] = CmuxNextDaemon.SidebarSection(group: nil, workspaces: workspaces)
+        } else {
+            sections.insert(CmuxNextDaemon.SidebarSection(group: nil, workspaces: rows), at: 0)
+        }
     }
 
     private func model(_ group: SidebarDocProjection.Group) -> WorkspaceGroupModel {

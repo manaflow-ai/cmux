@@ -177,6 +177,7 @@ export function SavedEnvironmentPanel({
               label={t("composer.folder")}
               menu="EnvironmentFolder"
               face={
+                // tooltip-allow: the face shows only the folder's name; the tooltip is its whole path
                 <span className="acpmux-env-select" title={draft.folder}>
                   <span className="acpmux-env-select-text" data-placeholder={draft.folder ? undefined : ""}>
                     {draft.folder ? projectLabel(draft.folder) : t("composer.chooseFolder")}

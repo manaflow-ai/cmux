@@ -5,10 +5,11 @@ import { Popover } from "../../ui/Popover";
 import type { AcpmuxSnapshot } from "./model";
 import { ChevronIcon } from "./ComposerPickers";
 import { EnvironmentIcon, EnvironmentPicker, type SavedEnvironmentRows } from "./EnvironmentPicker";
-import type { ConnectKind, EnvironmentKind } from "./environments";
+import type { ConnectKind, EnvironmentKind, OffloadKind } from "./environments";
 import { FolderPopover } from "./FolderPopover";
 import type { Project } from "./ProjectChooser";
 import { projectSuffixes } from "./projectSuffix";
+import { belowCheckout, folderRepo, isMainCheckout, worktreeName, type ProjectRepo } from "./projectRepos";
 import { isAgentHome, projectLabel } from "./sessionList";
 import { translate as t } from "./i18n";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
@@ -33,10 +34,11 @@ export const CONTEXT_LABELS = {
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 type Session = AcpmuxSnapshot["sessions"][number];
-type Location = { id: string; label: string; detail?: string };
+type Location = { id: string; label: string; detail?: string; repo?: ProjectRepo };
 type Computer = Location & { kind: EnvironmentKind; connected?: boolean };
 const NO_PEER_KINDS: Record<string, "ssh" | "cloud"> = {};
 const NO_PEER_CONNECTED: Record<string, boolean> = {};
+const NO_OFFLOADS: readonly OffloadKind[] = [];
 
 /// The location strip on the composer card's top edge (hq#1957 composer location strip): folder ·
 /// computer, and the branch at the end. New chats can choose a local or Cloud computer and one of
@@ -61,6 +63,8 @@ export function ComposerContext({
   onNewChat,
   onBrowseFolder,
   onConnect,
+  onOffload,
+  offloads = NO_OFFLOADS,
   saved,
   onRefreshMachines,
 }: {
@@ -93,6 +97,13 @@ export function ComposerContext({
   /// A new chat's Computer menu ends with SSH… and New Cloud Machine, which open the host's
   /// connect flows (Lawrence 2026-10-06: "I cannot click on cmux Cloud SSH").
   onConnect?(kind: ConnectKind): void;
+  /// A started chat's one move, in the environment picker: Move to Cloud for a chat on this Mac,
+  /// Bring Back Local for one a move put on a Cloud machine (the tab menu's same actions), as
+  /// `offloads` lists them. None when the host passes none (the floating chat).
+  onOffload?(kind: OffloadKind): void;
+  /// The moves the app offers this chat now (its right-click menu's, `pane.tabState` `moves`): the
+  /// picker offers only these, whatever the machine's kind.
+  offloads?: readonly OffloadKind[];
   /// The New Tab page's saved environments, in the environment picker. While one is picked it
   /// alone names where the chat starts: the folder and New Worktree controls step aside.
   saved?: SavedEnvironmentRows;
@@ -130,6 +141,7 @@ export function ComposerContext({
       id: normalizeCwd(project.cwd)!,
       label: project.label,
       detail: project.cwd,
+      ...(project.repo ? { repo: project.repo } : {}),
     }));
     const seen = new Set(projects.map((project) => project.id));
     return [...projects, ...known.filter((folder) => !seen.has(folder.id))];
@@ -148,6 +160,30 @@ export function ComposerContext({
   const readOnly = started || onProject === undefined;
   const newChats = started && onNewChat !== undefined;
   const branch = summary?.branch;
+  // The folder control names the repository (projectRepos.ts), and a worktree's branch while no
+  // branch control follows it: "cmux · issue-22273", not the worktree folder's own name. A folder
+  // inside a checkout always adds its path below it ("cmux · webviews"), branch control or not.
+  const currentLocation = currentFolder
+    ? (folders.find((folder) => folder.id === currentFolder) ?? {
+        id: currentFolder,
+        label: projectLabel(currentFolder),
+      })
+    : undefined;
+  const currentRepo = currentLocation ? folderRepo(currentLocation) : undefined;
+  const place = !currentLocation
+    ? undefined
+    : branch
+      ? belowCheckout(currentLocation)
+      : isMainCheckout(currentLocation)
+        ? undefined
+        : worktreeName(currentLocation);
+  const currentName = currentLocation
+    ? currentRepo
+      ? place && place !== currentRepo.name
+        ? `${currentRepo.name} · ${place}`
+        : currentRepo.name
+      : projectLabel(currentLocation.id)
+    : undefined;
   // A started chat's Choose folder…: the host's folder panel, then a new chat there.
   const browseNewChat = onBrowseFolder
     ? () => {
@@ -163,7 +199,9 @@ export function ComposerContext({
       if (folder) onProject?.(folder, id === "local" ? undefined : id);
     }
   };
-  const computerDisabled = readOnly && (started || !onConnect);
+  // A started chat's picker lists only where it runs and its move (EnvironmentPicker `offload`).
+  const offload: OffloadKind | undefined = started && environments && onOffload ? offloads[0] : undefined;
+  const computerDisabled = readOnly && !offload && (started || !onConnect);
   // Preview (`labs.previewFeatures`): the computer control is the environment picker.
   const environmentsShown = environments && !computerDisabled;
   const savedRows = environmentsShown && !readOnly ? saved : undefined;
@@ -191,11 +229,7 @@ export function ComposerContext({
                 <LocationFace
                   icon={<FolderIcon />}
                   value={
-                    currentFolder
-                      ? projectLabel(currentFolder)
-                      : noProject
-                        ? t(CONTEXT_LABELS.noProject)
-                        : t(CONTEXT_LABELS.chooseFolder)
+                    currentName ? currentName : noProject ? t(CONTEXT_LABELS.noProject) : t(CONTEXT_LABELS.chooseFolder)
                   }
                   chevron
                   middle={currentFolder !== undefined}
@@ -261,9 +295,10 @@ export function ComposerContext({
                   chevron
                 />
               }
-              environments={computers}
+              environments={offload && currentComputer ? [currentComputer] : computers}
               current={selectedComputer}
               onPick={pickEnvironment}
+              {...(offload && onOffload ? { offload, onOffload } : {})}
               {...(!started && onConnect ? { onConnect } : {})}
               {...(savedRows ? { saved: savedRows } : {})}
               {...(onRefreshMachines ? { onOpen: onRefreshMachines } : {})}

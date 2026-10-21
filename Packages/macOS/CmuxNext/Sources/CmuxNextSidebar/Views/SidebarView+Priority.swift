@@ -13,8 +13,10 @@ extension SidebarViewComponents {
         priorityButton.isHidden = panel == nil
         priorityPanelView.isHidden = panel?.shown != true
         if let panel {
+            // The label says what the dot means; the shortcut shows in the tooltip's own ink.
             let label = panel.shown ? Strings.priorityHide : Strings.priorityShow
-            priorityButton.label = panel.shortcut.map { "\(label)  \($0)" } ?? label
+            priorityButton.label = panel.bellDot ? label + ", " + Strings.priorityAttentionCount(panel.attentionCount) : label
+            priorityButton.themedToolTipShortcut = panel.shortcut
             priorityButton.tintOverride = panel.shown ? Palette.notificationBlue : nil
             priorityBellDot.isHidden = !panel.bellDot
         }

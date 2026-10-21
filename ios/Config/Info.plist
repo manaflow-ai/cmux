@@ -93,6 +93,21 @@
 		     alone would not cover routable private-LAN dev servers. -->
 		<key>NSAllowsArbitraryLoadsInWebContent</key>
 		<true/>
+		<!-- A self-hosted cmux chat server (Settings > Chat Server) listens only
+		     on its tailnet, over plain HTTP: WireGuard already encrypts and
+		     authenticates the path (dm-group-chat-DESIGN.md section 4.3). Plain
+		     HTTP is allowed for MagicDNS *.ts.net names only; every other
+		     origin stays under ATS. -->
+		<key>NSExceptionDomains</key>
+		<dict>
+			<key>ts.net</key>
+			<dict>
+				<key>NSIncludesSubdomains</key>
+				<true/>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+			</dict>
+		</dict>
 	</dict>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
