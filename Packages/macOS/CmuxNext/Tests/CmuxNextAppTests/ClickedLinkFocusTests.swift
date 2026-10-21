@@ -81,6 +81,41 @@ struct ClickedLinkFocusTests {
         }
     }
 
+    /// A link clicked while the agent's own beside open is in flight (Leo's chat was mid-turn): the
+    /// click is the person's and keeps the focus and the selection; the agent's tab, reported after
+    /// it, lands unselected instead of replacing the clicked link's tab in the focused pane.
+    @Test func aClickWhileAnAgentsOpenIsInFlightKeepsItsFocus() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            let store = services.daemon.store
+            let content = try #require(services.windows.active?.workspaceContent)
+            let model = try #require(store.workspaces.first?.screens.first?.panes.first)
+            let pane = try #require(services.paneController(for: model))
+            let panes = Set(content.panes.keys)
+            #expect(services.registry.perform("splitRight", invocation: ActionInvocation(origin: .user)))
+            try await PinnedPageTests.until({ content.panes.keys.contains { !panes.contains($0) } })
+            let right = try #require(content.panes.first { !panes.contains($0.key) }?.value)
+            try await PinnedPageTests.until({ !right.pane.tabs.isEmpty })
+            // The agent's tab, made in the column right of its chat and not reported to the placement yet.
+            let agents = try await connection.newFrontendBrowserTab(url: "https://example.com/agent", engine: .webkit,
+                                                                    in: right.pane.handle, activate: false)
+            try await PinnedPageTests.until({ store.tab(surface: agents.surface) != nil })
+            PaneHandlers.focus(pane.layoutPaneID, in: content)
+            try await PinnedPageTests.until({ content.focusedPane === pane })
+            var invocation = ActionInvocation(target: ActionTargetRef(kind: .pane, id: right.paneKey), origin: .cli)
+            invocation.besideCaller = true
+            let agentPlaced = AgentBesidePlacement.placed(invocation, in: right, then: nil)
+
+            services.linkOpener.placement = { .splitRight }
+            let opened = try await Self.click(services, from: pane, cmdClick: true)
+            try await PinnedPageTests.until({ content.focusedPane === right && right.stripModel.selectedID?.rawValue == opened },
+                                            report: { Self.describe(content, opened) })
+            agentPlaced(agents.surface)
+            try await PinnedPageTests.until({ right.pendingSelectSurface == nil })
+            #expect(content.focusedPane === right, "the agent's open took the focus from the clicked link")
+            #expect(right.stripModel.selectedID?.rawValue == opened, "the agent's tab replaced the clicked link's tab: " + Self.describe(content, opened))
+        }
+    }
+
     /// The chat header's Preview (Changes and Files take the same path): a person's click, so the
     /// tab that opens in a new column right of the page takes the focus, unlike an agent's own
     /// beside_caller open, and its close gives the focus back to the page it was clicked in.
