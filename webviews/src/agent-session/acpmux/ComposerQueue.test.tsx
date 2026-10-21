@@ -324,8 +324,8 @@ test("chat_state reads each queued row's text, its image ids and how far each th
       text: "why does this overlap?",
       editing: false,
       images: [
-        { id: SHOT_A, name: "sidebar.png", thumbnail: "loading" },
-        { id: SHOT_B, name: "toolbar.png", thumbnail: "loading" },
+        { id: SHOT_A, label: "sidebar.png", thumbnail: "loading" },
+        { id: SHOT_B, label: "toolbar.png", thumbnail: "loading" },
       ],
     },
   ]);
@@ -358,7 +358,7 @@ test("a queued image acpmux has no bytes for reads as missing, one being read as
       />,
     );
   });
-  expect(queuedRowsState(container)[0]!.images).toEqual([{ id: SHOT_A, name: "shot.png", thumbnail: "reading" }]);
+  expect(queuedRowsState(container)[0]!.images).toEqual([{ id: SHOT_A, label: "shot.png", thumbnail: "reading" }]);
   await act(async () => finish(undefined));
-  expect(queuedRowsState(container)[0]!.images).toEqual([{ id: SHOT_A, name: "shot.png", thumbnail: "missing" }]);
+  expect(queuedRowsState(container)[0]!.images).toEqual([{ id: SHOT_A, label: "shot.png", thumbnail: "missing" }]);
 });

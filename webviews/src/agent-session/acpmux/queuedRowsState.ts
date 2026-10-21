@@ -6,14 +6,16 @@ export type QueuedThumbnail = "reading" | "missing" | "loading" | "loaded" | "fa
 
 export type QueuedRowState = {
   promptId: string;
-  /// The row's text, or the edit field's while it is edited.
+  /// The row's text, or the edit field's while it is edited (its first 400 characters, as userBubbles).
   text: string;
   editing: boolean;
-  images: { id: string; name: string; thumbnail: QueuedThumbnail | "" }[];
+  /// `label` is the thumbnail's drawn label (imageLabel), not always the file's name.
+  images: { id: string; label: string; thumbnail: QueuedThumbnail | "" }[];
 };
 
 const TEXT_NODE = 3;
 
+/// Rows folded away are not drawn, so not listed.
 export function queuedRowsState(root: ParentNode = document): QueuedRowState[] {
   return [...root.querySelectorAll<HTMLElement>(".acpmux-queued[data-prompt-id]")].map((row) => {
     const field = row.querySelector<HTMLTextAreaElement>(".acpmux-queued-edit");
@@ -22,11 +24,11 @@ export function queuedRowsState(root: ParentNode = document): QueuedRowState[] {
     const words = [...(clamp?.childNodes ?? [])].filter((node) => node.nodeType === TEXT_NODE);
     return {
       promptId: row.dataset.promptId ?? "",
-      text: field ? field.value : words.map((node) => node.textContent ?? "").join(""),
+      text: (field ? field.value : words.map((node) => node.textContent ?? "").join("")).slice(0, 400),
       editing: field !== null,
       images: [...row.querySelectorAll<HTMLElement>(".acpmux-queued-image-slot")].map((slot) => ({
         id: slot.dataset.imageId ?? "",
-        name: slot.querySelector(".acpmux-queued-image")?.getAttribute("title") ?? "",
+        label: slot.querySelector(".acpmux-queued-image")?.getAttribute("title") ?? "",
         thumbnail: (slot.dataset.thumbnail ?? "") as QueuedThumbnail | "",
       })),
     };
