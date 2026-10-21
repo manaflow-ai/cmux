@@ -165,7 +165,7 @@ impl Mux {
         };
         let fingerprint = json!({"pane": pane_id, "record": &record});
         let url = record.url.clone();
-        self.keyed_frontend_browser_tab(key, record, fingerprint, |browser_id| {
+        self.keyed_frontend_browser_tab_with(key, record, fingerprint, |browser_id| {
             let fields = frontend_browser_fields(browser_id, placement);
             self.new_browser_tab_with_fields_as(actor, url, pane, size, fields)
         })
@@ -197,7 +197,7 @@ impl Mux {
             },
         });
         let url = record.url.clone();
-        self.keyed_frontend_browser_tab(key, record, fingerprint, |browser_id| {
+        self.keyed_frontend_browser_tab_with(key, record, fingerprint, |browser_id| {
             let fields = frontend_browser_fields(browser_id, FrontendTabPlacement::default());
             self.split_tab_pane_with_fields_as(actor, split, url, fields, size)
         })
@@ -205,7 +205,7 @@ impl Mux {
 
     /// [`Self::keyed_frontend_browser`] for a raw `new-frontend-browser-tab`:
     /// the replayed tab, or the created one with the record's title.
-    fn keyed_frontend_browser_tab(
+    fn keyed_frontend_browser_tab_with(
         self: &Arc<Self>,
         key: &str,
         record: FrontendBrowserRecord,

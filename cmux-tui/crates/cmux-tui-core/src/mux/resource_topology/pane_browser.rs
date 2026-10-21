@@ -182,14 +182,14 @@ impl Mux {
         let TabSplit { pane, direction, pane_id, split_id } = split;
         fields.insert(PANE_BROWSER_URL_FIELD.into(), Value::String(url));
         if let Some(pane_id) = pane_id {
-            fields.insert(crate::mux::CLIENT_PANE_ID_FIELD.into(), Value::String(pane_id));
+            fields.insert(CLIENT_PANE_ID_FIELD.into(), Value::String(pane_id));
         }
         if let Some(split_id) = split_id {
-            fields.insert(crate::mux::CLIENT_SPLIT_ID_FIELD.into(), Value::String(split_id));
+            fields.insert(CLIENT_SPLIT_ID_FIELD.into(), Value::String(split_id));
         }
         let beside_lone_dock = direction == "right"
-            && self.with_state(|state| crate::mux::pane_in_lone_pinned_column(state, pane));
-        let width = beside_lone_dock.then_some(crate::mux::LONE_DOCK_NEIGHBOR_WIDTH);
+            && self.with_state(|state| pane_in_lone_pinned_column(state, pane));
+        let width = beside_lone_dock.then_some(LONE_DOCK_NEIGHBOR_WIDTH);
         self.split_browser_pane_with_fields_as(actor, pane, direction, width, fields, size)
     }
 
