@@ -96,6 +96,32 @@ await requireBrowserLane("diff-toolbar-narrow.test.ts", async () => {
     });
   }
 
+  // Narrower, with no files sidebar (beside a chat at about 400 px): the base picker keeps its label
+  // inside its chip, and jump-to-file never draws over the picker (the cell clips it instead).
+  for (const width of [400, 460]) {
+    test(`at ${width} px the base picker's label stays in its chip, clear of jump-to-file`, async () => {
+      const { port } = vite!.httpServer!.address() as { port: number };
+      const page = await browser!.newPage({ viewport: { width, height: 600 } });
+      await page.goto(`http://127.0.0.1:${port}/test/browser/diff-toolbar-narrow.html?picker`);
+      await page.locator("#base-picker-button").waitFor();
+      const boxes = await page.evaluate(() => {
+        const rect = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+        const label = [...document.querySelectorAll("#base-picker-button .base-picker-label > *")]
+          .map((element) => element.getBoundingClientRect())
+          .filter((box) => box.width > 0);
+        return {
+          cell: rect("#toolbar .toolbar-left").right,
+          jump: rect("#jump-to-file-button").left,
+          button: rect("#base-picker-button").right,
+          label: Math.max(...label.map((box) => box.right)),
+        };
+      });
+      await page.close();
+      expect(boxes.label).toBeLessThanOrEqual(boxes.button + 0.5);
+      if (boxes.jump < boxes.cell) expect(boxes.jump).toBeGreaterThanOrEqual(boxes.button);
+    });
+  }
+
   // POLISH.md: no capsule pills, small-radius rects; a circle stays a circle.
   test("the toolbar's controls are small-radius rects, not capsules", async () => {
     const { port } = vite!.httpServer!.address() as { port: number };

@@ -316,12 +316,13 @@ body {
      the secondaries (reason, ahead/behind, then the head side) shed via
      .base-picker-meta + the toolbar-left container queries before the ref
      itself ellipsizes. Free toolbar space is left empty to the right rather
-     than padding out this button. No floor of its own: the ref's 6ch floor
-     keeps it legible, and a fixed one (150px, wider than `HEAD -> main v`)
-     pushed the jump-to-file chevron under the toolbar pill beside the files
-     sidebar. */
+     than padding out this button. Its floor is its label's own min-content
+     (the ref's 6ch and the chevron), never a fixed width: a fixed one (150px,
+     wider than `HEAD -> main v`) pushed the jump-to-file chevron under the
+     toolbar pill beside the files sidebar, and none at all let the label spill
+     out of the chip onto that chevron. */
   flex: 0 1 auto;
-  min-width: 0;
+  min-width: auto;
 }
 .base-picker-button {
   display: inline-flex;
