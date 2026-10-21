@@ -60,7 +60,7 @@ test("an edit after the answer still joins the turn's edit card, and the answer 
   expect(shaped.filter((entry) => entry === "activity:patch")).toHaveLength(1);
 });
 
-test("an earlier turn without a summary that ended on a tool folds its interim text too", () => {
+test("an earlier turn without a summary draws as it came, its text in place (no auto fold)", () => {
   const rows = [
     row("u1", "user"),
     text("interim"),
@@ -70,7 +70,7 @@ test("an earlier turn without a summary that ended on a tool folds its interim t
     row("end-2", "turnSummary", { status: "completed", durationMs: 1_000 }),
   ];
   const shaped = drawn(rows);
-  expect(shaped.slice(0, shaped.indexOf("user:u2"))).toEqual(["user:u1", "worked:worked-u1"]);
+  expect(shaped.slice(0, shaped.indexOf("user:u2"))).toEqual(["user:u1", "assistant:interim", "activity:read"]);
 });
 
 test("expanding the fold of a turn that ended on a tool shows the interim text and tools in order", () => {

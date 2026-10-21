@@ -17,6 +17,7 @@ import {
   type OmnibarRow,
 } from "./omnibar";
 import {
+  activityTime,
   folded,
   homePath,
   listed,
@@ -26,6 +27,7 @@ import {
   type AcpmuxSessionEntry,
 } from "./sessionList";
 import { type StringKey, type Translate, translate, useT } from "./i18n";
+import { parsePageWidgets, type PageWidget } from "./newtab/pageWidgets";
 import { parseNewTabTemplate, type NewTabTemplate } from "./newtab/templates";
 import { seedWarmNewTab } from "./newtab/warmSnapshot";
 
@@ -98,6 +100,9 @@ export type NewTabHost = {
   history?: boolean;
   /// The widget view under the composer (Debug Settings `newTab.widgets`, newtab/WidgetCards.tsx).
   widgets?: boolean;
+  /// The Minimal layout's widgets the user turned on (`tabs.newTabWidgets.*`, newtab/pageWidgets.ts);
+  /// unset is Settings' defaults (the greeting).
+  pageWidgets?: PageWidget[];
   /// The page lists only its own connection's chats, not the store every page shares (Debug
   /// Settings `newTab.privateChatLists`, newtab/chatStore.ts).
   privateChatLists?: boolean;
@@ -124,6 +129,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
   const omnibar = omnibarContext(object.omnibar);
   const openTabs = Array.isArray(object.openTabs) ? omnibarContext({ tabs: object.openTabs })?.tabs : undefined;
   const template = parseNewTabTemplate(object.template);
+  const pageWidgets = parsePageWidgets(object.pageWidgets);
   return {
     hotkeys,
     initialKind,
@@ -147,6 +153,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     ...(object.focusesField === false ? { focusesField: false } : {}),
     ...(object.history === true ? { history: true } : {}),
     ...(object.widgets === true ? { widgets: true } : {}),
+    ...(pageWidgets ? { pageWidgets } : {}),
     ...(object.privateChatLists === true ? { privateChatLists: true } : {}),
   };
 }
@@ -193,7 +200,9 @@ export function recentSessions(
   // cannot make the rows trade places.
   const ordered = all.sort(
     (a, b) =>
-      urgency(a) - urgency(b) || (b.updatedAt ?? 0) - (a.updatedAt ?? 0) || a.sessionId.localeCompare(b.sessionId),
+      urgency(a) - urgency(b) ||
+      (activityTime(b) ?? 0) - (activityTime(a) ?? 0) ||
+      a.sessionId.localeCompare(b.sessionId),
   );
   if (!fold) return ordered.slice(0, count);
   // A child folds only under a parent this list shows; under one past the cut it lists on its own.

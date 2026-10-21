@@ -1,7 +1,14 @@
 import React from "react";
 import { pressToOpen } from "../../ui/pressToOpen";
 import { type StringKey, type Translate, translate, useT } from "./i18n";
-import { type AcpmuxSessionEntry, listed, projectLabel, sessionMark, withoutChildren } from "./sessionList";
+import {
+  activityTime,
+  type AcpmuxSessionEntry,
+  listed,
+  projectLabel,
+  sessionMark,
+  withoutChildren,
+} from "./sessionList";
 
 /// Home-list copy: keys of the pane's string table.
 export const HOME_LABELS = {
@@ -23,7 +30,7 @@ export function homeLists(
 ): { input: AcpmuxSessionEntry[]; review: AcpmuxSessionEntry[] } {
   const others = withoutChildren(sessions.filter(listed))
     .filter((session) => session.sessionId !== currentId)
-    .sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0));
+    .sort((left, right) => (activityTime(right) ?? 0) - (activityTime(left) ?? 0));
   return {
     input: others.filter((session) => sessionMark(session, false) === "input").slice(0, HOME_ROWS),
     review: others
@@ -121,7 +128,7 @@ function HomeRow({
 }) {
   const t = useT();
   const project = session.cwd ? projectLabel(session.cwd) : undefined;
-  const when = age(session.updatedAt, Date.now(), t);
+  const when = age(activityTime(session), Date.now(), t);
   return (
     <li>
       <button type="button" className="acpmux-home-row" {...pressToOpen(() => onSelect(session.sessionId))}>

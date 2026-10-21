@@ -129,7 +129,8 @@ export async function syncHexclaveUser(
   try {
     await settleAll([
       ...result.pendingRevocationTeamIds.map((teamId) => async () => {
-      // A concurrent reconcile that saw the member re-added deleted the row.
+        // The inbox never claims two rows for one entity at once. Re-check in
+        // case a prior reconcile already restored this membership.
         if (!await store.isRevocationPending({ teamId, userId })) return;
         await dependencies.revokeTeamMemberAccess({ teamId, userId });
         // Do not clear the durable revoke until billing reconciliation is

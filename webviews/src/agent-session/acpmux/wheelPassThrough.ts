@@ -3,7 +3,9 @@
 // it does in the Claude and Codex apps. The Jump to latest button and the bottom stack (questions,
 // notices, the queue, the composer) are not inside the transcript's scroller, so a wheel or
 // trackpad scroll over them reached nothing. A part that scrolls itself (a long prompt, the queue,
-// a menu's list) keeps the wheel while it can still move that way.
+// a menu's list) keeps the wheel, also at its ends: reaching the top or the bottom of a long draft
+// moves nothing else (Leo 2026-10-20: "when I reach the top or the bottom, I don't want that to
+// shift").
 
 /// Parts of the pane over which the wheel scrolls the transcript: Jump to latest, and every part
 /// of `main` outside the stage (the stage holds the header and the transcript itself).
@@ -16,15 +18,12 @@ export function passesWheelToTranscript(target: Element, main: Element): boolean
   return !part.classList.contains("acpmux-stage") && !part.classList.contains("acpmux-home-area");
 }
 
-/// Whether something between `target` and `stop` scrolls itself by `deltaY` (it is scrollable and
-/// not at its end that way), so the wheel is its own.
-export function scrollsItself(target: Element, stop: Element, deltaY: number): boolean {
+/// Whether something between `target` and `stop` scrolls itself (it is scrollable up and down), so
+/// the wheel is its own, at its ends too.
+export function scrollsItself(target: Element, stop: Element): boolean {
   for (let box: Element | null = target; box && box !== stop; box = box.parentElement) {
     if (box.scrollHeight <= box.clientHeight + 1) continue;
-    const style = getComputedStyle(box);
-    if (!/auto|scroll/.test(style.overflowY)) continue;
-    if (deltaY < 0 && box.scrollTop > 0) return true;
-    if (deltaY > 0 && box.scrollTop + box.clientHeight < box.scrollHeight - 1) return true;
+    if (/auto|scroll/.test(getComputedStyle(box).overflowY)) return true;
   }
   return false;
 }
@@ -47,7 +46,7 @@ export function installWheelPassThrough(scroller: HTMLElement, main: HTMLElement
     if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
     const target = event.target instanceof Element ? event.target : null;
     if (!target || scroller.contains(target) || !passesWheelToTranscript(target, main)) return;
-    if (scrollsItself(target, main, event.deltaY)) return;
+    if (scrollsItself(target, main)) return;
     scroller.dispatchEvent(
       new WheelEvent("wheel", { deltaX: 0, deltaY: event.deltaY, deltaMode: event.deltaMode, bubbles: false }),
     );

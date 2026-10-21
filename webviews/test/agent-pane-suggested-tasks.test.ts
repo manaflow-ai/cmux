@@ -476,7 +476,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
   // `agent_message` provenance (`send_to_session`, `cmux agent message`), or Claude Code's own
   // envelopes in a prompt (an adopted Claude session's history).
   describe("messages from other agents", () => {
-    const incoming = (page: Page) => page.locator(".cv-message.is-incoming");
+    const incoming = (page: Page) => page.locator(".cv-received");
     /// One message as cmux's agent_message_prompt.rs `render` writes it: the prompt's text.
     const renderedMessage = (body: string, { id = "m-1", from = "Grid fix (acp:child-3)", reply = true } = {}) =>
       [
@@ -489,7 +489,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
         `--- end of message ${id} ---`,
       ].join("\n");
 
-    test("a prompt with agent_message provenance draws as that agent's message, not the person's", async () => {
+    test("a prompt with agent_message provenance draws as one line from that agent, not the person's", async () => {
       const page = await openChat({
         offered: [],
         experiment: "off",
@@ -514,15 +514,19 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       });
       const card = incoming(page);
       await card.waitFor({ timeout: 10_000 });
-      expect(await card.innerText()).toContain("Grid fix");
-      expect(await card.innerText()).toContain("The grid fix is on cmux/grid-fix; tests pass.");
-      // The card shows the sender's words; cmux's wrapper waits behind More.
-      expect(await card.innerText()).not.toContain("[cmux agent message]");
+      // One quiet line, "Received message from Grid fix ›"; the message waits behind ›.
+      expect(await card.innerText()).toContain("Received message from Grid fix");
+      expect(await card.innerText()).not.toContain("The grid fix is on cmux/grid-fix; tests pass.");
       expect(await page.locator(".cv-user__bubble").filter({ hasText: "The grid fix is on" }).count()).toBe(0);
-      // Opened, the card shows the prompt as the agent got it.
+      // Opened, the line shows the sender's words and the prompt as the agent got it.
       await card.getByRole("button", { name: /Message from Grid fix/ }).click();
+      await card
+        .locator(".cv-received__body")
+        .getByText("The grid fix is on cmux/grid-fix; tests pass.")
+        .waitFor({ timeout: 5_000 });
+      expect(await card.locator(".cv-received__body").innerText()).not.toContain("[cmux agent message]");
       await card.locator("pre").getByText("[cmux agent message] from Grid fix").waitFor({ timeout: 5_000 });
-      // The sender is a chat here: the card opens it by its session id, not its address.
+      // The sender is a chat here: its name opens it by its session id, not its address.
       await card.getByRole("button", { name: "Open Grid fix" }).click();
       await waitUntil(() => calls.some((c) => c.params.sessionId === "child-3"));
       expect(calls.some((c) => c.params.sessionId === "acp:child-3")).toBe(false);
@@ -546,13 +550,18 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
         ],
       });
       await incoming(page).nth(1).waitFor({ timeout: 10_000 });
+      for (const index of [0, 1])
+        await incoming(page)
+          .nth(index)
+          .getByRole("button", { name: /^Message from / })
+          .click();
       expect(await incoming(page).first().innerText()).toContain("Build is green.");
       expect(await incoming(page).nth(1).innerText()).toContain("Ship it.");
       expect(await page.getByRole("button", { name: /^Open / }).count()).toBe(0);
       await page.close();
     });
 
-    test("a Claude Code cross-session message draws as a card with its raw envelope folded", async () => {
+    test("a Claude Code cross-session message draws as one line with its raw envelope folded", async () => {
       const text = [
         '<cross-session-message from="uds:/tmp/cc-socks/72618.sock" from-name="leoli-fb" from-mode="bypass">',
         "Please review #123 &amp; report back.",
@@ -570,14 +579,14 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       });
       const card = incoming(page);
       await card.waitFor({ timeout: 10_000 });
-      expect(await card.innerText()).toContain("leoli-fb");
-      expect(await card.innerText()).toContain("Please review #123 & report back.");
+      expect(await card.innerText()).toContain("Received message from leoli-fb");
       const body = await page.locator("body").innerText();
       expect(body).not.toContain("<cross-session-message");
       expect(body).not.toContain("This came from another Claude session");
       expect(await page.locator(".cv-user__bubble").count()).toBe(1);
-      // Opened, the card shows the prompt as the agent got it.
+      // Opened, the line shows the message and the prompt as the agent got it.
       await card.getByRole("button", { name: /Message from leoli-fb/ }).click();
+      expect(await card.locator(".cv-received__body").innerText()).toContain("Please review #123 & report back.");
       await card.locator("pre").getByText("from-mode=").first().waitFor({ timeout: 5_000 });
       await page.close();
     });
@@ -736,7 +745,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       await page.close();
     });
 
-    test("another agent's message keeps its images and a steer's read state", async () => {
+    test("another agent's message keeps its images and shows no steer line", async () => {
       const page = await openChat({
         offered: [],
         experiment: "off",
@@ -754,7 +763,8 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       const card = incoming(page);
       await card.waitFor({ timeout: 10_000 });
       expect(await card.locator(".cv-message__images").count()).toBe(1);
-      expect(await page.locator(".cv-incoming .cv-user__steer").count()).toBe(1);
+      // "Steered · the agent read it" is for the person's own prompts, not a message to the agent.
+      expect(await page.locator(".cv-incoming .cv-user__steer").count()).toBe(0);
       await page.close();
     });
   });

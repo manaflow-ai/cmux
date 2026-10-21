@@ -7,6 +7,9 @@
      leaves the transcript and location shelf anchored while the draft grows. */
   max-height: calc(var(--text-body--line-height, 22px) * 8 + var(--cmux-control-height, 23px));
   overflow-y: auto;
+  /* A long draft scrolls in this box alone (Leo 2026-10-20: reaching the top or the bottom must
+     not shift anything): no chaining into the transcript, no bounce. */
+  overscroll-behavior: contain;
   padding: calc(15px * var(--cmux-interface-scale, 1)) calc(16px * var(--cmux-interface-scale, 1)) calc(8px * var(--cmux-interface-scale, 1));
   font-size: var(--text-title, 15px);
   line-height: var(--text-title--line-height, 22px);
@@ -22,6 +25,28 @@
   white-space: nowrap;
   color: var(--acpmux-composer-placeholder, var(--agent-muted));
   pointer-events: none;
+}
+/* The key that takes a suggested placeholder (the composer's "Tab"): a quiet keycap after it. A
+   long placeholder truncates its own text, so the keycap stays in a narrow pane. */
+.acpmux-md-placeholder.has-key:not([hidden]) {
+  display: flex;
+  align-items: center;
+}
+.acpmux-md-placeholder-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.acpmux-md-placeholder-key {
+  flex: none;
+  margin-left: 8px;
+  padding: 0 5px;
+  border: 1px solid var(--agent-border);
+  border-radius: 4px;
+  font: inherit;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  vertical-align: 1px;
 }
 .acpmux-md {
   min-height: var(--text-title--line-height, 22px);

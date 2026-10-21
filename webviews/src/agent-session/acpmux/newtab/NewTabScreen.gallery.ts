@@ -57,6 +57,8 @@ const nowPlayingTrack = (playing: boolean) => ({
   labels: { play: "Play", pause: "Pause", previous: "Previous Track", next: "Next Track" },
 });
 
+// The variants were drawn on Cards, the page an unset template showed before Minimal (Leo
+// 2026-10-20) became the default; they keep it unless they name another (the minimal-* ones do).
 const newTab = (fields: Record<string, unknown> = {}) => ({
   newTab: {
     layout: "b",
@@ -64,6 +66,7 @@ const newTab = (fields: Record<string, unknown> = {}) => ({
     cwd: CWD,
     home: "/Users/you",
     lastAgent: "claude",
+    template: "cards",
     ...fields,
   },
   newSession: true,
@@ -286,6 +289,31 @@ export default agentPaneEntry({
       note: "The Default template's stage layout before any chat: its own composer at the foot of the page, the model and Reasoning chips in the box, text at rest, the soft pill only on the hovered one.",
       ready: newTab({ template: "default" }),
       snapshot: reasoningChat(),
+    },
+    // Minimal, the page as it opens by default (Leo 2026-10-20, newtab/pageWidgets.ts): the greeting
+    // and the composer, with chats on this Mac it does not list. `minimal-default` is a host that
+    // sends no template (the app's unset key); `minimal-widgets` turns the stage's widgets on.
+    "minimal-default": {
+      note: "Minimal, New Tab's default layout: a quiet greeting over the composer, which keeps its folder and machine, model, effort, mic and Send. No project card, quick actions, chats, Search | Ask switch or template dots: those are widgets, off by default.",
+      ready: newTab({ template: undefined }),
+      snapshot: noChat(manySessions(12)),
+      play: async (ctx: PlayContext) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-greeting") !== null);
+        const extra = ctx.document.querySelector(".nt-stage, .nt-cards, .nt-create, .nt-mode-track, .nt-style");
+        if (extra) throw new Error(`the minimal page shows ${extra.className}`);
+      },
+    },
+    "minimal-widgets": {
+      note: "Minimal with the project card, quick actions, recent chats, the Search | Ask switch and the template dots turned on in Settings: Default's stage around the same composer.",
+      ready: newTab({
+        template: "minimal",
+        pageWidgets: ["greeting", "projects", "actions", "chats", "modeSwitch", "styleDots"],
+      }),
+      snapshot: noChat(manySessions(12)),
+      play: async (ctx: PlayContext) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-stage .nt-env") !== null);
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-style") !== null);
+      },
     },
     // The New Tab composer's states, as the chat composer's (agent-pane.composer composer-*): the
     // same chips, pills, caret and rim (test/composer-caret-focus.test.ts).
@@ -971,7 +999,7 @@ export default agentPaneEntry({
       },
     },
     "template-cards": {
-      note: "Cards template, the default and the first dot (u2851): Claude Code's split, the project strip heading the card, the box with the prompt, the mic and Send, the mode, model and effort in the quiet row under it, then three tall chat cards.",
+      note: "Cards template, the default and the first dot (u2851): Claude Code's split, the project strip heading the card, the box with the prompt, the mic and Send, the mode, model and effort in the quiet row under it, then three chat cards.",
       ready: newTab({ template: "cards" }),
       snapshot: noChat(manySessions(6)),
     },

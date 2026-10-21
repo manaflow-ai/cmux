@@ -170,7 +170,7 @@ public nonisolated struct HomeBrainHost: Sendable {
         // (ChiefBrainWatch), which then hands the daemon off. Only an older host is stopped here.
         let chiefHome = ChiefHome(root: muxHome, isolated: false)
         if let acpmux, await AcpmuxChiefHandoff(environment: acpmux, chiefMuxHome: muxHome.path)
-            .handOffIfStale(waitFor: { ChiefHostStop.askToHandOffWhenIdle(home: chiefHome) }),
+            .handOffIfStale(waitFor: { ChiefHostStop.askToHandOffWhenIdle(home: chiefHome) != nil }),
            let pid = await ChiefHostStop.stop(home: chiefHome) {
             _ = await AgentPaneProcessExit(pid: pid).event(within: .seconds(15))
         }

@@ -34198,7 +34198,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mute or Unmute Workspace Notifications"
+            "value": "Mute/Unmute Workspace Notifications"
           }
         },
         "ar": {
@@ -54765,127 +54765,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show Feed"
+            "value": "Show Feed in Right Sidebar"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フィードを表示"
+            "value": "右サイドバーにフィードを表示"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "إظهار Feed"
+            "state": "translated",
+            "value": "إظهار Feed في الشريط الجانبي الأيمن"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Prikaži Feed"
+            "state": "translated",
+            "value": "Prikaži Feed u desnoj bočnoj traci"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Vis Feed"
+            "state": "translated",
+            "value": "Vis Feed i højre sidepanel"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Feed anzeigen"
+            "state": "translated",
+            "value": "Feed in der rechten Seitenleiste anzeigen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Mostrar Feed"
+            "state": "translated",
+            "value": "Mostrar Feed en la barra lateral derecha"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Afficher le flux"
+            "state": "translated",
+            "value": "Afficher le flux dans la barre latérale droite"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Mostra feed"
+            "state": "translated",
+            "value": "Mostra feed nella barra laterale destra"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "បង្ហាញ Feed"
+            "state": "translated",
+            "value": "បង្ហាញ Feed នៅរបារចំហៀងស្ដាំ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "피드 보기"
+            "state": "translated",
+            "value": "오른쪽 사이드바에 피드 보기"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Vis Feed"
+            "state": "translated",
+            "value": "Vis Feed i høyre sidefelt"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Pokaż kanał"
+            "state": "translated",
+            "value": "Pokaż kanał na prawym pasku bocznym"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Mostrar Feed"
+            "state": "translated",
+            "value": "Mostrar Feed na barra lateral direita"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Показать канал"
+            "state": "translated",
+            "value": "Показать канал в правой боковой панели"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "แสดงฟีด"
+            "state": "translated",
+            "value": "แสดงฟีดในแถบด้านข้างขวา"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Beslemeyi Göster"
+            "state": "translated",
+            "value": "Beslemeyi Sağ Kenar Çubuğunda Göster"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Показати стрічку"
+            "state": "translated",
+            "value": "Показати стрічку на правій бічній панелі"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hiện Bảng tin"
+            "state": "translated",
+            "value": "Hiện Bảng tin ở thanh bên phải"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "显示 Feed"
+            "state": "translated",
+            "value": "在右侧边栏显示 Feed"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "顯示 Feed"
+            "state": "translated",
+            "value": "在右側邊欄顯示 Feed"
           }
         }
       }
@@ -61184,7 +61184,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle Group Collapse"
+            "value": "Collapse/Expand Workspace Group"
           }
         },
         "ja": {
@@ -70616,127 +70616,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Search the Web"
+            "value": "Search the Web for Selection"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Web を検索"
+            "value": "選択範囲を Web で検索"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "البحث في الويب"
+            "state": "translated",
+            "value": "البحث في الويب عن التحديد"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Pretraži web"
+            "state": "translated",
+            "value": "Pretraži web za odabrano"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Søg på nettet"
+            "state": "translated",
+            "value": "Søg på nettet efter markering"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Im Web suchen"
+            "state": "translated",
+            "value": "Auswahl im Web suchen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Buscar en la web"
+            "state": "translated",
+            "value": "Buscar la selección en la web"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Rechercher sur le Web"
+            "state": "translated",
+            "value": "Rechercher la sélection sur le Web"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Cerca sul web"
+            "state": "translated",
+            "value": "Cerca la selezione sul web"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ស្វែងរកលើបណ្ដាញ"
+            "state": "translated",
+            "value": "ស្វែងរកជម្រើសលើបណ្ដាញ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "웹 검색"
+            "state": "translated",
+            "value": "선택 항목 웹 검색"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Søk på nettet"
+            "state": "translated",
+            "value": "Søk etter markering på nettet"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Szukaj w sieci"
+            "state": "translated",
+            "value": "Szukaj zaznaczenia w sieci"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Pesquisar na Web"
+            "state": "translated",
+            "value": "Pesquisar seleção na Web"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Искать в интернете"
+            "state": "translated",
+            "value": "Искать выделенное в интернете"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ค้นหาบนเว็บ"
+            "state": "translated",
+            "value": "ค้นหาส่วนที่เลือกบนเว็บ"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Web'de Ara"
+            "state": "translated",
+            "value": "Seçimi Web'de Ara"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Шукати в інтернеті"
+            "state": "translated",
+            "value": "Шукати виділене в інтернеті"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Tìm kiếm trên web"
+            "state": "translated",
+            "value": "Tìm kiếm phần đã chọn trên web"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "搜索网页"
+            "state": "translated",
+            "value": "在网页中搜索所选内容"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "搜尋網頁"
+            "state": "translated",
+            "value": "在網頁中搜尋所選內容"
           }
         }
       }
@@ -81769,7 +81769,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mute or Unmute Chat Notifications"
+            "value": "Mute/Unmute Chat Notifications"
           }
         },
         "de": {

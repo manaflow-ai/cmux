@@ -634,6 +634,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
         guard let demo else { return }
         let tv = demo.compose.textView.view
         let draft = store?.state.ui.draft.attachments ?? []
+        // An edit can move the pictures: the remove button waits for the pointer to move again.
+        demo.compose.inlineHover.hide()
         // cmux: attachments are in the text (Draft+InlineMarks.swift). An attachment character that
         // stands for no draft attachment (a pasted U+FFFC, an undo of a removal) leaves the text.
         if let storage = tv.textStorage {

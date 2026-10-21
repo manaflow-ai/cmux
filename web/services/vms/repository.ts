@@ -32,6 +32,7 @@ import {
   isBlockingAccountDeletionTombstone,
 } from "../account/deletionLock";
 import type { ProviderId } from "./drivers";
+import { cloudRemoteAuthMode, type CloudRemoteAuthMode } from "./clientGrant";
 import { allocateVmSlug } from "./vmNaming";
 import {
   beginSnapshotRequest,
@@ -739,6 +740,13 @@ export type VmRepositoryShape = Partial<VmHealthRepositoryMethods> & {
     readonly provider: ProviderId;
     readonly snapshotId: string;
   }) => Effect.Effect<VmResourceReservation | null, VmDatabaseError>;
+  /** Authentication mode captured with an owned snapshot. */
+  readonly ownedSnapshotRemoteAuthMode?: (input: {
+    readonly userId: string;
+    readonly billingTeamId?: string | null;
+    readonly provider: ProviderId;
+    readonly snapshotId: string;
+  }) => Effect.Effect<CloudRemoteAuthMode, VmDatabaseError>;
   readonly findUserVm: (input: {
     readonly userId: string;
     readonly billingTeamId?: string | null;
@@ -4080,6 +4088,29 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         memoryMb: recordedMemoryMb ?? source.memoryMb,
         diskMb: recordedDiskMb ?? source.diskMb,
       };
+    }),
+
+  ownedSnapshotRemoteAuthMode: (input) =>
+    dbEffect("ownedSnapshotRemoteAuthMode", async () => {
+      const db = cloudDb();
+      const [event] = await db
+        .select({
+          metadata: cloudVmUsageEvents.metadata,
+          sourceMetadata: cloudVms.providerMetadata,
+        })
+        .from(cloudVmUsageEvents)
+        .leftJoin(cloudVms, eq(cloudVmUsageEvents.vmId, cloudVms.id))
+        .where(
+          and(
+            accountUsageScopeWhere({ userId: input.userId, billingTeamId: input.billingTeamId }),
+            eq(cloudVmUsageEvents.provider, input.provider),
+            eq(cloudVmUsageEvents.eventType, "vm.snapshot.created"),
+            sql`${cloudVmUsageEvents.metadata}->>'snapshotId' = ${input.snapshotId}`,
+          ),
+        )
+        .orderBy(desc(cloudVmUsageEvents.createdAt), desc(cloudVmUsageEvents.id))
+        .limit(1);
+      return cloudRemoteAuthMode(event?.metadata, cloudRemoteAuthMode(event?.sourceMetadata));
     }),
 
   findUserVm: (input) =>

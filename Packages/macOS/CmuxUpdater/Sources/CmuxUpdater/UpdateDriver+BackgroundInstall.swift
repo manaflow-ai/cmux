@@ -8,6 +8,7 @@ extension UpdateDriver {
     func acceptInBackground(_ available: UpdateState.UpdateAvailable) {
         log.append("background install: accepting \(available.appcastItem.displayVersionString)")
         backgroundItem = available.appcastItem
+        quitInstallItem = nil
         stagedInstall = nil
         stagedCancel = nil
         setState(.startingDownload)
@@ -29,9 +30,12 @@ extension UpdateDriver {
         )))
     }
 
-    /// The staged update, or nil when nothing waits for the user.
+    /// The staged update, or nil when nothing waits for the user: this driver's held download,
+    /// else the one Sparkle's silent driver staged while its install still waits.
     var stagedItem: SUAppcastItem? {
-        stagedInstall == nil ? nil : backgroundItem
+        if stagedInstall != nil { return backgroundItem }
+        guard case .installing(let installing) = model.state, installing.isAutoUpdate else { return nil }
+        return quitInstallItem
     }
 
     /// Whether `state` ends a click's request to install when ready: nothing

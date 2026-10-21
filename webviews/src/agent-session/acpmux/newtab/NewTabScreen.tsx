@@ -37,6 +37,7 @@ import {
 } from "./screenModel";
 import { RowGlyph } from "./RowGlyph";
 import { WidgetCards } from "./WidgetCards";
+import { greetingKey, shownPageWidgets, type PageWidgets } from "./pageWidgets";
 import { EnvironmentCard, SuggestionsCard } from "./StageCards";
 import { Icon } from "../icons/Icon";
 import { type NewTabTranslate, useNt } from "./strings";
@@ -144,6 +145,9 @@ type Props = NewTabScreenActions & {
   template?: ScreenTemplate;
   /// The widget view (Debug Settings `newTab.widgets`): the Projects and Needs you cards.
   widgets?: boolean;
+  /// The page's widgets (`tabs.newTabWidgets.*`, pageWidgets.ts): on Minimal, without them the page
+  /// is the greeting and the composer. Unset shows the template's own (shownPageWidgets).
+  pageWidgets?: PageWidgets;
   /// Buttons before Send, such as the dictation mic (DictationMic).
   accessory?: React.ReactNode;
   /// Why dictation did not run (DictationNotice), under the field.
@@ -170,9 +174,14 @@ export function NewTabScreen(props: Props) {
   const { snapshot, omnibar = EMPTY_OMNIBAR, location, lastAgent, home, now, inputToken } = props;
   const template = props.template ?? "default";
   const sections = screenSections(template);
+  const widgets = props.pageWidgets ?? shownPageWidgets(template);
   // Claude Code desktop's new-session page (templates.ts stage, the Default template): the composer
-  // at the foot, the environment and suggestions cards over it.
-  const stage = sections.stage;
+  // at the foot, the environment and suggestions cards over it. On Minimal with none of the stage's
+  // widgets on, the page is the plain one: the greeting and the composer.
+  const stage = sections.stage && (widgets.has("projects") || widgets.has("actions") || widgets.has("chats"));
+  // Nothing but the greeting and the composer (Minimal, Leo 2026-10-20): the composer sits about the
+  // window's middle.
+  const minimal = !stage && !widgets.has("actions") && !widgets.has("chats");
   const [text, setText] = useState(location ?? "");
   // The location stays a suggestion until edited: no rows for it.
   const [touched, setTouched] = useState(false);
@@ -347,7 +356,7 @@ export function NewTabScreen(props: Props) {
   );
   // With All chats on the page (the host answers `chats.page`) every chat is in that list, so
   // the cards keep only the chats that are running or need the user.
-  const allChats = sections.allChats && !!props.loadChatsPage && !!props.onOpenChat;
+  const allChats = widgets.has("chats") && sections.allChats && !!props.loadChatsPage && !!props.onOpenChat;
   const activeCards = useMemo(() => cards.filter((card) => card.state !== "idle"), [cards]);
   // The stage layout's suggested actions start with the chats waiting on the user: one asking for
   // input, or one that hit an error or lost its agent. Picked from every chat, not the trimmed
@@ -735,6 +744,8 @@ export function NewTabScreen(props: Props) {
   /// The Cards template (u2851): the field is a pill of its own and the chips sit under it. The
   /// split draws the chat composer's box instead.
   const pill = template === "cards" && !split;
+  // The Search | Ask switch is a widget (off by default); Tab flips the mode without it.
+  const modeShown = widgets.has("modeSwitch");
   // Where the chat starts: the folder Enter asks in (askFolder), picked as in the agent composer's
   // location strip; never the home ~ the tab inherited (cx-7fje0).
   const folderStrip = (
@@ -805,8 +816,10 @@ export function NewTabScreen(props: Props) {
         />
       )}
       {props.openTabs && <OpenTabsList tabs={props.openTabs} onMoveHere={(id) => props.onJump("here", id)} />}
-      {sections.closed && <ClosedList items={closed} onReopen={(id) => props.onJump("closed", id)} />}
-      {sections.chats !== "none" && !allChats && (
+      {sections.closed && widgets.has("chats") && (
+        <ClosedList items={closed} onReopen={(id) => props.onJump("closed", id)} />
+      )}
+      {sections.chats !== "none" && !allChats && widgets.has("chats") && (
         <ChatCards
           cards={cards}
           variant={sections.chats}
@@ -936,6 +949,7 @@ export function NewTabScreen(props: Props) {
       data-pill={pill || undefined}
       data-all-chats={allChats || undefined}
       data-layout={stage ? "stage" : undefined}
+      data-minimal={minimal || undefined}
     >
       {stage ? (
         <>
@@ -943,23 +957,29 @@ export function NewTabScreen(props: Props) {
               composer holds, centered, the environment card and the suggested actions card, then the
               recent chats; it scrolls on its own, so nothing in it ever moves the composer. */}
           <div className="nt-stage">
-            <div className="nt-stage-cards">
-              <EnvironmentCard
-                projects={props.projects ?? []}
-                {...(envFolder ? { current: envFolder } : {})}
-                noProject={none}
-                {...(props.machineName ? { machineName: props.machineName } : {})}
-                onPick={(cwd) => pickProject(cwd)}
-                onNoProject={() => pickProject(undefined)}
-                {...(browseProject ? { onBrowse: browseProject } : {})}
-              />
-              <SuggestionsCard
-                attention={needsYou}
-                onOpen={openCard}
-                {...(props.onCreate ? { onCreate: create } : {})}
-                onChat={startChat}
-              />
-            </div>
+            {(widgets.has("projects") || widgets.has("actions")) && (
+              <div className="nt-stage-cards">
+                {widgets.has("projects") && (
+                  <EnvironmentCard
+                    projects={props.projects ?? []}
+                    {...(envFolder ? { current: envFolder } : {})}
+                    noProject={none}
+                    {...(props.machineName ? { machineName: props.machineName } : {})}
+                    onPick={(cwd) => pickProject(cwd)}
+                    onNoProject={() => pickProject(undefined)}
+                    {...(browseProject ? { onBrowse: browseProject } : {})}
+                  />
+                )}
+                {widgets.has("actions") && (
+                  <SuggestionsCard
+                    attention={needsYou}
+                    onOpen={openCard}
+                    {...(props.onCreate ? { onCreate: create } : {})}
+                    onChat={startChat}
+                  />
+                )}
+              </div>
+            )}
             {!allChats && <NowPlayingPlayer {...(props.onNowPlaying ? { onCommand: props.onNowPlaying } : {})} />}
             {lists}
           </div>
@@ -968,6 +988,8 @@ export function NewTabScreen(props: Props) {
         </>
       ) : (
         <>
+          {/* A quiet greeting over the composer (a widget, on by default), by the hour. */}
+          {widgets.has("greeting") && <p className="nt-greeting">{nt(greetingKey(new Date(at).getHours()))}</p>}
           {composerCard}
           {props.notice}
           {/* The create actions (cx-ag5.7, dogfood call K2): a blank terminal in the tab's folder, a
@@ -975,7 +997,7 @@ export function NewTabScreen(props: Props) {
               Not beside All chats: that list takes the room under the field (new-tab-scroll). */}
           {/* Cards draws no create row (u2851, as Aside's New Tab): New Terminal, New Browser Tab and
               New Chat stay in the palette and the pane's + menu. With the split too, not only the pill. */}
-          {!allChats && template !== "cards" && (
+          {!allChats && template !== "cards" && widgets.has("actions") && (
             // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
             <div className="nt-create ui-ghost-row" role="group" aria-label={nt("create.label")}>
               {props.onCreate && (

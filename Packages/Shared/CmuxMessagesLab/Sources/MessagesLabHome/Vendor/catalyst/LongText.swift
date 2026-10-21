@@ -1001,6 +1001,11 @@ final class LongTextStore: @unchecked Sendable {
 /// fixed (80 lines and the band), so measurement never changes it.
 enum LongTextFold {
     static let headLines = 40, tailLines = 40
+    /// cmux: the folded head and tail for `total` measured lines, valid for any total. The fold
+    /// is decided from the scan's estimate and the measured total can be smaller (fewer than
+    /// `headLines`): `tailFirst..<total` then had lowerBound > upperBound and trapped.
+    static func head(_ total: Int) -> Range<Int> { 0..<min(max(0, total), headLines) }
+    static func tailFirst(_ total: Int) -> Int { min(max(0, total), max(headLines, total - tailLines)) }
     /// 3 screens (the 1041 pt window).
     static var maxLines: Int { CrashGuard.int(3 * 1041 / Fixture.lineHeight, in: CrashGuard.countRange) }
     static var bandHeight: CGFloat { 2 * Fixture.lineHeight }

@@ -1177,6 +1177,7 @@ jobs:
           python3 tests/test_nightly_republish_delta_guard.py
           python3 tests/test_nightly_resume_tracks.py
           python3 tests/test_nightly_signed_unnotarized_artifact.py
+          python3 tests/test_nightly_background_steps.py
           python3 tests/test_nightly_notices_submodule.py
 
       - name: Validate the cmux NEXT DEV daily dispatcher

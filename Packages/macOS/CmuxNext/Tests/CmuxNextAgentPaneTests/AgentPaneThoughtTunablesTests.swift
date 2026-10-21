@@ -27,6 +27,17 @@ struct AgentPaneThoughtTunablesTests {
             == ["fold-long-thoughts": "on", "live-thought-viewport": "off"])
     }
 
+    /// The turn preview card (webviews conversation/PreviewCard.tsx) is off by default and sets no
+    /// attribute; on, `data-turn-preview-cards="on"`.
+    @Test func turnPreviewCardsAreOffByDefaultAndOnSetsTheirAttribute() {
+        #expect(AgentPaneTunables.turnPreviewCards.descriptor.key == "agentPane.debug.turnPreviewCards")
+        #expect(AgentPaneTunables.turnPreviewCards.defaultValue == false)
+        #expect(AgentPaneTunables.all.contains { $0.key == "agentPane.debug.turnPreviewCards" })
+        #expect(AgentPaneTunables.attributes(foldLongThoughts: false, topStripStyle: .default).isEmpty)
+        #expect(AgentPaneTunables.attributes(foldLongThoughts: false, topStripStyle: .default, turnPreviewCards: true)
+            == ["turn-preview-cards": "on"])
+    }
+
     @Test func foldIsOnByDefault() {
         #expect(AgentPaneTunables.foldLongThoughts.descriptor.key == "agentPane.debug.foldLongThoughts")
         #expect(AgentPaneTunables.foldLongThoughts.defaultValue == true)

@@ -2,8 +2,10 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
-// This process runs stand-in agents (the fake agents under tests/).
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+// This process runs stand-in agents (the fake agents under tests/). `ACPMUX_UPDATE_FIXTURES=1`
+// rewrites the pane fixtures the tests check (`adopt.rs`).
+const HERMETIC: daemon_env::Process =
+    daemon_env::Process::stand_in().keep(&["ACPMUX_UPDATE_FIXTURES"]);
 
 use acpmux::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};
 use acpmux::hub::Hub;
@@ -15,6 +17,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
+#[path = "hub_integration/agent_pairs.rs"]
+mod agent_pairs;
 #[path = "hub_integration/auto_resume.rs"]
 mod auto_resume;
 #[path = "hub_integration/cursor_requests.rs"]

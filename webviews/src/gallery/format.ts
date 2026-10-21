@@ -209,10 +209,14 @@ export type AppsPageVariant = VariantBase & {
 /** The Cloud page on an in-page cmuxPage host serving the Cloud app server's projection. */
 export type CloudPageVariant = VariantBase & {
   mode?: "normal" | "loading" | "error";
-  action?: "select-machine" | "create";
+  action?: "select-machine" | "create" | "get";
   error?: { code: string; message: string };
   signedIn?: boolean;
   layout?: "rows" | "cards";
+  /** The page's URL fragment, e.g. `#/get` for the storefront. */
+  hash?: string;
+  /** The plan's active machine limit, when the variant needs another than the sample plan's. */
+  maxActive?: number;
   machines: CloudMachine[];
   snapshots: CloudSnapshot[];
 };

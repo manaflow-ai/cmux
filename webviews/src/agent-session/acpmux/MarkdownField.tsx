@@ -103,6 +103,8 @@ export type MarkdownFieldProps = {
   /// Shift-Enter adds a line (default true).
   multiline?: boolean;
   placeholder?: string;
+  /// A muted keycap after the placeholder, naming the key that takes it (the composer's "Tab").
+  placeholderKey?: string;
   className?: string;
   /// Attributes for the editable element (aria-label, role=combobox, aria-expanded...).
   attributes?: Record<string, string | undefined>;
@@ -217,6 +219,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
     plugins = [],
     multiline = true,
     placeholder,
+    placeholderKey,
     className,
     attributes,
   },
@@ -378,9 +381,12 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
         }));
         // The field fills a box (the composer, a prompt editor) and its caret shows focus: a text
         // field is :focus-visible on every focus, so desktop.css's ring drew a rectangle inside it.
+        // The scroll margin covers the field's own padding, so a long draft scrolls the caret's
+        // whole line into view, not to 5px under the field's edge.
         ctx.update(editorViewOptionsCtx, (options) => ({
           ...options,
           attributes: { class: "acpmux-md", "data-focus-ring": "none" },
+          scrollMargin: 16,
         }));
       })
       .use(composerKeys)
@@ -571,8 +577,13 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
           Object.defineProperty(element, "acpmuxMarkdownField", { get: () => handle.current, configurable: true });
       }}
     >
-      <span ref={empty} className="acpmux-md-placeholder" aria-hidden="true">
-        {placeholder}
+      <span
+        ref={empty}
+        className={placeholderKey ? "acpmux-md-placeholder has-key" : "acpmux-md-placeholder"}
+        aria-hidden="true"
+      >
+        {placeholderKey ? <span className="acpmux-md-placeholder-text">{placeholder}</span> : placeholder}
+        {placeholderKey && <kbd className="acpmux-md-placeholder-key">{placeholderKey}</kbd>}
       </span>
       <div ref={mount} className="acpmux-md-root" />
     </div>

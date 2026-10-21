@@ -231,7 +231,7 @@ describe("Hexclave webhook boundary", () => {
     hexclave.addMember(TEAM_ID, USER_ID);
     calls.length = 0;
     // Drop the failed delivery's retry; the membership event alone must settle it.
-    await inbox.complete(["msg_failed"]);
+    inbox.rows.delete("msg_failed");
     expect((await post("team_membership.created", { team_id: TEAM_ID, user_id: USER_ID })).status).toBe(200);
     expect(calls).toEqual([`invalidate:${USER_ID}`]);
     expect(mirror.pendingRevocations.size).toBe(0);

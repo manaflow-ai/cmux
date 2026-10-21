@@ -21,12 +21,12 @@ extension ChatsFeed {
 
     /// The Chief home's acpmux watch (2026-10-20: every Chief subagent tab read "Agent"): the
     /// Chief runs its subagents there, and their tabs name its `chief:<id>` host, so their
-    /// titles and turn states come from that watch. It keeps its own activity lanes.
+    /// titles and turn states come from that watch. It keeps its own activity lanes (`AgentLaneStore.chief`).
     static func startChiefTurnStates(tag: String?) {
         guard chiefTurnStates == nil else { return }
         let home = ChiefHome.resolve(tag: tag)
         guard let environment = ChiefHomeAcpmux.environment(home: home) else { return }
-        let feed = AgentTurnStateFeed(socketPath: environment.socketPath, lanes: AgentLaneStore(),
+        let feed = AgentTurnStateFeed(socketPath: environment.socketPath, lanes: .chief,
                                       mirroring: ChiefHomeAcpmux.host(muxHome: home.muxHome))
         chiefTurnStates = feed
         feed.start(localHost: nil)

@@ -97,8 +97,8 @@ nonisolated enum ProfileActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "space.clearColor",
-                title: String(localized: "action.space.clearColor", defaultValue: "Clear Space Color", table: "ProfileActions", bundle: .module),
-                keywords: ["room", "profile", "color", "reset"], category: .workspace, symbol: "circle.slash",
+                title: String(localized: "action.space.clearColor", defaultValue: "Remove Space Color", table: "ProfileActions", bundle: .module),
+                keywords: ["room", "profile", "color", "reset", "clear"], category: .workspace, symbol: "circle.slash",
                 surfaces: [.palette, .contextMenu], targets: [.profile], cliName: "space clear-color"
             ),
             ActionDescriptor(
@@ -110,8 +110,8 @@ nonisolated enum ProfileActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "space.clearIcon",
-                title: String(localized: "action.space.clearIcon", defaultValue: "Clear Space Icon", table: "ProfileActions", bundle: .module),
-                keywords: ["room", "profile", "icon", "reset"], category: .workspace, symbol: "circle.dashed",
+                title: String(localized: "action.space.clearIcon", defaultValue: "Remove Space Icon", table: "ProfileActions", bundle: .module),
+                keywords: ["room", "profile", "icon", "reset", "clear"], category: .workspace, symbol: "circle.dashed",
                 surfaces: [.palette, .contextMenu], targets: [.profile], cliName: "space clear-icon"
             ),
             ActionDescriptor(

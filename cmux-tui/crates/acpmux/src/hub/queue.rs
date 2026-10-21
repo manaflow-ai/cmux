@@ -490,6 +490,12 @@ impl Hub {
         "queue_paused",
         "queue_resumed",
         "queue_order",
+        // A paused agent pair's records (`agent_pairs.rs`).
+        "agent_pair_held",
+        "agent_pair_released",
+        "agent_pair_dropped",
+        "agent_pair_paused",
+        "agent_pair_resumed",
     ];
 
     /// One session's queue, from its log (also a chat moved here, `transfer_in.rs`).
@@ -503,11 +509,25 @@ impl Hub {
         // A move that began and neither committed nor aborted (`transfer_out.rs`); a chat
         // moved here was the source's until its `imported` record.
         let mut moving: Option<String> = None;
+        // What a paused agent pair held here, what its releases took, its pauses and resumes,
+        // and the prompt ids that reached the session (`agent_pairs.rs`).
+        let mut pair_records: Vec<EventRecord> = Vec::new();
+        let mut recorded: std::collections::HashSet<String> = Default::default();
         let scanned =
             self.store.scan_kinds(&session.id, Self::QUEUE_KINDS, &mut |e: EventRecord| {
+                if matches!(e.kind.as_str(), "queued" | "user_message")
+                    && let Some(id) = e.msg.get("promptId").and_then(Value::as_str)
+                {
+                    recorded.insert(id.to_owned());
+                }
                 let turn_id = e.msg.get("turnId");
                 match e.kind.as_str() {
                     "queued" => waiting.push(e),
+                    "agent_pair_held"
+                    | "agent_pair_released"
+                    | "agent_pair_dropped"
+                    | "agent_pair_paused"
+                    | "agent_pair_resumed" => pair_records.push(e),
                     "transfer_out" => moving = e.msg["transferId"].as_str().map(str::to_owned),
                     "transfer_aborted" | "imported" => moving = None,
                     "dequeued" | "queue_removed" | "user_message" | "turn_started" => {
@@ -549,6 +569,7 @@ impl Hub {
                 }
                 true
             });
+        self.restore_agent_pairs(&session.id, pair_records, &recorded);
         session.moving.lock().unwrap_or_else(|e| e.into_inner()).clone_from(&moving);
         if scanned.is_err() || waiting.is_empty() {
             return;
@@ -601,6 +622,8 @@ impl Hub {
     /// Runs the prompts `restore_queues` put back, each in its place in the queue (after any
     /// turn recovered from an agent host). Called once at daemon start, after adoption.
     pub fn resume_queues(self: &Arc<Self>) {
+        // And what a resumed agent pair still held when the daemon stopped (`agent_pairs.rs`).
+        self.resume_agent_pair_drains();
         for session in self.sessions() {
             let restored: Vec<QueuedPrompt> = session
                 .queue

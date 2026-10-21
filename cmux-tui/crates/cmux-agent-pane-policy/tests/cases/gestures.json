@@ -276,5 +276,18 @@
    ]
   ],
   "needs": true
+ },
+ {
+  "name": "agent_pair_resume always",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/agent_pair_resume",
+   "params": {
+    "sessionId": "s"
+   }
+  },
+  "denies": [],
+  "needs": true
  }
 ]

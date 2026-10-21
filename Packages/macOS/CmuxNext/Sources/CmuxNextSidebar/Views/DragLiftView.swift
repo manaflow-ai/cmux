@@ -11,6 +11,8 @@ final class DragLiftView: NSView {
     private let card = NSView()
     /// The card's background: the shared overlay material, never taking the pointer.
     let background: OverlaySurfaceView
+    /// The card is glass (any overlay material but the opaque one).
+    var isGlass: Bool { background.material != .opaque }
     private let content: NSView
     private var stack: [NSView] = []
     private let countBadge = ChromeLabel(labelWithString: "")

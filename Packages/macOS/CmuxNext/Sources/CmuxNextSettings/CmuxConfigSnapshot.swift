@@ -178,7 +178,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var quitBehavior: QuitBehavior = QuitBehaviorSetting.fallback
     /// `newTerminal.opensWorkspace`; off when unset or invalid.
     public var newTerminalOpensWorkspace: Bool = NewTerminalWorkspaceSetting.fallback
-    /// `tabs.cmdWClosesPinnedTabs`; off when unset or invalid.
+    /// `tabs.cmdWClosesPinnedTabs`; on when unset or invalid.
     public var cmdWClosesPinnedTabs: Bool = CmdWClosesPinnedTabsSetting.fallback
     /// `tabs.overflow`; shrink when unset or invalid.
     public var tabOverflow: TabOverflow = TabOverflowSetting.fallback
@@ -346,7 +346,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         if let quitDiagnostic { snapshot.diagnostics.append(quitDiagnostic) }
         snapshot.diagnostics += Self.closeWarningDiagnostics(root)
         snapshot.diagnostics += Self.globalHotKeyDiagnostics(root) + Self.startAgentGlobalHotKeyDiagnostics(root) + AgentPaneReplySetting.parse(root).1
-        snapshot.diagnostics += [NewTabTemplate.parse(root).1, NewTabPosition.parse(root).1].compactMap(\.self)
+        snapshot.diagnostics += [NewTabTemplate.parse(root).1, NewTabPosition.parse(root).1].compactMap(\.self) + NewTabWidgetSettings.diagnostics(root)
         let (newTerminalOpensWorkspace, newTerminalOpensWorkspaceDiagnostic) = NewTerminalWorkspaceSetting.parse(root)
         snapshot.newTerminalOpensWorkspace = newTerminalOpensWorkspace
         if let newTerminalOpensWorkspaceDiagnostic { snapshot.diagnostics.append(newTerminalOpensWorkspaceDiagnostic) }

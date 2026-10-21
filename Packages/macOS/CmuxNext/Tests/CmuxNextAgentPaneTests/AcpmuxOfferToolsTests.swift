@@ -5,7 +5,7 @@ import Testing
 
 /// cx-lo9yf at the daemon spawn boundary (``AcpmuxHost``): with the Debug Settings toggle
 /// `agent.suggestedTasks` on, the acpmux daemon the app starts has `ACPMUX_OFFER_TOOLS=1`, so every
-/// local session gets the cmux-sessions MCP server; off (the default) it does not. The toggle is
+/// local session gets the cmux-sessions MCP server (the default); off it does not. The toggle is
 /// read at each daemon start, so a change applies to the next daemon this app starts.
 @Suite(.serialized)
 struct AcpmuxOfferToolsTests {
@@ -63,10 +63,20 @@ struct AcpmuxOfferToolsTests {
         #expect(fixture.launches == ["1"], "acpmux started without ACPMUX_OFFER_TOOLS=1: \(fixture.launches)")
     }
 
-    @Test func byDefaultTheDaemonGetsNoOfferTools() async throws {
+    /// Suggested tasks are on by default (Leo 2026-10-19).
+    @Test func byDefaultTheDaemonGetsTheOfferTools() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let host = Self.host(fixture.environment, Self.tunables(nil))
+
+        await #expect(throws: (any Error).self) { _ = try await host.handshake(sessionId: nil) }
+        #expect(fixture.launches == ["1"], "acpmux started without ACPMUX_OFFER_TOOLS=1: \(fixture.launches)")
+    }
+
+    @Test func turnedOffTheDaemonGetsNoOfferTools() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let host = Self.host(fixture.environment, Self.tunables(false))
 
         await #expect(throws: (any Error).self) { _ = try await host.handshake(sessionId: nil) }
         #expect(fixture.launches == ["unset"], "acpmux started with ACPMUX_OFFER_TOOLS: \(fixture.launches)")

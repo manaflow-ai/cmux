@@ -58,7 +58,7 @@ nonisolated enum HistoryActionCatalog: ActionCatalogGroup {
             ),
             // Cmd-Y shows history in a page (New Cloud Machine has no default shortcut).
             ActionDescriptor(
-                id: "browserShowHistory", title: t("action.history.showFromPage", "Show History"),
+                id: "browserShowHistory", title: t("action.history.showFromPage", "Show Browser History"),
                 keywords: ["history", "browser"], defaultShortcut: Shortcut("y", modifiers: [.command]),
                 category: .browser, symbol: "clock.fill", surfaces: [.keyboard], requires: [.browserFocused],
                 cliName: "browser show-history"

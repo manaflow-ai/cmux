@@ -61,6 +61,8 @@ import { useEscapeStop } from "./escapeStop";
 import { usePromptHistory } from "./composer/promptHistory";
 import { AttachmentStrip, attachmentErrorText, useAttachmentIntake } from "./composer/attachmentIntake";
 import type { SendBlock } from "./useFolderTrustAsk";
+import { folder, promptSuggestion, type LivePullRequest, type PromptSuggestion } from "./promptSuggestion";
+import { useHeaderState } from "./header/headerState";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -80,6 +82,11 @@ export const COMPOSER_LABELS = {
   placeholder: "composer.placeholder",
   placeholderQueued: "composer.placeholderQueued",
   placeholderSteer: "composer.placeholderSteer",
+  suggestFailing: "composer.suggestFailing",
+  suggestDraft: "composer.suggestDraft",
+  suggestOpen: "composer.suggestOpen",
+  suggestionKey: "composer.suggestionKey",
+  suggestionHint: "composer.suggestionHint",
   placeholderSteerQuick: "composer.placeholderSteerQuick",
   add: "composer.add",
   mention: "composer.mention",
@@ -139,6 +146,10 @@ export type ComposerWake = { attachments?: ComposerAttachment[]; shell?: boolean
 
 type Props = {
   snapshot: AcpmuxSnapshot;
+  /// The native tab's folder, which the header's PR chip describes. A fresh chat's folder pick
+  /// (`projectDraft`) moves `snapshot`'s cwd but not the tab's until the chat starts, so the
+  /// header's PR belongs to another folder then.
+  headerCwd?: string;
   chips: React.ComponentType<{ snapshot: AcpmuxSnapshot; permissionAccess?: ComposerPermissionAccess }>;
   /// Sends a prompt. False when nothing can take it yet (no acpmux), so the prompt keeps it. A
   /// promise holds the prompt in the composer until the host takes it: it clears when the promise
@@ -198,7 +209,7 @@ type Props = {
   onNewWorktree?(cwd: string): void;
   /// A started chat's Choose folder…: the host's folder panel (see ComposerContext).
   onBrowseFolder?(): Promise<string | undefined>;
-  /// The location row's SSH… and cmux Cloud… rows open the host's connect flows.
+  /// The location row's SSH… and New Cloud Machine rows open the host's connect flows.
   onConnect?(kind: "ssh" | "cloud"): void;
   /// This Mac's name for the location row.
   localName?: string;
@@ -236,6 +247,7 @@ type Props = {
 /// so its arguments can follow.
 export function Composer({
   snapshot,
+  headerCwd,
   chips: Chips,
   onSend,
   onStop,
@@ -320,6 +332,8 @@ export function Composer({
   // The @ picker (MentionMenu.tsx): the row moved to, by its key, and the prompt text Esc closed it on.
   const [mentionActive, setMentionActive] = useState<string | undefined>();
   const [mentionDismissed, setMentionDismissed] = useState<string | undefined>();
+  // The suggested prompt Esc put away: its chat and PR, so it stays away for this chat only.
+  const [suggestionDismissed, setSuggestionDismissed] = useState<string | undefined>();
   // The handle is made once: its notices read the current locale's strings.
   const tRef = useRef(t);
   tRef.current = t;
@@ -848,6 +862,18 @@ export function Composer({
     if (event.isComposing || event.keyCode === 229) return;
     if (interrupt(event)) return;
     const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
+    // Tab takes the suggested prompt into the field; the next Tab moves focus on as usual. Esc puts
+    // it away for this chat (and still does whatever Esc does there).
+    if (suggested && plain && event.key === "Tab") {
+      event.preventDefault();
+      if (field.current) field.current.type(suggested);
+      else {
+        setText(suggested);
+        setCaret(suggested.length);
+      }
+      return;
+    }
+    if (suggested && plain && event.key === "Escape") setSuggestionDismissed(suggestionKey);
     // While a turn runs, ⌘Return queues the prompt for after it; Return steers (below). Nothing
     // sent from the composer stops the turn: only Stop and Esc do (Leo 2026-10-20). (The Quick
     // Composer keeps its own ⌘Return and Esc, below.)
@@ -1035,6 +1061,63 @@ export function Composer({
           : COMPOSER_LABELS.placeholderSteer;
   // A dictation waiting for words says so in the empty prompt, in italic (dictation.css).
   const dictating = useDictationListening();
+  // An idle new chat suggests the open PR another chat in this checkout made, Tab to take it
+  // (promptSuggestion.ts; Leo 2026-10-18). It never sends: Tab writes it, Return sends it.
+  const cwd = snapshot.summary?.cwd;
+  const branch = snapshot.summary?.branch;
+  // The chat folder's own PR, which the App reads with gh for the header's chip: no session summary
+  // reports a PR yet, so this is the live source.
+  const headerPullRequest = useHeaderState().pullRequest;
+  const headerHere = headerCwd === undefined || folder(headerCwd) === folder(cwd);
+  const livePullRequest = useMemo<LivePullRequest | undefined>(
+    () =>
+      headerPullRequest && headerHere
+        ? {
+            number: headerPullRequest.number,
+            title: headerPullRequest.title,
+            state: headerPullRequest.state,
+            checks: headerPullRequest.checks.state,
+          }
+        : undefined,
+    [headerPullRequest, headerHere],
+  );
+  const suggestion = useMemo<PromptSuggestion | undefined>(
+    () =>
+      !shell && !snapshot.isWorking && snapshot.rows.length === 0 && remote.canSend && !blocked
+        ? promptSuggestion(
+            snapshot.sessions,
+            { sessionId: snapshot.sessionId, cwd, branch },
+            Date.now(),
+            livePullRequest,
+          )
+        : undefined,
+    [
+      shell,
+      snapshot.isWorking,
+      snapshot.rows.length,
+      remote.canSend,
+      blocked,
+      snapshot.sessions,
+      snapshot.sessionId,
+      cwd,
+      branch,
+      livePullRequest,
+    ],
+  );
+  const suggestionKey = suggestion && `${snapshot.sessionId ?? ""}|${cwd}|${suggestion.number}`;
+  // Exactly empty, as the field draws its placeholder: a typed space hides the suggestion, so Tab
+  // must not take it then.
+  const suggested =
+    suggestion && !dictating && suggestionKey !== suggestionDismissed && text === "" && attachments.length === 0
+      ? t(
+          suggestion.kind === "failing"
+            ? COMPOSER_LABELS.suggestFailing
+            : suggestion.kind === "draft"
+              ? COMPOSER_LABELS.suggestDraft
+              : COMPOSER_LABELS.suggestOpen,
+          { number: String(suggestion.number), title: suggestion.title },
+        )
+      : undefined;
   // Focus leaving the composer closes the menu and takes back what + wrote.
   const blur = (event: React.FocusEvent<HTMLFormElement>) => {
     if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
@@ -1311,8 +1394,10 @@ export function Composer({
               shell ? "acpmux-composer-prompt is-hidden" : `acpmux-composer-prompt${dictating ? " is-dictating" : ""}`
             }
             value={text}
-            placeholder={t(dictating ? "dictation.listening" : placeholder)}
+            placeholder={dictating ? t("dictation.listening") : (suggested ?? t(placeholder))}
+            placeholderKey={suggested && !dictating ? t(COMPOSER_LABELS.suggestionKey) : undefined}
             attributes={{
+              "aria-description": suggested ? `${suggested}. ${t(COMPOSER_LABELS.suggestionHint)}` : undefined,
               role: "combobox",
               "aria-label": t(COMPOSER_LABELS.prompt),
               "aria-multiline": "true",

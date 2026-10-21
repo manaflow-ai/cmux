@@ -27,10 +27,13 @@
 //! - `_acpmux/chat_roots`: the roots, refused roots with reasons, watcher errors.
 //! - `_acpmux/chat_roots_record {harness, transcriptPath}`: a hook reports
 //!   a transcript; its store root joins the index (recorded roots file).
-//! - `_acpmux/chat_settings {enabled, discovery, roots, managedRoots}`: the
-//!   app's effective cmux.json `agents.chats.*` values (`chats/settings.rs`);
-//!   answers the roots view with `applied: true`. While chats are off,
-//!   `_acpmux/chats` answers `enabled: false` and no chats.
+//! - `_acpmux/chat_settings {enabled, discovery, roots, managedRoots,
+//!   permissionMode?, permissionModeManaged?}`: the app's effective cmux.json
+//!   `agents.chats.*` values (`chats/settings.rs`) and its effective
+//!   `agents.defaultPermissionMode` with whether MDM or the team policy
+//!   forces it (`hub/start_mode_state.rs`); answers the roots view with
+//!   `applied: true`. While chats are off, `_acpmux/chats` answers
+//!   `enabled: false` and no chats.
 //!
 //! Titles and folders are user data (C5): only the local unix socket gets
 //! them. Every WebSocket origin (Web, LocalApp, Peer) gets "Method not
@@ -226,6 +229,32 @@ pub(super) async fn route(
         "_acpmux/chat_settings" => {
             let settings = crate::chats::ChatSettings::from_params(&params)
                 .map_err(RpcError::invalid_params)?;
+            let managed = match params.get("permissionModeManaged") {
+                None | Some(Value::Null) => false,
+                Some(Value::Bool(managed)) => *managed,
+                Some(_) => {
+                    return Err(RpcError::invalid_params(
+                        "permissionModeManaged must be true or false",
+                    ));
+                }
+            };
+            // Anything but a short string is no value; forced, that is a
+            // value acpmux does not know (`Hub::apply_permission_push`). The
+            // rest of the push applies either way.
+            let mode = match params.get("permissionMode") {
+                Some(Value::String(mode)) if mode.len() <= 64 => Some(mode.clone()),
+                None | Some(Value::Null) => None,
+                Some(other) => {
+                    let kind =
+                        if other.is_string() { "an over-long string" } else { "not a string" };
+                    tracing::warn!(
+                        managed,
+                        "chat_settings permissionMode is {kind}; read as no value"
+                    );
+                    None
+                }
+            };
+            hub.apply_permission_push(mode, managed).await;
             let hub = hub.clone();
             blocking(move || {
                 let running = hub.apply_chat_settings(settings).map_err(RpcError::internal)?;

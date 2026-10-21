@@ -587,3 +587,68 @@ code {
     transition: none;
   }
 }
+
+/* The featured Cloud banner on the Discover home (CloudFeature.tsx): hairline card, text, a small
+   cloud mark and one button. */
+.apps-cloud-feature {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--page-separator);
+  border-radius: 12px;
+}
+
+.apps-cloud-feature-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.apps-cloud-feature-eyebrow {
+  font-size: var(--text-caption);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--page-text-3);
+}
+
+.apps-cloud-feature-title {
+  font-size: var(--text-title);
+  font-weight: 600;
+}
+
+.apps-cloud-feature-body {
+  font-size: var(--text-detail);
+  line-height: 1.4;
+  color: var(--page-text-2);
+  text-wrap: pretty;
+}
+
+.apps-cloud-feature-art {
+  flex: none;
+  width: 56px;
+  height: auto;
+  fill: var(--page-hover);
+  stroke: var(--page-text-3);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+
+.apps-cloud-feature-art circle {
+  fill: var(--page-text-2);
+  stroke: none;
+}
+
+@media (max-width: 520px) {
+  .apps-cloud-feature {
+    flex-wrap: wrap;
+  }
+
+  .apps-cloud-feature-art {
+    display: none;
+  }
+}

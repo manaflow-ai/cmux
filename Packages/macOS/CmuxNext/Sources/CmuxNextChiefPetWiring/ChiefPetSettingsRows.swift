@@ -22,6 +22,9 @@ public final class ChiefPetSettingsRows: NSObject {
     private var opener: (@MainActor () -> Bool)?
     /// The app's popovers the pet's Chief Pet Settings… opens; `install` adds these rows.
     private let homes: ChiefPetHomes
+    /// Runs when the chosen character (`home.chiefPetMascot`) is first read and each time it
+    /// changes: the Home header wears it when its Chief has no avatar of its own.
+    public var onMascot: (@MainActor () -> Void)?
 
     /// What the rows show: the two settings and whether each is managed.
     nonisolated struct Shown: Equatable, Sendable {
@@ -65,9 +68,15 @@ public final class ChiefPetSettingsRows: NSObject {
         // task-owner: lives as long as the rows (their Home view; deinit cancels it); event-driven (Observation)
         watch = Task { [weak self] in
             guard let settings = self?.settings else { return }
+            var mascot: String?
             for await shown in ObservationStream({ Self.shown(settings()) }) {
                 guard let self else { return }
-                if let shown { show(shown) }
+                guard let shown else { continue }
+                show(shown)
+                if shown.mascot != mascot {
+                    mascot = shown.mascot
+                    onMascot?()
+                }
             }
         }
     }
@@ -93,6 +102,12 @@ public final class ChiefPetSettingsRows: NSObject {
         let index = mascot.itemArray.firstIndex { $0.representedObject as? String == shown.mascot } ?? 0
         mascot.selectItem(at: index)
         mascot.isEnabled = !shown.mascotManaged
+    }
+
+    /// The avatar picture of the character `mascot` names (an unknown or nil id: the first, orb):
+    /// the whole character on a transparent square, for a Chief with no avatar of its own.
+    public static func avatarURL(of mascot: String?) -> URL? {
+        (ChiefPetMascot(rawValue: mascot ?? "") ?? .initial).avatarURL
     }
 
     /// Each mascot id with its name as the Settings page shows it (the schema's choice titles).

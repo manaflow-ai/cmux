@@ -1,4 +1,4 @@
-import { errorMessage } from "./transportErrors";
+import { errorMessage, isHostRefusal } from "./transportErrors";
 import type { ComposerAttachment } from "./attachments";
 import { agentName } from "./agents";
 import { harnessProfiles, type HarnessProfiles } from "./harnessProfiles";
@@ -425,7 +425,8 @@ export class HarnessSwitch {
     if (!intent || !prompt) return;
     intent.queued = intent.queued.filter((candidate) => candidate !== prompt);
     this.handlers.restore?.(prompt.text, prompt.attachments);
-    prompt.reject(new Error(t("switch.cancelled")));
+    // Back in the composer (`handedBack`): the sender puts nothing back.
+    prompt.reject(Object.assign(new Error(t("switch.cancelled")), { handedBack: true }));
     this.changed();
   }
 
@@ -500,7 +501,8 @@ export class HarnessSwitch {
     intent.sessionId = undefined;
     if (restoreQueued && intent.queued.length) {
       this.handBack(intent.queued);
-      for (const prompt of intent.queued) prompt.reject(new Error(t("switch.cancelled")));
+      for (const prompt of intent.queued)
+        prompt.reject(Object.assign(new Error(t("switch.cancelled")), { handedBack: true }));
       intent.queued = [];
     }
     intent.done.resolve(undefined);
@@ -563,8 +565,7 @@ export class HarnessSwitch {
     if (model) applied.push(port.setModel(model).catch((error) => this.refused(model, error)));
     // A pick the host refuses (a transport refusal) says so; any other refusal stays quiet, as before.
     const pickRefused = (error: unknown) => {
-      const code = (error as { code?: unknown } | undefined)?.code;
-      if (typeof code === "string" && code.startsWith("transport.")) this.handlers.notice?.(errorMessage(error));
+      if (isHostRefusal(error)) this.handlers.notice?.(errorMessage(error));
     };
     const ticket = (key: string) => intent.tickets.get(key) ?? Promise.resolve(undefined);
     // A held mode the agent refuses always says so: a company-managed Mac's Claude Code settings can

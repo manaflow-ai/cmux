@@ -1137,10 +1137,12 @@ mark {
 }
 
 /* Settings > Appearance's floating Undo, Redo and Reset: pinned to the bottom right of the content
-   while the page scrolls, on the solid popup surface so it reads over any background. */
+   while the page scrolls, on the solid popup surface so it reads over any background. Sticky stops at
+   the scroller's content box, so the offset reaches into the end padding: it rests just above the
+   content's bottom fade, not 16px above the padding, where it covered the last row's control. */
 .appearance-bar {
   position: sticky;
-  bottom: 16px;
+  bottom: calc(var(--content-fade-bottom, 28px) + 4px - var(--content-pad-end, 0px));
   z-index: var(--layer-sticky);
   display: flex;
   align-items: center;
@@ -1283,6 +1285,9 @@ mark {
 }
 
 .density-preview {
+  /* Tiles share the tallest tile's height; each preview takes the slack so every name sits on the
+     same line under a preview of the same size. */
+  flex: 1;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 6px;

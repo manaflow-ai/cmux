@@ -8,5 +8,5 @@ nonisolated extension AgentPaneTunables {
     public static let suggestedTasks = Tunable<Bool>.toggle(
         "agent.suggestedTasks", PageTunables.section, "Suggested tasks",
         help: "Agents can suggest follow-up tasks you start as child chats beside this one.",
-        default: false, code: "AgentPaneTunables.suggestedTasks")
+        default: true, code: "AgentPaneTunables.suggestedTasks")
 }

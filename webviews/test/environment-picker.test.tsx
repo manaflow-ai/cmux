@@ -1,9 +1,10 @@
 // The environment picker (preview, Settings > Advanced > Labs `labs.previewFeatures`): the composer
 // location row's computer control becomes one searchable list of where a chat runs, as Claude's
 // desktop app has it: Local, SSH and Cloud sections, ⌥⌘1–9 on the first nine rows, and New
-// environment at the bottom, which opens the host's SSH and cmux Cloud connect flows. It defaults
-// to this computer. The machines come from acpmux (`_acpmux/status` peers, by URL scheme, and the
-// hosts its chats ran on); with previews off the row keeps its plain Computer menu.
+// environment at the bottom, which opens the host's SSH connect flow; New Cloud Machine ends the
+// Cloud section and opens the host's create flow. It defaults to this computer. The machines come
+// from acpmux (`_acpmux/status` peers, by URL scheme, and the hosts its chats ran on); with
+// previews off the row keeps its plain Computer menu.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -164,6 +165,19 @@ async function type(text: string) {
   });
 }
 
+// Typing as a person does: Base UI auto-highlights only on an input event with an `inputType`.
+async function typeKeys(text: string) {
+  const field = doc().querySelector<HTMLInputElement>(".acpmux-env-popover input")!;
+  const setValue = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!;
+  for (const data of text) {
+    await act(async () => {
+      setValue.call(field, field.value + data);
+      field.dispatchEvent(new dom.window.InputEvent("input", { bubbles: true, inputType: "insertText", data }));
+    });
+  }
+  return field;
+}
+
 async function press(target: Element, init: KeyboardEventInit) {
   await act(async () => {
     target.dispatchEvent(new dom.window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init }));
@@ -209,12 +223,31 @@ test("previews on: one list in Local, SSH and Cloud sections, numbered ⌥⌘1�
     false,
     false,
   ]);
-  // New environment, last: SSH… and cmux Cloud… under its heading.
+  // New Cloud Machine closes the Cloud section, with what one gives; New environment, last, holds SSH….
   expect(rows().slice(-2)).toEqual(newRows());
-  expect(newRows().map(rowText)).toEqual([t("composer.connectSSH"), t("composer.connectCloud")]);
-  expect(newRows()[0]!.querySelector(".acpmux-env-row")!.getAttribute("data-section")).toBe(
+  expect(newRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
+    t("composer.newCloudMachine"),
+    t("composer.connectSSH"),
+  ]);
+  expect(newRows()[0]!.querySelector(".acpmux-env-detail")?.textContent).toBe(t("composer.newCloudMachineDetail"));
+  expect(newRows().map((row) => row.querySelector(".acpmux-env-row")!.getAttribute("data-section"))).toEqual([
+    null,
     t("composer.newEnvironment"),
-  );
+  ]);
+});
+
+test("with no cloud machine yet, New Cloud Machine heads its own Cloud section and opens the create flow", async () => {
+  const calls = await mount(true, {
+    sessions: [{ sessionId: "a", cwd: "/home/dev/model", host: "gpu-box", peer: "gpu-box", updatedAt: 0 }],
+    peers: ["gpu-box"],
+    peerKinds: { "gpu-box": "ssh" },
+  });
+  await openPicker();
+  expect(machineRows().some((row) => row.querySelector('.acpmux-env-row[data-kind="cloud"]'))).toBe(false);
+  const cloud = newRows()[0]!;
+  expect(cloud.querySelector(".acpmux-env-row")!.getAttribute("data-section")).toBe(t("composer.cloud"));
+  await act(async () => cloud.click());
+  expect(calls).toEqual([["connect", "cloud"]]);
 });
 
 test("the search field filters by name and section, keeping each machine's shortcut", async () => {
@@ -242,12 +275,38 @@ test("⌥⌘ digits do nothing while focus is outside the composer", async () =>
   expect(calls).toEqual([]);
 });
 
-test("New environment's rows open the SSH and cmux Cloud connect flows", async () => {
+test("New Cloud Machine and SSH… open the host's create and connect flows", async () => {
   const calls = await mount(true);
   await openPicker();
-  await act(async () => newRows()[1]!.click());
+  await act(async () => newRows()[0]!.click());
   expect(calls).toEqual([["connect", "cloud"]]);
   expect(doc().querySelector(".acpmux-env-popover")).toBeNull();
+  await openPicker();
+  await act(async () => newRows()[1]!.click());
+  expect(calls).toEqual([
+    ["connect", "cloud"],
+    ["connect", "ssh"],
+  ]);
+  expect(doc().querySelector(".acpmux-env-popover")).toBeNull();
+});
+
+test("Return on a search runs no action Base UI highlighted by itself, but picks a matching machine", async () => {
+  let calls = await mount(true);
+  await openPicker();
+  await press(await typeKeys("gpu"), { key: "Enter" });
+  expect(calls).toEqual([["project", "/home/dev/model", "gpu-box"]]);
+  act(() => root?.unmount());
+  calls = await mount(true);
+  await openPicker();
+  // "gpu" shows gpu-box; the "z" leaves only New Cloud Machine and SSH…, and Base UI moves its
+  // highlight onto New Cloud Machine.
+  const field = await typeKeys("gpuz");
+  await press(field, { key: "Enter" });
+  expect(calls).toEqual([]);
+  await press(field, { key: "ArrowDown" });
+  await press(field, { key: "ArrowUp" });
+  await press(field, { key: "Enter" });
+  expect(calls).toEqual([["connect", "cloud"]]);
 });
 
 test("choosing the environment already chosen hands focus back to the prompt", async () => {

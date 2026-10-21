@@ -264,7 +264,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
         )
         settings.start()
-        ChatSettingsPush.start(settings: settings, environment: QuitAgents.environment(services))
+        ChatSettingsPush.start(settings: settings, socketPath: QuitAgents.environment(services)?.socketPath)
         KeepAwakeService.shared.start(settings: settings, store: services.daemon.store)
         services.mobile.follow(settings, launch: services.environment.launch)
         services.chatsFeed?.keepCurrent()
@@ -361,8 +361,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// the incognito close confirmation, saves windows, and for End stops
     /// the local daemon. `kill` never gets here.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard let services else { return .terminateNow }
-        return services.quit.shouldTerminate(sender)
+        services?.quit.shouldTerminate(sender) ?? .terminateNow
+    }
+
+    /// Chromium's `CommandDispatcher` asks NSApp.delegate (in Chrome, its `AppController`) to
+    /// validate a `commandDispatch:` item that no Chromium window handles, with no
+    /// `respondsToSelector:` check first. Chrome enables only the commands its AppController can
+    /// run with no browser window; cmux has no AppController, so those commands are disabled
+    /// (enabled, AppKit would send the command where nothing runs it). Any other action is one
+    /// this delegate implements, which AppKit enables when it has no validator.
+    @objc(validateUserInterfaceItem:) func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
+        item.action != Selector(("commandDispatch:")) && item.action != Selector(("commandDispatchUsingKeyModifiers:"))
     }
 
     /// Web, `ssh:` and `x-man-page:` links (cmux as their handler) open as

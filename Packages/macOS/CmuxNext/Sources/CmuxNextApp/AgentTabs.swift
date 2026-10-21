@@ -169,6 +169,10 @@ final class AgentTabStore {
     /// What each released chat page held that acpmux does not (``AgentPageHibernation``), for
     /// the page built when its tab shows again.
     var wakeStates: [String: AgentPaneWakeState] = [:]
+    /// What the chat pages held at the last quit, for each tab's first page at launch (``AgentPaneRelaunchWake``).
+    var relaunchWake = AgentPaneRelaunchWake(file: nil)
+    /// What every chat holds for the next launch (the quit's window step).
+    func relaunchWakeStates() async -> [String: AgentPaneWakeState] { await relaunchWake.collect(held: wakeStates, pages: views.map { (resolve($0.key), $0.value) }, live: isAgentTab) }
     /// The git link of tab `key`: the session host of the tab's own machine (AgentPaneGitReads.swift),
     /// so a Cloud or SSH chat reads its folder there; nil answers the page `native.not_connected`. Move to Floating Chat puts a session in Start Agent's panel.
     /// The upload for a chat tab's dropped or pasted files, nil when it takes none (``CloudUploads``).
@@ -306,8 +310,9 @@ final class AgentTabStore {
         // A New Tab page made now (Cmd-N's first page, a restored page) adopts the prewarmed spare
         // when there is one: no cold load and React mount on the open path (cx-ec99).
         // (Its folder rides on the page context, `newTab.cwd`; a first page's seed holds only that.)
+        // A page with a kept composer (``wakeStates``) gets its own page: the spare's handshake is past.
         if local, kind == .local, sessions[key] == nil, record.session == nil, let newTab = newTabPages[key],
-           seed?.holdsOnlyFolder ?? true, let spare = takeSpare?() {
+           seed?.holdsOnlyFolder ?? true, wakeStates[key] == nil, let spare = takeSpare?() {
             adoptSpare(spare, key: key, page: newTab.page)
             track(key, in: store)
             return spare

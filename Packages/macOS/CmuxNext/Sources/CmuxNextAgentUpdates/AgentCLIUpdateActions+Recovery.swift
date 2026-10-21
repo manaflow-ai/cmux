@@ -250,10 +250,17 @@ extension AgentCLIUpdateActions {
         guard receipt.machine == input.machine, receipt.session == input.session, receipt.cli == input.family,
               let index = intent.jobs.firstIndex(where: { $0["intent_key"]?.stringValue == input.key }),
               var job = intent.jobs[index].objectValue else { throw DaemonError.malformedResponse("Receipt does not match the retained intent") }
-        if !intent.receipts.contains(where: { $0.path.terminalID == receipt.path.terminalID }) { intent.receipts.append(receipt) }
+        let added = !intent.receipts.contains(where: { $0.path.terminalID == receipt.path.terminalID })
+        if added { intent.receipts.append(receipt) }
         job["terminal"] = .string(receipt.path.terminalID.rawValue); job["state"] = "created"
         job["can_resume"] = false; job["can_dismiss"] = false
         intent.jobs[index] = .object(job)
+        if added {
+            // A batch may gain a receipt while a previous bounded read is in flight.
+            // Restart observation only; cancellation never ends the owner's job.
+            intent.following?.cancel(); intent.following = nil
+            follow(intent)
+        }
     }
 
     private func setFlags(resume: Bool, dismiss: Bool, key: String, in intent: Intent) {

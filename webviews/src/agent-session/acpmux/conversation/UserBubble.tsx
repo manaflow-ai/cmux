@@ -15,6 +15,7 @@ import { useMinuteClock } from "../clock";
 import { usePaneLanguage, useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { copyText } from "./clipboard";
+import { DeliveryMark } from "./PromptDelivery";
 import { Check, ChevronLeft, ChevronRight, Copy, ImageIcon, Pencil, TurnFork } from "./icons";
 import { relativeTime } from "./relativeTime";
 import { ImageViewerContext } from "./imageViewerContext";
@@ -32,7 +33,9 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
   const [copied, setCopied] = useState(false);
   const mark = usePromptRowMark(row);
   const through = edit?.seqs.get(row.id);
-  const unread = row.pending || row.steer === "waiting";
+  // A prompt this pane sent is read once the agent started on it (its delivery), else as before; a
+  // steer is unread while it still waits for the agent to take it, whatever its delivery says.
+  const unread = row.steer === "waiting" || (row.delivery ? row.delivery.state !== "read" : row.pending);
   // Fork goes through the prompt's own turn, as its right-click Fork does, so the new chat keeps it.
   const own = promptTurns?.get(row.id);
   const forkThrough = fork && own !== undefined && (forkAny || own === forkSeq) ? own : undefined;
@@ -55,7 +58,11 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
   return (
     <>
       {row.images && row.images.length > 0 && <SentImages images={row.images} />}
-      <div className="cv-user__bubble selectable">{text}</div>
+      <div className="cv-user__bubble selectable">
+        {text}
+        {/* A prompt this pane sent that is still on its way; a steer's mark says it instead. */}
+        {row.delivery && !row.steer && <DeliveryMark delivery={row.delivery} />}
+      </div>
       {text && !row.failed && !row.queued && (
         <div className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}>
           {branch && branches && (
@@ -93,9 +100,9 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
           </time>
           {/* Claude's single check: Read once the agent has the prompt, Unread while it is still
               being sent or waits as a steer. */}
-          {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- an icon with a spoken state, not an image file. */}
           <span
             className={`cv-user__read${unread ? " is-unread" : ""}`}
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- an icon with a spoken state, not an image file.
             role="img"
             aria-label={t(unread ? "message.unread" : "message.read")}
             title={t(unread ? "message.unread" : "message.read")}
@@ -219,7 +226,7 @@ function SentImage({ image }: { image: PromptImage }) {
   if (state === "missing") return null;
   if (state === "failed")
     return (
-      <span className="cv-user__image-failed" role="img" aria-label={t("image.failed")}>
+      <span className="cv-user__image-failed">
         <ImageIcon size={16} />
         <span>{t("image.failed")}</span>
       </span>

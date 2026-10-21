@@ -3,11 +3,16 @@
 // and opens through the host (`link.openPath`: the deny list and the session's folders after
 // symlinks, then a user gesture; outside the folders, `agentPane.links.outsideRoots` decides and
 // the host's own sheet asks). A web chip is an ordinary link, which the host opens outside the
-// pane after a real click; its icon is the site's favicon when cmux already has one.
+// pane after a real click. It reads as plain link text (Claude Code desktop's links): the site's
+// favicon only beside a title cmux already has, a local or private address never dressed as a
+// site, and a secret-looking query value as `•••` (linkDisplay.ts). Hovering it offers Open and
+// Open in.
 import { useEffect, useRef, useState, type PointerEvent, type ReactNode } from "react";
 import { callChipHost } from "./host";
 import { FileDoc, Folder, GitHubMark, Globe, Lock } from "../conversation/icons";
 import { usePathInfo, useSiteInfo } from "./linkStore";
+import { isPrivateUrl, redactUrlText } from "./linkDisplay";
+import { OpenInMenu } from "../previewCard/OpenInMenu";
 import { isDeniedPath, pathName, textLinks } from "./paths";
 import { HOVER_INTENT } from "../../../ui/hoverIntent";
 import { AnchoredCard } from "../../../ui/Tooltip";
@@ -43,24 +48,41 @@ function HostPathChip({ path, label, written }: { path: string; label?: ReactNod
   );
 }
 
-/// A web chip: the site's favicon when cmux has one, else `icon` (GitHub, arXiv) or a globe; the
-/// link text; the full URL in the tooltip. The anchor keeps the host's link-click path.
+/// A web link: its text, `icon` (GitHub, arXiv) when given, and the site's favicon only when cmux
+/// has the site's title too (a bare address then reads as that title). The hover card names the
+/// site and the address and offers Open and Open in. The anchor keeps the host's link-click path.
 export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNode; children: ReactNode }) {
   const t = useT();
-  const site = useSiteInfo(href);
+  const privateHost = isPrivateUrl(href);
+  const known = useSiteInfo(href);
+  // A dev server's or a device's page is never dressed as a site, whatever cmux browsed there.
+  const site = privateHost ? undefined : known;
+  // The link text is the address itself (a bare URL in a reply, or an autolink).
+  const bare = typeof children === "string" && (children === href || /^[a-z][\w+.-]*:\/\//i.test(children));
+  const shown = bare ? redactUrlText(children as string) : children;
+  const shownHref = redactUrlText(href);
   // A pull request or issue is a reference chip (Leo 2026-10-19, as Claude desktop draws them): a
   // pill with the GitHub mark, `owner/repo#N`, and the title cmux already has for it.
   const ref = githubRefLabel(href);
   const refTitle = ref ? githubRefTitle(site?.title) : undefined;
+  const titled = !ref && Boolean(site?.title);
+  const favicon = site?.icon ? (
+    <img className="cv-chip__icon cv-chip__favicon" src={site.icon} alt="" width={14} height={14} />
+  ) : undefined;
   const mark = ref ? (
     <GitHubMark size={13} className="cv-chip__icon cv-chip__icon--gh" />
-  ) : site?.icon ? (
-    <img className="cv-chip__icon cv-chip__favicon" src={site.icon} alt="" width={14} height={14} />
+  ) : titled && favicon ? (
+    favicon
   ) : (
-    (icon ?? <Globe size={15} strokeWidth={1.1} className="cv-chip__icon" />)
+    icon
   );
+  // The hover card always has an icon to show.
+  const cardMark = mark ?? favicon ?? <Globe size={15} strokeWidth={1.1} className="cv-chip__icon" />;
+  const label = titled && bare ? site!.title : shown;
   const [cardOpen, setCardOpen] = useState(false);
   const cardHoverRef = useRef(false);
+  /// The card's Open in menu is open: the card stays until it closes.
+  const menuOpenRef = useRef(false);
   const anchor = useRef<HTMLAnchorElement | null>(null);
   const openTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -78,7 +100,7 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
   const hideCard = () => {
     clearTimers();
     closeTimer.current = setTimeout(() => {
-      if (!cardHoverRef.current) setCardOpen(false);
+      if (!cardHoverRef.current && !menuOpenRef.current) setCardOpen(false);
     }, HOVER_INTENT.cardGrace);
   };
   useEffect(() => () => clearTimers(), []);
@@ -102,7 +124,7 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
     <>
       <a
         ref={anchor}
-        className={`cv-link cv-chip is-web${ref ? " is-ref" : ""}`}
+        className={`cv-link cv-chip is-web${ref ? " is-ref" : ""}${titled ? " is-titled" : ""}`}
         href={href}
         rel="noreferrer"
         onPointerEnter={onPointerEnter}
@@ -111,7 +133,7 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
         onBlur={onBlur}
       >
         {mark}
-        <span className="cv-chip__label">{children}</span>
+        <span className="cv-chip__label">{label}</span>
         {refTitle && <span className="cv-chip__title">{refTitle}</span>}
       </a>
       <AnchoredCard
@@ -129,7 +151,11 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
             cardHoverRef.current = false;
             hideCard();
           }}
-          onFocusCapture={() => {
+          onFocusCapture={(event) => {
+            // Keyboard focus keeps the card. A pointer pick in Open in puts focus back on its trigger
+            // with no ring (Menu's focusAfterClose); that alone doesn't pin the card once the pointer
+            // has left it.
+            if (!(event.target as Element).matches(":focus-visible") && !event.currentTarget.matches(":hover")) return;
             clearTimers();
             cardHoverRef.current = true;
             setCardOpen(true);
@@ -140,15 +166,24 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
           }}
         >
           <div className="cv-link-preview__head">
-            <span className="cv-link-preview__icon">{mark}</span>
+            <span className="cv-link-preview__icon">{cardMark}</span>
             <span className="cv-link-preview__site">{site?.title ?? host}</span>
             <button type="button" className="cv-link-preview__open" onClick={onOpen}>
               {t("image.open")}
               <span aria-hidden="true">↗</span>
             </button>
+            <OpenInMenu
+              url={href}
+              onOpenInPane={(url) => void callChipHost("browser.open", { url })}
+              onOpenChange={(open) => {
+                menuOpenRef.current = open;
+                if (open) clearTimers();
+                else hideCard();
+              }}
+            />
           </div>
           <div className="cv-link-preview__target">
-            {host} · {href}
+            {host} · {shownHref}
           </div>
         </div>
       </AnchoredCard>

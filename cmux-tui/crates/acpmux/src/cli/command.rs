@@ -135,11 +135,11 @@ pub enum Command {
         session: String,
         /// Prompt text. Reads stdin when omitted or "-".
         prompt: Vec<String>,
-        /// Send this message into the running turn when the agent supports steering; else it
-        /// queues behind the turn (the default).
+        /// Send this message into the running turn when the agent supports steering. On by
+        /// default with --no-wait; a send that waits for the reply queues unless given this.
         #[arg(long, conflicts_with = "no_steer")]
         steer: bool,
-        /// Queue behind the running turn (the default today; keeps queueing if that changes).
+        /// Queue behind the running turn even with --no-wait.
         #[arg(long)]
         no_steer: bool,
         /// Return as soon as the prompt is steered in or queued.

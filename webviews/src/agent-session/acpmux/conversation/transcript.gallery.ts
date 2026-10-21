@@ -467,7 +467,9 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/WorkingFor.tsx",
     "agent-session/acpmux/conversation/TurnRows.tsx",
     "agent-session/acpmux/conversation/DateLine.tsx",
-    "agent-session/acpmux/FailedPrompt.tsx",
+    "agent-session/acpmux/conversation/PromptDelivery.tsx#DeliveryFailure",
+    "agent-session/acpmux/conversation/PromptDelivery.tsx#DeliveryMark",
+    "agent-session/acpmux/conversation/icons.tsx#Clock",
     "agent-session/acpmux/PermissionCard.tsx",
   ],
   variants: {
@@ -1094,12 +1096,43 @@ export default agentPaneEntry({
         }),
       ]),
     },
+    "prompt-delivery": {
+      note: "Each sent prompt's way to the agent: the read check once it started, unread once acpmux took it, a clock and Still sending while it waits, and one that failed with Retry, Edit, Remove and Details.",
+      snapshot: chat([
+        user("Add retries to the client", 6, {
+          delivery: { state: "read", promptId: "p1", sessionId: "s", sentAt: 0, acceptedAt: 40, readAt: 90 },
+        }),
+        assistant("Added.", 5.5),
+        summary(5.5, { status: "completed" }),
+        user("And a test for it", 3, {
+          delivery: { state: "delivered", promptId: "p2", sessionId: "s", sentAt: 0, acceptedAt: 60 },
+        }),
+        user("Then open a PR", 2, {
+          pending: true,
+          delivery: { state: "sending", promptId: "p3", sessionId: "s", sentAt: 0, slow: true },
+        }),
+        user("Ship it", 1, {
+          failed: true,
+          error: "Not sent: no answer from acpmux.",
+          delivery: {
+            state: "failed",
+            promptId: "p4",
+            sessionId: "s",
+            sentAt: 0,
+            failedAt: 60000,
+            hop: "acpmux",
+            code: "timeout",
+            error: "Not sent: no answer from acpmux.",
+          },
+        }),
+      ]),
+    },
     "edited-files": {
       note: "A turn that edited three files: the edited-files card with Undo.",
       snapshot: chat([...workedTurnRows(minutesAgo(15)), summary(14, { status: "completed", toolCount: 3 })]),
     },
     "preview-card": {
-      note: "A turn that started a local server: the preview card.",
+      note: "A turn that started a local server. Its address stays a link in the reply; the preview card under the answer shows only with the Debug toggle agentPane.debug.turnPreviewCards (data-turn-preview-cards on <html>).",
       snapshot: chat([
         user("Start the dev server", 9),
         activity(
@@ -1114,6 +1147,17 @@ export default agentPaneEntry({
         ),
         assistant("The dev server runs at http://localhost:5173/.", 8.8),
         summary(8.8, { status: "completed", toolCount: 1 }),
+      ]),
+    },
+    "token-link": {
+      note: "An agent's bare local address with a token (Leo 2026-10-20): plain link text with the token as •••, no card under the answer; hovering it offers Open and Open in.",
+      snapshot: chat([
+        user("Open the dashboard", 6),
+        assistant(
+          "The dashboard is up at http://127.0.0.1:47811?token=0f3c9a7d51e2b8846a0c3f9e1d7b2a5c6e8f0a1b and reloads on save.",
+          5.9,
+        ),
+        summary(5.9, { status: "completed" }),
       ]),
     },
     "chips-and-previews": {

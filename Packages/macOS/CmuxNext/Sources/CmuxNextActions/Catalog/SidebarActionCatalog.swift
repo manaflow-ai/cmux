@@ -56,7 +56,7 @@ nonisolated enum SidebarActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "switchRightSidebarToFeed",
-                title: String(localized: "action.switchRightSidebarToFeed", defaultValue: "Show Feed", bundle: .module),
+                title: String(localized: "action.switchRightSidebarToFeed", defaultValue: "Show Feed in Right Sidebar", bundle: .module),
                 keywords: ["right sidebar", "activity"],
                 category: .sidebar, symbol: "dot.radiowaves.left.and.right", surfaces: [.palette, .keyboard],
                 cliName: "sidebar show-feed"

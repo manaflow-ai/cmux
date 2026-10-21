@@ -358,6 +358,7 @@ final class SidebarRegionView: NSView {
                 self?.onActivate?(id)
             }
         }
+        view.onPressBegan = { [weak self] in self?.endStaleDrag() }
         addSubview(view)
         itemViews[id] = view
         // A client-only item (What's New) only opens: no drag, no menu.

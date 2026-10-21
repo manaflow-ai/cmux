@@ -133,6 +133,16 @@ extension SidebarRegionView {
         relayout(animated: false)
     }
 
+    /// A new press on an item: a drag the last press left held (its release went to another window) is
+    /// cancelled, here or in the list that draws this region, as a press on the list's rows does.
+    func endStaleDrag() {
+        guard let docList else { return cancelDrag() }
+        docList.endPointerGesture()
+        // The old press's release never comes: its tile shows again and the new press may drag.
+        docSpentPress = nil
+        endDocPress()
+    }
+
     func cancelDrag() {
         guard let drag = reorder else { return }
         reorder = nil

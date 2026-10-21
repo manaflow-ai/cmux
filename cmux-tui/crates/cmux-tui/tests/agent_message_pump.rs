@@ -97,8 +97,8 @@ mod agent_message_pump {
         assert_eq!(prompt["sessionId"], "b");
         let meta = &prompt["_meta"]["acpmux"];
         assert_eq!(meta["promptId"], message["id"], "the message id is the prompt id");
-        // It queues behind a running turn: a steer cancelled the receiver's tool calls.
-        assert_eq!(meta["steer"], false, "a message queues: {meta}");
+        // It reaches a running turn at once when the agent steers, else it queues.
+        assert_eq!(meta["steer"], true, "a message steers by default: {meta}");
         assert_eq!(meta["provenance"]["msgId"], message["id"]);
         assert_eq!(meta["provenance"]["from"], "acp:a");
         assert_eq!(meta["provenance"]["to"], "acp:b");

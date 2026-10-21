@@ -78,66 +78,12 @@ nonisolated enum AcpmuxPaneMethods {
         // for that child (claude_stdio/workflows.rs). It stops work like `_acpmux/kill`, so no
         // gesture; caller params never reach Claude.
         "_acpmux/subagent_stop",
+        // Resume a paused agent pair of a chat in the pane's scope (the pause row's Resume; acpmux
+        // hub/agent_pairs.rs): delivers the messages the two agents already sent and the guard held.
+        // `peerSessionId` only picks one of that chat's paused pairs; acpmux resumes no pair the
+        // chat is not in, and only for a connection that proved the person key (hub/person.rs).
+        "_acpmux/agent_pair_resume",
     ]
-
-    /// The shape of a reply the relay filters itself, without relying on the daemon's redaction.
-    public nonisolated indirect enum ReplyShape: Sendable {
-        case string
-        case object([String: ReplyShape])
-        case list(ReplyShape)
-        /// Only the scheme of the URL in the sibling field `source` (`ssh`, `ws`, `wss`), so the
-        /// page learns a peer's transport without its URL (which can carry a user or a token).
-        case scheme(from: String)
-    }
-
-    /// The URL schemes a `.scheme` field may report; any other scheme is dropped.
-    static let reportedSchemes: Set<String> = ["ssh", "ws", "wss"]
-
-    /// Replies filtered to the fields the pane renders; everything else is dropped, at every depth.
-    /// `_acpmux/status`: the pane reads only `peers[].name` and each peer's `transport`, the
-    /// scheme of its `url` (direct.ts, after initialize; environments.ts peerKindsFromStatus).
-    public static let replyShapes: [String: ReplyShape] = [
-        "_acpmux/status": .object([
-            "peers": .list(.object(["name": .string, "transport": .scheme(from: "url")])),
-        ]),
-    ]
-
-    /// `value` cut to `shape`: nil when it does not fit (a list keeps only the items that fit).
-    static func filtered(_ value: Any, to shape: ReplyShape) -> Any? {
-        switch shape {
-        case .string:
-            return value as? String
-        case .scheme:
-            guard let scheme = (value as? String).flatMap({ URLComponents(string: $0)?.scheme?.lowercased() }),
-                  reportedSchemes.contains(scheme) else { return nil }
-            return scheme
-        case .list(let item):
-            return (value as? [Any])?.compactMap { filtered($0, to: item) }
-        case .object(let fields):
-            guard let object = value as? [String: Any] else { return nil }
-            let kept = fields.compactMap { key, field -> (String, Any)? in
-                let source: String
-                if case .scheme(let from) = field { source = from } else { source = key }
-                return object[source].flatMap { filtered($0, to: field) }.map { (key, $0) }
-            }
-            // An object with none of its fields is dropped (a peer with no name renders nothing).
-            return kept.isEmpty ? nil : Dictionary(uniqueKeysWithValues: kept)
-        }
-    }
-
-    /// A reply to a filtered request, rebuilt with the page's id (raw JSON) and its filtered
-    /// result. An error keeps only its code and message.
-    static func filteredReply(_ object: [String: Any], shape: ReplyShape, pageID: String) -> String {
-        let id = (try? JSONSerialization.jsonObject(with: Data(pageID.utf8), options: [.fragmentsAllowed])) ?? NSNull()
-        var reply: [String: Any] = ["jsonrpc": "2.0", "id": id]
-        if let error = object["error"] as? [String: Any] {
-            reply["error"] = ["code": error["code"] as? Int ?? -32603, "message": error["message"] as? String ?? ""]
-        } else {
-            reply["result"] = object["result"].flatMap { filtered($0, to: shape) } ?? [String: Any]()
-        }
-        let data = (try? JSONSerialization.data(withJSONObject: reply, options: [.sortedKeys])) ?? Data()
-        return String(decoding: data, as: UTF8.self)
-    }
 
     /// Notifications (no `id`).
     public static let notifications: Set<String> = ["session/cancel"]
@@ -232,7 +178,7 @@ nonisolated enum AcpmuxPaneMethods {
         "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
         "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
         "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side", "_acpmux/btw",
-        "_acpmux/offer_respond", "_acpmux/subagent_stop",
+        "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/agent_pair_resume",
     ]
 
     /// Params beside `sessionId` that name a session, which must be in the pane's scope too: New
@@ -304,6 +250,8 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/permission_group_respond": .whenDecisionAllows,
         // The card's Provide hands over a secret (its Decline is a click too).
         "_acpmux/secret_submit": .always,
+        // Resume runs turns: the held messages go to both chats of the pair.
+        "_acpmux/agent_pair_resume": .always,
         // _acpmux/permission_chat_revoke revokes: no gesture.
         // _acpmux/offer_respond declines, or links the page's own new chat: no gesture (the work
         // Start begins is its session/prompt, which has one).

@@ -397,7 +397,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             prompt_id,
         } => {
             let prompt_id = PromptId::new(prompt_id);
-            let steer = send_steers(steer, no_steer);
+            // A message (--no-wait) steers; a send that waits for its reply queues.
+            let steer = send_steers(steer, no_steer, no_wait);
             let client = connect(true).await?;
             let text = arg_or_stdin(&prompt)?;
             let id = resolve_id(&client, &session).await?;
@@ -560,11 +561,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
     }
 }
 
-/// Whether `acpmux send` steers: only with `--steer`. A send queues behind the running turn by
-/// default (2026-10-20: steered messages cancelled the receiver's tool calls), and `--no-steer`
-/// says so explicitly for scripts that must keep queueing if the default changes.
-fn send_steers(steer: bool, no_steer: bool) -> bool {
-    steer && !no_steer
+/// Whether `acpmux send` steers: `--steer` always, `--no-steer` never, else a message sent
+/// with `--no-wait` does (inter-session messages land in the running turn instead of waiting
+/// minutes for it to end), while a send that waits for its reply queues: a steer is answered
+/// `steered` as soon as the agent reads it, before the reply. A steer never stops a turn: the
+/// agent reads it at its next tool boundary, and to an agent that does not steer it queues.
+fn send_steers(steer: bool, no_steer: bool, no_wait: bool) -> bool {
+    !no_steer && (steer || no_wait)
 }
 
 /// The agent of the session `info` describes takes a prompt mid-turn.
@@ -577,9 +580,10 @@ mod tests {
     use super::send_steers;
 
     #[test]
-    fn send_queues_unless_given_steer() {
-        assert!(!send_steers(false, false), "a send queues by default");
-        assert!(!send_steers(false, true), "--no-steer queues");
-        assert!(send_steers(true, false), "--steer steers");
+    fn send_steers_messages_by_default_and_queues_waiting_sends() {
+        assert!(send_steers(false, false, true), "--no-wait steers by default");
+        assert!(!send_steers(false, true, true), "--no-steer opts out");
+        assert!(!send_steers(false, false, false), "a send that waits queues");
+        assert!(send_steers(true, false, false), "--steer steers a waiting send");
     }
 }

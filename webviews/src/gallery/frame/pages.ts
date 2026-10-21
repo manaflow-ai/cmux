@@ -319,6 +319,7 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
   const provider = new MockCloudProvider({ signedIn: state.signedIn ?? true, unsupported: [] });
   provider.machines = JSON.parse(JSON.stringify(state.machines));
   provider.snapshots = JSON.parse(JSON.stringify(state.snapshots));
+  if (state.maxActive !== undefined) provider.account.plan.max_active = state.maxActive;
   const host = installMockHost(
     pageOps(provider, [...Object.values(CloudOps), CLOUD_ACTION_RUN, CLOUD_PAGE_COMMAND], {
       mode: state.mode === "normal" ? undefined : state.mode,
@@ -331,9 +332,11 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
   document.documentElement.dataset.cmuxPage = "cloud";
   document.documentElement.dataset.cmuxWebviewKind = "cloud";
   document.documentElement.dataset.cloudMachinesLayout = state.layout ?? "rows";
+  if (state.hash) location.hash = state.hash;
   await import("../../pages/cloud/main");
   if (state.action === "select-machine") clickLater(".cloud-machine");
   if (state.action === "create") clickLater(".cloud-create-button");
+  if (state.action === "get") clickLater(".cloud-store-get");
 }
 
 export async function mountCodeRouterPage(state: CodeRouterPageVariant, _context: StageContext): Promise<void> {

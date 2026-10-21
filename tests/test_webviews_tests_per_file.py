@@ -197,6 +197,37 @@ class PerFileRunner(unittest.TestCase):
         self.assertEqual(sum(warm == "cold" for _, _, warm in runs), 4, runs)
         self.assertGreater(max(int(n) for n in self.peak.read_text(encoding="utf-8").split()), 1, output)
 
+    def test_a_failed_warming_file_hands_warming_to_the_next_file_of_its_config(self):
+        # One red pane file warmed first, and every other pane file then ran one at a time on a
+        # cold cache: about 7 minutes of a 13-minute shard (react-apps-check 4/4, job 118973285057).
+        pane_server = 'spawn(vp, ["dev", "--config", "vite.config.acpmux-pane.mjs", "--port", String(port)]);\n'
+        contents = {f"test/agent-{name}.test.ts": pane_server
+                    for name in ("a-fail", "history", "peer-chat", "steps", "subagents")}
+        result, _, calls = self.run_runner(list(contents), contents=contents)
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 1, output)
+        self.assertEqual(calls, sorted(f"./{name}" for name in contents), "each file runs once")
+        runs = [line.split() for line in self.dev.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual([warm for _, _, warm in runs].count("cold"), 2,
+                         f"the failed warmer and the one after it start cold, the rest warm: {runs}")
+        self.assertGreater(max(int(n) for n in self.peak.read_text(encoding="utf-8").split()), 1, output)
+
+    def test_warming_stops_after_the_attempt_limit_and_the_rest_run_one_at_a_time_cold(self):
+        # A config whose warmers all fail must not try every file as a warmer: after
+        # CMUX_WEB_TEST_WARM_ATTEMPTS failures its other files run one at a time on cold caches.
+        pane_server = 'spawn(vp, ["dev", "--config", "vite.config.acpmux-pane.mjs", "--port", String(port)]);\n'
+        contents = {f"test/agent-{name}-fail.test.ts": pane_server for name in ("a", "b", "c", "d")}
+        result, _, calls = self.run_runner(list(contents), contents=contents,
+                                           extra_env={"CMUX_WEB_TEST_WARM_ATTEMPTS": "2"})
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 1, output)
+        self.assertEqual(calls, sorted(f"./{name}" for name in contents), "each file runs once")
+        self.assertIn("4 failed or timed out", output)
+        runs = [line.split() for line in self.dev.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual([warm for _, _, warm in runs], ["cold"] * 4, runs)
+        self.assertEqual(self.overlaps.read_text(encoding="utf-8"), "", output)
+        self.assertEqual(max(int(n) for n in self.peak.read_text(encoding="utf-8").split()), 1, output)
+
     def test_a_file_can_declare_a_longer_limit_than_the_default(self):
         # editor-page runs 24 browser tests in two engines, about 115 s on the CI runner: the
         # 120 s default killed it mid-WebKit, and its later tests read "browser has been closed".

@@ -4,6 +4,7 @@
 import { useSyncExternalStore, type KeyboardEvent } from "react";
 import type { Strings } from "../shared/i18n";
 import { AppDetailView } from "./AppDetailView";
+import { CloudFeature } from "./CloudFeature";
 import { InstalledView } from "./InstalledView";
 import { categoryLabel, isRemovable, TierLabel } from "./model";
 import { AppIcon, Badge } from "./parts";
@@ -90,6 +91,7 @@ function Discover({ snap, store, strings }: { snap: AppsSnapshot; store: AppsSto
   }
   const listing = (
     <div className="apps-discover-list">
+      {!snap.query && !snap.category && <CloudFeature store={store} strings={strings} />}
       <div className="apps-chips">
         <button
           type="button"

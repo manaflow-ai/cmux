@@ -12,6 +12,9 @@ public struct TabDragStart: Equatable, Sendable {
     public var screenPoint: CGPoint
     /// Image of the tab itself. The session may prefer a content thumbnail.
     public var snapshot: TabImage?
+    /// `snapshot` was drawn for glass, without a card (`WindowBackdrop.dragCardFill` in the
+    /// strip's scope): the ghost stands it on glass.
+    public var snapshotOnGlass = false
 }
 
 /// Result of hit-testing a strip during an external drag.
@@ -38,4 +41,6 @@ public struct TabGroupDragStart: Equatable, Sendable {
     public var screenPoint: CGPoint
     /// Image of the chip and member tabs.
     public var snapshot: TabImage?
+    /// `snapshot` was drawn for glass (see `TabDragStart.snapshotOnGlass`).
+    public var snapshotOnGlass = false
 }

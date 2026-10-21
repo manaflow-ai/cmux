@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery fixtures (sample prompts and harness names), not shipped UI.
 // Compaction and failover notes in the transcript (CompactionNote.tsx): a compaction running, one
-// subrouter ran to move the chat to another account, and acpmux moving the chat to its fallback
+// that failed and why, one subrouter ran to move the chat to another account, and acpmux moving the chat to its fallback
 // harness after a usage limit.
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, row, summary, user } from "../../../gallery/fixtures/acpmux";
@@ -24,10 +24,10 @@ export default agentPaneEntry({
       ]),
     },
     running: {
-      note: "A compaction while it runs, and one that failed.",
+      note: "A compaction while it runs, and one that failed with Claude Code's reason.",
       snapshot: chat([
         user("/compact", 3),
-        row("compaction", 3, { compaction: { state: "failed" } }),
+        row("compaction", 3, { compaction: { state: "failed", error: "Prompt is too long" } }),
         user("/compact", 2),
         row("compaction", 2, { compaction: { state: "running" } }),
       ]),

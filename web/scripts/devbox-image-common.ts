@@ -971,6 +971,8 @@ export type DevboxManifestEntry = {
   /** The shape this snapshot boots at (Freestyle ladder). Size-less entries are pre-ladder bakes. */
   size?: DevboxImageSize;
   cmuxdRemoteCommit: string;
+  /** Authentication mode frozen into the image's cmux remote listener. */
+  cmuxRemoteAuth?: "trusted-carrier" | "client-grant";
   /** The cmux-tui build baked in the daemon user's home (files.cmux.com manifest pin at bake time). Absent on images that installed it at create time. */
   cmuxTuiCommit?: string;
   cmuxTuiSha256?: string;
@@ -1005,6 +1007,9 @@ export function manifestEntrySkeleton(
     // The session daemon is cmux-tui, installed at create time from the pinned
     // artifacts manifest; no cmuxd-remote build is baked.
     cmuxdRemoteCommit: "none-cmux-tui",
+    // This legacy image pipeline's frozen boot script starts the compatibility
+    // listener. A future grant image must override this in its bake result.
+    cmuxRemoteAuth: "trusted-carrier",
     repoCommit: metadata.repoCommit,
     epoch: metadata.epoch,
     devboxSource: metadata.devboxSource,

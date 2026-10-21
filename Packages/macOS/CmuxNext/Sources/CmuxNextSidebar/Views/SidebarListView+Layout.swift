@@ -245,7 +245,8 @@ extension SidebarListViewComponents {
             guard let tab = tabs[tabID] else { return }
             view.configure(tab, row: row)
         case let (.group(id), view as GroupHeaderRowView):
-            guard let group = groups[id] else { return }
+            // The model's own group when the cache (rebuilt on reload) lags it: a held drag shows the live sections.
+            guard let group = groups[id] ?? model.group(id) else { return }
             var details = model.groupHeaderDetails
             details.otherStates = model.detailedStatus
             view.configure(group, row: row, details: details, animated: animated)

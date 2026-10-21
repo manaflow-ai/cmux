@@ -120,11 +120,52 @@ enum HomeMapping {
     /// after it; without a renderer, or for a source it refuses, the fence stays in the text.
     static func parts(_ p: MessagePart, media: Media = { _ in nil }, progress: [String: Double] = [:], markdown: Bool = false,
                       links: Links = { _ in nil }) -> [Part] {
-        if case .text(let text, let mentions) = p, mentions.isEmpty, let diagrams = HomeDiagramRowProvider.installed,
-           let split = diagramParts(text, diagrams: diagrams, { textParts(.text($0), media: media, progress: progress, markdown: markdown, links: links) }) {
+        // An agent's pipe tables are cards of their own (HomeTableRowProvider), between its text.
+        func text(_ piece: String) -> [Part] {
+            if markdown, let split = tableParts(piece, { textParts(.text($0), media: media, progress: progress, markdown: markdown, links: links) }) {
+                return split
+            }
+            return textParts(.text(piece), media: media, progress: progress, markdown: markdown, links: links)
+        }
+        if case .text(let whole, let mentions) = p, mentions.isEmpty, let diagrams = HomeDiagramRowProvider.installed,
+           let split = diagramParts(whole, diagrams: diagrams, text) {
             return split
         }
+        if case .text(let whole, let mentions) = p, mentions.isEmpty, markdown {
+            return text(whole)
+        }
         return textParts(p, media: media, progress: progress, markdown: markdown, links: links)
+    }
+
+    /// `text` cut at its pipe tables: the text pieces by `textParts`, each table a table or plan card.
+    /// nil when it has no table, or tables are off (Debug Settings > Home > Rich tables), or no provider
+    /// is installed: the text then maps as it always did, tables as written in the bubble.
+    static func tableParts(_ text: String, _ textParts: (String) -> [Part]) -> [Part]? {
+        guard HomeTableRowProvider.isOn, HomeTableRowProvider.installed != nil else { return nil }
+        let segments = HomeTableSplitter().segments(in: text)
+        guard segments.contains(where: { if case .table = $0 { return true } else { return false } }) else { return nil }
+        var out: [Part] = []
+        var pending = ""
+        func flush() {
+            let piece = pending.trimmingCharacters(in: .newlines)
+            pending = ""
+            if !piece.trimmingCharacters(in: .whitespaces).isEmpty { out += textParts(piece) }
+        }
+        for segment in segments {
+            switch segment {
+            case .text(let piece):
+                pending += pending.isEmpty ? piece : "\n" + piece
+            case .table(let table, let raw):
+                if let card = HomeTableRowProvider.part(table, raw: raw) {
+                    flush()
+                    out.append(card)
+                } else {
+                    pending += pending.isEmpty ? raw : "\n" + raw
+                }
+            }
+        }
+        flush()
+        return out
     }
 
     /// `text` cut at its Mermaid fences: the text pieces by `textParts`, each fence the renderer

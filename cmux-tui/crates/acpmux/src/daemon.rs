@@ -16,6 +16,7 @@ mod router_owner;
 pub(crate) use router_owner::open_router_owner;
 pub(crate) use router_owner::router_owner_path;
 use router_owner::{ensure_router, release_router};
+mod notify;
 #[cfg(windows)]
 mod windows;
 
@@ -319,6 +320,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     hub.set_probe_only(Hub::probe_only_from_env(
         std::env::var("ACPMUX_PROBE_HARNESSES").ok().as_deref(),
     ));
+    // The agent message runaway guard (`hub/agent_pairs.rs`): `ACPMUX_AGENT_PAIR_GUARD=0` turns
+    // it off; `ACPMUX_AGENT_PAIR_{ALTERNATIONS,REPEATS,SIMILARITY,MAX_MESSAGES,WINDOW_SECS}` tune it.
+    hub.set_agent_pair_guard(crate::hub::PairGuard::from_env(|k| std::env::var(k).ok()));
     if !std::env::var("ACPMUX_AGENT_HOSTS").is_ok_and(|v| v == "0") {
         hub.enable_agent_hosts();
     }
@@ -433,7 +437,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             }
         });
     }
-    tokio::spawn(notify_loop(hub.clone()));
+    tokio::spawn(notify::notify_loop(hub.clone()));
 
     let shutdown = async {
         #[cfg(unix)]
@@ -948,63 +952,6 @@ fn hand_key(mut link: std::os::unix::net::UnixStream, key: &str) {
         tracing::warn!("hand the person key to the daemon: {e}");
     }
     let _ = link.shutdown(std::net::Shutdown::Both);
-}
-
-/// Run `notify_command` from the config on two transitions only: a
-/// permission request, and a turn that ended while no client was attached.
-async fn notify_loop(hub: Arc<Hub>) {
-    let mut rx = hub.subscribe();
-    loop {
-        let ev = match rx.recv().await {
-            Ok(e) => e,
-            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
-            Err(_) => break,
-        };
-        let kind = ev.record.kind.as_str();
-        if kind != "permission_request" && kind != "turn_result" {
-            continue;
-        }
-        let Some(cmd) = hub.config.read().await.notify_command.clone() else { continue };
-        let Ok(session) = hub.resolve(&ev.session_id) else { continue };
-        let summary = hub.session_summary(&session);
-        // A chat some client shows needs no notification (`hub/seen.rs`).
-        if kind == "turn_result" && summary["shown"] == true {
-            continue;
-        }
-        let name = summary.get("name").and_then(Value::as_str).unwrap_or("").to_owned();
-        let text = match kind {
-            "permission_request" => format!(
-                "{name} needs a permission: {}",
-                ev.record
-                    .msg
-                    .pointer("/request/toolCall/title")
-                    .and_then(Value::as_str)
-                    .unwrap_or("tool")
-            ),
-            _ => format!(
-                "{name} finished ({})",
-                ev.record.msg.get("status").and_then(Value::as_str).unwrap_or("completed")
-            ),
-        };
-        let mut c = tokio::process::Command::new("sh");
-        // The daemon starter's turn values are not this command's (config::TURN_SCOPED_ENV).
-        for k in crate::config::inherited_caller_scoped_keys() {
-            c.env_remove(k);
-        }
-        crate::login_env::apply_tokio(&mut c);
-        c.arg("-c")
-            .arg(&cmd)
-            .env("ACPMUX_EVENT", kind)
-            .env("ACPMUX_SESSION_ID", &ev.session_id)
-            .env("ACPMUX_SESSION_NAME", &name)
-            .env("ACPMUX_TEXT", &text);
-        crate::config::scrub_nested_claude_env_tokio(&mut c);
-        let _ = c
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn();
-    }
 }
 
 /// The fixed dashboard port belongs to the shared daemon (`~/.acpmux`). Any other home (a

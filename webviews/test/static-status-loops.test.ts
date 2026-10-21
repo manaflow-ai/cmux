@@ -50,6 +50,7 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     `<div class="cv-worked"><span class="cv-working-mark"><span></span><span></span><span></span></span></div>` +
     `<button class="acpmux-jump-latest" data-shown data-working><span class="acpmux-jump-latest__dots"><i></i><i></i><i></i></span></button>` +
     `<ul class="cv-plan"><li class="cv-plan__item" data-status="in_progress"><span class="cv-plan__mark"></span></li></ul>` +
+    `<span class="cv-spinner"></span>` +
     `<div class="cv-activity"><span class="cv-activity__dots"><span></span><span></span><span></span></span></div>` +
     `<span class="hc-writing">writing</span>`;
   const diffLoops = `<span class="base-picker-spinner"></span><div id="status" data-pending="true">Loading</div>`;
@@ -112,7 +113,9 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     await p.close();
     expect(running.length).toBeGreaterThanOrEqual(10);
     // The todo list's spinner among them, so the Static and Reduce Motion checks cover it.
-    expect(running.some((loop) => loop.endsWith("cv-plan-spin"))).toBe(true);
+    expect(running.some((loop) => loop.startsWith("cv-plan__mark") && loop.endsWith("cmux-spin"))).toBe(true);
+    // The running rows' spinner (compaction, tool runs) too: it once had no rule and never turned.
+    expect(running.some((loop) => loop.startsWith("cv-spinner") && loop.endsWith("cmux-spin"))).toBe(true);
   });
 
   test("Static status indicators stop every pane loop", async () => {

@@ -90,6 +90,8 @@ public final class AgentPaneModel {
     /// What this chat's last page held when it let go (hibernation); the next handshake
     /// carries it (`wake`) and clears it.
     @ObservationIgnored public var pendingWake: AgentPaneWakeState?
+    /// The state the page's last `ready` took, kept for a quit the page does not answer in time.
+    @ObservationIgnored public internal(set) var handedWake: AgentPaneWakeState?
     /// Whether the page has asked for a handshake, so its bridge is up and
     /// a turn can be revealed through it directly.
     @ObservationIgnored public internal(set) var hasHandshake = false

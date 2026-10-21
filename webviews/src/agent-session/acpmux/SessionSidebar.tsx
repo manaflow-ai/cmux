@@ -2,6 +2,7 @@ import React, { createContext, memo, useContext, useEffect, useId, useMemo, useR
 import {
   filterSessions,
   groupMark,
+  activityTime,
   sessionMark,
   sessionPlace,
   sortByRecency,
@@ -474,7 +475,7 @@ function FlatView({
         ? []
         : sessions
             .filter((session) => view === "history" || session.status === "closed")
-            .sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0)),
+            .sort((left, right) => (activityTime(right) ?? 0) - (activityTime(left) ?? 0)),
     [sessions, view],
   );
   const now = Date.now();
@@ -494,7 +495,7 @@ function FlatView({
               selected={session.sessionId === selectedId}
               onSelect={onSelect}
               flat
-              trailing={shortAge(session.updatedAt, now, t)}
+              trailing={shortAge(activityTime(session), now, t)}
             />
           ))}
         </ul>
