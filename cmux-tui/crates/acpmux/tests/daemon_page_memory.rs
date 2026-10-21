@@ -156,6 +156,9 @@ fn start(scratch: &Path, home: &Path) -> (Child, PathBuf) {
         .args(["daemon", "run", "--ready-fd", "1", "--log", "warn"])
         .env("ACPMUX_HOME", home)
         .env("ACPMUX_SOCKET", &socket)
+        // Few glibc arenas, so the peak tracks what a read holds, not the host's core count
+        // (musl ignores it).
+        .env("MALLOC_ARENA_MAX", "2")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
