@@ -985,7 +985,7 @@ mod tests {
 
     #[test]
     fn cmux_next_terminal_notification_invisible_formatting_is_removed() {
-        let hidden = "\u{202e}\u{2066}\u{200b}\u{00ad}\u{feff}";
+        let hidden = "\u{202e}\u{2066}\u{200b}\u{00ad}\u{feff}\u{1bca0}\u{e0020}";
         let mut metadata = TerminalMetadata::default();
 
         metadata.observe_output(format!("\x1b]9;Build{hidden} finished\x07").as_bytes());

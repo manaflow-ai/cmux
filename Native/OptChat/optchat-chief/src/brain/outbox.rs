@@ -118,10 +118,9 @@ impl Brain {
                 Err(OpError::Rejected(reason))
                     if self.state.outbox[0].plain_text.is_some() && has_cards(&op) =>
                 {
-                    // The owner refused the link cards or an approval card (an
-                    // older or stricter owner): the reply goes as its original
-                    // text, unchanged, under a new key, since the refused key
-                    // is spent.
+                    // The owner refused the link cards (an older or stricter
+                    // owner): the reply goes as its original text, unchanged,
+                    // under a new key, since the refused key is spent.
                     let head = &mut self.state.outbox[0];
                     let text = head.plain_text.take().unwrap_or_default();
                     let fallback = super::reply_entry(
@@ -186,10 +185,14 @@ impl Brain {
 }
 
 /// Whether `op` sends link cards (a reply the preview thread filled).
+/// Whether a send carries parts an owner may refuse where text would pass:
+/// link cards, or an approval card (a `question` part).
 fn has_cards(op: &Op) -> bool {
-    matches!(op, Op::MessageSend { parts, .. }
-    if parts.iter().any(|p| matches!(
-        p,
-        cmux_conversation::Part::LinkPreview { .. } | cmux_conversation::Part::Question(_)
-    )))
+    use cmux_conversation::Part;
+    let Op::MessageSend { parts, .. } = op else {
+        return false;
+    };
+    parts
+        .iter()
+        .any(|p| matches!(p, Part::LinkPreview { .. } | Part::Question(_)))
 }
