@@ -67,12 +67,15 @@ import Testing
         #expect(await delivered.pages["p1"]?.compactMap(\.url.host) == ["one.example", "two.example"])
         #expect(await store.batches(profile: "p1").map(\.history.count) == [2])
 
-        // A Clear History fences its time off: the next read leaves those pages out.
+        // A Clear History fences its time off: Chrome still holds one and two, but the next
+        // read (a new visit wakes it) keeps only the page visited after the clear.
         await sync.forget(profile: "p1", since: nil)
         #expect(await store.batches(profile: "p1").first?.history.isEmpty == true)
-        try Self.history(file, pages: [])
-        try await Task.sleep(for: .milliseconds(300))
-        #expect(await store.batches(profile: "p1").first?.history.isEmpty == true)
+        try await Task.sleep(for: .milliseconds(20))
+        try Self.history(file, pages: ["https://three.example/"])
+        await Self.until { await delivered.pages["p1"]?.count == 3 }
+        #expect(await delivered.pages["p1"]?.last?.url.host == "three.example")
+        #expect(await store.batches(profile: "p1").first?.history.compactMap(\.url.host) == ["three.example"])
 
         try await store.stopSync(profile: "p1")
         await sync.reconcile()
@@ -112,6 +115,35 @@ import Testing
         #expect(await store.batches(profile: "p1").first?.history.map(\.url.path) == ["/old"])
         try await store.forgetHistory(profile: "p1", since: nil)
         #expect(await store.batches(profile: "p1").first?.history.isEmpty == true)
+        // Repeated clears merge into one fence instead of one entry each.
+        #expect(await store.sources().first?.clearedRanges?.count == 1)
+    }
+
+    @Test func reimportingASourceKeepsItsClearedHistoryOut() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "import-reimport-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ImportedDataStore(directory: root)
+        let record = ImportSourceRecord(browser: .chrome, profileDirectory: "Default", displayName: "Google Chrome",
+                                        proposedProfileID: "p1", targetProfileID: "p1")
+        let now = Date()
+        var batch = ImportBatch(source: record, kinds: [.history])
+        batch.history = [ImportedHistoryEntry(url: URL(fileURLWithPath: "/old"), title: nil, visitCount: 1, lastVisit: now.addingTimeInterval(-7200)),
+                         ImportedHistoryEntry(url: URL(fileURLWithPath: "/new"), title: nil, visitCount: 1, lastVisit: now.addingTimeInterval(-60))]
+        try await store.save(batch)
+        try await store.forgetHistory(profile: "p1", since: now.addingTimeInterval(-3600))
+
+        // The same source imported again, with the record a fresh import builds (no fences).
+        let (saved, _) = try await store.save(batch)
+        #expect(saved.history.map(\.url.path) == ["/old"])
+        #expect(await store.batches(profile: "p1").first?.history.map(\.url.path) == ["/old"])
+        #expect(await store.sources().first?.clearedRanges?.count == 1, "the fence survives the re-import for Keep in Sync")
+    }
+
+    @Test func clearedRangesMerge() {
+        let base = Date(timeIntervalSince1970: 1_000_000)
+        let range = { (start: Double, end: Double) in DateInterval(start: base.addingTimeInterval(start), end: base.addingTimeInterval(end)) }
+        let merged = ImportedDataStore.coalesced([range(50, 100), range(0, 10), range(5, 20), range(100, 120)])
+        #expect(merged == [range(0, 20), range(50, 120)])
     }
 }
 

@@ -1321,6 +1321,61 @@ async fn queue_ops_edits_survive_a_daemon_crash() {
     assert_eq!(order, ["q-2", "q-1"]);
 }
 
+/// A queued prompt that left the queue for its turn (`dequeued`) when the daemon died, before
+/// its turn started, runs once after the restart: a client that resends it gets its real
+/// outcome, not `interrupted`. `ACPMUX_TEST_EXIT_AFTER_DEQUEUE` stops the first daemon there.
+#[tokio::test]
+async fn a_dequeued_prompt_survives_a_daemon_crash() {
+    let seam = [("ACPMUX_TEST_EXIT_AFTER_DEQUEUE", "1")];
+    let mut daemon = Daemon::with_env("qdeq", "approve-all", &seam);
+    let (session, gate, mut client) = gated_turn_without_host(&daemon).await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "after the gate"}], "_meta": {"acpmux": {"promptId": "q-1"}}}),
+        )
+        .await;
+    daemon.wait_event(&session, "queued record", |e| {
+        e["kind"] == "queued" && e["msg"]["promptId"] == "q-1"
+    });
+    // The gated turn ends, q-1 leaves the queue for its turn, and the daemon stops there.
+    std::fs::write(&gate, b"go").unwrap();
+    daemon.wait_exit();
+    drop(client);
+    let of_q1 = |events: &[Value], kind: &str| {
+        events.iter().filter(|e| e["kind"] == kind && e["msg"]["promptId"] == "q-1").count()
+    };
+    let events = daemon.events(&session);
+    assert_eq!(of_q1(&events, "dequeued"), 1, "q-1 never left the queue: {events:#?}");
+    assert_eq!(of_q1(&events, "turn_started"), 0, "q-1's turn started before the stop");
+
+    daemon.env.clear();
+    daemon.start();
+    let mut resend = daemon.rpc().await;
+    let resent = resend
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "after the gate"}], "_meta": {"acpmux": {"promptId": "q-1", "resend": true}}}),
+        )
+        .await;
+    let reply = loop {
+        let line = tokio::time::timeout(Duration::from_secs(30), resend.lines.next_line())
+            .await
+            .expect("the resent prompt answered in time")
+            .unwrap()
+            .expect("daemon closed the socket");
+        let v: Value = serde_json::from_str(&line).unwrap();
+        if v.get("id") == Some(&json!(resent)) {
+            break v;
+        }
+    };
+    assert_eq!(reply["result"]["stopReason"], "end_turn", "q-1 never ran: {reply:#}");
+    daemon.wait_event(&session, "q-1's answer", |e| chunk(e, "echo: after the gate"));
+    let events = daemon.events(&session);
+    assert_eq!(events.iter().filter(|e| chunk(e, "echo: after the gate")).count(), 1);
+    assert_eq!(of_q1(&events, "turn_started"), 1, "q-1 ran more than once");
+}
+
 /// A message's provenance (`_meta.acpmux.provenance`, cx-55d27) stays with its queued prompt
 /// across a daemon crash: the rebuilt prompt's `user_message` still names the agent that sent it.
 #[tokio::test]

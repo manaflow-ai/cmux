@@ -35001,36 +35001,77 @@
           }
         },
         {
-          "enabled_when" : "can_perform",
-          "id" : "browserProfile.setColor",
-          "kind" : "action",
+          "children" : [
+            {
+              "enabled_when" : "can_perform",
+              "id" : "browserProfile.setColor",
+              "kind" : "action",
+              "order" : 0,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "browserProfile.clearColor",
+              "kind" : "action",
+              "order" : 1,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "browserProfile.setIcon",
+              "kind" : "action",
+              "label" : "Set Icon…",
+              "order" : 2,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "browserProfile.clearIcon",
+              "kind" : "action",
+              "label" : "Remove Icon",
+              "order" : 3,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            }
+          ],
+          "folder" : "appearance",
+          "kind" : "folder",
           "order" : 7,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
+          "title" : "Appearance",
+          "title_key" : "menu.folder.appearance",
+          "title_table" : "Localizable"
+        },
+        {
+          "kind" : "separator",
+          "order" : 8
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "browserProfile.clearColor",
+          "id" : "browserProfile.manageExtensions",
           "kind" : "action",
-          "order" : 8,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
-        },
-        {
-          "enabled_when" : "can_perform",
-          "id" : "browserProfile.setIcon",
-          "kind" : "action",
-          "label" : "Set Icon…",
           "order" : 9,
           "visible_when" : {
             "debug_only" : false,
@@ -35041,11 +35082,14 @@
           }
         },
         {
+          "kind" : "separator",
+          "order" : 10
+        },
+        {
           "enabled_when" : "can_perform",
-          "id" : "browserProfile.clearIcon",
+          "id" : "browserProfile.removeImportedData",
           "kind" : "action",
-          "label" : "Remove Icon",
-          "order" : 10,
+          "order" : 11,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -35055,12 +35099,8 @@
           }
         },
         {
-          "kind" : "separator",
-          "order" : 11
-        },
-        {
           "enabled_when" : "can_perform",
-          "id" : "browserProfile.manageExtensions",
+          "id" : "browserProfile.clearBrowsingData",
           "kind" : "action",
           "order" : 12,
           "visible_when" : {
@@ -35077,39 +35117,9 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "browserProfile.removeImportedData",
-          "kind" : "action",
-          "order" : 14,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
-        },
-        {
-          "enabled_when" : "can_perform",
-          "id" : "browserProfile.clearBrowsingData",
-          "kind" : "action",
-          "order" : 15,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
-        },
-        {
-          "kind" : "separator",
-          "order" : 16
-        },
-        {
-          "enabled_when" : "can_perform",
           "id" : "browserProfile.delete",
           "kind" : "action",
-          "order" : 17,
+          "order" : 14,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
