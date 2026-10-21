@@ -6,8 +6,8 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::server::origin_gate::{
-    advance_origin_clock_for_test, jump_origin_wall_clock_for_test, set_peer_key_for_test,
-    set_role_for_test, set_verified_app_for_test,
+    advance_origin_clock_for_test, jump_origin_wall_clock_for_test, set_local_peer_for_test,
+    set_peer_key_for_test, set_role_for_test, set_verified_app_for_test,
 };
 use crate::server::*;
 
@@ -42,12 +42,55 @@ fn a_terminal_peer_that_omits_its_credential_cannot_become_the_owner() {
     let process = surface.process_id().expect("the terminal child pid");
     let terminal = surface.terminal_public_id().expect("the terminal id").as_str().to_string();
 
-    let actor =
-        super::actor_for_local_peer(&mux, crate::Actor::local_user(), Some("token:4242.1"), |_| {
-            Some(process)
-        });
+    let peer = super::classify_local_peer(
+        &mux,
+        Some("token:4242.1"),
+        |_| Some(process),
+        |_| Some("/bin/zsh".into()),
+    );
+    assert_eq!(peer, crate::request_origin::LocalPeer::Terminal(terminal.clone()));
 
-    assert_eq!(actor, crate::Actor::Terminal { id: terminal });
+    let conn = connect(&mux);
+    set_local_peer_for_test(&mux, conn.client, peer);
+    let mint = send(
+        &mux,
+        &conn,
+        &v2(
+            "credential.mint",
+            json!({"machine": "current", "session": "current", "acp_session": "forged"}),
+            None,
+            None,
+        ),
+    );
+    assert_eq!(mint["error"]["details"]["reason"], "credential_owner_only", "{mint}");
+    mux.shutdown();
+}
+
+#[test]
+fn only_acpmux_mints_and_only_the_verified_app_rotates() {
+    let mux = mux("credential-owner");
+    let plain = connect(&mux);
+    let mint_request = v2(
+        "credential.mint",
+        json!({"machine": "current", "session": "current", "acp_session": "acp-test"}),
+        None,
+        None,
+    );
+    assert_forbidden(&send(&mux, &plain, &mint_request));
+
+    let acpmux = connect(&mux);
+    set_local_peer_for_test(&mux, acpmux.client, crate::request_origin::LocalPeer::Acpmux);
+    assert_eq!(send(&mux, &acpmux, &mint_request)["ok"], true);
+    let rotate = v2(
+        "credential.rotate",
+        json!({"machine": "current", "session": "current"}),
+        Some("credential-owner-rotate"),
+        None,
+    );
+    assert_forbidden(&send(&mux, &acpmux, &rotate));
+
+    let app = verified_app(&mux, "token:20.1");
+    assert_eq!(send(&mux, &app, &rotate)["ok"], true);
     mux.shutdown();
 }
 

@@ -125,9 +125,12 @@ pub struct OriginClaim {
 #[derive(Default)]
 pub(crate) struct ConnectionOrigin {
     pub(crate) role: HelloRole,
-    /// `token:<pid>.<pidversion>` of the socket peer, read at the hello.
+    /// `token:<pid>.<pidversion>` of the socket peer, read at accept.
     /// The install-key proof never changes it (request-origin.md).
     pub(crate) peer_key: Option<String>,
+    /// Kernel-bound local peer class fixed at accept. It never widens after
+    /// the peer exits, changes session, or passes its connected descriptor.
+    pub(crate) local_peer: LocalPeer,
     /// Role main plus a proof (P8: install-key hello on DEV builds, the
     /// app's code signature on signed builds; server/client_hello.rs).
     pub(crate) verified_app: bool,
@@ -169,11 +172,18 @@ impl ConnectionOrigin {
     /// The server refines that user to a terminal from kernel peer ancestry.
     pub(crate) fn actor(&self) -> crate::workspace_registry::Actor {
         use crate::workspace_registry::Actor;
-        if self.derive() != RequestOrigin::User {
-            return Actor::local_user();
+        match self.derive() {
+            RequestOrigin::User => {
+                let install_id =
+                    self.install_id.clone().unwrap_or_else(|| "signed_app".to_string());
+                Actor::Frontend { install_id }
+            }
+            RequestOrigin::Agent => match &self.local_peer {
+                LocalPeer::Terminal(id) => Actor::Terminal { id: id.clone() },
+                LocalPeer::Unknown | LocalPeer::Acpmux | LocalPeer::Other => Actor::local_user(),
+            },
+            RequestOrigin::Page => Actor::local_user(),
         }
-        let install_id = self.install_id.clone().unwrap_or_else(|| "signed_app".to_string());
-        Actor::Frontend { install_id }
     }
 
     /// Stores a token minted for this relay connection. `deadline_ms` and
@@ -351,6 +361,20 @@ impl ConnectionOrigin {
         }
         Ok(origin)
     }
+}
+
+/// The local socket peer identity captured once while the accepted process is live.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) enum LocalPeer {
+    /// No stable peer PID/session/executable evidence. Owner-only ops fail closed.
+    #[default]
+    Unknown,
+    /// A process in one live cmux terminal session.
+    Terminal(String),
+    /// The detached acpmux daemon executable, which may mint ACP-session credentials.
+    Acpmux,
+    /// A resolved same-user process outside cmux terminals.
+    Other,
 }
 
 /// Gate A2 for one operation and origin.
