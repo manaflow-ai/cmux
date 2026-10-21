@@ -67,6 +67,8 @@ mod offers;
 mod secrets;
 mod seen;
 mod session;
+mod session_order;
+use session_order::newest_first;
 pub(crate) mod session_pages;
 mod settings_watch;
 mod silent_turn;
@@ -395,6 +397,8 @@ pub struct Hub {
     pub(super) trust_waits: trust_wait::Waits,
     /// Agent message pairs and their runaway guard (`agent_pairs.rs`).
     pub(super) agent_pairs: agent_pairs::AgentPairs,
+    /// Pairing tickets and paired machines (`crate::pairing`).
+    pub pairing: Arc<crate::pairing::Pairing>,
 }
 
 impl Hub {
@@ -479,6 +483,7 @@ impl Hub {
             secrets: Default::default(),
             trust_waits: Default::default(),
             agent_pairs: Default::default(),
+            pairing: Default::default(),
         });
         if let Ok(c) = hub.config.try_read() {
             hub.refresh_web_modes(&c);
