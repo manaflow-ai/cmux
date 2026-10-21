@@ -46003,134 +46003,266 @@
         }
       }
     },
-    "message.delivered": {
-      "comment": "Agent pane",
+    "message.read": {
+      "comment": "Agent pane: the check under a prompt the agent has read",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تم التسليم"
+            "value": "مقروءة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Isporučeno"
+            "value": "Pročitano"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Leveret"
+            "value": "Læst"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zugestellt"
+            "value": "Gelesen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Delivered"
+            "value": "Read"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Entregado"
+            "value": "Leído"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Distribué"
+            "value": "Lu"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Consegnato"
+            "value": "Letto"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "配信済み"
+            "state": "needs_review",
+            "value": "既読"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បានបញ្ជូន"
+            "value": "បានអាន"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "전달됨"
+            "value": "읽음"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Levert"
+            "value": "Lest"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dostarczono"
+            "value": "Przeczytano"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Entregue"
+            "value": "Lida"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Доставлено"
+            "value": "Прочитано"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ส่งถึงแล้ว"
+            "value": "อ่านแล้ว"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "İletildi"
+            "value": "Okundu"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Доставлено"
+            "value": "Прочитано"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Đã gửi"
+            "value": "Đã đọc"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "已送达"
+            "value": "已读"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "已送達"
+            "value": "已讀"
+          }
+        }
+      }
+    },
+    "message.unread": {
+      "comment": "Agent pane: the check under a prompt the agent hasn't read yet",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "غير مقروءة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nepročitano"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ulæst"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ungelesen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unread"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No leído"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non lu"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non letto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未読"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនទាន់អាន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "읽지 않음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ulest"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nieprzeczytane"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não lida"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не прочитано"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังไม่ได้อ่าน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Okunmadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не прочитано"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chưa đọc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未读"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未讀"
           }
         }
       }

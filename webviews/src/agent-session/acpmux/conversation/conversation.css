@@ -382,10 +382,13 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.cv-user__delivered {
+.cv-user__read {
   display: inline-flex;
   margin-inline-end: 4px;
   color: var(--cv-text-dim);
+}
+.cv-user__read.is-unread {
+  opacity: 0.5;
 }
 /* < n/m > between a prompt's versions (cx-ncc.61), before Copy and Edit, as Claude's. */
 .cv-user__versions {

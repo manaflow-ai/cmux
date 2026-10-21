@@ -55,7 +55,7 @@ async function draw(row: AcpmuxRow, actions: object) {
   );
 }
 
-test("a delivered prompt's row reads its age, two ticks, Copy, Edit and Fork, in Claude's order", async () => {
+test("a read prompt's row reads its age, a check, Copy, Edit and Fork, in Claude's order", async () => {
   const forked: number[] = [];
   const row: AcpmuxRow = {
     id: "user-4",
@@ -72,15 +72,15 @@ test("a delivered prompt's row reads its age, two ticks, Copy, Edit and Fork, in
     // Fork goes through the prompt's own turn, the one its summary closes.
     promptTurns: new Map([["user-4", 5]]),
   });
-  expect(labels()).toEqual(["1 hour ago", "Delivered", "Copy", "Edit", "Fork from here"]);
+  expect(labels()).toEqual(["1 hour ago", "Read", "Copy", "Edit", "Fork from here"]);
   expect(host.querySelector("time.cv-user__time")?.getAttribute("dateTime")).toBe(new Date(row.at).toISOString());
   act(() => host.querySelector<HTMLButtonElement>('button[aria-label="Fork from here"]')!.click());
   expect(forked).toEqual([5]);
 });
 
-test("a prompt still being sent has no ticks yet, and one that cannot fork offers no Fork", async () => {
+test("a prompt still being sent reads Unread, and one that cannot fork offers no Fork", async () => {
   await draw({ id: "user-9", version: 1, at: Date.now(), kind: "user", pending: true, text: "Next" }, {});
-  expect(labels()).toEqual(["now", "Copy"]);
+  expect(labels()).toEqual(["now", "Unread", "Copy"]);
 });
 
 test("the relative time words a prompt's age in the pane's language", async () => {

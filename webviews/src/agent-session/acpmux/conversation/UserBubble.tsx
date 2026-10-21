@@ -14,7 +14,7 @@ import type { AcpmuxRow, PromptImage } from "../model";
 import { useMinuteClock } from "../clock";
 import { usePaneLanguage, useT } from "../i18n";
 import { copyText } from "./clipboard";
-import { CheckDouble, ChevronLeft, ChevronRight, Copy, Pencil, TurnFork } from "./icons";
+import { Check, ChevronLeft, ChevronRight, Copy, Pencil, TurnFork } from "./icons";
 import { relativeTime } from "./relativeTime";
 import { ImageViewerContext } from "./imageViewerContext";
 import { TurnActionsContext } from "./turnActions";
@@ -31,6 +31,7 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
   const [copied, setCopied] = useState(false);
   const mark = usePromptRowMark(row);
   const through = edit?.seqs.get(row.id);
+  const unread = row.pending || row.steer === "waiting";
   // Fork goes through the prompt's own turn, as its right-click Fork does, so the new chat keeps it.
   const own = promptTurns?.get(row.id);
   const forkThrough = fork && own !== undefined && (forkAny || own === forkSeq) ? own : undefined;
@@ -89,16 +90,17 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
           <time className="cv-user__time" dateTime={new Date(row.at).toISOString()}>
             {relativeTime(row.at, now, language)}
           </time>
-          {!row.pending && row.steer !== "waiting" && (
-            <span
-              className="cv-user__delivered"
-              role="img"
-              aria-label={t("message.delivered")}
-              title={t("message.delivered")}
-            >
-              <CheckDouble size={14} />
-            </span>
-          )}
+          {/* Claude's single check: Read once the agent has the prompt, Unread while it is still
+              being sent or waits as a steer. */}
+          {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- an icon with a spoken state, not an image file. */}
+          <span
+            className={`cv-user__read${unread ? " is-unread" : ""}`}
+            role="img"
+            aria-label={t(unread ? "message.unread" : "message.read")}
+            title={t(unread ? "message.unread" : "message.read")}
+          >
+            <Check size={14} />
+          </span>
           <button
             type="button"
             className="cv-iconbtn cv-iconbtn--compact"

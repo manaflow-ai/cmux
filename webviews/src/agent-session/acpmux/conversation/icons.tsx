@@ -166,14 +166,6 @@ export const Check = (p: CvIconProps) => (
   </Svg>
 );
 
-/** Two ticks: a prompt the agent received (UserBubble.tsx). */
-export const CheckDouble = (p: CvIconProps) => (
-  <Svg {...p}>
-    <path d="M1.8 8.4 4.3 10.9 9.2 5.2" />
-    <path d="M7.4 10.9 12.4 5.2" />
-  </Svg>
-);
-
 /** Thread summary toggle in the title bar: two rings with bars. */
 export const SummaryToggle = (p: CvIconProps) => (
   <Svg {...p}>
