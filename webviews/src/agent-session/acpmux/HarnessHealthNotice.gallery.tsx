@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
-import { HarnessHealthNotice, type HarnessHealth } from "./HarnessHealthNotice";
+import { HarnessHealthNotice, type HarnessHealth, type UpdateOffer } from "./HarnessHealthNotice";
 
 type Props = {
   health: HarnessHealth;
@@ -15,6 +15,7 @@ type Props = {
 function GalleryHarnessHealthNotice({ health, updater = "ok", midTurn = false }: Props) {
   const [opened, setOpened] = useState<string>();
   const [calls, setCalls] = useState<string[]>([]);
+  const [offer, setOffer] = useState<UpdateOffer>();
   const native = (method: string) => {
     setCalls((list) => [...list, method]);
     if (method === "harness.restart")
@@ -39,7 +40,19 @@ function GalleryHarnessHealthNotice({ health, updater = "ok", midTurn = false }:
         open={({ text }) => setOpened(text)}
         native={native}
         turnRunning={midTurn}
+        onOffer={setOffer}
       />
+      {/* The model chip's update row stands in here: the offer is never a line over the chat. */}
+      {offer && (
+        <div className="harness-health-gallery-offer" data-harness-offer={offer.latest}>
+          <button type="button" data-notice-action="update" onClick={offer.update}>
+            Update
+          </button>
+          <button type="button" data-notice-action="skip" onClick={offer.skip}>
+            Skip This Version
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -78,6 +91,7 @@ const runRestartAfterTurn: Play = async (ctx) => {
 };
 
 const dismiss: Play = async (ctx) => {
+  await runUpdate(ctx);
   await ctx.click({ selector: '[data-notice-action="dismiss"]' });
   await ctx.waitFor(() => ctx.document.querySelector("[data-harness-notice]") === null);
 };
@@ -128,11 +142,11 @@ export default componentEntry<Props>({
       play: runLogin,
     },
     outdated: {
-      note: "An outdated Codex CLI offers Update, Skip This Version and Not Now without hiding the current chat.",
+      note: "An outdated Codex CLI draws no line here; the model chip offers Update and Skip This Version (stand-in below).",
       props: { health: outdated },
     },
     updating: {
-      note: "Update runs the host's updater in place; the card says so quietly and holds Update and Skip.",
+      note: "Update runs the host's updater in place; the line says so quietly while it works.",
       props: { health: outdated, updater: "pending" },
       play: runUpdating,
     },
@@ -152,7 +166,7 @@ export default componentEntry<Props>({
       play: runFailed,
     },
     dismissed: {
-      note: "Not Now hides the notice for this chat while leaving the composer in place.",
+      note: "Not Now hides the finished update's line for this chat while leaving the composer in place.",
       props: { health: outdated },
       play: dismiss,
     },

@@ -46,10 +46,25 @@ case "$PYTHON3_BIN" in
 esac
 install -m 0755 scripts/git-hooks/pre-commit "$TRUSTED_HOOK_DIR/pre-commit"
 install -m 0755 scripts/git-hooks/post-merge "$TRUSTED_HOOK_DIR/post-merge"
-# pre-push always runs the web lint; its namespace autofix part runs only when
+# pre-push always runs the web lint and the cmux-next checks gate; its namespace autofix part runs only when
 # the --namespace-fix helpers below are installed.
 install -m 0755 scripts/git-hooks/pre-push "$TRUSTED_HOOK_DIR/pre-push"
 install -m 0644 scripts/web_lint_prepush.py "$TRUSTED_HOOK_DIR/web_lint_prepush.py"
+install -m 0644 scripts/cmux-next/prepush-gate.py "$TRUSTED_HOOK_DIR/cmux_next_prepush_gate.py"
+TRUSTED_CHECKS_DIR="$TRUSTED_HOOK_DIR/cmux-next-checks"
+TRUSTED_CHECKS_STAGE="$TRUSTED_HOOK_DIR/cmux-next-checks.new.$$"
+rm -rf "$TRUSTED_CHECKS_STAGE"
+mkdir -p "$TRUSTED_CHECKS_STAGE"
+while IFS= read -r -d '' checker; do
+    relative="${checker#scripts/cmux-next/}"
+    case "$relative" in
+        */*) [[ "$relative" == lint/* ]] || continue ;;
+    esac
+    mkdir -p "$TRUSTED_CHECKS_STAGE/$(dirname "$relative")"
+    cp -p "$checker" "$TRUSTED_CHECKS_STAGE/$relative"
+done < <(git ls-files -z scripts/cmux-next)
+rm -rf "$TRUSTED_CHECKS_DIR"
+mv "$TRUSTED_CHECKS_STAGE" "$TRUSTED_CHECKS_DIR"
 if (( NAMESPACE_FIX )); then
     install -m 0755 scripts/lint_swift_namespaces.py "$TRUSTED_HOOK_DIR/lint_swift_namespaces.py"
     install -m 0644 scripts/swift_source_mask.py "$TRUSTED_HOOK_DIR/swift_source_mask.py"

@@ -3,7 +3,10 @@
 //! A pinned column's first tab is its pinned tab (Home's page). It never
 //! closes, never leaves the column and keeps the first place. While the
 //! column's `allow_tabs` is off (the default) no other tab enters it: a new
-//! tab, a move in or a drop is refused. A pinned column is never removed,
+//! tab, a move in or a drop is refused. A browser or conversation tab made in
+//! a pinned column alone on its screen (`pinned-dock-alone-v1`) opens in a new
+//! column right of it instead, in the same commit
+//! ([`lone_pinned_dock_taking_no_tabs`]). A pinned column is never removed,
 //! undocked or moved to another edge either. Closing the whole workspace and
 //! a terminal that exited on its own are not refusals.
 //!
@@ -121,4 +124,33 @@ pub(crate) fn ensure_pane_takes_tabs(
         serde_json::json!({"reason_code": PINNED_COLUMN_CODE}),
     )
     .into())
+}
+
+/// The width of the column that opens right of a lone pinned column
+/// (`pinned-dock-alone-v1`): a conversation split from Home's dock and a link
+/// Home opens (`workspace.open_url`) both get it.
+pub(crate) const LONE_DOCK_NEIGHBOR_WIDTH: f32 = 0.5;
+
+/// Whether `pane` is in a pinned column alone on its screen
+/// (`pinned-dock-alone-v1`: Home's dock with nothing beside it).
+pub(crate) fn pane_in_lone_pinned_column(state: &State, pane: PaneId) -> bool {
+    state.workspaces.iter().flat_map(|workspace| workspace.screens.iter()).any(
+        |screen| match screen.layout_columns.as_slice() {
+            [column] => column.dock.is_some_and(|flag| flag.pinned) && column.root.contains(pane),
+            _ => false,
+        },
+    )
+}
+
+/// Whether `pane` is in a pinned column alone on its screen that takes no
+/// tabs: a browser or conversation tab made there opens in a new column right
+/// of it ([`LONE_DOCK_NEIGHBOR_WIDTH`]), so the dock never holds another tab.
+pub(crate) fn lone_pinned_dock_taking_no_tabs(state: &State, pane: PaneId) -> bool {
+    pane_in_lone_pinned_column(state, pane)
+        && state
+            .workspaces
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter())
+            .flat_map(|screen| screen.layout_columns.iter())
+            .any(|column| column.root.contains(pane) && column.dock.is_some_and(|f| !f.allow_tabs))
 }

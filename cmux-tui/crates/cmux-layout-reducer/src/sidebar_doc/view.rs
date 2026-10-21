@@ -139,6 +139,50 @@ fn item_row(item: &Item, depth: u8, dimmed: bool, collapsed: bool) -> Row {
     }
 }
 
+/// The rows of a group and its subtree at `depth`: the group's row, then
+/// (unless it is collapsed) its children, a subgroup with its own rows.
+/// With a text filter, a group whose name matches shows its whole subtree
+/// (`shown`), and a group with a matching row anywhere under it shows as the
+/// path to that row; otherwise the group shows nothing.
+fn group_rows(
+    doc: &Doc,
+    context: &Context<'_>,
+    section: &Section,
+    group: &Item,
+    depth: u8,
+    shown: bool,
+) -> Vec<Row> {
+    let Body::Group { collapsed, .. } = &group.body else { return Vec::new() };
+    let name_matches = shown || context.matches(&context.title_of(group));
+    let mut inner = Vec::new();
+    // A valid document has at most MAX_GROUP_DEPTH levels; the bound keeps a
+    // corrupt one finite.
+    if usize::from(depth) < MAX_GROUP_DEPTH {
+        for child in doc.list(&section.id, Some(group.id.as_str())) {
+            if child.body.is_group() {
+                inner.extend(group_rows(doc, context, section, child, depth + 1, name_matches));
+                continue;
+            }
+            let live = child.body.workspace().is_none_or(|r| context.is_live(r));
+            if !live && !section.keeps_closed {
+                continue;
+            }
+            if name_matches || context.matches(&context.title_of(child)) {
+                inner.push(item_row(child, depth + 1, !live, false));
+            }
+        }
+    }
+    if !name_matches && inner.is_empty() {
+        return Vec::new();
+    }
+    let folded = context.is_collapsed(&group.id, *collapsed);
+    let mut rows = vec![item_row(group, depth, false, folded)];
+    if !folded {
+        rows.extend(inner);
+    }
+    rows
+}
+
 /// The rows of `doc` for one window.
 pub fn view(doc: &Doc, request: &ViewRequest) -> Vec<Row> {
     let context = Context {
@@ -207,26 +251,8 @@ pub fn view(doc: &Doc, request: &ViewRequest) -> Vec<Row> {
                         body.push(item_row(item, 0, !live, false));
                     }
                 }
-                Body::Group { collapsed, .. } => {
-                    let name_matches = context.matches(&context.title_of(item));
-                    let mut inner = Vec::new();
-                    for child in doc.list(&section.id, Some(item.id.as_str())) {
-                        let live = child.body.workspace().is_none_or(|r| context.is_live(r));
-                        if !live && !section.keeps_closed {
-                            continue;
-                        }
-                        if name_matches || context.matches(&context.title_of(child)) {
-                            inner.push(item_row(child, 1, !live, false));
-                        }
-                    }
-                    if !name_matches && inner.is_empty() {
-                        continue;
-                    }
-                    let folded = context.is_collapsed(&item.id, *collapsed);
-                    body.push(item_row(item, 0, false, folded));
-                    if !folded {
-                        body.extend(inner);
-                    }
+                Body::Group { .. } => {
+                    body.extend(group_rows(doc, &context, section, item, 0, false));
                 }
                 _ => {
                     if context.matches(&context.title_of(item)) {

@@ -53,3 +53,13 @@ public protocol BrowserHangAnswering: AnyObject {
     /// ends the page's process, which shows the sad tab.
     func answerUnresponsivePage(terminate: Bool)
 }
+
+/// Tabs whose page can freeze while hidden (Chromium's page lifecycle
+/// `frozen` state): timers, tasks and rendering stop, memory and state stay.
+/// Hidden-page power saving (`BrowserHibernation`) uses it; WebKit throttles
+/// hidden pages itself.
+public protocol BrowserFreezing: AnyObject {
+    /// Freezes or thaws the page. The request leaves before this returns, so a
+    /// call made after a thaw runs on a live page. A closed page ignores it.
+    func setFrozen(_ frozen: Bool)
+}

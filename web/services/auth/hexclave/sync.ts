@@ -9,6 +9,8 @@ export type HexclaveSyncDependencies = {
   readonly revokeTeamAccess: (input: { readonly teamId: string }) => Promise<unknown>;
   /** Drop the user's identity snapshot and native auth cache. Must throw on failure. */
   readonly invalidateUser: (userId: string) => Promise<void>;
+  /** Queue live Team subscription quantity reconciliation. Idempotent. */
+  readonly markTeamSeatsDirty: (teamId: string) => Promise<void>;
 };
 
 export type HexclaveSyncResult = {
@@ -114,14 +116,34 @@ export async function syncHexclaveUser(
     { revokeCandidateTeamIds },
   );
   const revoked: string[] = [];
-  await settleAll(result.pendingRevocationTeamIds.map((teamId) => async () => {
-    // A concurrent reconcile that saw the member re-added deleted the row.
-    if (!await store.isRevocationPending({ teamId, userId })) return;
-    await dependencies.revokeTeamMemberAccess({ teamId, userId });
-    await store.clearPendingRevocation({ teamId, userId });
-    revoked.push(teamId);
-  }));
-  await dependencies.invalidateUser(userId);
+  const previous = new Set(result.previousTeamIds);
+  const current = new Set(result.currentTeamIds);
+  const dirtyTeamIds = [...new Set([
+    ...result.previousTeamIds.filter((teamId) => !current.has(teamId)),
+    ...result.currentTeamIds.filter((teamId) => !previous.has(teamId)),
+    ...revokeCandidateTeamIds.filter((teamId) => !current.has(teamId)),
+  ])].sort();
+  let sideEffectFailure: unknown;
+  try {
+    await settleAll([
+      ...result.pendingRevocationTeamIds.map((teamId) => async () => {
+      // A concurrent reconcile that saw the member re-added deleted the row.
+        if (!await store.isRevocationPending({ teamId, userId })) return;
+        await dependencies.revokeTeamMemberAccess({ teamId, userId });
+        await store.clearPendingRevocation({ teamId, userId });
+        revoked.push(teamId);
+      }),
+      ...dirtyTeamIds.map((teamId) => () => dependencies.markTeamSeatsDirty(teamId)),
+    ]);
+  } catch (error) {
+    sideEffectFailure = error;
+  }
+  try {
+    await dependencies.invalidateUser(userId);
+  } catch (error) {
+    sideEffectFailure ??= error;
+  }
+  if (sideEffectFailure !== undefined) throw sideEffectFailure;
   return { entity: "user", id: userId, gone: result.state.kind === "gone", revokedTeamIds: revoked.sort() };
 }
 
@@ -136,8 +158,11 @@ export async function syncHexclaveTeam(
 ): Promise<HexclaveSyncResult> {
   const result = await dependencies.store.reconcileTeam(teamId, () => dependencies.source.getTeam(teamId));
   const gone = result.team === null;
-  if (gone) await dependencies.revokeTeamAccess({ teamId });
-  await settleAll(result.memberIds.map((userId) => () => dependencies.invalidateUser(userId)));
+  await settleAll([
+    ...(gone ? [() => dependencies.revokeTeamAccess({ teamId })] : []),
+    ...(gone ? [() => dependencies.markTeamSeatsDirty(teamId)] : []),
+    ...result.memberIds.map((userId) => () => dependencies.invalidateUser(userId)),
+  ]);
   return { entity: "team", id: teamId, gone, revokedTeamIds: gone ? [teamId] : [] };
 }
 

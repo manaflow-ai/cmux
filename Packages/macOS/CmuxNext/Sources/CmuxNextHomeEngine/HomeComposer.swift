@@ -20,7 +20,10 @@ public struct HomeComposer {
         self.describe = describe
     }
 
-    public func start(_ recipients: [HomeRecipient], title: String) async -> HomeComposeOutcome {
+    /// Starts a DM or group with `recipients`. `firstMessage` rides with an
+    /// address-only start (`conversation.create` by contact carries it); for
+    /// people the caller sends it into the opened conversation.
+    public func start(_ recipients: [HomeRecipient], title: String, firstMessage: [MessagePart] = []) async -> HomeComposeOutcome {
         var people: [HomeContact] = []
         var addresses: [ContactAddress] = []
         for recipient in recipients {
@@ -37,7 +40,7 @@ public struct HomeComposer {
         } else if !people.isEmpty {
             op = .createGroup(title: title, participants: people.map(\.id))
         } else {
-            op = .startConversation(contacts: addresses, firstMessage: [])
+            op = .startConversation(contacts: addresses, firstMessage: firstMessage)
         }
         let naming = recipients.count == 1 ? recipients[0].label : recipients.map(\.label).joined(separator: ", ")
         do {

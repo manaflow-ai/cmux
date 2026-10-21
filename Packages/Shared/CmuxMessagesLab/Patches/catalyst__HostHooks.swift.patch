@@ -1,0 +1,15 @@
+--- a/Sources/MessagesLabHome/Vendor/catalyst/HostHooks.swift
++++ b/Sources/MessagesLabHome/Vendor/catalyst/HostHooks.swift
+@@ -168,11 +168,9 @@
+ 
+     /// One bubble's flash in `container` (`body`: the bubble's frame there).
+     private func flashReveal(in container: CALayer, body: CGRect, row: PartRow) {
+-        let outline = RowDraw.balloon(body, row: row, scale: renderScale)
+         let l = CAShapeLayer()
+         l.actions = ["path": NSNull(), "position": NSNull(), "bounds": NSNull(), "opacity": NSNull()]
+-        l.path = BubblePath.make(body: outline, outgoing: row.outgoing, tail: row.tail, cornersOf: body.size,
+-                                 circularEnds: RowDraw.circularEnds(row)).cgPath
++        l.path = BubblePath.balloon(frame: body, row: row, scale: renderScale).cgPath  // cmux: shared outline
+         // TranscriptSelection's fills: a normal-blended fill that gives Messages' selected-bubble colours.
+         l.fillColor = row.outgoing ? UIColor(red: 0, green: 0, blue: 102 / 255, alpha: 0.38).cgColor : UIColor(white: 1, alpha: 0.2).cgColor
+         // Above every row: a cell's layer takes its row index as its zPosition (ChatLayout zIndex, RowRecycler).

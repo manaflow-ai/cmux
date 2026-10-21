@@ -29,9 +29,10 @@ final class HomeDirectory {
     private(set) var chiefs: [HomeChiefRecord] = []
     /// My archived Chiefs' agent ids: the page hides their conversations.
     private(set) var archivedChiefs: Set<String> = []
-    /// The Chief's avatar for its list tile, the one its header shows: read
-    /// by `HomeService.refreshChiefAvatar()`, set by the header's avatar picker.
-    var chiefAvatar: HomeChiefAvatar?
+    /// Each of this Mac's Chiefs' own avatar for its list tile, by participant id, the one
+    /// its header shows: read by `HomeService.refreshChiefAvatars()` (again after the
+    /// header's avatar picker). A Chief not listed draws the bundled default.
+    var chiefAvatars: [String: HomeChiefAvatar] = [:]
     /// The engine each of this Mac's Chiefs runs on, by participant id (a Chief on the brain's
     /// own default is not listed), for the Home list's badges: read by `HomeService.refreshChiefHarnesses()`.
     var chiefHarnesses: [String: String] = [:]

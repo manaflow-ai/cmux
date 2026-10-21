@@ -43,7 +43,7 @@ struct PinnedHomeDockTests {
         var home = TabItem(id: "home", title: "Home")
         home.isClosable = false
         let alone = TabStripModel(tabs: [home], selectedID: "home")
-        #expect(alone.keyboardClose("home", closesPinned: true) == .keep)
+        #expect(alone.keyboardClose("home", closesPinned: true) == .ignore) // kept, silently (home-chief-pane.md)
         let two = TabStripModel(tabs: [home, TabItem(id: "t", title: "t")], selectedID: "home")
         #expect(two.keyboardClose("home") == .select("t"))
         #expect(two.keyboardClose("t") == .close)

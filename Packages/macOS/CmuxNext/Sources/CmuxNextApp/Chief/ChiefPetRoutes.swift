@@ -1,18 +1,29 @@
 import AppKit
 import CmuxHomeCore
 import CmuxNextActions
+import CmuxNextChiefPetWiring
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextFloating
+import CmuxNextSettings
 
 /// What the Chief pet (`CmuxNextFloating`) opens and sends in this app; `NotificationCenterService+ChiefPet`
-/// makes and feeds the pet. A click on the pet opens its reply box.
+/// makes and feeds the pet. A click on the pet opens its reply box; its menu opens its settings or hides it.
 @MainActor
 struct ChiefPetRoutes {
     weak var services: AppServices?
 
     func makePet() -> ChiefPetController {
         ChiefPetController(makePanel: { ChiefPetPanel() }, actions: ChiefPetActions(
-            open: { open($0) }, send: { await send(to: $0, $1) }))
+            registry: services?.registry, open: { open($0) }, send: { await send(to: $0, $1) }, openSettings: { openSettings() }))
+    }
+
+    /// Chief Pet Settings…: the Chief Settings popover over a Chief's Home on screen (its
+    /// Appearance rows), else Settings on Show Chief Pet. The pet never activates cmux; this does.
+    func openSettings() {
+        guard let services, !services.chiefPetHomes.open(noActivate: services.environment.noActivate) else { return }
+        try? services.settingsWindow.show(section: nil, setting: HomeChiefPetSetting.configPath.joined(separator: "."), focus: true)
+        if let window = services.windows.active?.window { WindowActivation.show(window, services.environment.noActivate ? .raise : .focus) }
     }
 
     /// The Chief opens Home (`home.show`, as the palette does); a notice opens its tab as its banner click does.

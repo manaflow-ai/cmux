@@ -364,3 +364,38 @@ pub(crate) fn keep_members(
         crate::workspace_registry::terminal_archive_store::evicted_terminals(transaction)?;
     Ok(public_item_in(&record, &evicted))
 }
+
+/// The newest group that holds tab `tab` (a `tab_` id) and the index of its
+/// member that recreates it: a tab member, or the screen or workspace member
+/// whose screens hold it. None when no group holds it (live, or deleted from
+/// the history). For `closed.reopen {tab}` (durable-links-DESIGN.md).
+pub(crate) fn group_member_holding_tab(
+    connection: &Connection,
+    tab: &str,
+) -> anyhow::Result<Option<(String, usize)>> {
+    // A `tab_` id is lowercase hex after its prefix: no LIKE wildcard in it.
+    if !tab.starts_with("tab_") || !tab[4..].bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Ok(None);
+    }
+    let mut statement = connection.prepare(
+        "SELECT closed_id, record_json FROM closed_groups
+         WHERE record_json LIKE '%' || ?1 || '%' ORDER BY seq DESC",
+    )?;
+    let rows = statement
+        .query_map([tab], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?;
+    for row in rows {
+        let (closed_id, record) = row?;
+        let record: Value = serde_json::from_str(&record)?;
+        let members = record["members"].as_array().cloned().unwrap_or_default();
+        let holds = |member: &Value| {
+            member["tab_id"].as_str() == Some(tab)
+                || closed_tabs(&serde_json::json!({"members": [member]}))
+                    .iter()
+                    .any(|closed| closed["tab_id"].as_str() == Some(tab))
+        };
+        if let Some(index) = members.iter().position(holds) {
+            return Ok(Some((closed_id, index)));
+        }
+    }
+    Ok(None)
+}

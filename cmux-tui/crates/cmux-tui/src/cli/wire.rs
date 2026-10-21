@@ -22,29 +22,55 @@ const SESSION_JOURNAL_PROTOCOL_MINIMUM: u64 =
     cmux_tui_core::server::SESSION_JOURNAL_PROTOCOL_VERSION as u64;
 const SESSION_JOURNAL_PROTOCOL_MAXIMUM: u64 = cmux_tui_core::server::PROTOCOL_VERSION as u64;
 
+/// Runs one request, healing a dropped connection: a request whose
+/// connection failed is sent again on a new connection, with the same
+/// idempotency key for a mutation, so the daemon replays it instead of running
+/// it twice (plans/cmux-next/state-ownership.md, section 4). Streams are never
+/// resent. `mutation.outcome_unknown` is printed only after the last try.
 pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
-    if plan.stream && global.output == OutputMode::Json {
-        eprintln!("cmux: streams require --jsonl, --quiet, or human output");
-        return 2;
+    if !plan.stream
+        && plan.operation.class() == OperationClass::Mutation
+        && plan.idempotency_key.is_none()
+    {
+        // One key for every try: a resend is the same mutation.
+        match random_idempotency_key() {
+            Ok(key) => plan.idempotency_key = Some(key),
+            Err(error) => {
+                eprintln!("cmux: {error}");
+                return 2;
+            }
+        }
     }
-    if let Err(error) = super::resolve::apply_global_route(&global, &mut plan) {
-        eprintln!("cmux: {error}");
-        return 2;
+    let mut tries = retry::Tries::new(&plan);
+    loop {
+        let code = run_once(&global, plan.clone(), &tries);
+        if code != retry::AGAIN {
+            return code;
+        }
+        tries.wait_before_next();
+    }
+}
+
+fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) -> i32 {
+    if plan.stream && global.output == OutputMode::Json {
+        return usage_failure(
+            global.output,
+            "cmux: streams require --jsonl, --quiet, or human output",
+        );
+    }
+    if let Err(error) = super::resolve::apply_global_route(global, &mut plan) {
+        return usage_failure(global.output, &format!("cmux: {error}"));
     }
     #[cfg(unix)]
-    super::status::drop_caller_terminal_when_routed(&global, &mut plan);
+    super::status::drop_caller_terminal_when_routed(global, &mut plan);
     if let Err(error) =
         super::command::git::localize_commit_paths(&plan.operation, &mut plan.params)
     {
-        eprintln!("cmux: {error}");
-        return 2;
+        return usage_failure(global.output, &format!("cmux: {error}"));
     }
     let mut request = match request_value(&plan) {
         Ok(request) => request,
-        Err(error) => {
-            eprintln!("cmux: {error}");
-            return 2;
-        }
+        Err(error) => return usage_failure(global.output, &format!("cmux: {error}")),
     };
     let mut encoded = match encode_request(&request) {
         Ok(encoded) => encoded,
@@ -54,13 +80,19 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
         request["id"].as_str().expect("locally built request IDs are strings").to_string();
     let key_report = KeyReport::new(request.get("idempotency_key").and_then(Value::as_str));
 
-    let (socket, socket_is_derived) = match resolve_socket_or_report(&global) {
+    let (socket, socket_is_derived) = match resolve_socket_or_report(global) {
         Ok(resolved) => resolved,
         Err(code) => return code,
     };
     let stream = match cmux_tui_core::server::connect_session_socket(&socket, socket_is_derived) {
         Ok(stream) => stream,
         Err(error) => {
+            // An earlier try sent the request: its outcome is still unknown.
+            if tries.sent_before() {
+                eprintln!("transport closed before response");
+                key_report.finish(global.output);
+                return 3;
+            }
             // Only this socket was tried; nothing falls back to another one.
             let error = json!({
                 "code": "socket.unreachable",
@@ -74,7 +106,7 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     let _ = stream.set_read_timeout(Some(SERVER_PREFLIGHT_TIMEOUT));
     let mut reader = BufReader::new(stream);
     if let Some(capability) = required_server_capability(&plan) {
-        match require_server_capability(&mut reader, &global, capability) {
+        match require_server_capability(&mut reader, global, capability) {
             Ok(()) => {}
             Err(exit_code) => return exit_code,
         }
@@ -85,7 +117,7 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     // A browser tab in a session a cmux app owns is the app's to render.
     #[cfg(unix)]
     if let Some(code) = super::frontend_browser::run_in_app(
-        &global,
+        global,
         &plan,
         &request,
         &mut reader,
@@ -103,7 +135,7 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
             if let super::resolve::Failure::AppAction { action, target } = &failure {
                 let args = ["--target".to_owned(), target.clone()];
                 return match super::app::run_action(action, &args, super::app::ActionName::Any) {
-                    Ok(command) => super::app::run(&global, command),
+                    Ok(command) => super::app::run(global, command),
                     Err(error) => print_local_error(
                         &json!({"code":"usage.invalid","message":error.to_string(),"details":{},"retryable":false}),
                         global.output,
@@ -119,7 +151,7 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
             Err(code) => return code,
         };
     }
-    if notify_desktop::drop_unsupported(&mut reader, &mut request)
+    if notify_desktop::drop_unsupported(&mut reader, &socket, &mut request)
         | super::launch_credential::attach(&mut reader, &socket, &mut request)
         | list_order::apply(&mut plan, &mut request, &socket)
     {
@@ -141,17 +173,28 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
             return 0;
         }
         if refused_at_connect(&mut reader, &error) {
-            // A refused connection carried no request: nothing applied.
-            eprintln!("{}", hints::session_busy());
-            return 3;
+            // A refused connection carried no request: nothing applied, so a
+            // session that is busy for a moment gets the request again.
+            if tries.may_retry(retry::Failure::Dropped) {
+                return retry::AGAIN;
+            }
+            return transport_failure(global.output, "session.busy", hints::session_busy(), true);
         }
-        eprintln!("transport error: {error}");
+        if tries.may_retry(retry::Failure::Dropped) {
+            return retry::AGAIN;
+        }
+        transport_failure(
+            global.output,
+            "transport.failed",
+            &format!("transport error: {error}"),
+            true,
+        );
         // Part of the request may have reached the daemon.
         key_report.finish(global.output);
         return 3;
     }
-    let code = run_response(&mut reader, &global, &plan, &request_id, &key_report);
-    if code != 0 {
+    let code = run_response(&mut reader, global, &plan, &request_id, &key_report, tries);
+    if code != 0 && code != retry::AGAIN {
         key_report.finish(global.output);
     }
     code
@@ -286,33 +329,44 @@ fn require_server_capability(
         .and_then(|_| reader.get_mut().flush())
         .map_err(|error| {
             if refused_at_connect(reader, &error) {
-                eprintln!("{}", hints::session_busy());
+                transport_failure(global.output, "session.busy", hints::session_busy(), true)
             } else {
-                eprintln!("transport error while checking session capabilities: {error}");
+                transport_failure(
+                    global.output,
+                    "transport.failed",
+                    &format!("transport error while checking session capabilities: {error}"),
+                    true,
+                )
             }
-            3
         })?;
     let response = read_envelope(reader, false)
         .map_err(|error| {
-            eprintln!("{error}");
-            3
+            transport_failure(global.output, envelope_error_code(&error), &error, true)
         })?
         .ok_or_else(|| {
-            eprintln!("transport closed before capability response");
-            3
+            transport_failure(
+                global.output,
+                "transport.closed",
+                "transport closed before capability response",
+                true,
+            )
         })?;
     if response.get("id").and_then(Value::as_str) != Some(request_id.as_str())
         || response.get("ok").and_then(Value::as_bool) != Some(true)
     {
-        eprintln!("protocol error: invalid identify response during capability negotiation");
-        return Err(3);
+        return Err(protocol_failure(
+            global.output,
+            "protocol error: invalid identify response during capability negotiation",
+        ));
     }
     let identity = response.get("data").unwrap_or(&Value::Null);
     if let Err(reason) = validate_capability_identity(identity) {
-        eprintln!(
-            "protocol error: invalid identify response during capability negotiation: {reason}"
-        );
-        return Err(3);
+        return Err(protocol_failure(
+            global.output,
+            &format!(
+                "protocol error: invalid identify response during capability negotiation: {reason}"
+            ),
+        ));
     }
     let supported = crate::session::parse_identity_capabilities(identity)
         .map(|capabilities| capabilities.contains(capability))
@@ -422,6 +476,7 @@ fn run_response(
     plan: &RequestPlan,
     request_id: &str,
     key_report: &KeyReport,
+    tries: &retry::Tries,
 ) -> i32 {
     let mut accepted_stream = false;
     let expose_stream_lifecycle = matches!(
@@ -437,15 +492,24 @@ fn run_response(
             Ok(Some(value)) => value,
             Ok(None) if plan.stream && accepted_stream => return 0,
             Ok(None) => {
-                eprintln!("transport closed before response");
-                return 3;
+                if !accepted_stream && tries.may_retry(retry::Failure::Dropped) {
+                    return retry::AGAIN;
+                }
+                return transport_failure(
+                    global.output,
+                    "transport.closed",
+                    "transport closed before response",
+                    true,
+                );
             }
             Err(error) => {
                 if plan.stream && crate::shutdown_requested() {
                     return 0;
                 }
-                eprintln!("{error}");
-                return 3;
+                if !accepted_stream && tries.may_retry(retry::Failure::from_read_error(&error)) {
+                    return retry::AGAIN;
+                }
+                return transport_failure(global.output, envelope_error_code(&error), &error, true);
             }
         };
         match value.get("type").and_then(Value::as_str) {
@@ -453,13 +517,17 @@ fn run_response(
                 let response: ResponseEnvelope = match serde_json::from_value(value.clone()) {
                     Ok(response) => response,
                     Err(error) => {
-                        eprintln!("protocol error: invalid response envelope: {error}");
-                        return 3;
+                        return protocol_failure(
+                            global.output,
+                            &format!("protocol error: invalid response envelope: {error}"),
+                        );
                     }
                 };
                 if let Err(error) = response.validate() {
-                    eprintln!("protocol error: {}", error.message);
-                    return 3;
+                    return protocol_failure(
+                        global.output,
+                        &format!("protocol error: {}", error.message),
+                    );
                 }
                 if response.id.as_str() != request_id {
                     continue;
@@ -491,11 +559,13 @@ fn run_response(
                         WireOperation::Raw { .. } => result,
                     };
                     let result = agent_roster::with_terminals(reader, plan, result);
-                    return print_result(global, plan, result);
+                    return super::agent_input_hint::print_result(global, plan, reader, result);
                 }
                 if result.get("stream_id").and_then(Value::as_str) != expected_stream_id {
-                    eprintln!("protocol error: stream response did not confirm the requested ID");
-                    return 3;
+                    return protocol_failure(
+                        global.output,
+                        "protocol error: stream response did not confirm the requested ID",
+                    );
                 }
                 if expose_stream_lifecycle
                     && global.output == OutputMode::JsonLines
@@ -510,16 +580,20 @@ fn run_response(
                 let item: StreamItemEnvelope = match serde_json::from_value(value.clone()) {
                     Ok(item) => item,
                     Err(error) => {
-                        eprintln!("protocol error: invalid stream item: {error}");
-                        return 3;
+                        return protocol_failure(
+                            global.output,
+                            &format!("protocol error: invalid stream item: {error}"),
+                        );
                     }
                 };
                 if item.protocol != PROTOCOL
                     || item.envelope_type != EnvelopeType::StreamItem
                     || Some(item.stream_id.as_str()) != expected_stream_id
                 {
-                    eprintln!("protocol error: stream item does not match the opened stream");
-                    return 3;
+                    return protocol_failure(
+                        global.output,
+                        "protocol error: stream item does not match the opened stream",
+                    );
                 }
                 if let Err(error) = print_stream_item(&value, global.output) {
                     eprintln!("stdout error: {error}");
@@ -530,16 +604,20 @@ fn run_response(
                 let end: StreamEndEnvelope = match serde_json::from_value(value.clone()) {
                     Ok(end) => end,
                     Err(error) => {
-                        eprintln!("protocol error: invalid stream end: {error}");
-                        return 3;
+                        return protocol_failure(
+                            global.output,
+                            &format!("protocol error: invalid stream end: {error}"),
+                        );
                     }
                 };
                 if end.protocol != PROTOCOL
                     || end.envelope_type != EnvelopeType::StreamEnd
                     || Some(end.stream_id.as_str()) != expected_stream_id
                 {
-                    eprintln!("protocol error: stream end does not match the opened stream");
-                    return 3;
+                    return protocol_failure(
+                        global.output,
+                        "protocol error: stream end does not match the opened stream",
+                    );
                 }
                 if expose_stream_lifecycle
                     && global.output == OutputMode::JsonLines
@@ -565,21 +643,39 @@ fn run_response(
                 return 1;
             }
             Some("refused") => {
-                eprintln!("{}", hints::session_busy());
-                return 3;
+                // Refused at the connection limit: the request never ran.
+                if tries.may_retry(retry::Failure::Dropped) {
+                    return retry::AGAIN;
+                }
+                return transport_failure(
+                    global.output,
+                    "session.busy",
+                    hints::session_busy(),
+                    true,
+                );
             }
             // A cmux.protocol/2 envelope of a type this command does not
             // expect is not an older cmux: name the type.
             Some(other) if value.get("protocol").and_then(Value::as_str) == Some(PROTOCOL) => {
-                eprintln!(
-                    "protocol error: {}",
-                    hints::unexpected_envelope(&sanitize_human_block(other))
+                return protocol_failure(
+                    global.output,
+                    &format!(
+                        "protocol error: {}",
+                        hints::unexpected_envelope(&sanitize_human_block(other))
+                    ),
                 );
-                return 3;
             }
             _ => {
-                eprintln!("protocol error: {}", hints::wrong_protocol());
-                return 3;
+                return print_local_error(
+                    &json!({
+                        "code": "protocol.mismatch",
+                        "message": format!("protocol error: {}", hints::wrong_protocol()),
+                        "details": {},
+                        "retryable": false,
+                    }),
+                    global.output,
+                    3,
+                );
             }
         }
     }
@@ -781,6 +877,48 @@ fn localize_operation_error_with_catalog(
     }
 }
 
+/// A command this CLI cannot send as given: `usage.invalid`, exit code 2.
+fn usage_failure(output: OutputMode, message: &str) -> i32 {
+    print_local_error(
+        &json!({"code": "usage.invalid", "message": message, "details": {}, "retryable": false}),
+        output,
+        2,
+    )
+}
+
+/// A failure of the connection after the session was reached (it closed, did
+/// not answer, refused or broke): one JSON error under `--json`, the message
+/// alone for a person. Exit code 3, like every connection failure.
+fn transport_failure(output: OutputMode, code: &str, message: &str, retryable: bool) -> i32 {
+    print_local_error(
+        &json!({"code": code, "message": message, "details": {}, "retryable": retryable}),
+        output,
+        3,
+    )
+}
+
+/// A reply this command cannot read: `protocol.invalid`, not retryable.
+fn protocol_failure(output: OutputMode, message: &str) -> i32 {
+    print_local_error(
+        &json!({"code": "protocol.invalid", "message": message, "details": {}, "retryable": false}),
+        output,
+        3,
+    )
+}
+
+/// The error code of a [`read_envelope`] failure, from its message.
+fn envelope_error_code(message: &str) -> &'static str {
+    if message == hints::no_answer() {
+        "session.no_answer"
+    } else if message.starts_with("protocol error")
+        || message.starts_with("transport closed with a partial")
+    {
+        "protocol.invalid"
+    } else {
+        "transport.failed"
+    }
+}
+
 pub(super) fn print_local_error(error: &Value, output: OutputMode, exit_code: i32) -> i32 {
     match output {
         OutputMode::Json | OutputMode::JsonLines => {
@@ -874,6 +1012,7 @@ mod hints;
 mod human;
 mod list_order;
 mod notify_desktop;
+mod retry;
 mod sanitize;
 mod socket;
 pub(super) use agent_roster::across as agent_roster_across;

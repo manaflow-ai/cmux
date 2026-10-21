@@ -42,6 +42,7 @@ export interface SnapshotPage {
 }
 
 export interface SnapshotStoreService {
+  readonly inspect: (tenantId: TenantId, id: SnapshotId) => Effect.Effect<Option.Option<SnapshotRow & { readonly createdBy: string; readonly deleted: boolean }>, StoreError>;
   readonly record: (snapshot: SnapshotRecord) => Effect.Effect<void, StoreError>;
   /** The caller's own live snapshot, or none. */
   readonly describe: (tenantId: TenantId, id: SnapshotId) => Effect.Effect<Option.Option<SnapshotRow>, StoreError>;
@@ -90,7 +91,15 @@ export const sqlSnapshotStoreLayer: Layer.Layer<SnapshotStore, never, SqlClient>
             "snapshots.record",
             `INSERT INTO cmux_vm.resources
                (cmux_id, tenant_id, kind, upstream_id, created_by, created_at, parent_cmux_id, display_name, labels)
-             VALUES ($1, $2, 'snapshot', $3, $4, $5::timestamptz, $6, $7, $8::text::jsonb)`,
+             VALUES ($1, $2, 'snapshot', $3, $4, $5::timestamptz, $6, $7, $8::text::jsonb)
+             ON CONFLICT (cmux_id) DO UPDATE SET cmux_id = EXCLUDED.cmux_id
+             WHERE resources.tenant_id = EXCLUDED.tenant_id AND resources.kind = EXCLUDED.kind
+               AND resources.upstream_id = EXCLUDED.upstream_id AND resources.created_by = EXCLUDED.created_by
+               AND resources.parent_cmux_id IS NOT DISTINCT FROM EXCLUDED.parent_cmux_id
+               AND resources.display_name IS NOT DISTINCT FROM EXCLUDED.display_name
+               AND resources.labels = EXCLUDED.labels AND resources.created_at = EXCLUDED.created_at
+               AND resources.deleted_at IS NULL
+             RETURNING cmux_id`,
             [
               snapshot.id,
               snapshot.tenantId,
@@ -102,7 +111,14 @@ export const sqlSnapshotStoreLayer: Layer.Layer<SnapshotStore, never, SqlClient>
               JSON.stringify(snapshot.labels),
             ],
           )
-          .pipe(Effect.asVoid),
+          .pipe(Effect.flatMap((rows) => rows.length === 1 ? Effect.void : Effect.fail(new StoreError({ operation: "snapshots.record", cause: "snapshot identity changed or was deleted" })))),
+      inspect: (tenantId, id) => sql.query("snapshots.inspect",
+        `SELECT ${COLUMNS}, created_by, deleted_at IS NOT NULL AS deleted FROM cmux_vm.resources
+          WHERE cmux_id = $1 AND tenant_id = $2 AND kind = 'snapshot' LIMIT 1`, [id, tenantId]).pipe(
+          Effect.flatMap(Schema.decodeUnknown(Schema.Array(Schema.Struct({ ...Row.fields, created_by: Schema.String, deleted: Schema.Boolean })))),
+          Effect.map((rows) => Option.fromNullable(rows[0]).pipe(Option.map((row) => ({ id: row.cmux_id, sourceVmId: row.parent_cmux_id,
+            displayName: row.display_name, labels: row.labels ?? {}, createdAt: row.created_at, createdBy: row.created_by, deleted: row.deleted })))),
+          Effect.mapError((cause) => new StoreError({ operation: "snapshots.inspect", cause }))),
       describe: (tenantId, id) =>
         sql
           .query(

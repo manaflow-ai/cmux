@@ -36,7 +36,8 @@ import Testing
     @Test func anIdlePumpHasNoWake() {
         var schedule = CEFPumpSchedule(safetyNet: .none)
         schedule.request(milliseconds: 0, now: 0)
-        #expect(schedule.beginWork(now: 0))
+        let began = schedule.beginWork(now: 0)
+        #expect(began)
         schedule.endWork(now: 0.001, elapsed: 0.001)
         #expect(schedule.nextWake == nil)
     }

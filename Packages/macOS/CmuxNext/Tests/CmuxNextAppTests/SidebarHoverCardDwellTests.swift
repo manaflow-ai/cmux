@@ -130,7 +130,7 @@ import Testing
     /// The card is fully clear (alpha 0, or ordered out) within the fade-out duration, plus
     /// scheduling slack for a loaded runner.
     private static func expectClearWithinTheFade(_ panel: HoverCardPanel) async throws {
-        let fade = Motion.duration(.fadeOut)
+        let fade = Motion.hoverCards.duration(.fadeOut)
         let start = ContinuousClock.now
         while panel.isVisible, panel.alphaValue > 0.001, ContinuousClock.now - start < .seconds(fade + 1) {
             try await Task.sleep(for: .milliseconds(5))
