@@ -8,7 +8,7 @@ by who is calling, not by what is possible.
 | --- | --- | --- | --- |
 | A script, a person, or an agent with a shell | `acpmux new -n NAME --worktree REPO[@BASE] --prompt-file F --report-to ME --group G -d` | `acpmux send`, `acpmux wait`, `acpmux last` | `--group G` on the same command (runs `cmux agent open`) |
 | An agent inside acpmux that wants a child (`cmux-subsessions` MCP) | `start_session {prompt, name, worktree: true}` | `send_message`, `wait_for_sessions`, `get_session` | `app_agent_open {session, group}` through the cmux MCP |
-| The cmux app or an agent with the cmux MCP | the app's own New Chat, or one of the two above | the chat pane | `app_agent_open` (`cmux agent open SESSION [--group G]`) |
+| The cmux app or an agent with the cmux MCP | the app's own New Chat, or one of the two above | the chat pane | `app_agent_open` (`cmux agent open SESSION [--group G]`), or a tab of a pane: `app_agent_open_tab` (`cmux agent open-tab SESSION --target PANE`) |
 
 ## The launcher: `acpmux new`
 

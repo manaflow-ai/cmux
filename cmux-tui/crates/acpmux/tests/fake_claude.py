@@ -726,6 +726,22 @@ while True:
                 f.write("done\n")
             send({"type": "system", "subtype": "task_notification", "task_id": "o1", "tool_use_id": "toolu_out",
                   "status": "completed", "output_file": path, "summary": "Server stopped"})
+        # "timing-probe": two model requests, each a message_start and three text deltas (the
+        # reply's own delta below makes the second request's fourth), with a subagent's
+        # message_start and delta between each start and its first delta.
+        if said.strip() == "timing-probe":
+            for req in ("msg_t1", "msg_t2"):
+                send({"type": "stream_event", "event": {"type": "message_start",
+                      "message": {"id": req, "model": "fake"}}})
+                # A background subagent streams between the request's start and its first token.
+                send({"type": "stream_event", "parent_tool_use_id": "toolu_timing_bg", "event": {
+                      "type": "message_start", "message": {"id": req + "_sub", "model": "fake"}}})
+                send({"type": "stream_event", "parent_tool_use_id": "toolu_timing_bg", "event": {
+                      "type": "content_block_delta", "index": 0,
+                      "delta": {"type": "text_delta", "text": req + " subagent "}}})
+                for word in ("one ", "two ", "three "):
+                    send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                          "delta": {"type": "text_delta", "text": req + " " + word}}})
         # "todo-probe": the turn writes its todo list with Claude Code's TodoWrite tool.
         if said.strip() == "todo-probe":
             send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_todo", "name": "TodoWrite",

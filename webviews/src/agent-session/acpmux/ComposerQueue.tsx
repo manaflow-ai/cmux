@@ -13,6 +13,10 @@
 // runs on; to an agent that cannot steer it runs next. It never cancels a turn. Only a click sends
 // now, never a key: a held or repeated key once sent row after row (claude-sr2, 2026-10-20).
 //
+// A prompt's images show as small thumbnails under its text (QueuedImages.tsx), each opening the
+// image viewer; while it is edited each has a remove control, and Save keeps only the images left
+// (Leo, 2026-10-21).
+//
 // After a failed turn acpmux pauses the queue: a note above the rows says so, with Resume.
 //
 // A long queue folds (Leo, 2026-10-14): past three queued prompts it shows the next two and one
@@ -24,6 +28,7 @@
 // prompts sent now always show.
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "./icons/Icon";
+import { QueuedImages } from "./QueuedImages";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import type { Translate } from "./i18n";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
@@ -105,6 +110,7 @@ export function ComposerQueue({
   onChange,
   onLost,
   onLeave,
+  readImage,
 }: {
   queue: AcpmuxSnapshot["queue"];
   /// The chat the queue belongs to: a long queue opened stays open for it.
@@ -120,10 +126,18 @@ export function ComposerQueue({
   onLost?(text: string): void;
   /// Focus leaves the queue for the prompt.
   onLeave?(): void;
+  /// Reads an image a queued prompt sends by its acpmux id, as a data URL (`_acpmux/attachment`).
+  readImage?(id: string): Promise<string | undefined>;
 }) {
   // A row leaves as soon as it is removed; it comes back only if acpmux kept it waiting.
   const [leaving, setLeaving] = useState<ReadonlySet<string>>(new Set());
-  const [editing, setEditing] = useState<string>();
+  const [editing, setEditingId] = useState<string>();
+  // The images the open edit drops from its prompt.
+  const [dropped, setDropped] = useState<ReadonlySet<string>>(new Set());
+  const setEditing = (id: string | undefined) => {
+    setDropped(new Set());
+    setEditingId(id);
+  };
   // Rows opened to their whole text (a row shows two lines until it is opened).
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const toggle = (id: string) =>
@@ -159,7 +173,8 @@ export function ComposerQueue({
       const open = draft.current;
       if (open?.id === editing && open.text.trim() && open.text !== open.original) onLost?.(open.text.trim());
       draft.current = undefined;
-      setEditing(undefined);
+      setDropped(new Set());
+      setEditingId(undefined);
     }
   }, [queue, editing, onLost]);
   // Whole rows only: the list's height, after every draw and when its width changes.
@@ -267,12 +282,19 @@ export function ComposerQueue({
       );
     });
   const save = (entry: QueuedEntry, text: string) => {
+    const images = entry.images ?? [];
+    const kept = images.filter((image) => !dropped.has(image.id));
     draft.current = undefined;
     setEditing(undefined);
     focusRow(shown.indexOf(entry));
     const next = text.trim();
-    if (!next || next === entry.prompt || !onChange) return;
-    void onChange(entry.id, { op: "update", text: next }).then((ok) => {
+    // Text alone keeps every image; an image removed sends the ones left.
+    const removed = kept.length < images.length;
+    if (!next || (next === entry.prompt && !removed) || !onChange) return;
+    const edit: QueueEdit = removed
+      ? { op: "update", text: next, images: kept.map((image) => image.id) }
+      : { op: "update", text: next };
+    void onChange(entry.id, edit).then((ok) => {
       if (!ok) onLost?.(next);
     });
   };
@@ -432,6 +454,20 @@ export function ComposerQueue({
           {sendNow && action("send", "composer.send", t("composer.queueSendNow"), () => sendNow(entry))}
         </span>
       )}
+      {/* Under the text, in its column. */}
+      <QueuedImages
+        images={
+          editing === entry.id ? (entry.images ?? []).filter((image) => !dropped.has(image.id)) : (entry.images ?? [])
+        }
+        t={t}
+        read={readImage}
+        onRemove={editing === entry.id ? (id) => setDropped((current) => new Set(current).add(id)) : undefined}
+        onLeave={
+          editing === entry.id
+            ? () => save(entry, draft.current?.id === entry.id ? draft.current.text : entry.prompt)
+            : undefined
+        }
+      />
     </>
   );
   return (
@@ -576,9 +612,13 @@ function QueuedEdit({
           finish(event.key === "Enter" ? event.currentTarget.value : undefined);
         }
       }}
-      // A click elsewhere saves; leaving the window keeps the edit open.
+      // A click elsewhere saves; leaving the window keeps the edit open, and so does Tab to the
+      // prompt's image remove controls (QueuedImages.tsx), which save when focus leaves them.
       onBlur={(event) => {
-        if (document.hasFocus()) finish(event.currentTarget.value);
+        const to = event.relatedTarget;
+        const images = event.currentTarget.parentElement?.querySelector(".acpmux-queued-images");
+        if (to instanceof Node && images?.contains(to)) return;
+        if (to || document.hasFocus()) finish(event.currentTarget.value);
       }}
     />
   );

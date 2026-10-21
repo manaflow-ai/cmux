@@ -1,3 +1,5 @@
+import AppKit
+import CmuxNextDesign
 import CmuxNextFiles
 import CmuxNextFilesUI
 import Foundation
@@ -13,6 +15,8 @@ struct FileExplorerCommands {
     let model: FileExplorerModel
     let effects: any FileExplorerEffects
     var files: any FileOperating = FileOperator(namer: FileNamer(copyWord: FilesPaneView.copyWord, aliasWord: FilesPaneView.aliasWord))
+    /// The window's undo stack: Move to Trash puts its Put Back there (Edit > Undo, Cmd-Z).
+    var undoManager: UndoManager?
 
     /// Makes an empty "untitled" file (numbered when taken) where the selection is and selects it.
     @discardableResult
@@ -46,9 +50,19 @@ struct FileExplorerCommands {
     /// Moves the selected item to the Trash.
     func moveToTrash() async throws {
         let row = try selected()
-        _ = try await files.trash([row.url])
+        let trashed = try await files.trash([row.url])
         model.selection = nil
         await model.reload()
+        let files = files, model = model
+        // Edit > Undo (Cmd-Z) puts the item back where it was and selects it, as Finder's Put Back.
+        ToastUndoStep.attach(title: FileExplorerStrings.undoMoveToTrash, filling: nil, undoManager: undoManager, handle: nil) {
+            // task-owner: one Put Back and a relisting; ends when the folder lists again.
+            Task { @MainActor in
+                guard let back = try? await files.putBack(trashed) else { return }
+                await model.reload()
+                model.selection = back.first?.standardizedFileURL
+            }
+        }
     }
 
     /// Where a new item goes: in the selected folder (expanded to show it), else beside the

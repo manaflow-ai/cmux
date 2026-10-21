@@ -52,6 +52,8 @@ enum Strings {
     static var showTabs: String { String(localized: "sidebar.workspace.showTabs", defaultValue: "Show Tabs", bundle: .module) }
     static var hideTabs: String { String(localized: "sidebar.workspace.hideTabs", defaultValue: "Hide Tabs", bundle: .module) }
     static func tabCount(_ value: Int) -> String { String(localized: "sidebar.a11y.tabCount", defaultValue: "Tabs: \(value)", bundle: .module) }
+    /// The hover card's machine line on a workspace the Chief started for a subagent.
+    static var startedByChief: String { String(localized: "sidebar.hover.startedByChief", defaultValue: "Started by Chief", bundle: .module) }
     /// Status entries a row folds past its limit.
     static func statusMore(_ value: Int) -> String { String(localized: "sidebar.status.more", defaultValue: "\(value) more", bundle: .module) }
     static var unreadDot: String { String(localized: "sidebar.a11y.unreadDot", defaultValue: "Unread", bundle: .module) }
