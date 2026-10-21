@@ -2,15 +2,19 @@
 // task's end, BackgroundTaskNote.tsx): the step that does the work, without the setup before it.
 // `export PATH="…"; B=~/x; cd repo && cmux browser open …` reads "cmux browser open …" (Leo
 // 2026-10-20: "a short human label, not the raw command").
+import { isPlainCd } from "./commandFolder";
 
-/// A step that only sets the shell up: an export, a bare assignment, a cd, a set. A `source` or `.`
-/// runs a script, so it is never setup.
-const SETUP = /^(?:export|cd|pushd|set|unset|ulimit|umask)(?:\s|$)|^[A-Za-z_][A-Za-z0-9_]*=\S*$/;
-/// A substitution (`$(…)`, backticks, `<(…)`), a pipe or a `&` runs code, so a setup step with one
-/// (`cd "$(…)"`, `cd /tmp & curl …`) is never left out: nothing the call ran is hidden
-/// (commandFolder.ts, #20456).
+/// A step that only sets the shell up: an export, a bare assignment, a set. A cd counts only into a
+/// plain path (isPlainCd, the rule a Ran row uses). A `source` or `.` runs a script, and a step with
+/// a substitution (`$(…)`, backticks, `<(…)`), a pipe or a `&` runs code, so none is setup: the
+/// label never reads as a harmless command the setup ran past (commandFolder.ts, #20456).
+const SETUP = /^(?:export|pushd|set|unset|ulimit|umask)(?:\s|$)|^[A-Za-z_][A-Za-z0-9_]*=\S*$/;
 const RUNS_CODE = /\$\(|`|[<>]\(|[|&]/;
-const isSetup = (step: string) => SETUP.test(step) && !RUNS_CODE.test(step);
+
+function isSetup(step: string): boolean {
+  return isPlainCd(step) || (SETUP.test(step) && !RUNS_CODE.test(step));
+}
+
 /// Assignments before a program (`FOO=1 BAR=2 cargo test`).
 const LEADING_ASSIGNMENTS = /^(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|\S)*\s+)+/;
 

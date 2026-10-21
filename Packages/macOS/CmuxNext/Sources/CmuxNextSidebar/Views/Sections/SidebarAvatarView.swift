@@ -49,10 +49,25 @@ final class SidebarAvatarView: NSView {
         NSBezierPath(ovalIn: circle).fill()
         let text = colored ? Palette.textOnPrimary : (strong ? Palette.textPrimary : Palette.textSecondary)
         let scale: CGFloat = avatar.initial.count > 1 ? 0.44 : 0.56
-        let font = NSFont.systemFont(ofSize: circle.height * scale, weight: .semibold)
+        let font = NSFont.systemFont(ofSize: circle.height * scale, weight: TypeScale.strong)
         let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: text]
-        let size = avatar.initial.size(withAttributes: attributes)
-        avatar.initial.draw(at: NSPoint(x: circle.midX - size.width / 2, y: circle.midY - size.height / 2), withAttributes: attributes)
+        avatar.initial.draw(at: initialOrigin(avatar.initial, font: font, in: circle,
+                                              flipped: NSGraphicsContext.current?.isFlipped ?? true),
+                            withAttributes: attributes)
+    }
+
+    /// Where `initial` draws so its ink sits in the middle of `circle` (Leo 2026-10-20: the "L"
+    /// sat off center): the glyphs' ink box across, the capital letters' height down, not the
+    /// line box with its leading, descender and side bearings.
+    static func initialOrigin(_ initial: String, font: NSFont, in circle: NSRect, flipped: Bool) -> NSPoint {
+        let ink = (initial as NSString).boundingRect(with: .zero, options: [.usesLineFragmentOrigin, .usesDeviceMetrics],
+                                                     attributes: [.font: font])
+        let x = circle.midX - ink.midX
+        // draw(at:) puts the line box's top (flipped) or bottom at y; the baseline sits
+        // `ascender` below the top, or `-descender` above the bottom.
+        let baseline = flipped ? circle.midY + font.capHeight / 2 : circle.midY - font.capHeight / 2
+        let y = flipped ? baseline - font.ascender : baseline + font.descender
+        return NSPoint(x: x, y: y)
     }
 }
 
