@@ -728,6 +728,7 @@
     "setting.updates.meteredNetwork": "defer-low-data",
     "setting.updates.notify": "badge",
     "setting.updates.showWhatsNew": true,
+    "setting.updates.web": "every-merge",
     "setting.window.titlebar": "minimal",
     "setting.window.titlebarButtons": "hover",
     "setting.window.trafficLightClearance": 72,
