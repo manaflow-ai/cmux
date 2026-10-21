@@ -1,11 +1,13 @@
 // l10n-allow-file: test fixture tool titles, not shipped UI.
 // The running turn's status line, as Claude desktop draws it (#21604 row 2,
-// transcript-task-list-in-progress.png): a small animated mark, then what the agent is doing now.
-// While a tool call runs the line names it and keeps the turn's time beside it; between calls it
-// reads "Working for 42s" as before, and before any work "Thinking" carries the same mark.
+// transcript-task-list-in-progress.png): what the agent is doing now. While a tool call runs the
+// line names it and keeps the turn's time beside it; between calls it reads "Working for 42s" as
+// before, and before any work "Thinking". No mark blinks before any of them (Leo, 2026-10-20: the
+// three pulsing dots were "the blinking ascii"; the ticking time says the turn is alive).
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { ActivityLine } from "../src/agent-session/acpmux/conversation/ActivityLine";
 import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
 import { WorkingFor } from "../src/agent-session/acpmux/conversation/WorkingFor";
 import { turnView, WORKING } from "../src/agent-session/acpmux/conversation/turns";
@@ -32,6 +34,11 @@ function statusLine(calls: ReturnType<typeof call>[]): AcpmuxRow {
 }
 
 const drawn = (status: AcpmuxRow) => renderToStaticMarkup(<WorkingFor row={status} now={() => status.at + 26_000} />);
+// The line draws nothing before its words: no working mark, no activity dots, and its first child
+// is the label itself.
+const stillMarkup = (html: string) =>
+  /^<div[^>]*><(?:span|output) class="cv-(?:worked__label|thinking|activity__label)/.test(html) &&
+  !/cv-working-mark|cv-activity__dots/.test(html);
 const text = (html: string) =>
   html
     .replace(/<[^>]+>/g, " ")
@@ -43,19 +50,29 @@ test("while a call runs, the status line names it beside the turn's time", () =>
   expect(status.doing).toBe("bun test");
   const html = drawn(status);
   expect(text(html)).toBe("bun test 26s");
-  expect(html).toContain("cv-working-mark");
+  expect(stillMarkup(html)).toBe(true);
 });
 
-test("between calls, the line reads Working for, with the same mark", () => {
+test("between calls, the line reads Working for, with no mark before it", () => {
   const status = statusLine([call("git log", "completed")]);
   expect(status.doing).toBeUndefined();
   const html = drawn(status);
   expect(text(html)).toBe("Working for 26s");
-  expect(html).toContain("cv-working-mark");
+  expect(stillMarkup(html)).toBe(true);
 });
 
-test("Thinking carries the mark too", () => {
-  expect(renderToStaticMarkup(<Thinking />)).toContain("cv-working-mark");
+test("Thinking is the word alone, with no mark before it", () => {
+  const html = renderToStaticMarkup(<Thinking />);
+  expect(text(html)).toBe("Thinking");
+  expect(stillMarkup(html)).toBe(true);
+});
+
+test("the activity line names the work with no dots before it", () => {
+  const html = renderToStaticMarkup(
+    <ActivityLine row={row("act", "activity-line", { text: "Edit grid.css" })} now={() => at + 26_000} />,
+  );
+  expect(text(html)).toMatch(/^Edit grid\.css \d+s$/);
+  expect(stillMarkup(html)).toBe(true);
 });
 
 test("a call whose title is its raw input reads as a label, not JSON", () => {
@@ -75,12 +92,12 @@ test("a call whose title is its raw input reads as a label, not JSON", () => {
   expect(status.doing).not.toContain("{");
 });
 
-test("the working dots are the only running motion: Thinking has no shimmer", async () => {
+test("nothing on the running line loops: no working dots, no activity dots, no Thinking shimmer", async () => {
   const css = await Bun.file(
     new URL("../src/agent-session/acpmux/conversation/conversation.css", import.meta.url),
   ).text();
   expect(css).not.toContain("cv-thinking-sweep");
-  expect(css).toMatch(/animation: cv-working-dot 2s /);
+  expect(css).not.toMatch(/cv-working-mark|cv-working-dot|cv-activity__dots|cv-activity-dot/);
 });
 
 // Find counts and visits only transcript rows (findMatches skips the working row), so the status
