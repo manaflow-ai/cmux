@@ -161,6 +161,11 @@ nonisolated extension SidebarLayoutOptions {
             content.pullRequests = sessionTree.pullRequests[ws.id]
         }
         if !showsTimestamps { (content.time, content.badgeTime) = (nil, nil) }
+        // What the agent needs outranks the row's age and one-line status on the name's line.
+        if !minimal, let chip = ws.agentChip {
+            content.chip = chip
+            (content.time, content.trailingStatus) = (nil, SidebarPriorityRowView.chipText(chip, now: now))
+        }
         return content
     }
 

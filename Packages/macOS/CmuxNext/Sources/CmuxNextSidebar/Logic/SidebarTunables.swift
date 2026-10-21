@@ -90,6 +90,13 @@ public nonisolated enum SidebarTunables {
         help: "A workspace row's status mark also follows the acpmux lane of each agent chat in it on this Mac: waiting on you or failed wins, then working, then the row's own status.",
         default: false, code: "SidebarTunables.laneStatus")
 
+    /// A row names the state of its most urgent agent chat with the Priority view's words (needs
+    /// you, done, failed, lost) at the right of its name (`SidebarLaneStatus`). On by default.
+    public static let rowStatus = Tunable<Bool>.toggle(
+        "sidebar.rowStatus", .sidebar, "Rows name their agent's state",
+        help: "A workspace row says needs you, done, failed or lost at the right of its name, in the Priority view's words, for the most urgent agent chat in it on this Mac.",
+        default: true, code: "SidebarTunables.rowStatus")
+
     /// The pull requests' hover card on a row's pull request badge (`SidebarPullRequestCard`,
     /// `sidebar.sessionTree`); on by default.
     public static let pullRequestCard = Tunable<Bool>.toggle(
@@ -136,6 +143,7 @@ public nonisolated enum SidebarTunables {
             groupEdgeFraction.descriptor,
             groupExitFraction.descriptor,
             laneStatus.descriptor,
+            rowStatus.descriptor,
             NotificationBadgeLook.tunable.descriptor,
             NotificationIconLook.tunable.descriptor,
             presenceDots.descriptor,
