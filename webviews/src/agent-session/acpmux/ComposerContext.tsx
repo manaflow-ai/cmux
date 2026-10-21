@@ -9,6 +9,7 @@ import type { EnvironmentKind } from "./environments";
 import { FolderPopover } from "./FolderPopover";
 import type { Project } from "./ProjectChooser";
 import { projectSuffixes } from "./projectSuffix";
+import { folderRepo, type ProjectRepo } from "./projectRepos";
 import { isAgentHome, projectLabel } from "./sessionList";
 import { translate as t } from "./i18n";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
@@ -33,7 +34,7 @@ export const CONTEXT_LABELS = {
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 type Session = AcpmuxSnapshot["sessions"][number];
-type Location = { id: string; label: string; detail?: string };
+type Location = { id: string; label: string; detail?: string; repo?: ProjectRepo };
 type Computer = Location & { kind: EnvironmentKind };
 const NO_PEER_KINDS: Record<string, "ssh" | "cloud"> = {};
 
@@ -110,6 +111,7 @@ export function ComposerContext({
       id: normalizeCwd(project.cwd)!,
       label: project.label,
       detail: project.cwd,
+      ...(project.repo ? { repo: project.repo } : {}),
     }));
     const seen = new Set(projects.map((project) => project.id));
     return [...projects, ...known.filter((folder) => !seen.has(folder.id))];
@@ -128,6 +130,22 @@ export function ComposerContext({
   const readOnly = started || onProject === undefined;
   const newChats = started && onNewChat !== undefined;
   const branch = summary?.branch;
+  // The folder control names the repository (projectRepos.ts), and a worktree's branch while no
+  // branch control follows it: "cmux · issue-22273", not the worktree folder's own name.
+  const currentLocation = currentFolder
+    ? (folders.find((folder) => folder.id === currentFolder) ?? {
+        id: currentFolder,
+        label: projectLabel(currentFolder),
+      })
+    : undefined;
+  const currentRepo = currentLocation ? folderRepo(currentLocation) : undefined;
+  const currentName = currentLocation
+    ? currentRepo
+      ? currentRepo.branch && !branch && currentRepo.root !== currentLocation.id
+        ? `${currentRepo.name} · ${currentRepo.branch}`
+        : currentRepo.name
+      : projectLabel(currentLocation.id)
+    : undefined;
   // A started chat's Choose folder…: the host's folder panel, then a new chat there.
   const browseNewChat = onBrowseFolder
     ? () => {
@@ -165,11 +183,7 @@ export function ComposerContext({
                 <LocationFace
                   icon={<FolderIcon />}
                   value={
-                    currentFolder
-                      ? projectLabel(currentFolder)
-                      : noProject
-                        ? t(CONTEXT_LABELS.noProject)
-                        : t(CONTEXT_LABELS.chooseFolder)
+                    currentName ? currentName : noProject ? t(CONTEXT_LABELS.noProject) : t(CONTEXT_LABELS.chooseFolder)
                   }
                   chevron
                   middle={currentFolder !== undefined}
