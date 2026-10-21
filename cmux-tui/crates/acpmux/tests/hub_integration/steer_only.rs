@@ -284,9 +284,10 @@ async fn queue_ops_interrupt_stops_a_turn_its_agent_can_steer() {
 }
 
 /// A turn that fails stops its queue: the prompts behind it were written for a turn that went
-/// well. They wait, in order, until a client resumes the queue; prompts sent meanwhile run first.
+/// well. They wait, in order, until the chat completes a turn again (or a client resumes the
+/// queue); a prompt sent meanwhile runs first.
 #[tokio::test]
-async fn queue_ops_a_failed_turn_pauses_the_queue_until_resumed() {
+async fn queue_ops_a_failed_turn_pauses_the_queue_until_a_turn_completes() {
     let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     let id = busy_with_queue(&mut c, &[("p-f", "fail-streamed: boom"), ("p-a", "a"), ("p-b", "b")])
         .await;
@@ -310,20 +311,9 @@ async fn queue_ops_a_failed_turn_pauses_the_queue_until_resumed() {
     assert_eq!(attached["session"]["queuePaused"], true, "{attached}");
     assert_eq!(queue_order(&mut c, &id).await, ["p-a", "p-b"]);
 
-    // Sent after the failure: each runs, the second behind the first, ahead of the held ones.
-    c.send(method::SESSION_PROMPT, text_prompt(&id, "p-c", "slow")).await;
-    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "tick0 ").await;
+    // Sent after the failure: it runs ahead of the held ones, and once it completes they follow.
     c.send(method::SESSION_PROMPT, text_prompt(&id, "p-d", "d")).await;
-    assert_eq!(echoes_until(&mut c, "echo: d").await, ["echo: d"]);
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    assert_eq!(queue_order(&mut c, &id).await, ["p-a", "p-b"], "the held prompts still wait");
-
-    let resumed = c
-        .request("_acpmux/queue_edit", json!({"sessionId": id, "promptId": "p-a", "op": "resume"}))
-        .await
-        .unwrap();
-    assert_eq!(resumed["ok"], true, "{resumed}");
-    assert_eq!(echoes_until(&mut c, "echo: b").await, ["echo: a", "echo: b"]);
+    assert_eq!(echoes_until(&mut c, "echo: b").await, ["echo: d", "echo: a", "echo: b"]);
     let attached =
         c.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await.unwrap();
     assert_eq!(attached["session"]["queuePaused"], false, "{attached}");

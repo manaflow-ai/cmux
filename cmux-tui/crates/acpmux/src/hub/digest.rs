@@ -22,12 +22,13 @@
 //!   none is lost to a turn the agent may never have read. A reply in place to any of them
 //!   finds it in that turn's provenance (`withdraw.rs` `app_reply_fits`).
 //!
-//! A failed turn holds the prompts behind it (`queue.rs` `pause_queue`): the person's wait for
-//! the person to resume them, since they were written for a turn that went well. Agent messages
-//! do not depend on that turn and nobody watches them: the chat's next completed turn releases
-//! them (`release_held_agent_messages`), and so does another agent's next message, which waits
-//! behind them to go in with them rather than overtake them. coord-deputy held 121 after one "agent process closed"
-//! (2026-10-21), behind every newer message, until someone pressed resume.
+//! A failed turn holds the prompts behind it (`queue.rs` `pause_queue`), since they were written
+//! for a turn that went well: the chat's next completed turn lets them all go (`turns.rs`), and
+//! a client may resume them sooner. Agent messages do not depend on that turn and nobody watches
+//! them: that turn releases them first (`release_held_agent_messages`), and so does another
+//! agent's next message, which waits behind them to go in with them rather than overtake them.
+//! coord-deputy held 121 after one "agent process closed" (2026-10-21), behind every newer
+//! message, until someone pressed resume.
 //!
 //! Delivery inside a turn stays the steer's (`steer_end.rs`): an agent that steers reads a
 //! message at its next tool boundary. What waits here is what could not steer: an agent that

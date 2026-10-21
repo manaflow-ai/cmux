@@ -200,9 +200,9 @@ async fn from_agent_must_be_one_short_line() {
     assert!(refused.as_ref().is_err_and(|e| e.contains("fromAgent")), "{refused:?}");
 }
 
-/// A failed turn holds the prompts behind it. The person's wait for the person; agent messages
-/// go in once the chat completes a turn again (coord-deputy held 121 after one "agent process
-/// closed", 2026-10-21, behind every newer message).
+/// A failed turn holds the prompts behind it until the chat completes a turn again: then the
+/// person's go in, and the agent messages together (coord-deputy held 121 after one "agent
+/// process closed", 2026-10-21, behind every newer message, until the app's Resume).
 #[tokio::test]
 async fn agent_messages_a_failed_turn_held_go_in_after_the_next_completed_turn() {
     let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
@@ -227,14 +227,14 @@ async fn agent_messages_a_failed_turn_held_go_in_after_the_next_completed_turn()
     }
     assert_eq!(queue_order(&mut c, &id).await, ["p-me", "p-a", "p-b"]);
 
-    // A new prompt completes: the held agent messages go in together; the person's still waits.
+    // A new prompt completes: the person's held prompt goes in, then the agent messages together.
     c.send(method::SESSION_PROMPT, person(&id, "p-next", "next")).await;
     let echoes = echoes_until(&mut c, "held from b").await;
-    assert_eq!(echoes.len(), 2, "{echoes:?}");
-    assert_eq!(echoes[0], "echo: next");
-    assert!(echoes[1].contains("held from a") && echoes[1].contains("[agent message 2 of 2]"));
+    assert_eq!(echoes.len(), 3, "{echoes:?}");
+    assert_eq!(echoes[..2], ["echo: next", "echo: mine"]);
+    assert!(echoes[2].contains("held from a") && echoes[2].contains("[agent message 2 of 2]"));
     tokio::time::sleep(Duration::from_millis(300)).await;
-    assert_eq!(queue_order(&mut c, &id).await, ["p-me"], "the person's held prompt still waits");
+    assert!(queue_order(&mut c, &id).await.is_empty(), "a held prompt still waits");
 }
 
 /// A turn of agent messages that fails puts the messages that joined it back, held, in order:
