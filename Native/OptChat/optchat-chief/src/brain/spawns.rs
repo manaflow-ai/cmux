@@ -603,10 +603,9 @@ impl Brain {
         let kind = classify(report, stopped);
         let attempts = self.state.sub(id).map_or(0, |(_, s)| s.resume_attempts);
         if matches!(kind, StopKind::Done | StopKind::UserStopped) {
-            if attempts != 0
-                && let Some(sub) = self.state.sub_mut(id)
-            {
+            if let Some(sub) = self.state.sub_mut(id) {
                 sub.resume_attempts = 0;
+                sub.moved = false;
             }
             return None;
         }
@@ -614,7 +613,7 @@ impl Brain {
         // returns at once when the endpoint answers.
         let decision = decide(&kind, attempts, &policy, false);
         if let Decision::Move { reason } = &decision {
-            return Some(self.plan_move(id, reason, attempts));
+            return Some(self.plan_move(id, reason));
         }
         let note = chief_note(&decision)?;
         self.trace.emit(
@@ -688,11 +687,11 @@ impl Brain {
     /// (`reason`): it continues in a new session on the harness the Chief's
     /// next turn takes, when that is another one and it was not just moved
     /// (the note is quiet then); else the stop is reported as it is.
-    fn plan_move(&mut self, id: &str, reason: &str, attempts: u32) -> (String, bool) {
-        let (session, peer) = self
+    fn plan_move(&mut self, id: &str, reason: &str) -> (String, bool) {
+        let (session, peer, moved) = self
             .state
             .sub(id)
-            .map(|(_, s)| (s.session_id.clone(), s.peer.clone()))
+            .map(|(_, s)| (s.session_id.clone(), s.peer.clone(), s.moved))
             .unwrap_or_default();
         let from = session
             .as_deref()
@@ -701,10 +700,10 @@ impl Brain {
         let to = self.next_engine().0.harness;
         let target = from
             .clone()
-            .filter(|from| peer.is_none() && attempts == 0 && !from.is_empty() && *from != to);
+            .filter(|from| peer.is_none() && !moved && !from.is_empty() && *from != to);
         self.trace.emit(
             "subagent.auto_move",
-            json!({"id": id, "from": from, "to": to, "moved": target.is_some(), "attempts": attempts}),
+            json!({"id": id, "from": from, "to": to, "moving": target.is_some(), "moved_before": moved}),
         );
         let Some(from) = target else {
             if let Some(sub) = self.state.sub_mut(id) {
@@ -712,7 +711,7 @@ impl Brain {
             }
             let why = if peer.is_some() {
                 "it runs on a cloud peer".to_owned()
-            } else if attempts > 0 {
+            } else if moved {
                 "it was already moved once".to_owned()
             } else if from.as_deref().is_none_or(str::is_empty) {
                 "its harness is not known".to_owned()
@@ -730,16 +729,15 @@ impl Brain {
                 false,
             );
         };
-        let attempt = attempts + 1;
         if let Some(sub) = self.state.sub_mut(id) {
-            sub.resume_attempts = attempt;
+            sub.resume_attempts = 0;
+            sub.moving = Some(to.clone());
         }
         (self.log)(&format!(
             "WARN subagent {id}: its account on {from} hit a usage limit; continuing it on {to}"
         ));
         let _ = self.tx.send(super::Input::AutoMove {
             id: id.to_owned(),
-            attempt,
             harness: to.clone(),
         });
         (
@@ -776,18 +774,18 @@ impl Brain {
     /// A move of `id` is due (`Input::AutoMove`): its earlier session's chat
     /// is saved to a file, and it is queued again with its task, that file
     /// and the new harness; the queue starts it in a new session.
-    pub(super) fn auto_move_due(&mut self, id: &str, attempt: u32, harness: &str) {
+    pub(super) fn auto_move_due(&mut self, id: &str, harness: &str) {
         let Some((_, sub)) = self.state.sub(id) else {
             return;
         };
-        let current = sub.resume_attempts == attempt
+        let current = sub.moving.as_deref() == Some(harness)
             && !sub.cancelled
             && !sub.paused
             && matches!(sub.status, SubStatus::Done | SubStatus::Reported);
         if !current {
             self.trace.emit(
                 "subagent.auto_move.skip",
-                json!({"id": id, "attempt": attempt, "status": format!("{:?}", sub.status)}),
+                json!({"id": id, "harness": harness, "status": format!("{:?}", sub.status)}),
             );
             return;
         }
@@ -803,6 +801,12 @@ impl Brain {
             .map(|s| s.cwd.clone())
             .filter(|c| !c.is_empty());
         let transcript = session.as_deref().and_then(|s| self.save_transcript(id, s));
+        // Its harness process on the used-up account is no longer followed.
+        if let Some(old) = session.as_deref()
+            && let Err(e) = self.agents.end_session(old)
+        {
+            (self.log)(&format!("subagent {id}: ending its earlier session: {e}"));
+        }
         let launch = crate::state::QueuedLaunch {
             task: crate::auto_resume::move_prompt(&task, &from, transcript.as_deref()),
             cwd,
@@ -813,6 +817,8 @@ impl Brain {
         if let Some(sub) = self.state.sub_mut(id) {
             sub.status = SubStatus::Queued;
             sub.queued_launch = Some(launch);
+            sub.moving = None;
+            sub.moved = true;
             sub.session_id = None;
             sub.floor = 0;
             sub.report = None;
@@ -821,7 +827,7 @@ impl Brain {
         self.save();
         self.trace.emit(
             "subagent.auto_move.queued",
-            json!({"id": id, "attempt": attempt, "from": from, "to": harness}),
+            json!({"id": id, "from": from, "to": harness}),
         );
         self.start_queued();
     }
@@ -863,6 +869,20 @@ impl Brain {
     /// until the model endpoint answers, so a restart while offline still
     /// waits for the network, then continues as planned.
     pub(super) fn rearm_auto_resumes(&mut self) {
+        let moves: Vec<(String, String)> = self
+            .state
+            .spawns
+            .values()
+            .flat_map(|r| &r.subs)
+            .filter(|s| matches!(s.status, SubStatus::Done | SubStatus::Reported))
+            .filter_map(|s| Some((s.id.clone(), s.moving.clone()?)))
+            .collect();
+        for (id, harness) in moves {
+            (self.log)(&format!(
+                "subagent {id}: its move to {harness} re-armed after a host restart"
+            ));
+            let _ = self.tx.send(super::Input::AutoMove { id, harness });
+        }
         let Some(policy) = self.resume_policy else {
             return;
         };

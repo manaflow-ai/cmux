@@ -7,8 +7,8 @@
 
 mod common;
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use common::*;
@@ -39,6 +39,26 @@ fn limit_script() -> Script {
             json!({"dir": "mux", "kind": "turn_error", "msg": {"error": LIMIT}}),
         ]
     })
+}
+
+/// A brain over `limit_script` whose host.log lines are kept.
+fn harness() -> (Harness, Arc<Mutex<Vec<String>>>) {
+    let dir = tempfile::tempdir().unwrap();
+    let lines = Arc::new(Mutex::new(Vec::new()));
+    let sink = lines.clone();
+    let settings = settings(dir.path());
+    let owner = Arc::new(Mutex::new(Owner {
+        summary: Some(summary()),
+        ..Owner::default()
+    }));
+    let h = Harness::configured(
+        dir,
+        limit_script(),
+        owner,
+        settings,
+        Arc::new(move |line: &str| sink.lock().unwrap().push(line.to_owned())),
+    );
+    (h, lines)
 }
 
 fn spawner(h: &Harness, harness: &str) -> Arc<Spawner> {
@@ -124,7 +144,7 @@ fn run_until(h: &mut Harness, sub_harness: &str, done: impl Fn(&Harness) -> bool
 #[test]
 fn a_subagent_out_of_usage_continues_on_the_chiefs_harness() {
     // The Chief's turns run on claude-sr (settings), its subagent on claude.
-    let mut h = Harness::new(limit_script());
+    let (mut h, lines) = harness();
     run_until(&mut h, "claude", |h| {
         sub_sessions(h).len() >= 2 && !prompts_of(h, &sub_sessions(h)[1].0).is_empty()
     });
@@ -143,21 +163,29 @@ fn a_subagent_out_of_usage_continues_on_the_chiefs_harness() {
         prompt.contains("usage limit"),
         "it is told why it is in a new session: {prompt}"
     );
-    let notes: Vec<String> = h
-        .log()
-        .into_iter()
-        .map(|(_, t)| t)
-        .filter(|t| t.starts_with("[a1]"))
-        .collect();
+    // The note to the Chief is quiet (no turn of its own); host.log says
+    // where it went.
+    let lines = lines.lock().unwrap().clone();
     assert!(
-        notes.iter().any(|t| t.contains("claude-sr")),
-        "the Chief hears where it went: {notes:?}"
+        lines
+            .iter()
+            .any(|l| l.contains("a1") && l.contains("continuing it on claude-sr")),
+        "{lines:?}"
+    );
+    assert!(
+        h.agents
+            .inner
+            .lock()
+            .unwrap()
+            .ended
+            .contains(&sessions[0].0),
+        "its session on the used-up account is ended"
     );
 }
 
 #[test]
 fn a_subagent_out_of_usage_on_the_chiefs_own_harness_is_reported() {
-    let mut h = Harness::new(limit_script());
+    let (mut h, _) = harness();
     run_until(&mut h, "claude-sr", |h| {
         h.log().iter().any(|(_, t)| t.starts_with("[a1]"))
     });

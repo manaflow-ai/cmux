@@ -337,6 +337,14 @@ pub struct SubRecord {
     /// 0 again after a run that ends with a real report.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub resume_attempts: u32,
+    /// The harness it moves to (its account hit a usage limit) once the
+    /// brain takes the move; saved, so a restart still moves it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moving: Option<String>,
+    /// It was moved off a harness whose account hit a usage limit, and has
+    /// not ended a run with a real report since: it is not moved again.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub moved: bool,
     /// Messages the Chief sent it that it has not got yet (queued or
     /// starting, or held while paused), oldest first. Saved, so a restart
     /// never drops one.
