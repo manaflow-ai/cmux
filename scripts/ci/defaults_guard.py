@@ -26,8 +26,11 @@ from a Swift test, so committed files can agree with each other and still be
 stale against Swift (e190c402850c); a stamp that differs from the sources says so.
   python3 scripts/ci/defaults_guard.py check --base B --head H [--pr N --repo R]
 
-`check` compares the snapshot at the merge base with the one at the head (the
-trees are read with git as data; nothing from the head runs). A change passes
+`check` compares the defaults at the merge base with the ones at the head, each
+computed from that tree's exports and sources (the trees are read with git as
+data; nothing from the head runs). The snapshot is bot-only (#21946): the base
+autofix rewrites it after a merge, no pull request commits it, and `check`
+never reads it, so a hand-edited copy hides nothing. A change passes
 only with an approving review, on the head commit, from a call owner in
 .github/defaults-call-owners.json who is not the pull request's author: the
 `needs a call` label alone never passes, and a push after the approval needs
@@ -594,12 +597,12 @@ def command_check_stamp(args: argparse.Namespace) -> int:
 def command_check(args: argparse.Namespace) -> int:
     base, head = Tree.named(args.base), Tree.named(args.head)
     head_sha = args.head_sha or args.head
-    # A pull request branched before the snapshot existed is judged by its sources alone.
-    adopted = base.read(SNAPSHOT) is not None or head.read(SNAPSHOT) is not None
-    problems = freshness(head) if adopted else []
-    # The base's snapshot, or (before the first snapshot lands) its sources.
-    before = snapshot_of(base) or defaults(base)
-    after = snapshot_of(head) or defaults(head)
+    # Both sides are judged by their sources and exports, never by a committed
+    # snapshot: the snapshot is bot-only (#21946), so a pull request does not
+    # commit it, and a hand-edited copy could hide a change.
+    problems: list[str] = []
+    before = defaults(base)
+    after = defaults(head)
     found = changes(before, after) + guard_changes(base, head)
     trusted = Tree(None)  # the base checkout the workflow runs from
     owners = owners_for(trusted.read(OWNERS))
