@@ -6,7 +6,8 @@ import Testing
 
 /// Leo 2026-10-12 (cx-ag5.11), the tab strip every pane kind shows
 /// (`PaneContentView.stripView`), driven with real mouse events:
-/// - The + button opens a new tab.
+/// - Only the + button opens a new tab: a double-click on empty strip space
+///   does nothing.
 /// - Clicking close buttons again and again under a still pointer closes
 ///   exactly one tab per click: the tab under the pointer, whose close
 ///   button is there because the tabs keep their widths until the pointer
@@ -51,10 +52,10 @@ import Testing
             return strip.convert(strip.convert(point, from: strip.tabsClip), to: nil)
         }
 
-        func click(_ point: CGPoint) {
+        func click(_ point: CGPoint, count: Int = 1) {
             for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
                 guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-                                                     windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
+                                                     windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: count,
                                                      pressure: type == .leftMouseUp ? 0 : 1) else { continue }
                 window.sendEvent(event)
             }
@@ -75,6 +76,18 @@ import Testing
         try #require(!harness.strip.newTabButton.isHidden && plus.width > 0, "the strip shows no + button")
         harness.click(harness.strip.convert(CGPoint(x: plus.midX, y: plus.midY), to: nil))
         #expect(harness.intents.contains { if case .newTab = $0 { true } else { false } }, "\(harness.intents)")
+    }
+
+    @Test func doubleClickingEmptyStripSpaceOpensNoTab() async throws {
+        let harness = Harness(count: 2)
+        defer { harness.window.orderOut(nil) }
+        await harness.settle()
+        let plus = harness.strip.convert(harness.strip.newTabButton.frame, from: harness.strip.contentView)
+        let empty = CGPoint(x: (plus.maxX + harness.strip.bounds.maxX) / 2, y: harness.strip.bounds.midY)
+        try #require(harness.strip.titlebarHit(at: empty) == .empty, "no empty strip space after the + button")
+        harness.click(harness.strip.convert(empty, to: nil))
+        harness.click(harness.strip.convert(empty, to: nil), count: 2)
+        #expect(harness.intents.isEmpty, "\(harness.intents)")
     }
 
     @Test func clickingCloseUnderAStillPointerClosesTheNextTabEachTime() async throws {

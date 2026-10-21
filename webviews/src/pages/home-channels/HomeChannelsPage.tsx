@@ -528,7 +528,6 @@ export function HomeChannelsPage({
                         type="button"
                         className="hc-icon-button lg-back"
                         aria-label={t("action.back")}
-                        title={t("action.back")}
                         aria-keyshortcuts="Meta+["
                         onClick={back}
                       >
