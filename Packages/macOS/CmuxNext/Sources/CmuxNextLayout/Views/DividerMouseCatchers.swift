@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 
 /// Divider hit areas over Chromium pages.
 ///
@@ -80,7 +81,7 @@ public final class DividerMouseCatchers {
     }
 
     /// Covers nothing and takes no mouse; stays a child window (no ordering).
-    /// `WindowOverlayHost.reassertOrder` skips a parked panel (alpha 0, no mouse).
+    /// A parked panel never starts a `WindowOverlayHost.reassertOrder`; a reorder that runs moves it too.
     private func park(_ panel: DividerMousePanel) {
         if panel.areaID != nil || !panel.ignoresMouseEvents || panel.alphaValue != 0 {
             panel.release()
@@ -103,10 +104,11 @@ public final class DividerMouseCatchers {
 }
 
 /// A transparent panel that takes the mouse over a divider's hit area.
-final class DividerMousePanel: NSPanel {
+final class DividerMousePanel: NSPanel, ParkablePanel {
     let catcher = DividerMouseCatcherView()
     /// The divider this panel covers now; nil while parked.
     var areaID: String?
+    var isParked: Bool { areaID == nil && ignoresMouseEvents }
 
     /// Ends a hover the pointer would otherwise never leave (the panel moves
     /// away from under it): the divider's hover line goes out.

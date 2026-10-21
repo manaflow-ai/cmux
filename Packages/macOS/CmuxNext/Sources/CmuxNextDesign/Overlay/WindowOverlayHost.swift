@@ -235,9 +235,9 @@ public final class WindowOverlayHost {
         onPanelChange?()
     }
 
-    /// A child panel that draws nothing and takes no mouse (`DividerMouseCatchers` parks its spare panels so).
+    /// A spare pool panel that draws nothing and takes no mouse (`ParkablePanel`).
     public static func isParked(_ child: NSWindow) -> Bool {
-        child is NSPanel && child.alphaValue == 0 && child.ignoresMouseEvents
+        (child as? any ParkablePanel)?.isParked == true
     }
 
     /// Whether the panel is above every visible page window of the window.
@@ -313,4 +313,13 @@ public final class WindowOverlayHost {
         placeAgentCursor()
         onPanelChange?()
     }
+}
+
+/// A child panel a pool keeps attached while it has nothing to do
+/// (`DividerMouseCatchers`): while parked it draws nothing and takes no
+/// mouse, so `WindowOverlayHost.reassertOrder` never starts a reorder for it.
+/// Only pools conform; no other panel is skipped by alpha or mouse state.
+@MainActor
+public protocol ParkablePanel: NSPanel {
+    var isParked: Bool { get }
 }
