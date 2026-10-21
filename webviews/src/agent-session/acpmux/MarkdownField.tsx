@@ -433,12 +433,15 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
           const windowFocus = () => {
             if (focused(editorView)) enter(editorView);
           };
-          window.addEventListener("blur", windowBlur);
-          window.addEventListener("focus", windowFocus);
+          // The editor's own window, kept: the editor can be torn down after the page's global
+          // `window` is gone (a test's DOM unregistered before Milkdown's async destroy runs).
+          const win = editorView.dom.ownerDocument.defaultView;
+          win?.addEventListener("blur", windowBlur);
+          win?.addEventListener("focus", windowFocus);
           return {
             destroy: () => {
-              window.removeEventListener("blur", windowBlur);
-              window.removeEventListener("focus", windowFocus);
+              win?.removeEventListener("blur", windowBlur);
+              win?.removeEventListener("focus", windowFocus);
             },
           };
         },

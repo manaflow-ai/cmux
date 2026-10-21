@@ -257,7 +257,10 @@ impl Hub {
             return Err(e);
         }
         // What its queue entry holds now (`queue_edit.rs` may edit a prompt that waited).
-        let (blocks, control, trust_gate) = (run.blocks.clone(), run.control, run.trust_gate);
+        let (mut blocks, control, trust_gate) = (run.blocks.clone(), run.control, run.trust_gate);
+        // A pushed forum rule whose key moved on while it waited tells the current one.
+        let mut provenance = run.provenance.clone();
+        let pushed = self.forum_refresh_push(&prompt_id, &mut blocks, &mut provenance);
         let text = prompt_text(&blocks);
         if let Err(e) =
             self.check_dispatch(session, control, trust_gate, &prompt_id, &turn_id, client).await
@@ -273,8 +276,8 @@ impl Hub {
             return Err(e);
         }
         // An agent message's turn takes the agent messages waiting behind it (`digest.rs`), once
-        // the turn has started, so none leaves the queue for a turn that never runs.
-        let mut provenance = run.provenance.clone();
+        // the turn has started, so none leaves the queue for a turn that never runs. A forum push
+        // is no agent's message: it never leads one.
         let parts = self.take_joined(session, &run, &prompt_id, &turn_id, joined);
         let (blocks, text) = if parts.is_empty() {
             (blocks, text)
@@ -344,6 +347,8 @@ impl Hub {
                     json!({"type": "text", "text": format!("<restored_transcript note=\"acpmux restored this conversation on a new agent session; tool state was not restored\">\n{transcript}\n</restored_transcript>\n")}),
                 );
         }
+        // The forum rules this session was not told yet (`hub/forum.rs`).
+        let mut told = self.forum_context(session, pushed.clone(), &mut blocks).await;
         session.stderr_tail.lock().unwrap().clear();
         let turn_seq = self
             .append(
@@ -369,6 +374,7 @@ impl Hub {
             let e = RpcError::new(-32000, "the remote floor cancelled this turn before its prompt")
                 .with_data(json!({"reason": reason}));
             self.refuse_started_turn(session, &prompt_id, &turn_id, &e);
+            self.forum_turn_end(session, &told, false);
             drop(guard);
             return Err(e);
         }
@@ -428,6 +434,8 @@ impl Hub {
                                 0,
                                 json!({"type": "text", "text": format!("<restored_transcript note=\"acpmux restored this conversation on a new agent session; tool state was not restored\">\n{transcript}\n</restored_transcript>\n")}),
                             );
+                            // The new agent session gets every rule again.
+                            told = self.forum_retell(session, pushed.clone(), &mut blocks).await;
                         }
                         if let Some(sid2) = session.meta().agent_session_id {
                             result = child2
@@ -450,6 +458,8 @@ impl Hub {
         let mut result = self
             .finish_turn(session, &child, result, &prompt_id, &turn_id, turn_seq, Some(joined))
             .await;
+        // A rule counts as told once the agent answered the prompt that carried it.
+        self.forum_turn_end(session, &told, result.is_ok());
         // A connection error cut the turn off: it goes on by itself (`auto_resume.rs`).
         let cut = match (&result, detached) {
             (Err(e), false) => Some(super::auto_resume::CutTurn {

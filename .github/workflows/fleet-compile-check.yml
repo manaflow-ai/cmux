@@ -4,6 +4,12 @@ run-name: fleet compile-check ${{ inputs.sha }}
 
 # Compile-check the app at one exact commit on the build fleet and post the
 # verdict as the commit status fleet/compile-check on that commit.
+# What a pass proves, and what the status text says: the app executable's Swift
+# sources (86 of CmuxNext's 88 production targets) compile against the macOS
+# SDK and link, in Debug, with the swift.org toolchain. It is not the Xcode
+# Release compile: that build uses Apple's compiler and the optimizer, and can
+# fail where this passes. So a red Release compile always wins here, and the
+# Release compile still runs on the base after the merge.
 # scripts/ci/merge_compile_guard.py accepts a success here in place of a
 # queued "cmux-next Release compile (Xcode 26)" (#22845 sat queued over an
 # hour after its fleet pass, with 60 minis offline). It trusts the status only
@@ -98,12 +104,12 @@ jobs:
             exit 2
           fi
           # pending is informational: two tries, and a failed post never stops the compile.
-          post pending "Compiling the app on the build fleet" 2 || true
+          post pending "Compiling the app executable (Debug, swift.org toolchain) on the build fleet" 2 || true
           status=0
           "$client" compile-check --ref "$SHA" --app \
             --timeout 1200 --queue-timeout 600 || status=$?
           case "$status" in
-            0) verdict success "cmux-ci compile-check --app passed on this commit" || exit 1 ;;
-            1) verdict failure "The app did not compile on the build fleet"; exit 1 ;;
+            0) verdict success "App executable compiled (Debug, swift.org toolchain, build fleet); not the Xcode Release compile" || exit 1 ;;
+            1) verdict failure "The app executable did not compile (Debug, swift.org toolchain, build fleet)"; exit 1 ;;
             *) verdict error "No build-fleet verdict (exit $status)"; exit "$status" ;;
           esac
