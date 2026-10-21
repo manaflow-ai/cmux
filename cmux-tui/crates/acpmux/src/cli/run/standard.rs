@@ -517,8 +517,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             on_permission,
             stall,
             prompt_id,
+            from,
         } => {
-            let prompt_id = PromptId::new(prompt_id);
+            let mut prompt_id = PromptId::new(prompt_id);
+            prompt_id.from_agent = from;
             // A message (--no-wait) steers; a send that waits for its reply queues.
             let steer = send_steers(steer, no_steer, no_wait);
             let client = connect(true).await?;
