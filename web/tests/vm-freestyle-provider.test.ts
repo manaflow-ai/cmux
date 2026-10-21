@@ -1044,6 +1044,30 @@ describe("Freestyle openCmuxRemote: snapshot-v2 fast path", () => {
     }
   });
 
+  test("a trusted image remains attachable when optional invitation minting is unavailable", async () => {
+    const previous = process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT;
+    process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT = "1";
+    const vm = {
+      exec: async () => ({ statusCode: 1, stdout: "", stderr: "old daemon has no enrollment command" }),
+    };
+    const client = { vms: { ref: () => vm } } as unknown as Freestyle;
+    const provider = new FreestyleProvider({ client: () => client });
+    try {
+      const endpoint = await provider.openCmuxRemote(VM_ID, {
+        providerMetadata: {
+          cmuxTuiContract: "snapshot-v2",
+          cmuxRemoteAuth: "trusted-carrier",
+          networkIpv4: "10.4.0.7",
+        },
+      });
+      expect(endpoint.trustedCarrier).toBe(true);
+      expect(endpoint.invitation).toBeUndefined();
+    } finally {
+      if (previous === undefined) delete process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT;
+      else process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT = previous;
+    }
+  });
+
   // Cloud has not shipped a row from before snapshot-v2, so there is nothing
   // to stay compatible with: a row without the contract or its recorded
   // addresses is refused with a clear error, never healed or looked up.
