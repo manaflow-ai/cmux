@@ -80,6 +80,13 @@ public struct SidebarSeed {
         return result
     }
 
+    /// Whether a launch shows the sidebar now (`LaunchReveal`'s `.sidebar`): once `shown` has
+    /// real rows, or when no saved sidebar stands in for them (a fresh profile), so a launch
+    /// never draws glass alone where the sidebar goes.
+    public func isReadyForReveal(_ shown: [SidebarSection], launching: Bool) -> Bool {
+        !launching || sections.isEmpty || shown.contains { $0.workspaces.contains { $0.rowState != .placeholder } }
+    }
+
     /// The local machine (and the pinned area, which holds its rows) loads
     /// until the launch ends; another machine while it connects.
     static func isLoading(_ section: SidebarSection, launching: Bool) -> Bool {
