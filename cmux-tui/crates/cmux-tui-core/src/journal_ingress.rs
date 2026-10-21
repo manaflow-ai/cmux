@@ -15,6 +15,9 @@ use crate::resource::{
 };
 use crate::workspace_registry::registry_connection::JournalWriterCommitScope;
 
+// Output coalescing only ever held terminal output, which shipped builds no
+// longer journal (output_store.rs); the ingress tests still exercise it.
+#[cfg(test)]
 mod coalesce;
 mod completion;
 pub(crate) mod contention;
@@ -275,13 +278,8 @@ impl JournalIngressEvent {
         }
     }
 
-    #[cfg_attr(not(test), allow(clippy::unused_self))]
+    #[cfg(test)]
     fn merge_output(&mut self, next: Self) -> Option<Self> {
-        #[cfg(not(test))]
-        {
-            Some(next)
-        }
-        #[cfg(test)]
         match self {
             Self::TerminalOutput { terminal_id, generation, bytes, .. } => match next {
                 Self::TerminalOutput {
@@ -373,6 +371,7 @@ impl QueuedJournalEvent {
         self.completion.as_ref().map(JournalIngressCompletion::deadline)
     }
 
+    #[cfg(test)]
     fn merge_output(&mut self, next: Self) -> Option<Self> {
         if self.completion.is_some() || next.completion.is_some() {
             return Some(next);
@@ -1356,9 +1355,9 @@ fn receive_batch(receivers: &JournalIngressReceivers) -> Option<Vec<QueuedJourna
         if terminal_drained + durable_drained != 0 {
             receivers.state.publish_queue_space();
         }
-        // Plain terminal output waits a bounded window for more output, so
-        // a redrawing TUI costs one record and one commit per window instead
-        // of one per PTY read (coalesce.rs).
+        // Test builds: plain terminal output waits a bounded window for more
+        // output (coalesce.rs). Shipped builds journal no output.
+        #[cfg(test)]
         coalesce::hold_terminal_output(receivers, &mut batch, &mut durable, terminal_drained);
         batch.append(&mut durable);
         if !batch.is_empty() {
@@ -1388,7 +1387,10 @@ fn drain_lane(
         };
         drained += 1;
         drained_bytes = drained_bytes.saturating_add(next.event.estimated_bytes());
+        #[cfg(test)]
         coalesce::push_coalesced(batch, next);
+        #[cfg(not(test))]
+        batch.push(next);
     }
     drained
 }
