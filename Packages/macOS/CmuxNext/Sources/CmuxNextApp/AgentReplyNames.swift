@@ -1,4 +1,5 @@
 import CmuxNextFiles
+import CmuxNextWakeups
 import Foundation
 
 /// Finds the files a reply names without a folder (`next-sync.py` for `scripts/next-sync.py`)
@@ -26,6 +27,8 @@ final class AgentReplyNames {
     private var indexes: [String: (index: FolderNameIndex, built: ContinuousClock.Instant)] = [:]
     /// The walk of each folder in flight: a second search of that folder awaits it.
     private var building: [String: Task<FolderNameIndex?, Never>] = [:]
+    /// Lets go of the indexes once they are past ``freshFor``, also when no search follows.
+    private let expiry = DemandTimer(owner: "AgentReplyNames.expiry")
     private let home: String
 
     init(home: String = NSHomeDirectory()) {
@@ -62,7 +65,9 @@ final class AgentReplyNames {
         }
     }
 
-    /// The files of `index` whose name is `name` (case-insensitive, as the file system is).
+    /// The files of `index` whose name is `name` (case-insensitive, as the file system is). The
+    /// search returns at most 2,000 exact names, shortest path first, so a tree with more files of
+    /// one name than that (thousands of `index.ts`) may miss a deep one; the best ones are kept.
     nonisolated static func files(named name: String, in index: FolderNameIndex) -> [FolderNameIndex.Hit] {
         index.search(name, limit: 2_000).filter { !$0.isDirectory && $0.name.caseInsensitiveCompare(name) == .orderedSame }
     }
@@ -88,6 +93,7 @@ final class AgentReplyNames {
             indexes[oldest] = nil
         }
         indexes[root] = (index, now)
+        expiry.schedule(after: Self.freshFor) { @MainActor [weak self] in self?.dropExpired() }
         return index
     }
 

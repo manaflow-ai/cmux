@@ -52,8 +52,9 @@ function HostPathChip({ path, label, written, location, suffix, code, bare }: Pa
     info?.place === "denied" ||
     info?.place === "missing" ||
     (info?.place === "outside" && policy.outsideRoots === "text") ||
-    // A bare name is a chip only for a file the host found inside the chat's folders.
-    (nameOnly && info?.place !== "root");
+    // A name with no folder is no chip until the host has answered (then it follows the same
+    // rules as any path: outside the folders it has a lock, or opens, by the policy).
+    (nameOnly && !info);
   if (plain) return <NoChip path={path} label={label} written={written} code={code} />;
   const outside = info?.place === "outside";
   const folder = info?.folder ?? path.endsWith("/");
