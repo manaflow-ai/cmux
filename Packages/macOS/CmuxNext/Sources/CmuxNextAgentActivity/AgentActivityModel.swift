@@ -50,8 +50,8 @@ public final class AgentActivityModel {
     }
     /// Last error from a user operation, for the toolbar.
     public private(set) var lastOperationError: String?
-    /// Every acpmux session with its lane (cx-v9k2f), when the lanes view is on (Labs preview
-    /// features); nil hides it.
+    /// Every acpmux session with its lane (cx-v9k2f), while the lanes view follows a lane
+    /// store (`AgentLaneStore.follow`); nil hides it.
     public var lanes: [AgentActivityLane]? {
         didSet {
             guard lanes != oldValue else { return }
