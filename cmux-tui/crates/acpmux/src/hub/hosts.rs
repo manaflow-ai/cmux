@@ -284,6 +284,14 @@ impl Hub {
             }
         };
         self.adopt_caller_token(&session.id, caller_token);
+        // A fork through an adopted agent asks for the list it started with
+        // (`spawn.rs` decides it at session/new for a spawned one).
+        let meta = session.meta();
+        let (_, env) = self.harness_env(&meta).await;
+        let all = self.config.read().await.profile(&meta.harness).is_some_and(|p| {
+            crate::agent_tools::lists_all_tools(&meta.harness, p, &env, &meta.cwd)
+        });
+        child.all_tools.store(all, std::sync::atomic::Ordering::Relaxed);
         *session.child.lock().await = Some(child.clone());
         self.wake_idle_reaper();
         if let Some(rx) = session.inbound_rx.lock().await.take() {
