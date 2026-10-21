@@ -35,6 +35,7 @@ import {
   type AcpmuxSnapshot,
   type QueueEdit,
   nextDrawnRow,
+  isLastFooter,
 } from "./model";
 import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
 import { postNative } from "./native";
@@ -75,6 +76,7 @@ import {
 } from "./catalog";
 import { usePickerCatalog } from "./modelCatalogHost";
 import { isDefaultChoice } from "./defaultChoice";
+import { topModelsFor } from "./topModels";
 import { applySwitch, HarnessSwitch, lastOfferedModel, type SwitchPort } from "./harnessSwitch";
 import { harnessProfiles } from "./harnessProfiles";
 import { pickedMode, setStartModeSource, startModeChanged } from "./startMode";
@@ -95,6 +97,7 @@ import { openPicker } from "./pickerOpeners";
 import { EmptyState, type EmptyStateProjects, isNewChat, projectName } from "./EmptyState";
 import { PastChat, type PastTurn, readPastTurns } from "./PastChat";
 import type { Project } from "./ProjectChooser";
+import { parseProjectRepos } from "./projectRepos";
 import { HomeLists } from "./HomeLists";
 import { endsTurn, turnFiles, turnRows, type TurnFile } from "./diff";
 import { opensTurn } from "./turnStart";
@@ -120,7 +123,16 @@ import { Inspector, type ExportOutcome } from "./Inspector";
 import { SummaryButton } from "./summary/SummaryButton";
 import { SummaryCard } from "./summary/SummaryCard";
 import { runningBackgroundTasks } from "./summary/sessionSummary";
+import {
+  BACKGROUND_WORK,
+  type BackgroundCounts,
+  type BackgroundCommand,
+  backgroundCommands,
+  backgroundRowShown,
+} from "./summary/backgroundWork";
+import { BackgroundWorkLine } from "./conversation/BackgroundWorkRow";
 import { useSessionRail } from "./summary/SessionRail";
+import { type ProcessSource, useProcessRegistry } from "./summary/sessionProcesses";
 import { pendingToolCalls, waitingSubagents } from "./summary/SubagentStatusList";
 import { AgentsPill } from "./subagents/AgentsPill";
 import { AgentTonesContext, agentTones } from "./subagents/agentTones";
@@ -152,6 +164,7 @@ import { DictationNotice } from "./DictationNotice";
 import type { MarkdownFieldHandle } from "./MarkdownField";
 import type { ChangesSource } from "./changes/model";
 import { RevealedMarkdown } from "./conversation/RevealedMarkdown";
+import { transcriptRepositories, type RepositoryCache } from "./conversation/transcriptRepositories";
 import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
@@ -161,6 +174,7 @@ import { PlanList } from "./conversation/PlanList";
 import { ActivityLine } from "./conversation/ActivityLine";
 import { BackgroundTaskNote } from "./conversation/BackgroundTaskNote";
 import { IncomingMessageLine, IncomingNotice } from "./conversation/IncomingMessageCard";
+import type { IncomingMessage } from "./conversation/incomingMessage";
 import { CompactionNote, FailoverNote } from "./conversation/CompactionNote";
 import { AgentPairNote } from "./conversation/AgentPairNote";
 import { SessionStartNote } from "./conversation/SessionStartNote";
@@ -172,6 +186,12 @@ import {
   type SessionEdits,
 } from "./turnChanges/sessionRows";
 import { TurnActionsContext, chatLoginCommand, type TurnActions } from "./conversation/turnActions";
+import {
+  RunInBackgroundContext,
+  backgroundsWork,
+  foregroundCalls,
+  useBackgroundKey,
+} from "./conversation/runInBackground";
 import { UserBubble } from "./conversation/UserBubble";
 import { ChiefPromptBubble } from "./conversation/ChiefPromptBubble";
 import { editableKey, editableSeqs, editableTurns, promptTurns } from "./conversation/editPrompt";
@@ -199,7 +219,8 @@ import {
   type TurnView,
   turnViewFrom,
 } from "./conversation/turns";
-import { ArrowDown, Copy } from "./conversation/icons";
+import { ArrowDown, ChevronRight, Copy } from "./conversation/icons";
+import { CopyButton } from "./conversation/CopyButton";
 import { PreviewCard } from "./conversation/PreviewCard";
 import { installWheelPassThrough } from "./wheelPassThrough";
 import { turnPreviewUrl } from "./conversation/previewUrl";
@@ -213,6 +234,7 @@ import {
   setMessageMenuSource,
 } from "./conversation/messageMenu";
 import { callChipHost } from "./chips/host";
+import { pullRequestRef } from "./chips/PullRequestCard";
 import { RenderCard, canRender } from "./conversation/RenderCard";
 import { ArtifactPanel, type SaveDocument } from "./conversation/ArtifactPanel";
 import { branchesFromKey, branchesKey, forkAnchor, messageBranches } from "./conversation/branches";
@@ -257,7 +279,7 @@ import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./sig
 import { type ChatAccounts, ChatAccountsContext, readChatAccounts } from "./chatAccounts";
 import { HostError } from "./HostError";
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
-import { SUBAGENTS } from "./subagents/subagentFold";
+import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
 import {
   SUBAGENT_OF,
   SUBAGENT_ROW,
@@ -650,7 +672,13 @@ const MessageRow = memo(
     if (row.kind === "user" && row.incoming?.kind === "message")
       return (
         <div className="cv-incoming">
-          <IncomingMessageLine id={row.id} message={row.incoming.message} images={row.images} onOpen={openOfferChat} />
+          <IncomingMessageLine
+            id={row.id}
+            message={row.incoming.message}
+            images={row.images}
+            onOpen={openOfferChat}
+            onReply={replyToMessage}
+          />
         </div>
       );
     if (row.kind === "user" && row.incoming?.kind === "hidden") return null;
@@ -661,10 +689,24 @@ const MessageRow = memo(
       return (
         <div className="cv-user">
           {envelope && (
-            <details className="cv-user__context">
-              <summary>{t("transcript.chiefContext", { count: envelope.lines })}</summary>
-              <pre className="cv-user__context-text selectable">{envelope.context}</pre>
-            </details>
+            // The view's Copy sits outside the disclosure, over the space the summary keeps free at
+            // its trailing end, so it never covers the label; a long label ends in an ellipsis.
+            <div className="cv-user__context">
+              <details>
+                <summary>
+                  <ChevronRight size={10} className="cv-user__context-chevron" />
+                  <span className="cv-user__context-label">
+                    {t("transcript.chiefContext", { count: envelope.lines })}
+                  </span>
+                </summary>
+                <pre className="cv-user__context-text selectable">{envelope.context}</pre>
+              </details>
+              <CopyButton
+                text={envelope.context}
+                label={t("turn.copy")}
+                className="cv-iconbtn cv-iconbtn--compact cv-user__context-copy"
+              />
+            </div>
           )}
           {envelope || row.from === "chief" ? (
             <ChiefPromptBubble text={envelope ? envelope.task : (row.text ?? "")} />
@@ -765,7 +807,8 @@ const WorkingRow = memo(
     a.row.version === b.row.version &&
     a.row.at === b.row.at &&
     a.row.durationMs === b.row.durationMs &&
-    a.row.doing === b.row.doing,
+    a.row.doing === b.row.doing &&
+    a.row.doingCommand === b.row.doingCommand,
 );
 /// The running turn's activity line under its todo list (agent.sessionStatus, cx-ncc.102).
 const ActivityLineRow = memo(
@@ -820,6 +863,14 @@ const BackgroundTaskRow = memo(
     return row.backgroundTask ? <BackgroundTaskNote task={row.backgroundTask} /> : null;
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
+/// "Running in background · 2 commands" at the transcript's end between turns
+/// (conversation/BackgroundWorkRow.tsx); its counts come from BackgroundWorkContext.
+const BackgroundWorkRow = memo(
+  function BackgroundWorkRow(_: RowProps) {
+    return <BackgroundWorkLine />;
+  },
+  (a, b) => a.row.id === b.row.id,
 );
 const CompactionRow = memo(
   function CompactionRow({ row }: RowProps) {
@@ -929,6 +980,14 @@ const EditedFilesRow = memo(
 
 /// Opens a chat started from an offer (`chat.offer.open`): beside this one, else here.
 const openOfferChat = (sessionId: string) => void callNative("chat.offer.open", { sessionId }).catch(() => undefined);
+/// Reply on another agent's message card (`chat.message.reply`): its sender gets it in the thread.
+const replyToMessage = (message: IncomingMessage, text: string) =>
+  callNative<void>("chat.message.reply", {
+    sessionId: message.sessionId,
+    msgId: message.msgId,
+    threadId: message.threadId,
+    text,
+  });
 const offerActions: OfferActions = {
   start: (offerId, worktree) => callNative("chat.offer.start", { offerId, worktree }),
   here: (offerId) => callNative("chat.offer.here", { offerId }),
@@ -955,6 +1014,8 @@ const OfferResultRow = memo(
 
 const NO_STARTED: readonly StartedSession[] = [];
 const NO_SPAWNED: readonly AcpmuxSessionEntry[] = [];
+const NO_COMMANDS: readonly BackgroundCommand[] = [];
+const NO_AGENTS: readonly Subagent[] = [];
 const sameItems = <T,>(a: readonly T[], b: readonly T[]) =>
   a.length === b.length && a.every((item, index) => item === b[index]);
 
@@ -982,6 +1043,7 @@ const defaultRegistry: NativeRegistry = {
   notice: NoticeRow,
   plan: PlanRow,
   backgroundTask: BackgroundTaskRow,
+  [BACKGROUND_WORK]: BackgroundWorkRow,
   compaction: CompactionRow,
   failover: FailoverRow,
   agentPair: AgentPairRow,
@@ -1492,6 +1554,7 @@ export function VirtualTranscript({
   canLoadOlder = false,
   historyFrom,
   githubRepository,
+  fallbackRepository,
   find,
   reveal,
   working = false,
@@ -1536,6 +1599,9 @@ export function VirtualTranscript({
   /// Pages older history in (canLoadOlder): asked once per loaded page while the view is near the top.
   onLoadOlder?: () => Promise<void>;
   githubRepository?: string;
+  /// The repository a bare `#N` means when `githubRepository` is unknown and the transcript names
+  /// none before it (the header pull request's).
+  fallbackRepository?: string;
   /// Find in Chat (chatFind.ts): its bar, the query to highlight and the match to bring into view.
   find?: ChatFind;
   /// A row to bring into view (a count on the running line, WorkingFor.tsx); a new `key` asks again.
@@ -1551,6 +1617,13 @@ export function VirtualTranscript({
   /// when it does not and the latest message is more than JUMP_LATEST_DISTANCE below, read each render,
   /// so a reply growing below or a session switch updates it without a scroll.
   const [following, setFollowing] = useState(true);
+  // Without the folder's GitHub remote, a bare `#N` in a row means the repository the transcript
+  // mentioned last (conversation/transcriptRepositories.ts); each row's text is read once per change.
+  const repositoryCache = useRef<RepositoryCache>(new Map());
+  const rowRepositories = useMemo(
+    () => (githubRepository ? undefined : transcriptRepositories(rows, fallbackRepository, repositoryCache.current)),
+    [githubRepository, fallbackRepository, rows],
+  );
   // `scroll` events also fire for layout-driven writes to scrollTop. Keep the user's intent in a
   // ref so those events cannot turn a pinned transcript into a one-frame jump when the composer
   // stack changes height.
@@ -2789,7 +2862,7 @@ export function VirtualTranscript({
                       beforeFooter={
                         row.kind === "assistant" && nextDrawnRow(rows, absoluteIndex)?.kind === "turnSummary"
                       }
-                      lastFooter={row.kind === "turnSummary" && !nextDrawnRow(rows, absoluteIndex)}
+                      lastFooter={isLastFooter(row, nextDrawnRow(rows, absoluteIndex))}
                       index={absoluteIndex}
                       setSize={canLoadOlder ? -1 : rows.length}
                       top={layout.tops[absoluteIndex]}
@@ -2812,7 +2885,7 @@ export function VirtualTranscript({
                       controls={controls}
                       onToggleActivity={onToggleActivity}
                       onOpenDiff={onOpenDiff}
-                      githubRepository={githubRepository}
+                      githubRepository={githubRepository ?? rowRepositories?.[absoluteIndex]}
                     >
                       <Component
                         row={row}
@@ -2821,7 +2894,7 @@ export function VirtualTranscript({
                         onOpenDiff={onOpenDiff}
                         expanded={isExpanded}
                         controls={controls}
-                        githubRepository={githubRepository}
+                        githubRepository={githubRepository ?? rowRepositories?.[absoluteIndex]}
                       />
                     </RowFrame>
                   );
@@ -3507,21 +3580,28 @@ function AcpmuxPane() {
   const startedOn = startedCardsShown();
   // The chats it started, kept while each entry is the same object (direct.ts keeps an unchanged
   // session's entry), so a streamed snapshot does not search the transcript or rebuild the list.
-  const spawnedFresh =
-    startedOn && snapshot.sessionId ? spawnedSessions(snapshot.sessions, snapshot.sessionId) : NO_SPAWNED;
+  // Always read: the summary card lists them and the running line counts them, experiment or not.
+  const spawnedFresh = snapshot.sessionId ? spawnedSessions(snapshot.sessions, snapshot.sessionId) : NO_SPAWNED;
   const spawnedKept = useRef<readonly AcpmuxSessionEntry[]>(NO_SPAWNED);
   if (!sameItems(spawnedKept.current, spawnedFresh)) spawnedKept.current = spawnedFresh;
   const spawned = spawnedKept.current;
+  // Every chat it started, offers' included, with its live state: the summary card's rows under
+  // Subagents and the background counts (summary/backgroundWork.ts). A new list only when an entry changes.
+  const childSessions = useMemo(
+    () => (spawned.length ? startedSessions(spawned, snapshot.sessionId) : NO_STARTED),
+    [spawned, snapshot.sessionId],
+  );
   // Only a chat it started can be an offer's started task: the rows are read only when there is one.
-  const offered = spawned.length
-    ? [...offerChildren(snapshot.rows)].filter((id) => spawned.some((entry) => entry.sessionId === id)).join("\n")
-    : "";
+  const offered =
+    startedOn && spawned.length
+      ? [...offerChildren(snapshot.rows)].filter((id) => spawned.some((entry) => entry.sessionId === id)).join("\n")
+      : "";
   const startedFresh = useMemo(
     () =>
-      spawned.length
+      startedOn && spawned.length
         ? startedSessions(spawned, snapshot.sessionId, { exclude: new Set(offered.split("\n")) })
         : NO_STARTED,
-    [spawned, offered, snapshot.sessionId],
+    [startedOn, spawned, offered, snapshot.sessionId],
   );
   const startedKept = useRef<{ fresh: readonly StartedSession[]; key: string; started: readonly StartedSession[] }>({
     fresh: NO_STARTED,
@@ -3611,7 +3691,11 @@ function AcpmuxPane() {
   const [shell, setShell] = useState<HTMLElement | null>(null);
   /// The chat's bottom stack (bottomStack.css): the transcript runs under it and keeps its end above it.
   const [dock, setDock] = useState<HTMLElement | null>(null);
-  const summaryCard = useSummaryCard(useSummaryColumn(shell, artifact !== undefined || freshView), summaryHasContent);
+  // A chat whose agent started others has something to show too: their rows under Subagents.
+  const summaryCard = useSummaryCard(
+    useSummaryColumn(shell, artifact !== undefined || freshView),
+    summaryHasContent || childSessions.length > 0,
+  );
   // Another chat closes the subagent view in the render that shows it, not an effect later (which
   // drew one frame of the old subagent id against the new chat's rows: an empty child view).
   const [subagentChat, setSubagentChat] = useState(shownSessionId);
@@ -3729,7 +3813,54 @@ function AcpmuxPane() {
     [snapshot.rows, openDiff],
   );
   // The session side rail (Debug Settings `agent.sessionRail`): its button in the header, the rail beside the chat.
-  const sessionRail = useSessionRail({ snapshot, machineName, onOpenOutput: openOutput });
+  // The rail's Background tasks read acpmux's process registry through the pane's client. A
+  // reconnect makes a new client, so the source changes with it and the rail lists again.
+  const [clientEpoch, setClientEpoch] = useState(0);
+  const processSource = useMemo<ProcessSource>(
+    () => ({
+      listProcesses: (sessionId) => directClient.current?.listProcesses(sessionId) ?? Promise.reject(new Error()),
+      watchProcesses: (listener) => directClient.current?.watchProcesses(listener) ?? (() => undefined),
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a new client is a new source
+    [clientEpoch],
+  );
+  const stopProcess = useCallback(
+    (id: string) => directClient.current?.killProcess(id) ?? Promise.reject(new Error()),
+    [],
+  );
+  const sessionRail = useSessionRail({
+    snapshot,
+    machineName,
+    onOpenOutput: openOutput,
+    processSource,
+    sessionId: shownSessionId,
+    onStopProcess: stopProcess,
+  });
+  // The chat's background commands (summary/backgroundWork.ts): the transcript's still running, and
+  // the registry's, read while the summary card shows, a turn runs or a command is known to run
+  // (the hook stays on while one it knows runs, so its end arrives).
+  const transcriptRunning = useMemo(() => runningBackgroundTasks(snapshot.rows), [snapshot.rows]);
+  const processRegistry = useProcessRegistry(
+    processSource,
+    shownSessionId,
+    summaryCard.shown || snapshot.isWorking || transcriptRunning.length > 0,
+  );
+  const runningCommandList = useMemo(
+    () =>
+      backgroundCommands(processRegistry.processes, transcriptRunning, processRegistry.listed).filter(
+        (command) => command.state === "running",
+      ),
+    [processRegistry, transcriptRunning],
+  );
+  const cardBackground = useMemo(
+    () => ({ ...processRegistry, running: transcriptRunning, onStop: stopProcess }),
+    [processRegistry, transcriptRunning, stopProcess],
+  );
+  const runningChildSessions = useMemo(
+    () => childSessions.filter((child) => child.state === "running"),
+    [childSessions],
+  );
+  const cardSessions = useMemo(() => ({ list: childSessions, onOpen: openOfferChat }), [childSessions]);
   // The palette's Commit and Push reach the open changes view, or open it on the newest turn of
   // the selected chat. A chat with no turn yet has no changes view to open.
   const gitIntents = useRef(0);
@@ -3830,20 +3961,22 @@ function AcpmuxPane() {
   useEffect(() => setHarnessesOpen(false), [snapshot.sessionId]);
   // A chat it starts, and a login it runs, go to the chat's folder (a new chat's start folder).
   const harnessFolder = snapshot.summary?.cwd ?? startFolder;
-  const retryModelsKey = (
-    pickerCatalog.harnesses.find(
-      (entry) => entry.acpmuxHarness === snapshot.summary?.harness || entry.id === snapshot.summary?.harness,
-    )?.models ?? []
-  )
+  const retryHarness = pickerCatalog.harnesses.find(
+    (entry) => entry.acpmuxHarness === snapshot.summary?.harness || entry.id === snapshot.summary?.harness,
+  );
+  // Named as the composer's picker names them (its short name under its harness, "Opus 5.5").
+  const retryModelsKey = (retryHarness?.models ?? [])
     .filter((model) => !model.unavailable && !isDefaultChoice(model))
-    .map((model) => `${model.id}\t${model.name || model.id}`)
+    .map((model) => `${model.id}\t${model.shortName || model.name || model.id}\t${model.release ?? ""}`)
     .join("\n");
+  const retryHarnessName = retryHarness?.name;
+  const retryTop = retryHarness ? topModelsFor(retryHarness.id) : undefined;
   const retryModels = useMemo(
     () =>
       retryModelsKey
         ? retryModelsKey.split("\n").map((line) => {
-            const [id = "", name = ""] = line.split("\t");
-            return { id, name: name || id };
+            const [id = "", name = "", release = ""] = line.split("\t");
+            return { id, name: name || id, ...(release ? { release } : {}) };
           })
         : [],
     [retryModelsKey],
@@ -3898,6 +4031,8 @@ function AcpmuxPane() {
           retryWith: {
             models: retryModels,
             current: snapshot.summary?.model,
+            ...(retryHarnessName ? { harness: retryHarnessName } : {}),
+            ...(retryTop ? { top: retryTop } : {}),
             retry: (rowId: string, prompt: string, model: string) =>
               void callNative("chat.retryWith", { rowId, prompt, model }).catch(() => undefined),
           },
@@ -3935,6 +4070,8 @@ function AcpmuxPane() {
       snapshot.summary?.harness,
       snapshot.summary?.model,
       retryModels,
+      retryHarnessName,
+      retryTop,
       catalog,
     ],
   );
@@ -4105,6 +4242,18 @@ function AcpmuxPane() {
         : undefined,
     [stopsSubagents],
   );
+  // Ctrl-B moves a Claude Code chat's running command or subagent to the background, and a
+  // running command's row says so (conversation/runInBackground.ts).
+  const canBackground = backgroundsWork(snapshot.summary);
+  const runInBackground = useCallback(
+    (toolCallId?: string) => void directClient.current?.backgroundWork(toolCallId).catch(() => undefined),
+    [],
+  );
+  const foreground = useMemo(
+    () => (canBackground && snapshot.isWorking ? foregroundCalls(snapshot.rows) : []),
+    [canBackground, snapshot.isWorking, snapshot.rows],
+  );
+  const backgroundHint = !quick && canBackground && snapshot.isWorking ? runInBackground : undefined;
   /// Shows subagent `id`: in a pane of its own right of the chat (focused with `focus`), or in
   /// this pane when this is a subagent's pane or the host opens none.
   const showSubagent = useCallback((id: string, focus = true) => {
@@ -4135,6 +4284,11 @@ function AcpmuxPane() {
     .join("\u0001");
   // eslint-disable-next-line react-hooks/exhaustive-deps -- a new list only when an agent changes
   const chatAgents = useMemo(() => freshAgents, [agentsKey]);
+  // A subagent draws no tool row (subagents/subagentFold.ts swallows the call that started it), so
+  // a running foreground subagent holds Ctrl-B by itself.
+  const foregroundAgent =
+    canBackground && snapshot.isWorking && freshAgents.some((agent) => running(agent) && !agent.background);
+  useBackgroundKey(!quick && (foreground.length > 0 || foregroundAgent), runInBackground);
   const chatTones = useMemo(() => (chatAgents.length > 0 ? agentTones(chatAgents) : undefined), [chatAgents]);
   const freshWaiting = useMemo(
     () => (chatAgents.some(running) ? waitingSubagents(askedToolCalls, snapshot.subagentViews) : new Set<string>()),
@@ -4163,31 +4317,34 @@ function AcpmuxPane() {
       setAutoOpenSubagents,
     ],
   );
-  // The running line's counts (conversation/WorkingFor.tsx): the subagents still running and the
-  // background shells that have not ended. A count of one opens its subagent or the shell's row;
-  // of several, the summary card, which lists them all.
+  // The running line's counts (conversation/WorkingFor.tsx): the subagents still running, the
+  // background commands that have not ended and the started chats that run. A count of one opens its
+  // subagent, the command's row or the chat; of several, the summary card, which lists them all.
+  // Between turns the same work is the transcript's last row (BackgroundWorkRow.tsx).
   const [revealRow, setRevealRow] = useState<{ rowId: string; key: number; toolId: string }>();
   // chatAgents already lists every subagent and changes when one's state does.
-  const runningAgents = useMemo(
-    () => (snapshot.isWorking ? chatAgents.filter(running) : []),
-    [snapshot.isWorking, chatAgents],
-  );
-  const runningCommands = useMemo(
-    () => (snapshot.isWorking ? runningBackgroundTasks(snapshot.rows) : []),
-    [snapshot.isWorking, snapshot.rows],
+  const liveAgents = useMemo(() => chatAgents.filter(running), [chatAgents]);
+  const runningAgents = snapshot.isWorking ? liveAgents : NO_AGENTS;
+  const runningCommands = snapshot.isWorking ? runningCommandList : NO_COMMANDS;
+  const runningSessions = snapshot.isWorking ? runningChildSessions : NO_STARTED;
+  // Between turns, what still runs: the transcript's last row while there is any (BackgroundWorkRow.tsx).
+  const backgroundCounts = useMemo<BackgroundCounts>(
+    () => ({ commands: runningCommandList.length, sessions: runningChildSessions.length, agents: liveAgents.length }),
+    [runningCommandList.length, runningChildSessions.length, liveAgents.length],
   );
   // The turn's tokens so far, said after its time (direct.ts `turnTokens`).
   const turnTokens = snapshot.isWorking ? snapshot.turnTokens : undefined;
-  const counted = useRef({ runningAgents, runningCommands, sourceRows, transcriptRows, summaryCard });
-  counted.current = { runningAgents, runningCommands, sourceRows, transcriptRows, summaryCard };
+  const counted = useRef({ runningAgents, runningCommands, runningSessions, sourceRows, transcriptRows, summaryCard });
+  counted.current = { runningAgents, runningCommands, runningSessions, sourceRows, transcriptRows, summaryCard };
   const workingCounts = useMemo<WorkingCounts>(() => {
     // A shell's Bash row, opening its turn's "Worked for" when that is closed and the run that
     // holds the call. The reveal lets go after a moment, so the run closes again like any other.
-    const showToolRow = (toolId: string) => {
+    // False when no loaded row holds the call (a command only the registry knows).
+    const showToolRow = (toolId: string | undefined) => {
       const { sourceRows: rows, transcriptRows: shown } = counted.current;
-      const index = rows.findIndex((row) => row.items?.some((item) => item.tool?.id === toolId));
+      const index = toolId ? rows.findIndex((row) => row.items?.some((item) => item.tool?.id === toolId)) : -1;
       const row = rows[index];
-      if (!row) return;
+      if (!row || !toolId) return false;
       if (!shown.some((drawn) => isFindRow(drawn, row.id))) {
         const fold = turnFoldFor(rows, index);
         if (fold) openFold(fold);
@@ -4195,11 +4352,15 @@ function AcpmuxPane() {
       const key = Date.now();
       setRevealRow({ rowId: row.id, key, toolId });
       setTimeout(() => setRevealRow((current) => (current?.key === key ? undefined : current)), REVEAL_HOLD_MS);
+      return true;
     };
     return {
       agents: runningAgents.length,
       commands: runningCommands.length,
+      sessions: runningSessions.length,
       tokens: turnTokens,
+      background: backgroundCounts,
+      openBackground: () => counted.current.summaryCard.show(),
       openAgents: () => {
         const { runningAgents: agents, summaryCard: card } = counted.current;
         if (agents.length === 1) showSubagent(agents[0]!.id);
@@ -4207,11 +4368,29 @@ function AcpmuxPane() {
       },
       openCommands: () => {
         const { runningCommands: commands, summaryCard: card } = counted.current;
-        if (commands.length === 1) showToolRow(commands[0]!.id);
+        if (commands.length !== 1 || !showToolRow(commands[0]!.toolCallId)) card.show();
+      },
+      openSessions: () => {
+        const { runningSessions: sessions, summaryCard: card } = counted.current;
+        if (sessions.length === 1) openOfferChat(sessions[0]!.sessionId);
         else card.show();
       },
     };
-  }, [runningAgents.length, runningCommands.length, turnTokens, showSubagent, openFold]);
+  }, [
+    runningAgents.length,
+    runningCommands.length,
+    runningSessions.length,
+    turnTokens,
+    backgroundCounts,
+    showSubagent,
+    openFold,
+  ]);
+  const backgroundShown = !quick && !childRows && backgroundRowShown(snapshot.isWorking, backgroundCounts);
+  const drawnRows = useMemo(() => {
+    const last = transcriptRows.at(-1);
+    if (!backgroundShown || !last) return transcriptRows;
+    return [...transcriptRows, { id: BACKGROUND_WORK, version: 1, at: last.at, kind: BACKGROUND_WORK }];
+  }, [transcriptRows, backgroundShown]);
   // The Quick Composer cannot show the Harnesses page: it registers no opener, so its + hides.
   useEffect(() => (quick ? undefined : registerHarnessesPage(() => setHarnessesOpen(true))), [quick]);
   // `/btw` (cx-ef2m), behind its experiment; the Quick Composer never shows a side question.
@@ -4881,6 +5060,7 @@ function AcpmuxPane() {
           return;
         }
         directClient.current = client;
+        setClientEpoch((epoch) => epoch + 1);
         // The minimap's prompt bookmarks live in acpmux's session (threadMinimap/bookmarks.ts).
         setBookmarkTransport({
           get: (id) => client.readBookmarks(id),
@@ -5223,6 +5403,13 @@ function AcpmuxPane() {
             if (!chat) throw new Error(translate("error.notOpen"));
             await client.dismissOffer(chat, String(offerId));
           },
+          // Reply on another agent's message card: the answer goes to the chat that sent it, in
+          // its thread (conversation/IncomingMessageCard.tsx).
+          "chat.message.reply": async ({ sessionId, msgId, threadId, text }) => {
+            const str = (value: unknown) => (typeof value === "string" && value ? value : undefined);
+            const [to, id, thread] = [str(sessionId), str(msgId), str(threadId)];
+            await client.reply({ sessionId: to, msgId: id, threadId: thread }, String(text ?? ""));
+          },
           // Open on a started offer: beside this chat, as a side chat opens; else here.
           "chat.offer.open": async ({ sessionId }) => {
             try {
@@ -5459,7 +5646,7 @@ function AcpmuxPane() {
   // The header's state from the chat's tab (header/headerState.ts): read when a chat opens, then pushed
   // by the App on every change. Whether the panes beside the chat show ([+] New tab reads Hide tabs) also
   // follows the App's answer to the click.
-  const { sideTabs } = useHeaderState();
+  const { sideTabs, pullRequest: headerPullRequest } = useHeaderState();
   const toggleSideTabs = () =>
     ignoreFailure(
       callNative<{ shown?: boolean }>("pane.action", { id: "sideTabs" }).then((result) =>
@@ -5790,12 +5977,17 @@ function AcpmuxPane() {
   };
   const loadNewTabProjects = useCallback(
     () =>
-      callNative<{ projects?: string[] }>("project.list").then((result) =>
-        (result?.projects ?? []).map((cwd) => ({ cwd, label: projectName(cwd) ?? cwd })),
-      ),
+      callNative<{ projects?: string[]; repos?: unknown }>("project.list").then((result) => {
+        // Each folder's repository (projectRepos.ts): the pickers fold worktrees under it.
+        const repos = parseProjectRepos(result?.repos);
+        return (result?.projects ?? []).map((cwd): Project => {
+          const repo = repos[cwd];
+          return { cwd, label: projectName(cwd) ?? cwd, ...(repo ? { repo } : {}) };
+        });
+      }),
     [],
   );
-  const [directProjects, setDirectProjects] = useState<{ cwd: string; label: string }[]>([]);
+  const [directProjects, setDirectProjects] = useState<Project[]>([]);
   const onNewTab = Boolean(newTab);
   useEffect(() => {
     // Start Agent's folder picker lists them too (cx-hkat), and so does the New Tab page: the
@@ -5847,15 +6039,20 @@ function AcpmuxPane() {
     [directProjects, newTab?.projects],
   );
   const newTabProjects = useMemo(() => {
-    const byPath = new Map<string, { cwd: string; label: string }>();
+    const byPath = new Map<string, Project>();
+    // A folder the host listed keeps its repository (projectRepos.ts) when a chat names it again.
+    const listed = (cwd: string): Project => {
+      const repo = byPath.get(cwd)?.repo;
+      return { cwd, label: projectLabel(cwd), ...(repo ? { repo } : {}) };
+    };
     for (const project of directProjects) byPath.set(project.cwd, project);
-    for (const path of newTab?.projects ?? []) byPath.set(path, { cwd: path, label: projectLabel(path) });
+    for (const path of newTab?.projects ?? []) byPath.set(path, listed(path));
     for (const session of newTabSnapshot.sessions) {
       if (typeof session.cwd !== "string" || !session.cwd) continue;
       if (session.host && session.hostKind !== "local") continue;
-      byPath.set(session.cwd, { cwd: session.cwd, label: projectLabel(session.cwd) });
+      byPath.set(session.cwd, listed(session.cwd));
     }
-    if (newTab?.cwd) byPath.set(newTab.cwd, { cwd: newTab.cwd, label: projectLabel(newTab.cwd) });
+    if (newTab?.cwd) byPath.set(newTab.cwd, listed(newTab.cwd));
     return [...byPath.values()];
   }, [newTabSnapshot.sessions, newTab?.cwd, newTab?.projects, directProjects]);
   // The new chat's hero picker (cx-9g0w): this Mac's projects, then other machines' folders from
@@ -5929,74 +6126,77 @@ function AcpmuxPane() {
       <ImageViewerContext.Provider value={openImage}>
         <ShellActionsContext.Provider value={shellActions}>
           <TurnActionsContext.Provider value={turnActions}>
-            <TurnCountsContext.Provider value={turnCountsFor}>
-              <SessionEditsContext.Provider value={editRows}>
-                <SessionCwdContext.Provider value={snapshot.summary?.cwd}>
-                  <SubagentNavContext.Provider value={setSubagentView}>
-                    <SubagentPaneContext.Provider value={showSubagent}>
-                      <WorkingCountsContext.Provider value={workingCounts}>
-                        <SubagentStopContext.Provider value={stopSubagent}>
-                          <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
-                            <SubagentHarnessContext.Provider
-                              value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}
-                            >
-                              <SessionHoverContext.Provider value={sessionHover}>
-                                <StartedMentionsContext.Provider value={startedMentions}>
-                                  <ChatFindScope
-                                    rows={childRows ?? sourceRows}
-                                    shown={childRows ? undefined : transcriptRows}
-                                    openFold={openFold}
-                                    findRef={findRef}
-                                  >
-                                    {(find) => (
-                                      <VirtualTranscript
-                                        rows={transcriptRows}
-                                        working={snapshot.isWorking}
-                                        // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
-                                        jumpButton={!quick}
-                                        focusComposer={() => composerHandle.current?.focus()}
-                                        // Quick Chat's panel stacks its composer below the transcript.
-                                        dock={quick ? undefined : dock}
-                                        queueWithdrawn={snapshot.queueWithdrawn}
-                                        find={quick ? undefined : find}
-                                        sessionId={
-                                          childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId
-                                        }
-                                        canLoadOlder={!childRows && snapshot.canLoadOlder}
-                                        historyFrom={childRows ? undefined : snapshot.historyFrom}
-                                        onLoadOlder={() => directClient.current?.loadOlder() ?? Promise.resolve()}
-                                        openAt={
-                                          !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
-                                            ? scrollAnchor
-                                            : undefined
-                                        }
-                                        anchorNow={quick || childRows ? undefined : transcriptAnchor}
-                                        onAnchor={
-                                          quick || childRows || !shownSessionId
-                                            ? undefined
-                                            : (anchor) => postScrollAnchor(shownSessionId, anchor)
-                                        }
-                                        expanded={expanded}
-                                        reveal={childRows ? undefined : revealRow}
-                                        registry={registry}
-                                        githubRepository={githubRepository}
-                                        // The Quick Composer has no room for the changes view; its file rows stay plain.
-                                        onOpenDiff={quick ? undefined : openDiff}
-                                        onToggleActivity={toggleActivity}
-                                      />
-                                    )}
-                                  </ChatFindScope>
-                                </StartedMentionsContext.Provider>
-                              </SessionHoverContext.Provider>
-                            </SubagentHarnessContext.Provider>
-                          </SubagentClockContext.Provider>
-                        </SubagentStopContext.Provider>
-                      </WorkingCountsContext.Provider>
-                    </SubagentPaneContext.Provider>
-                  </SubagentNavContext.Provider>
-                </SessionCwdContext.Provider>
-              </SessionEditsContext.Provider>
-            </TurnCountsContext.Provider>
+            <RunInBackgroundContext.Provider value={backgroundHint}>
+              <TurnCountsContext.Provider value={turnCountsFor}>
+                <SessionEditsContext.Provider value={editRows}>
+                  <SessionCwdContext.Provider value={snapshot.summary?.cwd}>
+                    <SubagentNavContext.Provider value={setSubagentView}>
+                      <SubagentPaneContext.Provider value={showSubagent}>
+                        <WorkingCountsContext.Provider value={workingCounts}>
+                          <SubagentStopContext.Provider value={stopSubagent}>
+                            <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
+                              <SubagentHarnessContext.Provider
+                                value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}
+                              >
+                                <SessionHoverContext.Provider value={sessionHover}>
+                                  <StartedMentionsContext.Provider value={startedMentions}>
+                                    <ChatFindScope
+                                      rows={childRows ?? sourceRows}
+                                      shown={childRows ? undefined : transcriptRows}
+                                      openFold={openFold}
+                                      findRef={findRef}
+                                    >
+                                      {(find) => (
+                                        <VirtualTranscript
+                                          rows={drawnRows}
+                                          working={snapshot.isWorking}
+                                          // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
+                                          jumpButton={!quick}
+                                          focusComposer={() => composerHandle.current?.focus()}
+                                          // Quick Chat's panel stacks its composer below the transcript.
+                                          dock={quick ? undefined : dock}
+                                          queueWithdrawn={snapshot.queueWithdrawn}
+                                          find={quick ? undefined : find}
+                                          sessionId={
+                                            childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId
+                                          }
+                                          canLoadOlder={!childRows && snapshot.canLoadOlder}
+                                          historyFrom={childRows ? undefined : snapshot.historyFrom}
+                                          onLoadOlder={() => directClient.current?.loadOlder() ?? Promise.resolve()}
+                                          openAt={
+                                            !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
+                                              ? scrollAnchor
+                                              : undefined
+                                          }
+                                          anchorNow={quick || childRows ? undefined : transcriptAnchor}
+                                          onAnchor={
+                                            quick || childRows || !shownSessionId
+                                              ? undefined
+                                              : (anchor) => postScrollAnchor(shownSessionId, anchor)
+                                          }
+                                          expanded={expanded}
+                                          reveal={childRows ? undefined : revealRow}
+                                          registry={registry}
+                                          githubRepository={githubRepository}
+                                          fallbackRepository={pullRequestRef(headerPullRequest?.url ?? "")?.repo}
+                                          // The Quick Composer has no room for the changes view; its file rows stay plain.
+                                          onOpenDiff={quick ? undefined : openDiff}
+                                          onToggleActivity={toggleActivity}
+                                        />
+                                      )}
+                                    </ChatFindScope>
+                                  </StartedMentionsContext.Provider>
+                                </SessionHoverContext.Provider>
+                              </SubagentHarnessContext.Provider>
+                            </SubagentClockContext.Provider>
+                          </SubagentStopContext.Provider>
+                        </WorkingCountsContext.Provider>
+                      </SubagentPaneContext.Provider>
+                    </SubagentNavContext.Provider>
+                  </SessionCwdContext.Provider>
+                </SessionEditsContext.Provider>
+              </TurnCountsContext.Provider>
+            </RunInBackgroundContext.Provider>
           </TurnActionsContext.Provider>
         </ShellActionsContext.Provider>
       </ImageViewerContext.Provider>
@@ -6597,6 +6797,8 @@ function AcpmuxPane() {
             onOpenOutput={quick ? undefined : openOutput}
             onOpenImage={quick ? undefined : openImage}
             subagents={cardSubagents}
+            background={cardBackground}
+            sessions={cardSessions}
             // The picks are this computer's files: only a chat whose folder is here (not a peer's or
             // another host's) and not Quick Chat.
             onAttach={localCwd && !quick ? () => void attachLinks().catch(() => undefined) : undefined}

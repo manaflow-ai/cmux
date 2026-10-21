@@ -1,28 +1,33 @@
 import CmuxNextSettings
 import Testing
 
-/// Lawrence, 2026-10-19 (u2414): "the logic for it should be more similar to the logic for cmux
-/// classic, where you click and it gets dismissed ... right now I can't dismiss it". Classic
-/// (CmuxNotifications `NotificationDismissalContext`) reads a pane's notification when the pane
-/// is focused in the active app, clicked, or typed in. cmux-next's default was `keystroke`, so a
-/// focus or a click kept the ring until a key reached the pane, and a page or Markdown pane the
-/// person never types into kept it until Mark Read. The default is now `focus`, classic's rule.
+/// The unread ring stays until the person clicks into its pane or types in it (Austin, 2026-10-20:
+/// "the blue ring should persist until I go in and click on that specific pane"; Lawrence,
+/// 2026-10-19, u2414: "you click and it gets dismissed"). The 2026-10-19 default, `focus`, also
+/// read a pane when it merely took focus (a workspace switch, a keyboard move, the palette), so a
+/// ring cleared before the person had looked at its pane. The default is now `click`.
 struct UnreadDismissDefaultsTests {
-    @Test func aNotificationClearsWhenItsPaneIsFocusedByDefault() {
-        #expect(NotificationPreferences().dismissal == .focus)
+    @Test func aNotificationClearsWhenItsPaneIsClickedByDefault() {
+        #expect(NotificationPreferences().dismissal == .click)
         let snapshot = CmuxConfigSnapshot.parse(.object([:]), validDensities: [], validMetrics: [])
-        #expect(snapshot.notifications.dismissal == .focus, "an empty cmux-next.json reads with classic's rule")
-        #expect(SettingsSchema.descriptor(for: ["notifications", "dismissal"])?.defaultValue == .string("focus"))
+        #expect(snapshot.notifications.dismissal == .click, "an empty cmux-next.json reads with the click rule")
+        #expect(SettingsSchema.descriptor(for: ["notifications", "dismissal"])?.defaultValue == .string("click"))
     }
 
-    /// Every way a person looks at a pane reads it by default: focusing it (a click on its tab,
-    /// a keyboard switch, Cmd+1-9, the palette, `cmux focus`: every one settles focus and comes
-    /// here as `focus`), a click in it, a key typed in it, and opening the notification.
-    @Test(arguments: [NotificationTrigger.focus, .click, .keystroke, .open])
-    func everyLookAtThePaneReadsItByDefault(_ trigger: NotificationTrigger) {
+    /// A click in the pane, a key typed in it and opening the notification read it by default.
+    @Test(arguments: [NotificationTrigger.click, .keystroke, .open])
+    func goingIntoThePaneReadsItByDefault(_ trigger: NotificationTrigger) {
         let policy = NotificationPolicy(prefs: NotificationPreferences())
         for source in NotificationSource.allCases {
             #expect(policy.clears(trigger, for: source), "\(trigger) leaves a \(source) notification unread")
+        }
+    }
+
+    /// Focus alone (a workspace switch, a keyboard move, Cmd+1-9, the palette) keeps the ring.
+    @Test func focusAloneKeepsTheRingByDefault() {
+        let policy = NotificationPolicy(prefs: NotificationPreferences())
+        for source in NotificationSource.allCases {
+            #expect(!policy.clears(.focus, for: source), "focus read a \(source) notification")
         }
     }
 

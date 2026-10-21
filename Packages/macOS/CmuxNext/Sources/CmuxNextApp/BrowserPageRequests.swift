@@ -169,7 +169,11 @@ final class BrowserPageRequests: BrowserTabDelegate {
             services.cache.existingBrowser(key)?.chrome.showNotice(text)
         case .download(let item):
             downloads.add(item, tab: key, keep: !services.cache.browserTabs.isIncognitoTab(key)) { [weak services] notice in
-                guard let chrome = services?.cache.existingBrowser(key)?.chrome else { return }
+                guard let services, let entry = services.cache.existingBrowser(key) else { return }
+                // A finished download opens the Downloads popup under the tab's
+                // button, as Chrome's bubble does; the notice is for a tab not on screen.
+                if notice.finished, BrowserToolbarHandlers.showDownloads(for: entry, services: services, finished: true) { return }
+                let chrome = entry.chrome
                 // A blocked download offers the blocking site's Site
                 // settings, where its automatic-downloads choice changes
                 // (the same path as browser.download.openBlockedSiteSettings).
