@@ -19,7 +19,8 @@ pub struct HostLauncher {
 impl HostLauncher {
     /// This process's own binary, with the prefix it starts its daemon with.
     pub fn current() -> Result<Self> {
-        Ok(Self { exe: std::env::current_exe()?, prefix: crate::daemon::daemon_prefix() })
+        let this = crate::self_command::SelfCommand::current()?;
+        Ok(Self { exe: this.exe, prefix: this.prefix })
     }
 }
 

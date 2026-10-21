@@ -64,7 +64,8 @@ struct ApprovalBannerTests {
         let service = try await deliver(Self.needsInput, answerer: answerer)
         let posted = try #require(service.desktop.posted.last)
         #expect(posted.approval, "the banner carries the Allow once / Deny category")
-        #expect(posted.title == "Fix login needs input")
+        #expect(posted.title == "api")
+        #expect(posted.subtitle == "Fix login needs input")
         #expect(posted.body == "Run tests\nswift test --filter Login")
     }
 
