@@ -405,6 +405,7 @@ public nonisolated struct AgentPaneTunables {
             sideSessions.descriptor,
             streamWords.descriptor,
             suggestedTasks.descriptor,
+            systemDictation.descriptor,
             terminalButtonAdds.descriptor,
             browserOpensPreview.descriptor,
             thoughtFoldThreshold.descriptor,

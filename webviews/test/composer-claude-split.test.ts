@@ -9,7 +9,8 @@
 // - The chat's Send comes in after the mic with a draft; an empty chat draft draws the mic alone
 //   (Claude desktop's box: no Send until there is a draft, Leo 2026-10-20). The New Tab page keeps Send.
 // - The mic never leaves, at a roomy width or a narrow one.
-// - + is its glyph, named "Add" for screen readers, with no tooltip (Leo, 2026-10-20: a plain + needs none).
+// - + is its glyph, named "Add" for screen readers, with Codex's short tooltip "Add files and more"
+//   (Leo, 2026-10-21; it overrides 2026-10-20's "a plain + needs none").
 // - The mode menu marks the chosen mode with a check at the row's trailing edge, where the other
 //   rows show their number, as Claude's model menu does.
 // - The + menu's and the @ file picker's rows highlight under the pointer, one row at a time.
@@ -19,8 +20,8 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("composer-claude-split.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -46,7 +47,7 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   const browsers = new Map<string, Browser>();
   const stageURL = (entry: string, variant: string, width: number) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=${entry}&variant=${variant}&frame=component&width=${width}&theme=Catppuccin+Mocha`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(entry, { variant, frame: "component", width, theme: "Catppuccin Mocha" })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -55,22 +56,10 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
-    for (const [name, engine] of engines) {
-      const browser = await engine.launch({ headless: true });
-      browsers.set(name, browser);
-      const warm = await browser.newPage({ viewport: { width: 760, height: 600 } });
-      await warm.goto(stageURL("agent-pane.new-tab", "reasoning-chip", 760));
-      for (;;) {
-        try {
-          await warm.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 0 });
-          break;
-        } catch (error) {
-          if (!/context was destroyed|navigat/i.test(String(error))) throw error;
-        }
-      }
-      await warm.close();
-    }
+    for (const [name, engine] of engines) browsers.set(name, await engine.launch({ headless: true }));
+    const browser = browsers.get("chromium") ?? browsers.get("webkit");
+    await warmGalleryFrame(vite, "agent-pane.new-tab", { browser, params: { variant: "reasoning-chip" } });
+    await warmGalleryFrame(vite, "agent-pane.composer", { browser });
   });
   afterAll(async () => {
     for (const browser of browsers.values()) await browser.close();
@@ -239,7 +228,7 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
           expect(at.send!.right, "Send inside the box").toBeLessThanOrEqual(at.box.right);
         });
 
-    test(`${engine}: + is its glyph, named Add with no tooltip`, async () => {
+    test(`${engine}: + is its glyph, named Add, its tooltip "Add files and more"`, async () => {
       const page = await open(engine, COMPOSERS[0]!);
       const plus = await page
         .locator(".acpmux-composer-plus .acpmux-picker-button")
@@ -250,7 +239,7 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
           tooltip: element.getAttribute("data-tooltip") ?? element.getAttribute("title") ?? "",
         }));
       await page.close();
-      expect(plus).toEqual({ text: "", name: "Add", tooltip: "" });
+      expect(plus).toEqual({ text: "", name: "Add", tooltip: "Add files and more" });
     });
 
     // The New Tab stage has no chat yet, so no mode menu; both pages draw the same AccessMenu.

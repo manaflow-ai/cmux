@@ -31,8 +31,6 @@ enum MiscHandlerStrings {
     static var notInThisWindow: String { String(localized: "handlers.misc.unavailable.windowKind", defaultValue: "Not available in this window.", table: "MiscHandlers", bundle: .module) }
     static var noPane: String { String(localized: "handlers.misc.failed.noPane", defaultValue: "No pane is focused.", table: "MiscHandlers", bundle: .module) }
     /// The sheet that asks for a terminal's resume command (Set/Edit Resume Command).
-    static var resumeCommandTitle: String { String(localized: "handlers.misc.resumeCommand.title", defaultValue: "Resume Command", table: "MiscHandlers", bundle: .module) }
-    static var resumeCommandSave: String { String(localized: "handlers.misc.resumeCommand.save", defaultValue: "Save", table: "MiscHandlers", bundle: .module) }
     static var daemonOffline: String { String(localized: "handlers.misc.failed.daemonOffline", defaultValue: "The cmux-tui daemon is not connected.", table: "MiscHandlers", bundle: .module) }
     static var printUnavailable: String { String(localized: "handlers.misc.failed.printUnavailable", defaultValue: "This page can't be printed now.", table: "MiscHandlers", bundle: .module) }
     static var noPageURL: String { String(localized: "handlers.misc.failed.noPageURL", defaultValue: "The page has no URL.", table: "MiscHandlers", bundle: .module) }
@@ -48,9 +46,15 @@ enum MiscHandlerStrings {
     static var switchModelNeedsFocus: String { String(localized: "handlers.misc.failed.switchModelNeedsFocus", defaultValue: "Switch Model… opens a menu, so it needs focus.", table: "MiscHandlers", bundle: .module) }
     static var switchModelNeedsAgentChat: String { String(localized: "handlers.misc.failed.switchModelNeedsAgentChat", defaultValue: "Switch Model… works in agent chats. Focus one first.", table: "MiscHandlers", bundle: .module) }
     static var copyCodeNeedsAgentChat: String { String(localized: "handlers.misc.failed.copyCodeNeedsAgentChat", defaultValue: "Copy Last Code Block works in agent chats. Focus one first.", table: "MiscHandlers", bundle: .module) }
+    static var noCodeBlock: String { String(localized: "handlers.misc.failed.noCodeBlock", defaultValue: "This chat has no code block to copy.", table: "MiscHandlers", bundle: .module) }
+    static var copyCodeFailed: String { String(localized: "handlers.misc.failed.copyCodeFailed", defaultValue: "The last code block could not be copied.", table: "MiscHandlers", bundle: .module) }
+    static var noWorkingChief: String { String(localized: "handlers.misc.failed.noWorkingChief", defaultValue: "No Chief is working right now.", table: "MiscHandlers", bundle: .module) }
+    static var noChief: String { String(localized: "handlers.misc.failed.noChief", defaultValue: "There is no Chief yet. Make one with New Chief.", table: "MiscHandlers", bundle: .module) }
+    static var homeChiefPaneStays: String { String(localized: "handlers.misc.failed.homeChiefPaneStays", defaultValue: "The Chief pane stays open in Home.", table: "MiscHandlers", bundle: .module) }
+    static var channelsCannotStep: String { String(localized: "handlers.misc.failed.channelsCannotStep", defaultValue: "Channels did not move to another conversation.", table: "MiscHandlers", bundle: .module) }
     static var archiveChatNeedsAgentChat: String { String(localized: "handlers.misc.failed.archiveChatNeedsAgentChat", defaultValue: "Archive Chat works in agent chats. Focus one first.", table: "MiscHandlers", bundle: .module) }
     static var searchFilesNeedsAgentChat: String { String(localized: "handlers.misc.failed.searchFilesNeedsAgentChat", defaultValue: "Search Files… works in agent chats. Focus one first.", table: "MiscHandlers", bundle: .module) }
-    static var continueInNeedsFocus: String { String(localized: "handlers.misc.failed.continueInNeedsFocus", defaultValue: "Continue in… requires focus; use cmux acp continue for a headless handoff.", table: "MiscHandlers", bundle: .module) }
+    static var continueInNeedsFocus: String { String(localized: "handlers.misc.failed.continueInNeedsFocus", defaultValue: "Continue In… requires focus; use cmux acp continue for a headless handoff.", table: "MiscHandlers", bundle: .module) }
     static var quickChatNeedsFocus: String { String(localized: "handlers.misc.failed.quickChatNeedsFocus", defaultValue: "Start Agent opens from the keyboard, palette or menu. It does not take the keyboard for automation.", table: "MiscHandlers", bundle: .module) }
     static var quickChatUnavailable: String { String(localized: "handlers.misc.failed.quickChatUnavailable", defaultValue: "Start Agent needs the agent page, which this build does not include.", table: "MiscHandlers", bundle: .module) }
     static var checkpointNeedsFocus: String { String(localized: "handlers.misc.failed.checkpointNeedsFocus", defaultValue: "Checkpoint review requires focus. Use git.checkpoint.create for a headless capture.", table: "MiscHandlers", bundle: .module) }

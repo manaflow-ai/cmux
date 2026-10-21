@@ -13,7 +13,7 @@ public struct AgentPaneHeaderHooks {
     /// `/btw` side session): a tab in the chat's side pane when one is open, else a new split
     /// (``AgentSidePanes``).
     public var openSide: @MainActor (_ chat: String, _ fork: String) -> Void
-    /// Opens acpmux session `id` in a new tab beside the chat's (a fork, a started Continue in…), so
+    /// Opens acpmux session `id` in a new tab beside the chat's (a fork, a started Continue In…), so
     /// the chat keeps its own tab and session; false when no tab opened.
     public var openTab: @MainActor (String) -> Bool
     /// Shows subagent `agent` of session `session` in an agent pane right of the chat
@@ -154,7 +154,7 @@ extension AgentPaneModel {
             // Only a chat this pane made (its fork's or handoff start's reply put it in the pane's
             // scope), never the chat itself, and not from a New Tab page. A refusal (another
             // machine's pane, no daemon) answers so: the page then opens the chat in this tab.
-            guard let sessionId, newTab == nil, chat != sessionId, transport.sessions.contains(chat), let header,
+            guard let sessionId, newTab == nil, chat != sessionId, AgentPaneSideChat.holds(chat, chat: sessionId, in: self), let header,
                   header.openTab(chat) else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.openTab")
             }
@@ -172,11 +172,18 @@ extension AgentPaneModel {
 
 /// New side chat's view part: opens `fork` in the chat's one side pane, tagged its side chat by
 /// acpmux (`_acpmux/side` or `_acpmux/btw`, cx-jlzsf). `fork` must be a session this pane made (its
-/// reply put it in the pane's scope), never the chat itself. Kept off ``AgentPaneModel``, whose type
-/// is at its size limit.
+/// reply put it in the pane's scope), or, for a chat on another machine, one that chat started there
+/// (its daemon listed it, ``RemoteAgentSessionLinks``); never the chat itself. Kept off
+/// ``AgentPaneModel``, whose type is at its size limit.
 enum AgentPaneSideChat {
+    /// True when the pane of chat `chat` may open `session` beside it.
+    static func holds(_ session: String, chat: String, in model: AgentPaneModel) -> Bool {
+        model.transport.sessions.contains(session)
+            || (model.remoteChat && RemoteAgentSessionLinks.shared.descends(session, from: chat))
+    }
+
     static func open(_ fork: String, in model: AgentPaneModel) async -> [String: Any] {
-        guard let sessionId = model.sessionId, model.newTab == nil, fork != sessionId, model.transport.sessions.contains(fork),
+        guard let sessionId = model.sessionId, model.newTab == nil, fork != sessionId, holds(fork, chat: sessionId, in: model),
               let header = model.header else {
             return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.sideChat")
         }

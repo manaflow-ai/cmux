@@ -755,6 +755,12 @@ def campaign(opts):
             with open(run_json) as f:
                 pin = json.load(f).get("pin")
         failed = line.get("failed", [f"step rc {r.returncode}, no TEAM-EVAL line"])
+        # 409: the key already names a step that may have run, so keep the reservation.
+        refused = re.search(r"cmux-ci: controller HTTP 4(?!09)\d\d: .*", r.stderr)
+        if not step and refused:
+            # The controller refused the step (allowlist, bad args): it never existed, $0, retryable.
+            ledger.void(key, None, [refused.group(0)])
+            return key, f"VOID, refused: {refused.group(0)}"
         if line.get("started") is False:
             # The step failed before any agent ran (route, build, install): $0, retryable.
             ledger.void(key, step, failed)
