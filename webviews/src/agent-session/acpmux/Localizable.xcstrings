@@ -397,134 +397,266 @@
         }
       }
     },
-    "context.ringTooltip": {
-      "comment": "Agent pane composer: tooltip of the context usage ring; {percent} is the share used, {used} and {size} are compact token counts (84K, 200K)",
+    "context.cardLine": {
+      "comment": "Agent pane composer: the context ring hover card's main line; {percent} is the share of the context window used, {used} and {size} are compact token counts (111K, 475K)",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "السياق: {percent}% مستخدم ({used} من {size} رمز)"
+            "state": "needs_review",
+            "value": "تم استخدام {percent}٪ · {used} / {size}"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Kontekst: iskorišteno {percent}% ({used} od {size} tokena)"
+            "state": "needs_review",
+            "value": "{percent}% iskorišteno · {used} / {size}"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Kontekst: {percent}% brugt ({used} af {size} tokens)"
+            "state": "needs_review",
+            "value": "{percent} % brugt · {used} / {size}"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Kontext: {percent} % belegt ({used} von {size} Tokens)"
+            "state": "needs_review",
+            "value": "{percent} % belegt · {used} / {size}"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Context: {percent}% used ({used} of {size} tokens)"
+            "value": "{percent}% used · {used} / {size}"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Contexto: {percent} % usado ({used} de {size} tokens)"
+            "state": "needs_review",
+            "value": "{percent} % usado · {used} / {size}"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Contexte : {percent} % utilisé ({used} sur {size} jetons)"
+            "state": "needs_review",
+            "value": "{percent} % utilisé · {used} / {size}"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Contesto: {percent}% usato ({used} di {size} token)"
+            "state": "needs_review",
+            "value": "{percent}% utilizzato · {used} / {size}"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "コンテキスト：{percent}% 使用（{size} トークン中 {used}）"
+            "state": "needs_review",
+            "value": "{percent}% 使用済み · {used} / {size}"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "បរិបទ៖ បានប្រើ {percent}% ({used} នៃ {size} តូខឹន)"
+            "state": "needs_review",
+            "value": "បានប្រើ {percent}% · {used} / {size}"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "컨텍스트: {percent}% 사용 ({size} 토큰 중 {used})"
+            "state": "needs_review",
+            "value": "{percent}% 사용됨 · {used} / {size}"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Kontekst: {percent} % brukt ({used} av {size} tokens)"
+            "state": "needs_review",
+            "value": "{percent} % brukt · {used} / {size}"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Kontekst: wykorzystano {percent}% ({used} z {size} tokenów)"
+            "state": "needs_review",
+            "value": "Wykorzystano {percent}% · {used} / {size}"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Contexto: {percent}% usado ({used} de {size} tokens)"
+            "state": "needs_review",
+            "value": "{percent}% usado · {used} / {size}"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Контекст: использовано {percent}% ({used} из {size} токенов)"
+            "state": "needs_review",
+            "value": "Использовано {percent}% · {used} / {size}"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "บริบท: ใช้ไป {percent}% ({used} จาก {size} โทเค็น)"
+            "state": "needs_review",
+            "value": "ใช้ไปแล้ว {percent}% · {used} / {size}"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Bağlam: %{percent} kullanıldı ({size} belirteçten {used})"
+            "state": "needs_review",
+            "value": "%{percent} kullanıldı · {used} / {size}"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Контекст: використано {percent}% ({used} з {size} токенів)"
+            "state": "needs_review",
+            "value": "Використано {percent}% · {used} / {size}"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ngữ cảnh: đã dùng {percent}% ({used} trên {size} token)"
+            "state": "needs_review",
+            "value": "Đã dùng {percent}% · {used} / {size}"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "上下文：已用 {percent}%（{used} / {size} 个令牌）"
+            "state": "needs_review",
+            "value": "已使用 {percent}% · {used} / {size}"
           }
         },
         "zh-Hant": {
           "stringUnit": {
+            "state": "needs_review",
+            "value": "已使用 {percent}% · {used} / {size}"
+          }
+        }
+      }
+    },
+    "context.details": {
+      "comment": "Agent pane composer: the context ring hover card's link that opens the Inspector at its Context section; a › follows it",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التفاصيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Detalji"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Detaljer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Details"
+          }
+        },
+        "en": {
+          "stringUnit": {
             "state": "translated",
-            "value": "上下文：已用 {percent}%（{used} / {size} 個權杖）"
+            "value": "Details"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Detalles"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Détails"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dettagli"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "詳細"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ព័ត៌មានលម្អិត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "세부 정보"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Detaljer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Szczegóły"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Detalhes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Подробности"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "รายละเอียด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ayrıntılar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Докладніше"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chi tiết"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "详细信息"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "詳細資訊"
           }
         }
       }

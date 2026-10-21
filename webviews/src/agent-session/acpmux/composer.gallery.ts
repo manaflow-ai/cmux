@@ -1142,7 +1142,7 @@ export default agentPaneEntry({
       },
     },
     "context-breakdown": {
-      note: "Play: open the context ring after a first message on Codex; the details split Agent setup (system prompt, tools and instructions) from the conversation.",
+      note: "Play: rest the pointer on the context ring after a first message on Codex; the glass card shows the share and tokens used and the window as a bar.",
       snapshot: chat(finished, {
         summary: {
           sessionId: "gallery-context",
@@ -1154,8 +1154,8 @@ export default agentPaneEntry({
         },
       }),
       play: async (ctx) => {
-        await ctx.click({ selector: "button.acpmux-context-ring" });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-context-part"));
+        await ctx.hover({ selector: "button.acpmux-context-ring" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-context-card"));
       },
     },
     "slash-menu": {

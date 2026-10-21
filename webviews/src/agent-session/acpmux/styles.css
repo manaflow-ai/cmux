@@ -100,7 +100,6 @@
 /* The context ring is a button the size of the mic; a click opens the usage details above the bar. */
 .acpmux-context{flex:none}
 .acpmux-context-ring{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background:none;color:var(--agent-muted)}
-.acpmux-context-ring:hover,.acpmux-context-ring[aria-expanded=true]{background:var(--acpmux-composer-hover);color:var(--agent-text)}
 .acpmux-context-ring:disabled{background:none;color:var(--agent-muted);opacity:.5}
 .acpmux-context-ring:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 .acpmux-context-full .acpmux-context-ring,.acpmux-context-full .acpmux-context-ring:hover{color:var(--acpmux-warning)}

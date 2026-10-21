@@ -7211,6 +7211,7 @@ function AcpmuxPane() {
             switching={Boolean(switchView.intent)}
             chips={ComposerChips}
             permissionAccess={permissionAccess}
+            onOpenContext={inspector.reveal ? () => inspector.reveal?.("context") : undefined}
             draft={draft}
             onUnsentDraft={quick ? undefined : postUnsentDraft}
             keptAttachments={quick ? undefined : keptAttachments}

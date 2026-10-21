@@ -7,7 +7,9 @@ import { HOVER_INTENT } from "../../../ui/hoverIntent";
 
 export type HoverCard = ReturnType<typeof useHoverCard>;
 
-export function useHoverCard() {
+/// `dwell`: the pointer rest before it opens (the hover-card dwell; an icon-only control whose
+/// card replaces its tooltip waits the tooltip delay).
+export function useHoverCard(dwell: number = HOVER_INTENT.cardDwell) {
   const [open, setOpen] = useState(false);
   const inCard = useRef(false);
   /// The card's Open in menu is open: the card stays until it closes.
@@ -23,7 +25,7 @@ export function useHoverCard() {
   const show = (immediate = false) => {
     clearTimers();
     if (immediate) setOpen(true);
-    else openTimer.current = setTimeout(() => setOpen(true), HOVER_INTENT.cardDwell);
+    else openTimer.current = setTimeout(() => setOpen(true), dwell);
   };
   const hide = () => {
     clearTimers();
