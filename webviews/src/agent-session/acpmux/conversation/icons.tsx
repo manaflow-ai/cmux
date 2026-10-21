@@ -166,6 +166,14 @@ export const Check = (p: CvIconProps) => (
   </Svg>
 );
 
+/** A clock: a prompt still on its way (conversation/PromptDelivery.tsx). */
+export const Clock = (p: CvIconProps) => (
+  <Svg {...p}>
+    <circle cx="8" cy="8" r="5.5" />
+    <path d="M8 5v3.2l2 1.3" />
+  </Svg>
+);
+
 /** Thread summary toggle in the title bar: two rings with bars. */
 export const SummaryToggle = (p: CvIconProps) => (
   <Svg {...p}>
@@ -199,10 +207,10 @@ export const GitHubMark = ({ size = 16, className, style }: CvIconProps) => (
   </svg>
 );
 
-/** Open-ended ring used as the "working" spinner. */
+/** Open-ended ring used as the "working" spinner. `cv-spinner` turns it (conversation.css). */
 export const Spinner = ({ size = 16, className, style, strokeWidth = 1.5 }: CvIconProps) => (
   <svg
-    className={className}
+    className={className ? `cv-spinner ${className}` : "cv-spinner"}
     style={style}
     width={size}
     height={size}
@@ -373,6 +381,14 @@ export const PauseCircle = (p: CvIconProps) => (
   <Svg {...p}>
     <circle cx="8" cy="8" r="5.75" />
     <path d="M6.5 6v4M9.5 6v4" />
+  </Svg>
+);
+
+/** A steer waiting for the agent's current step to end (PendingSteer.tsx). */
+export const Clock = (p: CvIconProps) => (
+  <Svg {...p}>
+    <circle cx="8" cy="8" r="5.75" />
+    <path d="M8 5v3.25l2 1.25" />
   </Svg>
 );
 
