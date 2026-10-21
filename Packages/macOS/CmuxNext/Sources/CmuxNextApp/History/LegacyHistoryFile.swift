@@ -14,8 +14,10 @@ final class LegacyHistoryFile: Sendable, Equatable {
     private let identity: Identity
 
     init?(url: URL, supportDirectory: URL) {
-        let support = supportDirectory.standardizedFileURL
-        let candidate = url.standardizedFileURL
+        // `standardized`, not `standardizedFileURL`: the latter also drops a leading
+        // /private, turning /private/var/… into /var/…, which is a link and so refused.
+        let support = supportDirectory.standardized
+        let candidate = url.standardized
         let supportParts = support.pathComponents
         let candidateParts = candidate.pathComponents
         guard candidateParts.count > supportParts.count,
@@ -66,7 +68,7 @@ final class LegacyHistoryFile: Sendable, Equatable {
     }
 
     static func pathEntryExists(_ url: URL) -> Bool {
-        identity(at: url.standardizedFileURL) != nil
+        identity(at: url.standardized) != nil
     }
 
     /// Removes a captured SQLite generation only when every present member is
@@ -177,7 +179,7 @@ final class LegacyHistoryFile: Sendable, Equatable {
     private static func directoryIdentity(at url: URL) -> Identity? {
         var current = URL(fileURLWithPath: "/", isDirectory: true)
         guard var found = identity(at: current), found.isDirectory else { return nil }
-        for component in url.standardizedFileURL.pathComponents.dropFirst() {
+        for component in url.standardized.pathComponents.dropFirst() {
             current.append(path: component, directoryHint: .isDirectory)
             guard let next = identity(at: current), next.isDirectory else { return nil }
             found = next
