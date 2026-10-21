@@ -194,7 +194,7 @@ public final class ChiefPetController {
             self?.actions.openSettings()
         }
         made.onHide = { [weak self] in self?.actions.hide() }
-        made.canHide = { [weak self] in self?.actions.canHide() ?? false }
+        made.hideAllowed = { [weak self] in self?.actions.canHide() ?? false }
         // With no notices the chevron opens the Chief.
         made.onExpand = { [weak self] in
             guard let self else { return }
