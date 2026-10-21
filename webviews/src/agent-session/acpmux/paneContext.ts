@@ -57,8 +57,16 @@ export function workingURLs(rows: AcpmuxRow[], limit = 20): string[] {
     .slice(0, limit);
 }
 
-/** The selected session's cwd and the transcript's working URLs. */
-export function paneContext(snapshot: Pick<AcpmuxSnapshot, "rows" | "sessions" | "sessionId">): PaneContext {
-  const cwd = snapshot.sessions.find((session) => session.sessionId === snapshot.sessionId)?.cwd;
+/**
+ * The selected session's cwd and the transcript's working URLs. An unsent chat has no session
+ * yet: the folder picked for it (`projectDraft`) is its cwd, so Ctrl-` opens there, not at ~.
+ */
+export function paneContext(
+  snapshot: Pick<AcpmuxSnapshot, "rows" | "sessions" | "sessionId">,
+  projectDraft?: string,
+): PaneContext {
+  const cwd = snapshot.sessionId
+    ? snapshot.sessions.find((session) => session.sessionId === snapshot.sessionId)?.cwd
+    : projectDraft;
   return { ...(cwd ? { cwd } : {}), urls: workingURLs(snapshot.rows) };
 }

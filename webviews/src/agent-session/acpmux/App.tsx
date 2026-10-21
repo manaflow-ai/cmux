@@ -4458,6 +4458,9 @@ function AcpmuxPane() {
   }, []);
   const freshRef = useRef(false);
   freshRef.current = freshChat && !snapshot.sessionId;
+  /// The unsent chat's folder, for host requests that read it (pane.context).
+  const projectDraftRef = useRef(projectDraft);
+  projectDraftRef.current = projectDraft;
   const chooseProject = useCallback(
     (cwd: string, peer?: string) => {
       // Another computer's folder is that computer's to check.
@@ -5311,7 +5314,10 @@ function AcpmuxPane() {
                   : Promise.reject(new Error(translate("header.prMergeFailed")))
                 : client.gitPullRequest(),
           // What the agent works on, for a terminal or browser opened from this chat (#16620).
-          "pane.context": async () => (snapshotRef.current ? paneContext(snapshotRef.current) : { urls: [] }),
+          "pane.context": async () =>
+            snapshotRef.current
+              ? paneContext(snapshotRef.current, projectDraftRef.current)
+              : { ...(projectDraftRef.current ? { cwd: projectDraftRef.current } : {}), urls: [] },
           // What this page holds that acpmux does not, kept by the host when a hidden chat's page
           // lets go and handed back with the next page's handshake (`wake`).
           // The transcript's place: an anchor, at its latest message, or left out when unknown
