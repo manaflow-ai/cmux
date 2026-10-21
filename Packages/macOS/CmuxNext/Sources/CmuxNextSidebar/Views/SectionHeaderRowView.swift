@@ -45,6 +45,32 @@ final class SectionHeaderRowView: SidebarRowView {
         var iconSize: CGFloat
     }
 
+    /// A machine's state in words, for the header's label and the dot's tooltip.
+    static func statusWords(_ status: SidebarMachine.Status) -> String {
+        switch status {
+        case .connected: Strings.statusConnected
+        case .connecting: Strings.statusConnecting
+        case .reconnecting: Strings.statusReconnecting
+        case .offline: Strings.statusOffline
+        case .updateAvailable: Strings.statusUpdateAvailable
+        case .updateRequired: Strings.statusUpdateRequired
+        case .installRequired: Strings.statusInstallRequired
+        case .installing: Strings.statusInstalling
+        case .authFailed: Strings.statusAuthFailed
+        case .unreachable: Strings.statusUnreachable
+        case .failed: Strings.statusFailed
+        }
+    }
+
+    /// The header's tooltip: what a bare status dot means in words ("Offline"). Where the words
+    /// already show beside the dot (a remote group, an update state) or no dot draws (This Mac),
+    /// only the detail an update state carries.
+    static func statusToolTip(words: String, detail: String?, bareDot: Bool) -> String? {
+        guard bareDot else { return detail }
+        guard let detail, !detail.isEmpty else { return words }
+        return words + " — " + detail
+    }
+
     /// The status text beside a machine header's dot. A remote group (remote-groups-DESIGN.md slice 5)
     /// names every state, Connected and Offline included; another machine only what needs attention.
     static func statusText(_ status: SidebarMachine.Status, hostGroup: Bool) -> String? {
@@ -103,23 +129,10 @@ final class SectionHeaderRowView: SidebarRowView {
             case (_, .offline): statusTone = .quiet
             case (_, .updateRequired), (_, .authFailed), (_, .unreachable), (_, .failed): statusTone = .danger
             }
-            var label = machine.name
-            switch machine.status {
-            case .connected: label += ", " + Strings.statusConnected
-            case .connecting: label += ", " + Strings.statusConnecting
-            case .reconnecting: label += ", " + Strings.statusReconnecting
-            case .offline: label += ", " + Strings.statusOffline
-            case .updateAvailable: label += ", " + Strings.statusUpdateAvailable
-            case .updateRequired: label += ", " + Strings.statusUpdateRequired
-            case .installRequired: label += ", " + Strings.statusInstallRequired
-            case .installing: label += ", " + Strings.statusInstalling
-            case .authFailed: label += ", " + Strings.statusAuthFailed
-            case .unreachable: label += ", " + Strings.statusUnreachable
-            case .failed: label += ", " + Strings.statusFailed
-            }
+            let words = Self.statusWords(machine.status)
             badgeText = Self.statusText(machine.status, hostGroup: section.isHostGroup)
-            themedToolTip = machine.detail
-            setAccessibilityLabel(label)
+            themedToolTip = Self.statusToolTip(words: words, detail: machine.detail, bareDot: statusTone != nil && badgeText == nil)
+            setAccessibilityLabel(machine.name + ", " + words)
             setAccessibilityHelp(machine.detail)
         }
         // The only machine needs no name or status: the header heads the
