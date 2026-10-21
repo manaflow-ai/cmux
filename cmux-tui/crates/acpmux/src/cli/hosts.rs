@@ -1,6 +1,7 @@
 //! `acpmux host setup` and `host update`: install or refresh the daemon on
 //! a machine reached over ssh, then register it as a peer. macOS remotes
-//! get a launchd agent; others get a nohup fallback.
+//! get a launchd agent, Linux remotes the user systemd unit `acpmux.service`,
+//! and a host without a user systemd manager a detached start.
 
 use crate::cli::output::print_json;
 use crate::client::Client;
@@ -156,11 +157,72 @@ fn launchd_status(host: &str, json: bool) -> Result<String> {
 /// callback, so a launchd host is given this long before its status is read.
 const LAUNCHD_START_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 
-/// (Re)start the remote daemon: launchd on macOS, a detached start elsewhere.
+/// The user systemd unit a Linux host runs its daemon under: one daemon per
+/// user, at `~/.acpmux` (cmuxterm-hq plans/cmux-next/acpmux-one-daemon.md).
+/// `KillMode=process`: a stop or restart signals the daemon alone, whose
+/// SIGTERM leaves the hosted agents running for the next daemon to adopt;
+/// the default (`control-group`) would end every agent host with it.
+const SYSTEMD_UNIT: &str = "[Unit]
+Description=acpmux daemon
+After=default.target
+
+[Service]
+Type=simple
+Environment=PATH=%h/.local/bin:%h/.bun/bin:%h/.cargo/bin:%h/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.local/bin/acpmux daemon run
+WorkingDirectory=%h
+Restart=always
+RestartSec=3
+KillMode=process
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target
+";
+
+/// What a Linux script prints when systemd (re)started the daemon: it has
+/// no readiness callback there, so the caller reads the status after a grace.
+const SYSTEMD_STARTED: &str = "ACPMUX_SYSTEMD_STARTED";
+
+/// (Re)start the daemon on a Linux host. With a user systemd manager, under
+/// `acpmux.service`: `install` writes the unit first; without it, a host
+/// whose unit is missing gets the detached restart. A running unit restarts
+/// (SIGTERM, agents kept); otherwise a daemon started another way is shut
+/// down keeping its agents and the unit starts, so one daemon serves the
+/// home. Without a user manager (a container), the detached restart.
+fn linux_restart(install: bool, json: bool) -> String {
+    let unit = if install {
+        format!(
+            "mkdir -p ~/.config/systemd/user && cat > ~/.config/systemd/user/acpmux.service <<'ACPMUX_UNIT' && systemctl --user daemon-reload &&\n{SYSTEMD_UNIT}ACPMUX_UNIT\n"
+        )
+    } else {
+        String::new()
+    };
+    format!(
+        "if systemctl --user show-environment >/dev/null 2>&1 && {{ {unit}systemctl --user cat acpmux.service >/dev/null 2>&1; }}; then \
+         if systemctl --user is-active --quiet acpmux.service; then systemctl --user restart acpmux.service; \
+         else {SHUTDOWN_KEEPING_AGENTS}; systemctl --user enable --now acpmux.service; fi && echo {SYSTEMD_STARTED}; \
+         else {}; fi",
+        restart_detached(json)
+    )
+}
+
+/// The status after a Linux (re)start: read after a grace when systemd started it.
+fn linux_status(host: &str, out: String, json: bool) -> Result<String> {
+    if out.lines().any(|l| l.trim() == SYSTEMD_STARTED) {
+        std::thread::sleep(LAUNCHD_START_GRACE);
+        return launchd_status(host, json);
+    }
+    Ok(out)
+}
+
+/// (Re)start the remote daemon: launchd on macOS, the user systemd unit or a
+/// detached start elsewhere.
 fn restart_daemon(host: &str) -> Result<String> {
     let os = ssh(host, "uname -s")?;
     if os != "Darwin" {
-        return ssh(host, &restart_detached(true));
+        let out = ssh(host, &linux_restart(false, true))?;
+        return linux_status(host, out, true);
     }
     ssh(
         host,
@@ -244,7 +306,8 @@ pub(crate) async fn setup(
         std::thread::sleep(LAUNCHD_START_GRACE);
         launchd_status(host, false)?
     } else {
-        ssh(host, &restart_detached(false))?
+        let out = ssh(host, &linux_restart(true, false))?;
+        linux_status(host, out, false)?
     };
     // Register (or re-register) the peer.
     let url = if port == 47811 { format!("ssh://{host}") } else { format!("ssh://{host}:{port}") };
@@ -381,6 +444,103 @@ mod tests {
         let calls = std::fs::read_to_string(home.join("calls")).unwrap_or_default();
         let _ = std::fs::remove_dir_all(&home);
         calls.lines().map(str::to_owned).collect()
+    }
+
+    /// `linux_restart(install, true)` in a fake home whose `systemctl` answers
+    /// as `active` says (`None`: no user manager); the calls of the fake
+    /// `acpmux` and `systemctl`, the unit written and the script's output.
+    #[cfg(unix)]
+    fn linux_restart_run(
+        tag: &str,
+        install: bool,
+        active: Option<bool>,
+    ) -> (Vec<String>, String, String) {
+        use std::os::unix::fs::PermissionsExt;
+        let home = std::env::temp_dir().join(format!("acpmux-lx-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        let bin = home.join(".local/bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let fake = |name: &str, body: &str| {
+            let file = bin.join(name);
+            std::fs::write(
+                &file,
+                format!("#!/bin/sh\necho \"{name} $*\" >> \"$HOME/calls\"\n{body}\n"),
+            )
+            .unwrap();
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+        };
+        fake("acpmux", "exit 0");
+        let manager = if active.is_some() { "exit 0" } else { "exit 1" };
+        let is_active = if active == Some(true) { "exit 0" } else { "exit 3" };
+        fake(
+            "systemctl",
+            &format!(
+                "case \"$2\" in show-environment) {manager};; cat) test -f \"$HOME/.config/systemd/user/$3\";; is-active) {is_active};; *) exit 0;; esac"
+            ),
+        );
+        let out = std::process::Command::new("sh")
+            .args(["-c", &linux_restart(install, true)])
+            .env("HOME", &home)
+            .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+            .output()
+            .unwrap();
+        let calls = std::fs::read_to_string(home.join("calls")).unwrap_or_default();
+        let unit = std::fs::read_to_string(home.join(".config/systemd/user/acpmux.service"))
+            .unwrap_or_default();
+        let _ = std::fs::remove_dir_all(&home);
+        (
+            calls.lines().map(str::to_owned).collect(),
+            unit,
+            String::from_utf8_lossy(&out.stdout).into_owned(),
+        )
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn linux_setup_installs_the_unit_and_hands_a_detached_daemon_to_it() {
+        let (calls, unit, out) = linux_restart_run("setup", true, Some(false));
+        assert_eq!(unit, SYSTEMD_UNIT);
+        assert!(unit.contains("KillMode=process"), "a restart must keep the agent hosts");
+        assert!(unit.contains("ExecStart=%h/.local/bin/acpmux daemon run"));
+        let steps: Vec<&str> = calls
+            .iter()
+            .map(String::as_str)
+            .filter(|c| !c.starts_with("systemctl --user show-environment"))
+            .collect();
+        assert_eq!(
+            steps,
+            [
+                "systemctl --user daemon-reload",
+                "systemctl --user cat acpmux.service",
+                "systemctl --user is-active --quiet acpmux.service",
+                "acpmux daemon shutdown --keep-agents",
+                "systemctl --user enable --now acpmux.service",
+            ]
+        );
+        assert!(out.lines().any(|l| l == SYSTEMD_STARTED));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn linux_update_restarts_a_running_unit_and_never_starts_a_second_daemon() {
+        let (calls, _, out) = linux_restart_run("update-active", true, Some(true));
+        assert!(calls.contains(&"systemctl --user restart acpmux.service".to_owned()));
+        assert!(!calls.iter().any(|c| c.starts_with("acpmux ")), "{calls:?}");
+        assert!(out.lines().any(|l| l == SYSTEMD_STARTED));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn linux_without_a_unit_or_a_user_manager_restarts_detached() {
+        // An update on a host set up before the unit: no unit file, detached as before.
+        let (calls, _, out) = linux_restart_run("no-unit", false, Some(false));
+        assert_eq!(calls.iter().filter(|c| c.starts_with("acpmux ")).count(), 2, "{calls:?}");
+        assert!(calls.contains(&"acpmux --json daemon start".to_owned()));
+        assert!(!out.contains(SYSTEMD_STARTED));
+        // A container without a user manager, even at setup.
+        let (calls, unit, _) = linux_restart_run("no-manager", true, None);
+        assert!(unit.is_empty());
+        assert!(calls.contains(&"acpmux --json daemon start".to_owned()));
     }
 
     #[test]
