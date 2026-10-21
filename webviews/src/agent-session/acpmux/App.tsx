@@ -132,6 +132,7 @@ import { BackgroundWorkLine } from "./conversation/BackgroundWorkRow";
 import {
   type BackgroundCommand,
   backgroundCommands,
+  backgroundSection,
   type ProcessSource,
   useProcessRegistry,
 } from "./inspector/processes";
@@ -4316,8 +4317,12 @@ function AcpmuxPane() {
   const tabRow = useTabRow();
   const inTabRow = tabRow.height > 0 && !quick;
   const tabRowTools = useTabRowTools(inTabRow ? tabRow : undefined, reportTabRowTools);
-  // Only Claude's agents and workflows stop on their own (acpmux `_acpmux/subagent_stop`).
-  const stopsSubagents = snapshot.summary?.harness === "claude";
+  // Ctrl-B moves a Claude Code chat's running command or subagent to the background, and a
+  // running command's row says so (conversation/runInBackground.ts).
+  const canBackground = backgroundsWork(snapshot.summary);
+  // Only Claude Code's agents and workflows stop on their own (acpmux `_acpmux/subagent_stop`, which
+  // this acpmux serves where it moves work: a Claude Code chat whatever its harness is named).
+  const stopsSubagents = canBackground;
   const stopSubagent = useMemo(
     () =>
       stopsSubagents
@@ -4325,9 +4330,6 @@ function AcpmuxPane() {
         : undefined,
     [stopsSubagents],
   );
-  // Ctrl-B moves a Claude Code chat's running command or subagent to the background, and a
-  // running command's row says so (conversation/runInBackground.ts).
-  const canBackground = backgroundsWork(snapshot.summary);
   // When nothing moves (nothing in the foreground, a refusal, no answer), a line above the composer
   // says so (conversation/backgroundNotice.ts).
   const background = useBackgroundNotice(shownSessionId);
@@ -4447,11 +4449,15 @@ function AcpmuxPane() {
     transcriptRows,
     summaryCard,
     inspector,
+    backgroundCommandList: runningCommandList,
+    processes: processRegistry.processes,
   });
   counted.current = {
     runningAgents,
     runningCommands,
     runningSessions,
+    backgroundCommandList: runningCommandList,
+    processes: processRegistry.processes,
     sourceRows,
     transcriptRows,
     summaryCard,
@@ -4482,9 +4488,10 @@ function AcpmuxPane() {
       tokens: turnTokens,
       background: backgroundCounts,
       openBackground: () => {
-        const { summaryCard: card, inspector: panel } = counted.current;
-        // The row counts subagents and started chats too: with no command, Subagents lists them.
-        if (panel.reveal) panel.reveal(backgroundCounts.commands > 0 ? "tasks" : "subagents");
+        const { backgroundCommandList: commands, processes, summaryCard: card, inspector: panel } = counted.current;
+        // The section that lists what runs, by the Inspector's own split (processes.ts
+        // `backgroundSection`): dev servers alone open Servers; no command, Subagents.
+        if (panel.reveal) panel.reveal(backgroundSection(processes, commands));
         else card.show();
       },
       openAgents: () => {
@@ -4497,7 +4504,7 @@ function AcpmuxPane() {
       openCommands: () => {
         const { runningCommands: commands, summaryCard: card, inspector: panel } = counted.current;
         if (commands.length === 1 && showToolRow(commands[0]!.toolCallId)) return;
-        if (panel.reveal) panel.reveal("tasks");
+        if (panel.reveal) panel.reveal(backgroundSection(counted.current.processes, commands));
         else card.show();
       },
       openSessions: () => {
