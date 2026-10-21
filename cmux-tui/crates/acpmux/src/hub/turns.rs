@@ -87,6 +87,10 @@ impl Hub {
         // A deferred start reads the queues after its ready line: a new prompt waits, so it
         // never runs ahead of a prompt queued under the previous daemon.
         self.wait_logs().await;
+        // A continuation waiting out its delay goes now, ahead of this prompt (`auto_resume`).
+        if opts.after_turn.is_none() {
+            self.hurry_auto_resume(session).await;
+        }
         let Some(prompt_id) = opts.prompt_id.clone() else {
             return self.prompt_unless_held(session, blocks, client, steer, opts).await;
         };
@@ -448,17 +452,15 @@ impl Hub {
         let detached = session.turn().is_none_or(|t| t.turn_id != turn_id);
         let mut result =
             self.finish_turn(session, &child, result, &prompt_id, &turn_id, turn_seq).await;
-        // A connection error cut the turn off: it goes on by itself (`auto_resume.rs`).
+        // A connection error or the agent's death cut the turn off: it goes on by itself
+        // (`auto_resume.rs`).
         let cut = match (&result, detached) {
-            (Err(e), false) => Some(super::auto_resume::CutTurn {
-                prompt_id: &prompt_id,
-                turn_id: &turn_id,
-                control,
-                trust_gate,
-                error: agent_error.as_deref().unwrap_or(&e.message),
-            }),
+            (Err(e), false) => {
+                super::auto_resume::CutTurn::of(&prompt_id, &turn_id, agent_error.as_deref(), e)
+            }
             _ => None,
-        };
+        }
+        .map(|cut| super::auto_resume::CutTurn { control, trust_gate, ..cut });
         self.schedule_auto_resume(session, &turn_id, cut);
         // The chat's route changed during the turn: move it before the next
         // one starts (route_switch.rs). A restart that fails leaves the
@@ -631,47 +633,6 @@ impl Hub {
         self.save_meta(session);
         self.send_offer_result(session);
         result
-    }
-
-    /// A turn refused after it was accepted (dispatch check, remote floor): failed unstarted.
-    fn refuse_started_turn(
-        &self,
-        session: &Arc<Session>,
-        prompt_id: &str,
-        turn_id: &str,
-        e: &RpcError,
-    ) {
-        self.fail_unstarted_turn(session, prompt_id, turn_id, e);
-        if session.status() == SessionStatus::Disconnected {
-            self.set_status(session, SessionStatus::Ready);
-        }
-    }
-
-    /// A recorded prompt whose agent could not start: the turn ends failed, so every client
-    /// sees the prompt settle instead of a turn that never starts.
-    fn fail_unstarted_turn(
-        &self,
-        session: &Arc<Session>,
-        prompt_id: &str,
-        turn_id: &str,
-        e: &RpcError,
-    ) {
-        *session.turn.lock().unwrap() = None;
-        self.append(
-            session,
-            "mux",
-            "turn_error",
-            json!({"error": e.message, "code": e.code, "turnId": turn_id, "turnSeq": 0}),
-        );
-        self.pause_queue(session, turn_id);
-        let msg = json!({"status": "failed", "error": e.message, "code": e.code, "turnSeq": 0, "turnId": turn_id, "promptId": prompt_id});
-        self.record_last_turn(session, &msg);
-        self.append(session, "mux", "turn_result", msg);
-        self.reset_stream(session);
-        if session.status() != SessionStatus::Closed {
-            self.set_status(session, SessionStatus::Disconnected);
-        }
-        self.save_meta(session);
     }
 
     /// Waits until the inbound loop handled every agent message queued before

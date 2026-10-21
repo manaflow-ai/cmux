@@ -222,6 +222,10 @@ pub struct SessionMeta {
     /// The full HEAD commit of `cwd` when the session started, as `git_branch`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub git_head: Option<String>,
+    /// The linked git worktree `cwd` is in, as the agent last started or a turn last ended
+    /// there: a start whose folder is gone adds it back (`hub/worktree_revive.rs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<WorktreeOrigin>,
     /// The sum of what this session's turns reported (`hub/turn_usage.rs`).
     /// `None` until a harness reports any; a fork starts its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -243,6 +247,20 @@ pub struct SessionMeta {
     /// or by an ancestor within its budget; unset fields inherit.
     #[serde(default, skip_serializing_if = "SubsessionLimits::is_empty")]
     pub subsession_limits: SubsessionLimits,
+}
+
+/// Where a session's folder came from in git (`SessionMeta::worktree`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeOrigin {
+    /// The session's `cwd` this was read for.
+    pub cwd: PathBuf,
+    /// The worktree's top folder (`cwd` or a folder above it).
+    pub root: PathBuf,
+    /// The repository's common git directory.
+    pub common_dir: PathBuf,
+    /// The branch checked out there.
+    pub branch: String,
 }
 
 /// A sub-session's place in its family (`hub/subsessions.rs`).

@@ -66,6 +66,23 @@ impl GitState {
     }
 }
 
+/// The linked worktree `dir` is in, canonical: its top folder and the repository's common git
+/// directory, which outlives the worktree (`hub/worktree_revive.rs` adds it back from there).
+/// `None` outside a repository, in a main checkout (its git directory goes with it) or in a
+/// submodule.
+pub fn linked_worktree(dir: &Path) -> Option<(PathBuf, PathBuf)> {
+    let dir = std::fs::canonicalize(dir).ok()?;
+    let top = dir.ancestors().find(|folder| folder.join(".git").exists())?;
+    let dot_git = top.join(".git");
+    if dot_git.is_dir() {
+        return None;
+    }
+    let text = read_trimmed(&dot_git)?;
+    let git_dir = top.join(text.strip_prefix("gitdir:")?.trim());
+    let common = read_trimmed(&git_dir.join("commondir"))?;
+    Some((top.to_path_buf(), std::fs::canonicalize(git_dir.join(common)).ok()?))
+}
+
 /// The repository's git directory for `dir`: the nearest `.git` folder at or
 /// above it, or where the nearest `.git` file (`gitdir: <path>`) points.
 fn find_git_dir(dir: &Path) -> Option<PathBuf> {
