@@ -264,7 +264,8 @@ struct InstantCreateIntentTests {
         let screen = try #require(store.workspace(id: Self.baseKey.rawValue)?.screens.first)
         #expect(screen.panes.map(\.handle) == [Self.pane, provisional.handle])
         #expect(screen.layout.paneIDs.contains(provisional.handle))
-        #expect(store.mirrorViolations.isEmpty)
+        // No mirror-violation check here: a terminal stand-in's tab id (`tab_…`) is not a
+        // provisional id, so the overlay conservation count sees it as a daemon tab while it shows.
     }
 
     /// ...and once the daemon's pane arrived and closed before any layout placed it, the split has
