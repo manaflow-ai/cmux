@@ -1414,6 +1414,7 @@ public final class LiveCoordinator {
     nonisolated static func waitingBanner(macName: String, transport: TransportKind, reason: String,
                                           wasConnected: Bool, relayAvailable: Bool?) -> ConnectionBannerState {
         if reason == LinkController.reason(LinkError(code: "offline", message: "")) { return .macOffline(macName) }
+        if wasConnected { return .reconnecting(to: macName) }
         let relay = relayAvailable == false ? ". Relay (TURN) unavailable" : ""
         return .failed("Can't reach \(macName) over \(transport.displayName)\(relay)")
     }
