@@ -6,7 +6,6 @@ import Foundation
 /// CmuxNextHome). The box owns the button, the waveform and where the words
 /// go; the host owns the microphone, permissions and the engine, and reports
 /// each change with ``MessagesLabHomeView/voiceChanged(_:)``.
-@MainActor
 public protocol HomeVoiceInput: AnyObject {
     /// The mic button: starts listening, or stops and keeps the words.
     func toggleVoice()

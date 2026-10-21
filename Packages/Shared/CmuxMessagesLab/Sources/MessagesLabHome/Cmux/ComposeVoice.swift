@@ -44,7 +44,6 @@ struct ComposeVoiceSplice: Equatable {
 /// commits them as one undo step when the session ends, and takes them out on Esc, leaving the
 /// draft as it was. A key the person types while it listens keeps the words where they are and
 /// stops the session: later words would land in the middle of their typing.
-@MainActor
 final class ComposeVoice {
     weak var controller: ChatController?
     /// The host's engine; nil: no mic button (the field shows Messages' drawn waveform).
