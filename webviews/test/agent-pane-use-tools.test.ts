@@ -255,9 +255,11 @@ await requireBrowserLane("agent-pane-use-tools.test.ts", async () => {
     // Applied now: the row needs no note.
     reply = { applied: "now" };
     await check(page, "github").click();
-    for (let i = 0; i < 100 && sets.length < 3; i++) await page.waitForTimeout(50);
+    // The row is disabled while acpmux answers; enabled and checked again, the answer is in.
+    await check(page, "github")
+      .and(page.locator('[aria-checked="true"]:not([aria-disabled="true"])'))
+      .waitFor({ timeout: 5_000 });
     expect(sets.at(-1)).toEqual({ sessionId: CHAT, id: "mcp:github", enabled: true });
-    for (let i = 0; i < 100 && (await checked(page, "github")) !== "true"; i++) await page.waitForTimeout(50);
     expect(await checked(page, "github")).toBe("true");
     expect(await check(page, "github").locator(".acpmux-tools-note").count()).toBe(0);
     await context.close();
