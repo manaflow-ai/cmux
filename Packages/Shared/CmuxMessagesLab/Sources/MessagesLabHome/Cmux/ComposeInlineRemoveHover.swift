@@ -10,6 +10,12 @@ final class ComposeInlineRemoveHover: NSObject {
     let button = ComposeInlineRemoveButton()
     /// The attachment the button removes (under the pointer).
     private(set) weak var hovered: ComposeInlineAttachment?
+    /// The field's tracking area for the pointer (it does not keep its owner, so it leaves with this).
+    private var tracking: NSTrackingArea?
+
+    deinit {
+        if let tracking { field?.removeTrackingArea(tracking) }
+    }
 
     /// Adds the button and the pointer tracking to FIELD.
     func install(on field: NSTextView) {
@@ -17,8 +23,9 @@ final class ComposeInlineRemoveHover: NSObject {
         button.onPress = { [weak self] in self?.removeClicked() }
         button.isHidden = true
         field.addSubview(button)
-        field.addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
-                                             owner: self))
+        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
+        field.addTrackingArea(area)
+        tracking = area
     }
 
     /// The field's attachments with their boxes in the field's coordinates, in text order.

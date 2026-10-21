@@ -222,6 +222,44 @@ import UniformTypeIdentifiers
         #expect(blue > 200, "the picture is drawn in the field (\(seen))")
         #expect(white < 50, "no blank white page where the picture goes (\(seen))")
     }
+    /// The thumbnail decoded in the background (as after a real paste, no `loadThumbnailNow`)
+    /// reaches the field: the picture is drawn once it arrives, not the placeholder for good.
+    @Test func theDecodedThumbnailReachesTheField() async throws {
+        let h = try await home()
+        defer { h.close() }
+        try await attach(.pastePicture, to: h.view)
+        let a = try #require(h.inline.first).attachment
+        h.field.display()
+        for _ in 0..<100 where a.thumbnail == nil { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(a.thumbnail != nil, "the thumbnail decodes in the background")
+        h.field.layoutSubtreeIfNeeded()
+        h.field.display()
+        let rep = try #require(h.field.bitmapImageRepForCachingDisplay(in: h.field.bounds))
+        h.field.cacheDisplay(in: h.field.bounds, to: rep)
+        var blue = 0
+        for y in stride(from: 0, to: rep.pixelsHigh, by: 2) {
+            for x in stride(from: 0, to: rep.pixelsWide, by: 2) {
+                guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), c.alphaComponent > 0.9 else { continue }
+                if c.blueComponent > 0.8, c.redComponent < 0.45, c.greenComponent > 0.4, c.greenComponent < 0.8 { blue += 1 }
+            }
+        }
+        #expect(blue > 200, "the picture is drawn after its thumbnail arrives (blue \(blue))")
+    }
+
+    /// Typing hides the hover remove button: the edit may have moved the picture under it.
+    @Test func typingHidesTheRemoveButton() async throws {
+        let h = try await home()
+        defer { h.close() }
+        try await attach(.pastePicture, to: h.view)
+        h.field.layoutSubtreeIfNeeded()
+        let hover = h.compose.inlineHover
+        let picture = try #require(hover.attachmentRects().first)
+        hover.pointerMoved(to: CGPoint(x: picture.rect.midX, y: picture.rect.midY))
+        #expect(!hover.button.isHidden)
+        type("a", caret: 0, in: h)
+        #expect(hover.button.isHidden, "an edit hides the button")
+    }
+
     /// Hovering a picture in the field shows a remove button at its top right; the button takes
     /// the picture out (Austin 2026-10-20: hovering a pasted picture showed no remove button).
     @Test func hoveringAPictureShowsItsRemoveButton() async throws {

@@ -61,8 +61,9 @@ final class ComposeInlineAttachment: NSTextAttachment {
     private func loadThumbnail(scale: CGFloat) {
         guard isImage, let asset = model.asset else { return }
         let px = thumbnailPixels(scale)
-        // task-owner: one decode per attachment, off the main actor; ends with the image.
-        Task { [weak self] in
+        // task-owner: one decode per attachment, off the main actor; ends with the image. The
+        // thumbnail, the view and the field's layout change on the main actor (TextKit 2 lays out there).
+        Task { @MainActor [weak self] in
             let image = await Task.detached(priority: .userInitiated) {
                 ComposeAttachmentStrip.thumbnail(asset, maxPixels: px)
             }.value
