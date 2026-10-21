@@ -260,6 +260,17 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
       await page.keyboard.press("Shift+Enter");
       await page.waitForTimeout(60);
     }
+    // And back: the lines removed one at a time, then the rest of the draft at once.
+    for (let line = 1; line <= 3; line++) {
+      await page.keyboard.press("Backspace");
+      await page.keyboard.down("Shift");
+      await page.keyboard.press("Home");
+      await page.keyboard.up("Shift");
+      await page.keyboard.press("Backspace");
+      await page.waitForTimeout(60);
+    }
+    await page.keyboard.press("ControlOrMeta+A");
+    await page.keyboard.press("Backspace");
     await page.waitForTimeout(300);
     const tops = await page.evaluate(() => {
       const holder = window as unknown as { __tops?: number[] };
@@ -269,6 +280,60 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
     });
     expect(tops.length).toBeGreaterThan(5);
     expect(tops.filter((top) => Math.abs(top - start) > 0.5)).toEqual([]);
+    await page.close();
+  });
+
+  // The same for a reader at the latest row: growing the composer line by line and shrinking it
+  // back, every painted frame keeps the view at its end with the last row above the card.
+  test("a composer that grows and shrinks keeps a followed view at its end on every frame", async () => {
+    const page = await open();
+    await page.locator(".acpmux-md").click();
+    await page.evaluate(() => {
+      const frames: { rowAboveCard: number; fromEnd: number }[] = [];
+      (window as unknown as { __frames: typeof frames }).__frames = frames;
+      const sample = () => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        const card = document.querySelector(".acpmux-composer-box")!.getBoundingClientRect();
+        const rows = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")];
+        const last = rows.reduce((a, b) =>
+          Number(b.getAttribute("aria-posinset")) > Number(a.getAttribute("aria-posinset")) ? b : a,
+        );
+        frames.push({
+          rowAboveCard: Math.round(card.top - last.getBoundingClientRect().bottom),
+          fromEnd: Math.round(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight),
+        });
+      };
+      const tick = () => {
+        if ((window as unknown as { __frames?: unknown }).__frames !== frames) return;
+        setTimeout(sample, 0);
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+    for (let line = 1; line <= 5; line++) {
+      await page.keyboard.type(`Line ${line} of a longer prompt`);
+      await page.keyboard.press("Shift+Enter");
+      await page.waitForTimeout(60);
+    }
+    for (let line = 1; line <= 3; line++) {
+      await page.keyboard.press("Backspace");
+      await page.keyboard.down("Shift");
+      await page.keyboard.press("Home");
+      await page.keyboard.up("Shift");
+      await page.keyboard.press("Backspace");
+      await page.waitForTimeout(60);
+    }
+    await page.keyboard.press("ControlOrMeta+A");
+    await page.keyboard.press("Backspace");
+    await page.waitForTimeout(300);
+    const frames = await page.evaluate(() => {
+      const holder = window as unknown as { __frames?: { rowAboveCard: number; fromEnd: number }[] };
+      const frames = holder.__frames ?? [];
+      holder.__frames = undefined;
+      return frames;
+    });
+    expect(frames.length).toBeGreaterThan(5);
+    expect(frames.filter((frame) => frame.rowAboveCard < -1 || frame.fromEnd > 1)).toEqual([]);
     await page.close();
   });
 });
