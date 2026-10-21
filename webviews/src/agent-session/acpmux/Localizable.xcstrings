@@ -191850,265 +191850,133 @@
       }
     },
     "composer.addTooltip": {
-      "comment": "Agent pane composer: the tooltip of the + button, naming what its menu adds to the prompt (files, screenshots, mentions, commands).",
+      "comment": "Agent pane composer: the tooltip of the + button, short as Codex's; its menu adds files, screenshots, mentions and commands to the prompt.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "إضافة ملفات ولقطات شاشة والمزيد"
+            "value": "إضافة ملفات والمزيد"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dodaj datoteke, snimke ekrana i drugo"
+            "value": "Dodaj datoteke i drugo"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tilføj filer, skærmbilleder og mere"
+            "value": "Tilføj filer og mere"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dateien, Bildschirmfotos und mehr hinzufügen"
+            "value": "Dateien und mehr hinzufügen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add files, screenshots and more"
+            "value": "Add files and more"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Añadir archivos, capturas de pantalla y más"
+            "value": "Añadir archivos y más"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ajouter des fichiers, des captures d’écran et plus"
+            "value": "Ajouter des fichiers et plus"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aggiungi file, screenshot e altro"
+            "value": "Aggiungi file e altro"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ファイル、スクリーンショットなどを追加"
+            "value": "ファイルなどを追加"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បន្ថែមឯកសារ រូបថតអេក្រង់ និងច្រើនទៀត"
+            "value": "បន្ថែមឯកសារ និងច្រើនទៀត"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "파일, 스크린샷 등 추가"
+            "value": "파일 등 추가"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Legg til filer, skjermbilder og mer"
+            "value": "Legg til filer og mer"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dodaj pliki, zrzuty ekranu i więcej"
+            "value": "Dodaj pliki i więcej"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Adicionar arquivos, capturas de tela e mais"
+            "value": "Adicionar arquivos e mais"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Добавить файлы, снимки экрана и другое"
+            "value": "Добавить файлы и другое"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เพิ่มไฟล์ ภาพหน้าจอ และอื่นๆ"
+            "value": "เพิ่มไฟล์และอื่นๆ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dosya, ekran görüntüsü ve daha fazlasını ekle"
+            "value": "Dosya ve daha fazlasını ekle"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Додати файли, знімки екрана та інше"
+            "value": "Додати файли та інше"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Thêm tệp, ảnh chụp màn hình và hơn thế nữa"
+            "value": "Thêm tệp và hơn thế nữa"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "添加文件、截图等"
+            "value": "添加文件等"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "加入檔案、截圖等"
-          }
-        }
-      }
-    },
-    "composer.addTooltipNoCapture": {
-      "comment": "Agent pane composer: the tooltip of the + button, naming what its menu adds to the prompt (files, screenshots, mentions, commands).",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "إضافة ملفات وإشارات والمزيد"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dodaj datoteke, spominjanja i drugo"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tilføj filer, omtaler og mere"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dateien, Erwähnungen und mehr hinzufügen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Add files, mentions and more"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Añadir archivos, menciones y más"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ajouter des fichiers, des mentions et plus"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Aggiungi file, menzioni e altro"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ファイル、メンションなどを追加"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បន្ថែមឯកសារ ការលើកឡើង និងច្រើនទៀត"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "파일, 멘션 등 추가"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Legg til filer, omtaler og mer"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dodaj pliki, wzmianki i więcej"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Adicionar arquivos, menções e mais"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Добавить файлы, упоминания и другое"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เพิ่มไฟล์ การกล่าวถึง และอื่นๆ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dosya, bahsetme ve daha fazlasını ekle"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Додати файли, згадки та інше"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Thêm tệp, lượt nhắc và hơn thế nữa"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "添加文件、提及等"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "加入檔案、提及等"
+            "value": "加入檔案等"
           }
         }
       }
