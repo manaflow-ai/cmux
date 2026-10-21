@@ -11,6 +11,7 @@ Behaviour per prompt text:
   "deaf-to-cancel" -> streams "running", ignores session/cancel, answers end_turn after 20 s
   "answer-then-exit" -> answers, then the agent exits between turns
   "gate: <p>"  -> streams before-gate, waits for a write to FIFO <p>, then after-gate
+  "work-gate: <p>" -> a plan step in progress and a running tool call, then as "gate:"
   image blocks -> the echo ends with " image:<sha256 of its bytes>" for each
   anything     -> echoes the text as one agent_message_chunk
 
@@ -400,6 +401,22 @@ def handle_prompt(rid, params):
                 choices.append(reply.get("outcome", {}))
         update(sid, {"sessionUpdate":"agent_message_chunk", "content":{"type":"text", "text":json.dumps(choices)}})
         send({"jsonrpc":"2.0", "id":rid, "result":{"stopReason":"end_turn"}})
+        return
+    # "work-gate: PATH [| TITLE]" reports a plan step in progress and a running
+    # tool call (TITLE, else "Run cargo test"), then blocks on the FIFO at PATH
+    # (as "gate:") and ends.
+    if text.startswith("work-gate:"):
+        path, _, title = text[len("work-gate:"):].partition(" | ")
+        update(sid, {"sessionUpdate": "plan", "entries": [
+            {"content": "Read the brief", "status": "completed", "priority": "high"},
+            {"content": "Fix the queue", "status": "in_progress", "priority": "high"}]})
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": "wg-1", "title": title.strip() or "Run cargo test",
+                     "kind": "execute", "status": "in_progress"})
+        with open(path.strip()) as gate:
+            gate.read()
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "wg-1", "status": "completed"})
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "worked"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "gate: PATH" streams "before-gate", blocks until the test writes to
     # the FIFO at PATH (no timers), then streams "after-gate" and ends.
