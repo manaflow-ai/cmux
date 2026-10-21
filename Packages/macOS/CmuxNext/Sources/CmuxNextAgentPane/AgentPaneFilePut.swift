@@ -16,7 +16,7 @@ public nonisolated enum AgentPaneFilePutFailure: Error, Equatable, Sendable {
     init(_ error: any Error) {
         if let failure = error as? Self {
             self = failure
-        } else if case AcpmuxStatusClient.Failure.unsupportedFeature = error {
+        } else if let failure = error as? AcpmuxStatusClient.Failure, case .unsupportedFeature = failure {
             self = .unsupported
         } else if let refusal = error as? AcpmuxRPCError {
             self = refusal.isMethodMissing || refusal.name == "filePut.unsupported" ? .unsupported

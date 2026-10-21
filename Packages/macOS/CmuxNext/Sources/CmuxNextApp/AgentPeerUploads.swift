@@ -56,7 +56,8 @@ struct AgentPeerUploads {
         var uploads: [[String: Any]] = []
         for file in files {
             do {
-                uploads.append(["name": file.name, "path": try await put(file.name, file.data)])
+                let path = try await put(file.name, file.data)
+                uploads.append(["name": file.name, "path": path])
             } catch {
                 return reply(AgentPaneFilePutFailure(error), machine: machine)
             }
