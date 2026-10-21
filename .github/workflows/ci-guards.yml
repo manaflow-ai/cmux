@@ -1379,6 +1379,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_runner_capability_resolver.py
 
+      - name: Validate every macOS job names its job class
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_runner_routing_table.py
+
       - name: Validate evidence collection reporting
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_evidence_outcomes.py
