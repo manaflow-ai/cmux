@@ -9,7 +9,7 @@ nonisolated struct GlobalSearchCorpus: Sendable {
     /// One tab to search, as the main actor describes it.
     nonisolated struct Source: Sendable {
         let tabID: String
-        /// The tab's title, its workspace's name and its address or folder.
+        /// The tab's title, its workspace's name and a browser's address.
         let title: String
         let terminal: TerminalTextSearch.Target?
         let agent: AgentTranscriptText.Session?

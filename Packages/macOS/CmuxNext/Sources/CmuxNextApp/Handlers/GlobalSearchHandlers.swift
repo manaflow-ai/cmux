@@ -66,9 +66,10 @@ enum GlobalSearchHandlers {
     }
 
     /// The text a title match looks in: the tab's title, its workspace's
-    /// name, and its address or folder.
+    /// name, and a browser's address. Not a terminal's folder: one folder
+    /// word would match every terminal opened there.
     private static func title(of tab: TabModel, in workspace: WorkspaceModel) -> String {
-        [tab.displayTitle, workspace.displayName, tab.url, tab.cwd].compactMap { $0 }.joined(separator: " ")
+        [tab.displayTitle, workspace.displayName, tab.kind == .browser ? tab.url : nil].compactMap { $0 }.joined(separator: " ")
     }
 
     private static func agentSession(of tab: TabModel) -> AgentTranscriptText.Session? {
