@@ -159,7 +159,7 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
         return environment
     }
 
-    static func findGitHubCLI(_ environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
+    package static func findGitHubCLI(_ environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
         let folders = (environment["PATH"] ?? "").split(separator: ":").map(String.init) + installFolders
         return folders.filter { $0.hasPrefix("/") }.map { $0 + "/gh" }.first { FileManager.default.isExecutableFile(atPath: $0) }
     }
