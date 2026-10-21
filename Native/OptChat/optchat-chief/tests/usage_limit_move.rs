@@ -1,0 +1,172 @@
+//! A subagent whose account runs out of usage continues on the Chief's own
+//! harness (Leo, 2026-10-20: "we need to fix chief"). a4 and a10-a13 ran on
+//! the `claude` login, stopped on "(turn failed: You've hit your weekly limit
+//! · resets Oct 25 at 9pm ...)" and were reported as done; the Chief had
+//! moved to claude-sr2-pipe, but nothing moved them, and a retry on the same
+//! login fails the same way until the limit resets five days later.
+
+mod common;
+
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::{Duration, Instant};
+
+use common::*;
+use optchat_chief::acpmux::AgentEvent;
+use optchat_chief::brain::Input;
+use optchat_chief::subagents::{Spawner, SubagentSettings};
+use optchat_chief::tools::Orchestrator;
+use serde_json::{Value, json};
+
+const LIMIT: &str = "You've hit your weekly limit · resets Oct 25 at 9pm (America/Los_Angeles)";
+
+/// The first subagent turn runs out of usage after some work; every later
+/// turn answers as usual.
+fn limit_script() -> Script {
+    let default = default_script();
+    let subs = AtomicUsize::new(0);
+    Box::new(move |turn, blocks: &[Value]| {
+        let text = serde_json::to_string(blocks).unwrap_or_default();
+        if !text.contains("LIMIT-TASK") || subs.fetch_add(1, Ordering::SeqCst) > 0 {
+            return default(turn, blocks);
+        }
+        vec![
+            json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+            update(
+                "agent_message_chunk",
+                json!({"content": {"type": "text", "text": "The plan model is written."}}),
+            ),
+            json!({"dir": "mux", "kind": "turn_error", "msg": {"error": LIMIT}}),
+        ]
+    })
+}
+
+fn spawner(h: &Harness, harness: &str) -> Arc<Spawner> {
+    Arc::new(Spawner::new(
+        h.chat.clone(),
+        h.agents.clone(),
+        SubagentSettings {
+            harness: harness.into(),
+            policy: "approve-all".into(),
+            model: None,
+            effort: None,
+            preset: Some("optchat-sub-h0me".into()),
+            cwd: h.dir.path().join("subagent"),
+            prefix: "optchat-sub-h0me".into(),
+            parent: optchat_chief::brain::PARENT.into(),
+            claude_md: None,
+        },
+        h.tx.clone(),
+        Arc::new(|_: &str| {}),
+    ))
+}
+
+/// Every subagent session: (session id, harness).
+fn sub_sessions(h: &Harness) -> Vec<(String, String)> {
+    let inner = h.agents.inner.lock().unwrap();
+    inner
+        .specs
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| s.tags.contains_key("optchat.subagent"))
+        .map(|(k, s)| (format!("s{}", k + 1), s.harness.clone()))
+        .collect()
+}
+
+/// The prompts sent to `session`, as JSON text.
+fn prompts_of(h: &Harness, session: &str) -> Vec<String> {
+    let inner = h.agents.inner.lock().unwrap();
+    inner
+        .prompts
+        .iter()
+        .zip(&inner.prompt_sessions)
+        .filter(|(_, s)| s.as_str() == session)
+        .map(|(blocks, _)| serde_json::to_string(blocks).unwrap())
+        .collect()
+}
+
+fn idle(session: &str, harness: &str) -> cmux_chief::acp::SessionSummary {
+    serde_json::from_value(json!({
+        "sessionId": session, "name": "a1", "status": "idle", "harness": harness,
+    }))
+    .unwrap()
+}
+
+/// Spawns a1 on `sub_harness` and steps the brain until `done` holds (or
+/// 20 s pass); each subagent session that got its prompt goes idle, as
+/// acpmux reports it.
+fn run_until(h: &mut Harness, sub_harness: &str, done: impl Fn(&Harness) -> bool) {
+    let sp = spawner(h, sub_harness);
+    h.brain.set_sub_starter(Some(sp.queue_starter()));
+    h.connect();
+    let worker =
+        std::thread::spawn(move || sp.spawn(vec!["LIMIT-TASK fix the build".into()], None));
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let mut idled: Vec<String> = Vec::new();
+    while !done(h) {
+        assert!(Instant::now() < deadline, "timed out: {:?}", h.log());
+        if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(20)) {
+            h.brain.step(input);
+            continue;
+        }
+        for (session, harness) in sub_sessions(h) {
+            if !idled.contains(&session) && !prompts_of(h, &session).is_empty() {
+                idled.push(session.clone());
+                h.brain.step(Input::from(AgentEvent::SessionChanged(idle(
+                    &session, &harness,
+                ))));
+            }
+        }
+    }
+    worker.join().unwrap().expect("the spawn answers");
+}
+
+#[test]
+fn a_subagent_out_of_usage_continues_on_the_chiefs_harness() {
+    // The Chief's turns run on claude-sr (settings), its subagent on claude.
+    let mut h = Harness::new(limit_script());
+    run_until(&mut h, "claude", |h| {
+        sub_sessions(h).len() >= 2 && !prompts_of(h, &sub_sessions(h)[1].0).is_empty()
+    });
+    let sessions = sub_sessions(&h);
+    assert_eq!(sessions[0].1, "claude");
+    assert_eq!(
+        sessions[1].1, "claude-sr",
+        "it moves to the Chief's harness"
+    );
+    let prompt = prompts_of(&h, &sessions[1].0).join("\n");
+    assert!(
+        prompt.contains("fix the build"),
+        "its task goes with it: {prompt}"
+    );
+    assert!(
+        prompt.contains("usage limit"),
+        "it is told why it is in a new session: {prompt}"
+    );
+    let notes: Vec<String> = h
+        .log()
+        .into_iter()
+        .map(|(_, t)| t)
+        .filter(|t| t.starts_with("[a1]"))
+        .collect();
+    assert!(
+        notes.iter().any(|t| t.contains("claude-sr")),
+        "the Chief hears where it went: {notes:?}"
+    );
+}
+
+#[test]
+fn a_subagent_out_of_usage_on_the_chiefs_own_harness_is_reported() {
+    let mut h = Harness::new(limit_script());
+    run_until(&mut h, "claude-sr", |h| {
+        h.log().iter().any(|(_, t)| t.starts_with("[a1]"))
+    });
+    assert_eq!(sub_sessions(&h).len(), 1, "no other harness to move it to");
+    let report = h
+        .log()
+        .into_iter()
+        .map(|(_, t)| t)
+        .find(|t| t.starts_with("[a1]"))
+        .unwrap();
+    assert!(report.contains("usage limit"), "{report}");
+}

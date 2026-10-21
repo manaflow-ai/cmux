@@ -437,6 +437,24 @@ mod tests {
         }
     }
 
+    /// Chief 2026-10-20: a4, a10-a13 stopped on "(turn failed: You've hit
+    /// your weekly limit · resets Oct 25 at 9pm ...)" and were reported as
+    /// done, so nothing moved them to the Chief's new harness.
+    #[test]
+    fn a_used_up_account_is_not_a_real_report() {
+        for r in [
+            "The plan model is written.\n\n(turn failed: You've hit your weekly limit · resets Oct 25 at 9pm (America/Los_Angeles))",
+            "(failed: You've hit your session limit · resets 3am)",
+            "API Error: Claude AI usage limit reached|1792531182",
+        ] {
+            assert_ne!(classify(r, false), StopKind::Done, "{r}");
+            assert!(
+                !matches!(classify(r, false), StopKind::Transient(_)),
+                "a retry on the same account fails again: {r}"
+            );
+        }
+    }
+
     #[test]
     fn a_user_stop_is_never_resumed() {
         assert_eq!(
