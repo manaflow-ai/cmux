@@ -421,6 +421,8 @@
               "sidebar.groupHeader.unreadCount",
               "sidebar.minimalMode",
               "sidebar.cards.tips",
+              "sidebar.priorityView.enabled",
+              "sidebar.priorityView.shown",
               "sidebar.side",
               "sidebar.spacesPosition",
               "sidebar.spacesVisibility",
@@ -777,7 +779,8 @@
             "key" : "settings.group.sessions",
             "rows" : [
               "sessions.keepAwake",
-              "sessions.resumeAgents"
+              "sessions.resumeAgents",
+              "sessions.allowFullAccess"
             ],
             "title" : {
               "key" : "settings.group.sessions",
@@ -2875,7 +2878,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.tabs",
@@ -4358,6 +4361,56 @@
         true,
         false
       ],
+      "agent_refusal" : "destructive",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sessions",
+        "text" : "Agent Sessions"
+      },
+      "help" : {
+        "key" : "settings.sessions.allowFullAccess.help",
+        "text" : "Off, cmux won't switch an agent into a mode that skips approvals."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sessions.allowFullAccess",
+      "keywords" : [
+        "bypass",
+        "permissions",
+        "yolo",
+        "full access",
+        "dangerous",
+        "approve",
+        "safety"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sessions",
+        "allowFullAccess"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sessions.allowFullAccess",
+        "text" : "Allow Full-Access Modes"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "network",
       "agent_settable" : false,
       "consumers" : [
@@ -5539,7 +5592,7 @@
       },
       "help" : {
         "key" : "settings.layout.linkPlacement.help",
-        "text" : "Where a link or file you open from a terminal, an agent chat, Home or a page appears. Split Right uses the pane on the right, or makes one."
+        "text" : "Where a link or file you Command-click in a terminal or a browser page appears. Split Right uses the pane on the right, or makes one. What you open from an agent chat, Home or another page opens as a tab in its own pane."
       },
       "kept_on_reset_all" : false,
       "key" : "layout.linkPlacement",
@@ -21165,6 +21218,112 @@
       "title" : {
         "key" : "settings.sidebar.cards.tips",
         "text" : "Show Tips"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.priorityView.enabled.help",
+        "text" : "A bell at the top of the sidebar shows every agent chat on every machine, the ones waiting on you first, then finished, failed, working and idle."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.priorityView.enabled",
+      "keywords" : [
+        "sidebar",
+        "priority",
+        "attention",
+        "agents",
+        "chats",
+        "needs you",
+        "activity",
+        "bell",
+        "inbox"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "priorityView",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.sidebar.priorityView.enabled.summary",
+        "text" : "Agent chats that need you, at the top of the sidebar"
+      },
+      "title" : {
+        "key" : "settings.sidebar.priorityView.enabled",
+        "text" : "Priority View"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.priorityView.shown.help",
+        "text" : "The sidebar bell's state while the Priority view is on. Off, the sidebar is unchanged."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.priorityView.shown",
+      "keywords" : [
+        "sidebar",
+        "priority",
+        "activity",
+        "bell",
+        "show",
+        "hide"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "priorityView",
+        "shown"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.priorityView.shown",
+        "text" : "Show Priority View"
       },
       "validation" : "portable"
     },
