@@ -208,7 +208,7 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noTargetSurface)
             ),
             ActionDescriptor(
-                id: "home.renameConversation", title: t("action.home.renameConversation", "Rename Group…"),
+                id: "home.renameConversation", title: t("action.home.renameConversation", "Rename Group Chat…"),
                 keywords: ["home", "group", "rename", "name", "title", "conversation"],
                 category: .window, symbol: "pencil", surfaces: [.palette, .keyboard],
                 arguments: [Self.conversation,
