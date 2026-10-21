@@ -8,9 +8,10 @@ import { Markdown } from "./Markdown";
 const fresh = [{ id: 1, count: 5, born: 0 }];
 
 test("a streaming reply draws no caret after its text", () => {
-  for (const waiting of [false, true]) {
+  // Mid-reveal (the newest step fading in) and caught up (nothing fading, waiting for more).
+  for (const steps of [fresh, []]) {
     const html = renderToStaticMarkup(
-      <Markdown streaming fresh={fresh} now={100} waiting={waiting}>
+      <Markdown streaming fresh={steps} now={100}>
         {"Hello there world"}
       </Markdown>,
     );
