@@ -745,14 +745,19 @@ async fn a_chat_whose_move_aborts_follows_a_deny_all_default_set_meanwhile() {
     let mut app = Client::app(&daemon).await;
     let (id, mode) = app.chat(&dir, "codex").await;
     assert_eq!(mode, "agent-full-access");
-    let begin = app.call("_acpmux/transfer_begin", json!({"sessionId": id})).await;
+    // Only the local socket moves a chat.
+    let mut mover = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
+    let r = mover.call("initialize", json!({"protocolVersion": 1})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let begin = mover.call("_acpmux/transfer_begin", json!({"sessionId": id})).await;
     let transfer = begin["result"]["transferId"].clone();
     assert!(transfer.is_string(), "{begin}");
     let r = app.call("_acpmux/set_default_policy", json!({"policy": "deny-all"})).await;
     assert!(r.get("error").is_none(), "{r}");
     assert_eq!(app.mode(&id).await, "agent-full-access", "a moving chat is not touched");
-    let r =
-        app.call("_acpmux/transfer_abort", json!({"sessionId": id, "transferId": transfer})).await;
+    let r = mover
+        .call("_acpmux/transfer_abort", json!({"sessionId": id, "transferId": transfer}))
+        .await;
     assert!(r.get("error").is_none(), "{r}");
     assert_eq!(mode_soon(&mut app, &id, "read-only").await, "read-only");
     let _ = std::fs::remove_dir_all(&dir);
