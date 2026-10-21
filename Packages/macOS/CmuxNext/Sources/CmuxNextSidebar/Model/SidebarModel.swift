@@ -130,7 +130,7 @@ public final class SidebarModel {
     public var selectedItem: SidebarItem? {
         didSet {
             guard selectedItem != oldValue else { return }
-            if case let .workspace(old)? = oldValue, let group = collapsedGroup(of: old) { revealedMembers[group, default: []].insert(old) }
+            noteLeft(oldValue)
             guard case let .workspace(id)? = selectedItem else { return }
             expandSections(hiding: id)
         }

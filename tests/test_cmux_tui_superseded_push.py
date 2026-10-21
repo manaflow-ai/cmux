@@ -126,8 +126,9 @@ def shallow_clone(source, branch, into):
     return into
 
 
-def pull(number, head, state="open", repo=REPO):
-    return {"number": number, "state": state, "head": {"sha": head, "repo": {"full_name": repo}}}
+def pull(number, head, state="open", repo=REPO, merged=False, base="feat-cmux-next"):
+    return {"number": number, "state": state, "head": {"sha": head, "repo": {"full_name": repo}},
+            "base": {"ref": base}, "merged_at": "2026-10-21T18:00:00Z" if merged else None}
 
 
 def check_verdicts():
@@ -157,8 +158,21 @@ def check_verdicts():
              dict(merge_commit, **{pulls_path: (200, [pull(7, newer)])}), "true"),
             ("a pin of the pull request's current head runs", "push", pin, merge,
              dict(merge_commit, **{pulls_path: (200, [pull(7, head)])}), "false"),
-            ("a pin of a merged pull request's final head runs", "push", pin, merge,
+            # Once the pull request merged, feat-cmux-next's push of it tests its own tree (2026-10-21: pin
+            # daemon tests of merged pull requests held the side lane for hours).
+            ("a pin of a merged pull request's final head is superseded", "push", pin, merge,
+             dict(merge_commit, **{pulls_path: (200, [pull(7, head, state="closed", merged=True)])}), "true"),
+            ("a pin of a pull request merged into another branch runs", "push", pin, merge,
+             dict(merge_commit, **{pulls_path: (200, [pull(7, head, state="closed", merged=True, base="some-lane")])}),
+             "false"),
+            ("a pin of a merged fork pull request runs", "push", pin, merge,
+             dict(merge_commit, **{pulls_path: (200, [pull(7, head, state="closed", merged=True, repo="someone/cmux")])}),
+             "false"),
+            ("a pin of a pull request closed without merging runs", "push", pin, merge,
              dict(merge_commit, **{pulls_path: (200, [pull(7, head, state="closed")])}), "false"),
+            ("a pin whose head is still open in another pull request runs", "push", pin, merge,
+             dict(merge_commit, **{pulls_path: (200, [pull(7, head, state="closed", merged=True), pull(8, head)])}),
+             "false"),
             ("a pin of a commit no pull request has runs", "push", pin, merge,
              dict(merge_commit, **{pulls_path: (200, [])}), "false"),
             ("a pin of a non-merge commit (pin-cmux-tui.sh) runs", "push", f"refs/heads/cmux-tui-pin-{head[:12]}", head,
@@ -221,6 +235,9 @@ def check_verdicts():
             ("this run's own deferral marker does not keep it", dict(moved, **{deferred_path: (200, own_run)}), "true"),
             ("the daemon tests run when the deferral lookup fails", dict(moved, **{deferred_path: (500, {})}), "false"),
             ("the daemon tests of a current pin run", dict(merge_commit, **{pulls_path: (200, [pull(7, head)])}), "false"),
+            ("the daemon tests of a merged pull request's pin skip",
+             dict(merge_commit, **{pulls_path: (200, [pull(7, head, state="closed", merged=True)]),
+                                   deferred_path: (200, {"artifacts": []})}), "true"),
         ]
         for why, routes, want in daemon_cases:
             api.reset(routes)

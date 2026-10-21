@@ -80,6 +80,36 @@ const host: Partial<HostLists> = {
   settings_file: "/Users/sample/.config/cmux/cmux.json",
   // Most variants omit artwork; the backdrop variant supplies sample thumbnails.
   backdrops: [],
+  // Settings › Import: what the host's scan found (ImportSuggestionsCenter.settingsJSON), sent by
+  // default since #22710, one card hidden with Not Now.
+  import_suggestions: {
+    title: "Found on This Mac",
+    empty: "Nothing to bring over right now. cmux looks again when you come back to it.",
+    cards: [
+      {
+        id: "browser.chrome",
+        kind: "browser",
+        title: "Chrome",
+        facts: "3 profiles · history, bookmarks and cookies",
+        benefit: "Sites you're signed into in Chrome stay signed in here, and your history fills the address bar.",
+        state: "ready",
+        primary: { action: "start", title: "Import" },
+        secondary: [{ action: "dismiss", title: "Not Now" }],
+        dismissed: false,
+      },
+      {
+        id: "agents.claudeCode",
+        kind: "claudeCode",
+        title: "Claude Code",
+        facts: "412 sessions",
+        benefit: "Your Claude Code history becomes searchable chats. Open one to pick up where you left off.",
+        state: "ready",
+        primary: { action: "start", title: "Show Chats" },
+        secondary: [{ action: "restore", title: "Show Again" }],
+        dismissed: true,
+      },
+    ],
+  },
 };
 const click = (selector: string): PageFixtureStep => ({ selector, action: "click" });
 const input = (selector: string, value: string): PageFixtureStep => ({ selector, action: "input", value });
