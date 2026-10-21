@@ -1781,6 +1781,87 @@ struct SidebarWorkspaceTableTests {
         }
     }
 
+#if DEBUG
+    /// https://github.com/manaflow-ai/cmux/issues/22706: creating or closing a
+    /// workspace repaints every row (`accessibilityWorkspaceCount`) without
+    /// changing any height. Noting every repainted row made NSTableView
+    /// recompute its spans and resize, walking all loaded row views.
+    @Test
+    @MainActor
+    func listWideRepaintNotesOnlyRowsWhoseHeightChanged() async throws {
+        let environment = SidebarWorkspaceTableEnvironmentSnapshot(
+            colorScheme: .light,
+            globalFontMagnificationPercent: 100,
+            lazyContractProbe: SidebarLazyContractProbe()
+        )
+        let workspaceIds = (0..<6).map { _ in UUID() }
+        let baseModels = workspaceIds.map {
+            SidebarWorkspaceRowSuspensionTests.makeModel(customDescription: "short", workspaceId: $0)
+        }
+        let longModel = SidebarWorkspaceRowSuspensionTests.makeModel(
+            customDescription: String(repeating: "a description long enough to wrap ", count: 8),
+            workspaceId: workspaceIds[2]
+        )
+        func makeRows(workspaceCount: Int, longDescriptionAt longIndex: Int? = nil) -> [SidebarWorkspaceTableRowConfiguration] {
+            (0..<6).map { index in
+                var model = index == longIndex ? longModel : baseModels[index]
+                model.index = index
+                model.isFirstRow = index == 0
+                model.accessibilityWorkspaceCount = workspaceCount
+                return SidebarWorkspaceTableRowConfiguration(
+                    workspaceRowModel: model,
+                    actions: SidebarWorkspaceRowSuspensionTests.makeActions(model: model),
+                    groupId: nil,
+                    isPinned: false,
+                    environment: environment
+                )
+            }
+        }
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 900),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        defer { window.close() }
+        controller.apply(
+            rows: makeRows(workspaceCount: 6),
+            actions: makeTableActions(),
+            workspaceIds: workspaceIds,
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+
+        var noted = IndexSet()
+        container.tableView.noteHeightOfRowsProbe = { noted.formUnion($0) }
+        controller.apply(
+            rows: makeRows(workspaceCount: 7),
+            actions: makeTableActions(),
+            workspaceIds: workspaceIds,
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        #expect(noted.isEmpty, "a repaint that keeps every height must not note rows")
+
+        controller.apply(
+            rows: makeRows(workspaceCount: 7, longDescriptionAt: 2),
+            actions: makeTableActions(),
+            workspaceIds: workspaceIds,
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        #expect(noted == IndexSet(integer: 2))
+    }
+#endif
+
     @MainActor
     private func flushStagedTableMutations() async {
         await withCheckedContinuation { continuation in
