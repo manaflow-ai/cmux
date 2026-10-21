@@ -66,7 +66,7 @@ fn tools() -> Value {
         },
         {
             "name": "list_sessions",
-            "description": "List your sub-sessions with their live state (state working, input, failed or idle; doing: one line of what a working one does right now, its plan step and latest tool; queued: messages waiting for its turn to end; the last turn's outcome; open children) and your own limits: depth, open sub-sessions, maxChildren and maxDepth. Report a sub-session's progress from doing, not from status alone. waitingOn question or permission means it waits on the user: only the user answers it, in the app; you cannot, so tell the user what it asks.",
+            "description": "List your sub-sessions with their live state (state working, input, failed or idle; doing: one line of what a working one does right now, its plan step and latest tool; queued: messages waiting for its turn to end; the last turn's outcome; open children) and your own limits: depth, open sub-sessions, maxChildren and maxDepth. Report a sub-session's progress from doing, not from status alone. waitingOn question or permission means it waits on the user: only the user allows a permission, in the app, so tell the user what it asks; a question you may answer with answer_question (see get_session's questions).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -76,7 +76,7 @@ fn tools() -> Value {
         },
         {
             "name": "get_session",
-            "description": "Read one of your sub-sessions (or your parent session): its state, doing (what it does right now, while a turn runs, or what it waits on the user for), waitingOn (question or permission: only the user answers it, in the app), queued messages and the text of its last reply.",
+            "description": "Read one of your sub-sessions (or your parent session): its state, doing (what it does right now, while a turn runs, or what it waits on the user for), waitingOn (question or permission: only the user allows a permission, in the app), the questions it is asking (questions; answer them with answer_question), queued messages and the text of its last reply.",
             "inputSchema": {
                 "type": "object",
                 "properties": {"sessionId": {"type": "string"}},
@@ -118,6 +118,23 @@ fn tools() -> Value {
                     "close": {"type": "boolean"}
                 },
                 "required": ["sessionId"]
+            }
+        },
+        {
+            "name": "answer_question",
+            "description": "Answer a question one of your sub-sessions (or a session under them) is asking: a Claude Code AskUserQuestion or a Grok or Cursor ask, listed under questions in get_session and wait_for_sessions with answerable true. Any other ask (answerable false, such as a Codex user-input request) only the user answers. Its agent gets your answer as its user's answer, and its transcript says you gave it. Permission requests and plan approvals are not questions: only the user allows those, in cmux NEXT, so tell the user which sub-session is waiting. It works only after the user turned it on (Settings > Agents > Sub-sessions); otherwise it is refused and you tell the user what the sub-session asks.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "sessionId": {"type": "string"},
+                    "permissionId": {"type": "string", "description": "The question's permissionId from questions."},
+                    "answers": {
+                        "type": "object",
+                        "description": "One entry per item of the question, keyed by the item's id or its prompt: the chosen option's label, or your own text where allowsOther is true; a list of labels where multiSelect is true. Every item must be answered.",
+                        "additionalProperties": {"anyOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}]}
+                    }
+                },
+                "required": ["sessionId", "permissionId", "answers"]
             }
         },
         {
@@ -212,6 +229,10 @@ async fn call(daemon: &Client, params: &Value) -> Value {
         },
         "stop_session" => match request(method::MUX_SUBSESSION_STOP, args).await {
             Ok(r) => ok(serde_json::to_string_pretty(&r).unwrap_or_default(), r),
+            Err(e) => refusal(e),
+        },
+        "answer_question" => match request(method::MUX_SUBSESSION_ANSWER, args).await {
+            Ok(r) => ok("Answered.".to_owned(), r),
             Err(e) => refusal(e),
         },
         "set_session_limits" => match request(method::MUX_SUBSESSION_LIMITS, args).await {

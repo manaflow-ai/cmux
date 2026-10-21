@@ -237,6 +237,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/subsession/answer",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/subsession/get",
       "params": true,
       "result": true
@@ -3198,7 +3204,7 @@
           "type": "integer"
         },
         "waitingOn": {
-          "description": "What it waits on the person for: `question` (an agent question) or `permission`; null while nothing is pending. Only the person answers.",
+          "description": "What it waits on the person for: `question` (an agent question) or `permission`; null while nothing is pending. Only the person allows a permission.",
           "type": [
             "string",
             "null"

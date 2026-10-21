@@ -691,7 +691,7 @@ export type SessionSummary = {
   turnCount: number;
   unread: boolean;
   updatedAt: number;
-  /** What it waits on the person for: `question` (an agent question) or `permission`; null while nothing is pending. Only the person answers. */
+  /** What it waits on the person for: `question` (an agent question) or `permission`; null while nothing is pending. Only the person allows a permission. */
   waitingOn?: (string | null);
   /** The first prompt of the question it waits on, cut to 120 characters. */
   waitingPrompt?: (string | null);

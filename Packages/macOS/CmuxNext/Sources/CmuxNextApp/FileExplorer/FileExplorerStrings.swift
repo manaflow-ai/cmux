@@ -24,6 +24,18 @@ nonisolated enum FileExplorerStrings {
     static var copyPath: String { text("fileExplorer.menu.copyPath", "Copy Path") }
     static var copyRelativePath: String { text("fileExplorer.menu.copyRelativePath", "Copy Relative Path") }
     static var openWith: String { text("fileExplorer.menu.openWith", "Open With…") }
+    static var openWithSubmenu: String { text("fileExplorer.menu.openWithSubmenu", "Open With") }
+    static var openWithOther: String { text("fileExplorer.menu.openWithOther", "Other…") }
+    static var loadingApps: String { text("fileExplorer.menu.loadingApps", "Loading…") }
+    static var openPrompt: String { text("fileExplorer.openPrompt", "Open") }
+    /// An Open With row for the file's default app.
+    static func defaultApp(_ name: String) -> String {
+        String(format: text("fileExplorer.menu.defaultApp", "%@ (default)"), name)
+    }
+    /// The Other… panel's message.
+    static func chooseApp(_ name: String) -> String {
+        String(format: text("fileExplorer.chooseApp", "Choose an app to open “%@”."), name)
+    }
     static var findPlaceholder: String { text("find.placeholder", "Find in Folder") }
     static var findTitle: String { text("find.title", "Find") }
     /// The status line while ripgrep runs over `folder`.
