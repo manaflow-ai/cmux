@@ -22,7 +22,8 @@ final class FileExplorerService {
         let view = FileExplorerSectionView(
             model: FileExplorerModel(),
             rootFolder: { [weak self, weak controller] in controller.flatMap { self?.folder(focusedIn: $0) } },
-            perform: { [weak self] id in self?.perform(ActionID(rawValue: id)) })
+            perform: { [weak self] id in self?.perform(ActionID(rawValue: id)) },
+            openWith: { [weak self] app in self?.perform("fileExplorerOpenWith", arguments: ["app": .string(app)]) })
         sections.setObject(view, forKey: controller)
         return view
     }
@@ -65,9 +66,9 @@ final class FileExplorerService {
 
     /// Runs an explorer action from the explorer itself (a key, a double-click, its menu): the
     /// list has the keyboard, so `fileExplorerFocused` holds for this run.
-    private func perform(_ id: ActionID) {
+    private func perform(_ id: ActionID, arguments: [String: ActionValue] = [:]) {
         guard let registry = services?.registry else { return }
-        var invocation = ActionInvocation()
+        var invocation = ActionInvocation(arguments: arguments)
         invocation.keyContext = registry.context.union(.fileExplorerFocused)
         registry.perform(id, invocation: invocation)
     }
