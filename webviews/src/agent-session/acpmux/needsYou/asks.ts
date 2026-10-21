@@ -40,7 +40,8 @@ export function pendingReader(
     const info = (
       native() ? await host(PENDING_ASKS_OP, { sessionId }) : await daemon("_acpmux/info", { sessionId })
     ) as { pending?: unknown } | null | undefined;
-    return Array.isArray(info?.pending) ? (info.pending as PendingEntry[]) : undefined;
+    const pending = info?.pending;
+    return Array.isArray(pending) ? (pending as PendingEntry[]) : undefined;
   };
 }
 
