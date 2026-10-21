@@ -231,6 +231,12 @@ class Matrix:
         if not ok:
             return False, f"turn 2: {why}"
         self.parent_tools = self.tool_calls(self.parent)
+        # From here on the chat answers from its conversation only: an agent that may search
+        # the disk (OpenCode's default agent did) finds earlier runs' code words there. Forks
+        # take the chat's policy.
+        p = self.d.run(["session", "set", self.parent, "policy=deny-all"], timeout=30)
+        if p.returncode != 0:
+            return False, f"policy deny-all: {(p.stderr or p.stdout).strip()[-200:]}"
         self.parent_prompts = self.prompts(self.parent)
         return True, f"prompts={len(self.parent_prompts)} tool_events={self.parent_tools}"
 
