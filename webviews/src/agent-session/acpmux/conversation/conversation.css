@@ -2873,6 +2873,40 @@ pre.cv-math-source {
 .cv-user__steer[data-steer="waiting"] .cv-user__steer-label {
   color: var(--agent-accent);
 }
+/* A steer the agent has not read yet (PendingSteer.tsx): a faint clock, then Send now. */
+.cv-user__pending {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 4px;
+  padding-right: 4px;
+  font-family: var(--cv-font);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  color: var(--cv-text-muted);
+}
+.cv-user__pending-clock {
+  display: inline-flex;
+  color: var(--agent-accent);
+  opacity: 0.6;
+}
+.cv-user__send-now {
+  border: 0;
+  padding: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: default;
+}
+.cv-user__send-now:hover:not(:disabled) {
+  color: var(--cv-text);
+}
+.cv-user__send-now:disabled {
+  opacity: 0.5;
+}
 /* A steer's read state under another agent's message, in line with its text (App.tsx). */
 .cv-incoming > .cv-user__steer {
   padding-left: 32.5px;

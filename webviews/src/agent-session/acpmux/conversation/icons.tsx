@@ -376,6 +376,14 @@ export const PauseCircle = (p: CvIconProps) => (
   </Svg>
 );
 
+/** A steer waiting for the agent's current step to end (PendingSteer.tsx). */
+export const Clock = (p: CvIconProps) => (
+  <Svg {...p}>
+    <circle cx="8" cy="8" r="5.75" />
+    <path d="M8 5v3.25l2 1.25" />
+  </Svg>
+);
+
 /** Arrow between a message's sender and recipient. */
 export const ArrowRight = (p: CvIconProps) => (
   <Svg {...p}>
