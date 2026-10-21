@@ -79,6 +79,9 @@ impl Mux {
             projection,
         )?;
         if !commit.replayed {
+            // The write added a `projection_mutations` ledger row and
+            // publishes no journal event: journal maintenance bounds it.
+            self.journal_maintenance_control.note_change();
             self.emit(MuxEvent::FrontendProjectionChanged {
                 frontend: frontend.to_string(),
                 scope: scope.to_string(),

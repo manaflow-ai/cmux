@@ -32,7 +32,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Weak};
+use std::sync::{Arc, Weak, mpsc};
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -45,6 +45,13 @@ use crate::{Actor, SurfaceId};
 
 /// Longest acpmux line read; a session summary is far smaller.
 const MAX_LINE_BYTES: u64 = 4 << 20;
+/// First retry after a failed connect or an ended connection.
+const RECONNECT_INITIAL: Duration = Duration::from_secs(1);
+/// Longest wait between connects.
+const RECONNECT_MAX: Duration = Duration::from_secs(10);
+/// Connects in a row that may fail before the watch waits for the socket to
+/// change again: at once, then 1 s and 2 s later.
+const CONNECTS_PER_HINT: u32 = 3;
 /// The acpmux session tag that mutes a chat, and its value.
 const MUTE_TAG: &str = "notifications";
 const MUTED: &str = "muted";
@@ -138,28 +145,105 @@ impl Mux {
 }
 
 /// Connects whenever acpmux listens and follows it until the daemon ends.
+///
+/// Between connections the thread blocks until the socket path changes:
+/// acpmux starts on demand (the first agent chat), so on most machines it is
+/// not running, and a reconnect every 10 s kept every idle daemon waking for
+/// good. A file watch of the socket (`cmux_config::watch`: kernel events, no
+/// polling) hints once when it is armed and again whenever the socket is
+/// created, replaced or removed. Each hint gets a few connects, a short
+/// backoff apart (a socket bound a moment before it listens, an acpmux that
+/// restarts for an update); then the thread waits for the next hint. Only
+/// when the watch cannot be armed does it fall back to spaced retries.
 fn watch(mux: &Weak<Mux>, socket: &Path) {
-    let mut backoff = crate::backoff::Backoff::new(Duration::from_secs(1), Duration::from_secs(10));
     let mut chats = HashMap::new();
+    // A relative path has no directory to watch: the watch would arm and
+    // never hint again.
+    if !socket.is_absolute() {
+        watch_by_retrying(mux, socket, &mut chats);
+        return;
+    }
+    let (hint, hints) = mpsc::channel::<()>();
+    let watcher = cmux_config::watch::Watcher::start(vec![socket.to_path_buf()], move || {
+        let _ = hint.send(());
+    });
+    let _watcher = match watcher {
+        Ok(watcher) => watcher,
+        Err(error) => {
+            eprintln!(
+                "cmux-tui: acpmux socket watch unavailable ({error}); agent chat notices retry"
+            );
+            watch_by_retrying(mux, socket, &mut chats);
+            return;
+        }
+    };
+    // The first hint comes when the watch is armed. A hint can also be an
+    // unrelated change in the nearest existing ancestor of a missing socket
+    // directory (macOS watches that ancestor's entries): with no socket there
+    // is nothing to connect to, and its creation hints again.
+    while hints.recv().is_ok() {
+        // Hints that queued meanwhile are one change.
+        while hints.try_recv().is_ok() {}
+        if socket.symlink_metadata().is_ok() && !follow_while_listening(mux, socket, &mut chats) {
+            return;
+        }
+    }
+}
+
+/// Follows acpmux for as long as it listens. Returns once
+/// [`CONNECTS_PER_HINT`] connects in a row failed or the socket is gone
+/// (acpmux removes it when it stops); false when the daemon is gone.
+fn follow_while_listening(
+    mux: &Weak<Mux>,
+    socket: &Path,
+    chats: &mut HashMap<String, Chat>,
+) -> bool {
+    let mut backoff = crate::backoff::Backoff::new(RECONNECT_INITIAL, RECONNECT_MAX);
+    let mut failures = 0;
     loop {
-        match mux.upgrade() {
-            Some(live) if !live.shutting_down.load(std::sync::atomic::Ordering::Acquire) => {}
-            _ => return,
+        if !daemon_runs(mux) {
+            return false;
         }
-        let stream = UnixStream::connect(socket);
-        if stream.is_ok()
-            && let Some(live) = mux.upgrade()
-        {
-            // acpmux is back: what waited for it goes out now.
-            live.wake_agent_message_pump();
+        if socket.symlink_metadata().is_err() {
+            return true;
         }
-        if let Ok(stream) = stream
-            && follow(mux, stream, &mut chats).is_ok()
-        {
+        if connect_and_follow(mux, socket, chats) {
+            failures = 0;
+            backoff.reset();
+        } else {
+            failures += 1;
+            if failures >= CONNECTS_PER_HINT {
+                return true;
+            }
+        }
+        std::thread::sleep(backoff.next_delay());
+    }
+}
+
+/// Without a socket watch: retry for as long as the daemon runs.
+fn watch_by_retrying(mux: &Weak<Mux>, socket: &Path, chats: &mut HashMap<String, Chat>) {
+    let mut backoff = crate::backoff::Backoff::new(RECONNECT_INITIAL, RECONNECT_MAX);
+    while daemon_runs(mux) {
+        if connect_and_follow(mux, socket, chats) {
             backoff.reset();
         }
         std::thread::sleep(backoff.next_delay());
     }
+}
+
+fn daemon_runs(mux: &Weak<Mux>) -> bool {
+    mux.upgrade().is_some_and(|live| !live.shutting_down.load(std::sync::atomic::Ordering::Acquire))
+}
+
+/// One connection, followed until it ends; true when acpmux answered and the
+/// connection ended cleanly.
+fn connect_and_follow(mux: &Weak<Mux>, socket: &Path, chats: &mut HashMap<String, Chat>) -> bool {
+    let Ok(stream) = UnixStream::connect(socket) else { return false };
+    if let Some(live) = mux.upgrade() {
+        // acpmux is back: what waited for it goes out now.
+        live.wake_agent_message_pump();
+    }
+    follow(mux, stream, chats).is_ok()
 }
 
 /// One connection: the watch page sets what each chat is doing, and every
