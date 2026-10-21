@@ -147,6 +147,7 @@ export interface AcpmuxRequests {
   "_acpmux/shutdown": { params: unknown; result: unknown };
   "_acpmux/peers": { params: unknown; result: unknown };
   "_acpmux/peer_add": { params: unknown; result: unknown };
+  "_acpmux/peer_lease": { params: unknown; result: unknown };
   "_acpmux/peer_reconnect": { params: unknown; result: unknown };
   "_acpmux/peer_remove": { params: unknown; result: unknown };
 }
@@ -339,6 +340,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/shutdown", kind: "request", acp: false, typed: false },
   { name: "_acpmux/peers", kind: "request", acp: false, typed: false },
   { name: "_acpmux/peer_add", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/peer_lease", kind: "request", acp: false, typed: false },
   { name: "_acpmux/peer_reconnect", kind: "request", acp: false, typed: false },
   { name: "_acpmux/peer_remove", kind: "request", acp: false, typed: false },
   { name: "_acpmux/event", kind: "notification", acp: false, typed: false },
