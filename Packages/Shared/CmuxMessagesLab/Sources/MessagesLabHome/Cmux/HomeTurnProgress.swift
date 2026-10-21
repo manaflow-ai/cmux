@@ -1,3 +1,4 @@
+import CmuxHomeCore
 import Foundation
 
 /// How the Chief's running indicator (the status line above its typing dots) reads while a turn runs.
