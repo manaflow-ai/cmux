@@ -129,7 +129,14 @@ impl Mux {
             format!("cmux-hook-sequence:{sequence}")
         };
         let (harness, ended) = (agent_provider_identity(ingress), state == AgentState::Done);
-        self.note_relaunch_agent(&terminal_id, harness, explicit_session_id, ended, job);
+        // An end journaled for a terminal's lost process leaves the relaunch record as the
+        // session's start wrote it: a crash or a lost host is when "Resume Agents After
+        // Restart" brings the session back (#22995).
+        if ingress.payload.get("native_event").and_then(Value::as_str)
+            != Some(crate::agent_hooks::TERMINAL_EXIT_NATIVE_EVENT)
+        {
+            self.note_relaunch_agent(&terminal_id, harness, explicit_session_id, ended, job);
+        }
         let hook_state = crate::workspace_registry::AgentHookProjectionState {
             agent_session_id,
             applied_sequence: sequence,
