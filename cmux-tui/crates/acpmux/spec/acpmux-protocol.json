@@ -966,6 +966,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/peer_lease",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/peer_reconnect",
       "params": true,
       "result": true

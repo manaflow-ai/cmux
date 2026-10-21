@@ -1,7 +1,8 @@
 /// Files the composer attaches to a prompt. Images, PDFs and dictation's voice recordings go to
-/// the agent as ACP content blocks. A text file is written into the prompt's text because
-/// the web view never learns a dropped file's path; any other file (a binary, a large text file)
-/// goes to the chat's host (`chat.upload`), which saves it; its chip sends the saved path as a link.
+/// the agent as ACP content blocks. A text file is written into the prompt's text. Any other file (a
+/// binary, a large text file) or folder goes as a link: in a chat on this Mac to where it is (the
+/// host knows a dropped or pasted file's path, `chat.attach.dropped`; the page does not), else to
+/// the copy the chat's host saves (`chat.upload`).
 import { liftInlineImages } from "./inlineImages";
 
 export type ComposerAttachment = {
@@ -302,8 +303,27 @@ export function promptBlocks(input: string, chips: ComposerAttachment[]): Prompt
   return blocks;
 }
 
-/// A link chip for a file or folder the host's panel chose (`chat.attach.choose`): named by its
-/// last component, a folder's with a trailing slash.
+/// A file or folder on this computer that a link chip names (``linkAttachment``).
+export type LinkItem = { path: string; folder: boolean };
+
+/// How files came in from the person's own gesture, for the host's record of where they are
+/// (`chat.attach.dropped`): a drop on the page, or a paste.
+export type DroppedKind = "drop" | "paste";
+
+/// The files and folders of the host's `{items: [{path, folder}]}` answer (`chat.attach.choose`,
+/// `chat.attach.dropped`), in order: absolute paths only, a folder only when the host says so.
+export function linkItems(value: unknown): LinkItem[] {
+  const items = (value as { items?: unknown } | null | undefined)?.items;
+  if (!Array.isArray(items)) return [];
+  return items.flatMap((item: unknown) => {
+    const { path, folder } = (item ?? {}) as { path?: unknown; folder?: unknown };
+    return typeof path === "string" && path.startsWith("/") ? [{ path, folder: folder === true }] : [];
+  });
+}
+
+/// A link chip for a file or folder on this computer (the host's panel chose it,
+/// `chat.attach.choose`, or the person dropped or pasted it): named by its last component, a
+/// folder's with a trailing slash.
 export function linkAttachment(path: string, folder: boolean): ComposerAttachment {
   const trimmed = path.replace(/\/+$/, "") || "/";
   const name = trimmed.slice(trimmed.lastIndexOf("/") + 1) || trimmed;
@@ -401,6 +421,16 @@ function fenceLanguage(name: string): string {
 /// The files in a drop or paste.
 export function filesFrom(transfer: DataTransfer | null): File[] {
   return transfer ? [...transfer.files] : [];
+}
+
+/// Whether a paste of files carries no text but their own names: files copied in a file manager
+/// also put each one's name (or path, or a file: URL list) on the clipboard as text, which the
+/// field must not take as a prompt. As the Home channel's composer decides (home-channels/Composer.tsx).
+export function pasteIsOnlyFileNames(transfer: DataTransfer): boolean {
+  if (transfer.files.length === 0) return false;
+  const text = transfer.getData("text/plain");
+  const names = [...transfer.files].map((file) => file.name);
+  return !text || [...transfer.types].includes("text/uri-list") || names.some((name) => text.includes(name));
 }
 
 /// Smaller than this is a page's spacer or icon, not an image someone copied.
