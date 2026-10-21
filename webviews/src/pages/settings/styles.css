@@ -1241,6 +1241,11 @@ mark {
   height: 100%;
   object-fit: cover;
 }
+/* Pixel-art mascots stay crisp and uncropped, as in the pet card. */
+.chiefs-picture img[data-mascot] {
+  object-fit: contain;
+  image-rendering: pixelated;
+}
 .chiefs-backend {
   flex: none;
   max-width: 40%;

@@ -132,7 +132,11 @@ export function ChiefsCard() {
               }}
             >
               <span className="chiefs-picture" aria-hidden="true">
-                <img src={pictures.get(chief.id) ?? mascot} alt="" />
+                <img
+                  src={pictures.get(chief.id) ?? mascot}
+                  alt=""
+                  data-mascot={pictures.has(chief.id) ? undefined : ""}
+                />
               </span>
               <span className="row-main">
                 <span className="row-label">
