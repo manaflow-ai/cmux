@@ -45,6 +45,59 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
     }
 }
 
+
+/// Which Macs keep a link (PROTOCOL.md "One link per Mac"): bounded, lazy,
+/// idle teardown.
+@Suite struct MacLinkPolicyTests {
+    let now = ContinuousClock.now
+    let macs = [
+        MacDevice(id: "m1", name: "One", isOnline: true), MacDevice(id: "m2", name: "Two", isOnline: true),
+        MacDevice(id: "m3", name: "Three", isOnline: true), MacDevice(id: "m4", name: "Four", isOnline: false),
+    ]
+
+    @Test func everyShownMacIsLinkedFocusedFirst() {
+        let decision = MacLinkPolicy().decide(macs: macs, focused: "m2", showing: ["m1", "m2", "m3"], lastShown: [:], now: now)
+        #expect(decision.linked == ["m2", "m1", "m3"])
+        #expect(decision.nextExpiry == nil)
+    }
+
+    /// Lazy: a Mac nothing shows, and never shown, is not dialed.
+    @Test func aMacNothingShowsIsNotLinked() {
+        let decision = MacLinkPolicy().decide(macs: macs, focused: "m1", showing: ["m1"], lastShown: [:], now: now)
+        #expect(decision.linked == ["m1"])
+    }
+
+    /// Idle teardown: a Mac left keeps its link for `idleAfter`, then not.
+    @Test func aMacLeftKeepsItsLinkUntilIdle() {
+        let policy = MacLinkPolicy(idleAfter: .seconds(300))
+        let left = now - .seconds(120)
+        let kept = policy.decide(macs: macs, focused: "m1", showing: [], lastShown: ["m2": left], now: now)
+        #expect(kept.linked == ["m1", "m2"])
+        #expect(kept.nextExpiry == left + .seconds(300))
+        let later = policy.decide(macs: macs, focused: "m1", showing: [], lastShown: ["m2": left], now: now + .seconds(181))
+        #expect(later.linked == ["m1"])
+        #expect(later.nextExpiry == nil)
+    }
+
+    /// Bounded: the focused Mac, then on screen, then the most recent, up to `maxLinks`.
+    @Test func linksAreBounded() {
+        let policy = MacLinkPolicy(maxLinks: 2)
+        let decision = policy.decide(macs: macs, focused: "m3", showing: ["m1", "m2"], lastShown: [:], now: now)
+        #expect(decision.linked == ["m3", "m1"])
+        let recent = policy.decide(macs: macs, focused: "m1", showing: [],
+                                   lastShown: ["m2": now - .seconds(10), "m3": now - .seconds(5)], now: now)
+        #expect(recent.linked == ["m1", "m3"])
+    }
+
+    /// An offline Mac is never dialed ahead of an online one; the focused one
+    /// stays targeted offline (its status says so).
+    @Test func offlineMacsComeLast() {
+        let policy = MacLinkPolicy(maxLinks: 2)
+        #expect(policy.decide(macs: macs, focused: "m4", showing: [], lastShown: [:], now: now).linked == ["m4"])
+        #expect(policy.decide(macs: macs, focused: "m1", showing: ["m4", "m2"], lastShown: [:], now: now).linked == ["m1", "m2"])
+    }
+}
+
 // The coordinator is iOS-only: these run in the iOS simulator test pass.
 #if os(iOS)
 /// The phone holds one link per online Mac at once (PROTOCOL.md "One link per
@@ -121,6 +174,68 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         #expect(dialer.dialCount("m1") == 1)
         #expect(dialer.dialCount("m2") == 1)
         #expect(store.macConnection["m2"] == .connected)
+    }
+    /// A terminal tab opens its channels on its own Mac's link, even when tab ids
+    /// repeat across Macs (both Macs number their surfaces from 1) and the other
+    /// Mac is focused.
+    @Test func aTerminalReadsItsOwnMac() async {
+        let key = "cmuxMobile.live.mac.t1"
+        UserDefaults.standard.removeObject(forKey: key)
+        defer { UserDefaults.standard.removeObject(forKey: key) }
+        let store = emptyStore()
+        let live = coordinator(store: store, dialer: PerMacDialer(screens: ["m1": "first Mac", "m2": "second Mac"]))
+        defer { live.stop() }
+        await settle { store.macDataPhase("m1") == .live && store.macDataPhase("m2") == .live }
+        live.select(macID: "m2")
+        await drain()
+        #expect(await live.terminalScreenText(tabID: "s1", macID: "m1") == "first Mac")
+        #expect(await live.terminalScreenText(tabID: "s1", macID: "m2") == "second Mac")
+        #expect(live.terminalSession(tabID: "s1", programName: "zsh", macID: "m1")?.macName == "Aziz's MacBook Pro")
+        #expect(live.terminalSession(tabID: "s1", programName: "zsh", macID: "m2")?.macName == "MacBook Pro")
+    }
+
+    /// Lazy and idle: a Mac no screen shows closes its link after the idle
+    /// window, quietly (its list is last-known, not "Can't connect"), and opens
+    /// it again when it is shown.
+    @Test func aMacLeftAloneClosesItsLinkAndReopensWhenShown() async {
+        let key = "cmuxMobile.live.mac.t1"
+        UserDefaults.standard.removeObject(forKey: key)
+        defer { UserDefaults.standard.removeObject(forKey: key) }
+        let store = emptyStore()
+        let dialer = PerMacDialer()
+        let live = coordinator(store: store, dialer: dialer)
+        defer { live.stop() }
+        live.linkPolicy = MacLinkPolicy(idleAfter: .milliseconds(200))
+        await settle { store.macConnection["m1"] == .connected && store.macConnection["m2"] == .connected }
+        // Only the first Mac's workspace is on screen now.
+        live.showing(macIDs: ["m1"])
+        await settle { store.macConnection["m2"] == nil }
+        #expect(store.macConnection["m2"] == nil)
+        #expect(store.macDataPhase("m2") == .cached(.idle))
+        #expect(store.macConnection["m1"] == .connected)
+        #expect(dialer.dialCount("m1") == 1)
+        // The Workspaces list again: the second Mac's link opens again.
+        live.showing(macIDs: nil)
+        await settle { store.macConnection["m2"] == .connected }
+        #expect(store.macConnection["m2"] == .connected)
+        #expect(dialer.dialCount("m2") == 2)
+    }
+
+    /// Transport settings reach every Mac's link.
+    @Test func aTransportChangeRedialsEveryLink() async {
+        let key = "cmuxMobile.live.mac.t1"
+        UserDefaults.standard.removeObject(forKey: key)
+        defer { UserDefaults.standard.removeObject(forKey: key) }
+        let store = emptyStore()
+        let dialer = PerMacDialer()
+        let live = coordinator(store: store, dialer: dialer)
+        defer { live.stop() }
+        await settle { store.macConnection["m1"] == .connected && store.macConnection["m2"] == .connected }
+        live.setTransport(.webRTC)
+        await settle { dialer.dialCount("m1") == 2 && dialer.dialCount("m2") == 2 }
+        #expect(dialer.dialCount("m1") == 2)
+        #expect(dialer.dialCount("m2") == 2)
+        #expect(live.sessions.values.allSatisfy { $0.link.transport == .webRTC })
     }
 }
 #endif
