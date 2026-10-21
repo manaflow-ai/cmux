@@ -83,6 +83,10 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
     /// A close the sidebar sends for its rows (a row's close button, a middle-click, Delete on the
     /// selection): each row by itself, never widened to the selection. In-app only.
     public var closesRowOnly = false
+    /// A person's unconfirmed Close Workspace: the destructive gate let it run at the press, and the
+    /// handler asks about running programs itself, after the row has left (`WorkspaceCloseFlow`).
+    /// In-app only: the control socket never sets it.
+    public var asksIfRunning = false
 
     public init(target: ActionTargetRef? = nil, arguments: [String: ActionValue] = [:], origin: ActionOrigin = .user,
                 focusRequested: Bool = false) {
