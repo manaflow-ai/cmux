@@ -30,7 +30,8 @@ struct PageEnginePolicyTests {
 
     @Test func aPageThatCannotRunInChromiumNamesItsReason() {
         let policy = PageEnginePolicy(preference: .chromium, chromiumAvailable: true)
-        #expect(policy.decide(for: Self.agent, options: .standard) == .webKit(.agentChat))
+        // The agent chat and New Tab page follow the setting like every other page.
+        #expect(policy.decide(for: Self.agent, options: .standard) == .chromium)
         #expect(policy.decide(for: Self.plain, options: PageEngineOptions(requiresWebKit: .transparentOverlay))
             == .webKit(.transparentOverlay))
         #expect(policy.decide(for: Self.plain, options: PageEngineOptions(requiresWebKit: .nativeHooks)) == .webKit(.nativeHooks))

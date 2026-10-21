@@ -22,7 +22,6 @@ import Testing
 
     /// The pages that still show in WebKit, and why (webviews-chromium-AUDIT.md).
     private static let stillOnWebKit: [String: PageWebKitReason] = [
-        PageDescriptor.agent.id: .agentChat,
         PageDescriptor.iconPicker.id: .transparentOverlay,
     ]
 

@@ -19,12 +19,15 @@ final class FakeChromiumPage: PageChromiumPage {
     var senderIsTop = true
     /// Runs after each call (tests wait on it).
     var onCall: (() -> Void)?
+    /// Answers a call by its method and params before the defaults (nil: the defaults answer).
+    var answer: ((_ method: String, _ params: [String: any Sendable]) -> String?)?
     /// Runs when the host closes the page.
     var onClose: (() -> Void)?
 
     func devTools(_ method: String, params: [String: any Sendable]) async throws -> String {
         calls.append((method, params))
         defer { onCall?() }
+        if let answered = answer?(method, params) { return answered }
         if method == "Runtime.evaluate", params["expression"] as? String == "[location.href, window === window.top]" {
             return #"{"result":{"type":"object","value":["\#(senderURL)",\#(senderIsTop)]}}"#
         }
