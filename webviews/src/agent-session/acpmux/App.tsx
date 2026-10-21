@@ -50,7 +50,7 @@ import { newTabChipSnapshot } from "./newtab/chipDefaults";
 import { HarnessesScreen } from "./harnesses/HarnessesScreen";
 import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./harnesses/harnessesPage";
 import { injectedNewTabContext, useEarlyNewTabContext, useNewTabAdoption, useNewTabPlaces } from "./newtab/adoption";
-import { publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
+import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import { heldPick, withDraftFolder } from "./newtab/draftFolder";
 import { rememberRecentFolders } from "./newtab/recentProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
@@ -150,7 +150,7 @@ import { loadEditDiffHunks } from "./conversation/EditDiff";
 import { PlanList } from "./conversation/PlanList";
 import { ActivityLine } from "./conversation/ActivityLine";
 import { BackgroundTaskNote } from "./conversation/BackgroundTaskNote";
-import { IncomingMessageCard, IncomingNotice } from "./conversation/IncomingMessageCard";
+import { IncomingMessageLine, IncomingNotice } from "./conversation/IncomingMessageCard";
 import { CompactionNote, FailoverNote } from "./conversation/CompactionNote";
 import { AgentPairNote } from "./conversation/AgentPairNote";
 import { SessionStartNote } from "./conversation/SessionStartNote";
@@ -624,15 +624,14 @@ const MessageRow = memo(
     const t = useT();
     // A started task's result, which acpmux sent as a prompt: one line, never the person's bubble.
     if (row.kind === "user" && row.received) return <ReceivedResult result={row.received} onOpen={openOfferChat} />;
-    // Another agent's message as a card from it; a task notification as one quiet line
+    // Another agent's message as one "Received message from" line; a task notification as one quiet line
     // (conversation/incomingMessage.ts).
-    // Its images and a steer's read state show with it, as under a bubble.
+    // Its images show with it; a steer's read state does not: the message is the agent's to read.
     if (row.kind === "user" && row.incoming?.kind === "notice") return <IncomingNotice text={row.incoming.text} />;
     if (row.kind === "user" && row.incoming?.kind === "message")
       return (
         <div className="cv-incoming">
-          <IncomingMessageCard message={row.incoming.message} images={row.images} onOpen={openOfferChat} />
-          {row.steer && <SteerMark steer={row.steer} />}
+          <IncomingMessageLine id={row.id} message={row.incoming.message} images={row.images} onOpen={openOfferChat} />
         </div>
       );
     if (row.kind === "user" && row.incoming?.kind === "hidden") return null;
@@ -1447,6 +1446,7 @@ export function VirtualTranscript({
   expanded,
   registry = defaultRegistry,
   canLoadOlder = false,
+  historyFrom,
   githubRepository,
   find,
   reveal,
@@ -1483,6 +1483,8 @@ export function VirtualTranscript({
   expanded: Set<string>;
   registry?: NativeRegistry;
   canLoadOlder?: boolean;
+  /// The oldest event seq held (AcpmuxSnapshot.historyFrom): a read that drew no row still moves it.
+  historyFrom?: number;
   /// Pages older history in (canLoadOlder): asked once per loaded page while the view is near the top.
   onLoadOlder?: () => Promise<void>;
   githubRepository?: string;
@@ -2524,7 +2526,8 @@ export function VirtualTranscript({
   // Older history pages in before the reader reaches it: whenever the view is within two viewports
   // of the first loaded row, including a tail too short to fill them. The anchoring above keeps the
   // reader's row in place as each page lands.
-  const olderLoadKey = `${sessionKey}\u0000${rows[0]?.id ?? ""}`;
+  // A read that drew no row above the first (records that draw nothing) moves historyFrom: ask again.
+  const olderLoadKey = `${sessionKey}\u0000${rows[0]?.id ?? ""}\u0000${historyFrom ?? ""}`;
   const olderLoadRequested = useRef<string | undefined>(undefined);
   useEffect(() => {
     const node = ref.current;
@@ -4626,6 +4629,7 @@ function AcpmuxPane() {
         const mock = host.transport === "mock";
         // Links copy in this build's scheme; only the hostless mock page falls back to Release's.
         setLinkScheme(host.linkScheme, mock ? FALLBACK_LINK_SCHEME : undefined);
+        if (mock) markMockPage();
         if (mock)
           setCheckpointVariant(
             new URLSearchParams(window.location.search).get("checkpointVariant") === "expanded"
@@ -5766,6 +5770,7 @@ function AcpmuxPane() {
                                           childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId
                                         }
                                         canLoadOlder={!childRows && snapshot.canLoadOlder}
+                                        historyFrom={childRows ? undefined : snapshot.historyFrom}
                                         onLoadOlder={() => directClient.current?.loadOlder() ?? Promise.resolve()}
                                         openAt={
                                           !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
