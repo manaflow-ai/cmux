@@ -21,7 +21,6 @@ enum Verb {
     PaletteOpen,
     DialogList,
     DialogAnswer,
-    ChatNew,
     ChatSend,
     ChatRead,
 }
@@ -100,20 +99,6 @@ pub(super) const TOOLS: &[AgentTool] = &[
             Permissions can only be denied here; a person approves them in cmux.",
     },
     AgentTool {
-        name: "agents_chat_new",
-        verb: Verb::ChatNew,
-        title: "Start a chat",
-        description: "Start an agent chat that cmux shows as a tab (`cmux agents chat new`): \
-            in pane (a pane_ id of any workspace, shown or not), else in workspace (its last \
-            focused pane), else in a new workspace. Nothing takes the person's focus. model is \
-            HARNESS[/MODEL] (claude, codex/gpt-5.5); effort, policy (ask, approve-reads, \
-            approve-edits, approve-all, deny-all), mode and preset are acpmux's session \
-            settings, and acpmux refuses a mode that does not ask unless a person approved it. \
-            prompt is sent as an agent message, as agents_chat_send sends. Answers {action, \
-            origin, result: {chat, name, workspace, workspace_key, pane, tab, message?}, \
-            idempotency_key}; prompt and read the chat by its chat id.",
-    },
-    AgentTool {
         name: "agents_chat_send",
         verb: Verb::ChatSend,
         title: "Prompt another chat",
@@ -172,17 +157,13 @@ impl AgentTool {
 
     /// The chat verbs answer their own receipt or page, without a snapshot.
     fn chat(&self) -> bool {
-        matches!(self.verb, Verb::ChatNew | Verb::ChatSend | Verb::ChatRead)
+        matches!(self.verb, Verb::ChatSend | Verb::ChatRead)
     }
 
     pub(super) fn descriptor_json(&self) -> Value {
         let idempotent = !matches!(
             self.verb,
-            Verb::WorkspaceCreate
-                | Verb::TerminalSplit
-                | Verb::DialogAnswer
-                | Verb::ChatNew
-                | Verb::ChatSend
+            Verb::WorkspaceCreate | Verb::TerminalSplit | Verb::DialogAnswer | Verb::ChatSend
         );
         let description = if self.chat() {
             self.description.to_owned()
@@ -273,40 +254,6 @@ impl AgentTool {
                     }),
                 );
                 required.push("request_id");
-            }
-            Verb::ChatNew => {
-                properties.insert(
-                    "pane".into(),
-                    id_schema("The pane (pane_ id) to show the chat in, shown or not."),
-                );
-                properties.insert(
-                    "workspace".into(),
-                    id_schema("The workspace (ws_ id) whose last focused pane shows the chat."),
-                );
-                for (name, description) in [
-                    ("model", "HARNESS[/MODEL]: claude, codex, claude/opus, codex/gpt-5.5."),
-                    ("effort", "Thinking effort: default, low, medium, high, xhigh, max."),
-                    ("policy", "ask, approve-reads, approve-edits, approve-all or deny-all."),
-                    ("mode", "The harness mode to start in."),
-                    ("preset", "An acpmux preset (harness plus model, effort, policy)."),
-                    ("cwd", "The chat's folder (absolute); default the caller's."),
-                    ("name", "The session name."),
-                ] {
-                    properties.insert(
-                        name.into(),
-                        json!({"type": "string", "minLength": 1, "pattern": "^[^-]",
-                               "description": description}),
-                    );
-                }
-                properties.insert(
-                    "prompt".into(),
-                    json!({
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": agent_message::MAX_BODY_BYTES,
-                        "description": "A first prompt, sent as an agent message.",
-                    }),
-                );
             }
             Verb::ChatSend => {
                 properties.insert(
@@ -463,20 +410,6 @@ impl AgentTool {
                 }
                 for selection in args.words("selections")? {
                     words.extend(["--selection".into(), selection]);
-                }
-            }
-            Verb::ChatNew => {
-                words.extend(["chat".into(), "new".into()]);
-                let flags =
-                    ["workspace", "pane", "model", "effort", "policy", "mode", "preset", "cwd", "name"];
-                for name in flags {
-                    if args.values.contains_key(name) {
-                        words.push(format!("--{name}={}", args.word(name)?));
-                    }
-                }
-                if let Some(prompt) = args.text("prompt")? {
-                    // After `--`, so a prompt that starts with a dash stays text.
-                    words.extend(["--".into(), prompt]);
                 }
             }
             Verb::ChatSend => {

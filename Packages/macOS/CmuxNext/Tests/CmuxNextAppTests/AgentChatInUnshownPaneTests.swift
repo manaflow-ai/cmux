@@ -39,7 +39,7 @@ struct AgentChatInUnshownPaneTests {
             try await PasswordManagerRouteTests.until({ pane.tabs.count > tabs }, report: { "\(pane.tabs.count) tabs, was \(tabs)" })
             guard case .string(let tab)? = fields["tab"] else { Issue.record("no tab in \(fields)"); return }
             #expect(pane.tabs.contains { $0.id == tab }, "the chat tab is in the named pane")
-            #expect(fields["shown"] == .bool(false))
+            #expect(fields["workspace_key"] == .string(key.rawValue))
             #expect(window.state.workspaceID == shown, "the window stayed on its workspace")
         }
     }

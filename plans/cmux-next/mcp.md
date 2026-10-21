@@ -140,15 +140,6 @@ when `cmux` is not on the client's `PATH`. Global options go before `mcp`:
     ids, states and short titles; no terminal text, chat text or tool input, and notification title and
     body are cut to 80 and 160 characters (`truncated: true`). Kinds not asked for are
     skipped, not kept. Read-only;
-  - `agents_chat_new` (`cmux agents chat new`, `cli/agents/chat.rs`, #23016): starts
-    an acpmux session with the caller's harness/model, effort, policy, mode, preset,
-    folder and name, its `CMUX_WORKSPACE_ID` naming the workspace it shows in, and has
-    the app show it as a tab (`agent.openSessionWorkspace` with `pane` or `workspace`,
-    else a new workspace under that key). The pane may be one no window shows; nothing
-    takes focus, and a pane a window shows keeps its selected tab. acpmux applies its own
-    rules (a mode that does not ask needs the person). When the app cannot show the chat,
-    the session is ended again. An optional first prompt goes as `agents_chat_send`.
-    Answers `{chat, name, workspace, workspace_key, pane, tab, message?}`;
   - `agents_chat_send` and `agents_chat_read` (`cmux agents chat send|read`,
     `cli/agents/chat.rs`): one agent prompts another agent chat and reads its
     transcript. Both reach only chats whose acpmux session runs in a workspace of this

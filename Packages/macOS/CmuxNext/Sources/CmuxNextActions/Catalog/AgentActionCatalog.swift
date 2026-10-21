@@ -312,11 +312,6 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                                    kind: .string, isRequired: false),
                     ActionArgument(name: "host", title: String(localized: "argument.agent.host", defaultValue: "Session Host", bundle: .module),
                                    kind: .string, isRequired: false),
-                    // A pane, or a workspace's last focused pane, shown or not: the tab opens there instead (#23016).
-                    ActionArgument(name: "pane", title: String(localized: "argument.pane", defaultValue: "Pane", bundle: .module),
-                                   kind: .string, isRequired: false),
-                    ActionArgument(name: "workspace", title: String(localized: "argument.workspace", defaultValue: "Workspace", bundle: .module),
-                                   kind: .string, isRequired: false),
                 ],
                 cliName: "agent open",
                 // It starts the workspace's terminal: action.run waits the
