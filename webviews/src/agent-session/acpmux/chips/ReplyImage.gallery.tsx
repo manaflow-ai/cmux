@@ -9,6 +9,7 @@ const click = "https://images.example.test/gallery/click.png";
 const loaded = "https://images.example.test/gallery/loaded.png";
 const local = "/Users/you/src/atlas-web/assets/diagram.png";
 const outside = "/tmp/fleetviz/out/fleet.png";
+const outsideRefused = "/tmp/fleetviz/out/refused.png";
 const missing = "/Users/you/src/atlas-web/assets/gone.png";
 const image =
   "data:image/svg+xml," +
@@ -17,7 +18,7 @@ const image =
   );
 
 const imageHost: ChipHostFixture = {
-  images: { [remote]: image, [click]: image, [loaded]: image, [local]: image },
+  images: { [remote]: image, [click]: image, [loaded]: image, [local]: image, [outside]: image },
 };
 
 const playLoad: Play = async (ctx) => {
@@ -60,12 +61,17 @@ export default componentEntry<ReplyImageProps>({
       play: playLoad,
     },
     "outside-roots": {
-      note: "A /tmp image outside the session folders: alt text, file name, lock and Open (the host confirms).",
+      note: "A /tmp image outside the session folders: the host reads it read-only and it shows inline.",
       chipHost: { ...imageHost, paths: { [outside]: { place: "outside", folder: false } } },
       props: { src: outside, alt: "Build fleet status", fallback: "Build fleet status" },
     },
+    "outside-roots-refused": {
+      note: "An outside image the host does not show (not an image, too large): alt text, file name, lock and Open.",
+      chipHost: { ...imageHost, paths: { [outsideRefused]: { place: "outside", folder: false } } },
+      props: { src: outsideRefused, alt: "Build fleet status", fallback: "Build fleet status" },
+    },
     "outside-roots-text": {
-      note: "The same image under agentPane.links.outsideRoots = text: no Open.",
+      note: "The outside image under agentPane.links.outsideRoots = text: never loaded, the card without Open.",
       chipHost: {
         ...imageHost,
         paths: { [outside]: { place: "outside", folder: false } },

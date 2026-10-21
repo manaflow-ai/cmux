@@ -5,7 +5,8 @@
 ///
 /// `outsideRoots` (default `open`): a path chip outside the session's folders opens on its click
 /// like a path inside them (`open`), asks before it opens (`confirm`), or draws as plain text
-/// (`text`).
+/// (`text`). A raster image file a reply shows from outside the folders loads inline, read-only,
+/// under `open` and `confirm`; under `text` it stays a card.
 /// A path on the deny list (`~/.ssh`, keys, `.env` files) is always plain text.
 ///
 /// `remote` (default `click`): a web image in a reply shows a placeholder and loads after a

@@ -50,7 +50,7 @@ test("an outside image loads unless outsideRoots is text; a refused one is the o
   });
   const flush = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   const render = (src: string) =>
-    act(async () => root.render(createElement(ReplyImage, { src, alt: "after", fallback: "after" })));
+    act(async () => root.render(createElement(ReplyImage, { key: src, src, alt: "after", fallback: "after" })));
   const outside = { place: "outside" as const, folder: false };
 
   // The default policy (open) and confirm: the image draws, no card.

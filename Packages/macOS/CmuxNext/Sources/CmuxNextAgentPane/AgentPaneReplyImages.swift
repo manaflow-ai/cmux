@@ -29,7 +29,7 @@ public nonisolated enum AgentPaneReplyError: String, Error, Equatable, Sendable 
 
 /// Reply images as the page may draw them (decision D5): a `data:` URL, because the page's CSP
 /// loads no other image. A local file must be inside the session's folders and at most
-/// ``maximumBytes``; a raster image is decoded first, so bytes that only claim to be an image
+/// ``maximumBytes``, except a raster image file outside them (``outside(_:)``); a raster image is decoded first, so bytes that only claim to be an image
 /// never reach the page; an SVG is rebuilt without script, event handlers, foreign content or
 /// links out (``AgentPaneSVGSanitizer``). A web image is always decoded and re-encoded as PNG. A PDF
 /// shows as its first page, drawn as a PNG thumbnail (``pdfThumbnail(_:)``): the page never gets
@@ -71,6 +71,26 @@ nonisolated struct AgentPaneReplyImages {
         if url.pathExtension.lowercased() == "svg" {
             guard let clean = AgentPaneSVGSanitizer.sanitize(data) else { return .failure(.imageFailed) }
             return .success("data:image/svg+xml;base64," + clean.base64EncodedString())
+        }
+        return raster(data, reencode: false)
+    }
+
+    /// File extensions of the raster images a reply may show from outside the session's folders.
+    static let outsideExtensions: Set<String> = ["png", "jpg", "jpeg", "gif", "webp", "heic", "tif", "tiff", "bmp"]
+
+    /// The image file at `path`, outside every root (already checked against the deny list and
+    /// `agentPane.links.outsideRoots`), as a data URL: read-only, for display. Only a raster image
+    /// named as one is read, and it must decode as one of ``nativeTypes`` or ``decodedTypes``;
+    /// an SVG or a PDF outside the folders stays a card, and no other bytes ever reach the page.
+    @concurrent static func outside(_ path: String) async -> Result<String, AgentPaneReplyError> {
+        let url = URL(fileURLWithPath: path)
+        guard outsideExtensions.contains(url.pathExtension.lowercased()),
+              let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]), values.isRegularFile == true
+        else { return .failure(.pathInvalid) }
+        guard (values.fileSize ?? Int.max) <= maximumBytes else { return .failure(.imageTooLarge) }
+        // concurrency-allow: outside(_:) is @concurrent, so this read never runs on the main actor
+        guard let data = try? Data(contentsOf: url, options: [.mappedIfSafe]), data.count <= maximumBytes else {
+            return .failure(.imageFailed)
         }
         return raster(data, reencode: false)
     }

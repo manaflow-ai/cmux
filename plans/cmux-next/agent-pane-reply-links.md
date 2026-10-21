@@ -10,7 +10,10 @@ host for every effect. The page keeps `connect-src 'none'` and `img-src data:`.
 - `chips/LinkChips.tsx`: path chip (file or folder icon, the name in bold with a dotted underline, the full
   path in the tooltip, a lock outside the session's folders) and web chip (favicon from cmux's cache, else a
   globe). `chips/linkStore.ts` batches `link.inspect`.
-- `chips/ReplyImage.tsx`: a local image loads at once; a web image follows `agentPane.images.remote`.
+- `chips/ReplyImage.tsx`: a local image loads at once. A raster image file outside the session's folders
+  loads too, read-only and for display only, except under `agentPane.links.outsideRoots = text` and for a
+  deny-listed path; when it is refused or fails it draws as a card with a lock and Open. A web image follows
+  `agentPane.images.remote`.
 - `previewCard/OpenInMenu.tsx`: cmux's browser pane, the host's browsers, Copy link.
 
 ## Host ops (`AgentPaneReplyRequest`; fixed param keys, length caps; also `cmux.agent.*` page ops)
@@ -37,7 +40,10 @@ connection goes to exactly a checked address (Network.framework, the URL's host 
 (at most 3); HTTP/1.1 (chunked; gzip, deflate, br decoded; browser headers; any 2xx) with no cookies, cache, credentials, referrer or proxy; 10 MB, 10 s for the whole
 fetch; decoded and re-encoded as PNG (2048 px).
 Local images: inside the roots, 10 MB, decoded by ImageIO; SVG rebuilt without script, handlers, foreign
-content or links out.
+content or links out. Outside the roots (unless `outsideRoots` is `text`): only a file with a raster image
+extension (png, jpg, jpeg, gif, webp, heic, tif, tiff, bmp) that decodes as one, 10 MB, the deny list checked
+again on the canonical path; no SVG or PDF; every refusal answers `link.path_outside_roots`, so the page
+learns no more than whether an image showed.
 
 ## Known residuals
 1. A folder swap between the check and a read is possible (read-only display). Any future write path must
