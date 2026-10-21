@@ -960,6 +960,7 @@ mod harness_admin;
 mod harness_enable;
 mod inventory_watch;
 pub mod local_app;
+mod models_fanout;
 pub mod peer_auth;
 mod peer_forward;
 pub mod peer_text;
