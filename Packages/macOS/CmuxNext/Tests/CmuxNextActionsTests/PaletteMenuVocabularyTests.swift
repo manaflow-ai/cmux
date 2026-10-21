@@ -91,6 +91,20 @@ struct PaletteMenuVocabularyTests {
         #expect(try #require(byID["toggleFocusedWorkspaceGroupCollapsed"]).keywords.contains("toggle"))
     }
 
+    /// The palette shows a group close out of context, so its title names the group's noun. The
+    /// context menus may keep "Close Group": there the right-clicked row names it.
+    @Test func groupCloseTitlesNameTheirNoun() throws {
+        let byID = Dictionary(ActionCatalog.all.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let titles: [ActionID: String] = [
+            "tabGroup.close": "Close Tab Group",
+            "screenGroup.close": "Close Screen Group",
+            "workspaceGroup.closeWorkspaces": "Close Workspaces in Group",
+        ]
+        for (id, title) in titles {
+            #expect(try #require(byID[id], "\(id)").title == title, "\(id)")
+        }
+    }
+
     /// One name per command: no two palette or menu bar actions share a name unless one is a
     /// declared duplicate of the other (`ActionDescriptor.paletteDuplicates`), and a duplicate
     /// carries its canonical action's name. Two different commands that read alike ("Show Feed"
