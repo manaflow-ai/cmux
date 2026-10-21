@@ -60,16 +60,22 @@ impl Hub {
         let mut turn_count = parent_meta.turn_count;
         let (res, new_sid) = if let Some(through) = cut {
             // The fork resumes a copy of the agent's transcript through that turn.
-            let history = self
-                .store
-                .events(&session.id, 0, 500_000)
-                .map_err(|e| RpcError::internal(e.to_string()))?;
             // The chat moved past that turn at its next event, which acpmux logs
-            // before the next prompt reaches Claude.
-            let cut_ms = history.iter().find(|e| e.seq > through).map_or(u64::MAX, |e| e.at);
-            turn_count =
-                history.iter().filter(|e| e.seq <= through && e.kind == "turn_result").count()
-                    as u64;
+            // before the next prompt reaches Claude. One pass that stops there; no
+            // record is kept.
+            let mut cut_ms = u64::MAX;
+            let mut turns = 0u64;
+            self.store
+                .scan(&session.id, 0, &mut |e: EventRecord| {
+                    if e.seq > through {
+                        cut_ms = e.at;
+                        return false;
+                    }
+                    turns += u64::from(e.kind == "turn_result");
+                    true
+                })
+                .map_err(|e| RpcError::internal(e.to_string()))?;
+            turn_count = turns;
             // Claude resumes from the project directory the copy sits in, and
             // Codex from the folder its rollout names.
             if cwd != parent_meta.cwd {
@@ -191,23 +197,24 @@ impl Hub {
         self.store.save(&new.meta()).map_err(|e| RpcError::internal(e.to_string()))?;
         self.sessions.lock().unwrap().insert(id.clone(), new.clone());
         // Copy the transcript-relevant history so attach replays it.
-        if let Ok(history) = self.store.events(&session.id, 0, 500_000) {
-            for e in history {
+        // Read one record at a time; only these kinds are parsed.
+        const COPIED: &[&str] = &[
+            "user_message",
+            "agent_message_chunk",
+            "agent_thought_chunk",
+            "tool_call",
+            "tool_call_update",
+            "plan",
+            "turn_started",
+            "turn_result",
+            "turn_end",
+        ];
+        {
+            let _ = self.store.scan_kinds(&session.id, COPIED, &mut |e: EventRecord| {
                 if e.seq > fork_seq {
-                    break;
+                    return false;
                 }
-                if matches!(
-                    e.kind.as_str(),
-                    "user_message"
-                        | "agent_message_chunk"
-                        | "agent_thought_chunk"
-                        | "tool_call"
-                        | "tool_call_update"
-                        | "plan"
-                        | "turn_started"
-                        | "turn_result"
-                        | "turn_end"
-                ) {
+                {
                     // Each keeps its time: a later fork through it cuts Claude's
                     // transcript there (`fork_at.rs`), and a replay plays it then.
                     // A prompt's mark, or an answer's Pin (its `turn_result`), follows it.
@@ -222,7 +229,8 @@ impl Hub {
                             .insert(copy.seq);
                     }
                 }
-            }
+                true
+            });
         }
         self.append(&new, "mux", "forked", json!({"parentId": session.id, "forkSeq": fork_seq}));
         self.append(session, "mux", "fork_child", json!({"childId": id}));

@@ -4,7 +4,7 @@
 // receipt, Copy, Retry, Fork from here (its title and what it does), Pin and Read aloud. The rows
 // show on hover or keyboard focus only (conversation.css).
 import { useContext, useState } from "react";
-import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../../ui/Menu";
+import { Menu, MenuButton, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator } from "../../../ui/Menu";
 import { useMinuteClock } from "../clock";
 import { usePaneLanguage, useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
@@ -13,13 +13,17 @@ import { copyText } from "./clipboard";
 import { Check, ChevronDown, Copy, DoubleCheck, Pin, Retry, Speaker, TurnFork } from "./icons";
 import { canReadAloud, readAloud, useReadingAloud } from "./readAloud";
 import { relativeTime } from "./relativeTime";
+import { retryModelSections, type RetryModel } from "./retryModelSections";
 import { TurnActionsContext, type TurnActions } from "./turnActions";
 
 /// The message's age, relative and live; the exact date and time on hover.
 export function MessageTime({ at, className }: { at: number; className: string }) {
   const now = useMinuteClock();
   const language = usePaneLanguage();
-  const exact = new Intl.DateTimeFormat(language, { dateStyle: "medium", timeStyle: "short" }).format(at);
+  const exact = new Intl.DateTimeFormat(language, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(at);
   return (
     <time
       className={className}
@@ -194,7 +198,10 @@ export function ReceivedActions({ row, text }: { row: AcpmuxRow; text: string })
   );
 }
 
-/// Retry with another model (cx-ncc.62): the chat harness's models, the current one checked.
+/// Retry with another model (cx-ncc.62): the chat harness's models, the current one checked, drawn
+/// as the pane's other menus (the Reasoning menu's look, composerControls.css: its rows and trailing check column): releases under
+/// Models, the harness's aliases and modes under their own title, each model once
+/// (retryModelSections.ts). One section draws without a title.
 export function RetryModelMenu({
   retryWith,
   onPick,
@@ -203,6 +210,19 @@ export function RetryModelMenu({
   onPick(model: string): void;
 }) {
   const t = useT();
+  const { models, aliases } = retryModelSections(retryWith.models, retryWith.current);
+  const rows = (list: readonly RetryModel[]) => (
+    <MenuRadioGroup value={retryWith.current ?? ""} onValueChange={onPick}>
+      {list.map((model) => (
+        <MenuRadioItem key={model.id} value={model.id} className="acpmux-retry-item" closeOnClick>
+          <span className="acpmux-retry-text">
+            <span className="acpmux-menu-label">{model.name}</span>
+          </span>
+        </MenuRadioItem>
+      ))}
+    </MenuRadioGroup>
+  );
+  const titled = models.length > 0 && aliases.length > 0;
   return (
     <Menu>
       <MenuButton
@@ -212,14 +232,16 @@ export function RetryModelMenu({
       >
         <ChevronDown size={12} />
       </MenuButton>
-      <MenuPopup label={t("turn.retryWith")} align="start">
-        <MenuRadioGroup value={retryWith.current ?? ""} onValueChange={onPick}>
-          {retryWith.models.map((model) => (
-            <MenuRadioItem key={model.id} value={model.id} closeOnClick>
-              {model.name}
-            </MenuRadioItem>
-          ))}
-        </MenuRadioGroup>
+      <MenuPopup label={t("turn.retryWith")} align="start" className="acpmux-retry-menu">
+        {titled ? (
+          <>
+            <MenuGroup label={t("turn.retryWith.models")}>{rows(models)}</MenuGroup>
+            <MenuSeparator />
+            <MenuGroup label={t("turn.retryWith.aliases")}>{rows(aliases)}</MenuGroup>
+          </>
+        ) : (
+          rows([...models, ...aliases])
+        )}
       </MenuPopup>
     </Menu>
   );

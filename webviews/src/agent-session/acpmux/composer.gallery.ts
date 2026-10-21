@@ -634,7 +634,7 @@ export default agentPaneEntry({
       })(),
     },
     "queued-keyboard": {
-      note: "Play: ↑ from the empty prompt reaches the last queued prompt, ↑ again the one before; Return edits it in its row (Return saves, Esc cancels). On a row, ⌥↑/⌥↓ move it, ⌘Return sends it now and Delete removes it.",
+      note: "Play: ↑ from the empty prompt reaches the last queued prompt, ↑ again the one before; Return edits it in its row (Return saves, Esc cancels). On a row, ⌥↑/⌥↓ move it and Delete removes it; ⌘Return does nothing there (Send now is the row's button).",
       snapshot: { ...steering(true), queue: waiting },
       play: async (ctx) => {
         await ctx.click({ selector: ".acpmux-composer-prompt" });
@@ -670,7 +670,7 @@ export default agentPaneEntry({
       },
     },
     "queued-steering": {
-      note: "A prompt sent now to an agent that cannot steer (⌘Return) waits first under Steering: it stops the turn and runs next. The queued prompts stay under Queued and count from 1.",
+      note: "A prompt sent now (its Send now button) to an agent that cannot steer waits first under Steering and runs next; the turn runs on. The queued prompts stay under Queued and count from 1.",
       snapshot: chat(working, {
         isWorking: true,
         queue: [{ id: "q0", prompt: "Stop and fix the space thing first", next: true }, ...waiting],
@@ -727,6 +727,26 @@ export default agentPaneEntry({
         ],
       }),
       play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-queue-fold" });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-queued").length === 5);
+      },
+    },
+    "queued-long-open-glass": {
+      note: 'Play: the opened long queue in the tray strip over a see-through window (layout pass, 2026-10-20). The band and its "Show less" line are one glass surface, the card\'s tone at its 60%, inset as the tray, and the last row shows whole.',
+      snapshot: chat(working, {
+        isWorking: true,
+        queue: [
+          { id: "q1", prompt: "Then add a test for the 429 path" },
+          { id: "q2", prompt: "Check every caller of the fetch helper for its own retries" },
+          { id: "q3", prompt: "And update the README" },
+          { id: "q4", prompt: "Run the whole suite" },
+          { id: "q5", prompt: "Open a PR" },
+        ],
+      }),
+      play: async (ctx) => {
+        const root = ctx.document.documentElement;
+        root.setAttribute("data-top-strip", "tray");
+        root.setAttribute("data-cmux-see-through", "");
         await ctx.click({ selector: ".acpmux-queue-fold" });
         await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-queued").length === 5);
       },

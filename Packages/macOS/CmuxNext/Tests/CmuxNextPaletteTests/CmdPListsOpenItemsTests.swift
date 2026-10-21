@@ -3,14 +3,12 @@ import CmuxNextActions
 @testable import CmuxNextPalette
 import Testing
 
-/// Cmd-P opens the merged Search window (plans/cmux-next/search-everything-DESIGN.md section 10;
-/// Lawrence 2026-10-20: "Cmd+P should also open the merged search-everything window"). The old
-/// Cmd-P (Go to Workspace) stays its first results, so nothing regresses: before typing, the
-/// workspaces show as before; typed, the same rows plus everything else. Cmd-Shift-P stays the
-/// command palette.
+/// Cmd-P lists only what is open now: the workspaces and, once typed, their groups, panes and
+/// tabs. Browser history, agent chat history, closed tabs and past commands are Search's
+/// (Cmd-Shift-A, `CmdShiftASearchesEverythingTests`). Cmd-Shift-P stays the command palette.
 @MainActor
 @Suite(.paletteRanker)
-struct CmdPOpensSearchTests {
+struct CmdPListsOpenItemsTests {
     @MainActor private final class Workspaces: PaletteWorkspaceSource {
         var workspaces: [PaletteWorkspace] = [PaletteWorkspace(id: "w1", title: "Zebra backend"), PaletteWorkspace(id: "w2", title: "Docs")]
         var selected: [String] = []
@@ -28,37 +26,43 @@ struct CmdPOpensSearchTests {
 
     private static func palette(workspaces: Workspaces = Workspaces()) -> (PaletteController, ActionRegistry) {
         _ = NSApplication.shared
-        let sources = PaletteSources(workspaces: workspaces, navigation: Navigation())
+        var sources = PaletteSources(workspaces: workspaces, navigation: Navigation())
+        // What Search adds on top: history and agent chats. Cmd-P must not list these.
+        let chat = PaletteItem(id: "chat:zebra", title: "Zebra migration plan", subtitle: "Claude Code",
+                               primary: PaletteCommand(id: "open", title: "Open", symbol: "return", effect: .perform {}))
+        let visit = PaletteItem(id: "history:zebra", title: "Zebra wiki", subtitle: "zebra.wiki",
+                                primary: PaletteCommand(id: "open", title: "Open", symbol: "return", effect: .perform {}))
+        sources.searchContributions = [
+            PaletteSearchContribution(id: "agentChats", title: "Agent Chats", order: 30, searchesChats: true) {
+                PalettePageSpec(id: "chats.search", title: "Agent Chats", placeholder: "",
+                                providers: [StaticPaletteProvider(id: "chats.search", items: [chat])])
+            },
+            PaletteSearchContribution(id: "history", title: "History", order: 40) {
+                PalettePageSpec(id: "history.search", title: "History", placeholder: "",
+                                providers: [StaticPaletteProvider(id: "history.search", items: [visit])])
+            },
+        ]
         let registry = ActionRegistry.standard()
         let palette = PaletteController(registry: registry, sources: sources, frecencyPersistence: nil)
         palette.bindRegistryActions()
         return (palette, registry)
     }
 
-    /// Cmd-P (`goToWorkspace` with no workspace) opens the Search scope, not the Workspaces page.
-    @Test func cmdPOpensTheSearchScope() async {
+    /// Cmd-P (`goToWorkspace` with no workspace) opens the Workspaces scope, not Search.
+    @Test func cmdPOpensTheWorkspacesScope() async {
         let (palette, registry) = Self.palette()
         defer { palette.hide() }
         _ = registry.perform("goToWorkspace", invocation: ActionInvocation(arguments: [:], origin: .user))
         await palette.model.settle()
         #expect(palette.isVisible)
-        #expect(palette.model.nav.levels.last?.scope == PaletteScopeID.search,
+        #expect(palette.model.nav.levels.last?.scope == PaletteScopeID.workspaces,
                 "scope: \(String(describing: palette.model.nav.levels.last?.scope))")
-        #expect(palette.model.pageTitle == PaletteStrings.searchEverythingTitle)
-    }
-
-    /// Before typing, Search lists the workspaces, as Cmd-P always did.
-    @Test func theEmptyQueryKeepsTheWorkspaceList() async {
-        let (palette, _) = Self.palette()
-        defer { palette.hide() }
-        palette.show(scope: PaletteScopeID.search)
-        await palette.model.settle()
         let ids = Set(palette.model.rows.map(\.item.id))
         #expect(ids.isSuperset(of: ["workspace:w1", "workspace:w2"]), "rows: \(ids)")
     }
 
-    /// Typed, Search still finds Cmd-P's rows (workspaces, tabs) and Return still goes there.
-    @Test func typedQueriesKeepCmdPRows() async {
+    /// Typed, Cmd-P finds the open workspaces and tabs, and no history or chat history rows.
+    @Test func typedQueriesListOnlyOpenItems() async {
         let workspaces = Workspaces()
         let (palette, registry) = Self.palette(workspaces: workspaces)
         defer { palette.hide() }
@@ -67,6 +71,7 @@ struct CmdPOpensSearchTests {
         await palette.model.settle()
         let ids = Set(palette.model.rows.map(\.item.id))
         #expect(ids.contains("workspace:w1") && ids.contains("tab:t1"), "rows: \(ids)")
+        #expect(!ids.contains("history:zebra") && !ids.contains("chat:zebra"), "rows: \(ids)")
         if let row = palette.model.rows.first(where: { $0.item.id == "workspace:w1" }) {
             palette.model.run(row.item.primary, of: row.item)
         }
@@ -83,12 +88,13 @@ struct CmdPOpensSearchTests {
         #expect(!palette.isVisible)
     }
 
-    /// Search is the scope Cmd-P opens (its shortcut shows on the Search row); Cmd-Shift-P stays commands.
-    @Test func searchIsTheScopeCmdPOpens() {
+    /// The scope rows show the keys that open them: Cmd-P on Workspaces, Cmd-Shift-A on Search.
+    @Test func scopeRowsNameTheirKeys() {
         let (palette, registry) = Self.palette()
         defer { palette.hide() }
-        let search = palette.scopeDescriptors().first { $0.id == PaletteScopeID.search }
-        #expect(search?.openAction == "goToWorkspace")
+        let scopes = palette.scopeDescriptors()
+        #expect(scopes.first { $0.id == PaletteScopeID.workspaces }?.openAction == "goToWorkspace")
+        #expect(scopes.first { $0.id == PaletteScopeID.search }?.openAction == "search.chats")
         #expect(registry.descriptor(for: "commandPalette")?.defaultShortcut == Shortcut("p", modifiers: [.command, .shift]))
         #expect(registry.descriptor(for: "goToWorkspace")?.defaultShortcut == Shortcut("p", modifiers: [.command]))
     }
