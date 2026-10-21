@@ -8,8 +8,9 @@ run-name: fleet compile-check ${{ inputs.sha }}
 # queued "cmux-next Release compile (Xcode 26)" (#22845 sat queued over an
 # hour after its fleet pass, with 60 minis offline). It trusts the status only
 # when it links a finished, green run of this file dispatched from
-# feat-cmux-next and titled with the full sha; a status a token posts itself,
-# or a run of a copy of this file on another branch, does not count.
+# feat-cmux-next (its commit on that branch) and titled with the full sha; a
+# status a token posts itself, or a run of a copy of this file on another
+# branch or a tag, does not count. It never overrides a red Release compile.
 #
 #   gh workflow run fleet-compile-check.yml --ref feat-cmux-next -f sha=<full head sha>
 
@@ -34,7 +35,7 @@ jobs:
     runs-on: ${{ vars.CI_COMPILE_CHECK_GATEWAY }}
     permissions:
       statuses: write
-    timeout-minutes: 30
+    timeout-minutes: 35  # the client waits up to 600 + 1200 s plus its own slack
     steps:
       # The gateway checks nothing out: the fleet fetches the commit itself.
       # Exit 0 is a pass, 1 a compile failure, anything else no verdict; only

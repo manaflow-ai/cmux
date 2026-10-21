@@ -14,10 +14,13 @@ Xcode project or package manifest) file, and its head's `cmux-next Release compi
   (or the head has no checks at all yet);
 - or finished red or cancelled with no passing rerun;
 
-unless the build fleet compiled the exact head: `fleet/compile-check` on the head is a success
+unless that compile is still waiting (queued, running or not created yet) and the build fleet compiled
+the exact head: `fleet/compile-check` on the head is a success
 status posted by GitHub Actions whose run is a finished, green fleet-compile-check.yml dispatch from
-feat-cmux-next titled with the full head. A token can post any status, and a workflow on another
-branch any run, so the guard trusts only that run. The pass covers what `cmux-ci compile-check --app`
+feat-cmux-next titled with the full head, whose workflow file came from a commit on that branch. A
+token can post any status, and a workflow on another branch or a tag any run, so the guard trusts only
+that run. A Release compile that finished red stays a refusal: the fleet compiles on Linux with the pool
+SDK, not Xcode 26 Release. The pass covers what `cmux-ci compile-check --app`
 compiles (#22845 sat queued over an hour after its fleet pass, with 60 minis offline).
 
 A compile the router skipped (iOS, packages outside the CmuxNext graph, forks) or a head cmux-next
@@ -33,6 +36,7 @@ import re
 import shlex
 import subprocess
 import sys
+import time
 
 BASE = "feat-cmux-next"
 GUARDED_REPO = "manaflow-ai/cmux"
@@ -41,7 +45,9 @@ COMPILE = "cmux-next Release compile (Xcode 26)"
 ROUTING = ("cmux-next path routing", "cmux-next push head preflight", "cmux-next macOS placement")
 RUNNING = frozenset(("queued", "in_progress", "pending", "waiting", "requested"))
 NOT_RUN = frozenset(("skipped", "neutral"))
-TIMEOUT = 15  # seconds per gh call; the at most six calls fit the hook's 120 s
+TIMEOUT = 15  # seconds per gh call
+BUDGET = 100  # seconds for every call together, under the hook's 120 s: a hook that times out lets the command run
+STARTED = time.monotonic()
 FLEET_WORKFLOW = "fleet-compile-check.yml"
 FLEET_CONTEXT = "fleet/compile-check"
 FLEET_TITLE = "fleet compile-check "  # + the full sha: the workflow's run-name
@@ -68,7 +74,10 @@ def changes_swift(path: str) -> bool:
 
 def run(args: list[str], cwd: str | None = None) -> str | None:
     try:
-        done = subprocess.run(args, capture_output=True, text=True, timeout=TIMEOUT, cwd=cwd)
+        left = BUDGET - (time.monotonic() - STARTED)
+        if left < 1:
+            return None  # out of time: an unread answer refuses, or counts as no fleet pass
+        done = subprocess.run(args, capture_output=True, text=True, timeout=min(TIMEOUT, left), cwd=cwd)
     except (OSError, subprocess.SubprocessError):
         return None
     return done.stdout.strip() if done.returncode == 0 else None
@@ -269,13 +278,23 @@ def verdict(pr: dict, files: list[str], checks: list[dict], fleet_passed: bool =
     if pr.get("base") != BASE:
         return ""
     swift = [f for f in files if changes_swift(f)]
-    if not swift or fleet_passed:
+    if not swift:
         return ""
     why = compile_refusal(pr, swift, checks)
-    if why:
-        why += (f" Or compile-check the head on the build fleet: gh workflow run {FLEET_WORKFLOW} --ref {BASE} "
-                f"-f sha={pr['head']}")
-    return why
+    if not why or not compile_wait(checks):
+        return why
+    if fleet_passed:
+        return ""
+    return why + (f" Or compile-check the head on the build fleet: gh workflow run {FLEET_WORKFLOW} --ref {BASE} "
+                  f"-f sha={pr['head']}")
+
+
+def compile_wait(checks: list[dict]) -> bool:
+    """The Release compile has not finished on the head yet: no checks, queued or running, or not created
+    while cmux-next routes and places it."""
+    named = [c for c in checks if c.get("name") == COMPILE]
+    return (not checks or any(c.get("status") in RUNNING for c in named)
+            or (not named and any(c.get("name") in ROUTING and c.get("status") in RUNNING for c in checks)))
 
 
 def compile_refusal(pr: dict, swift: list[str], checks: list[dict]) -> str:
@@ -318,7 +337,9 @@ def read_pr(repo: str, number: int, cwd: str | None) -> str:
     if checks is None:
         raise Unreadable
     why = verdict(pr, files, checks)
-    return why and verdict(pr, files, checks, fleet_passed(repo, pr["head"], cwd))
+    if why and compile_wait(checks) and fleet_passed(repo, pr["head"], cwd):
+        return ""
+    return why
 
 
 def fleet_passed(repo: str, head: str, cwd: str | None) -> bool:
@@ -339,12 +360,25 @@ def fleet_passed(repo: str, head: str, cwd: str | None) -> bool:
             break
         seen.add(run_id)
         run = gh_json(["api", f"repos/{repo}/actions/runs/{run_id}", "--jq",
-                       "{path, head_branch, event, status, conclusion, display_title}"], cwd) or {}
+                       "{path, head_branch, event, status, conclusion, display_title, head_sha}"], cwd) or {}
         if (run.get("path") == f".github/workflows/{FLEET_WORKFLOW}" and run.get("head_branch") == BASE
                 and run.get("event") == "workflow_dispatch" and run.get("status") == "completed"
-                and run.get("conclusion") == "success" and run.get("display_title") == FLEET_TITLE + head):
+                and run.get("conclusion") == "success" and run.get("display_title") == FLEET_TITLE + head
+                and on_base(repo, run.get("head_sha") or "", cwd)):
             return True
     return False
+
+
+def on_base(repo: str, sha: str, cwd: str | None) -> bool:
+    """Whether `sha` is on the base branch. A dispatch on a tag named like the branch reports that
+    head_branch too, with whatever workflow file the tag holds."""
+    if not re.fullmatch(r"[0-9a-f]{40}", sha):
+        return False
+    tip = gh_json(["api", f"repos/{repo}/branches/{BASE}", "--jq", ".commit.sha | tojson"], cwd)
+    if not isinstance(tip, str) or not re.fullmatch(r"[0-9a-f]{40}", tip):
+        return False
+    return gh_json(["api", f"repos/{repo}/compare/{sha}...{tip}", "--jq", ".status | tojson"], cwd) in (
+        "ahead", "identical")
 
 
 def refusal(command: str, cwd: str | None, reader=read_pr) -> str:
