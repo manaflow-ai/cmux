@@ -90,13 +90,17 @@ def by_arm(rows):
 
 
 def score(out, tasks, opts):
-    run = json.load(open(os.path.join(out, "run.json")))
+    def load(name):
+        with open(os.path.join(out, name)) as f:
+            return json.load(f) if name.endswith(".json") else f.read()
+
+    run = load("run.json")
     why = excluded(run)
     if why:
         return {"task": run.get("task"), "arm": run.get("arm"), "excluded": why}
-    conv = json.load(open(os.path.join(out, "conversation.json")))
-    diff = open(os.path.join(out, "diff.patch")).read()
-    checks = json.load(open(os.path.join(out, "checks.json"))) if os.path.exists(os.path.join(out, "checks.json")) else {}
+    conv = load("conversation.json")
+    diff = load("diff.patch")
+    checks = load("checks.json") if os.path.exists(os.path.join(out, "checks.json")) else {}
     task = next(t for t in tasks if t["id"] == run["task"])
     prompts = [("brief", task["brief"])] + [(f["id"], f["text"]) for f in task["followups"] if f["id"] in run["sent"]]
     tx = transcript(run, conv)

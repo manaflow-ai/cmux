@@ -11,6 +11,24 @@ import team_eval
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
+def read(path):
+    with open(path) as f:
+        return f.read()
+
+
+def load(path):
+    return json.loads(read(path))
+
+
+def write(path, text, mode="w"):
+    with open(path, mode) as f:
+        f.write(text)
+
+
+def append(path, text):
+    write(path, text, "a")
+
+
 def msg(i, author, text, key="k"):
     return {"id": f"m{i}", "seq": i, "author": author, "client_msg_id": key,
             "parts": [{"type": "text", "text": text}]}
@@ -69,12 +87,12 @@ class CostAndLeakTests(unittest.TestCase):
         team_eval.write_stubs(d, log)
         r = subprocess.run([os.path.join(d, "gh"), "pr", "create", "--title", 'a "quoted" \\ title'], capture_output=True)
         self.assertEqual(r.returncode, 1)
-        self.assertEqual(json.loads(open(log).read())["args"], ["pr", "create", "--title", 'a "quoted" \\ title'])
+        self.assertEqual(json.loads(read(log))["args"], ["pr", "create", "--title", 'a "quoted" \\ title'])
 
 
 class TaskFileTests(unittest.TestCase):
     def test_every_task_is_complete_and_its_commits_exist(self):
-        tasks = json.load(open(os.path.join(HERE, "team_eval_tasks.json")))["tasks"]
+        tasks = load(os.path.join(HERE, "team_eval_tasks.json"))["tasks"]
         self.assertTrue(tasks)
         for t in tasks:
             for field in ("id", "base", "reference", "reference_pr", "brief", "followups"):
@@ -129,7 +147,7 @@ class SpendTests(unittest.TestCase):
         f = os.path.join(proj, "s1.jsonl")
         line = lambda mid, out: json.dumps({"type": "assistant", "message": {"id": mid, "model": "claude-opus-5-5",
                                             "usage": {"input_tokens": 1000, "output_tokens": out}}}) + "\n"
-        open(f, "w").write(line("m1", 100) + line("m1", 1000))  # a streamed copy: the last wins
+        write(f, line("m1", 100) + line("m1", 1000))  # a streamed copy: the last wins
         meter = team_eval.LiveMeter([d, None])
         self.assertAlmostEqual(meter.usd(), (1000 * 5 + 1000 * 25) / 1e6)
         with open(f, "a") as fh:
@@ -267,19 +285,19 @@ class LossyRunTests(unittest.TestCase):
         src = os.path.join(d, "src")
         os.makedirs(os.path.join(d, "home", ".local", "bin"))
         os.makedirs(src)
-        open(os.path.join(src, "a.txt"), "w").write("a\n")
+        write(os.path.join(src, "a.txt"), "a\n")
         g = ["git", "-C", src, "-c", "user.name=x", "-c", "user.email=x@x"]
         subprocess.run(["git", "init", "-q", "-b", "main", src], check=True)
         subprocess.run(g + ["add", "-A"], check=True)
         subprocess.run(g + ["commit", "-qm", "base"], check=True)
         sha = subprocess.run(["git", "-C", src, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
         claude = os.path.join(d, "home", ".local", "bin", "claude")
-        open(claude, "w").write(FAKE_CLAUDE)
+        write(claude, FAKE_CLAUDE)
         os.chmod(claude, 0o755)
-        task = json.load(open(os.path.join(HERE, "team_eval_tasks.json")))["tasks"][1]
+        task = load(os.path.join(HERE, "team_eval_tasks.json"))["tasks"][1]
         task = dict(task, base=sha, followups=[dict(f, at=i + 1) for i, f in enumerate(task["followups"])])
-        json.dump({"tasks": [task]}, open(os.path.join(d, "tasks.json"), "w"))
-        open(os.path.join(d, "debug.txt"), "w").write(DEBUG_SAMPLE)
+        write(os.path.join(d, "tasks.json"), json.dumps({"tasks": [task]}))
+        write(os.path.join(d, "debug.txt"), DEBUG_SAMPLE)
         env = dict(os.environ, HOME=os.path.join(d, "home"))
         pins = [x for k, v in team_eval.PIN_ENV.items() for x in ("--env", f"{k}={v}")]
         r = subprocess.run([sys.executable, os.path.join(HERE, "team_eval.py"), "run", "--task", task["id"], "--arm", "L",
@@ -288,7 +306,7 @@ class LossyRunTests(unittest.TestCase):
                             "--quiet-seconds", "1", "--max-minutes", "1", *pins, "--env", f"FAKE_MODEL={model}",
                             "--env", f"FAKE_DEBUG={os.path.join(d, 'debug.txt')}"],
                            env=env, capture_output=True, text=True, timeout=120)
-        return r, json.load(open(os.path.join(d, "out", "run.json")))
+        return r, load(os.path.join(d, "out", "run.json"))
 
     def test_a_pinned_run_ends_idle_with_its_timeline_cost_diff_and_stub_calls(self):
         r, run = self.run_l("claude-opus-5-5")
@@ -379,7 +397,7 @@ class CampaignOutcomeTests(unittest.TestCase):
 
     def test_each_step_runs_on_a_named_worker(self):
         self.campaign_with("cmux-ci: controller HTTP 400: no", 1, arm=["A", "B", "B2"], parallel=3, worker=["m1", "m2"])
-        runs = [c.split() for c in open(self.calls).read().splitlines() if c.startswith("run ")]
+        runs = [c.split() for c in read(self.calls).splitlines() if c.startswith("run ")]
         self.assertEqual(len(runs), 3)
         self.assertTrue(all(c[c.index("--target-worker") + 1] in ("m1", "m2") for c in runs))
 
@@ -391,17 +409,17 @@ class CampaignOutcomeTests(unittest.TestCase):
         with self.assertRaises(SystemExit) as e:
             self.campaign_with("", 0, worker=["m1"], workers={"m1": {"last_seen": "2026-09-25T00:00:00Z"}})
         self.assertIn("not live", str(e.exception))
-        self.assertEqual(open(self.calls).read(), "workers\n")
+        self.assertEqual(read(self.calls), "workers\n")
 
     def test_a_worker_seen_with_a_short_fraction_is_live(self):
         from datetime import datetime, timezone
         seen = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S") + ".73317Z"
         self.campaign_with("cmux-ci: controller HTTP 400: no", 1, worker=["m1"], workers={"m1": {"last_seen": seen}})
-        self.assertIn("--target-worker m1", open(self.calls).read())
+        self.assertIn("--target-worker m1", read(self.calls))
 
     def test_no_worker_means_no_target(self):
         self.campaign_with("cmux-ci: controller HTTP 400: no", 1)
-        self.assertNotIn("--target-worker", open(self.calls).read())
+        self.assertNotIn("--target-worker", read(self.calls))
 
     def test_a_short_ref_is_refused_before_any_reservation(self):
         import argparse
@@ -461,6 +479,13 @@ class StallTests(unittest.TestCase):
         got = team_eval.attributed_replies({"brief": 1000, "f1": 2000}, {"brief": 1100, "f1": 2100}, msgs, arrivals)
         self.assertEqual(got, {"brief": (8000, False), "f1": (7000, False)})
 
+    def test_a_message_with_no_seq_does_not_break_the_order(self):
+        msgs = [msg(1, "user_local", "fix it"), dict(msg(2, "agent_mux", "On it."), seq=None),
+                msg(3, "agent_mux", "Done.")]
+        got = team_eval.attributed_replies({"brief": 1000, "f1": 1500}, {"brief": 1100, "f1": 1600}, msgs,
+                                           {"m2": 2000, "m3": 2000})
+        self.assertEqual(got, {"brief": (1000, False), "f1": (500, False)})
+
     def test_a_resumed_subagent_runs_again(self):
         ev = [{"ts": 1, "ev": "subagent.start", "id": "a"}, {"ts": 2, "ev": "subagent.done", "id": "a"},
               {"ts": 3, "ev": "subagent.resume", "id": "a"}]
@@ -502,9 +527,9 @@ class StallTests(unittest.TestCase):
         d = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, d, True)
         judge = os.path.join(d, "judge")
-        open(judge, "w").write("#!/bin/sh\necho '{}'\n")
+        write(judge, "#!/bin/sh\necho '{}'\n")
         os.chmod(judge, 0o755)
-        task = json.load(open(os.path.join(HERE, "team_eval_tasks.json")))["tasks"][0]
+        task = load(os.path.join(HERE, "team_eval_tasks.json"))["tasks"][0]
         msgs = {"brief": {"sent_ms": 0, "started_ms": 500, "wait_ms": 500, "first_reply_ms": 2000, "busy": False},
                 "status": {"sent_ms": 1, "started_ms": 30001, "wait_ms": 30000, "first_reply_ms": 40000, "busy": True}}
         tok = {"input": 1, "output": 2, "cache_write": 3, "cache_read": 4, "total": 10}
@@ -512,13 +537,12 @@ class StallTests(unittest.TestCase):
         for i in range(2):
             out = os.path.join(d, f"r{i}")
             os.makedirs(out)
-            json.dump({"task": task["id"], "arm": "A-steer", "ok": True, "failed": [], "pin": {"ok": True},
+            write(os.path.join(out, "run.json"), json.dumps({"task": task["id"], "arm": "A-steer", "ok": True, "failed": [], "pin": {"ok": True},
                        "sent": {"brief": 0}, "timeline": {"brief": {"first_reply_ms": 2000}},
                        "cost_usd": {"all": 1.5}, "tokens": tok,
-                       "stall": {"messages": msgs, "summary": team_eval.stall_summary(msgs.values())}},
-                      open(os.path.join(out, "run.json"), "w"))
-            json.dump({"messages": [], "arrivals": {}}, open(os.path.join(out, "conversation.json"), "w"))
-            open(os.path.join(out, "diff.patch"), "w").write("")
+                       "stall": {"messages": msgs, "summary": team_eval.stall_summary(msgs.values())}}))
+            write(os.path.join(out, "conversation.json"), json.dumps({"messages": [], "arrivals": {}}))
+            write(os.path.join(out, "diff.patch"), "")
             outs.append(out)
         opts = argparse.Namespace(judge=judge, model="m")
         rows = [team_eval_score.score(o, [task], opts) for o in outs]
@@ -557,7 +581,7 @@ class TokenTests(unittest.TestCase):
         os.makedirs(proj)
         u = {"input_tokens": 10, "output_tokens": 20, "cache_creation_input_tokens": 30, "cache_read_input_tokens": 40}
         line = lambda mid: json.dumps({"type": "assistant", "message": {"id": mid, "model": "claude-opus-5-5", "usage": u}})
-        open(os.path.join(proj, "s.jsonl"), "w").write(line("m1") + "\n" + line("m1") + "\n" + line("m2") + "\n")
+        write(os.path.join(proj, "s.jsonl"), line("m1") + "\n" + line("m1") + "\n" + line("m2") + "\n")
         self.assertEqual(team_eval.LiveMeter([d]).tokens(),
                          {"input": 20, "output": 40, "cache_write": 60, "cache_read": 80, "total": 200})
         ev = [{"ev": "node", "usage": {"input": 1, "cache_write": 2, "cache_read": 3, "output": 4}}, {"ev": "turn.end"}]
@@ -610,7 +634,7 @@ class CampaignTests(unittest.TestCase):
         body = (f"echo start $({stamp}) >> {{d}}/spans; sleep 0.4; echo end $({stamp}) >> {{d}}/spans;")
         self.campaign_with("", 1, run=self.fake_run(body), task=["t1", "t2", "t3"], arm=["A", "B"],
                            parallel=6, max_concurrent=2)
-        spans = [l.split() for l in open(os.path.join(self.d, "spans"))]
+        spans = [l.split() for l in read(os.path.join(self.d, "spans")).splitlines()]
         self.assertEqual(sum(1 for k, _ in spans if k == "start"), 6)
         now, most = 0, 0
         for kind, _ in sorted(spans, key=lambda x: (float(x[1]), x[0] == "start")):
@@ -623,7 +647,7 @@ class CampaignTests(unittest.TestCase):
         import io
         # The command prints 0.1, then 0.9: the first check pauses, the next resumes.
         probe = os.path.join(self.tmp(), "probe")
-        open(probe, "w").write("#!/bin/sh\nf=\"$0.n\"\nn=$(cat \"$f\" 2>/dev/null || echo 0)\n"
+        write(probe, "#!/bin/sh\nf=\"$0.n\"\nn=$(cat \"$f\" 2>/dev/null || echo 0)\n"
                                "echo $((n + 1)) > \"$f\"\n[ \"$n\" = 0 ] && echo 0.1 || echo 0.9\n")
         os.chmod(probe, 0o755)
         buf = io.StringIO()
@@ -715,6 +739,23 @@ class HeadroomTests(unittest.TestCase):
         self.assertIn("failing closed", self.logs[0])
         self.assertIn("resuming", self.logs[1])
 
+    def test_old_readings_added_late_never_push_a_fresh_low_one_out(self):
+        fresh = {"at": 10000 * 1000, "request_id": "req_low", "7d_utilization": 0.9, "7d_status": "allowed"}
+        g = self.gate([fresh], cmd="echo 0.8")
+        # A step's summary re-adds 20 readings 40 minutes old after the fresh one.
+        g.ledger.add_readings([{"at": (10000 - 2400) * 1000 + i, "request_id": f"old{i}", "7d_utilization": 0.2,
+                                "7d_status": "allowed"} for i in range(20)])
+        self.assertEqual([round(x, 2) for x in [g.current()[0]]], [0.1])
+        self.assertFalse(g.ok())
+        self.assertEqual(g.ledger.readings()[-1]["request_id"], "req_low")  # kept in time order
+
+    def test_min_headroom_is_a_fraction(self):
+        import argparse
+        self.assertEqual(team_eval.fraction("0"), 0.0)
+        for bad in ("-0.1", "1.5", "x"):
+            with self.assertRaises(argparse.ArgumentTypeError):
+                team_eval.fraction(bad)
+
     def test_a_live_reading_too_old_for_the_window_is_logged_not_raised(self):
         stale = {"at": 1000, "request_id": "req_old", "7d_utilization": 0.95, "7d_status": "allowed"}
         g = self.gate([stale], cmd="echo 0.9")              # the only reading is 2.7 h old
@@ -739,26 +780,26 @@ class HeadroomTests(unittest.TestCase):
         import tempfile
         d = tempfile.mkdtemp()
         fake = os.path.join(d, "claude")
-        open(os.path.join(d, "sample"), "w").write(DEBUG_SAMPLE)
-        open(fake, "w").write(f"#!/bin/sh\n[ \"$ANTHROPIC_LOG\" = debug ] && cat {d}/sample\necho ok\n")
+        write(os.path.join(d, "sample"), DEBUG_SAMPLE)
+        write(fake, f"#!/bin/sh\n[ \"$ANTHROPIC_LOG\" = debug ] && cat {d}/sample\necho ok\n")
         os.chmod(fake, 0o755)
         probe = [sys.executable, os.path.join(HERE, "headroom_probe.py"), "--claude", fake]
         r = subprocess.run(probe, capture_output=True, text=True)
         self.assertEqual((r.returncode, r.stdout), (0, "0.4700\n"), r.stderr)
         self.assertIn("one upstream account", r.stderr)
-        open(fake, "w").write("#!/bin/sh\necho ok\n")
+        write(fake, "#!/bin/sh\necho ok\n")
         r = subprocess.run(probe, capture_output=True, text=True)
         self.assertEqual((r.returncode, r.stdout), (1, ""))
         # --base-url: claude -p goes through that route, with a placeholder key, no host token or
         # provider switch, and a scratch HOME and config dir (no host settings.json).
-        open(fake, "w").write(f"#!/bin/sh\necho \"$ANTHROPIC_BASE_URL $ANTHROPIC_API_KEY ${{ANTHROPIC_AUTH_TOKEN:-none}} "
+        write(fake, f"#!/bin/sh\necho \"$ANTHROPIC_BASE_URL $ANTHROPIC_API_KEY ${{ANTHROPIC_AUTH_TOKEN:-none}} "
                               f"${{CLAUDE_CODE_USE_BEDROCK:-none}} ${{AWS_PROFILE:-none}} $ANTHROPIC_LOG $HOME "
                               f"$CLAUDE_CONFIG_DIR\" > {d}/env\ncat {d}/sample\n")
         r = subprocess.run(probe + ["--base-url", "http://route:9"], capture_output=True, text=True,
                            env=dict(os.environ, ANTHROPIC_AUTH_TOKEN="host-token", CLAUDE_CODE_USE_BEDROCK="1",
                                     AWS_PROFILE="p"))
         self.assertEqual(r.returncode, 0, r.stderr)
-        got = open(os.path.join(d, "env")).read().split()
+        got = read(os.path.join(d, "env")).split()
         self.assertEqual(got[:6], ["http://route:9", "sk-ant-placeholder-the-route-signs", "none", "none", "none", "debug"])
         self.assertNotEqual(got[6], os.environ["HOME"])
         self.assertEqual(got[7], os.path.join(got[6], ".claude"))
@@ -815,7 +856,7 @@ class LiveReadingTests(unittest.TestCase):
         self.assertEqual((r["request_id"], r["7d_utilization"]), ("req_b", 0.9))
         ev2 = os.path.join(home, "sessions", "s2", "events")
         os.makedirs(ev2)  # a second session (a subagent)
-        open(os.path.join(ev2, "000001.ndjson"), "w").write(records(DEBUG_SAMPLE, "req_c"))
+        write(os.path.join(ev2, "000001.ndjson"), records(DEBUG_SAMPLE, "req_c"))
         self.assertEqual(got.get(timeout=10)["request_id"], "req_c")
         f.stop()
         self.assertTrue(got.empty())  # each once
@@ -840,9 +881,9 @@ class LiveReadingTests(unittest.TestCase):
         os.makedirs(ev)
         line = lambda req: "".join(json.dumps({"at": 1, "kind": "stderr", "msg": {"text": l}}) + "\n"
                                    for l in DEBUG_SAMPLE.replace("req_010UkMXn2kP8WvvTaLbryLXo", req).splitlines())
-        open(os.path.join(ev, "000001.ndjson"), "w").write(line("req_a"))
+        write(os.path.join(ev, "000001.ndjson"), line("req_a"))
         got.get(timeout=10)
-        open(os.path.join(ev, "000002.ndjson"), "w").write(line("req_b"))  # the thread lives on
+        write(os.path.join(ev, "000002.ndjson"), line("req_b"))  # the thread lives on
         self.assertEqual(got.get(timeout=10)[0]["request_id"], "req_b")
         self.assertTrue(any("callback broke" in m for m in logs))
         f.stop()
@@ -854,14 +895,86 @@ class LiveReadingTests(unittest.TestCase):
         import threading
         import time
         path = os.path.join(tempfile.mkdtemp(), "trace.jsonl")
-        open(path, "w").close()
+        write(path, "")
         t = time.time()
         team_eval.wait_for_change([path], 0.3)
         self.assertGreaterEqual(time.time() - t, 0.25)
-        threading.Timer(0.2, lambda: open(path, "a").write("x\n")).start()
+        threading.Timer(0.2, lambda: append(path, "x\n")).start()
         t = time.time()
         team_eval.wait_for_change([path], 10)
         self.assertLess(time.time() - t, 5)
+
+    def test_a_change_before_the_watch_is_never_waited_for(self):
+        import tempfile
+        import time
+        path = os.path.join(tempfile.mkdtemp(), "trace.jsonl")
+        write(path, "")
+        # The turn ended between the caller's check and the watch: the re-check
+        # under the watch sees it, and nothing waits out the timeout.
+        state = {"running": True}
+
+        def still():
+            state["running"] = False  # the turn.end landed just before this check
+            return state["running"]
+        t = time.time()
+        team_eval.wait_for_change([path], 10, still)
+        self.assertLess(time.time() - t, 1)
+        t = time.time()
+        team_eval.wait_for_change([path], 0.3, lambda: True)
+        self.assertGreaterEqual(time.time() - t, 0.25)
+
+    def test_the_follower_logs_a_kevent_failure_and_closes_its_fds(self):
+        import shutil
+        import tempfile
+        if not hasattr(team_eval.select, "kqueue"):
+            self.skipTest("no kqueue")
+        home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, home, True)
+        logs = []
+        f = team_eval.AcpmuxFollower(home, lambda rs: None, log=logs.append)
+        f.kq = team_eval.select.kqueue()
+
+        class Broken:
+            def __init__(self, kq):
+                self.kq = kq
+
+            def control(self, changes, n, timeout=None):
+                if changes is None:
+                    raise OSError(9, "Bad file descriptor")
+                return self.kq.control(changes, n, timeout)
+
+            def close(self):
+                self.kq.close()
+        f.kq = Broken(f.kq)
+        f._run()
+        self.assertTrue(any("kevent failed" in m for m in logs), logs)
+        self.assertTrue(f.watched)  # the home was watched, then its fd closed
+        for fd in f.watched.values():
+            with self.assertRaises(OSError):
+                os.fstat(fd)
+        f.stop()
+
+    def test_the_follower_watches_only_each_sessions_newest_log(self):
+        import shutil
+        import tempfile
+        if not hasattr(team_eval.select, "kqueue"):
+            self.skipTest("no kqueue")
+        home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, home, True)
+        ev = os.path.join(home, "sessions", "s1", "events")
+        os.makedirs(ev)
+        for n in (1, 2, 3):
+            write(os.path.join(ev, f"00000{n}.ndjson"), "")
+        f = team_eval.AcpmuxFollower(home, lambda rs: None, log=lambda m: None)
+        f.kq = team_eval.select.kqueue()
+        self.addCleanup(f.kq.close)
+        f._scan()
+        files = [p for p in f.watched if p.endswith(".ndjson")]
+        self.assertEqual(files, [os.path.join(ev, "000003.ndjson")])
+        for fd in f.watched.values():
+            os.close(fd)
+        f.watched = {}
+        f.stop()
 
     def test_a_live_fd_that_is_not_open_is_dropped(self):
         import tempfile
@@ -897,9 +1010,9 @@ class StreamingCampaignTests(unittest.TestCase):
         live = [r for r in led.readings() if r.get("request_id") == "req_live"]
         self.assertEqual(len(live), 1)
         self.assertEqual(live[0]["source"], "team-eval-x-t-A-1-a1")
-        self.assertLess(live[0]["arrived"], int(open(os.path.join(self.d, "ended")).read()) - 1000)
-        self.assertIn("ok", open(os.path.join(self.d, "out", "team-eval-x-t-A-1-a1", "step.log")).read())
-        self.assertIn("TEAM-EVAL-RATELIMIT", open(os.path.join(self.d, "out", "team-eval-x-t-A-1-a1", "step.log")).read())
+        self.assertLess(live[0]["arrived"], int(read(os.path.join(self.d, "ended"))) - 1000)
+        self.assertIn("ok", read(os.path.join(self.d, "out", "team-eval-x-t-A-1-a1", "step.log")))
+        self.assertIn("TEAM-EVAL-RATELIMIT", read(os.path.join(self.d, "out", "team-eval-x-t-A-1-a1", "step.log")))
 
     def test_a_step_queued_behind_a_busy_worker_waits_when_a_live_reading_drops_the_headroom(self):
         import contextlib
@@ -930,7 +1043,7 @@ class StreamingCampaignTests(unittest.TestCase):
         pause = out.index("is under 0.25: pausing new steps")
         self.assertGreater(pause, out.index("live reading from"))
         self.assertIn("resuming", out[pause:])
-        spans = dict(l.split() for l in open(os.path.join(self.d, "spans")))
+        spans = dict(l.split() for l in read(os.path.join(self.d, "spans")).splitlines())
         self.assertGreater(int(spans["start"]) - int(spans["end"]), 900)  # it waited past the pause
 
     def test_the_pool_lets_max_concurrent_steps_run_whatever_parallel_says(self):
@@ -938,7 +1051,7 @@ class StreamingCampaignTests(unittest.TestCase):
         body = f"echo start $({stamp}) >> {{d}}/spans; sleep 1.5; echo end $({stamp}) >> {{d}}/spans;"
         self.campaign_with("", 1, run=self.fake_run(body), task=["t1", "t2"], arm=["A", "B"], parallel=1, max_concurrent=4,
                            cap_usd=None)
-        spans = [l.split() for l in open(os.path.join(self.d, "spans"))]
+        spans = [l.split() for l in read(os.path.join(self.d, "spans")).splitlines()]
         now, most = 0, 0
         for kind, _ in sorted(spans, key=lambda x: (float(x[1]), x[0] == "start")):
             now += 1 if kind == "start" else -1
@@ -961,6 +1074,32 @@ class StreamingCampaignTests(unittest.TestCase):
         self.assertIn("req_new", [r.get("request_id") for r in led.readings()])
         self.assertEqual(led.tokens()["total"], 26)
         self.assertIn("ok, 26 tokens", out)
+
+    def test_a_stray_byte_in_the_steps_log_never_stops_the_reader(self):
+        import contextlib
+        import io
+        body = (f"printf 'bad \\377 byte\\n'; printf 'err \\377\\n' >&2; "
+                f"echo 'TEAM-EVAL-RATELIMIT {self.reading('req_after', 0.4)}';")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            led = self.campaign_with("", 1, run=self.fake_run(body), cap_usd=None)
+        self.assertIn("req_after", [r.get("request_id") for r in led.readings()])
+        self.assertEqual(led.tokens()["total"], 26)
+        self.assertIn("bad \ufffd byte", read(os.path.join(self.d, "out", "team-eval-x-t-A-1-a1", "step.log")))
+
+    def test_a_truncated_team_eval_line_fails_the_attempt_not_the_campaign(self):
+        import contextlib
+        import io
+        run = ("[ \"$1\" = run ] && { echo 'cmux-ci: step s1 (exclusive)' >&2; "
+               "echo 'TEAM-EVAL {\"cost_usd\": {\"all\": 3'; exit 0; }\n")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            led = self.campaign_with("", 1, run=run, arm=["A", "B"], cap_usd=None)
+        out = buf.getvalue()
+        self.assertEqual(out.count("FAILED: its output did not read (JSONDecodeError"), 2)
+        attempts = led.data["attempts"]
+        self.assertEqual({a["state"] for a in attempts.values()}, {"unknown"})  # spend unknown: reservation kept
+        self.assertTrue(all("did not read" in a["failed"][0] for a in attempts.values()))
 
     def test_the_default_probe_uses_the_steps_route_and_bad_counts_are_refused(self):
         cmd = team_eval.default_headroom_cmd("http://route:9")

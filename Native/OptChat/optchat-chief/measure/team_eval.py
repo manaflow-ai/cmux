@@ -451,7 +451,7 @@ def attributed_replies(sent, starts, messages, arrivals):
     earlier prompt is never a later one's. {pid: (ms after sent, or None;
     unattributable)}: unattributable when the start was never seen, so no
     reply can be tied to it."""
-    chief = sorted((arrivals.get(m["id"], 0), m.get("seq", 0)) for m in messages
+    chief = sorted((arrivals.get(m["id"], 0), m["seq"] if m.get("seq") is not None else -1) for m in messages
                    if m.get("author") == CHIEF and text_of(m).strip())
     # The floor is the last credited message as (arrival, seq): two messages seen
     # in the same poll share an arrival, and the later one is still free.
@@ -527,13 +527,16 @@ def ratelimit_summary(readings):
             "readings": rs[-Ledger.READINGS:]}
 
 
-def wait_for_change(paths, timeout):
+def wait_for_change(paths, timeout, still=None):
     """Blocks until one of `paths` (files or directories) is written or
     extended, or `timeout` seconds pass (kqueue; without it, or with nothing
-    to watch, one sleep of `timeout`)."""
+    to watch, one sleep of `timeout`). `still()` is checked once the watch
+    is in place and the wait skipped when it is false, so a change between
+    the caller's own check and the watch is never missed."""
     timeout = max(0.0, timeout)
     if not hasattr(select, "kqueue") or not paths:
-        time.sleep(timeout)
+        if still is None or still():
+            time.sleep(timeout)
         return
     fds, kq = [], select.kqueue()
     try:
@@ -543,10 +546,13 @@ def wait_for_change(paths, timeout):
             except OSError:
                 continue
         if not fds:
-            time.sleep(timeout)
+            if still is None or still():
+                time.sleep(timeout)
             return
         kq.control([select.kevent(fd, select.KQ_FILTER_VNODE, select.KQ_EV_ADD | select.KQ_EV_CLEAR,
                                   select.KQ_NOTE_WRITE | select.KQ_NOTE_EXTEND) for fd in fds], 0)
+        if still is not None and not still():
+            return
         kq.control(None, 1, timeout)
     finally:
         for fd in fds:
@@ -637,6 +643,11 @@ class AcpmuxFollower:
         self.kq.control([select.kevent(fd, select.KQ_FILTER_VNODE, select.KQ_EV_ADD | select.KQ_EV_CLEAR,
                                        select.KQ_NOTE_WRITE | select.KQ_NOTE_EXTEND)], 0)
 
+    def _unwatch(self, path):
+        fd = self.watched.pop(path, None)
+        if fd is not None:
+            os.close(fd)  # closing the fd drops its kevent
+
     def _scan(self):
         """Watches what is new, then reads every log's new bytes."""
         self._watch(self.home)
@@ -650,9 +661,15 @@ class AcpmuxFollower:
             if not os.path.isdir(events):
                 continue
             self._watch(events)
-            for name in sorted(os.listdir(events)):
+            names = sorted(n for n in os.listdir(events) if n.endswith(".ndjson"))
+            for name in names:
                 path = os.path.join(events, name)
-                self._watch(path)
+                # Only the newest log of a session grows: one fd per session. An
+                # older one is read once more (its last bytes), then let go.
+                if name == names[-1]:
+                    self._watch(path)
+                else:
+                    self._unwatch(path)
                 self._read(sid, path)
 
     def _read(self, sid, path):
@@ -695,6 +712,9 @@ class AcpmuxFollower:
                     evs = self.kq.control(None, 64, None)
                 except InterruptedError:
                     continue
+                except OSError as e:
+                    self.log(f"following acpmux's session logs stopped: kevent failed: {e}")
+                    break
                 if any(e.ident == self.wake_r for e in evs):
                     self._scan_safely()
                     break
@@ -717,13 +737,14 @@ def acpmux_ratelimit(acpmux_home):
         events = os.path.join(root, sid, "events")
         lines = []
         for name in sorted(os.listdir(events)) if os.path.isdir(events) else []:
-            for raw in open(os.path.join(events, name), errors="replace"):
-                try:
-                    e = json.loads(raw)
-                except ValueError:
-                    continue
-                if e.get("kind") == "stderr":
-                    lines.append((e.get("at"), (e.get("msg") or {}).get("text") or ""))
+            with open(os.path.join(events, name), errors="replace") as fh:
+                for raw in fh:
+                    try:
+                        e = json.loads(raw)
+                    except ValueError:
+                        continue
+                    if isinstance(e, dict) and e.get("kind") == "stderr":
+                        lines.append((e.get("at"), (e.get("msg") or {}).get("text") or ""))
         out += ratelimit_readings(lines)
     return out
 
@@ -1145,11 +1166,19 @@ class Ledger:
 
     def add_readings(self, readings):
         """Adds readings, once per request id (a step's live line and its
-        TEAM-EVAL summary may carry the same one)."""
+        TEAM-EVAL summary may carry the same one), and keeps the newest
+        READINGS by their own time (`at`), not by when they were added: a
+        step's summary re-adds old readings at its end."""
         with self._locked() as data:
             have = {r.get("request_id") for r in data.get("ratelimit", []) if r.get("request_id")}
-            new = [r for r in readings if not (r.get("request_id") and r["request_id"] in have)]
-            data["ratelimit"] = (data.get("ratelimit", []) + new)[-self.READINGS:]
+            new = []
+            for r in readings:
+                if r.get("request_id") and r["request_id"] in have:
+                    continue
+                have.add(r.get("request_id"))
+                new.append(r)
+            kept = sorted(data.get("ratelimit", []) + new, key=lambda r: r.get("at") or 0)
+            data["ratelimit"] = kept[-self.READINGS:]
 
     def readings(self):
         with self._locked() as data:
@@ -1244,11 +1273,18 @@ class Headroom:
             return None, f"--headroom-cmd printed {out[-80:]!r}, not a fraction 0..1"
         return x, "probe"
 
+    def recent(self):
+        """The readings the gate reads: those under max-age, then the newest
+        `window` of them by their own time."""
+        since = (self.clock() - self.max_age_s) * 1000
+        fresh = sorted((r for r in self.ledger.readings()
+                        if (r.get("at") or 0) >= since and reading_headroom(r) is not None),
+                       key=lambda r: r.get("at") or 0)
+        return fresh[-self.window:]
+
     def current(self):
         """(lowest recent headroom or None, why)."""
-        since = (self.clock() - self.max_age_s) * 1000
-        fresh = [r for r in self.ledger.readings()[-self.window:]
-                 if (r.get("at") or 0) >= since and reading_headroom(r) is not None]
+        fresh = self.recent()
         why = None
         if not fresh:
             x, why = self.probe()
@@ -1266,9 +1302,7 @@ class Headroom:
         h = reading_headroom(reading)
         if not self.cmd or h is None or h >= self.minimum:
             return
-        since = (self.clock() - self.max_age_s) * 1000
-        fresh = [reading_headroom(r) for r in self.ledger.readings()[-self.window:]
-                 if (r.get("at") or 0) >= since and reading_headroom(r) is not None]
+        fresh = [reading_headroom(r) for r in self.recent()]
         if not fresh:
             # Too old (a late log, clock skew) or out of the window: it gates nothing.
             self.log(f"live reading from {key}: headroom {h:.2f}, but it is not among the recent readings; "
@@ -1320,6 +1354,17 @@ def positive(text):
     if n < 1:
         raise argparse.ArgumentTypeError(f"{text!r} is not a whole number of at least 1")
     return n
+
+
+def fraction(text):
+    """A number from 0 to 1."""
+    try:
+        x = float(text)
+    except ValueError:
+        x = -1
+    if not 0 <= x <= 1:
+        raise argparse.ArgumentTypeError(f"{text!r} is not a fraction from 0 to 1")
+    return x
 
 
 def above_zero(text):
@@ -1385,7 +1430,9 @@ def campaign(opts):
         read line by line as it comes: each TEAM-EVAL-RATELIMIT reading goes
         into the ledger's window at once. Returns what subprocess.run would."""
         import types
-        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
+        # A stray byte in a step's log is replaced, never an error that stops the reading.
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8", errors="replace",
+                             bufsize=1)
         err = []
         drain = threading.Thread(target=lambda: err.append(p.stderr.read()), daemon=True)
         drain.start()
@@ -1404,6 +1451,8 @@ def campaign(opts):
                     say(f"{key}: a live reading was not taken ({type(e).__name__}: {e}): {line.strip()[:200]}")
         p.wait()
         drain.join()
+        p.stdout.close()
+        p.stderr.close()
         return types.SimpleNamespace(stdout="".join(lines), stderr="".join(err), returncode=p.returncode)
 
     def one(run):
@@ -1434,9 +1483,23 @@ def campaign(opts):
             headroom.wait()
         try:
             r = run_streaming(cmd + (["--target-worker", worker] if worker else []), key)
+        except Exception as e:  # noqa: BLE001
+            # The step may have started: its spend is unknown, so it keeps its reservation.
+            ledger.settle(key, None, None, None, [f"campaign: cmux-ci run failed: {type(e).__name__}: {e}"])
+            return key, f"FAILED: cmux-ci run failed ({type(e).__name__}: {e}), spent unknown"
         finally:
             if worker:
                 free.put(worker)
+        try:
+            return finish(key, r)
+        except Exception as e:  # noqa: BLE001
+            # A truncated TEAM-EVAL line or a corrupt run.json: the attempt failed and
+            # its spend is unknown (the whole reservation stays); the campaign goes on.
+            ledger.settle(key, None, None, None, [f"campaign: the step's output did not read: {type(e).__name__}: {e}"])
+            return key, f"FAILED: its output did not read ({type(e).__name__}: {e}), spent unknown"
+
+    def finish(key, r):
+        """Reads a finished step's output and settles its attempt."""
         step = next((m.group(1) for m in re.finditer(r"cmux-ci: step (\S+) ", r.stderr)), None)
         os.makedirs(os.path.join(out, key), exist_ok=True)
         log = r.stdout
@@ -1516,7 +1579,7 @@ def main():
     c.add_argument("--headroom-cmd", default=None,
                    help="prints the pool's remaining weekly fraction (0..1), run when no reading is recent "
                         "(default: headroom_probe.py --base-url BASE_URL); '' turns the headroom check off")
-    c.add_argument("--min-headroom", type=float, default=0.25, help="start no step while the headroom is below this")
+    c.add_argument("--min-headroom", type=fraction, default=0.25, help="start no step while the headroom is below this")
     c.add_argument("--headroom-window", type=positive, default=20, help="the last N readings the check reads")
     c.add_argument("--headroom-max-age", type=above_zero, default=30, help="minutes a reading counts")
     c.add_argument("--headroom-sleep", type=above_zero, default=180, help="seconds between checks while paused")
@@ -1754,11 +1817,13 @@ def run(opts):
                 rc, said = r.returncode, (r.stdout + r.stderr)[-200:]
             except (OSError, subprocess.TimeoutExpired) as e:
                 rc, said = None, str(e)[-200:]
-            while now_ms() - at < 30000 and chief_state(trace_events(), now_ms())[0]:
+            running = lambda: chief_state(trace_events(), now_ms())[0]
+            while now_ms() - at < 30000 and running():
                 poll()  # replies and the cursor keep their times meanwhile
-                # Until the trace changes (the turn.end), at most to the deadline.
+                # Until the trace changes (the turn.end), at most to the deadline; the
+                # watch is in place before the turn is checked again, so no end is missed.
                 wait_for_change([traces] + [os.path.join(traces, n) for n in os.listdir(traces)]
-                                if os.path.isdir(traces) else [], (30000 - (now_ms() - at)) / 1000)
+                                if os.path.isdir(traces) else [], (30000 - (now_ms() - at)) / 1000, running)
             ended = not chief_state(trace_events(), now_ms())[0]
             log(f"stopped the running turn: rc {rc}, {'ended' if ended else 'STILL RUNNING'} "
                 f"after {(now_ms() - at) / 1000:.1f} s")
