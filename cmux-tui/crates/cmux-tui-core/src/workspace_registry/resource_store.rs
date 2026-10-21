@@ -799,8 +799,10 @@ impl WorkspaceRegistry {
             .collect()
     }
 
-    /// Whether `terminal_id` still has a hook row older than `sequence` to project: a later
-    /// event that depends on the terminal's hook state waits behind it.
+    /// Whether `terminal_id` has a hook row older than `sequence` whose projection failed and
+    /// waits for a retry: a later event that depends on the terminal's hook state waits behind
+    /// it, and the same retry drains both in order. A row its own commit still stages (no
+    /// error yet) is in flight, not failed, and holds nothing back.
     pub(crate) fn agent_hook_pending_before(
         &self,
         terminal_id: &TerminalPublicId,
@@ -810,7 +812,7 @@ impl WorkspaceRegistry {
         Ok(self.connection.get().query_row(
             "SELECT EXISTS(
                SELECT 1 FROM resource_agent_hook_pending
-               WHERE terminal_id = ?1 AND event_sequence < ?2 AND attempt < ?3
+               WHERE terminal_id = ?1 AND event_sequence < ?2 AND attempt < ?3 AND error != ''
              )",
             params![terminal_id.as_str(), sequence, AGENT_HOOK_MAX_ATTEMPTS],
             |row| row.get::<_, bool>(0),

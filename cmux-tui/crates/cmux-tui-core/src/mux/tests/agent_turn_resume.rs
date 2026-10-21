@@ -97,15 +97,15 @@ fn claude_tool_hooks_keep_the_turn_state_true() {
     );
 }
 
-/// A wait whose projection is still pending (committed, then the projector missed it) is
-/// answered: the tool hook waits behind it in the retry queue, so the projector and the roster
-/// both end working, not one blocked and one working.
+/// A wait whose projection failed (its terminal was briefly between hosts) is answered before
+/// the retry: the tool hook waits behind it in the retry queue, so the projector and the
+/// roster both end working, not one blocked and one working.
 #[test]
-fn tool_hook_waits_behind_a_pending_wait() {
+fn tool_hook_waits_behind_a_failed_wait_projection() {
     let mux = test_mux();
     let surface = mux.new_workspace(None, None).unwrap();
     let terminal_id = surface.terminal_public_id().cloned().unwrap();
-    let ingress = |event: &str, observed_at_ms: u64| {
+    let append = |event: &str, observed_at_ms: u64| {
         let mut ingress = crate::agent_hooks::agent_hook_journal_ingress(
             "claude",
             event,
@@ -114,27 +114,28 @@ fn tool_hook_waits_behind_a_pending_wait() {
         )
         .unwrap();
         crate::agent_hooks::stamp_agent_hook_observed_at(&mut ingress, observed_at_ms);
-        ingress
+        let key = format!("failed-wait-{observed_at_ms}");
+        mux.append_journal_ingress(&ingress, "test", &key).unwrap();
     };
-    mux.append_journal_ingress(&ingress("UserPromptSubmit", 1_000), "test", "pending-1").unwrap();
-    // The request commits, and the process stops before projecting it (its row stays pending).
-    let request = ingress("PermissionRequest", 1_100);
-    let validated = mux.journal_kernel.validate_ingress(&request).unwrap();
-    mux.workspace_registry
-        .lock()
-        .unwrap()
-        .append_journal_ingress(&request, &validated, "test", "pending-2")
-        .unwrap();
-    mux.append_journal_ingress(&ingress("PostToolUse", 1_200), "test", "pending-3").unwrap();
-    assert_eq!(
-        mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap().len(),
-        2,
-        "the tool hook waits behind the request"
-    );
+    let pending = || {
+        mux.workspace_registry
+            .lock()
+            .unwrap()
+            .pending_agent_hook_projections_for_terminal(&terminal_id)
+            .unwrap()
+            .len()
+    };
+    append("UserPromptSubmit", 1_000);
+    // The request commits while the terminal is between hosts: its projection fails.
+    let host = mux.remove_terminal_catalog_for_test(&terminal_id).unwrap();
+    append("PermissionRequest", 1_100);
+    assert_eq!(pending(), 1);
+    mux.state.lock().unwrap().insert_catalog_terminal(&terminal_id, &host).unwrap();
+    // Approved before the retry ran.
+    append("PostToolUse", 1_200);
+    assert_eq!(pending(), 2, "the tool hook waits behind the failed request");
 
     mux.retry_pending_agent_hooks_for_terminal(&terminal_id).unwrap();
-    assert!(
-        mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap().is_empty()
-    );
+    assert_eq!(pending(), 0);
     assert_state(&mux, &terminal_id, "working");
 }
