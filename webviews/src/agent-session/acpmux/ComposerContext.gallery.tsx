@@ -176,11 +176,11 @@ const frameworkGlyphs = {
   notes: undefined,
 } as const;
 const frameworkProjects = Object.keys(frameworkGlyphs).map((label) => ({ cwd: `/Users/you/src/${label}`, label }));
-// A remote and a home project keep their corner mark on the neutral tile; a local one has none.
+// The home folder keeps its corner mark on the neutral tile; a local one has none. (This menu lists
+// the chosen computer's folders, so a remote folder wears no mark here; the project chooser shows it.)
 const kindProps = {
   ...baseProps,
   projectChoices: [
-    { cwd: "/home/you/api", label: "api", peer: "devbox", host: "devbox" },
     { cwd: "~", label: "Home" },
     { cwd: "/Users/you/src/notes", label: "notes" },
   ],
@@ -253,8 +253,8 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       chipHost: frameworkHost,
       play: openFolder,
     },
-    "remote-home-marks": {
-      note: "A remote project (on devbox) and the home folder keep their corner mark on the neutral tile; a local folder has none.",
+    "home-mark": {
+      note: "The home folder keeps its corner mark on the neutral tile; a local folder has none.",
       props: kindProps,
       chipHost: { projectIcons: {} },
       play: openFolder,
