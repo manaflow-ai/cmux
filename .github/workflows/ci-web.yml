@@ -385,6 +385,8 @@ jobs:
           fi
           status=0
           bun run check:browser-lanes || status=1
+          # A new fixed-time wait in a test makes it flaky on a slow runner: a test rule, not style.
+          bun run check:fixed-waits || status=1
           bun run typecheck || status=1
           # The generated protocol must match the daemon's IR: a wire-format check, not style.
           bun run acpmux-protocol:check || status=1
