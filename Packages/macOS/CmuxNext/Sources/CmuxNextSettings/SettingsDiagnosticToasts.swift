@@ -2,18 +2,17 @@ import AppKit
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDesign
-import CmuxNextSettings
-import CmuxNextSettingsWindow
 
 /// Tells the person when cmux-next.json holds a value this build refuses
-/// (`SettingsDiagnosticNotices`): a toast on the active window names the key,
+/// (`SettingsDiagnosticNotices`): a toast on the key window names the key,
 /// the value and why. Its button opens the key's Settings row (which says it
 /// too), Keyboard Shortcuts for a shortcut, or the file for a key Settings has
 /// no row for and for a file that does not parse. A refusal is announced
 /// once, also across launches, until it is fixed; a refusal that finds no
 /// window waits for the next window that becomes key. Fixing the refusal the
 /// toast names closes it. An agent or a hand edit that writes the file past
-/// `cmux settings set` no longer fails silently. Debug Settings
+/// `cmux settings set` no longer fails silently. The app turns it on with
+/// `SettingsController.start(announcingDiagnostics: true)`; Debug Settings
 /// `settings.diagnosticToast` keeps it up until closed or turns it off.
 @MainActor
 final class SettingsDiagnosticToasts {
@@ -22,35 +21,32 @@ final class SettingsDiagnosticToasts {
     static let rememberedKey = "settings.diagnosticNotices.announced"
     /// The longest value the toast quotes; Settings and the file hold the rest.
     static let valueLimit = 80
-    private static var current: SettingsDiagnosticToasts?
 
-    private unowned let services: AppServices
+    private let registry: ActionRegistry
     private let defaults = UserDefaults.standard
     private var notices: SettingsDiagnosticNotices
     /// Refusals the last load found that no toast has shown yet.
     private var pending: [SettingsDiagnosticNotices.Notice] = []
     private var shown: CmuxToastHandle?
 
-    private init(services: AppServices) {
-        self.services = services
+    init(registry: ActionRegistry) {
+        self.registry = registry
         notices = SettingsDiagnosticNotices(remembered: Set(UserDefaults.standard.stringArray(forKey: Self.rememberedKey) ?? []))
     }
 
-    static func follow(_ settings: SettingsController, services: AppServices) {
-        let toasts = SettingsDiagnosticToasts(services: services)
-        current = toasts
-        Task { [weak settings, weak toasts] in // task-owner: lives with the settings controller
-            guard let settings else { return }
+    /// Follows `settings`' loads; the controller holds this object for the app's life.
+    func follow(_ settings: SettingsController) {
+        Task { [weak self] in // task-owner: lives with the settings controller
             await settings.waitForLoad(atLeast: 1)
             for await (diagnostics, file, managed) in ObservationStream({
                 (settings.diagnostics, settings.fileRoot, Set(settings.managedKeys.keys).union(settings.managedPolicy.keys))
             }) {
-                toasts?.load(diagnostics, file: file, managed: managed)
+                self?.load(diagnostics, file: file, managed: managed)
             }
         }
-        Task { [weak toasts] in // task-owner: retries a refusal that found no window
+        Task { [weak self] in // task-owner: lives with the app; retries a refusal that found no window
             for await _ in NotificationCenter.default.notifications(named: NSWindow.didBecomeKeyNotification) {
-                toasts?.showPending()
+                self?.showPending()
             }
         }
     }
@@ -68,8 +64,7 @@ final class SettingsDiagnosticToasts {
 
     private func showPending() {
         let style = SettingsDiagnosticToastStyle.tunable.value
-        guard style != .off, let first = pending.first,
-              let window = services.windows.active?.window ?? NSApp.keyWindow ?? NSApp.mainWindow else { return }
+        guard style != .off, let first = pending.first, let window = NSApp?.keyWindow ?? NSApp?.mainWindow else { return }
         shown = show(first, more: pending.count > 1, style: style, in: window)
         notices.announced(pending)
         pending = []
@@ -82,11 +77,11 @@ final class SettingsDiagnosticToasts {
     }
 
     /// Where the toast's button goes.
-    private enum Destination { case row, shortcuts, file }
+    enum Destination: Equatable { case row, shortcuts, file }
 
-    private static func destination(_ path: String) -> Destination {
+    static func destination(_ path: String) -> Destination {
         if path.isEmpty { return .file }
-        if SettingsAnchor(key: path) != nil { return .row }
+        if SettingsSchema.descriptor(for: CmuxConfigFile.keyPath(from: path))?.isShownOnSettingsPage == true { return .row }
         return path.hasPrefix("shortcuts.") ? .shortcuts : .file
     }
 
@@ -99,16 +94,15 @@ final class SettingsDiagnosticToasts {
         let toast = CmuxToast(id: Self.toastID, message: message, action: action,
                               duration: style == .untilClosed ? CmuxToast.untilClosed : .seconds(12))
         let handle = CmuxToastCenter.shared.show(toast, in: window)
-        handle.onAction = { [weak services = self.services] in
-            guard let services else { return }
-            do {
-                switch destination {
-                case .row: try services.settingsWindow.show(section: nil, setting: notice.path)
-                case .shortcuts: try services.settingsWindow.show(section: .keyboard)
-                case .file: _ = services.registry.perform("palette.openCmuxSettingsFile", invocation: ActionInvocation(origin: .user))
-                }
-            } catch {
-                services.registry.refuse(String(describing: error))
+        handle.onAction = { [weak registry = self.registry] in
+            guard let registry else { return }
+            switch destination {
+            case .row:
+                _ = registry.perform("openSettings", invocation: ActionInvocation(arguments: ["setting": .string(notice.path)], origin: .user))
+            case .shortcuts:
+                _ = registry.perform("openSettings", invocation: ActionInvocation(arguments: ["section": .string("keyboard")], origin: .user))
+            case .file:
+                _ = registry.perform("palette.openCmuxSettingsFile", invocation: ActionInvocation(origin: .user))
             }
         }
         return handle
@@ -135,7 +129,7 @@ nonisolated enum SettingsDiagnosticToastStyle: String, Sendable, CaseIterable, T
 
 enum SettingsDiagnosticStrings {
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "SettingsDiagnostics", bundle: .module)
+        String(localized: key, defaultValue: value, bundle: .module)
     }
 
     private static func format(_ key: StaticString, _ value: String.LocalizationValue, _ arguments: any CVarArg...) -> String {
