@@ -447,11 +447,17 @@ export function ComposerQueue({
         }}
         onPointerDown={(event) => {
           pressing.current = true;
-          // Released anywhere, over the list or not.
-          const done = () => (pressing.current = false);
+          // Released anywhere, over the list or not; a press that ends outside the page (a
+          // native menu, the window losing focus) or before a key ends there too.
           const page = event.currentTarget.ownerDocument;
-          page.addEventListener("pointerup", done, { once: true, capture: true });
-          page.addEventListener("pointercancel", done, { once: true, capture: true });
+          const ended = new AbortController();
+          const done = () => {
+            pressing.current = false;
+            ended.abort();
+          };
+          const options = { capture: true, signal: ended.signal };
+          for (const type of ["pointerup", "pointercancel", "keydown"]) page.addEventListener(type, done, options);
+          page.defaultView?.addEventListener("blur", done, options);
         }}
         aria-label={`${t("composer.queue")} (${shown.length})`}
       >
