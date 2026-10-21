@@ -17,7 +17,7 @@
 .acpmux-shell,.ui-positioner{--acpmux-base:var(--agent-accent-text,Canvas);--acpmux-composer-bg:color-mix(in srgb,var(--agent-text) 13%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-composer-edge:color-mix(in srgb,var(--agent-text) 18%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-composer-placeholder:color-mix(in srgb,var(--agent-text) 34%,var(--acpmux-base));--acpmux-composer-dim:color-mix(in srgb,var(--agent-text) 56%,var(--acpmux-base));--acpmux-menu-bg:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));--acpmux-menu-hover:color-mix(in srgb,var(--agent-text) 14%,var(--acpmux-base));--acpmux-composer-hover:color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-pill-fill:color-mix(in srgb,var(--agent-text) 6%,transparent);--acpmux-pill-hover:color-mix(in srgb,var(--agent-text) 11%,transparent);--acpmux-pill-open:color-mix(in srgb,var(--agent-text) 16%,transparent);--acpmux-pill-press:color-mix(in srgb,var(--agent-text) 22%,transparent);--acpmux-pill-edge:color-mix(in srgb,var(--agent-text) 24%,transparent);--acpmux-composer-tray:color-mix(in srgb,var(--agent-text) 9%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-warning:var(--agent-warning,var(--agent-danger));--acpmux-send-off-bg:color-mix(in srgb,var(--agent-text) 18%,transparent);--acpmux-send-off-fg:color-mix(in srgb,var(--agent-text) 60%,transparent);--acpmux-send-fill:var(--agent-text);--acpmux-send-ink:var(--acpmux-composer-solid,var(--cmux-surface-solid,Canvas))}
 /* The shared popup surface (ui/popupSurface.css) takes the pane's ink; every popup, nested submenus included, is the solid popup surface (--surface-popup, the host's --cmux-popup-surface, else the pane's menu color). */
 .acpmux-shell,.ui-positioner{--surface-popup:var(--cmux-popup-surface,var(--acpmux-menu-bg))}
-.ui-positioner{--ui-popup-fg:var(--agent-text)}
+.ui-positioner{--ui-popup-fg:var(--agent-text);--ui-row:var(--acpmux-menu-hover)}
 /* One elevation for every menu and popover in the pane (Leo 10-13, coherence pass): the shared popup shadow (ui/popupSurface.css), whose own hairline is the only edge, and no border of their own. A second composer-edge hairline here drew two edges (test/popup-one-hairline.test.ts). A Base UI popup with no surface class of its own still gets it. */
 :root{--acpmux-popup-elevation:var(--ui-popup-shadow)}
 :where(.ui-positioner)>.ui-popup{border-radius:var(--ui-popup-radius);box-shadow:var(--acpmux-popup-elevation)}
@@ -299,6 +299,8 @@
    either theme; the kind dot stays. */
 .acpmux-project-badge[data-project-icon]{background:color-mix(in srgb,var(--agent-text) 7%,transparent)}
 .acpmux-project-badge>img{display:block;width:16px;height:16px;border-radius:3px;object-fit:contain}
+/* A language's or framework's glyph (ProjectBadge.tsx) in its own color on its tinted tile. */
+.acpmux-project-badge[data-project-glyph]>svg{display:block}
 .acpmux-project-check{display:inline-flex;align-items:center;justify-content:center;flex:none;width:16px;min-height:16px;margin-left:auto;color:var(--agent-text);font-size:13px}
 .acpmux-project-menu .acpmux-menu-description{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-project-menu .acpmux-menu-description::before{content:attr(data-path)}

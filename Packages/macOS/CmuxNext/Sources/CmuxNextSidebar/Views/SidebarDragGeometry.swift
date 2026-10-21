@@ -177,6 +177,27 @@ public nonisolated struct SidebarDragGeometry: Sendable {
         }
     }
 
+    /// The base y a dragged list card's drop is hit-tested at, from the card's
+    /// `top` and `bottom` (display coordinates, the gap open at `gapY`); nil
+    /// keeps `current`.
+    ///
+    /// The midpoint rule (Lawrence 2026-10-20): moving up, the card's top
+    /// decides, so it goes before the row above as soon as its top passes
+    /// that row's middle; moving down, its bottom decides, so it goes after
+    /// the row below as soon as its bottom passes that row's middle. Rows of
+    /// any height, a group's members and listed items take the same rule.
+    /// A drag that turns back (`reversing`: the last change came the other
+    /// way) must pass the middle by `SidebarGroupReorder.hysteresis(for:)`
+    /// of the row it crosses before the drop changes, so a pointer held at
+    /// the threshold never flips the rows.
+    public func edgeY(top: CGFloat, bottom: CGFloat, x: CGFloat, movingUp: Bool, gapY: CGFloat?, gapHeight: CGFloat,
+                      current: SidebarDocTarget?, reversing: Bool) -> CGFloat? {
+        let y = Self.baseY(displayY: movingUp ? top : bottom, gapY: gapY, gapHeight: gapHeight)
+        guard reversing, let current, let candidate = hit(CGPoint(x: x, y: y)), candidate.target != current else { return y }
+        let margin = SidebarGroupReorder.hysteresis(for: candidate.slot.frame.height)
+        return hit(CGPoint(x: x, y: movingUp ? y + margin : y - margin))?.target == candidate.target ? y : nil
+    }
+
     /// The display y of `y` in a layout drawn without the open gap
     /// (`gapY`, `gapHeight`): rows below the gap were pushed down by it.
     public static func baseY(displayY y: CGFloat, gapY: CGFloat?, gapHeight: CGFloat) -> CGFloat {

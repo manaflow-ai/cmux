@@ -463,9 +463,30 @@ input[type="submit"] {
    infinite` inside `prefers-reduced-motion: no-preference`, never their own keyframes. */
 :root {
   --cmux-spinner-period: 900ms;
+  --cmux-breath-period: 2.4s;
 }
 @keyframes cmux-spin {
   to {
     transform: rotate(360deg);
+  }
+}
+/* WORKING-LOOK: agent work's calm mark, a dot that breathes (opacity only), one breath per
+   `--cmux-breath-period`, on the same shared clock, so many working rows breathe as one. */
+@keyframes cmux-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+/* WORKING-LOOK "shimmer": a light band crosses the words of a working row, once per breath. */
+@keyframes cmux-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -50% 0;
   }
 }

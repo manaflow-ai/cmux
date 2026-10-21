@@ -1,24 +1,36 @@
 // l10n-allow-file: gallery fixtures (model names, a prompt and a reply), not shipped UI.
-// Retry's model menu in a prompt's action row (MessageActions.tsx RetryModelMenu): Claude Code's list as a chat
-// reports it, releases and its own aliases mixed (Lawrence 2026-10-20: a raw list, the check
-// against the name, one model twice), drawn as the pane's native-look menu in two sections.
+// Retry's model menu in a prompt's action row (RetryModelMenu.tsx): Claude Code's list as a chat reports it,
+// releases, its own aliases and older versions mixed, the aliases' releases twice (Leo 2026-10-20:
+// Opus 5.5, Sonnet 5.5 and Haiku 5.5 each twice, a stale tail of old models, the bare system font),
+// drawn as the composer's model menu: the top models, then older ones under More models.
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
+import { topModelsFor } from "../topModels";
 
-/** What Claude Code's chat lists: the catalog's releases, its aliases and a pinned 1M variant. */
+/** What Claude Code's chat lists (the list in Leo's screenshot): its aliases named as the releases
+ *  they run, its 1M and plan modes, then every release, the aliases' ones again. */
 const claudeModels = [
-  { id: "claude-opus-5-5", name: "Claude Opus 5.5" },
-  { id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5" },
-  { id: "claude-haiku-4-5", name: "Claude Haiku 4.5" },
-  { id: "opus", name: "Opus" },
+  { id: "opus", name: "Opus 5.5", release: "claude-opus-5-5" },
+  { id: "claude-fable-5-1[1m]", name: "Fable 5.1 · 1M context" },
+  { id: "sonnet", name: "Sonnet 5.5", release: "claude-sonnet-5-5" },
+  { id: "haiku", name: "Haiku 5.5", release: "claude-haiku-5-5" },
   { id: "opus[1m]", name: "Opus · 1M context" },
   { id: "opusplan", name: "Opus plan · Sonnet execute" },
-  { id: "sonnet", name: "Sonnet" },
-  { id: "haiku", name: "Haiku" },
-  // An alias the harness named as the release it runs (modelCatalogData.ts foldAliases).
-  { id: "fable", name: "Fable 5.1", release: "claude-fable-5-1" },
+  { id: "sonnet[1m]", name: "Sonnet · 1M context" },
   { id: "claude-fable-5-1", name: "Fable 5.1" },
-  { id: "claude-fable-5-1[1m]", name: "Fable 5.1 · 1M context" },
+  { id: "claude-fable-5", name: "Fable 5" },
+  { id: "claude-opus-5-5", name: "Opus 5.5" },
+  { id: "claude-opus-5", name: "Opus 5" },
+  { id: "claude-opus-4-8", name: "Opus 4.8" },
+  { id: "claude-opus-4-7", name: "Opus 4.7" },
+  { id: "claude-opus-4-6", name: "Opus 4.6" },
+  { id: "claude-opus-4-5", name: "Opus 4.5" },
+  { id: "claude-sonnet-5-5", name: "Sonnet 5.5" },
+  { id: "claude-sonnet-5", name: "Sonnet 5" },
+  { id: "claude-sonnet-4-6", name: "Sonnet 4.6" },
+  { id: "claude-sonnet-4-5", name: "Sonnet 4.5" },
+  { id: "claude-haiku-5-5", name: "Haiku 5.5" },
+  { id: "claude-haiku-4-5", name: "Haiku 4.5" },
 ];
 
 const open: Play = async (ctx) => {
@@ -43,13 +55,19 @@ export default componentEntry<Record<string, never>>({
   height: 460,
   widths: { narrow: 320, normal: 420, wide: 560 },
   anchors: [{ selector: ".cv-turn-retry-menu" }],
-  covers: ["agent-session/acpmux/conversation/MessageActions.tsx#RetryModelMenu"],
+  covers: ["agent-session/acpmux/conversation/RetryModelMenu.tsx"],
   load: async () => {
     const { UserBubble } = await import("./UserBubble");
     const { TurnActionsContext } = await import("./turnActions");
     const actions = {
       retry: () => {},
-      retryWith: { models: claudeModels, current: "claude-opus-5-5", retry: () => {} },
+      retryWith: {
+        models: claudeModels,
+        current: "claude-opus-5-5",
+        harness: "Claude Code",
+        top: topModelsFor("claude"),
+        retry: () => {},
+      },
     };
     return function GalleryRetryModelMenu() {
       return (
@@ -62,11 +80,11 @@ export default componentEntry<Record<string, never>>({
       );
     };
   },
-  styles: () => Promise.all([import("../styles.css"), import("./conversation.css"), import("../composerControls.css")]),
+  styles: () => Promise.all([import("../styles.css"), import("./conversation.css"), import("../modelPicker.css")]),
   variants: {
     closed: { props: {} },
     open: {
-      note: "Models, then Aliases & modes; the current model checked in the trailing column.",
+      note: "The top models, the current one checked at the trailing edge, then More models.",
       props: {},
       play: open,
     },
