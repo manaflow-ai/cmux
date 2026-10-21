@@ -10,17 +10,18 @@ import CmuxNextSidebar
 /// session, else the owning daemon's order. Either survives a relaunch and
 /// shows in every window.
 ///
-/// The rule: `top` is the first slot of the group the window's current
-/// workspace is in (Cmd-N in a group makes the group's newest workspace,
-/// cx-de23); else the first slot of the workspace's machine section, which
-/// lists no pinned workspace (they show in the Pinned section above), above
-/// every group, and right below the home workspace's row when the list shows
-/// it. `afterCurrent` is right after the workspace the window showed
-/// when the new one was asked for, inside its group when it has one; `top`
-/// when that workspace is not in the section (pinned, Home, another machine,
-/// none). `bottom` is the last slot of the current workspace's group; outside a
-/// group it leaves the daemon's place, the end of the loose rows. So a new
-/// workspace opened from inside a group stays in it under every value (cx-caoh).
+/// The rule: `top` is the first slot of the workspace's machine section, out
+/// of any group, even when the window's current workspace is in one (Cmd-N
+/// puts the new workspace at the very top; New Workspace in Group is the way
+/// to add one to a group). That section lists no pinned workspace (they show
+/// in the Pinned section above); the slot is above every group, and right
+/// below the home workspace's row when the list shows it. `afterCurrent` is
+/// right after the workspace the window showed when the new one was asked
+/// for, inside its group when it has one; `top` when that workspace is not in
+/// the section (pinned, Home, another machine, none). `bottom` is the last slot
+/// of the current workspace's group; outside a group it leaves the daemon's
+/// place, the end of the loose rows. So only `afterCurrent` and `bottom` keep
+/// a workspace opened from inside a group in it (cx-caoh).
 struct NewWorkspaceDefaultSlot: Hashable, Sendable {
     var placement: NewWorkspacePlacement
     /// The workspace the window showed when the new one was asked for.
@@ -43,10 +44,6 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
             }
             return Self.top(for: id, section: section, in: sections, home: home)
         case .top:
-            if let current, current != id, current != home,
-               WorkspaceSlot.top(anchor: current).position(moving: [id], section: section, in: sections)?.group != nil {
-                return .top(anchor: current)
-            }
             return Self.top(for: id, section: section, in: sections, home: home)
         }
     }

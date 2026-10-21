@@ -46,7 +46,7 @@ enum AgentTeamsLaunch: CaseIterable {
         let line = shellLine
         let logger = context.daemon.logger
         guard let pane = scope.pane else {
-            // No pane to open a tab in: a new workspace, placed like Cmd-N (cx-caoh).
+            // No pane to open a tab in: a new workspace, placed like Cmd-N.
             let key = WorkspaceKey.generate()
             let windows = context.services.windows
             NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: NewWorkspacePlacements.rule(for: nil, in: windows), windows: windows)

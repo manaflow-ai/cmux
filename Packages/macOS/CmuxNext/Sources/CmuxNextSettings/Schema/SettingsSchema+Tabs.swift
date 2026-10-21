@@ -74,7 +74,7 @@ nonisolated enum TabSettingsSchema {
             SwapCmdTAndCmdNSetting.configPath, section: .general, group: group,
             title: SettingsText.keyed("settings.tabs.swapCmdTAndCmdN", "Swap Cmd-T and Cmd-N"),
             help: SettingsText.keyed("settings.tabs.swapCmdTAndCmdN.help",
-                                     "When on, Cmd-T opens a workspace in the current group and Cmd-N opens a tab. When off, Cmd-T opens a tab, or a workspace when an agent chat or a pane without tabs is focused."),
+                                     "When on, Cmd-T opens a workspace and Cmd-N opens a tab. When off, Cmd-T opens a tab, or a workspace when an agent chat or a pane without tabs is focused."),
             kind: .toggle,
             default: .bool(SwapCmdTAndCmdNSetting.fallback),
             keywords: ["cmd-t", "cmd-n", "swap", "new tab", "new workspace", "shortcut", "keyboard"]

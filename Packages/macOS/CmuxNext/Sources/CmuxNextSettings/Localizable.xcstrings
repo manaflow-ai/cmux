@@ -76857,127 +76857,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "When on, Cmd-T opens a workspace in the current group and Cmd-N opens a tab. When off, Cmd-T opens a tab, or a workspace when an agent chat or a pane without tabs is focused."
+            "value": "When on, Cmd-T opens a workspace and Cmd-N opens a tab. When off, Cmd-T opens a tab, or a workspace when an agent chat or a pane without tabs is focused."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "عند التشغيل، يفتح Cmd-T مساحة عمل في المجموعة الحالية ويفتح Cmd-N علامة تبويب. عند الإيقاف، يفتح Cmd-T علامة تبويب، أو مساحة عمل عندما تكون محادثة وكيل أو جزء بلا علامات تبويب في التركيز."
+            "value": "عند التشغيل، يفتح Cmd-T مساحة عمل ويفتح Cmd-N علامة تبويب. عند الإيقاف، يفتح Cmd-T علامة تبويب، أو مساحة عمل عندما تكون محادثة وكيل أو جزء بلا علامات تبويب في التركيز."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kada je uključeno, Cmd-T otvara radni prostor u trenutnoj grupi, a Cmd-N otvara karticu. Kada je isključeno, Cmd-T otvara karticu, ili radni prostor kada je fokusiran chat agenta ili okno bez kartica."
+            "value": "Kada je uključeno, Cmd-T otvara radni prostor, a Cmd-N otvara karticu. Kada je isključeno, Cmd-T otvara karticu, ili radni prostor kada je fokusiran chat agenta ili okno bez kartica."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Når den er slået til, åbner Cmd-T et arbejdsområde i den aktuelle gruppe, og Cmd-N åbner en fane. Når den er slået fra, åbner Cmd-T en fane, eller et arbejdsområde når en agentchat eller en rude uden faner har fokus."
+            "value": "Når den er slået til, åbner Cmd-T et arbejdsområde, og Cmd-N åbner en fane. Når den er slået fra, åbner Cmd-T en fane, eller et arbejdsområde når en agentchat eller en rude uden faner har fokus."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wenn aktiviert, öffnet Cmd-T einen Arbeitsbereich in der aktuellen Gruppe und Cmd-N einen Tab. Wenn deaktiviert, öffnet Cmd-T einen Tab oder einen Arbeitsbereich, wenn ein Agent-Chat oder ein Bereich ohne Tabs fokussiert ist."
+            "value": "Wenn aktiviert, öffnet Cmd-T einen Arbeitsbereich und Cmd-N einen Tab. Wenn deaktiviert, öffnet Cmd-T einen Tab oder einen Arbeitsbereich, wenn ein Agent-Chat oder ein Bereich ohne Tabs fokussiert ist."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Si está activado, Cmd-T abre un espacio de trabajo en el grupo actual y Cmd-N abre una pestaña. Si está desactivado, Cmd-T abre una pestaña, o un espacio de trabajo cuando el foco está en un chat de agente o en un panel sin pestañas."
+            "value": "Si está activado, Cmd-T abre un espacio de trabajo y Cmd-N abre una pestaña. Si está desactivado, Cmd-T abre una pestaña, o un espacio de trabajo cuando el foco está en un chat de agente o en un panel sin pestañas."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Activé, Cmd-T ouvre un espace de travail dans le groupe actuel et Cmd-N ouvre un onglet. Désactivé, Cmd-T ouvre un onglet, ou un espace de travail quand une discussion d’agent ou un volet sans onglets a le focus."
+            "value": "Activé, Cmd-T ouvre un espace de travail et Cmd-N ouvre un onglet. Désactivé, Cmd-T ouvre un onglet, ou un espace de travail quand une discussion d’agent ou un volet sans onglets a le focus."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se attivo, Cmd-T apre uno spazio di lavoro nel gruppo corrente e Cmd-N apre una scheda. Se disattivo, Cmd-T apre una scheda, o uno spazio di lavoro quando è attiva una chat dell’agente o un riquadro senza schede."
+            "value": "Se attivo, Cmd-T apre uno spazio di lavoro e Cmd-N apre una scheda. Se disattivo, Cmd-T apre una scheda, o uno spazio di lavoro quando è attiva una chat dell’agente o un riquadro senza schede."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "オンのとき、Cmd-T は現在のグループにワークスペースを開き、Cmd-N はタブを開きます。オフのとき、Cmd-T はタブを開きます。エージェントチャットやタブのないペインにフォーカスがあるときはワークスペースを開きます。"
+            "value": "オンのとき、Cmd-T はワークスペースを開き、Cmd-N はタブを開きます。オフのとき、Cmd-T はタブを開きます。エージェントチャットやタブのないペインにフォーカスがあるときはワークスペースを開きます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ពេលបើក Cmd-T បើកកន្លែងធ្វើការក្នុងក្រុមបច្ចុប្បន្ន ហើយ Cmd-N បើកផ្ទាំង។ ពេលបិទ Cmd-T បើកផ្ទាំង ឬកន្លែងធ្វើការ ពេលការជជែកភ្នាក់ងារ ឬផ្ទាំងរងដែលគ្មានផ្ទាំងត្រូវបានផ្ដោត។"
+            "value": "ពេលបើក Cmd-T បើកកន្លែងធ្វើការ ហើយ Cmd-N បើកផ្ទាំង។ ពេលបិទ Cmd-T បើកផ្ទាំង ឬកន្លែងធ្វើការ ពេលការជជែកភ្នាក់ងារ ឬផ្ទាំងរងដែលគ្មានផ្ទាំងត្រូវបានផ្ដោត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "켜면 Cmd-T는 현재 그룹에 작업 공간을 열고 Cmd-N은 탭을 엽니다. 끄면 Cmd-T는 탭을 열고, 에이전트 채팅이나 탭이 없는 패널에 포커스가 있으면 작업 공간을 엽니다."
+            "value": "켜면 Cmd-T는 작업 공간을 열고 Cmd-N은 탭을 엽니다. 끄면 Cmd-T는 탭을 열고, 에이전트 채팅이나 탭이 없는 패널에 포커스가 있으면 작업 공간을 엽니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Når den er på, åpner Cmd-T et arbeidsområde i gjeldende gruppe og Cmd-N en fane. Når den er av, åpner Cmd-T en fane, eller et arbeidsområde når en agentchat eller en rute uten faner har fokus."
+            "value": "Når den er på, åpner Cmd-T et arbeidsområde og Cmd-N en fane. Når den er av, åpner Cmd-T en fane, eller et arbeidsområde når en agentchat eller en rute uten faner har fokus."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gdy włączone, Cmd-T otwiera obszar roboczy w bieżącej grupie, a Cmd-N otwiera kartę. Gdy wyłączone, Cmd-T otwiera kartę albo obszar roboczy, gdy aktywny jest czat agenta lub panel bez kart."
+            "value": "Gdy włączone, Cmd-T otwiera obszar roboczy, a Cmd-N otwiera kartę. Gdy wyłączone, Cmd-T otwiera kartę albo obszar roboczy, gdy aktywny jest czat agenta lub panel bez kart."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quando ativado, Cmd-T abre um espaço de trabalho no grupo atual e Cmd-N abre uma aba. Quando desativado, Cmd-T abre uma aba, ou um espaço de trabalho quando um chat de agente ou um painel sem abas está em foco."
+            "value": "Quando ativado, Cmd-T abre um espaço de trabalho e Cmd-N abre uma aba. Quando desativado, Cmd-T abre uma aba, ou um espaço de trabalho quando um chat de agente ou um painel sem abas está em foco."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Если включено, Cmd-T открывает рабочую область в текущей группе, а Cmd-N — вкладку. Если выключено, Cmd-T открывает вкладку, а когда в фокусе чат агента или панель без вкладок — рабочую область."
+            "value": "Если включено, Cmd-T открывает рабочую область, а Cmd-N — вкладку. Если выключено, Cmd-T открывает вкладку, а когда в фокусе чат агента или панель без вкладок — рабочую область."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เมื่อเปิด Cmd-T จะเปิดพื้นที่ทำงานในกลุ่มปัจจุบัน และ Cmd-N จะเปิดแท็บ เมื่อปิด Cmd-T จะเปิดแท็บ หรือพื้นที่ทำงานเมื่อโฟกัสอยู่ที่แชทเอเจนต์หรือแผงที่ไม่มีแท็บ"
+            "value": "เมื่อเปิด Cmd-T จะเปิดพื้นที่ทำงาน และ Cmd-N จะเปิดแท็บ เมื่อปิด Cmd-T จะเปิดแท็บ หรือพื้นที่ทำงานเมื่อโฟกัสอยู่ที่แชทเอเจนต์หรือแผงที่ไม่มีแท็บ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Açıkken Cmd-T geçerli grupta bir çalışma alanı, Cmd-N bir sekme açar. Kapalıyken Cmd-T bir sekme açar; bir ajan sohbeti veya sekmesiz bir bölme odaktayken bir çalışma alanı açar."
+            "value": "Açıkken Cmd-T bir çalışma alanı, Cmd-N bir sekme açar. Kapalıyken Cmd-T bir sekme açar; bir ajan sohbeti veya sekmesiz bir bölme odaktayken bir çalışma alanı açar."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Якщо ввімкнено, Cmd-T відкриває робочий простір у поточній групі, а Cmd-N — вкладку. Якщо вимкнено, Cmd-T відкриває вкладку, а коли у фокусі чат агента чи панель без вкладок — робочий простір."
+            "value": "Якщо ввімкнено, Cmd-T відкриває робочий простір, а Cmd-N — вкладку. Якщо вимкнено, Cmd-T відкриває вкладку, а коли у фокусі чат агента чи панель без вкладок — робочий простір."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Khi bật, Cmd-T mở một không gian làm việc trong nhóm hiện tại và Cmd-N mở một tab. Khi tắt, Cmd-T mở một tab, hoặc một không gian làm việc khi đang chọn cuộc trò chuyện tác tử hoặc ngăn không có tab."
+            "value": "Khi bật, Cmd-T mở một không gian làm việc và Cmd-N mở một tab. Khi tắt, Cmd-T mở một tab, hoặc một không gian làm việc khi đang chọn cuộc trò chuyện tác tử hoặc ngăn không có tab."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "开启时，Cmd-T 在当前分组中打开工作区，Cmd-N 打开标签页。关闭时，Cmd-T 打开标签页；聚焦智能体聊天或没有标签页的窗格时则打开工作区。"
+            "value": "开启时，Cmd-T 打开工作区，Cmd-N 打开标签页。关闭时，Cmd-T 打开标签页；聚焦智能体聊天或没有标签页的窗格时则打开工作区。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "開啟時，Cmd-T 會在目前群組中開啟工作區，Cmd-N 會開啟分頁。關閉時，Cmd-T 會開啟分頁；聚焦於代理程式聊天或沒有分頁的窗格時則開啟工作區。"
+            "value": "開啟時，Cmd-T 會開啟工作區，Cmd-N 會開啟分頁。關閉時，Cmd-T 會開啟分頁；聚焦於代理程式聊天或沒有分頁的窗格時則開啟工作區。"
           }
         }
       }

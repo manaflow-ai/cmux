@@ -50,9 +50,8 @@ enum AgentSessionWorkspace {
             throw ActionFailure(message: MiscHandlerStrings.daemonOffline)
         }
         let logger = daemon.logger
-        // Placed like Cmd-N (`workspaces.newPlacement`): in the group of the
-        // workspace the window shows, when it is in one (cx-caoh). A caller's
-        // key that names a listed workspace leaves that workspace where it is.
+        // Placed like Cmd-N (`workspaces.newPlacement`). A caller's key that
+        // names a listed workspace leaves that workspace where it is.
         let windows = services.windows
         if services.machines.workspace(id: key.rawValue) == nil {
             NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: NewWorkspacePlacements.rule(for: nil, in: windows), windows: windows)

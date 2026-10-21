@@ -150,7 +150,7 @@ Which of Cmd-T and Cmd-N opens a tab and which opens a workspace.
 ```
 
 - `false` (default): Cmd-T opens a tab in the focused pane. Cmd-N opens a workspace.
-- `true`: Cmd-T always opens a workspace in the current group and Cmd-N always opens a tab.
+- `true`: Cmd-T always opens a workspace and Cmd-N always opens a tab.
 
 Both open the New Tab page. The strip's + button always opens a tab. A key you bind yourself in `shortcuts.bindings` for `newTab` or `newTab.default` wins over the swap. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.swapCmdTAndCmdN true`.
 
@@ -340,11 +340,11 @@ Where a new workspace goes in the sidebar when you do not pick a place: Cmd-N, N
 }
 ```
 
-- `"top"` (default): first in the group of the workspace the window shows. When that workspace is not in a group, first in the workspace list, above every group. Pinned workspaces stay above it in the Pinned section, and it goes below the Home row when the list shows one.
+- `"top"` (default): first in the workspace list, above every group, also when the workspace the window shows is in a group. To add a workspace to a group, use New Workspace in Group. Pinned workspaces stay above it in the Pinned section, and it goes below the Home row when the list shows one.
 - `"afterCurrent"`: right after the workspace the window shows, inside that workspace's group when it has one. When that workspace is pinned, is Home, or is on another machine, the new one goes to the top.
 - `"bottom"`: last in the group of the workspace the window shows. When that workspace is not in a group, after the last workspace that is not in a group.
 
-So under every value, a new workspace opened while you are in a group stays in that group.
+So under `"afterCurrent"` and `"bottom"`, a new workspace opened while you are in a group stays in that group.
 
 A place you pick always wins: a tab dropped on a gap in the sidebar, New Workspace Above, Below, at Top or at Bottom, and New Workspace Like This. A reopened workspace (Reopen Closed Workspace) comes back where it was. The position is written to the sidebar order cmux keeps for you, so it survives a relaunch and shows the same in every window. Change it in **Settings > General > Sidebar** or with `cmux settings set workspaces.newPlacement afterCurrent`.
 

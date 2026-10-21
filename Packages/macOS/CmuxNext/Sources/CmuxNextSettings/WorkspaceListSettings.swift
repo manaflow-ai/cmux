@@ -4,9 +4,8 @@ public import CmuxNextDesign
 /// sidebar when its entry point names no place (Cmd-N, the palette, the
 /// sidebar's +, `cmux workspace new`, Home, a tab moved to a new workspace,
 /// a link or an agent opening one).
-/// `top` (the default): first in the group of the workspace the window shows;
-/// outside a group, first in the workspace list, below the Pinned section and
-/// the Home row, above every group. `afterCurrent`: right after the
+/// `top` (the default): first in the workspace list, out of any group, below
+/// the Pinned section and the Home row, above every group. `afterCurrent`: right after the
 /// workspace the window shows, inside its group when it has one (top when that
 /// workspace is pinned, Home, or on another machine). `bottom`: last in the
 /// group of the workspace the window shows; outside a group, after the last

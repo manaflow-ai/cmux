@@ -256,7 +256,7 @@ enum AgentHandlers {
         let line = command + "\n"
         let logger = context.daemon.logger
         let repair = context.services.emptyWorkspaces
-        // A fork into a new workspace is placed like Cmd-N: in the current group (cx-caoh).
+        // A fork into a new workspace is placed like Cmd-N (`workspaces.newPlacement`).
         let key = WorkspaceKey.generate()
         if placement == .newWorkspace {
             let windows = context.services.windows
