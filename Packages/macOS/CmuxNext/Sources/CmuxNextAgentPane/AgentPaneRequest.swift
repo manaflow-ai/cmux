@@ -59,6 +59,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case setNewTabTemplate(String)
     /// The New Tab page player's control (`nowPlaying.command {command, seconds}`).
     case nowPlaying(AgentPaneNowPlaying.Command)
+    /// An import card's button on the New Tab page (`importCards.act {id, action}`).
+    case importCard(AgentPaneImportCards.Act)
     /// The new tab page got its first user input (`newTab.touched`); a
     /// touched page is never recycled into the prewarm pool.
     case touched
@@ -104,6 +106,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case openChat(String)
     /// `chats.openInTerminal {key}`: Open in Terminal from an All chats row's right-click menu.
     case openChatInTerminal(String)
+    /// `chats.watch {key}`: View Only from an All chats row's right-click menu.
+    case watchChat(String)
     /// `chats.page {query?, cursor?, limit?}`: one page of the New Tab page's All chats list.
     case chatsPage(AgentPaneChatsQuery)
     /// `environment.list|save|remove`: the New Tab page's saved environments (``AgentPaneEnvironmentRequest``).
@@ -131,8 +135,13 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case tabRowTools(width: Double)
     /// New side chat: open the fork `sessionId` the page just made beside this chat.
     case sideChat(String)
-    /// A chat this one made (a fork, a Continue in…), opened in a tab of its own.
-    case chatTab(String)
+    /// A chat this one made (a fork, a Continue In…), opened at a destination of its own: a tab,
+    /// a split, a new workspace or a new window (`placement`; none is a tab).
+    case chatTab(String, AgentForkDestination)
+    /// `chat.offer.open {sessionId}`: the person opened a session the chat shows (a sub-session its
+    /// agent started, the session that started it): its tab, else one beside this chat, focused
+    /// (``AgentPaneOfferOpen``).
+    case offerOpen(String)
     /// `chat.subagentPane {subagent, focus}`: this chat's subagent in an agent pane of its own,
     /// right of the chat (``AgentSubagentPanes``); `focus` moves keyboard focus to it.
     case subagentPane(String, focus: Bool)
@@ -145,8 +154,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// native palette actions can stay capability-gated with the pane.
     case checkpointAvailability(Bool)
     /// `pane.painted`: the document drew its first frame after the handshake
-    /// (once per document).
-    case painted
+    /// (once per document). `fromKeptTail` is the page's own account of what it
+    /// drew there: a chat it took from a kept tail (tailCache.ts), which is
+    /// already on screen in that frame, or a chat read cold, which the pane's
+    /// loading state fades in. An older page says nothing, which means cold.
+    case painted(fromKeptTail: Bool)
     /// The composer's mic: `dictation.toggle`, `.start`, `.stop`, `.cancel`,
     /// `dictation.openSettings` with `{permission}`, or `dictation.audio` with `{enabled}`.
     case dictation(AgentPaneDictationCommand)

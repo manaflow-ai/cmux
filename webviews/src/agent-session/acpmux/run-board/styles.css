@@ -52,7 +52,7 @@
 .run-board-attach { display: flex; gap: 16px; padding: 6px 0 6px 12px; border: 0; background: transparent; font-size: var(--text-caption); }
 .run-board-attach-status { display: block; margin: 8px 0 0; }
 .run-board-workspace-content { display: grid; grid-template-columns: minmax(0, 1fr) 242px; min-height: 344px; }
-.run-board-preview { margin: 22px; min-width: 0; align-self: center; border: 1px solid var(--page-separator); border-radius: 6px; background: var(--cmux-surface-background, Canvas); overflow: hidden; }
+.run-board-preview { margin: 22px; min-width: 0; align-self: center; border: 1px solid var(--page-separator); border-radius: 6px; background: var(--cmux-surface-solid, Canvas); overflow: hidden; }
 .run-board-preview-bar { display: flex; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--page-separator); font-size: var(--text-caption); color: var(--page-text-2); }
 .run-board-preview-bar > span:first-child { color: var(--page-text); font-weight: 600; }
 .run-board-preview-body { display: flex; min-height: 237px; }
@@ -100,7 +100,7 @@
 .run-board-approval p { margin: 5px 0 0; font-size: var(--text-caption); color: var(--page-text-3); }
 .run-board-approval label { display: flex; align-items: center; gap: 7px; font-size: var(--text-caption); color: var(--page-text-2); }
 .run-board-approval input { margin: 0; }
-.run-board-approval > button { padding: 8px 12px; background: var(--page-text); color: var(--cmux-surface-background, Canvas); border: 0; border-radius: 5px; font-size: var(--text-caption); font-weight: 500; }
+.run-board-approval > button { padding: 8px 12px; background: var(--page-text); color: var(--cmux-surface-solid, Canvas); border: 0; border-radius: 5px; font-size: var(--text-caption); font-weight: 500; }
 .run-board-footnote { display: flex; justify-content: space-between; gap: 16px; margin-top: 14px; color: var(--page-text-3); font-size: var(--text-caption); }
 .run-board-reconnect { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 12px 14px; margin-bottom: 16px; border: 1px solid var(--page-separator); border-radius: 6px; background: var(--page-hover); }
 .run-board-reconnect > div { display: flex; flex-direction: column; gap: 5px; }

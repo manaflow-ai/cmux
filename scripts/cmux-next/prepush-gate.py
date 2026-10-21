@@ -14,9 +14,10 @@ Layers (each one only on files the push changes under Packages/macOS/CmuxNext, c
   scanners     the CI job's line scanners: concurrency, crash safety, dialog key hints, type scale,
                motion, scrollbars, state roots, process scan, Swift CLI, closed history, test
                notification centers, string tables, module resources, capability text, browser
-               chrome icons, App Store review rules (also on cmux-next-ios/ changes)
+               chrome icons, App Store review rules (also on cmux-next-ios/ changes), the perf
+               source guard
   ast-grep     scripts/cmux-next/lint/ast-grep-rules: try!, blocking calls, raw font sizes, system
-               dialogs (tree-sitter, so comments, strings and `case .alert` never match)
+               dialogs, opaque glass (tree-sitter, so comments, strings and `case .alert` never match)
   swiftformat  --lint with scripts/cmux-next/lint/swiftformat.conf
   swiftlint    swift-syntax rules only (scripts/cmux-next/lint/swiftlint.yml), no SourceKit
 Tool versions are pinned in scripts/cmux-next/lint-tools.lock and downloaded once (sha256 checked)
@@ -97,6 +98,8 @@ SCANNERS = (
     ("Browser chrome icons", ["python3", "-I", "{s}/lint-browser-chrome-icons.py"], (PKG + "/",)),
     ("App Store review rules (cmux-next-ios intents, Info.plist)",
      ["python3", "-I", "{s}/check-app-store-rules.py", "--source", "{root}"], ("cmux-next-ios/",)),
+    ("Perf source guard (no window capture or CATransaction.flush)",
+     ["python3", "-I", "{s}/check-perf-source-guard.py", "{root}"], (PKG + "/",)),
 )
 
 # Ghostty's default split keys stay Ghostty's (Lawrence 2026-10-20, after 2f3e1f95983).
@@ -111,12 +114,13 @@ ESCAPES = {
     "no-try-bang": re.compile(r"//\s*crash-allow:\s*\S"),
     "no-main-thread-block": re.compile(r"//\s*concurrency-allow:\s*\S"),
     "no-system-dialog": re.compile(r"dialog-keys-exempt:\s*\S"),
+    "no-opaque-glass": re.compile(r"//\s*glass-opaque-allow:\s*\S"),
 }
 COMMENT_LINE = re.compile(r"^\s*(//|\*|/\*)")
 LOCATION = re.compile(r"(?P<path>[\w.+@/-]+\.(?:swift|rs|ts|tsx|py|sh|json|xcstrings|md)):(?P<line>\d+)(?::\d+)?")
 NUMBER = re.compile(r"\d+")
 # Lines a scanner prints that are not findings: summaries, backlogs and warning-tier annotations.
-INFO = re.compile(r"^(needs_review \(machine translated\)|\d+ tables, \d+ keys|::warning|.*ratchet debt)")
+INFO = re.compile(r"^(needs_review \(machine translated\)|\d+ tables, \d+ keys|::warning|.*ratchet debt|perf source guard: )")
 # A check that crashed instead of judging (both sides crash alike, so the diff alone would hide it).
 BROKEN = re.compile(r"Traceback \(most recent call last\)|No such file or directory|command not found|SyntaxError")
 # The warning tiers CI gives the ratchets (cmux-next.yml, checks job).
@@ -537,8 +541,8 @@ def print_findings(found: list[tuple[str, list[str]]], header: str) -> None:
 HOW_TO_FIX = """\
 Fix them before pushing (AGENTS.md, "Before every push"): background APIs instead of blocking calls,
 typed errors instead of try!, TypeScale/Typography fonts, CmuxDialogSpec / CmuxDialogActionButton for
-dialogs. A reviewed escape comment (`// concurrency-allow: <why>`, `// crash-allow: <why>`,
-`dialog-keys-exempt: <why>`) is allowed only when the code is provably safe.
+dialogs, translucent theme tints on glass. A reviewed escape comment (`// concurrency-allow: <why>`,
+`// crash-allow: <why>`, `dialog-keys-exempt: <why>`, `// glass-opaque-allow: <why>`) is allowed only when the code is provably safe.
 Never --no-verify: CI names every commit that adds a violation (step "Pushed commits add no violations")."""
 
 

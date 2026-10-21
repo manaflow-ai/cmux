@@ -51,8 +51,9 @@ public enum CloudStrings {
     public static var deleteSnapshot: String { String(localized: "cloud.button.deleteSnapshot", defaultValue: "Delete Snapshot", table: "Cloud", bundle: .module) }
     /// The native confirmation of a Cloud machine create (cx-t2rz).
     public static var createConfirmTitle: String { String(localized: "cloud.create.confirm.title", defaultValue: "Create a Cloud machine?", table: "Cloud", bundle: .module) }
-    public static var createConfirmAgent: String {
-        String(localized: "cloud.create.confirm.agent", defaultValue: "An agent or a script asked for a new Cloud machine. The machine counts against your Cloud plan.", table: "Cloud", bundle: .module)
+    /// The sidebar card of an agent's or a script's create (``createConfirmTitle`` above it).
+    public static var createRequestDetail: String {
+        String(localized: "cloud.create.request.detail", defaultValue: "Asked by an agent or a script. It counts against your Cloud plan.", table: "Cloud", bundle: .module)
     }
     public static var createConfirmApproval: String {
         String(localized: "cloud.create.confirm.approval", defaultValue: "The machine counts against your Cloud plan. Click Create to approve it.", table: "Cloud", bundle: .module)
@@ -86,6 +87,11 @@ public enum CloudStrings {
     public static var handoffTitle: String { String(localized: "cloud.result.handoffTitle", defaultValue: "Machine Handoff", table: "Cloud", bundle: .module) }
     public static var noPorts: String { String(localized: "cloud.result.noPorts", defaultValue: "No TCP ports are listening on this machine.", table: "Cloud", bundle: .module) }
     public static var diagnosticsTitle: String { String(localized: "cloud.result.diagnosticsTitle", defaultValue: "Cloud Diagnostics", table: "Cloud", bundle: .module) }
+    public static var copyDetails: String { String(localized: "cloud.button.copyDetails", defaultValue: "Copy details", table: "Cloud", bundle: .module) }
+    /// The Cloud diagnostics summary when nothing needs the person (the account's email).
+    public static func diagnosticsAllWell(_ account: String) -> String {
+        String(format: String(localized: "cloud.result.diagnosticsAllWell", defaultValue: "Signed in as %@. No Cloud problems found.", table: "Cloud", bundle: .module), account)
+    }
     public static var snapshotTitle: String { String(localized: "cloud.result.snapshotTitle", defaultValue: "Snapshot Created", table: "Cloud", bundle: .module) }
     public static var templateTitle: String { String(localized: "cloud.result.templateTitle", defaultValue: "Template Created", table: "Cloud", bundle: .module) }
     public static var failedTitle: String { String(localized: "cloud.result.failedTitle", defaultValue: "Cloud Action Failed", table: "Cloud", bundle: .module) }

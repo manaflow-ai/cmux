@@ -32,19 +32,23 @@ function groupIcon(kind: ToolGroupKind): ReactNode {
 export const GROUP_TAIL = 5;
 
 /// Commands, reads and searches open by default, one row per call, as the Codex and Claude Code
-/// desktop apps list them; edits stay closed, since each opens to its whole diff. The glyph turns
-/// while any call runs.
+/// desktop apps list them; edits stay closed, since each opens to its whole diff. A finished run
+/// that is this one group (`folded`: text followed it) stays closed too, one summary line between
+/// the paragraphs ("Ran 3 commands"), as the Codex app folds finished work. The glyph turns while
+/// any call runs.
 export function ToolGroupRow({
   kind,
   items,
   disclosureKey,
+  folded = false,
 }: {
   kind: ToolGroupKind;
   items: readonly AcpmuxActivity[];
   disclosureKey: string;
+  folded?: boolean;
 }) {
   const t = useT();
-  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, kind !== "edits");
+  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, kind !== "edits" && !folded);
   const [all, setAll] = useTranscriptDisclosure(`${disclosureKey}:all`);
   const fold = useFold(open);
   const hidden = kind === "edits" || all ? 0 : Math.max(0, items.length - GROUP_TAIL);
@@ -58,10 +62,13 @@ export function ToolGroupRow({
   const detailsId = useId();
   const tools = useMemo(() => items.map((item) => item.tool!), [items]);
   const files = useMemo(() => (kind === "edits" ? toolFiles(tools) : []), [kind, tools]);
+  // The line's totals leave out a file a Write rewrote with old contents unknown (model.ts
+  // `contentsUnknown`), as the edited-files card does: its written text is not lines added.
+  const counted = useMemo(() => (kind === "edits" ? toolFiles(tools, { known: true }) : []), [kind, tools]);
   const running = tools.some(isRunning);
   const failures = tools.filter(isFailed).length;
-  const additions = files.reduce((sum, file) => sum + file.additions, 0);
-  const deletions = files.reduce((sum, file) => sum + file.deletions, 0);
+  const additions = counted.reduce((sum, file) => sum + file.additions, 0);
+  const deletions = counted.reduce((sum, file) => sum + file.deletions, 0);
   return (
     <>
       <button
@@ -79,7 +86,7 @@ export function ToolGroupRow({
             items,
             files.map((file) => file.path),
           )}
-          {files.length > 0 && (
+          {counted.length > 0 && (
             <span className="cv-tool__counts">
               <span className="cv-edit-diff__add">+{additions}</span>
               <span className="cv-edit-diff__del">-{deletions}</span>

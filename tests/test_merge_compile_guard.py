@@ -25,8 +25,8 @@ HEAD = "c" * 40
 SWIFT = ["Packages/macOS/CmuxNext/Sources/A.swift"]
 
 
-def pr(number=7, base="feat-cmux-next"):
-    return {"number": number, "base": base, "head": HEAD, "state": "open"}
+def pr(number=7, base="feat-cmux-next", head=HEAD):
+    return {"number": number, "base": base, "head": head, "state": "open"}
 
 
 def check(name, status="completed", conclusion="success"):
@@ -118,8 +118,10 @@ class FleetCompileCheck(unittest.TestCase):
             guard.STARTED = spent
 
     def test_a_refusal_says_how_to_get_a_fleet_pass(self):
+        # cmux-ci itself, not a dispatch of the workflow that wraps it: the guard reads the job.
         why = guard.verdict(pr(), SWIFT, [check(COMPILE, "queued")])
-        self.assertIn(f"gh workflow run {guard.FLEET_WORKFLOW} --ref feat-cmux-next -f sha={HEAD}", why)
+        self.assertIn(f"cmux-ci compile-check --ref {HEAD} --app", why)
+        self.assertNotIn("gh workflow run", why)
 
     def test_the_workflow_posts_the_status_the_guard_reads_on_the_sha_it_was_given(self):
         text = (ROOT / ".github/workflows" / guard.FLEET_WORKFLOW).read_text()
@@ -129,6 +131,178 @@ class FleetCompileCheck(unittest.TestCase):
         self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", text)
         self.assertIn("statuses/$SHA", text)
         self.assertNotIn("pull_request", text)
+
+
+class AdvisoryTestCompile(unittest.TestCase):
+    """fleet-test-compile.yml's check is advisory: the guard neither waits for it nor needs it.
+
+    It compiles the test targets a PR reaches on a fleet Mac (#23360, #23163 broke the base's test build
+    after the app-only fleet/compile-check passed). A red or pending one never holds a merge here, and it
+    never posts the fleet/compile-check status the guard trusts.
+    """
+
+    ADVISORY = "fleet/test-compile (advisory)"
+    WORKFLOW = ROOT / ".github/workflows/fleet-test-compile.yml"
+
+    def test_a_red_or_pending_advisory_check_never_holds_a_merge(self):
+        for state, conclusion in (("completed", "failure"), ("queued", None), ("in_progress", None)):
+            with self.subTest(state=state):
+                advisory = check(self.ADVISORY, state, conclusion or "success")
+                self.assertEqual(guard.verdict(pr(), SWIFT, [check(COMPILE), advisory]), "")
+                self.assertEqual(guard.verdict(pr(), SWIFT, [check(COMPILE, "queued"), advisory], fleet_passed=True), "")
+                # And it never stands in for the Release compile.
+                self.assertIn("still running", guard.verdict(pr(), SWIFT, [check(COMPILE, "queued"), advisory]))
+
+    def test_it_is_not_the_fleet_check_the_guard_trusts(self):
+        self.assertNotEqual(guard.FLEET_WORKFLOW, self.WORKFLOW.name)
+        text = self.WORKFLOW.read_text()
+        self.assertIn(f"name: {self.ADVISORY}\n", text)
+        self.assertNotIn(guard.FLEET_CONTEXT + "\n", text)
+        self.assertNotIn("statuses", text)
+        self.assertNotIn(guard.FLEET_TITLE, text)
+        fleet = (ROOT / ".github/workflows" / guard.FLEET_WORKFLOW).read_text()
+        self.assertNotIn("compile-tests", fleet)
+        self.assertNotIn("test-compile", fleet)
+
+
+# #23606 at bf14aa7d: activity-indicators' `cmux-ci compile-check --ref <head> --app` passed (job
+# edfa18ea31a796eac433019a, 2026-10-21 19:32Z), the guard still refused the merge, and the lane dispatched
+# fleet-compile-check.yml (run 39662744415) to compile the same head again. The controller's record of
+# that job and its receipts.json, as `cmux-ci status` and `cmux-ci artifact` gave them (trimmed).
+HEAD_23606 = "bf14aa7d4c88f4ff3c7670414a289e561097f4a2"
+JOB_23606 = {
+    "id": "edfa18ea31a796eac433019a", "kind": "cmux-next-swift-check",
+    "command": f"/Users/Shared/cmux-build-fleet/recipes/cmux-next-swift-check.sh {HEAD_23606} --app",
+    "repo": "", "ref": HEAD_23606, "labels": ["cmux-next-linux"], "state": "done",
+    "artifact": "sha256:aa657e2ba1f8f5047e597dcf23b4eb72e06b77d1781de83136ad187a6d461fde",
+    "submitter": "leoli.4u@gmail.com", "submitter_verified": True, "placement_reason": "linux_pool",
+    "created_at": "2026-10-21T19:32:16.88696Z", "updated_at": "2026-10-21T19:33:35.356714Z",
+}
+RECEIPTS_23606 = [{
+    "package": "app", "sha": HEAD_23606, "toolchain_id": "swift-6.3.3-cmux+Xcode_26.6/736c824e5bb154f0",
+    "ok": True, "seconds": 59.1,
+}]
+
+
+def fake_cmux_ci(bin_dir: Path, jobs, receipts: dict, log: Path) -> Path:
+    """A `cmux-ci` that prints `jobs` for `status` and writes receipts[job id] for `artifact JOB OUT`.
+    jobs None: the controller can't be reached."""
+    script = bin_dir / "cmux-ci"
+    script.write_text(textwrap.dedent(f"""\
+        #!{sys.executable}
+        import json, sys
+        args = sys.argv[1:]
+        with open({str(log)!r}, "a") as f:
+            f.write(json.dumps(["cmux-ci", *args]) + "\\n")
+        jobs, receipts = json.loads({json.dumps(json.dumps(jobs))}), json.loads({json.dumps(json.dumps(receipts))})
+        if args == ["status"] and jobs is not None:
+            print(json.dumps(jobs))
+            sys.exit(0)
+        if len(args) == 3 and args[0] == "artifact" and args[1] in receipts:
+            with open(args[2], "w") as f:
+                json.dump(receipts[args[1]], f)
+            print("aa657e2b")
+            sys.exit(0)
+        sys.exit(1)
+        """))
+    script.chmod(script.stat().st_mode | stat.S_IEXEC)
+    return script
+
+
+def job(**changes):
+    return {**JOB_23606, **changes}
+
+
+class CmuxCiCompileCheck(unittest.TestCase):
+    """A passed `cmux-ci compile-check --ref <head> --app` job is the fleet pass itself: the guard reads it
+    from the controller, so a lane never dispatches fleet-compile-check.yml to compile the head twice.
+
+    It counts the way the client's own exit 0 does (ci-client.py compile_check): a done
+    cmux-next-swift-check job of the recipe on the exact head with --app, whose receipts.json has an
+    `app` receipt that is ok, for that sha.
+    """
+
+    def passed(self, jobs, receipts=None, head=HEAD_23606):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            log = tmp / "calls.log"
+            client = fake_cmux_ci(tmp, jobs, {JOB_23606["id"]: RECEIPTS_23606} if receipts is None else receipts, log)
+            saved = os.environ.get("CMUX_CI_CLIENT")
+            os.environ["CMUX_CI_CLIENT"] = str(client)
+            try:
+                return guard.cmux_ci_passed(head)
+            finally:
+                if saved is None:
+                    os.environ.pop("CMUX_CI_CLIENT")
+                else:
+                    os.environ["CMUX_CI_CLIENT"] = saved
+
+    def test_the_23606_job_is_a_pass_on_its_head(self):
+        self.assertTrue(self.passed([job()]))
+
+    def test_packages_with_the_app_count_as_the_client_builds_them(self):
+        command = f"/Users/Shared/cmux-build-fleet/recipes/cmux-next-swift-check.sh {HEAD_23606} --package CmuxNext --app"
+        self.assertTrue(self.passed([job(command=command)]))
+
+    def test_it_counts_only_on_the_exact_head(self):
+        self.assertFalse(self.passed([job()], head="d" * 40))
+        self.assertFalse(self.passed([job()], head=HEAD_23606[:12]))
+
+    def test_anything_but_the_passing_app_check_does_not_count(self):
+        other = "d" * 40
+        cases = {
+            "another sha": [job(ref=other, command=JOB_23606["command"].replace(HEAD_23606, other))],
+            "ref and command disagree": [job(ref=other)],
+            "packages, not the app": [job(command=JOB_23606["command"].replace("--app", "--package CmuxNext"))],
+            "another recipe": [job(command=f"/tmp/mine.sh {HEAD_23606} --app")],
+            # The worker runs the command with /bin/sh -c, and `cmux-ci submit` takes any command: a suffix could
+            # write its own receipts.json.
+            "shell suffix": [job(command=JOB_23606["command"] + " ; echo forged > artifacts/receipts.json")],
+            "extra argument": [job(command=JOB_23606["command"] + " --skip")],
+            "a repo to clone": [job(repo="https://github.com/x/cmux.git")],
+            "another pool": [job(labels=["cmux-next-linux", "mine"])],
+            "another kind": [job(kind="custom")],
+            "failed": [job(state="failed")],
+            "still running": [job(state="running")],
+            "cancelled": [job(state="cancelled")],
+            "unverified submitter": [job(submitter_verified=False)],
+            "no jobs": [],
+            "controller unreachable": None,
+        }
+        for name, jobs in cases.items():
+            with self.subTest(name):
+                self.assertFalse(self.passed(jobs))
+
+    def test_the_receipts_decide_not_the_job_state(self):
+        id_ = JOB_23606["id"]
+        cases = {
+            "app did not compile": {id_: [{**RECEIPTS_23606[0], "ok": False}]},
+            "receipt for another sha": {id_: [{**RECEIPTS_23606[0], "sha": "d" * 40}]},
+            "no app receipt": {id_: [{**RECEIPTS_23606[0], "package": "CmuxNext"}]},
+            "no receipts": {id_: []},
+            "artifact unreadable": {},
+        }
+        for name, receipts in cases.items():
+            with self.subTest(name):
+                self.assertFalse(self.passed([job()], receipts))
+        # The recipe's other receipt shape.
+        self.assertTrue(self.passed([job()], {id_: {"receipts": RECEIPTS_23606}}))
+
+    def test_a_newer_failed_job_does_not_hide_an_older_pass(self):
+        failed = job(id="f" * 24, created_at="2026-10-21T19:40:00Z")
+        self.assertTrue(self.passed([failed, job()], {JOB_23606["id"]: RECEIPTS_23606,
+                                                      failed["id"]: [{**RECEIPTS_23606[0], "ok": False}]}))
+
+    def test_no_client_is_no_pass(self):
+        saved = os.environ.get("CMUX_CI_CLIENT")
+        os.environ["CMUX_CI_CLIENT"] = "/nonexistent/cmux-ci"
+        try:
+            self.assertFalse(guard.cmux_ci_passed(HEAD_23606))
+        finally:
+            if saved is None:
+                os.environ.pop("CMUX_CI_CLIENT")
+            else:
+                os.environ["CMUX_CI_CLIENT"] = saved
 
 
 def status(state="success", creator="github-actions[bot]", run=99):
@@ -269,9 +443,9 @@ def fake_gh(bin_dir: Path, answers: dict[str, str], log: Path) -> None:
 
 class Hook(unittest.TestCase):
     def run_hook(self, command: str, compile_state: tuple[str, str | None] | None, statuses=None, fleet_runs=None,
-                 other_statuses=None, on_base="ahead"):
+                 other_statuses=None, on_base="ahead", head=HEAD, cmux_ci_jobs=(), cmux_ci_receipts=None):
         """statuses: the head's fleet/compile-check statuses; fleet_runs: {run id: fleet_run()}; other_statuses:
-        statuses on another sha."""
+        statuses on another sha; cmux_ci_jobs, cmux_ci_receipts: what the controller holds (fake_cmux_ci)."""
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             subprocess.run(["git", "init", "-q", str(tmp)], check=True)
@@ -285,9 +459,9 @@ class Hook(unittest.TestCase):
                 runs.append(check(COMPILE, *compile_state))
             answers = {
                 "repos/manaflow-ai/cmux/pulls/22835/files": "\n".join(json.dumps(f) for f in SWIFT),
-                "repos/manaflow-ai/cmux/pulls/22835": json.dumps(pr(22835)),
+                "repos/manaflow-ai/cmux/pulls/22835": json.dumps(pr(22835, head=head)),
                 "view": json.dumps({"number": 22835}),
-                f"repos/manaflow-ai/cmux/commits/{HEAD}/check-runs?filter=all": "\n".join(json.dumps(r) for r in runs),
+                f"repos/manaflow-ai/cmux/commits/{head}/check-runs?filter=all": "\n".join(json.dumps(r) for r in runs),
             }
             if statuses is not None:
                 answers[f"repos/manaflow-ai/cmux/commits/{HEAD}/statuses"] = "\n".join(json.dumps(s) for s in statuses)
@@ -300,8 +474,10 @@ class Hook(unittest.TestCase):
             if on_base:
                 answers[f"repos/manaflow-ai/cmux/compare/{RUN_SHA}...{TIP}"] = json.dumps(on_base)
             fake_gh(bin_dir, answers, log)
+            client = fake_cmux_ci(bin_dir, list(cmux_ci_jobs) if cmux_ci_jobs is not None else None,
+                                  cmux_ci_receipts or {JOB_23606["id"]: RECEIPTS_23606}, log)
             payload = json.dumps({"tool_name": "Bash", "cwd": str(tmp), "tool_input": {"command": command}})
-            env = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"}
+            env = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}", "CMUX_CI_CLIENT": str(client)}
             done = subprocess.run(["bash", str(HOOK)], input=payload, capture_output=True, text=True, env=env,
                                   timeout=60)
             self.assertEqual(done.returncode, 0, done.stderr)
@@ -395,10 +571,35 @@ class Hook(unittest.TestCase):
                                fleet_runs={99: fleet_run()})
         self.assertIsNone(out)
 
+    def test_the_23606_cmux_ci_pass_lets_its_queued_compile_merge_without_a_dispatch(self):
+        # No fleet/compile-check status: the lane ran cmux-ci itself and never dispatched the workflow.
+        out, calls = self.run_hook(self.MERGE, ("queued", None), statuses=[], head=HEAD_23606,
+                                   cmux_ci_jobs=[job()])
+        self.assertIsNone(out)
+        self.assertIn(["cmux-ci", "status"], [json.loads(c) for c in calls])
+        self.assertFalse(any("statuses" in " ".join(json.loads(c)) for c in calls))  # no GitHub read for it
+
+    def test_a_cmux_ci_pass_on_another_head_refuses_and_says_what_to_run(self):
+        out, _ = self.run_hook(self.MERGE, ("queued", None), statuses=[], cmux_ci_jobs=[job()])
+        why = out["hookSpecificOutput"]["permissionDecisionReason"]
+        self.assertIn("still running", why)
+        self.assertIn(f"cmux-ci compile-check --ref {HEAD} --app", why)
+
+    def test_a_cmux_ci_pass_does_not_let_a_red_release_compile_merge(self):
+        out, calls = self.run_hook(self.MERGE, ("completed", "failure"), head=HEAD_23606, cmux_ci_jobs=[job()])
+        self.assertIn("finished failure", out["hookSpecificOutput"]["permissionDecisionReason"])
+        self.assertNotIn(["cmux-ci", "status"], [json.loads(c) for c in calls])
+
+    def test_an_unreachable_controller_falls_back_to_the_fleet_status(self):
+        out, _ = self.run_hook(self.MERGE, ("queued", None), statuses=[status()], fleet_runs={99: fleet_run()},
+                               cmux_ci_jobs=None)
+        self.assertIsNone(out)
+
     def test_a_green_compile_reads_no_fleet_status(self):
-        out, calls = self.run_hook(self.MERGE, ("completed", "success"), statuses=[])
+        out, calls = self.run_hook(self.MERGE, ("completed", "success"), statuses=[], cmux_ci_jobs=[job()])
         self.assertIsNone(out)
         self.assertFalse(any("statuses" in " ".join(json.loads(c)) for c in calls))
+        self.assertNotIn(["cmux-ci", "status"], [json.loads(c) for c in calls])
 
     def test_other_commands_never_start_python_or_gh(self):
         out, calls = self.run_hook("git status && gh pr view 22835", None)
