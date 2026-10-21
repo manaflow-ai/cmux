@@ -369,5 +369,35 @@ class EvidenceTests(unittest.TestCase):
                                        HEAD, "teamleaderleo"), "lawrencecchen")
 
 
+class ShipReceiptTests(unittest.TestCase):
+    def comment(self, body, at="2026-10-21T20:00:00Z", association="MEMBER", kind="User"):
+        return {"body": body, "created_at": at, "author_association": association,
+                "user": {"login": "teamleaderleo", "type": kind}}
+
+    def test_an_independent_ship_at_the_full_head_signs_off(self):
+        comments = [self.comment(f"Review (subagent, correctness first): SHIP at {HEAD}\n\ndetails")]
+        self.assertEqual(risk.ship_receipt(comments, HEAD), "subagent, correctness first")
+
+    def test_a_short_sha_another_head_or_a_self_review_does_not(self):
+        for line in (f"Review (subagent): SHIP at {HEAD[:12]}", "Review (subagent): SHIP at " + "f" * 40,
+                     f"Review (self): SHIP at {HEAD}", f"Addressed review: nothing blocking at {HEAD}"):
+            self.assertIsNone(risk.ship_receipt([self.comment(line)], HEAD), line)
+
+    def test_the_receipt_must_lead_the_comment(self):
+        self.assertIsNone(risk.ship_receipt([self.comment(f"Notes\nReview (subagent): SHIP at {HEAD}")], HEAD))
+
+    def test_a_newer_block_beats_an_earlier_ship(self):
+        comments = [self.comment(f"Review (subagent): SHIP at {HEAD}", at="2026-10-21T20:00:00Z"),
+                    self.comment(f"Review (codex): BLOCK at {HEAD}: races", at="2026-10-21T20:05:00Z")]
+        self.assertIsNone(risk.ship_receipt(comments, HEAD))
+        comments.append(self.comment(f"Review (codex): SHIP at {HEAD}", at="2026-10-21T20:10:00Z"))
+        self.assertEqual(risk.ship_receipt(comments, HEAD), "codex")
+
+    def test_bots_and_outside_accounts_do_not_count(self):
+        line = f"Review (subagent): SHIP at {HEAD}"
+        self.assertIsNone(risk.ship_receipt([self.comment(line, kind="Bot")], HEAD))
+        self.assertIsNone(risk.ship_receipt([self.comment(line, association="CONTRIBUTOR")], HEAD))
+
+
 if __name__ == "__main__":
     unittest.main()

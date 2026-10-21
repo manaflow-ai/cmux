@@ -43,6 +43,12 @@ OLD_LABELS = ("risk:medium",)
 HUMAN_OK_LABEL = "risk:human-ok"
 # The earlier name for the same maintainer sign-off; still honored.
 WAIVED_LABEL = "risk:waived"
+# An independent review's verdict on the exact head, on a comment's first line: "Review (subagent, correctness
+# first): SHIP at <full head sha>", the form next_autoland.py and merge_audit.py read. A self-review doesn't
+# count, and the newest verdict naming the head decides, so a later BLOCK beats an earlier SHIP.
+RECEIPT = re.compile(r"^\W*(?:independent\s+)?review\s*\(([^)\n]*)\)\s*:\W*(ship|block|fix|not ship|hold)(?![\w-])",
+                     re.I)
+TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")
 NEXT = "Packages/macOS/CmuxNext/Sources/"
 
 # Ordered: the first matching rule wins, so the high paths sit above the broad low ones.
@@ -258,8 +264,9 @@ def missing_evidence(tier: str, human_ok: bool = False, body: str = "",
     missing = []
     if tier == "high" and not human_ok:
         missing.append(
-            f"a person's look: an approving review on the head commit from someone other than the "
-            f"author, or `{HUMAN_OK_LABEL}` added by a maintainer (agents never add it)")
+            f"a review of the head commit: a comment `Review (<reviewer>): SHIP at <full head sha>` from an "
+            f"independent review, an approving review from someone other than the author, or `{HUMAN_OK_LABEL}` "
+            f"added by a maintainer (agents never add it)")
     acknowledged = {int(n) for n in TAKES_BACK.findall(strip_comments(body or ""))}
     for number in sorted(set(taken_back or [])):
         if number not in acknowledged:
@@ -501,11 +508,33 @@ def approver(reviews: list[dict], head_sha: str, author: str) -> str | None:
     return None
 
 
+def ship_receipt(comments: list[dict], head_sha: str) -> str | None:
+    """The reviewer of the newest trusted receipt line naming the full head sha, if it says SHIP."""
+    found = []
+    for comment in comments:
+        user = comment.get("user") or {}
+        if user.get("type") != "User" or comment.get("author_association") not in TRUSTED:
+            continue
+        first = next((line for line in (comment.get("body") or "").splitlines() if line.strip()), "")
+        line = RECEIPT.match(first)
+        if line and "self" not in line.group(1).lower() and head_sha in first:
+            found.append((comment.get("created_at") or "", line.group(2).lower(), line.group(1).strip()))
+    if not found:
+        return None
+    _, verdict, reviewer = max(found)
+    return reviewer if verdict == "ship" else None
+
+
 def human_ok_by(repo: str, number: str, pr: dict) -> str | None:
-    """Who signed off on a high pull request, else None: an approving review on the head, or the
-    sign-off label added by a maintainer (admin or maintain role)."""
+    """Who signed off on a high pull request, else None: an independent review's SHIP receipt on the
+    head, an approving review on the head, or the sign-off label added by a maintainer (admin or
+    maintain role). The green compile is required on every tier by the merge path, not here."""
+    head_sha = pr["head"]["sha"]
+    reviewer = ship_receipt(gh_items(f"repos/{repo}/issues/{number}/comments?per_page=100"), head_sha)
+    if reviewer:
+        return f"review ({reviewer}) shipped {head_sha[:12]}"
     reviews = gh_items(f"repos/{repo}/pulls/{number}/reviews?per_page=100")
-    login = approver(reviews, pr["head"]["sha"], (pr.get("user") or {}).get("login") or "")
+    login = approver(reviews, head_sha, (pr.get("user") or {}).get("login") or "")
     if login:
         return f"@{login} approved the head commit"
     labels = {label["name"] for label in pr.get("labels", [])}
@@ -536,7 +565,7 @@ def render(grade: Grade, missing: list[str], signed: str | None = None) -> str:
         out.append(f"- {reason}: {shown}")
     out.append("")
     if signed:
-        out.append(f"A person looked: {signed}.")
+        out.append(f"Signed off: {signed}.")
     if missing:
         out.append("Before merge:")
         out += [f"- {item}" for item in missing]
