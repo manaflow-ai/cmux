@@ -2,6 +2,7 @@ public import CmuxNextActions
 public import CmuxNextDaemon
 public import CmuxNextDaemonService
 public import CmuxNextDesign
+public import Foundation
 import CmuxNextAgentActivity
 import CmuxNextHome
 public import CmuxNextPages
@@ -57,7 +58,7 @@ public final class ChiefViewsPage {
         DevTools.isEnabled && ChiefViewsTunables.gallery.value ? nil : ChiefViewsStrings.off
     }
     /// The gallery's Debug Settings rows.
-    public static var tunables: [TunableDescriptor] { ChiefViewsTunables.all }
+    public nonisolated static var tunables: [TunableDescriptor] { ChiefViewsTunables.all }
 
     private let host: ChiefViewsHost
 

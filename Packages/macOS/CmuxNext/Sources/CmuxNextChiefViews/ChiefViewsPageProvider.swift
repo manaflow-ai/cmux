@@ -64,7 +64,7 @@ final class ChiefViewsPageProvider: PageProvider {
                 host.defaults.removeObject(forKey: Self.fleetURLKey)
                 return .object([:])
             }
-            guard let url = ChiefViewsFeeds.validFleetURL(text) else { throw PageError.invalidParams("url must be an http or https address") }
+            guard let url = ChiefViewsFeeds.validFleetURL(text) else { throw PageError.invalidParams("url must be https (http only for localhost or a tailnet .ts.net name)") }
             host.defaults.set(url.absoluteString, forKey: Self.fleetURLKey)
             return .object([:])
         case Self.landingOp:

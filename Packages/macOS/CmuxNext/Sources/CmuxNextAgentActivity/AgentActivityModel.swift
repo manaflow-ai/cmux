@@ -54,7 +54,8 @@ public final class AgentActivityModel {
     /// features); nil hides it.
     public var lanes: [AgentActivityLane]? {
         didSet {
-            guard lanes != oldValue else { return }
+            // Output alone (a later `updatedAt`) keeps the value but is not a lane change.
+            guard lanes?.map(\.ranked) != oldValue?.map(\.ranked) else { return }
             priorityRevision &+= 1
             priorityChangedSessionID = Self.changedLaneID(old: oldValue, new: lanes)
             notifyChange()

@@ -35,10 +35,11 @@ struct ChiefViewsPageTests {
             AgentActivityLane.of(summary: ["sessionId": "x", "lane": ["state": state]]).map { ChiefViewsAgent(lane: $0).state }
         }
         #expect(states == [.working, .waiting, .idle, .failed])
-        // Output alone (a later updatedAt) is not a lane change: the lanes view would re-rank on it.
+        // Output alone (a later updatedAt) is kept, but the lanes view does not rank on it.
         var later = summary
         later["updatedMs"] = NSNumber(value: 1_792_536_000_000)
-        #expect(try #require(AgentActivityLane.of(summary: later)) == lane)
+        let moved = try #require(AgentActivityLane.of(summary: later))
+        #expect(moved != lane && moved.ranked == lane.ranked)
         // A summary without the new fields still reads, as before.
         let bare = try #require(AgentActivityLane.of(summary: ["sessionId": "y", "lane": ["state": "idle"]]))
         #expect(bare.cwd == nil && bare.updatedAt == nil && bare.createdAt == nil)
