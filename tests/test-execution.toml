@@ -790,7 +790,7 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_r2_upload_requests.py"
-lane = "legacy"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_reconcile_entitlements_with_profile.py"
@@ -1646,19 +1646,11 @@ path = "tests/test_cmux_next_perf_source_guard.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_crash_class_fast_gate.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_gallery_select.py"
 lane = "linux-guard"
 
 [[test]]
 path = "tests/test_guard_hooks_from_base.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_crash_class_fast_gate.py"
 lane = "linux-guard"
 
 [[test]]

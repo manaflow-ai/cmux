@@ -4586,8 +4586,14 @@ def test_web_subarea_router_keeps_expensive_lanes_narrow() -> None:
         (["scripts/ci/web_subareas.py"], (True, True, True, True, True, True, True)),
         # The webviews test runner is what react-apps-check runs, so a change to it runs that check.
         (["scripts/ci/run-webviews-tests.sh"], (False, False, False, False, True, False, False)),
+        # ...and so does the runner's own test, and the web lint pre-push hook react-apps-check tests.
+        (["tests/test_webviews_tests_per_file.py"], (False, False, False, False, True, False, False)),
+        (["scripts/web-lint.sh"], (False, False, False, False, True, False, False)),
+        (["tests/test_web_lint_prepush.py"], (False, False, False, False, True, False, False)),
     )
     assert module.is_web_change("scripts/ci/run-webviews-tests.sh")
+    assert module.is_web_change("tests/test_webviews_tests_per_file.py")
+    assert module.is_web_change("scripts/web-lint.sh")
     for paths, expected in cases:
         actual = web_subareas.classify_paths(paths)
         assert (

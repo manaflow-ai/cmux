@@ -355,6 +355,23 @@ jobs:
         continue-on-error: true
         run: python3 tests/test_format_post_edit.py
 
+      # The runner the Test webviews step below uses, with a fake bun. web-validation.yml runs it
+      # only on main pushes, so a feat-cmux-next change to the runner landed red unseen (a2d6b35,
+      # #23430); web_subareas.py routes the runner and this test here.
+      - name: Per-file webviews test runner
+        id: webviews-runner
+        if: matrix.shard == 1
+        continue-on-error: true
+        run: python3 tests/test_webviews_tests_per_file.py
+
+      # The pre-push hook's web lint (scripts/web-lint.sh). cmux-next-web.yml runs it only on
+      # feat-cmux-next pushes, after the change landed.
+      - name: Web lint pre-push hook
+        id: web-lint-hook
+        if: matrix.shard == 1
+        continue-on-error: true
+        run: python3 tests/test_web_lint_prepush.py
+
       - name: Check diff viewer eager JS budget
         id: eager-js-budget
         if: matrix.shard == 1
@@ -434,6 +451,8 @@ jobs:
         env:
           MERGE_DRIVER: ${{ steps.merge-driver.outcome }}
           POST_EDIT_FORMAT: ${{ steps.post-edit-format.outcome }}
+          WEBVIEWS_RUNNER: ${{ steps.webviews-runner.outcome }}
+          WEB_LINT_HOOK: ${{ steps.web-lint-hook.outcome }}
           EAGER_JS_BUDGET: ${{ steps.eager-js-budget.outcome }}
           REACT_COMPILER: ${{ steps.react-compiler.outcome }}
           WEBVIEWS_CHECK: ${{ steps.webviews-check.outcome }}
@@ -447,6 +466,8 @@ jobs:
           for gate in \
             "MERGE_DRIVER|Generated bundle merge driver" \
             "POST_EDIT_FORMAT|Post-edit formatting hook" \
+            "WEBVIEWS_RUNNER|Per-file webviews test runner" \
+            "WEB_LINT_HOOK|Web lint pre-push hook" \
             "EAGER_JS_BUDGET|Check diff viewer eager JS budget" \
             "REACT_COMPILER|Verify React Compiler for webviews" \
             "WEBVIEWS_CHECK|Check webviews (Oxlint, Oxfmt, type check)" \
