@@ -12,7 +12,8 @@ public struct UpdateRelaunchBlockers: Equatable, Sendable {
     /// it, and only for ``UpdateRelaunchGate/daemonUnavailableTimeout``.
     public var daemonStateUnavailable: Bool
 
-    /// How long hardware input must be quiet before an automatic relaunch.
+    /// How long hardware input must be quiet before an automatic relaunch, unless the host sets
+    /// its own (`updates.idleInstallQuietSeconds`).
     public static let quietInputPeriod: Duration = .seconds(60)
 
     /// Nothing would be interrupted.
@@ -62,12 +63,17 @@ final class UpdateRelaunchGate {
     /// How long an automatic install waits for a daemon mirror that stays unconfirmed before it
     /// relaunches on what it can see (the relaunch keeps the daemon and its sessions running).
     static let daemonUnavailableTimeout: Duration = .seconds(10 * 60)
+    /// The longest an automatic install waits for anything; then it relaunches anyway and the
+    /// daemon keeps every terminal and agent across it (`updates.idleInstallMaxWaitSeconds`).
+    static let automaticWaitCap: Duration = .seconds(15 * 60)
 
     private let clock: any UpdateClock
     private let log: any UpdateLogging
     private let recheckInterval: Duration
     private let agentTimeout: Duration
     private let daemonUnavailableTimeout: Duration
+    /// ``UpdateRelaunchGate/automaticWaitCap`` unless the host sets its own; read on each check.
+    var automaticWaitCap: Duration = UpdateRelaunchGate.automaticWaitCap
     private var waitTask: Task<Void, Never>?
     private var pending: Pending?
 
@@ -115,20 +121,23 @@ final class UpdateRelaunchGate {
 
     /// Whether the relaunch may proceed given `blockers` after waiting `waited`, with the daemon
     /// mirror unconfirmed for the last `daemonUnavailableFor`. An install the user asked for
-    /// (`automatic == false`) ignores the quiet-input and daemon-mirror holds.
+    /// (`automatic == false`) ignores the quiet-input and daemon-mirror holds; an automatic one
+    /// stops waiting for anything once it has waited `automaticWaitCap`.
     nonisolated static func shouldRelaunch(
         _ blockers: UpdateRelaunchBlockers,
         automatic: Bool,
         waited: Duration,
         daemonUnavailableFor: Duration,
         agentTimeout: Duration,
-        daemonUnavailableTimeout: Duration
+        daemonUnavailableTimeout: Duration,
+        automaticWaitCap: Duration
     ) -> Bool {
         guard automatic else {
             if blockers.runningCommandCount > 0 { return false }
             if blockers.busyAgentCount > 0 { return waited >= agentTimeout }
             return true
         }
+        if waited >= automaticWaitCap { return true }
         if blockers.daemonStateUnavailable, daemonUnavailableFor < daemonUnavailableTimeout { return false }
         if blockers.runningCommandCount > 0 { return false }
         if blockers.userInputActive { return false }
@@ -194,8 +203,11 @@ final class UpdateRelaunchGate {
         if Self.shouldRelaunch(current, automatic: request.automatic, waited: request.waited,
                                daemonUnavailableFor: request.daemonUnavailableFor,
                                agentTimeout: agentTimeout,
-                               daemonUnavailableTimeout: daemonUnavailableTimeout) {
-            if current.busyAgentCount > 0 {
+                               daemonUnavailableTimeout: daemonUnavailableTimeout,
+                               automaticWaitCap: automaticWaitCap) {
+            if request.automatic, !current.isEmpty {
+                log.append("update relaunch gate: automatic install waited its cap; relaunching")
+            } else if current.busyAgentCount > 0 {
                 log.append("update relaunch gate timed out with \(current.busyAgentCount) busy agent(s)")
             }
             if current.daemonStateUnavailable {

@@ -266,6 +266,64 @@
             "update",
             "sidebar"
           ]
+        },
+        {
+          "key": "updates.idleInstallMaxWaitSeconds",
+          "name": "idleInstallMaxWait",
+          "note": "Nightly idle install (#20295): the longest it waits for agent turns, foreground commands and input before installing anyway; the relaunch keeps every terminal and agent.",
+          "title": {
+            "key": "settings.updates.idleInstallMaxWait",
+            "text": "Install Within"
+          },
+          "help": {
+            "key": "settings.updates.idleInstallMaxWait.help",
+            "text": "A downloaded nightly installs by itself once agents and commands finish and you stop typing, and never waits longer than this. Terminals and agents carry on after the restart."
+          },
+          "kind": "number",
+          "range": {
+            "min": 60,
+            "max": 7200,
+            "step": 60,
+            "unit": "seconds"
+          },
+          "default": 900,
+          "keywords": [
+            "update",
+            "install",
+            "idle",
+            "wait",
+            "automatic",
+            "nightly"
+          ]
+        },
+        {
+          "key": "updates.idleInstallQuietSeconds",
+          "name": "idleInstallQuiet",
+          "note": "Nightly idle install (#20295): how long keyboard and pointer input must be quiet before it installs.",
+          "title": {
+            "key": "settings.updates.idleInstallQuiet",
+            "text": "Quiet Time Before Installing"
+          },
+          "help": {
+            "key": "settings.updates.idleInstallQuiet.help",
+            "text": "How long the keyboard and mouse must be idle before a downloaded nightly installs by itself."
+          },
+          "kind": "number",
+          "range": {
+            "min": 5,
+            "max": 600,
+            "step": 5,
+            "unit": "seconds"
+          },
+          "default": 60,
+          "keywords": [
+            "update",
+            "install",
+            "idle",
+            "quiet",
+            "typing",
+            "nightly"
+          ]
         }
       ]
     },

@@ -17,6 +17,13 @@ extension UpdateController {
         set { driver.installsWhenIdle = newValue }
     }
 
+    /// The longest an automatic idle install waits for agents, commands and input before it
+    /// relaunches anyway (default 15 minutes).
+    public var idleInstallWaitCap: Duration {
+        get { driver.relaunchGate.automaticWaitCap }
+        set { driver.relaunchGate.automaticWaitCap = newValue }
+    }
+
     /// Whether an install the user asked for (a click, Install Now, Restart Now) waits for busy
     /// agents and running commands. Automatic idle installs always wait.
     public var holdsUserInstalls: Bool {

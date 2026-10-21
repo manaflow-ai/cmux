@@ -148,6 +148,8 @@ public final class UpdaterService {
     @ObservationIgnored public var willRelaunch: (() -> Void)?
     /// Reads the executable's live session and input state before Sparkle relaunches.
     @ObservationIgnored public var relaunchBlockers: () -> UpdateRelaunchBlockers = { .daemonUnavailable }
+    /// How long input must be quiet before a nightly installs by itself (`updates.idleInstallQuietSeconds`).
+    @ObservationIgnored public internal(set) var idleInstallQuiet: Duration = UpdateRelaunchBlockers.quietInputPeriod
     /// Whether a window shows the update notice (the sidebar footer's
     /// pill). Without it, checks and installs open the update sheet.
     @ObservationIgnored public var showsIndicator: () -> Bool = { true }
@@ -208,6 +210,9 @@ public final class UpdaterService {
             // (nightly.yml generate-nightly-deltas); a scheduled check in that gap
             // waits once instead of downloading the full DMG.
             if identity.track == .nightly { controller.pendingDeltaWindow = 45 * 60 }
+            // A nightly installs a downloaded update by itself once agents, commands and input
+            // are quiet, or at `updates.idleInstallMaxWaitSeconds`; no prompt.
+            controller.installsUpdatesWhenIdle = identity.track == .nightly
             self.controller = controller
         } else {
             #if DEBUG
