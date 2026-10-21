@@ -202,31 +202,34 @@ export async function GET(request: Request): Promise<Response> {
       const freeAccessWindowDays = listEntitlements && !isPaidVmPlan(listEntitlements.planId)
         ? vmFreeAccessWindowDays()
         : 0;
-      // Who made each machine. A team list is scoped by owner team, so this is
-      // the only thing separating one member's machines from another's.
-      const creatorNames = await readCreatorNames({
-        userIds: creatorUserIds(entries),
-        teamId: billingTeamId,
-        caller: user,
-        onFailure: (error) => setSpanAttributes(span, {
-          "cmux.vm.creator_lookup_error": error instanceof Error ? error.name : "unknown",
+      // Who made each machine, and when each live machine last started (its
+      // running time and cost line). Both reads are bounded and best effort,
+      // and they run together so a stalled database delays the list once.
+      // A team list is scoped by owner team, so the names are the only thing
+      // separating one member's machines from another's.
+      const [creatorNames, runningSince] = await Promise.all([
+        readCreatorNames({
+          userIds: creatorUserIds(entries),
+          teamId: billingTeamId,
+          caller: user,
+          onFailure: (error) => setSpanAttributes(span, {
+            "cmux.vm.creator_lookup_error": error instanceof Error ? error.name : "unknown",
+          }),
         }),
-      });
+        readVmRunningSince(
+          entries.filter((entry) => entry.status === "running" || entry.status === "provisioning")
+            .map((entry) => entry.providerVmId),
+          {
+            onFailure: (error) => setSpanAttributes(span, {
+              "cmux.vm.running_since_error": error instanceof Error ? error.name : "unknown",
+            }),
+          },
+        ),
+      ]);
       // A migration lagging in one environment turns every row into "Unknown"
       // with nothing else to show for it. This, with the lookup error above,
       // separates that from nobody having set a name.
       setSpanAttributes(span, { "cmux.vm.creator_names": creatorNames.size });
-      // When each live machine last started, for its running time and cost
-      // line. Best effort like the names: a miss shows no running time.
-      const runningSince = await readVmRunningSince(
-        entries.filter((entry) => entry.status === "running" || entry.status === "provisioning")
-          .map((entry) => entry.providerVmId),
-        {
-          onFailure: (error) => setSpanAttributes(span, {
-            "cmux.vm.running_since_error": error instanceof Error ? error.name : "unknown",
-          }),
-        },
-      );
       // A legacy row without a reservation marker reserves the provider
       // maximum until reconciliation measures it, exactly as the repository
       // counts it.

@@ -80,7 +80,11 @@ export async function GET(
         cmuxTuiContract: vm.cmuxTuiContract,
         // Same cost fields as the list, so a detail read never drops them.
         ...vmCostFields(vm, (vm.status === "running" || vm.status === "provisioning")
-          ? (await readVmRunningSince([vm.providerVmId])).get(vm.providerVmId)
+          ? (await readVmRunningSince([vm.providerVmId], {
+            onFailure: (error) => setSpanAttributes(span, {
+              "cmux.vm.running_since_error": error instanceof Error ? error.name : "unknown",
+            }),
+          })).get(vm.providerVmId)
           : null),
       });
     },
