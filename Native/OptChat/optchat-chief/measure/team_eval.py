@@ -64,7 +64,13 @@ Every agent's Claude Code runs with ANTHROPIC_LOG=debug, which prints each
 response's real headers: run.json `ratelimit` has the last and the lowest
 weekly headroom of the anthropic-ratelimit-unified-7d-* headers (arm L
 from claude's stdout, the Chief arms from acpmux's `[non-json stdout]`
-records in its session logs). See headroom_probe.py.
+records in its session logs). Each new reading is also printed at once as
+`TEAM-EVAL-RATELIMIT {json}` (on --live-fd too: the step's stdout), arm L
+as claude's stdout is read, the Chief arms by following acpmux's session
+logs with kqueue (AcpmuxFollower). See headroom_probe.py. Caveats: a
+compactor session acpmux has purged by the run's end is missing from the
+summary (the live lines have what was seen); debug logging may slow the
+agents a little (an e2e run compares).
 
   team_eval.py campaign --ref SHA --base-url URL --task ID... --arm ARM...
       [--reps 1] [--cap-usd USD] [--ledger FILE] [--run-budget 25]
@@ -72,7 +78,8 @@ records in its session logs). See headroom_probe.py.
       [--headroom-cmd CMD] [--min-headroom 0.25] [--headroom-window 20]
       [--headroom-max-age 30] [--headroom-sleep 180] --out DIR
 runs every task x arm x rep as a fleet step (scripts/measure/team-eval.sh),
-at most --max-concurrent (and --parallel) at once. The ledger (default
+at most --max-concurrent at once (the pool has max(--parallel,
+--max-concurrent) threads). The ledger (default
 ~/.local/state/team-eval/ledger.json) holds each run's tokens and dollars
 and what each running one may still spend; the campaign prints the tokens
 first. The budget is account usage now, so a dollar cap is optional
@@ -86,23 +93,33 @@ new attempt (its own step key) of the others; an older attempt keeps its
 reservation until it settles. A run that failed (`ok` false: a pin
 failure, processes left) is recorded as done with its spend and `failed`.
 
-Before each step starts, the weekly headroom must be at least
+Before each step starts (checked again once its worker is free, right
+before `cmux-ci run`), the weekly headroom must be at least
 --min-headroom: the lowest of the last --headroom-window readings in the
-ledger that are under --headroom-max-age minutes old. Each finished step
-adds its last response's reading (run.json `ratelimit`). With no recent
-reading, --headroom-cmd (default headroom_probe.py: one real `claude -p`
-on the cheapest model) is run once for one; it prints the remaining weekly
-fraction (0..1). Below the minimum, or with no reading (the command failed
-or printed something else), no new step starts (fail closed): the campaign
-logs it and checks again every --headroom-sleep seconds. A reading covers
-only the upstream account its request was routed to, so the window covers
-only the accounts the pool rotated through. --headroom-cmd '' turns the
-check off (one warning).
+ledger that are under --headroom-max-age minutes old. A running step's
+readings reach the window as it runs: `cmux-ci run` streams the step's log
+on stdout (the worker ships it every 2 s, the client copies it every 2 s),
+and the campaign reads each TEAM-EVAL-RATELIMIT line as it comes; the
+step's summary adds any it missed (once per request id). With no recent
+reading, --headroom-cmd (default headroom_probe.py --base-url BASE_URL:
+one real `claude -p` on the cheapest model through the steps' route) is
+run once for one; it prints the remaining weekly fraction (0..1). Below
+the minimum, or with no reading (the command failed or printed something
+else), no new step starts (fail closed) and running ones go on: the
+campaign logs it and checks again every --headroom-sleep seconds. A low
+reading holds the pause until it is --headroom-max-age old (no probe can
+outvote it: the probe may land on another account), so a shorter max age
+resumes sooner. A reading covers only the upstream account its request
+was routed to, so the window covers only the accounts the pool rotated
+through. Reading ages compare a worker's clock (or the host's, for a
+probe) with this host's: clock skew between them shifts them.
+--headroom-cmd '' turns the check off (one warning).
 """
 import argparse
 import json
 import os
 import re
+import select
 import shlex
 import shutil
 import signal
@@ -210,7 +227,7 @@ def trace_cost(events):
 
 # List prices per million tokens: input, cache write 1h, cache write 5m, cache read, output.
 from unii_bench import PRICES  # noqa: E402
-from headroom_probe import ratelimit_readings, reading_headroom  # noqa: E402
+from headroom_probe import RatelimitParser, ratelimit_readings, reading_headroom  # noqa: E402
 
 TOKEN_KEYS = ("input", "output", "cache_write", "cache_read")
 
@@ -370,7 +387,8 @@ def timeline(sent, messages, arrivals):
 
 def chief_state(events, at):
     """(mid-turn, subagents running) of a Chief run at `at` ms, from its
-    trace: a turn.start not yet ended, and subagent.start ids not yet done."""
+    trace: a turn.start not yet ended, and subagent.start (or .resume) ids
+    not yet done."""
     starts = ends = 0
     running = set()
     for e in events:
@@ -380,7 +398,7 @@ def chief_state(events, at):
             starts += 1
         elif e.get("ev") == "turn.end":
             ends += 1
-        elif e.get("ev") == "subagent.start":
+        elif e.get("ev") in ("subagent.start", "subagent.resume"):
             running.add(e.get("id"))
         elif e.get("ev") == "subagent.done":
             running.discard(e.get("id"))
@@ -426,18 +444,41 @@ def p50(xs):
     return xs[mid] if len(xs) % 2 else (xs[mid - 1] + xs[mid]) / 2
 
 
-def stall(sent, starts, tl, states, end_ms):
+def attributed_replies(sent, starts, messages, arrivals):
+    """Each prompt's first reply that can only be its own: the first Chief
+    message (a desk receipt too) after the agent started on the prompt and
+    after the reply credited to the prompt before it, so an answer to an
+    earlier prompt is never a later one's. {pid: (ms after sent, or None;
+    unattributable)}: unattributable when the start was never seen, so no
+    reply can be tied to it."""
+    chief = sorted((arrivals.get(m["id"], 0), m.get("seq", 0)) for m in messages
+                   if m.get("author") == CHIEF and text_of(m).strip())
+    out, floor = {}, None
+    for pid, at in sorted(sent.items(), key=lambda kv: kv[1]):
+        st = starts.get(pid)
+        if st is None:
+            out[pid] = (None, True)
+            continue
+        t = next((t for t, seq in chief if t >= max(at, st) and (floor is None or t > floor)), None)
+        out[pid] = (t - at if t is not None else None, False)
+        if t is not None:
+            floor = t
+    return out
+
+
+def stall(sent, starts, replies, states, end_ms):
     """Each prompt's wait and first reply, and their summary. `starts` maps a
     prompt id to the ms the agent started on it (None: never seen),
-    `states` to (mid-turn, subagents running) when it was sent (None:
-    unknown); `tl` is timeline()."""
+    `replies` is attributed_replies(), `states` maps it to (mid-turn,
+    subagents running) when it was sent (None: unknown)."""
     per = {}
     for pid, at in sorted(sent.items(), key=lambda kv: kv[1]):
         st = starts.get(pid)
         mid, lanes = states.get(pid, (None, None))
+        reply, unattributable = replies.get(pid, (None, True))
         per[pid] = {"sent_ms": at, "started_ms": st, "wait_ms": st - at if st is not None else None,
                     "waited_to_end_ms": end_ms - at if st is None else None,
-                    "first_reply_ms": (tl.get(pid) or {}).get("first_reply_ms"),
+                    "first_reply_ms": reply, "reply_unattributable": unattributable,
                     "mid_turn": mid, "lanes": lanes,
                     "busy": None if mid is None or (mid and lanes is None) else bool(mid and lanes >= BUSY_LANES)}
     return {"messages": per, "summary": stall_summary(per.values())}
@@ -459,7 +500,8 @@ def stall_summary(msgs):
     def replies(ms):
         r = [m["first_reply_ms"] / 1000 for m in ms if m.get("first_reply_ms") is not None]
         return {"first_reply_p50_s": p50(r), "first_reply_max_s": max(r) if r else None,
-                "no_reply": sum(1 for m in ms if m.get("first_reply_ms") is None)}
+                "no_reply": sum(1 for m in ms if m.get("first_reply_ms") is None and not m.get("reply_unattributable")),
+                "reply_unattributable": sum(1 for m in ms if m.get("reply_unattributable"))}
 
     known = [over(m) for m in msgs if over(m) is not None]
     busy = [m for m in msgs if m.get("busy")]
@@ -476,9 +518,142 @@ def ratelimit_summary(readings):
     headroom) and the lowest headroom. Each covers one upstream account."""
     rs = sorted((r for r in readings if reading_headroom(r) is not None), key=lambda r: r["at"])
     if not rs:
-        return {"count": 0, "last": None, "min_headroom": None}
+        return {"count": 0, "last": None, "min_headroom": None, "readings": []}
     return {"count": len(rs), "last": dict(rs[-1], headroom=round(reading_headroom(rs[-1]), 4)),
-            "min_headroom": round(min(reading_headroom(r) for r in rs), 4)}
+            "min_headroom": round(min(reading_headroom(r) for r in rs), 4),
+            # The campaign's window holds READINGS; a step's newest are enough.
+            "readings": rs[-Ledger.READINGS:]}
+
+
+class LiveReadings:
+    """Prints each new real reading at once, as one flushed line
+    `TEAM-EVAL-RATELIMIT {json}` on stdout and on `fd` (the step's own
+    stdout, which cmux-ci streams to the campaign while the step runs;
+    team-eval.sh keeps the driver's stdout in driver.log). Once per request
+    id."""
+
+    def __init__(self, fd=None):
+        import threading
+        self.fd, self.seen, self.lock = fd, set(), threading.Lock()
+
+    def emit(self, readings):
+        for r in readings:
+            h = reading_headroom(r)
+            if h is None:
+                continue
+            with self.lock:
+                if r.get("request_id") and r["request_id"] in self.seen:
+                    continue
+                self.seen.add(r.get("request_id"))
+                line = "TEAM-EVAL-RATELIMIT " + json.dumps(dict(r, headroom=round(h, 4))) + "\n"
+                sys.stdout.write(line)
+                sys.stdout.flush()
+                if self.fd is not None:
+                    try:
+                        os.write(self.fd, line.encode())
+                    except OSError:
+                        pass
+
+
+class AcpmuxFollower:
+    """Follows acpmux's session logs as they grow (kqueue: a vnode watch on
+    the home, `sessions/`, each session's `events/` and each log file),
+    reads only the bytes past each file's offset, and passes the readings
+    in their `[non-json stdout]` records to `on_readings`. No timer: the
+    thread blocks in kevent until a watched file or directory changes, or
+    `stop` wakes it (a last read first). Without kqueue (not macOS) it
+    follows nothing and says so."""
+
+    def __init__(self, acpmux_home, on_readings, log=print):
+        import threading
+        self.home, self.on, self.log = acpmux_home, on_readings, log
+        self.watched, self.offsets, self.partial, self.parsers = {}, {}, {}, {}
+        self.wake_r, self.wake_w = os.pipe()
+        self.thread = threading.Thread(target=self._run, daemon=True)
+
+    def start(self):
+        if not hasattr(select, "kqueue"):
+            self.log("no kqueue here: live rate-limit readings are off (the run's summary still has them)")
+            return self
+        self.kq = select.kqueue()
+        self.kq.control([select.kevent(self.wake_r, select.KQ_FILTER_READ, select.KQ_EV_ADD)], 0)
+        self.thread.start()
+        return self
+
+    def stop(self):
+        if self.thread.is_alive():
+            os.write(self.wake_w, b"x")
+            self.thread.join(10)
+        for fd in (self.wake_r, self.wake_w):
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        self.wake_r = self.wake_w = -1
+
+    def _watch(self, path):
+        if path in self.watched:
+            return
+        try:
+            fd = os.open(path, os.O_RDONLY)
+        except OSError:
+            return
+        self.watched[path] = fd
+        self.kq.control([select.kevent(fd, select.KQ_FILTER_VNODE, select.KQ_EV_ADD | select.KQ_EV_CLEAR,
+                                       select.KQ_NOTE_WRITE | select.KQ_NOTE_EXTEND)], 0)
+
+    def _scan(self):
+        """Watches what is new, then reads every log's new bytes."""
+        self._watch(self.home)
+        root = os.path.join(self.home, "sessions")
+        if not os.path.isdir(root):
+            return
+        self._watch(root)
+        for sid in sorted(os.listdir(root)):
+            events = os.path.join(root, sid, "events")
+            self._watch(os.path.join(root, sid))
+            if not os.path.isdir(events):
+                continue
+            self._watch(events)
+            for name in sorted(os.listdir(events)):
+                path = os.path.join(events, name)
+                self._watch(path)
+                self._read(sid, path)
+
+    def _read(self, sid, path):
+        try:
+            with open(path, "rb") as f:
+                f.seek(self.offsets.get(path, 0))
+                chunk = f.read()
+        except OSError:
+            return
+        self.offsets[path] = self.offsets.get(path, 0) + len(chunk)
+        data = self.partial.pop(path, b"") + chunk
+        whole, _, rest = data.rpartition(b"\n")
+        if rest:
+            self.partial[path] = rest
+        parser = self.parsers.setdefault(sid, RatelimitParser())
+        got = []
+        for raw in whole.splitlines():
+            try:
+                e = json.loads(raw)
+            except ValueError:
+                continue
+            if isinstance(e, dict) and e.get("kind") == "stderr":
+                got += parser.feed((e.get("msg") or {}).get("text") or "", e.get("at"))
+        if got:
+            self.on(got)
+
+    def _run(self):
+        while True:
+            self._scan()
+            evs = self.kq.control(None, 64, None)
+            if any(e.ident == self.wake_r for e in evs):
+                self._scan()
+                break
+        for fd in self.watched.values():
+            os.close(fd)
+        self.kq.close()
 
 
 def acpmux_ratelimit(acpmux_home):
@@ -702,6 +877,8 @@ def run_lossy(opts):
         events = []
         debug_lines = []
         lock = threading.Lock()
+        live_rl = LiveReadings(opts.live_fd)
+        live_parser = RatelimitParser()
 
         def reader():
             for line in proc.stdout:
@@ -709,7 +886,9 @@ def run_lossy(opts):
                     e = json.loads(line)
                 except ValueError:
                     # ANTHROPIC_LOG's lines: they hold the response headers.
-                    debug_lines.append((now_ms(), line.rstrip("\n")))
+                    at, text = now_ms(), line.rstrip("\n")
+                    debug_lines.append((at, text))
+                    live_rl.emit(live_parser.feed(text, at))
                     continue
                 if not isinstance(e, dict):
                     continue
@@ -784,6 +963,7 @@ def run_lossy(opts):
             for r in readings:
                 f.write(json.dumps(r) + "\n")
         tl = timeline(sent, msgs, arrivals)
+        starts = replay_starts(uuids, snap)
         os.makedirs(os.path.join(out, "traces"), exist_ok=True)
         with open(os.path.join(out, "traces", "lossy.jsonl"), "w") as f:
             for at, e in snap:
@@ -798,8 +978,8 @@ def run_lossy(opts):
         info.update({
             "sent": sent,
             "timeline": tl,
-            "stall": stall(sent, replay_starts(uuids, snap), tl, {p: lossy_state(snap, at) for p, at in sent.items()},
-                           end_ms),
+            "stall": stall(sent, starts, attributed_replies(sent, starts, msgs, arrivals),
+                           {p: lossy_state(snap, at) for p, at in sent.items()}, end_ms),
             "tokens": meter.tokens(),
             "ratelimit": ratelimit_summary(readings),
             "cost_usd": {"turns": lossy_cost(snap), "subagents": 0, "compactor": 0, "all": lossy_cost(snap),
@@ -913,8 +1093,12 @@ class Ledger:
     READINGS = 200
 
     def add_readings(self, readings):
+        """Adds readings, once per request id (a step's live line and its
+        TEAM-EVAL summary may carry the same one)."""
         with self._locked() as data:
-            data["ratelimit"] = (data.get("ratelimit", []) + list(readings))[-self.READINGS:]
+            have = {r.get("request_id") for r in data.get("ratelimit", []) if r.get("request_id")}
+            new = [r for r in readings if not (r.get("request_id") and r["request_id"] in have)]
+            data["ratelimit"] = (data.get("ratelimit", []) + new)[-self.READINGS:]
 
     def readings(self):
         with self._locked() as data:
@@ -1025,6 +1209,27 @@ class Headroom:
         return (min(reading_headroom(r) for r in fresh),
                 f"lowest of {len(fresh)} reading(s) in {self.max_age_s / 60:.0f} min{', probed' if why else ''}")
 
+    def note(self, key, reading):
+        """A step's live reading: logs when it takes the lowest recent
+        headroom under the line (new steps then wait; running ones go on)."""
+        h = reading_headroom(reading)
+        if not self.cmd or h is None or h >= self.minimum:
+            return
+        since = (self.clock() - self.max_age_s) * 1000
+        fresh = [r for r in self.ledger.readings()[-self.window:]
+                 if (r.get("at") or 0) >= since and reading_headroom(r) is not None]
+        if min(reading_headroom(r) for r in fresh) == h:
+            self.log(f"live reading from {key}: headroom {h:.2f} is under {self.minimum}: no new step starts; "
+                     "running steps go on")
+
+    def ok(self):
+        """One check now (a probe when no reading is recent): may a step start?"""
+        if not self.cmd:
+            return True
+        with self.lock:
+            h, why = self.current()
+            return h is not None and h >= self.minimum
+
     def wait(self):
         if not self.cmd:
             return None
@@ -1044,6 +1249,22 @@ class Headroom:
                              f"next check in {self.sleep_s:.0f} s")
                 paused = self.clock() if paused is None else paused
                 self.sleep(self.sleep_s)
+
+
+def default_headroom_cmd(base_url):
+    """headroom_probe.py through the steps' route, so it reads their pool's accounts."""
+    return " ".join(map(shlex.quote, (sys.executable, os.path.join(HERE, "headroom_probe.py"), "--base-url", base_url)))
+
+
+def positive(text):
+    """A whole number of at least 1."""
+    try:
+        n = int(text)
+    except ValueError:
+        n = 0
+    if n < 1:
+        raise argparse.ArgumentTypeError(f"{text!r} is not a whole number of at least 1")
+    return n
 
 
 def full_sha(ref):
@@ -1078,6 +1299,8 @@ def campaign(opts):
     import threading
     ledger = Ledger(opts.ledger, opts.cap_usd)
     say = lambda msg: print(f"[team-eval campaign {time.strftime('%H:%M:%S')}] {msg}", flush=True)
+    if opts.headroom_cmd is None:
+        opts.headroom_cmd = default_headroom_cmd(opts.base_url)
     headroom = Headroom(ledger, opts.headroom_cmd, opts.min_headroom, opts.headroom_window,
                         opts.headroom_max_age * 60, opts.headroom_sleep, say)
     # Steps in flight, whatever the pool and the free workers allow.
@@ -1090,6 +1313,30 @@ def campaign(opts):
     out = os.path.abspath(opts.out)
     os.makedirs(out, exist_ok=True)
     runs = [(t, a, n) for n in range(1, opts.reps + 1) for t in opts.task for a in opts.arm]
+
+    def run_streaming(cmd, key):
+        """cmux-ci run, its stdout (the step's log, streamed as the step runs)
+        read line by line as it comes: each TEAM-EVAL-RATELIMIT reading goes
+        into the ledger's window at once. Returns what subprocess.run would."""
+        import types
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
+        err = []
+        drain = threading.Thread(target=lambda: err.append(p.stderr.read()), daemon=True)
+        drain.start()
+        lines = []
+        for line in p.stdout:
+            lines.append(line)
+            if line.startswith("TEAM-EVAL-RATELIMIT {"):
+                try:
+                    reading = json.loads(line[len("TEAM-EVAL-RATELIMIT "):])
+                except ValueError:
+                    continue
+                reading.update(source=key, arrived=int(time.time() * 1000))
+                ledger.add_readings([reading])
+                headroom.note(key, reading)
+        p.wait()
+        drain.join()
+        return types.SimpleNamespace(stdout="".join(lines), stderr="".join(err), returncode=p.returncode)
 
     def one(run):
         with in_flight:
@@ -1108,9 +1355,17 @@ def campaign(opts):
                f"--arg=base_url={opts.base_url}", f"--arg=task={task}", f"--arg=arm={arm}", f"--arg=budget={budget}",
                f"--arg=minutes={opts.minutes}",
                "--artifact", ".build/team-eval/out.tgz", "--timeout", str(int(opts.minutes) * 60 + 3600), "--key", key]
-        worker = free.get() if opts.worker else None
+        while True:
+            worker = free.get() if opts.worker else None
+            # Again with the worker in hand: the wait for it may have been long,
+            # and a live reading may have taken the headroom under the line.
+            if headroom.ok():
+                break
+            if worker:
+                free.put(worker)
+            headroom.wait()
         try:
-            r = subprocess.run(cmd + (["--target-worker", worker] if worker else []), capture_output=True, text=True)
+            r = run_streaming(cmd + (["--target-worker", worker] if worker else []), key)
         finally:
             if worker:
                 free.put(worker)
@@ -1139,9 +1394,10 @@ def campaign(opts):
                     line[k] = packed.get(k)
         pin = line.get("pin")
         # The step's last response's reading joins the window the gate reads.
-        last = (line.get("ratelimit") or {}).get("last")
-        if last:
-            ledger.add_readings([dict(last, source=key)])
+        # The step's readings join the window the gate reads (the live ones are
+        # in already: once per request id), the last too when it has no id.
+        rl = line.get("ratelimit") or {}
+        ledger.add_readings([dict(x, source=key) for x in (rl.get("readings") or []) + [rl.get("last")] if x])
         failed = line.get("failed", [f"step rc {r.returncode}, no TEAM-EVAL line"])
         # 409: the key already names a step that may have run, so keep the reservation.
         refused = re.search(r"cmux-ci: controller HTTP 4(?!09)\d\d: .*", r.stderr)
@@ -1159,7 +1415,7 @@ def campaign(opts):
                      f"{'tokens unknown' if not tokens else str(tokens.get('total')) + ' tokens'}, "
                      f"spent {'unknown' if spent is None else f'${spent:.2f}'}")
 
-    with ThreadPoolExecutor(max_workers=opts.parallel) as pool:
+    with ThreadPoolExecutor(max_workers=max(opts.parallel, opts.max_concurrent)) as pool:
         for key, what in pool.map(one, runs):
             cap = ledger.cap()
             print(f"[team-eval campaign] {key}: {what}; used {ledger.tokens()['total']} tokens, committed "
@@ -1187,13 +1443,13 @@ def main():
     c.add_argument("--worker", nargs="+", default=[],
                    help="controller workers to run on (names from cmux-ci workers) that can reach --base-url; "
                         "each step takes a free one")
-    c.add_argument("--max-concurrent", type=int, default=4,
+    c.add_argument("--max-concurrent", type=positive, default=4,
                    help="steps in flight at most, even when more workers are free")
-    c.add_argument("--headroom-cmd", default=" ".join(map(shlex.quote, (sys.executable, os.path.join(HERE, "headroom_probe.py")))),
-                   help="prints the pool's remaining weekly fraction (0..1), run when no reading is recent; "
-                        "'' turns the headroom check off")
+    c.add_argument("--headroom-cmd", default=None,
+                   help="prints the pool's remaining weekly fraction (0..1), run when no reading is recent "
+                        "(default: headroom_probe.py --base-url BASE_URL); '' turns the headroom check off")
     c.add_argument("--min-headroom", type=float, default=0.25, help="start no step while the headroom is below this")
-    c.add_argument("--headroom-window", type=int, default=20, help="the last N readings the check reads")
+    c.add_argument("--headroom-window", type=positive, default=20, help="the last N readings the check reads")
     c.add_argument("--headroom-max-age", type=float, default=30, help="minutes a reading counts")
     c.add_argument("--headroom-sleep", type=float, default=180, help="seconds between checks while paused")
     c.add_argument("--minutes", type=int, default=60)
@@ -1210,6 +1466,8 @@ def main():
     r.add_argument("--max-minutes", type=float, default=60)
     r.add_argument("--quiet-seconds", type=float, default=90)
     r.add_argument("--keep-repo", default="", help="check the task out here and leave it (for checks after the run)")
+    r.add_argument("--live-fd", type=int, default=None,
+                   help="also write each TEAM-EVAL-RATELIMIT line to this open fd (the step's stdout)")
     opts = ap.parse_args()
     if opts.cmd == "campaign":
         campaign(opts)
@@ -1280,6 +1538,8 @@ def run(opts):
                         pass
         return evs
 
+    # The readings in acpmux's session logs, printed as they come.
+    follower = AcpmuxFollower(acpmux_home, LiveReadings(opts.live_fd).emit, log)
     stopped = []
 
     def stop_all():
@@ -1295,6 +1555,7 @@ def run(opts):
             except ProcessLookupError:
                 pass
         left = stop_acpmux(bins, acpmux_home)
+        follower.stop()
         info["acpmux_left"] = left
         deadline = time.time() + 20
         for p in pids:
@@ -1381,6 +1642,7 @@ def run(opts):
         if not conv:
             raise SystemExit("no Chief conversation")
         info["conversation"] = conv
+        follower.start()
         log(f"up: task {task['id']} arm {opts.arm} repo {repo_dir}")
 
         arrivals = {}
@@ -1491,6 +1753,7 @@ def run(opts):
             for r in readings:
                 f.write(json.dumps(r) + "\n")
         tl = timeline(sent, msgs, arrivals)
+        starts = cursor_starts(keys, msgs, cursor_log)
         diff = final_diff(repo_dir, base_commit)
         open(os.path.join(out, "diff.patch"), "w").write(diff)
         stub_calls = [l for l in open(stubs_log)] if os.path.exists(stubs_log) else []
@@ -1499,7 +1762,7 @@ def run(opts):
         info.update({
             "sent": sent,
             "timeline": tl,
-            "stall": stall(sent, cursor_starts(keys, msgs, cursor_log), tl,
+            "stall": stall(sent, starts, attributed_replies(sent, starts, msgs, arrivals),
                            {p: chief_state(ev, at) for p, at in sent.items()}, end_ms),
             "tokens": dict(sum_tokens([meter.tokens(), node_tokens(ev)]), compactor=node_tokens(ev)),
             "ratelimit": ratelimit_summary(readings),

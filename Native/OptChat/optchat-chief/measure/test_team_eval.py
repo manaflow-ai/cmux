@@ -313,6 +313,9 @@ class LossyRunTests(unittest.TestCase):
         # The headers claude printed: one reading per response (the fake repeats one).
         self.assertEqual(run["ratelimit"]["count"], 1)
         self.assertEqual(run["ratelimit"]["min_headroom"], 0.47)
+        live = [l for l in r.stdout.splitlines() if l.startswith("TEAM-EVAL-RATELIMIT {")]
+        self.assertEqual(len(live), 1)  # printed as claude's stdout was read, once per request id
+        self.assertEqual(json.loads(live[0][len("TEAM-EVAL-RATELIMIT "):])["headroom"], 0.47)
 
     def test_another_model_stops_the_run_and_fails_it(self):
         r, run = self.run_l("claude-sonnet-5-5")
@@ -422,14 +425,14 @@ class StallTests(unittest.TestCase):
     def test_waits_first_replies_and_busy_messages_are_summed_per_run(self):
         sent = {"brief": 0, "status": 60000, "scope": 120000, "side": 180000}
         starts = {"brief": 1000, "status": 75000, "scope": 121000, "side": None}  # side never started
-        tl = {"brief": {"first_reply_ms": 4000}, "status": {"first_reply_ms": 90000},
-              "scope": {"first_reply_ms": 8000}, "side": {"first_reply_ms": None}}
+        replies = {"brief": (4000, False), "status": (90000, False), "scope": (8000, False), "side": (None, True)}
         states = {"brief": (False, 0), "status": (True, 6), "scope": (True, 2), "side": (True, None)}
-        st = team_eval.stall(sent, starts, tl, states, end_ms=200000)
+        st = team_eval.stall(sent, starts, replies, states, end_ms=200000)
         self.assertEqual(st["messages"]["status"]["wait_ms"], 15000)
         self.assertEqual(st["messages"]["side"]["waited_to_end_ms"], 20000)
         s = st["summary"]
-        self.assertEqual((s["first_reply_p50_s"], s["first_reply_max_s"], s["no_reply"]), (8.0, 90.0, 1))
+        self.assertEqual((s["first_reply_p50_s"], s["first_reply_max_s"], s["no_reply"], s["reply_unattributable"]),
+                         (8.0, 90.0, 0, 1))
         # status waited 15 s; side never started and waited 20 s to the end.
         self.assertEqual(s["queued_over_10s"], {"count": 2, "of": 4, "rate": 0.5})
         self.assertEqual(s["never_started"], 1)
@@ -437,6 +440,25 @@ class StallTests(unittest.TestCase):
         self.assertEqual(s["busy"]["messages"], 1)
         self.assertEqual(s["busy"]["first_reply_p50_s"], 90.0)
         self.assertEqual(s["busy"]["unknown"], 1)
+
+    def test_a_reply_is_credited_only_after_its_prompt_started_and_the_earlier_ones_reply(self):
+        msgs = [msg(1, "user_local", "fix it"), msg(2, "agent_mux", "On it."), msg(3, "user_local", "status?"),
+                msg(4, "agent_mux", "Done with the fix."), msg(5, "user_local", "and x?"),
+                msg(6, "agent_mux", "Halfway."), msg(7, "user_local", "y?")]
+        arrivals = {"m2": 2000, "m4": 30000, "m6": 50000}
+        sent = {"brief": 1000, "status": 10000, "scope": 20000, "side": 60000}
+        # status was read only at 40 s, so the 30 s message (the brief's turn) is not its reply;
+        # scope started at 21 s, but its reply must come after status's (50 s): none is left.
+        starts = {"brief": 1500, "status": 40000, "scope": 21000, "side": None}
+        got = team_eval.attributed_replies(sent, starts, msgs, arrivals)
+        self.assertEqual(got, {"brief": (1000, False), "status": (40000, False), "scope": (None, False),
+                               "side": (None, True)})
+
+    def test_a_resumed_subagent_runs_again(self):
+        ev = [{"ts": 1, "ev": "subagent.start", "id": "a"}, {"ts": 2, "ev": "subagent.done", "id": "a"},
+              {"ts": 3, "ev": "subagent.resume", "id": "a"}]
+        self.assertEqual(team_eval.chief_state(ev, 2)[1], 0)
+        self.assertEqual(team_eval.chief_state(ev, 3)[1], 1)
 
     def test_the_chief_state_comes_from_the_trace_at_the_send(self):
         ev = [{"ts": 10, "ev": "turn.start"}] + [{"ts": 20 + i, "ev": "subagent.start", "id": f"a{i}"} for i in range(6)]
@@ -710,6 +732,154 @@ class HeadroomTests(unittest.TestCase):
         open(fake, "w").write("#!/bin/sh\necho ok\n")
         r = subprocess.run(probe, capture_output=True, text=True)
         self.assertEqual((r.returncode, r.stdout), (1, ""))
+        # --base-url: claude -p goes through that route, with a placeholder key and no host token.
+        open(fake, "w").write(f"#!/bin/sh\necho \"$ANTHROPIC_BASE_URL $ANTHROPIC_API_KEY ${{ANTHROPIC_AUTH_TOKEN:-none}}\" "
+                              f"> {d}/env\ncat {d}/sample\n")
+        r = subprocess.run(probe + ["--base-url", "http://route:9"], capture_output=True, text=True,
+                           env=dict(os.environ, ANTHROPIC_AUTH_TOKEN="host-token"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(open(os.path.join(d, "env")).read().split(),
+                         ["http://route:9", "sk-ant-placeholder-the-route-signs", "none"])
+
+
+class LiveReadingTests(unittest.TestCase):
+    def test_a_reading_is_one_flushed_line_on_stdout_and_the_live_fd_once_per_request(self):
+        import contextlib
+        import io
+        r, w = os.pipe()
+        self.addCleanup(os.close, r)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            live = team_eval.LiveReadings(w)
+            rs = team_eval.ratelimit_readings(DEBUG_SAMPLE.splitlines(), at=3)
+            live.emit(rs + rs + [{"at": 4, "7d_utilization": None, "7d_status": None}])
+        os.close(w)
+        sent = os.read(r, 1 << 16).decode()
+        self.assertEqual(sent, buf.getvalue())
+        self.assertEqual(sent.count("\n"), 1)
+        self.assertTrue(sent.startswith("TEAM-EVAL-RATELIMIT {"))
+        self.assertEqual(json.loads(sent.split(" ", 1)[1])["7d_utilization"], 0.53)
+
+    def test_the_follower_reads_appended_bytes_and_new_session_logs_as_they_come(self):
+        import queue
+        import shutil
+        import tempfile
+        if not hasattr(team_eval.select, "kqueue"):
+            self.skipTest("no kqueue")
+        home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, home, True)
+        got = queue.Queue()
+        f = team_eval.AcpmuxFollower(home, lambda rs: [got.put(r) for r in rs], log=lambda m: None).start()
+        self.addCleanup(f.stop)
+
+        def records(text, req):
+            out = ""
+            for l in text.replace("req_010UkMXn2kP8WvvTaLbryLXo", req).splitlines():
+                out += json.dumps({"at": 100, "dir": "mux", "kind": "stderr", "msg": {"text": "[non-json stdout] " + l}}) + "\n"
+            return out
+
+        one = records(DEBUG_SAMPLE, "req_a")
+        ev1 = os.path.join(home, "sessions", "s1", "events")
+        os.makedirs(ev1)  # a new session directory, then its log
+        with open(os.path.join(ev1, "000001.ndjson"), "w") as fh:
+            fh.write(one[:len(one) // 2])  # half a record: nothing yet
+            fh.flush()
+            fh.write(one[len(one) // 2:])
+        self.assertEqual(got.get(timeout=10)["request_id"], "req_a")
+        with open(os.path.join(ev1, "000001.ndjson"), "a") as fh:  # appended to the same log
+            fh.write(records(DEBUG_SAMPLE.replace('"0.53"', '"0.9"'), "req_b"))
+        r = got.get(timeout=10)
+        self.assertEqual((r["request_id"], r["7d_utilization"]), ("req_b", 0.9))
+        ev2 = os.path.join(home, "sessions", "s2", "events")
+        os.makedirs(ev2)  # a second session (a subagent)
+        open(os.path.join(ev2, "000001.ndjson"), "w").write(records(DEBUG_SAMPLE, "req_c"))
+        self.assertEqual(got.get(timeout=10)["request_id"], "req_c")
+        f.stop()
+        self.assertTrue(got.empty())  # each once
+
+
+class StreamingCampaignTests(unittest.TestCase):
+    campaign_with = CampaignOutcomeTests.campaign_with
+
+    def reading(self, req, util):
+        import time
+        return json.dumps({"at": int(time.time() * 1000), "request_id": req, "7d_utilization": util,
+                           "7d_status": "allowed"})
+
+    def fake_run(self, body):
+        return ("[ \"$1\" = run ] && { echo 'cmux-ci: step s1 (exclusive)' >&2; " + body +
+                f" echo 'TEAM-EVAL {json.dumps(TEAM_EVAL_LINE)}'; exit 0; }}\n")
+
+    def now(self):
+        return "$(/usr/bin/python3 -c 'import time; print(int(time.time() * 1000))')"
+
+    def test_a_running_steps_readings_reach_the_ledger_while_it_runs(self):
+        body = (f"echo 'TEAM-EVAL-RATELIMIT {self.reading('req_live', 0.6)}'; sleep 1.5; "
+                f"echo {self.now()} > {{d}}/ended;")
+        import contextlib
+        import io
+        with contextlib.redirect_stdout(io.StringIO()):
+            led = self.campaign_with("", 1, run=self.fake_run(body), cap_usd=None)
+        live = [r for r in led.readings() if r.get("request_id") == "req_live"]
+        self.assertEqual(len(live), 1)
+        self.assertEqual(live[0]["source"], "team-eval-x-t-A-1-a1")
+        self.assertLess(live[0]["arrived"], int(open(os.path.join(self.d, "ended")).read()) - 1000)
+        self.assertIn("ok", open(os.path.join(self.d, "out", "team-eval-x-t-A-1-a1", "step.log")).read())
+        self.assertIn("TEAM-EVAL-RATELIMIT", open(os.path.join(self.d, "out", "team-eval-x-t-A-1-a1", "step.log")).read())
+
+    def test_a_step_queued_behind_a_busy_worker_waits_when_a_live_reading_drops_the_headroom(self):
+        import contextlib
+        import io
+        import tempfile
+        import time
+        # The first step reports 0.9 used (headroom 0.1) while it runs; the second passed the
+        # gate before that and waits for m1. Once it has m1 the gate stops it until the low
+        # reading is too old and the probe (0.8) lets it go.
+        first = os.path.join(tempfile.mkdtemp(), "first")
+        body = (f"if mkdir {first} 2>/dev/null; then echo 'TEAM-EVAL-RATELIMIT {self.reading('req_low', 0.9)}';"
+                f" sleep 0.5; echo end {self.now()} >> {{d}}/spans; else echo start {self.now()} >> {{d}}/spans; fi;")
+        buf = io.StringIO()
+        seed = {"at": int(time.time() * 1000), "request_id": "req_seed", "7d_utilization": 0.5, "7d_status": "allowed"}
+        orig = team_eval.Ledger.__init__
+
+        def seeded(self, path, cap):
+            orig(self, path, cap)
+            if not self.readings():
+                self.add_readings([seed])
+        team_eval.Ledger.__init__ = seeded
+        self.addCleanup(setattr, team_eval.Ledger, "__init__", orig)
+        with contextlib.redirect_stdout(buf):
+            self.campaign_with("", 1, run=self.fake_run(body), arm=["A", "B"], parallel=2, max_concurrent=2,
+                               worker=["m1"], headroom_cmd="echo 0.8", headroom_max_age=1.5 / 60, headroom_sleep=1)
+        out = buf.getvalue()
+        self.assertIn("live reading from team-eval-x-t-A-1-a1: headroom 0.10 is under 0.25", out)
+        pause = out.index("is under 0.25: pausing new steps")
+        self.assertGreater(pause, out.index("live reading from"))
+        self.assertIn("resuming", out[pause:])
+        spans = dict(l.split() for l in open(os.path.join(self.d, "spans")))
+        self.assertGreater(int(spans["start"]) - int(spans["end"]), 900)  # it waited past the pause
+
+    def test_the_pool_lets_max_concurrent_steps_run_whatever_parallel_says(self):
+        stamp = "/usr/bin/python3 -c 'import time; print(time.time())'"
+        body = f"echo start $({stamp}) >> {{d}}/spans; sleep 1.5; echo end $({stamp}) >> {{d}}/spans;"
+        self.campaign_with("", 1, run=self.fake_run(body), task=["t1", "t2"], arm=["A", "B"], parallel=1, max_concurrent=4,
+                           cap_usd=None)
+        spans = [l.split() for l in open(os.path.join(self.d, "spans"))]
+        now, most = 0, 0
+        for kind, _ in sorted(spans, key=lambda x: (float(x[1]), x[0] == "start")):
+            now += 1 if kind == "start" else -1
+            most = max(most, now)
+        self.assertEqual(most, 4)
+
+    def test_the_default_probe_uses_the_steps_route_and_bad_counts_are_refused(self):
+        cmd = team_eval.default_headroom_cmd("http://route:9")
+        self.assertTrue(cmd.endswith("headroom_probe.py --base-url http://route:9"), cmd)
+        for flag in ("--max-concurrent", "--headroom-window"):
+            r = subprocess.run([sys.executable, os.path.join(HERE, "team_eval.py"), "campaign", "--name", "x",
+                                "--ref", "a" * 40, "--base-url", "u", "--task", "t", "--arm", "A", "--out", "/tmp/x",
+                                flag, "0"], capture_output=True, text=True)
+            self.assertEqual(r.returncode, 2, flag)
+            self.assertIn("at least 1", r.stderr)
 
 
 if __name__ == "__main__":

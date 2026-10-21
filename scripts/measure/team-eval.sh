@@ -180,8 +180,11 @@ ln -s "$work/cc/node_modules/.bin/claude" "$home/.local/bin/claude"
 echo "TEAM-EVAL-BIN claude $(HOME="$home" "$home/.local/bin/claude" --version)"
 
 status=0
+# fd 3 is the step's stdout: each TEAM-EVAL-RATELIMIT line goes there as it
+# comes (cmux-ci streams it to the campaign's headroom gate mid-run).
+exec 3>&1
 HOME="$home" python3 Native/OptChat/optchat-chief/measure/team_eval.py run --task "$task" --arm "$arm" \
-  --bins "$work/bin" --repo "$root" --out "$work/out" --keep-repo "$repo" \
+  --bins "$work/bin" --repo "$root" --out "$work/out" --keep-repo "$repo" --live-fd 3 \
   --budget-usd "$budget" --max-minutes "$minutes" \
   --env "ANTHROPIC_BASE_URL=$base_url" --env "ANTHROPIC_API_KEY=sk-ant-placeholder-the-route-signs" \
   --env "CLAUDE_CONFIG_DIR=$home/.claude" --env "DISABLE_AUTOUPDATER=1" \

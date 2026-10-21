@@ -2,6 +2,8 @@
 """The pool's weekly headroom from one real Claude Code response.
 
 usage: headroom_probe.py [--model claude-haiku-5-5] [--base-url URL] [--claude PATH]
+  --base-url  the route to probe (the campaign passes the steps' --base-url,
+              so the reading is from their pool); default: this environment's
 Runs `claude -p` once on the cheapest model with ANTHROPIC_LOG=debug, which
 prints each response's real headers on stdout, reads the
 anthropic-ratelimit-unified-7d-* headers and prints 1 - utilization (0 when
@@ -41,37 +43,49 @@ def _num(v):
     return x if x == x else None  # NaN is no number
 
 
-def ratelimit_readings(lines, at=None):
-    """One reading per response from ANTHROPIC_LOG=debug output: the unified
-    headers of each headers block (a block ends at a line starting with
-    `}`), once per request id (the log prints a response's headers twice).
-    `lines` are text lines or (ms, line) pairs; a reading's `at` is its
-    block's last line's ms, else `at`, else now."""
-    out, cur, cur_at = [], {}, None
+class RatelimitParser:
+    """ANTHROPIC_LOG=debug lines in, one reading per response out, as the
+    lines arrive: the unified headers of each headers block (a block ends at
+    a line starting with `}`), once per request id (the log prints a
+    response's headers twice). A reading's `at` is its block's last header
+    line's ms, else `at`, else now."""
 
-    def close():
-        if any(k.startswith("anthropic-ratelimit-unified-") for k in cur):
-            g = lambda name: cur.get("anthropic-ratelimit-unified-" + name)
-            r = {"at": cur_at if cur_at is not None else (at if at is not None else int(time.time() * 1000)),
-                 "request_id": cur.get("request-id"), "status": g("status"),
-                 "7d_utilization": _num(g("7d-utilization")), "7d_status": g("7d-status"),
-                 "5h_utilization": _num(g("5h-utilization")), "5h_status": g("5h-status")}
-            if not (out and r["request_id"] and out[-1]["request_id"] == r["request_id"]):
-                out.append(r)
-        cur.clear()
+    def __init__(self, at=None):
+        self.at, self.cur, self.cur_at, self.last_id = at, {}, None, None
 
-    for item in lines:
-        ms, line = item if isinstance(item, tuple) else (None, item)
+    def feed(self, line, ms=None):
+        """The readings `line` completes ([] or one)."""
         if line.startswith(ACPMUX_PREFIX):
             line = line[len(ACPMUX_PREFIX):]
         m = HEADER.search(line)
         if m:
-            cur[m.group(1)] = m.group(2)
-            cur_at = ms
-        elif line.lstrip().startswith("}"):
-            close()
-    close()
-    return out
+            self.cur[m.group(1)] = m.group(2)
+            self.cur_at = ms
+            return []
+        return self.close() if line.lstrip().startswith("}") else []
+
+    def close(self):
+        cur, out = self.cur, []
+        if any(k.startswith("anthropic-ratelimit-unified-") for k in cur):
+            g = lambda name: cur.get("anthropic-ratelimit-unified-" + name)
+            at = self.cur_at if self.cur_at is not None else (self.at if self.at is not None else int(time.time() * 1000))
+            r = {"at": at, "request_id": cur.get("request-id"), "status": g("status"),
+                 "7d_utilization": _num(g("7d-utilization")), "7d_status": g("7d-status"),
+                 "5h_utilization": _num(g("5h-utilization")), "5h_status": g("5h-status")}
+            if not (r["request_id"] and r["request_id"] == self.last_id):
+                out.append(r)
+            self.last_id = r["request_id"]
+        self.cur = {}
+        return out
+
+
+def ratelimit_readings(lines, at=None):
+    """Every reading of `lines` (text lines or (ms, line) pairs): RatelimitParser."""
+    p, out = RatelimitParser(at), []
+    for item in lines:
+        ms, line = item if isinstance(item, tuple) else (None, item)
+        out += p.feed(line, ms)
+    return out + p.close()
 
 
 def reading_headroom(r):
@@ -95,7 +109,11 @@ def main():
     opts = ap.parse_args()
     env = dict(os.environ, ANTHROPIC_LOG="debug")
     if opts.base_url:
-        env["ANTHROPIC_BASE_URL"] = opts.base_url
+        # The steps' route signs its requests itself: as team-eval.sh does, it
+        # gets a placeholder key and none of this host's credentials.
+        for k in ("ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"):
+            env.pop(k, None)
+        env.update(ANTHROPIC_BASE_URL=opts.base_url, ANTHROPIC_API_KEY="sk-ant-placeholder-the-route-signs")
     try:
         r = subprocess.run([opts.claude, "-p", "reply with the word ok", "--model", opts.model],
                            capture_output=True, text=True, env=env, timeout=opts.timeout)
