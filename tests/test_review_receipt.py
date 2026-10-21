@@ -183,6 +183,14 @@ class FullWindow(unittest.TestCase):
         self.assertEqual(who, "", why)
         self.assertIn("window full", why)
 
+    def test_an_unsubmitted_review_does_not_make_a_full_window_reach_past_the_ship(self):
+        # A pending review has submittedAt null; read as "", it looked older than the SHIP and let the gate pass.
+        reviews = [review("COMMENTED", body=f"note {i}", oid=OTHER, at=self.at(i + 1)) for i in range(29)]
+        pending = review("PENDING", oid=OTHER, at=None)
+        who, why = receipt.decide(pr([comment(SHIP, at=self.at(0))], [pending, *reviews]), HEAD)
+        self.assertEqual(who, "", why)
+        self.assertIn("window full", why)
+
     def test_a_full_window_that_reaches_past_the_ship_passes(self):
         older = [comment(f"status {i}", at=self.at(i)) for i in range(20)]
         newer = [comment(f"status {i}", at=self.at(i + 30)) for i in range(19)]
