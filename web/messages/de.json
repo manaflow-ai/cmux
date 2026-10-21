@@ -15,6 +15,21 @@
     "benefitSuperpowers": "Planung, TDD, Subagenten und Review"
   },
   "vmErrors": {
+    "allocationUnavailable": {
+      "title": "Cloud-VM-Anfrage verzögert",
+      "message": "Die Zuweisung einer Cloud-VM ist vorübergehend nicht verfügbar.",
+      "action": "Warte eine Minute und versuche es dann mit demselben Idempotenzschlüssel erneut."
+    },
+    "snapshotIdempotencyRequired": {
+      "title": "Snapshot-Anfrage benötigt einen Wiederholungsschlüssel",
+      "message": "Cloud-VM-Snapshots benötigen einen Idempotenzschlüssel.",
+      "action": "Versuche es mit einem festen Idempotency-Key mit höchstens 128 Zeichen erneut."
+    },
+    "snapshotQuota": {
+      "title": "Snapshot-Limit erreicht",
+      "message": "Diese Cloud-VM hat ihr Snapshot-Limit erreicht.",
+      "action": "Lösche einen vorhandenen Snapshot und versuche es dann mit demselben Idempotenzschlüssel erneut."
+    },
     "guestInstall": {
       "title": "Cloud-VM-Einrichtung nicht abgeschlossen",
       "reason": "Die Gast-Einrichtung der Cloud-VM wurde nicht abgeschlossen.",
