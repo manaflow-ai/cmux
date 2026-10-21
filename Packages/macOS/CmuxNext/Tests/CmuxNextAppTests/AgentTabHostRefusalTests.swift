@@ -10,9 +10,22 @@ import Testing
 @MainActor struct AgentTabHostRefusalTests {
     private let local = "install:3f2a", chief = "chief:2e448bc2"
 
-    /// The same session opens without the host (through the peer), so the refusal names the machine
-    /// and says so (coord-deputy 2026-10-20).
-    @Test func anotherMachinesHostIsRefusedWithHowToOpenIt() throws {
+    /// A host that names one machine of the sidebar (its id, name or badge, any case, as `acpmux ls`
+    /// shows a peer) opens the chat on that machine (`agent-session-adopt`, #22871); a name that
+    /// matches none or more than one opens nothing there.
+    @Test func anotherMachinesHostOpensOnThatMachine() {
+        let machines: [(id: String, names: [String?])] = [("ssh-1", ["huge-blue", "HB"]), ("ssh-2", ["cmux16", nil]), ("ssh-3", ["cmux16", nil])]
+        #expect(MachineRegistry.machine(named: "Huge-Blue", among: machines) == "ssh-1")
+        #expect(MachineRegistry.machine(named: "hb", among: machines) == "ssh-1")
+        #expect(MachineRegistry.machine(named: "ssh-2", among: machines) == "ssh-2")
+        #expect(MachineRegistry.machine(named: "cmux16", among: machines) == nil, "an ambiguous name picked a machine")
+        #expect(MachineRegistry.machine(named: "cmux24", among: machines) == nil)
+    }
+
+    /// A host that names no reachable machine (or more than one) is refused, and the refusal names
+    /// it and says how to open the chat (coord-deputy 2026-10-20). The open checks it before it
+    /// makes the workspace, so a refusal leaves no empty workspace.
+    @Test func aHostThatNamesNoMachineHereIsRefusedWithHowToOpenIt() throws {
         let refusal = try #require(AgentTabStore.hostRefusal("cmux16", localHost: local, chiefHost: chief, daemonIsLocal: true))
         #expect(refusal == RefusalStrings.agentTabRunsOnHost("cmux16"))
         #expect(refusal.contains("cmux16"), "the refusal does not name the machine: \(refusal)")
