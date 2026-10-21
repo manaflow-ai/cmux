@@ -334,6 +334,38 @@ run > "$tmp/out" 2>&1 || fail "a repair the tip already superseded failed the ru
   || fail "the snapshot was not derived from the tip's exports: $(remote_show schemas/defaults/cmux-next.json)"
 grep -q "already current" "$tmp/out" || fail "the run does not say the exports were superseded: $(cat "$tmp/out")"
 
+# 21b. A made-at commit that exists but is not between BASE_SHA and the tip (here the repair itself)
+#      holds the exports and fails the run with an error, even when the tip's own stamp is current:
+#      a bad SETTINGS_MADE_AT is a workflow defect, never a silent pass.
+setup_next
+repair_only "${settings_set[@]}"
+lane_commit "lane regenerates the exports" Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Settings.swift "setting v2" \
+  schemas/settings-export/settings-schema.sources.sha256 "stamp for setting v2" schemas/settings/settings-schema.json "schema lane"
+moved="$(remote_tip)"
+if run_at "$(git -C "$tmp/bot" rev-parse HEAD)" > "$tmp/out" 2>&1; then
+  fail "exports made at a commit off the branch passed the run: $(cat "$tmp/out")"
+fi
+[[ "$(remote_show schemas/settings/settings-schema.json)" == "schema lane" ]] || fail "exports made off the branch landed"
+grep -q "::error::.*made at" "$tmp/out" || fail "the run does not raise an error for the made-at commit: $(cat "$tmp/out")"
+
+# 21c. What changed after SETTINGS_MADE_AT can't be read (the areas script fails on that range):
+#      the exports never land as if nothing moved. Here the settings did move after T1.
+setup_next
+repair_only "${settings_set[@]}"
+lane_commit "lane edits a setting" Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Settings.swift "setting v2" marker.txt "made here"
+made="$(remote_tip)"
+lane_commit "lane edits it again" Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Settings.swift "setting v3"
+moved="$(remote_tip)"
+# Fails on any range without marker.txt, i.e. on SETTINGS_MADE_AT..tip but not on BASE..tip.
+printf '#!/usr/bin/env bash\nin="$(cat)"\ngrep -qx marker.txt <<<"$in" || exit 3\nexec "%s" <<<"$in"\n' \
+  "$here/../autofix-areas.sh" > "$tmp/flaky-areas.sh"
+chmod +x "$tmp/flaky-areas.sh"
+if (cd "$tmp/bot" && CMUX_BASE_AUTOFIX_AREAS="$tmp/flaky-areas.sh" bash "$script" "$tmp/remote.git" feat "$base" "$made") > "$tmp/out" 2>&1; then
+  fail "a run that could not read what moved after SETTINGS_MADE_AT passed: $(cat "$tmp/out")"
+fi
+[[ "$(remote_tip)" == "$moved" ]] || fail "exports landed although what moved after they were made was unreadable"
+grep -q "cannot read" "$tmp/out" || fail "the run does not say why: $(cat "$tmp/out")"
+
 # base-autofix-settings-exports.sh (the Mac job): regenerates on the newest tip while the inputs
 # move, at most CMUX_BASE_AUTOFIX_SETTINGS_TRIES times, and says which commit it made them at.
 regen_script="$here/../base-autofix-settings-exports.sh"

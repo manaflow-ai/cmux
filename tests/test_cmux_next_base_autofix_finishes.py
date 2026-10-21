@@ -206,6 +206,22 @@ class BaseAutofixFinishes(unittest.TestCase):
         self.assertIn("made_at=", step["run"])
         self.assertEqual(job["outputs"]["settings_made_at"], "${{ steps.settings.outputs.made_at }}")
 
+    def test_a_slow_settings_regeneration_never_costs_the_action_exports(self):
+        # Up to three swift builds: the settings step has its own timeout, below the job's, so a slow
+        # one fails that step (continue-on-error) and the upload of the action exports still runs.
+        job = DOC["jobs"]["action-exports"]
+        steps = job["steps"]
+        settings = next(i for i, step in enumerate(steps) if step.get("id") == "settings")
+        upload = next(i for i, step in enumerate(steps) if "upload-artifact" in str(step.get("uses", "")))
+        self.assertTrue(steps[settings].get("continue-on-error"))
+        self.assertIn("timeout-minutes", steps[settings])
+        self.assertLess(steps[settings]["timeout-minutes"], job["timeout-minutes"])
+        before = [step for step in steps[:settings] if "timeout-minutes" not in step]
+        self.assertLessEqual(steps[settings]["timeout-minutes"] + 15, job["timeout-minutes"],
+                             "leave the earlier steps and the upload room inside the job's timeout")
+        self.assertGreater(upload, settings)
+        self.assertTrue(before)
+
     def test_the_push_judges_the_settings_exports_from_where_they_were_made(self):
         step = next(step for step in DOC["jobs"]["autofix"]["steps"] if step.get("name") == "Push the repairs")
         self.assertEqual(step["env"]["SETTINGS_MADE_AT"], "${{ needs.action-exports.outputs.settings_made_at }}")
