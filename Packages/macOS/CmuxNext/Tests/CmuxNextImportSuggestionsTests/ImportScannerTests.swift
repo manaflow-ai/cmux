@@ -64,7 +64,7 @@ struct ImportScannerTests {
         let zen = try #require(Self.scanner(home).browsers().first { $0.browser == .zen })
         #expect(zen.profiles.map(\.directoryName) == ["Profiles/ab12.Default (release)"])
         // `kinds` is in ImportDataKind order.
-        #expect(zen.kinds == [.bookmarks, .history, .cookies])
+        #expect(zen.kinds == [.history, .bookmarks, .cookies])
     }
 
     @Test func safariBehindFullDiskAccessIsFoundWithoutReadingIt() throws {
