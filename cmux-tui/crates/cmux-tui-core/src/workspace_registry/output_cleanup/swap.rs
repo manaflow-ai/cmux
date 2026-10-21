@@ -97,10 +97,26 @@ pub(crate) fn swap_at_open(db_path: &Path) -> bool {
                 started.elapsed().as_secs_f64()
             );
             let _ = remove_staging(db_path);
-            let _ = fs::write(failed_path(db_path), format!("{error:#}\n"));
+            // A full disk is retried from Phase A at a later start; any other
+            // failure stops the cleanup of this registry for good.
+            if !is_disk_full(&error) {
+                let _ = fs::write(failed_path(db_path), format!("{error:#}\n"));
+            }
             false
         }
     }
+}
+
+fn is_disk_full(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        cause
+            .downcast_ref::<rusqlite::Error>()
+            .and_then(rusqlite::Error::sqlite_error_code)
+            .is_some_and(|code| code == rusqlite::ErrorCode::DiskFull)
+            || cause
+                .downcast_ref::<std::io::Error>()
+                .is_some_and(|error| error.kind() == std::io::ErrorKind::StorageFull)
+    })
 }
 
 /// The swapped-in registry did not open: put the previous file back and
