@@ -42,7 +42,9 @@
 #             the app, which links no test target: #23360, #23163). Exit 0
 #             when every planned target compiled (or none was
 #             planned), 1 after "compile-tests: a test target did not
-#             compile", anything else when there is no verdict.
+#             compile", anything else when there is no verdict. The marker is
+#             printed as soon as a target fails, so a later package's setup
+#             failure (any exit) never hides an earlier compile failure.
 #
 # --event and --full-suite default to EVENT_NAME and FULL_SUITE. Run from the
 # repository root; every helper path is relative to it.
@@ -805,7 +807,7 @@ run_compile_tests() {
   sed 's/^/  /' "$plan"
   select_xcode
   echo "Xcode: $DEVELOPER_DIR"
-  local words target log status started failed=0 rows=() builds submodules submodule
+  local words target log status started failed=0 rows=() builds submodules submodule refused
   local debug_args=(${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"})
   log="$(mktemp -t swift-compile-tests.XXXXXX)"
   # The plan on fd 9: nothing a build step reads from stdin can eat its lines.
@@ -837,15 +839,19 @@ run_compile_tests() {
     for target in "${builds[@]}"; do
       started=$SECONDS
       status=0
+      refused=0
       if [ "$target" = --build-tests ]; then
         echo "::group::swift build --build-tests $compile_pkgdir"
         compile_one "$log" --build-tests ${debug_args[@]+"${debug_args[@]}"} --package-path "$compile_pkgdir" || status=$?
       else
         echo "::group::swift build --target $target ($compile_pkgdir)"
         compile_one "$log" ${debug_args[@]+"${debug_args[@]}"} --package-path "$compile_pkgdir" --target "$target" || status=$?
-        # A SwiftPM that will not build one test target on its own: build them all.
+        # A SwiftPM that will not build one test target on its own: build them
+        # all, once, in place of this package's remaining targets.
         if [ "$status" -ne 0 ] && grep -qiE "no (target|module) named|unknown target" "$log"; then
-          echo "::warning title=compile-tests::swift build --target $target was refused; building every test target of $compile_pkgdir"
+          echo "::warning title=compile-tests::swift build --target $target was refused; building every test target of $compile_pkgdir instead"
+          refused=1
+          target=--build-tests
           status=0
           compile_one "$log" --build-tests ${debug_args[@]+"${debug_args[@]}"} --package-path "$compile_pkgdir" || status=$?
         fi
@@ -857,7 +863,10 @@ run_compile_tests() {
         failed=$((failed + 1))
         rows+=("$(printf '%-34s %-30s %-10s %6ss' "${compile_pkgdir##*/}" "${target#--}" FAILED "$((SECONDS - started))")")
         echo "::error title=Test target did not compile::$compile_pkgdir: ${target#--} (exit $status)"
+        # The verdict now, before any later setup can end the run.
+        echo "compile-tests: a test target did not compile: ${compile_pkgdir##*/} ${target#--}"
       fi
+      [ "$refused" -eq 0 ] || break
     done
     [ "$failed" -ne 0 ] || record_built_ref "$compile_pkgdir"
   done 9< "$plan"

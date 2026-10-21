@@ -89,12 +89,17 @@ jobs:
     runs-on: ${{ needs.plan.outputs.needed == 'true' && vars.CI_COMPILE_CHECK_GATEWAY || 'ubuntu-24.04' }}
     if: ${{ needs.plan.outputs.needed == 'false' || (needs.plan.outputs.needed == 'true' && vars.CI_COMPILE_CHECK_GATEWAY != '') }}
     permissions: {}
-    timeout-minutes: 45
+    # Longer than the client's queue (1200 s) plus run (1500 s) timeouts and its
+    # report: a job timeout concludes as a failure, which would read as red.
+    timeout-minutes: 55
     steps:
       # The gateway checks nothing out: the fleet fetches the merge commit itself.
-      # Exit 0 is a pass, 1 after the lane's "a test target did not compile" a
-      # compile failure (this check goes red), anything else no verdict (a
-      # warning; this check stays green).
+      # Exit 0 is a pass. The lane's "compile-tests: a test target did not
+      # compile" marker is a compile failure (this check goes red) whatever the
+      # exit: the lane prints it as soon as a target fails, and a later
+      # package's setup may end the run with another status. Anything else
+      # (queue or run timeout, setup, the client) is no verdict: a warning,
+      # and this check stays green.
       - name: Compile the planned test targets on a fleet Mac
         env:
           NEEDED: ${{ needs.plan.outputs.needed }}
@@ -118,7 +123,7 @@ jobs:
             --timeout 1500 --queue-timeout 1200 2>&1 | tee "$log" || status=$?
           if [[ "$status" -eq 0 ]]; then
             echo "Every planned test target compiled."
-          elif [[ "$status" -eq 1 ]] && grep -q '^compile-tests: a test target did not compile' "$log"; then
+          elif grep -q 'compile-tests: a test target did not compile' "$log"; then
             echo "::error title=fleet test-compile::A test target this change reaches does not compile (advisory; see the errors above)."
             exit 1
           else
