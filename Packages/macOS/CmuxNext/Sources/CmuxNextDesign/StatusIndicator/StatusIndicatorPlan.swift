@@ -42,9 +42,6 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
         /// The dots dim and brighten one after another (one Motion `pulse`
         /// period per cycle).
         case wave
-        /// A slow opacity breath (Motion `breath` period): agent work's dot
-        /// (`StatusWorkingLook.breathe`).
-        case breathe
     }
 
     public enum Tint: Hashable, Sendable {

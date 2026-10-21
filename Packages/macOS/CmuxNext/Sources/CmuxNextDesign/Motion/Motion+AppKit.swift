@@ -390,21 +390,6 @@ extension MotionGate {
         return sweep
     }
 
-    /// Agent work's breath (1 -> `low` -> 1 over one `breath` period, eased), or nil when loops
-    /// are off. Slower and softer than the waiting pulse, so a list of working rows reads calm.
-    public func breathAnimation(low: Float) -> CAAnimation? {
-        guard let period = period(.breath) else { return nil }
-        let breath = CABasicAnimation(keyPath: "opacity")
-        breath.fromValue = 1
-        breath.toValue = low
-        breath.duration = period / 2
-        breath.autoreverses = true
-        breath.repeatCount = .infinity
-        breath.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        breath.isRemovedOnCompletion = false
-        return breath
-    }
-
     /// An opacity pulse (1 -> `low` -> 1), or nil when loops are off.
     public func pulseAnimation(low: Float) -> CAAnimation? {
         guard let period = period(.pulse) else { return nil }

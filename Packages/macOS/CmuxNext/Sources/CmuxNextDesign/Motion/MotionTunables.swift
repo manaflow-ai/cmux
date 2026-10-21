@@ -113,7 +113,6 @@ public nonisolated enum MotionTunables {
         .pulse: (1.8, "One cycle of the agent-waiting pulse."),
         .flash: (1, "Pane attention flash (two blinks; at least 1 s, the 2 Hz cap)."),
         .sweep: (1.3, "One pass of an unmeasured progress bar's segment (the update card while checking)."),
-        .breath: (2.4, "One breath of the agent-working dot (working look Breathing Dot). Web pages breathe on their own --cmux-breath-period."),
         .wiggle: (0.3, "One back-and-forth of an item's wiggle in the sidebar's edit mode."),
     ]
 

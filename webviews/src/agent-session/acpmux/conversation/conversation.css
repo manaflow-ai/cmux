@@ -1493,7 +1493,7 @@ pre.cv-math-source {
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
-    animation: cmux-shimmer var(--cmux-breath-period, 2.4s) linear infinite;
+    animation: cmux-shimmer var(--cmux-shimmer-period, 2.4s) linear infinite;
   }
 }
 
@@ -1525,34 +1525,29 @@ pre.cv-math-source {
   color: var(--cv-tool-strong);
 }
 /* The running rows' mark (`Spinner`: compaction, tool groups, MCP calls, command and shell rows).
-   WORKING-LOOK (Leo 2026-10-20: a spinner per row "reads as noise"): agent work draws the look the
-   app picks, `data-working-look` on the root (Debug Settings `status.working`):
-   - breathe (the default, also with no attribute): a dot in the theme accent that breathes once per
-     `--cmux-breath-period`;
-   - shimmer: the same dot held still, and a light band crosses the row's words;
-   - spinner: the turning ring.
+   WORKING-LOOK: agent work draws the look the app picks, `data-working-look` on the root (Debug
+   Settings `status.working`):
+   - spinner (the default, also with no attribute or any other value, an old `breathe` included):
+     the turning ring (Leo 2026-10-21: "who brought back the blinkers!? we had spinners properly
+     going"; the breathing dot of #22826 is deleted and never comes back, static-status-loops.test.ts);
+   - shimmer: a still dot in the theme accent, and a light band crosses the row's words.
    A loading mark (no `data-working`) is always the ring. Every loop runs on the shared clock
    (ui/spinnerClock.ts), so many rows move as one, and holds still under Reduce Motion and the
-   static look (the dot at full strength, the ring stopped). */
+   static look (the ring stopped). */
 .cv-spinner__dot {
   display: none;
   fill: var(--cmux-accent, currentColor);
 }
-:root:not([data-working-look="spinner"]) .cv-spinner[data-working] .cv-spinner__arc {
+:root[data-working-look="shimmer"] .cv-spinner[data-working] .cv-spinner__arc {
   display: none;
 }
-:root:not([data-working-look="spinner"]) .cv-spinner[data-working] .cv-spinner__dot {
+:root[data-working-look="shimmer"] .cv-spinner[data-working] .cv-spinner__dot {
   display: inline;
 }
 @media (prefers-reduced-motion: no-preference) {
   :root:not([data-status-indicators="static"]) .cv-spinner:not([data-working]),
-  :root:not([data-status-indicators="static"])[data-working-look="spinner"] .cv-spinner {
+  :root:not([data-status-indicators="static"]):not([data-working-look="shimmer"]) .cv-spinner {
     animation: cmux-spin var(--cmux-spinner-period, 900ms) linear infinite;
-  }
-  :root:not([data-status-indicators="static"]):not([data-working-look="spinner"]):not([data-working-look="shimmer"])
-    .cv-spinner[data-working]
-    .cv-spinner__dot {
-    animation: cmux-breathe var(--cmux-breath-period, 2.4s) ease-in-out infinite;
   }
   :root:not([data-status-indicators="static"])[data-working-look="shimmer"]
     .cv-tool:has(> .cv-tool__icon .cv-spinner[data-working])
@@ -1562,7 +1557,7 @@ pre.cv-math-source {
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
-    animation: cmux-shimmer var(--cmux-breath-period, 2.4s) linear infinite;
+    animation: cmux-shimmer var(--cmux-shimmer-period, 2.4s) linear infinite;
   }
   /* Marks with their own color (edit counts, a failed count) keep it inside the band. */
   :root:not([data-status-indicators="static"])[data-working-look="shimmer"]

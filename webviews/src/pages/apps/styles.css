@@ -332,11 +332,11 @@
   background: var(--page-hover);
 }
 
-/* The skeleton breathes on the shared clock (desktop.css), and holds still under Reduce Motion or
+/* The skeleton pulses on the shared clock (desktop.css), and holds still under Reduce Motion or
    Settings > Static status indicators. */
 @media (prefers-reduced-motion: no-preference) {
   :root:not([data-status-indicators="static"]) :is(.apps-skeleton-icon, .apps-skeleton-line, .apps-skeleton-footer) {
-    animation: cmux-breathe var(--cmux-breath-period, 2.4s) ease-in-out infinite;
+    animation: cmux-skeleton-pulse var(--cmux-skeleton-period, 2.4s) ease-in-out infinite;
   }
 }
 

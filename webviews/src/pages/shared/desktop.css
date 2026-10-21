@@ -485,16 +485,18 @@ input[type="submit"] {
    infinite` inside `prefers-reduced-motion: no-preference`, never their own keyframes. */
 :root {
   --cmux-spinner-period: 900ms;
-  --cmux-breath-period: 2.4s;
+  --cmux-shimmer-period: 2.4s;
+  --cmux-skeleton-period: 2.4s;
 }
 @keyframes cmux-spin {
   to {
     transform: rotate(360deg);
   }
 }
-/* WORKING-LOOK: agent work's calm mark, a dot that breathes (opacity only), one breath per
-   `--cmux-breath-period`, on the same shared clock, so many working rows breathe as one. */
-@keyframes cmux-breathe {
+/* A loading skeleton's placeholder blocks (the Apps page while it loads): never agent work, which
+   is the spinner on every surface (Leo 2026-10-21: "we need to GUARANTEE the breathing dot doesn't
+   come back"; static-status-loops.test.ts). */
+@keyframes cmux-skeleton-pulse {
   0%,
   100% {
     opacity: 1;
@@ -503,7 +505,8 @@ input[type="submit"] {
     opacity: 0.3;
   }
 }
-/* WORKING-LOOK "shimmer": a light band crosses the words of a working row, once per breath. */
+/* WORKING-LOOK "shimmer": a light band crosses the words of a working row, once per
+   `--cmux-shimmer-period`. */
 @keyframes cmux-shimmer {
   from {
     background-position: 100% 0;

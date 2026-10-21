@@ -32,7 +32,7 @@ function nextFrame(doc: Document, run: () => void): void {
 }
 
 /// Finishes every running animation with an end (CSS animations and transitions, Web Animations);
-/// infinite ones (spinners, a breathing status dot) keep running. Finishing, unlike cancelling,
+/// infinite ones (spinners, a shimmer) keep running. Finishing, unlike cancelling,
 /// runs each animation's own `onfinish` cleanup.
 export function finishPageAnimations(doc: Document | undefined = defaultDocument()): number {
   const all = (doc as (Document & { getAnimations?: () => Animation[] }) | undefined)?.getAnimations?.();

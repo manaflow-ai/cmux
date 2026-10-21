@@ -1,7 +1,8 @@
 // l10n-allow-file: gallery fixtures (sample prompts and tool titles), not shipped UI.
 // WORKING-LOOK (Leo 2026-10-20: a spinner on every running row "reads as noise"): the transcript's
 // running rows in each look agent work can take (`data-working-look`, Debug Settings
-// `status.working`). Breathing Dot is the default; Shimmer and Spinner stay as options.
+// `status.working`). The spinner is the default; Shimmer stays as a Debug option. The breathing dot
+// is deleted (Leo 2026-10-21: "we need to GUARANTEE the breathing dot doesn't come back").
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, chat, row, tool, user } from "../../../gallery/fixtures/acpmux";
 
@@ -28,27 +29,22 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/CompactionNote.tsx",
     "agent-session/acpmux/conversation/ToolGroupRow.tsx",
   ],
-  keywords: ["spinner", "working", "breathing", "shimmer", "running"],
+  keywords: ["spinner", "working", "shimmer", "running"],
   variants: {
-    breathe: {
-      note: "The default: a dot in the theme accent breathes once every 2.4 s, all rows in step.",
-      snapshot: busy(),
-      theme: { workingLook: "breathe" },
-    },
-    shimmer: {
-      note: "The dot holds still and a light band crosses each running row's words.",
-      snapshot: busy(),
-      theme: { workingLook: "shimmer" },
-    },
     spinner: {
-      note: "The turning ring on every running row (before 2026-10-21).",
+      note: "The default: the turning ring on every running row, all rows in step.",
       snapshot: busy(),
       theme: { workingLook: "spinner" },
     },
-    static: {
-      note: "Reduce Motion or Static status indicators: the dot holds at full strength.",
+    shimmer: {
+      note: "Debug only: a still accent dot, and a light band crosses each running row's words.",
       snapshot: busy(),
-      theme: { workingLook: "breathe", statusIndicators: "static" },
+      theme: { workingLook: "shimmer" },
+    },
+    static: {
+      note: "Reduce Motion or Static status indicators: the ring holds still.",
+      snapshot: busy(),
+      theme: { workingLook: "spinner", statusIndicators: "static" },
     },
   },
 });

@@ -129,7 +129,7 @@ public final class StatusIndicatorLayer {
 
     /// The animation running now (tests, diagnostics).
     public var runningAnimation: StatusIndicatorPlan.Animation? {
-        for (sublayer, key) in [(glyphLayer as CALayer?, "spin"), (markLayer, "spin"), (nativeLayer, "step"), (glyphLayer, "pulse"), (markLayer, "pulse"), (glyphLayer, "breathe"), (markLayer, "breathe"), (brailleLayer?.mask, "frames"), (dotsLayer?.sublayers?.first, "wave")] {
+        for (sublayer, key) in [(glyphLayer as CALayer?, "spin"), (markLayer, "spin"), (nativeLayer, "step"), (glyphLayer, "pulse"), (markLayer, "pulse"), (brailleLayer?.mask, "frames"), (dotsLayer?.sublayers?.first, "wave")] {
             if let sublayer, sublayer.animation(forKey: key) != nil {
                 return StatusIndicatorPlan.Animation(key: key)
             }
@@ -380,7 +380,6 @@ public final class StatusIndicatorLayer {
         case .pulse: Motion.indicators.pulseAnimation(low: Float(config.pulseLow))
         case .frames: Motion.indicators.framesAnimation(brailleFrames)
         case .wave: waveAnimation()
-        case .breathe: Motion.indicators.breathAnimation(low: Float(config.breathLow))
         }
         guard let animation else { return }
         // Every indicator loop runs on one clock (Lawrence 2026-10-14: "all spinners need to be
@@ -397,7 +396,7 @@ public final class StatusIndicatorLayer {
         switch animation {
         case .step?: nativeLayer
         case .frames?: brailleLayer?.mask
-        case .spin?, .pulse?, .breathe?: markLayer ?? glyphLayer
+        case .spin?, .pulse?: markLayer ?? glyphLayer
         case .wave?: dotsLayer?.sublayers?.first
         case nil: nil
         }

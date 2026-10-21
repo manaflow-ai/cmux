@@ -8,7 +8,6 @@ extension StatusIndicatorPlan.Animation {
         case .pulse: "pulse"
         case .frames: "frames"
         case .wave: "wave"
-        case .breathe: "breathe"
         }
     }
 
@@ -19,7 +18,6 @@ extension StatusIndicatorPlan.Animation {
         case "pulse": self = .pulse
         case "frames": self = .frames
         case "wave": self = .wave
-        case "breathe": self = .breathe
         default: return nil
         }
     }
