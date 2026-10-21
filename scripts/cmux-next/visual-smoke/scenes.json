@@ -1,0 +1,43 @@
+{
+  "_doc": [
+    "What each nightly visual smoke scene must show (visual_check.py; docs/ci/nightly-next-canary.md).",
+    "Boxes are [x0, y0, x1, y1] fractions of the captured window (1000x640 points, CMUX_NEXT_TEST_WINDOW_FRAME).",
+    "edge: share of pixels with a visible step to a neighbour on a 640-px grayscale copy; text and controls",
+    "score about 0.02-0.08, an empty or flat area under 0.001. Changing a limit or a reference is a reviewed",
+    "change to this folder: there is no switch that skips the gate.",
+    "min_ssim applies only when references/<scene>.png exists (32x20 grid; same layout ~0.97, another scene 0.3-0.7)."
+  ],
+  "defaults": {
+    "min_size": [600, 400],
+    "min_edge": 0.008,
+    "max_dark": 0.9,
+    "max_flat": 0.99,
+    "min_region_edge": 0.004,
+    "min_ssim": 0.75
+  },
+  "scenes": {
+    "home": {
+      "what": "Home after launch: the left sidebar and the Home composer",
+      "regions": {
+        "sidebar": {"box": [0.01, 0.08, 0.17, 0.75], "min_edge": 0.006, "what": "the sidebar's Home, App Store and workspace rows"},
+        "main": {"box": [0.22, 0.06, 0.99, 0.85], "min_edge": 0.01, "what": "the Home conversation list and chat"},
+        "composer": {"box": [0.22, 0.7, 0.99, 1.0], "what": "the Home composer"}
+      }
+    },
+    "composer": {
+      "what": "a new agent chat (palette.newAgentChat) with its composer",
+      "regions": {
+        "sidebar": {"box": [0.01, 0.08, 0.17, 0.75], "min_edge": 0.006, "what": "the sidebar"},
+        "composer": {"box": [0.2, 0.6, 0.99, 1.0], "what": "the new chat's composer"}
+      }
+    },
+    "transcript": {
+      "what": "an agent chat with one answered turn (agent.openSessionWorkspace)",
+      "regions": {
+        "sidebar": {"box": [0.01, 0.08, 0.17, 0.75], "min_edge": 0.006, "what": "the sidebar, now listing the chat's workspace"},
+        "messages": {"box": [0.2, 0.08, 0.99, 0.7], "min_edge": 0.006, "what": "the prompt and the agent's reply"},
+        "composer": {"box": [0.2, 0.7, 0.99, 1.0], "what": "the chat's composer"}
+      }
+    }
+  }
+}
