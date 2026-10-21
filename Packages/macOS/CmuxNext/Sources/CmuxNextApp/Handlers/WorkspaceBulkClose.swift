@@ -87,15 +87,16 @@ enum WorkspaceBulkClose {
             // Undo reopens each group's workspaces, then its record.
             let (sidebar, others) = try otherGroups(invocation, context)
             groups = others.map { group in
-                (group.id.rawValue, group.workspaces.compactMap { services.machines.workspace(id: $0.id.rawValue)?.0.name })
+                (SidebarDocStore.personalGroupID(item: group.id.rawValue), group.workspaces.compactMap { services.machines.workspace(id: $0.id.rawValue)?.0.name })
             }
             for group in others { sidebar.handle(.closeGroup(group.id)) }
         } else if id == "closeWorkspace", members.count > 1, let first = members.first {
+            // Undo matches a group on its personal id, not the sidebar document's `itm_g_` item id (WorkspaceGroupClose).
             // A selection: each group it empties closes as Close Group does (an unpinned group goes, cx-rcby), the
             // other rows as their own close does (InstantClose), asked once (`prompt`) and undone together.
             let sidebar = try WorkspaceVerbHandlers.sidebar(showing: first.0, context), plan = sidebar.model.closePlan(members.map { CmuxNextSidebar.WorkspaceID($0.0.id) })
             let name = { (id: CmuxNextSidebar.WorkspaceID) in services.machines.workspace(id: id.rawValue)?.0.name }
-            groups = plan.groups.map { group -> (String?, [String]) in (group.id.rawValue, group.workspaces.compactMap { name($0.id) }) } + [(nil, plan.rows.compactMap(name))]
+            groups = plan.groups.map { group -> (String?, [String]) in (SidebarDocStore.personalGroupID(item: group.id.rawValue), group.workspaces.compactMap { name($0.id) }) } + [(nil, plan.rows.compactMap(name))]
             for group in plan.groups { sidebar.handle(.closeGroup(group.id)) }
             for row in plan.rows { services.registry.perform("closeWorkspace", invocation: ActionInvocation(closingRow: row.rawValue).confirmed()) }
         } else {

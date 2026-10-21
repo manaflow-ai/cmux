@@ -14,18 +14,3 @@ extension SidebarModel {
         groups.first { $0.workspaces.contains { $0.id == id } }
     }
 }
-
-extension SidebarSection {
-    /// The section's containers, as a sort orders them: its loose rows, then each group's rows.
-    public var containers: [(group: GroupID?, workspaces: [WorkspaceID])] {
-        let loose = nodes.compactMap { node -> WorkspaceID? in
-            if case let .workspace(workspace) = node { return workspace.id }
-            return nil
-        }
-        let groups = nodes.compactMap { node -> (group: GroupID?, workspaces: [WorkspaceID])? in
-            if case let .group(group) = node { return (group.id, group.workspaces.map(\.id)) }
-            return nil
-        }
-        return [(nil, loose)] + groups
-    }
-}
