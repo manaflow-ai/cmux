@@ -230,8 +230,16 @@ impl Hub {
                 msg: Value::Null,
                 host_seq: None,
             },
-            remote: Some(RemoteRef { peer: peer.to_owned(), summary }),
+            remote: Some(RemoteRef { peer: peer.to_owned(), summary: Some(summary) }),
         });
+    }
+
+    /// The current summary of peer `peer`'s session `mux_id`.
+    pub(crate) fn remote_summary_of(&self, peer: &str, mux_id: &str) -> Option<Value> {
+        let map = self.remote_sessions.lock().unwrap();
+        map.values()
+            .find(|r| r.peer == peer && r.receipt.mux_session_id == mux_id)
+            .map(|r| r.summary.clone())
     }
 
     pub(super) async fn peer_notice_loop(self: Arc<Self>) {
@@ -332,7 +340,9 @@ impl Hub {
                             },
                             remote: Some(RemoteRef {
                                 peer: peer.clone(),
-                                summary: removed.unwrap_or_else(|| json!({"sessionId": mux_id})),
+                                summary: Some(
+                                    removed.unwrap_or_else(|| json!({"sessionId": mux_id})),
+                                ),
                             }),
                         });
                         return;
@@ -351,7 +361,7 @@ impl Hub {
                         }
                         map.insert(
                             id.clone(),
-                            RemoteSession { peer: peer.clone(), summary: summary.clone(), receipt },
+                            RemoteSession { peer: peer.clone(), summary, receipt },
                         );
                     }
                     let _ = self.events.send(HubEvent {
@@ -364,7 +374,7 @@ impl Hub {
                             msg: Value::Null,
                             host_seq: None,
                         },
-                        remote: Some(RemoteRef { peer: peer.clone(), summary }),
+                        remote: Some(RemoteRef { peer: peer.clone(), summary: None }),
                     });
                 }
                 PeerNotice::Notification { method: m, params } => {
@@ -373,14 +383,6 @@ impl Hub {
                     else {
                         return;
                     };
-                    let summary = self
-                        .remote_sessions
-                        .lock()
-                        .unwrap()
-                        .values()
-                        .find(|r| r.peer == peer && r.receipt.mux_session_id == id)
-                        .map(|r| r.summary.clone())
-                        .unwrap_or(Value::Null);
                     let record = match m.as_str() {
                         method::SESSION_UPDATE => EventRecord {
                             seq: params
@@ -442,7 +444,7 @@ impl Hub {
                     let _ = self.events.send(HubEvent {
                         session_id: id,
                         record,
-                        remote: Some(RemoteRef { peer: peer.clone(), summary }),
+                        remote: Some(RemoteRef { peer: peer.clone(), summary: None }),
                     });
                 }
             }

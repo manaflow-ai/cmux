@@ -867,14 +867,18 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             }
             // Peers already filter to the interesting kinds and send a summary.
             if rec.dir == "peer" {
-                let sid = remote
+                let summary = remote
                     .summary
+                    .clone()
+                    .or_else(|| hub.remote_summary_of(&remote.peer, &ev.session_id))
+                    .unwrap_or_else(|| json!({"sessionId": ev.session_id}));
+                let sid = summary
                     .get("sessionId")
                     .cloned()
                     .unwrap_or_else(|| Value::String(ev.session_id.clone()));
                 conn.send(&Message::notification(
                     method::MUX_SESSION_CHANGED,
-                    json!({"sessionId": sid, "session": remote.summary, "kind": rec.kind, "recordKind": rec.kind, "seq": rec.seq, "peer": remote.peer}),
+                    json!({"sessionId": sid, "session": summary, "kind": rec.kind, "recordKind": rec.kind, "seq": rec.seq, "peer": remote.peer}),
                 ));
             }
             return;
