@@ -111,4 +111,26 @@ struct ChiefAppAcpmuxTests {
         // A daemon that did not answer the census in time may be busy: it is not ended.
         #expect(!ChiefAppAcpmuxMove.idle(nil))
     }
+
+    // End Sessions ends the Chief's agents too: on the app's acpmux they run beside the person's,
+    // so the app's end keeps none of them; on its own daemon that one ends them.
+    @Test func endSessionsOnTheAppsAcpmuxKeepsNoChiefAgent() {
+        #expect(ChiefHostStop.appAcpmuxEndKeep(chiefUsesAppAcpmux: true) == .nothing)
+        #expect(ChiefHostStop.appAcpmuxEndKeep(chiefUsesAppAcpmux: false) == .chief)
+    }
+
+    // `CMUX_CHIEF_OWN_ACPMUX=1` takes effect at the next launch: the host this app launched on the
+    // app's acpmux restarts on the Chief home's own daemon, where the Chief's tabs then attach.
+    @Test func theKillSwitchRestartsAHostOnTheAppsAcpmux() {
+        let own = "/Users/me/.cmux/chief/default/acpmux"
+        let onApp = { (pid: pid_t?, marked: pid_t?, home: String?) in
+            ChiefAppAcpmuxMove.onAppAcpmux(hostPID: pid, markedPID: marked, markedHome: home, ownHome: own)
+        }
+        #expect(onApp(41, 41, "/Users/me/.acpmux"))
+        // No host, an older host than the mark's, no mark, or a host on its own daemon: nothing to move.
+        #expect(!onApp(nil, 41, "/Users/me/.acpmux"))
+        #expect(!onApp(42, 41, "/Users/me/.acpmux"))
+        #expect(!onApp(41, nil, nil))
+        #expect(!onApp(41, 41, own))
+    }
 }
