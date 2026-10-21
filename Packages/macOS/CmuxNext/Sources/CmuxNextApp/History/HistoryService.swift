@@ -311,9 +311,9 @@ final class HistoryService {
         }
         for (profile, _) in profileLogs {
             guard let engine = BrowserProfileRecord.engineProfile(for: profile) else { continue }
+            // One removal in the log; memory forgets without persistence (not a Remove from History per page).
             sink(for: engine).remove(host: host)
-            let memory = services.cache.history(for: engine)
-            for entry in memory.entries where entry.url.host()?.lowercased() == host.lowercased() { memory.removeEntry(for: entry.url) }
+            services.cache.history(for: engine).forget(host: host)
         }
         onChange?()
     }
