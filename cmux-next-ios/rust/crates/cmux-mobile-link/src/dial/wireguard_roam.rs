@@ -303,7 +303,8 @@ impl Session {
         let Some(turn) = TurnCarrier::allocate(&self.options).await else { return false };
         let _one_at_a_time = self.roaming.lock().await;
         if self.roams.load(Ordering::Relaxed) != roams || self.closed.load(Ordering::Relaxed) {
-            // A roam took its own allocation on the new network.
+            // A roam took its own allocation on the new network, or started
+            // its own retry.
             return true;
         }
         let Ok(net) = self.net() else { return true };
@@ -542,6 +543,11 @@ impl Session {
             let _ = net.refresh().await;
         } else {
             *lock(&self.relayed) = (Vec::new(), Vec::new());
+            if keeps_turn && super::super::turn::turn_servers(&self.options.ice_servers) != (None, None) {
+                // The new network's TURN server did not answer in time: keep
+                // asking (this also replaces a retry started on the old one).
+                self.retry_turn("roam took no TURN allocation; taking one", async { true });
+            }
         }
         if endpoints.len() != known {
             self.announce(offered(endpoints, &self.options), relayed, relayed_tls);
