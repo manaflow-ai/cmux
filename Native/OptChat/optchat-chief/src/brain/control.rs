@@ -613,12 +613,15 @@ impl Brain {
             }
             SubStatus::Starting | SubStatus::Running => match sub.session_id.as_deref() {
                 Some(session) => match self.agents.cancel(session) {
-                    Ok(()) => outcome(
-                        "done",
-                        format!(
-                            "{id} is cancelled; its turn stops now; its chat stays for zoom(\"{id}\")"
-                        ),
-                    ),
+                    Ok(()) => {
+                        self.end_background_processes(id, session);
+                        outcome(
+                            "done",
+                            format!(
+                                "{id} is cancelled; its turn stops now; its chat stays for zoom(\"{id}\")"
+                            ),
+                        )
+                    }
                     Err(e) => outcome(
                         "refused",
                         format!("{id} is marked cancelled, but its turn did not stop: {e}"),
