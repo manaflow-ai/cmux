@@ -353,6 +353,7 @@ public nonisolated struct AgentPaneTunables {
             modelMenu.descriptor,
             needsYou.descriptor,
             needsYouPill.descriptor,
+            newTabPicksFollowLinks.descriptor,
             newTabWidgets.descriptor,
             pageHost.descriptor,
             reasoningSlider.descriptor,
