@@ -164,7 +164,7 @@ export function NowPlayingPlayer({ onCommand }: { onCommand?(command: NowPlaying
   if (!onCommand) return null;
   if (hidden)
     return (
-      <div className="nt-player-note" role="status">
+      <output className="nt-player-note">
         <span className="nt-player-note-text">{nt("nowPlaying.hidden")}</span>
         <button
           type="button"
@@ -176,7 +176,7 @@ export function NowPlayingPlayer({ onCommand }: { onCommand?(command: NowPlaying
         >
           {nt("nowPlaying.undo")}
         </button>
-      </div>
+      </output>
     );
   if (!track) return null;
   return (

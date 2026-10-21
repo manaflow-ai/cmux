@@ -9,7 +9,7 @@ final class WorkspaceRowView: SidebarRowView {
     let icon = SidebarIconView()
     /// Fades a clipped title and scrolls it while the pointer rests on the
     /// row (TitleFade); NSTextField would end it in an ellipsis instead.
-    let title = MarqueeLabel()
+    let title = MarqueeLabel(gate: Motion.sidebar)
     let subtitle = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     /// Expanded rows (`sidebar.density`, cx-13w3; WorkspaceRowView+Expanded): the age and the meta line.
     let timeLabel = SidebarRowView.label(font: SidebarStyle.subtitleFont), metaLabel = SidebarRowView.label(font: SidebarStyle.subtitleFont)
@@ -233,7 +233,7 @@ final class WorkspaceRowView: SidebarRowView {
         title.stringValue = ws.title
         lastTitle = ws.title
         let arrival = priorTitle?.isEmpty == true && !ws.title.isEmpty && !isPlaceholderRow
-            && tunables.workspaceTitleMotion != .instant && !Motion.reduceMotion
+            && tunables.workspaceTitleMotion != .instant && Motion.sidebar.animatesMovement
         if arrival {
             titleArrivalPending = true
             titleArrivalVariant = tunables.workspaceTitleMotion
@@ -298,14 +298,14 @@ final class WorkspaceRowView: SidebarRowView {
                                     variant: SidebarWorkspaceTitleMotionVariant,
                                     placeholder: Bool) {
         guard !placeholder, let old, !old.isEmpty, !new.isEmpty, old != new,
-              variant != .instant, !Motion.reduceMotion else { return }
+              variant != .instant, Motion.sidebar.animatesMovement else { return }
         let transition: CATransition
         switch variant {
         case .instant: return
         case .crossfade: transition = Motion.crossfadeAction
         case .lift: transition = Motion.pushUpAction
         }
-        transition.duration = variant == .crossfade ? Motion.duration(.crossfade) : Motion.duration(.fadeIn)
+        transition.duration = variant == .crossfade ? Motion.sidebar.duration(.crossfade) : Motion.sidebar.duration(.fadeIn)
         transition.timingFunction = Motion.fadeCurve
         title.layer?.add(transition, forKey: "workspace-title-motion")
     }
@@ -327,10 +327,10 @@ final class WorkspaceRowView: SidebarRowView {
         case .crossfade: Motion.crossfadeAction
         case .lift: Motion.pushUpAction
         }
-        transition.duration = variant == .crossfade ? Motion.duration(.crossfade) : Motion.duration(.fadeIn)
+        transition.duration = variant == .crossfade ? Motion.sidebar.duration(.crossfade) : Motion.sidebar.duration(.fadeIn)
         transition.timingFunction = Motion.fadeCurve
         title.layer?.add(transition, forKey: "workspace-title-motion")
-        Motion.animate(.fadeOut, in: placeholderBar, { [weak placeholderBar] in
+        Motion.sidebar.animate(.fadeOut, in: placeholderBar, { [weak placeholderBar] in
             placeholderBar?.animator().alphaValue = 0
         }, completion: { [weak self] in
             guard let self, self.titleArrivalGeneration == generation else { return }

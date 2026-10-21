@@ -8,6 +8,12 @@ public import CoreGraphics
 /// The material itself (Liquid Glass, vibrancy before macOS 26, opaque under Reduce Transparency)
 /// stays `OverlayMaterial`'s decision; this style only sets the tint, rim, radius and shadow.
 ///
+/// Motion is not here: it lives in `MotionTunables` only. Popups open on the `popover` spring from
+/// `Motion.popupOpenScale` and close on `popoverClose` to `Motion.popupCloseScale`; toasts rise on
+/// `appear` and fade with `fadeIn`/`fadeOut`. Every one of them fades the card's layer, never the
+/// window's `alphaValue` (a glass card ignores window alpha), and the rim fades with the card
+/// because it sits inside it.
+///
 /// ```swift
 /// let look = FloatingGlassStyle.toast.look(isDark: tokens.isDark)
 /// glass.tintColor = look.veil.nsColor
@@ -59,6 +65,12 @@ public nonisolated struct FloatingGlassStyle: Sendable, Equatable {
     /// stacked on glass), no shadow.
     public static let card = FloatingGlassStyle(cornerRadius: 10, darkVeilAlpha: 0.22, lightVeilAlpha: 0.45,
                                                 darkRim: (0.22, 0.04), lightRim: (0.80, 0.08), castsShadow: false)
+
+    /// The agent cursor's name tag and keystroke caption ("Chief · workspace"): a 22 pt capsule in
+    /// the toast's veil and rim, with a shadow, over the page the cursor floats on.
+    public static let agentTag = FloatingGlassStyle(cornerRadius: 11, darkVeilAlpha: toast.darkVeilAlpha,
+                                                    lightVeilAlpha: toast.lightVeilAlpha, darkRim: toast.darkRim,
+                                                    lightRim: toast.lightRim, castsShadow: true)
 
     /// The colors for one appearance.
     public func look(isDark: Bool) -> FloatingGlassLook {

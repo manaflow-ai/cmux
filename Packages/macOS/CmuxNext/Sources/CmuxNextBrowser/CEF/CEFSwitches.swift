@@ -34,6 +34,11 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // separate macOS notification authorization. DesktopNotifier owns the
         // one app-level authorization request when cmux posts a banner.
         result.append("disable-notifications")
+        // Chromium's periodic call-stack profiler runs in the browser process (the
+        // app) and suspends its threads at 10 Hz while it collects. Its profiles go
+        // to UMA, which cmux does not upload; in some idle sessions it raised the
+        // app's energy with 20 hidden tabs from about 0.24 to 4 mW (msg 2654).
+        result.append("disable-stack-profiler")
         result.append(contentsOf: Self.chromePromptOffSwitches)
         // Never pass a feature-list switch expecting it to replace CEF's own
         // list: the shim merges disable-features/enable-features into it

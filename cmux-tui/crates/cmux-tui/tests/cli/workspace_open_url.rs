@@ -785,6 +785,9 @@ fn tab_create_browser_makes_a_frontend_tab_when_the_app_is_attached() {
     assert_eq!(tab["browser_renderer"], "frontend", "not a frontend browser tab: {after}");
     assert_eq!(tab["url"], "https://example.com/agent", "{after}");
     assert_eq!(tab_count(&after), tab_count(&before) + 1, "{after}");
+    // An agent's tab opens in the person's `browser.defaultEngine`
+    // (Chromium unless set to WebKit), as a tab the person opens does.
+    assert_eq!(tab["browser_engine"], "cef", "an agent tab skipped the default engine: {after}");
 
     let retried = create("https://example.com/agent", "create-browser-frontend-1");
     assert_eq!(value(&retried)["browser_id"], first["browser_id"], "{retried}");
@@ -793,4 +796,16 @@ fn tab_create_browser_makes_a_frontend_tab_when_the_app_is_attached() {
 
     let conflict = create("https://example.com/other", "create-browser-frontend-1");
     assert_eq!(error(&conflict)["code"], "idempotency.conflict", "{conflict}");
+
+    // `engine` (`cmux browser open --engine webkit`, MCP `tab_create_browser`
+    // `engine`) picks the engine of that one tab.
+    let webkit = v2(
+        &server,
+        "tab.create_browser",
+        json!({"workspace": workspace, "url": "https://example.com/webkit", "engine": "webkit"}),
+        Some("create-browser-frontend-2"),
+    );
+    let listed = screen(&server, &workspace);
+    let tab = tab_by_resource(&listed, &value(&webkit)["tab_id"]);
+    assert_eq!(tab["browser_engine"], "webkit", "{listed}");
 }

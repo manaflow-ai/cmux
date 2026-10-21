@@ -51,22 +51,21 @@ struct AgentCursorSoftStyleTests {
     }
 
     /// Pill gallery P1 (user, 2026-10-20: "gray and liquid glassy, think
-    /// about how Apple would design this"): a neutral gray, translucent
-    /// capsule with continuous corners, a specular top and a light rim, a
-    /// soft shadow and dark label text; no agent color anywhere in it.
+    /// about how Apple would design this"), now in the shared Liquid Glass
+    /// (``FloatingGlassStyle/agentTag``, Chief via a286): a neutral, translucent
+    /// capsule with continuous corners, a soft top-lit rim, a soft shadow and
+    /// dark label text; no agent color anywhere in it.
     @Test func theNameTagIsGrayLiquidGlass() throws {
         let cursor = try placed()
         let fill = try #require(cursor.nameTag.backgroundColor)
         let tint = try #require(gray(fill))
         #expect(tint.chroma < 0.02, "neutral gray, never an agent color")
-        #expect(tint.level > 0.5 && tint.level < 0.62, "the system gray")
-        #expect(fill.alpha > 0.12 && fill.alpha < 0.25, "an 18% tint over the real blur, not the opaque fallback")
+        #expect(fill.alpha > 0.3 && fill.alpha < 0.8, "a veil over the real blur, not the opaque fallback")
         #expect(cursor.nameTag.cornerCurve == .continuous, "a continuous-corner capsule")
         #expect(cursor.nameTag.cornerRadius * 2 >= cursor.nameTag.bounds.height - 0.5, "a capsule")
-        let rim = try #require(gray(cursor.nameTag.borderColor))
-        #expect(rim.level > 0.95 && (cursor.nameTag.borderColor?.alpha ?? 0) > 0.3, "a light specular rim, not a dark hairline")
-        let sheen = try #require(cursor.nameTag.sublayers?.compactMap { $0 as? CAGradientLayer }.first, "a specular highlight")
-        #expect(sheen.frame.minY <= 0.5 && sheen.frame.height <= cursor.nameTag.bounds.height * 0.7, "the highlight sits on the top edge")
+        let rim = try #require(cursor.nameTag.sublayers?.compactMap { $0 as? CAGradientLayer }.first, "a top-lit rim")
+        let colors = try #require(rim.colors as? [CGColor])
+        #expect((colors.first?.alpha ?? 0) > (colors.last?.alpha ?? 1), "brighter at the top")
         #expect(cursor.nameTag.shadowOpacity > 0.05 && cursor.nameTag.shadowOpacity < 0.3, "a subtle shadow")
         let text = try #require(gray(cursor.nameText.foregroundColor))
         #expect(text.level < 0.3, "dark label text")
