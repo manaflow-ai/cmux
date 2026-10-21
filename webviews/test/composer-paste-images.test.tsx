@@ -1,0 +1,213 @@
+// Leo 2026-10-20: two images copied in Chrome and pasted into the composer showed as chips and also
+// full size in the field, as `![Screenshot · 778×696](data:image/png;base64,…)`; the prompt went out
+// with that text, the bubble showed pages of base64 and the chat's compaction failed. A pasted image
+// is an attachment chip only: the field gets nothing but plain text, a prompt's text never carries a
+// `data:` URI (it goes as an ACP image block), and a bubble never draws one.
+import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { JSDOM } from "jsdom";
+import { act, createRef } from "react";
+import type { Root } from "react-dom/client";
+import { noChat } from "../src/gallery/fixtures/acpmux";
+import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
+import { promptBlocks, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
+import { liftInlineImages, withoutDataUris } from "../src/agent-session/acpmux/inlineImages";
+import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+
+const scope = globalThis as Record<string, unknown>;
+const keys = [
+  "window",
+  "document",
+  "navigator",
+  "HTMLElement",
+  "IS_REACT_ACT_ENVIRONMENT",
+  "Node",
+  "Element",
+  "MutationObserver",
+  "ResizeObserver",
+  "getComputedStyle",
+  "requestAnimationFrame",
+  "cancelAnimationFrame",
+  "localStorage",
+] as const;
+const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
+let dom: JSDOM;
+let root: Root | undefined;
+let host: HTMLElement;
+
+beforeAll(() => {
+  dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, url: "https://cmux.test/" });
+  const { window } = dom;
+  Object.assign(scope, {
+    ResizeObserver: class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+    window,
+    document: window.document,
+    navigator: window.navigator,
+    HTMLElement: window.HTMLElement,
+    IS_REACT_ACT_ENVIRONMENT: true,
+    Node: window.Node,
+    Element: window.Element,
+    MutationObserver: window.MutationObserver,
+    getComputedStyle: window.getComputedStyle.bind(window),
+    requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
+    cancelAnimationFrame: (id: number) => clearTimeout(id),
+    localStorage: window.localStorage,
+  });
+  host = window.document.getElementById("root")!;
+});
+
+afterEach(() => {
+  act(() => root?.unmount());
+  root = undefined;
+  host.replaceChildren();
+});
+
+afterAll(() => {
+  dom.window.close();
+  for (const [key, had, value] of saved) {
+    if (had) scope[key] = value;
+    else delete scope[key];
+  }
+});
+
+function Chips() {
+  return null;
+}
+
+// A PNG's first bytes, enough to stand for a copied screenshot.
+const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d, 0x49, 0x48, 0x44, 0x52]);
+const pngBase64 = btoa(String.fromCharCode(...PNG));
+const dataUri = `data:image/png;base64,${pngBase64}`;
+/// What Chrome's Copy Image (or a copied transcript image) puts on the clipboard beside the file.
+const imageHtml = (count: number) =>
+  Array.from({ length: count }, (_, index) => `<img src="${dataUri}" alt="Screenshot · 778×69${index}">`).join("");
+
+async function openComposer(sent: { text: string; attachments: ComposerAttachment[] }[] = []) {
+  const { createRoot } = await import("react-dom/client");
+  const { Composer } = await import("../src/agent-session/acpmux/Composer");
+  const handle = createRef<ComposerHandle>();
+  const snapshot = noChat([], {
+    sessionId: "chat-a",
+    summary: { sessionId: "chat-a", harness: "codex", cwd: "/Users/you/src/app", turnCount: 0 },
+  });
+  root ??= createRoot(host);
+  await act(async () =>
+    root!.render(
+      <Composer
+        snapshot={snapshot}
+        sessionId="chat-a"
+        chips={Chips}
+        onSend={(text, attachments) => {
+          sent.push({ text, attachments: attachments ?? [] });
+          return true;
+        }}
+        onStop={() => {}}
+        onProject={() => {}}
+        onNewChat={() => {}}
+        localName="studio"
+        projectChoices={[{ cwd: "/Users/you/src/app", label: "app" }]}
+        handle={handle}
+      />,
+    ),
+  );
+  return handle;
+}
+
+const field = () => host.querySelector<HTMLElement>('[role="combobox"]')!;
+
+/// Pastes on the prompt field as WebKit delivers it: one ClipboardEvent with the clipboard's data.
+async function paste(clipboard: { files?: File[]; html?: string; plain?: string }) {
+  const data = {
+    files: clipboard.files ?? [],
+    types: [
+      ...(clipboard.files?.length ? ["Files"] : []),
+      ...(clipboard.html ? ["text/html"] : []),
+      ...(clipboard.plain ? ["text/plain"] : []),
+    ],
+    getData: (type: string) =>
+      type === "text/html" ? (clipboard.html ?? "") : type === "text/plain" ? (clipboard.plain ?? "") : "",
+  };
+  const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "clipboardData", { value: data });
+  await act(async () => {
+    field().dispatchEvent(event);
+  });
+  // The chips are read from the files after the event.
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+}
+
+const screenshot = (index: number) => new File([PNG], "image.png", { type: "image/png", lastModified: index });
+
+test("pasting two copied images makes two chips and puts nothing in the prompt", async () => {
+  const composer = await openComposer();
+  await paste({ files: [screenshot(1), screenshot(2)], html: imageHtml(2) });
+  const chips = composer.current!.wakeState().attachments ?? [];
+  expect(chips.map((chip) => chip.kind)).toEqual(["image", "image"]);
+  expect(chips.every((chip) => chip.data === pngBase64)).toBe(true);
+  // Nothing inline: no image drawn in the field and no markup or base64 in its text.
+  expect(field().querySelector("img")).toBeNull();
+  expect(field().textContent).toBe("");
+  expect(field().innerHTML).not.toContain("data:");
+});
+
+test("an image copied as HTML alone (no file on the clipboard) still comes in as a chip, its text as text", async () => {
+  const composer = await openComposer();
+  await paste({ html: `<p>look at these</p>${imageHtml(2)}`, plain: "look at these" });
+  expect((composer.current!.wakeState().attachments ?? []).map((chip) => chip.kind)).toEqual(["image", "image"]);
+  expect(field().querySelector("img")).toBeNull();
+  expect(field().textContent).toBe("look at these");
+  expect(field().innerHTML).not.toContain("data:");
+});
+
+test("a pasted image goes to the agent as an image block; the prompt's text has no data: URI", async () => {
+  const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
+  const composer = await openComposer(sent);
+  await paste({ files: [screenshot(1), screenshot(2)], html: imageHtml(2), plain: "" });
+  await act(async () => {
+    composer.current!.send();
+  });
+  expect(sent).toHaveLength(1);
+  const blocks = promptBlocks(sent[0]!.text, sent[0]!.attachments);
+  expect(blocks.filter((block) => block.type === "image")).toHaveLength(2);
+  expect(JSON.stringify(blocks.filter((block) => block.type === "text"))).not.toContain("data:");
+  expect(sent[0]!.text).not.toContain("data:");
+});
+
+test("a data: image already written into a prompt's text goes as an image block, never as text", () => {
+  const typed = `![Screenshot · 778×696](${dataUri} "Screenshot · 778×696")what the heck\n\nand ${dataUri} too`;
+  const blocks = promptBlocks(typed, []);
+  const text = blocks.filter((block) => block.type === "text");
+  expect(text).toEqual([{ type: "text", text: "what the heck\n\nand  too" }]);
+  expect(
+    blocks.filter((block) => block.type === "image").map((block) => (block.type === "image" ? block.data : "")),
+  ).toEqual([pngBase64, pngBase64]);
+  // A title right after the base64, with no space (as Leo's prompt had), is part of the image.
+  expect(liftInlineImages(`![a](${dataUri}"a")ok`).text).toBe("ok");
+  // Text with no data: URI is left exactly as written.
+  expect(liftInlineImages("  plain  ").text).toBe("  plain  ");
+});
+
+test("a bubble never draws a data: URI: each image reads as its name", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { UserBubble } = await import("../src/agent-session/acpmux/conversation/UserBubble");
+  const row: AcpmuxRow = {
+    id: "user-1",
+    version: 1,
+    at: Date.now(),
+    kind: "user",
+    seq: 1,
+    text: `![Screenshot · 778×696](${dataUri} "Screenshot · 778×696")what the heck, and ${dataUri}`,
+  };
+  root ??= createRoot(host);
+  await act(async () => root!.render(<UserBubble row={row} text={row.text ?? ""} />));
+  const bubble = host.querySelector(".cv-user__bubble")!;
+  expect(bubble.textContent).not.toContain("data:");
+  expect(bubble.textContent).not.toContain(pngBase64);
+  expect(bubble.textContent).toContain("[Screenshot · 778×696]what the heck, and [Image]");
+  expect(withoutDataUris("no images here", "Image")).toBe("no images here");
+});

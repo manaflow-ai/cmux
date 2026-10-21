@@ -2,6 +2,7 @@
 /// the agent as ACP content blocks. A text file is written into the prompt's text because
 /// the web view never learns a dropped file's path; any other file (a binary, a large text file)
 /// goes to the chat's host (`chat.upload`), which saves it and puts its path in the prompt.
+import { liftInlineImages } from "./inlineImages";
 
 export type ComposerAttachment = {
   id: string;
@@ -258,7 +259,9 @@ export function promptText(text: string, attachments: ComposerAttachment[]): str
 }
 
 /// ACP prompt blocks: the text (with text files) first, then each image, PDF, recording and file or folder link.
-export function promptBlocks(text: string, attachments: ComposerAttachment[]): PromptBlock[] {
+/// A `data:` image written into the text goes as an image block, never as text (inlineImages.ts).
+export function promptBlocks(input: string, chips: ComposerAttachment[]): PromptBlock[] {
+  const { text, attachments } = liftInlineImages(input, chips);
   const blocks: PromptBlock[] = [];
   const body = promptText(text, attachments);
   if (body) blocks.push({ type: "text", text: body });
@@ -365,7 +368,34 @@ function fenceLanguage(name: string): string {
 
 /// The files in a drop or paste.
 export function filesFrom(transfer: DataTransfer | null): File[] {
-  return transfer ? [...transfer.files] : [];
+  if (!transfer) return [];
+  const files = [...transfer.files];
+  return files.length ? files : htmlImageFiles(transfer.getData("text/html"));
+}
+
+/// The `data:` images of pasted HTML (an image copied from a page or a transcript with no file on
+/// the clipboard), as files the composer attaches: never markup in the prompt.
+export function htmlImageFiles(html: string): File[] {
+  if (!html || !/<img[\s>]/i.test(html)) return [];
+  const files: File[] = [];
+  for (const tag of html.match(/<img\b[^>]*>/gi) ?? []) {
+    const source = /\ssrc\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(tag);
+    const uri = /^data:(image\/[a-z0-9.+-]+)(?:;[^,;]+)*;base64,([a-z0-9+/=\s]+)$/i.exec(
+      (source?.[1] ?? source?.[2] ?? "").trim(),
+    );
+    if (!uri) continue;
+    try {
+      const binary = atob(uri[2]!.replace(/\s+/g, ""));
+      const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+      const mimeType = uri[1]!.toLowerCase();
+      files.push(
+        new File([bytes], `image.${mimeType.split("/")[1]?.replace(/\+.*$/, "") || "png"}`, { type: mimeType }),
+      );
+    } catch {
+      // Not base64 after all: nothing to attach.
+    }
+  }
+  return files;
 }
 
 /// Whether a drag carries files, so the page takes the drop instead of navigating to it.
