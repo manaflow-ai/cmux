@@ -18,6 +18,8 @@ mod cancel;
 mod catalog_reload;
 mod complete;
 mod cursor_ext;
+pub(crate) mod file_uploads;
+pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 mod fork;
 mod fork_at;
 mod handoff;

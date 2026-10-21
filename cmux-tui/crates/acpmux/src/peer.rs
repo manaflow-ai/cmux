@@ -72,6 +72,8 @@ pub struct Peer {
     person_instance: StdMutex<Option<String>>,
     /// Whether the peer advertised the folder-trust gate in initialize.
     trust_gate: AtomicBool,
+    /// Whether the peer takes `_acpmux/file_put` (`hub/file_uploads.rs`).
+    file_put: AtomicBool,
     /// The peer token was held back: the transport is plain `ws://` to a
     /// host that is not loopback (`carries_peer_token`). Logged once.
     withheld: AtomicBool,
@@ -116,6 +118,7 @@ impl Peer {
             served_as: StdMutex::new(None),
             person_instance: StdMutex::new(None),
             trust_gate: AtomicBool::new(false),
+            file_put: AtomicBool::new(false),
             withheld: AtomicBool::new(false),
             attached: StdMutex::new(HashSet::new()),
             notices,
@@ -263,6 +266,11 @@ impl Peer {
 
     pub fn supports_trust_gate(&self) -> bool {
         self.trust_gate.load(Ordering::SeqCst)
+    }
+
+    /// Whether the peer said at its last handshake that it takes `_acpmux/file_put`.
+    pub fn supports_file_put(&self) -> bool {
+        self.file_put.load(Ordering::SeqCst)
     }
 
     pub fn summary(&self) -> Value {
@@ -464,6 +472,13 @@ impl Peer {
                     |features| features.iter().any(|f| f.as_str() == Some("trustGate")),
                 ) || init.pointer("/_meta/acpmux/trustGate").and_then(Value::as_bool) == Some(true);
             me.trust_gate.store(advertised, Ordering::SeqCst);
+            let file_put = init
+                .pointer("/_meta/acpmux/features")
+                .and_then(Value::as_array)
+                .is_some_and(|features| {
+                    features.iter().any(|f| f.as_str() == Some(crate::hub::FILE_PUT_FEATURE))
+                });
+            me.file_put.store(file_put, Ordering::SeqCst);
             let watch = me.request(method::MUX_WATCH, json!({"enabled": true})).await?;
             let sessions = watch
                 .get("sessions")

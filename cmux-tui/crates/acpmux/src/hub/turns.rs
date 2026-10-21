@@ -1024,6 +1024,8 @@ impl Hub {
                 remote: None,
             });
             self.store.delete(&session.id).map_err(|e| RpcError::internal(e.to_string()))?;
+            // And the files dropped into it (`file_uploads.rs`).
+            super::file_uploads::remove(&session.id);
         }
         Ok(())
     }
