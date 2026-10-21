@@ -616,6 +616,20 @@ impl LocalStore {
         Ok(out)
     }
 
+    /// Whether the session's log holds a record: a segment with a byte in it (no line
+    /// is read). Every session the hub creates logs `created` right after its first
+    /// save, so a record without a log is a purged session's that a late save wrote back.
+    fn has_records(&self, id: &str) -> Result<bool> {
+        for (_, path) in self.segments(id)? {
+            // An unreadable segment counts as a log: the session is listed as before.
+            match std::fs::symlink_metadata(&path) {
+                Ok(meta) if meta.len() == 0 => {}
+                _ => return Ok(true),
+            }
+        }
+        Ok(false)
+    }
+
     fn open_writer(&self, id: &str) -> Result<SegmentWriter> {
         let dir = self.dir(id).join("events");
         crate::config::private_state_dir(&self.dir(id))?;
@@ -629,6 +643,12 @@ impl LocalStore {
         let written = file.metadata().map(|m| m.len()).unwrap_or(0);
         Ok(SegmentWriter { index, file, written })
     }
+}
+
+/// A session record's status alone, read without the rest of the record.
+#[derive(Deserialize)]
+struct StatusOnly {
+    status: SessionStatus,
 }
 
 /// The seq of a segment's first readable record.
@@ -690,6 +710,7 @@ fn first_seq(path: &Path) -> Result<Option<u64>> {
 impl Store for LocalStore {
     fn list(&self) -> Result<Vec<SessionMeta>> {
         let mut out = Vec::new();
+        let mut skipped = 0usize;
         let Ok(rd) = std::fs::read_dir(&self.root) else {
             return Ok(out);
         };
@@ -714,11 +735,27 @@ impl Store for LocalStore {
             if let Ok(file) = crate::config::private_state_file(&path) {
                 let mut text = String::new();
                 BufReader::new(file).read_to_string(&mut text)?;
+                // A closed session with no log is a purged one whose record a late save
+                // wrote back (`Hub::load_from_store`): only its status is read, so a home
+                // of thousands of them never holds their records, not even while listing.
+                let id = entry.file_name().to_string_lossy().into_owned();
+                if !self.has_records(&id)?
+                    && serde_json::from_str::<StatusOnly>(&text)
+                        .is_ok_and(|m| m.status == SessionStatus::Closed)
+                {
+                    skipped += 1;
+                    continue;
+                }
                 match serde_json::from_str::<SessionMeta>(&text) {
                     Ok(meta) => out.push(meta),
                     Err(e) => tracing::warn!("skip {}: {e}", path.display()),
                 }
             }
+        }
+        if skipped > 0 {
+            tracing::info!(
+                "skipped {skipped} closed sessions with no log (purged; a late save wrote them back)"
+            );
         }
         Ok(out)
     }
