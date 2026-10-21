@@ -20,6 +20,9 @@ public struct SSHHost: Hashable, Sendable {
     /// session's own (a paired server's Chief brain); cmux-tui never starts
     /// a daemon there (`remote connect --remote-mux-socket`).
     public let remoteMuxSocket: String?
+    /// The name the person gave the machine (Add Machine's Name field); the sidebar shows it
+    /// instead of the host. Display text only: never part of the route or the machine id.
+    public private(set) var name: String?
 
     public struct Invalid: Error, Equatable, Sendable {
         public let field: String
@@ -27,7 +30,7 @@ public struct SSHHost: Hashable, Sendable {
 
     public init(destination: SSHDestination, session: String = RemoteSessionName.defaultName,
                 remoteBinary: String = SSHHost.defaultRemoteBinary, remoteStateDir: String? = nil,
-                remoteMuxSocket: String? = nil) throws(Invalid) {
+                remoteMuxSocket: String? = nil, name label: String? = nil) throws(Invalid) {
         guard let name = try? RemoteSessionName.validate(session) else { throw Invalid(field: "session") }
         guard RemotePath.isSafe(remoteBinary) else { throw Invalid(field: "remote_binary") }
         if let remoteStateDir, !RemotePath.isSafe(remoteStateDir) { throw Invalid(field: "remote_state_dir") }
@@ -37,6 +40,20 @@ public struct SSHHost: Hashable, Sendable {
         self.remoteBinary = remoteBinary
         self.remoteStateDir = remoteStateDir
         self.remoteMuxSocket = remoteMuxSocket
+        self.name = Self.displayName(label)
+    }
+
+    /// The same machine under `name` (nil goes back to the host's name).
+    public func named(_ name: String?) -> SSHHost {
+        var host = self
+        host.name = Self.displayName(name)
+        return host
+    }
+
+    /// One line of display text, or nil when empty.
+    private static func displayName(_ text: String?) -> String? {
+        let line = text?.split(whereSeparator: \.isNewline).first.map { $0.trimmingCharacters(in: .whitespaces) }
+        return line?.isEmpty == false ? line : nil
     }
 
     /// Stable id of this machine in the app (`MachineRegistry`), distinct per
@@ -47,9 +64,10 @@ public struct SSHHost: Hashable, Sendable {
         return "ssh-" + digest
     }
 
-    /// Sidebar name: the host, plus the session when it is not `main`.
+    /// Sidebar name: the given name, else the host plus the session when it is not `main`.
     public var label: String {
-        session == RemoteSessionName.defaultName ? destination.displayName : "\(destination.displayName)/\(session)"
+        if let name { return name }
+        return session == RemoteSessionName.defaultName ? destination.displayName : "\(destination.displayName)/\(session)"
     }
 
     /// The registry `transport` object.
@@ -58,6 +76,7 @@ public struct SSHHost: Hashable, Sendable {
                       "remote_binary": remoteBinary]
         if let remoteStateDir { fields["remote_state_dir"] = remoteStateDir }
         if let remoteMuxSocket { fields["remote_mux_socket"] = remoteMuxSocket }
+        if let name { fields["name"] = name }
         return fields
     }
 
@@ -68,7 +87,8 @@ public struct SSHHost: Hashable, Sendable {
               let destination = try? SSHDestination(parsing: text),
               let host = try? SSHHost(destination: destination, session: fields["session"] ?? RemoteSessionName.defaultName,
                                       remoteBinary: fields["remote_binary"] ?? Self.defaultRemoteBinary,
-                                      remoteStateDir: fields["remote_state_dir"], remoteMuxSocket: fields["remote_mux_socket"])
+                                      remoteStateDir: fields["remote_state_dir"], remoteMuxSocket: fields["remote_mux_socket"],
+                                      name: fields["name"])
         else { return nil }
         self = host
     }
