@@ -117,6 +117,7 @@ impl Hub {
                     trust_gate,
                     interrupt: opts.interrupt,
                     provenance: opts.provenance,
+                    agent: opts.agent,
                     ..PromptOptions::default()
                 };
                 return Box::pin(self.run_prompt(session, blocks, client, false, opts)).await;

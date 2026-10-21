@@ -31,12 +31,42 @@ export type IncomingPrompt =
   /// The person's prompt, without the bookkeeping before it.
   | { kind: "prompt"; text: string };
 
+/// Whom a reply to a turn of agent messages answers: the newest of them when every one is a
+/// `cmux agent message` from the same chat here (acpmux finds it in the turn, withdraw.rs
+/// `app_reply_fits`). Several senders take no Reply: which one it answers would be a guess.
+function digestReply(messages: unknown[]): Pick<IncomingMessage, "sessionId" | "msgId" | "threadId"> {
+  const sent = messages.map((m) => (m as { provenance?: Record<string, unknown> } | null)?.provenance);
+  const last = sent.at(-1);
+  const from = last?.from;
+  const all = sent.every((p) => p?.kind === "agent_message" && p.from === from);
+  if (!all || typeof from !== "string" || !from.startsWith("acp:") || from.length <= 4) return {};
+  if (typeof last?.msgId !== "string" || !last.msgId) return {};
+  const threadId = typeof last.threadId === "string" && last.threadId ? { threadId: last.threadId } : {};
+  return { sessionId: from.slice(4), msgId: last.msgId, ...threadId };
+}
+
 /// What a `user_message` is when not the person's own as recorded, or undefined when it is.
 export function incomingPrompt(
   text: string,
   msg: { _meta?: { provenance?: unknown }; client?: unknown } | undefined,
 ): IncomingPrompt | undefined {
   const provenance = msg?._meta?.provenance as Record<string, unknown> | undefined;
+  // Messages from other agents that waited for a busy chat and went in as one turn (acpmux
+  // hub/digest.rs `agent_digest`): one card from their senders, every message in it as sent.
+  if (provenance?.kind === "agent_digest" && Array.isArray(provenance.messages)) {
+    const senders = [
+      ...new Set(
+        provenance.messages
+          .map((m) => (m as { from?: unknown } | null)?.from)
+          .filter((from): from is string => typeof from === "string" && from.trim() !== "")
+          .map((from) => from.trim()),
+      ),
+    ];
+    if (senders.length > 0) {
+      const name = senders.length > 3 ? `${senders.slice(0, 3).join(", ")} +${senders.length - 3}` : senders.join(", ");
+      return { kind: "message", message: { name, ...digestReply(provenance.messages), text: text.trim(), raw: text } };
+    }
+  }
   if (provenance?.kind === "agent_message" && typeof provenance.from === "string" && provenance.from) {
     const name =
       typeof provenance.fromName === "string" && provenance.fromName.trim()
