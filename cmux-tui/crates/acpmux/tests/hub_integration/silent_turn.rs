@@ -35,3 +35,17 @@ async fn a_turn_the_agent_never_answers_says_so_and_a_quiet_working_one_does_not
     assert_eq!(c.response(rid).await.0.unwrap()["stopReason"], "end_turn");
     assert!(find(&hub.events(&quiet, 0, 10_000).unwrap(), "turn_silent").is_empty());
 }
+
+/// Codex reports its turn and its token usage as soon as the prompt goes out, so a stalled Codex
+/// model was never silent: only what the model says (a message, a thought, a tool call, a plan, a
+/// request) counts as an answer, not the agent's own bookkeeping.
+#[tokio::test]
+async fn a_turn_whose_agent_only_reports_bookkeeping_is_silent() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.silent_turn_ms = Some(400);
+    let id = new_session(&mut c, "silent-busy").await;
+    let rid = c.send(method::SESSION_PROMPT, prompt(&id, "mute-busy", None)).await;
+    let silent = c.wait_for(method::MUX_EVENT, |p| p["kind"] == "turn_silent").await;
+    assert_eq!(silent["msg"]["silentMs"], 400, "{silent}");
+    assert_eq!(c.response(rid).await.0.unwrap()["stopReason"], "end_turn");
+}

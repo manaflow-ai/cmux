@@ -1,12 +1,15 @@
 //! Part of `Hub`; see `hub/mod.rs`. A turn whose agent says nothing: a model
 //! that never answers (an OpenCode free model that stalls, a provider that
 //! hangs) left the chat on "Thinking" with no end and no sign why. When a
-//! prompt went out and nothing at all came back from the agent (no update,
-//! request or answer, `Session::heard`) for `silentTurnMs` (default 90 s), the
-//! chat logs `turn_silent` {turnId, silentMs} once, so a client can say the
-//! model has not answered; the agent's first word after it ends that on the
-//! client. Only silence from the prompt counts: an agent that answered and then
-//! works quietly (a long command) is not silent.
+//! prompt went out and nothing came back from the model (no message, thought,
+//! tool call, plan or request: `Session::heard`, `tap.rs` `from_the_model`)
+//! for `silentTurnMs` (default 90 s), the chat logs `turn_silent` {turnId,
+//! silentMs} once, so a client can say the model has not answered; the
+//! agent's first word after it ends that on the client. The agent's own
+//! bookkeeping is no answer: Codex reports its turn and its usage as soon as
+//! the prompt goes out, whatever its model does. Only silence from the prompt
+//! counts: an agent that answered and then works quietly (a long command) is
+//! not silent.
 
 use super::*;
 

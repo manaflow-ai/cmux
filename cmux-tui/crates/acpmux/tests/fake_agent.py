@@ -758,6 +758,16 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "late"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "mute-busy" is "mute" from an agent that reports its turn and its usage at once, as Codex does
+    # (a usage update, a command list, a notification of its own): none of it is the model's.
+    if text == "mute-busy":
+        update(sid, {"sessionUpdate": "usage_update", "used": 12, "size": 200000})
+        update(sid, {"sessionUpdate": "available_commands_update", "availableCommands": []})
+        send({"jsonrpc": "2.0", "method": "_fake/turn_started", "params": {"sessionId": sid}})
+        time.sleep(2)
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "late"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "hang" starts a turn that never ends: a busy agent.
     if text == "hang":
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "working"}})
