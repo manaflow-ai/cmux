@@ -339,12 +339,11 @@ mod tests {
     }
 
     #[test]
-    fn a_folder_under_a_root_is_trusted_and_a_symlink_out_is_not() {
+    fn a_folder_under_a_root_is_trusted_but_outside_is_not() {
         let d = scratch("root");
         let root = d.join("projects");
         std::fs::create_dir_all(root.join("app/src")).unwrap();
         std::fs::create_dir_all(d.join("elsewhere")).unwrap();
-        std::os::unix::fs::symlink(d.join("elsewhere"), root.join("link")).unwrap();
         let auto = rules(
             json!({"agents": {"trust": {"autoTrust": true, "projectRoots": [root.to_string_lossy()]}}}),
         );
@@ -352,8 +351,21 @@ mod tests {
             auto.reason(root.join("app/src").to_str().unwrap()),
             Some(Reason::Root(root.clone()))
         );
-        assert_eq!(auto.reason(root.join("link").to_str().unwrap()), None);
         assert_eq!(auto.reason(d.join("elsewhere").to_str().unwrap()), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_from_a_trusted_root_to_outside_is_not_trusted() {
+        let d = scratch("symlink-root");
+        let root = d.join("projects");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(d.join("elsewhere")).unwrap();
+        std::os::unix::fs::symlink(d.join("elsewhere"), root.join("link")).unwrap();
+        let auto = rules(
+            json!({"agents": {"trust": {"autoTrust": true, "projectRoots": [root.to_string_lossy()]}}}),
+        );
+        assert_eq!(auto.reason(root.join("link").to_str().unwrap()), None);
     }
 
     #[test]
