@@ -457,7 +457,7 @@ export function Composer({
         }
       },
     }),
-    [setAttachments],
+    [setAttachments, setAttachError],
   );
   useEffect(() => {
     // The prompt's DOM value is the typed text; a draft never replaces it.
