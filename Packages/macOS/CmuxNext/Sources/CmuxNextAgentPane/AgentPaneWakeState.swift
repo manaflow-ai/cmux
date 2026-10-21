@@ -27,11 +27,13 @@ public nonisolated struct AgentPaneWakeState: Codable, Sendable, Equatable {
         public var data: String?
         public var text: String?
         public var pageCount: Int?
+        /// A link chip's file or folder on this computer (Attach files or folders).
+        public var path: String?
 
         public init(id: String, kind: String, name: String, mimeType: String, size: Double,
-                    data: String? = nil, text: String? = nil, pageCount: Int? = nil) {
+                    data: String? = nil, text: String? = nil, pageCount: Int? = nil, path: String? = nil) {
             (self.id, self.kind, self.name, self.mimeType, self.size) = (id, kind, name, mimeType, size)
-            (self.data, self.text, self.pageCount) = (data, text, pageCount)
+            (self.data, self.text, self.pageCount, self.path) = (data, text, pageCount, path)
         }
     }
 

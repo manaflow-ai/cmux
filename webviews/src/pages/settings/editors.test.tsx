@@ -31,6 +31,8 @@ function editorProblem(row: SchemaRow, control: Element): string | null {
       return has("select") && has("option", choices + (row.default === null ? 1 : 0)) ? null : "no menu";
     case "choice_or_number":
       return has('option[value="__custom__"]') ? null : "no Custom… choice";
+    case "choice_or_url":
+      return has('option[value="__address__"]') ? null : "no Self-Hosted Server… choice";
     case "number":
       return has('input[type="range"]') && has("input.number") ? null : "no slider + field";
     case "color":
@@ -61,7 +63,7 @@ function editorProblem(row: SchemaRow, control: Element): string | null {
     case "number_list":
       return has("input.token-input") ? null : "no number token field";
     case "string_map":
-      return "a kind the cmux-next page never renders";
+      return has("[data-string-map]") && has("input[data-map-new-key]") ? null : "no key and value list";
   }
 }
 
@@ -99,9 +101,8 @@ describe("editors", () => {
           if (!page.container.querySelector('[data-card="density"]')) failures.push(`${row.key}: no density card`);
           continue;
         }
-        // appearance.themeEdits is the pickers' "(custom)" themes, edited in the Theme section, not a row;
-        // the page has no editor for any string_map (browser.siteEngines is edited in cmux.json).
-        if (row.key === "appearance.themeEdits" || row.kind === "string_map") {
+        // appearance.themeEdits is the pickers' "(custom)" themes, edited in the Theme section, not a row.
+        if (row.key === "appearance.themeEdits") {
           if (page.container.querySelector(`[data-row-key="${row.key}"]`)) failures.push(`${row.key}: drawn as a row`);
           continue;
         }

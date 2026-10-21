@@ -411,3 +411,14 @@ button.cv-subagent > :last-child {
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
 }
+/* A subagent's own pane: where the chat's composer would be, the line naming the chat that takes
+   messages (SubagentPaneFooter.tsx). */
+.cv-subagent-pane-footer {
+  margin: 0;
+  padding: 12px 16px;
+  font-family: var(--cv-font);
+  font-size: var(--text-detail);
+  color: var(--cv-text-muted);
+  text-align: center;
+  user-select: none;
+}
