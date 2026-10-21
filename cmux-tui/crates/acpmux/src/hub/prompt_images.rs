@@ -171,12 +171,14 @@ impl Hub {
         Ok(json!({"id": id}))
     }
 
-    /// Records prompt `msg` as the session's `user_message`, naming the images of its `blocks`.
+    /// Records prompt `msg` as the session's `user_message`, naming the images of its `blocks`
+    /// and the ranges of its text that were pasted (`session.rs`, `mark_pasted`).
     pub(super) fn append_prompt(&self, session: &Session, mut msg: Value, blocks: &[Value]) {
         let images = keep(blocks);
         if !images.is_empty() {
             msg["images"] = Value::Array(images);
         }
+        super::session::mark_pasted(&mut msg, blocks);
         self.append(session, "mux", "user_message", msg);
     }
 
