@@ -120,7 +120,7 @@ public final class UpdaterService {
     /// The test feed in use ("Use Test Update Feed"), or nil.
     public internal(set) var testFeedURL: String?
     /// The release ring followed in the cmux-next appcast (`updates.channel`, ``follow(ring:)``).
-    public private(set) var ring: UpdateRing = .nightly
+    public internal(set) var ring: UpdateRing = .nightly
     /// The `updates.*` settings the gate reads (set by the App).
     public var preferences = UpdatePreferences.defaults
     /// Sparkle's staged install and its cancel (replaced by tests).
