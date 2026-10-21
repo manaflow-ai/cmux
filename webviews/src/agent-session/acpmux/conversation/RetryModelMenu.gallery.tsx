@@ -1,5 +1,5 @@
 // l10n-allow-file: gallery fixtures (model names, a prompt and a reply), not shipped UI.
-// Retry's model menu in a prompt's action row (RetryModelMenu.tsx): Claude Code's list as a chat reports it,
+// Retry's model menu under an answer (RetryModelMenu.tsx): Claude Code's list as a chat reports it,
 // releases, its own aliases and older versions mixed, the aliases' releases twice (Leo 2026-10-20:
 // Opus 5.5, Sonnet 5.5 and Haiku 5.5 each twice, a stale tail of old models, the bare system font),
 // drawn as the composer's model menu: the top models, then older ones under More models.
@@ -38,13 +38,18 @@ const open: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('[role="menu"]') !== null);
 };
 
-const prompt = {
-  id: "user-1",
+const row = {
+  id: "summary-3",
   version: 1,
   at: Date.UTC(2026, 9, 20, 21, 41),
-  kind: "user" as const,
-  seq: 1,
-  text: "Add retry to the uploader",
+  kind: "turnSummary" as const,
+  seq: 3,
+  status: "completed",
+  text: "Done.",
+  prompt: "Add retry to the uploader",
+  retryRowId: "user-1",
+  durationMs: 42_000,
+  toolCount: 0,
 };
 
 export default componentEntry<Record<string, never>>({
@@ -57,7 +62,7 @@ export default componentEntry<Record<string, never>>({
   anchors: [{ selector: ".cv-turn-retry-menu" }],
   covers: ["agent-session/acpmux/conversation/RetryModelMenu.tsx"],
   load: async () => {
-    const { UserBubble } = await import("./UserBubble");
+    const { TurnFooter } = await import("./TurnRows");
     const { TurnActionsContext } = await import("./turnActions");
     const actions = {
       retry: () => {},
@@ -71,10 +76,9 @@ export default componentEntry<Record<string, never>>({
     };
     return function GalleryRetryModelMenu() {
       return (
-        // Retry shows on the last ended turn's prompt (VirtualTranscript marks its row retryable).
-        <div className="acpmux-row" data-retryable="" style={{ position: "relative", padding: "16px 16px 0" }}>
+        <div style={{ padding: "16px 16px 0" }}>
           <TurnActionsContext.Provider value={actions}>
-            <UserBubble row={prompt} text={prompt.text} />
+            <TurnFooter row={row} />
           </TurnActionsContext.Provider>
         </div>
       );
