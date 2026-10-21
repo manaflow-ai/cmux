@@ -71,6 +71,11 @@ if "notary_pending: ${{ !contains(needs.decide.outputs.optional_variants, matrix
 if "!contains(needs.decide.outputs.optional_variants, matrix.variant) && 'true' || 'false' }}" not in TEXT:
     failures.append("an optional leg must not hand a pending notarization to the arm64 recovery")
 
+# A skipped Intel build is reported, never silent.
+report = job("report-nightly-next-intel")
+if "nightly-next-intel-failure" not in report or "published_variants" not in report:
+    failures.append("report-nightly-next-intel must open the Intel incident from publish-nightly's published_variants")
+
 # publish: every feed loop takes the feeds this run actually publishes.
 for name in ("Guard nightly-next publication", "Upload nightly-next appcasts to R2", "Upload nightly appcasts to R2"):
     body = step(name)
@@ -126,12 +131,6 @@ if main_variants != "arm64 x86_64 universal":
 for name in ("Publish verified nightly release metadata", "Record verified nightly publication"):
     if "x86_64.dmg" in step(name):
         failures.append(f"{name!r} must take its download list from the notes step, which knows the track")
-
-def job(name):
-    start = TEXT.index(f"  {name}:\n")
-    end = re.search(r"^  [a-zA-Z0-9_-]+:", TEXT[start + len(name) + 4:], re.M)
-    return TEXT[start:] if end is None else TEXT[start:start + len(name) + 4 + end.start()]
-
 
 # The resolved cmux-tui publication includes a checksum-verified acpmux
 # companion. Fetch it before the app job's acpmux step so the existing

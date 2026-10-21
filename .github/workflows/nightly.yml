@@ -3973,7 +3973,8 @@ jobs:
         variant: ${{ fromJSON(needs.decide.outputs.variants) }}
     env:
       # Set only when the 6 h stapled-app fallback shipped the first DMG.
-      STAPLED_APP_FALLBACK_ID: ${{ needs.build-sign-notarize-nightly.outputs.stapled_app_fallback_id }}
+      # arm64's; an optional leg (no hand-off) never ships the stapled-app fallback.
+      STAPLED_APP_FALLBACK_ID: ${{ !contains(needs.decide.outputs.optional_variants, matrix.variant) && needs.build-sign-notarize-nightly.outputs.stapled_app_fallback_id || '' }}
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       NIGHTLY_VARIANT: ${{ matrix.variant }}
@@ -4257,7 +4258,8 @@ jobs:
         variant: ${{ fromJSON(needs.decide.outputs.variants) }}
     env:
       # Set only when the 6 h stapled-app fallback shipped the first DMG.
-      STAPLED_APP_FALLBACK_ID: ${{ needs.build-sign-notarize-nightly.outputs.stapled_app_fallback_id }}
+      # arm64's; an optional leg (no hand-off) never ships the stapled-app fallback.
+      STAPLED_APP_FALLBACK_ID: ${{ !contains(needs.decide.outputs.optional_variants, matrix.variant) && needs.build-sign-notarize-nightly.outputs.stapled_app_fallback_id || '' }}
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       NIGHTLY_VARIANT: ${{ matrix.variant }}
@@ -7214,6 +7216,52 @@ jobs:
             } else {
               await github.rest.issues.create({ owner, repo, title: `${appName} build is failing on ${refName}`, labels: [label], body });
             }
+
+  # x86_64 is optional on nightly-next: a failed Intel leg leaves every job
+  # green and the Intel DMG and feed on their last build. This keeps one
+  # `nightly-next-intel-failure` incident open while a published build skips
+  # Intel, and closes it when a build publishes Intel again.
+  report-nightly-next-intel:
+    needs: [decide, publish-nightly]
+    if: "!cancelled() && needs.decide.outputs.track == 'nightly-next' && contains(needs.decide.outputs.optional_variants, 'x86_64') && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.source == 'own' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true'"
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    permissions:
+      issues: write
+    steps:
+      - name: Open, update or close the Intel incident
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PUBLISHED_VARIANTS: ${{ needs.publish-nightly.outputs.published_variants }}
+          BUILD: ${{ needs.publish-nightly.outputs.build }}
+          APP_NAME: ${{ needs.decide.outputs.app_name }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const label = 'nightly-next-intel-failure';
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const published = ` ${process.env.PUBLISHED_VARIANTS} `.includes(' x86_64 ');
+            const open = await github.rest.issues.listForRepo({ owner, repo, labels: label, state: 'open', per_page: 1 });
+            const issue = open.data[0];
+            if (published) {
+              if (issue) {
+                await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body: `Build ${process.env.BUILD} published the Intel app again. Run: ${runUrl}` });
+                await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: 'closed' });
+              }
+              return;
+            }
+            const body = `${process.env.APP_NAME} build ${process.env.BUILD} published for Apple silicon only: its Intel (x86_64) leg did not pass, so the Intel download and appcast-x86_64.xml stay on an earlier build. See the x86_64 legs of ${runUrl}.`;
+            if (issue) {
+              await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body });
+              return;
+            }
+            try {
+              await github.rest.issues.getLabel({ owner, repo, name: label });
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              await github.rest.issues.createLabel({ owner, repo, name: label, color: 'b60205', description: `${process.env.APP_NAME} Intel build not publishing` });
+            }
+            await github.rest.issues.create({ owner, repo, title: `${process.env.APP_NAME} Intel build is not publishing on nightly-next`, labels: [label], body });
 
   # The nightly-next feed alarm (one `nightly-next-feed-stale` issue past
   # NIGHTLY_NEXT_MAX_FEED_LAG_HOURS) runs from main every 30 minutes, so it also
