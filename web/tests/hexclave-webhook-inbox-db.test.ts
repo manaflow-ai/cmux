@@ -8,7 +8,8 @@ import { inboxHarness, postBurst, userId } from "./helpers/hexclave-inbox-harnes
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
 const dbTest = runDbTests ? test : test.skip;
-const sql = runDbTests ? postgres((process.env.DIRECT_DATABASE_URL ?? process.env.DATABASE_URL)!, { max: 1 }) : null;
+const databaseUrl = process.env.DIRECT_DATABASE_URL ?? process.env.DATABASE_URL;
+const sql = runDbTests ? postgres(databaseUrl!, { max: 1 }) : null;
 
 beforeEach(async () => {
   if (sql) await sql`truncate hexclave_webhook_inbox, hexclave_webhook_inbox_drain_slots, hexclave_webhook_inbox_state, hexclave_webhook_events`;
@@ -101,31 +102,57 @@ describe("Hexclave webhook inbox store", () => {
       .toEqual(["m-locked"]);
   });
 
-  dbTest("claim renewal contends on the same entity-establishment lock", async () => {
+  dbTest("claim renewal waits for the entity-establishment lock, then rechecks its token", async () => {
     const store = createDrizzleHexclaveInboxStore();
+    const observer = postgres(databaseUrl!, { max: 1 });
     await store.enqueue({ svixId: "m-renew-locked", eventType: "user.updated", target: user("u-renew-locked") });
     const now = new Date();
+    await sql!`update hexclave_webhook_inbox set next_attempt_at = ${new Date(now.getTime() - 1_000)} where svix_id = 'm-renew-locked'`;
     const claimedUntil = new Date(now.getTime() + 60_000);
     expect(await store.claimDue(now, 1, claimedUntil)).toHaveLength(1);
 
     let unlock!: () => void;
     let locked!: () => void;
+    let holderPid = 0;
     const release = new Promise<void>((resolve) => { unlock = resolve; });
     const ready = new Promise<void>((resolve) => { locked = resolve; });
     const holder = sql!.begin(async (tx) => {
+      const [session] = await tx<{ pid: number }[]>`select pg_backend_pid()::int as pid`;
+      holderPid = session!.pid;
       await tx`select pg_advisory_xact_lock(hashtextextended('hexclave:inbox:user:u-renew-locked', 0))`;
       locked();
       await release;
     });
     await ready;
     const renewedUntil = new Date(claimedUntil.getTime() + 60_000);
+    let settled = false;
+    const renewal = store.renewClaims(["m-renew-locked"], claimedUntil, renewedUntil).then((renewed) => {
+      settled = true;
+      return renewed;
+    });
     try {
-      expect(await store.renewClaims(["m-renew-locked"], claimedUntil, renewedUntil)).toBe(false);
-    } finally {
+      const deadline = Date.now() + 5_000;
+      let waiting = 0;
+      while (!settled && waiting === 0 && Date.now() < deadline) {
+        const [row] = await observer<{ waiting: number }[]>`
+          select count(*)::int as waiting
+          from pg_stat_activity as waiter
+          where waiter.wait_event_type = 'Lock'
+            and ${holderPid} = any(pg_blocking_pids(waiter.pid))
+        `;
+        waiting = row?.waiting ?? 0;
+        if (waiting === 0) await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(settled).toBe(false);
+      expect(waiting).toBe(1);
       unlock();
       await holder;
+    } finally {
+      unlock();
+      await holder.catch(() => {});
+      await observer.end({ timeout: 5 });
     }
-    expect(await store.renewClaims(["m-renew-locked"], claimedUntil, renewedUntil)).toBe(true);
+    expect(await renewal).toBe(true);
   });
 
   dbTest("a new event for an entity waits for that entity's active claim", async () => {
@@ -133,9 +160,11 @@ describe("Hexclave webhook inbox store", () => {
     const now = new Date();
     const leaseUntil = new Date(now.getTime() + 60_000);
     await store.enqueue({ svixId: "m-remove", eventType: "user.updated", target: user("u-one") });
+    await sql!`update hexclave_webhook_inbox set next_attempt_at = ${new Date(now.getTime() - 1_000)} where svix_id = 'm-remove'`;
     expect((await store.claimDue(now, 5, leaseUntil)).map((entry) => entry.svixId)).toEqual(["m-remove"]);
 
     await store.enqueue({ svixId: "m-readd", eventType: "team_membership.created", target: user("u-one") });
+    await sql!`update hexclave_webhook_inbox set next_attempt_at = ${new Date(now.getTime() - 1_000)} where svix_id = 'm-readd'`;
     expect(await store.claimDue(now, 5, leaseUntil)).toEqual([]);
     const afterLease = new Date(leaseUntil.getTime() + 1);
     expect((await store.claimDue(afterLease, 5, new Date(afterLease.getTime() + 60_000)))
@@ -148,6 +177,7 @@ describe("Hexclave webhook inbox store", () => {
       await store.enqueue({ svixId, eventType: "user.updated", target: user("u-fenced") });
     }
     const firstAt = new Date();
+    await sql!`update hexclave_webhook_inbox set next_attempt_at = ${new Date(firstAt.getTime() - 1_000)} where entity_id = 'u-fenced'`;
     const firstUntil = new Date(firstAt.getTime() + 60_000);
     const first = await store.claimDue(firstAt, 1, firstUntil);
     expect(first).toHaveLength(3);

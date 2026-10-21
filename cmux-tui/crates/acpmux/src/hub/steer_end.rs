@@ -89,7 +89,25 @@ impl Hub {
         let wire_blocks = super::turns::acp_prompt_blocks(session, &blocks)?;
         let mut params = json!({"sessionId": agent_sid, "prompt": wire_blocks});
         params["_meta"] = json!({"steer": true});
-        let mut r = match agent_prompt(session, &child, params, turn_id, true).await {
+        // Until the agent answers it, Send now can stop the agent's step for it
+        // (`queue_edit.rs`); a queued prompt sent now stops it right away.
+        let step_now = {
+            let mut now =
+                session.steer_now.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            now.waiting.insert(prompt_id.clone());
+            now.step.remove(&prompt_id)
+        };
+        if step_now {
+            params["_meta"]["steerNow"] = json!(true);
+        }
+        let answer = agent_prompt(session, &child, params, turn_id, true).await;
+        session
+            .steer_now
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .waiting
+            .remove(&prompt_id);
+        let mut r = match answer {
             Err(e) if e.message.starts_with(crate::claude_stdio::STEER_NO_TURN) => {
                 let Some(blocks) = fallback else { return Err(e) };
                 // A send-now (`interrupt`) still goes next.
@@ -99,6 +117,7 @@ impl Hub {
                     trust_gate,
                     interrupt: opts.interrupt,
                     provenance: opts.provenance,
+                    agent: opts.agent,
                     ..PromptOptions::default()
                 };
                 return Box::pin(self.run_prompt(session, blocks, client, false, opts)).await;

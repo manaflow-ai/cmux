@@ -1,51 +1,52 @@
-// A prompt's bubble, with its action row under it as Claude Code desktop draws one: the prompt's age
-// ("1 hour ago", its time on hover), two ticks once the agent has it, then Copy, Edit, Fork and
-// Bookmark (cx-ncc.60, Claude parity). The latest prompt shows the row always, older ones on hover
-// (VirtualTranscript marks the latest `data-last-prompt`). Edit opens the prompt in
-// place; Send forks the chat through the turn before it and sends the edited text there (the App's
-// `edit.send`), Escape or Cancel puts the bubble back. Edit shows only on a prompt the chat can fork
-// before (`editableTurns`), so it is never dead. A prompt with versions (an edit made it, or replaced
-// it) shows < n/m > before them, always (branches.ts, cx-ncc.61). Fork forks the chat through the
-// prompt's own turn, as its right-click Fork does. The row is Claude's whole
-// row (GUI push 2026-10-20), not the `hover-actions` experiment's one action. The images a prompt
-// sent show above its bubble, each opening the image viewer (Leo, 2026-10-13: they vanished once sent).
-import { useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+// A prompt's bubble, with its action row under its right edge as Claude Code desktop draws one:
+// the prompt's age ("8 minutes ago", its date and time on hover), its read receipt (one check once
+// acpmux has it, two once the agent read it, "Read by Claude Code" on hover), then Copy, Edit, Retry,
+// Fork from here and Pin (cx-ncc.60, Claude parity; Leo, GUI push 2026-10-20). The row shows on
+// hover or keyboard focus only, its height kept, so nothing moves when it appears. Edit opens the
+// prompt in place; Send forks the chat through the turn before it and sends the edited text there
+// (the App's `edit.send`), Escape or Cancel puts the bubble back. Edit shows only on a prompt the
+// chat can fork before (`editableTurns`), so it is never dead. Retry sends the prompt again; it shows
+// on the prompt of the last ended turn only (MessageActions.tsx PromptRetry). A prompt
+// with versions (an edit made it, or replaced it) shows < n/m > before them, always (branches.ts,
+// cx-ncc.61). Fork forks the chat through the prompt's own turn, as its right-click Fork does. The
+// images a prompt sent show above its bubble, each opening the image viewer (Leo, 2026-10-13: they
+// vanished once sent). A long prompt opens collapsed on its first ten lines with Show more, and a
+// pasted block is a chip that opens in place (PromptText.tsx); Copy still copies the whole prompt.
+import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AcpmuxRow, PromptImage } from "../model";
-import { useMinuteClock } from "../clock";
-import { usePaneLanguage, useT } from "../i18n";
+import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
-import { copyText } from "./clipboard";
+import { liftInlineImages, withoutDataUris } from "../inlineImages";
 import { DeliveryMark } from "./PromptDelivery";
-import { Check, ChevronLeft, ChevronRight, Copy, ImageIcon, Pencil, TurnFork } from "./icons";
-import { relativeTime } from "./relativeTime";
+import { ChevronLeft, ChevronRight, ImageIcon, Pencil } from "./icons";
 import { ImageViewerContext } from "./imageViewerContext";
+import { PromptText } from "./PromptText";
+import { ForkButton, MessageCopy, MessageTime, PinButton, PromptRetry, ReadReceipt } from "./MessageActions";
 import { TurnActionsContext } from "./turnActions";
-import { BookmarkIcon } from "../threadMinimap/BookmarkIcon";
-import { usePromptRowMark } from "../threadMinimap/promptMarks";
 
 export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
   const t = useT();
   const { edit, branches, fork, forkSeq, forkAny, promptTurns } = useContext(TurnActionsContext);
-  const now = useMinuteClock();
-  const language = usePaneLanguage();
   const branch = branches?.of.get(row.id);
   const [editing, setEditing] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const mark = usePromptRowMark(row);
   const through = edit?.seqs.get(row.id);
-  // A prompt this pane sent is read once the agent started on it (its delivery), else as before; a
-  // steer is unread while it still waits for the agent to take it, whatever its delivery says.
-  const unread = row.steer === "waiting" || (row.delivery ? row.delivery.state !== "read" : row.pending);
   // Fork goes through the prompt's own turn, as its right-click Fork does, so the new chat keeps it.
   const own = promptTurns?.get(row.id);
   const forkThrough = fork && own !== undefined && (forkAny || own === forkSeq) ? own : undefined;
+  const resend = row.resend ?? row.text ?? text;
+  // A prompt that went out with an image as `data:` text (before the composer stopped making them)
+  // reads each one as its name: a bubble never draws base64 (inlineImages.ts, Leo 2026-10-20).
+  // Edit opens it without the images (the field would draw them full size again); Copy copies it as sent.
+  const imageName = t("image.viewer");
+  const show = useCallback((part: string) => withoutDataUris(part, imageName), [imageName]);
+  const editable = useMemo(() => (editing ? liftInlineImages(row.text ?? text).text : ""), [editing, row.text, text]);
   // An open editor stays while the chat changes under it (a reconnect, a turn starting), so the
   // draft is kept; Send waits until the prompt can be forked before again. A resend that fails
   // (the fork refused, the reader opened another chat) leaves the draft open too.
   if (editing) {
     return (
       <PromptEditor
-        initial={row.text ?? text}
+        initial={editable}
         canSend={edit !== undefined && through !== undefined}
         onCancel={() => setEditing(false)}
         onSend={async (value) => {
@@ -59,7 +60,7 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
     <>
       {row.images && row.images.length > 0 && <SentImages images={row.images} />}
       <div className="cv-user__bubble selectable">
-        {text}
+        <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
         {/* A prompt this pane sent that is still on its way; a steer's mark says it instead. */}
         {row.delivery && !row.steer && <DeliveryMark delivery={row.delivery} />}
       </div>
@@ -95,34 +96,9 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
               </button>
             </span>
           )}
-          <time className="cv-user__time" dateTime={new Date(row.at).toISOString()}>
-            {relativeTime(row.at, now, language)}
-          </time>
-          {/* Claude's single check: Read once the agent has the prompt, Unread while it is still
-              being sent or waits as a steer. */}
-          <span
-            className={`cv-user__read${unread ? " is-unread" : ""}`}
-            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- an icon with a spoken state, not an image file.
-            role="img"
-            aria-label={t(unread ? "message.unread" : "message.read")}
-            title={t(unread ? "message.unread" : "message.read")}
-          >
-            <Check size={14} />
-          </span>
-          <button
-            type="button"
-            className="cv-iconbtn cv-iconbtn--compact"
-            aria-label={copied ? t("turn.copied") : t("turn.copy")}
-            title={copied ? t("turn.copied") : t("turn.copy")}
-            onClick={() =>
-              void copyText(row.text ?? text).then(
-                () => setCopied(true),
-                () => setCopied(false),
-              )
-            }
-          >
-            <Copy size={14} />
-          </button>
+          <MessageTime at={row.at} className="cv-user__time" />
+          <ReadReceipt row={row} />
+          <MessageCopy text={row.text ?? text} />
           {through !== undefined && (
             <button
               type="button"
@@ -134,30 +110,9 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
               <Pencil size={14} />
             </button>
           )}
-          {forkThrough !== undefined && (
-            <button
-              type="button"
-              className="cv-iconbtn cv-iconbtn--compact"
-              aria-label={t("turn.fork")}
-              title={t("turn.fork")}
-              onClick={() => fork!(forkThrough)}
-            >
-              <TurnFork size={14} />
-            </button>
-          )}
-          {/* The prompt's bookmark, the same mark as the thread minimap's dot and card. */}
-          {mark.can && (
-            <button
-              type="button"
-              className="cv-iconbtn cv-iconbtn--compact cv-user__bookmark"
-              aria-pressed={mark.marked}
-              aria-label={t(mark.marked ? "minimap.bookmarkRemove" : "minimap.bookmarkAdd")}
-              title={t(mark.marked ? "minimap.bookmarkRemove" : "minimap.bookmarkAdd")}
-              onClick={mark.toggle}
-            >
-              <BookmarkIcon filled={mark.marked} size={14} />
-            </button>
-          )}
+          <PromptRetry rowId={row.id} prompt={resend} />
+          {forkThrough !== undefined && <ForkButton onFork={() => fork!(forkThrough)} />}
+          <PinButton rowId={row.id} />
         </div>
       )}
     </>
@@ -267,14 +222,24 @@ function SentImage({ image }: { image: PromptImage }) {
   );
 }
 
-function PromptEditor({
+/// A prompt open for typing: Enter sends, Shift-Enter breaks the line, Escape cancels. Edit and
+/// resend uses it here; a message card's Reply too (IncomingMessageCard.tsx), under `label`,
+/// keeping its draft through `onChange`; one it draws again after scrolling back leaves the focus
+/// alone (`autoFocus` false).
+export function PromptEditor({
   initial,
   canSend,
+  label,
+  autoFocus = true,
+  onChange,
   onCancel,
   onSend,
 }: {
   initial: string;
   canSend: boolean;
+  label?: string;
+  autoFocus?: boolean;
+  onChange?(text: string): void;
   onCancel(): void;
   onSend(text: string): Promise<void>;
 }) {
@@ -285,9 +250,10 @@ function PromptEditor({
   // Opened to type in: the caret at the end, the field as tall as the prompt.
   useLayoutEffect(() => {
     const element = field.current;
-    if (!element) return;
+    if (!element || !autoFocus) return;
     element.focus();
     element.setSelectionRange(element.value.length, element.value.length);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- focus once, when it opens
   }, []);
   useLayoutEffect(() => {
     const element = field.current;
@@ -306,10 +272,13 @@ function PromptEditor({
       <textarea
         ref={field}
         className="cv-user__edit-field selectable"
-        aria-label={t("message.editLabel")}
+        aria-label={label ?? t("message.editLabel")}
         value={value}
         rows={1}
-        onChange={(event) => setValue(event.target.value)}
+        onChange={(event) => {
+          setValue(event.target.value);
+          onChange?.(event.target.value);
+        }}
         // ui-allow: the editor's own Enter (send) and Escape (cancel), as the composer's
         onKeyDown={(event) => {
           // WebKit may end an IME composition before its Enter's keydown, which then says only 229.

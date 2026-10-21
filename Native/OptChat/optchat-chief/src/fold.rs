@@ -145,6 +145,9 @@ pub struct TurnFold {
     /// Reply text since the last tool call.
     talk: String,
     tools: HashMap<String, Tool>,
+    /// Permission requests of the turn's session that wait for an answer
+    /// (acpmux `permission_request` with no `permission_decision` yet).
+    asking: std::collections::BTreeSet<String>,
     /// The last finished reply: what the turn posts.
     last_talk: Option<String>,
     /// Answers Claude Code finished (`result`) before a steered message
@@ -152,8 +155,7 @@ pub struct TurnFold {
     answered: Vec<String>,
     ended: Option<Ended>,
     /// The last raw Claude Code line came from one of its own subagents
-    /// (Task/Agent): the translated updates that follow it are that
-    /// subagent's steps, which stay out of the log (section 9).
+    /// (Task/Agent): it is not timed, and its result and usage are not the turn's.
     in_subagent: bool,
     /// The event time of what started the next model request: the last
     /// line sent to the harness, or the last tool result Claude Code read.
@@ -217,6 +219,12 @@ impl TurnFold {
         self.ended.is_none() && self.tools.values().any(|t| !t.done)
     }
 
+    /// The turn waits on a permission request nobody answered yet: its
+    /// running tool is not at work, so the idle watchdog counts this time.
+    pub fn awaits_permission(&self) -> bool {
+        self.ended.is_none() && !self.asking.is_empty()
+    }
+
     /// The turn's final assistant text: its last finished reply.
     pub fn final_text(&self) -> Option<String> {
         let parts: Vec<&str> = self
@@ -250,9 +258,8 @@ impl TurnFold {
             self.request_start = event.at;
         }
         if event.kind.starts_with("claude.") {
-            // Claude Code's raw stream-json line; acpmux records it just before
-            // the updates it translates into, and its translator ignores
-            // `parent_tool_use_id`, so this is where a subagent's steps show.
+            // Claude Code's raw stream-json line; one with `parent_tool_use_id`
+            // is a subagent's, whose results and usage are not the turn's.
             self.in_subagent =
                 matches!(event.msg.get("parent_tool_use_id"), Some(Value::String(_)));
             if !self.in_subagent && event.dir != "out" {
@@ -308,7 +315,18 @@ impl TurnFold {
             }
             return out;
         }
-        if self.in_subagent
+        // A subagent's translated update is logged under its own session
+        // (`<acp>/<toolu>`), its steps stay out of the log (section 9). The
+        // session decides, not the raw line before it: acpmux keeps few raw
+        // stream lines, so a background subagent's raw line can come right
+        // before the main agent's next chunk.
+        let subagent_update = event
+            .msg
+            .get("params")
+            .and_then(|p| p.get("sessionId"))
+            .and_then(Value::as_str)
+            .is_some_and(|id| id.contains('/'));
+        if subagent_update
             && matches!(
                 event.kind.as_str(),
                 "agent_message_chunk" | "agent_thought_chunk" | "tool_call" | "tool_call_update"
@@ -346,6 +364,16 @@ impl TurnFold {
             (_, "tool_call_update") => {
                 if let Some(update) = update {
                     self.tool_update(update, event.at, &mut out);
+                }
+            }
+            ("mux", "permission_request") => {
+                if let Some(id) = event.msg.get("permissionId").and_then(Value::as_str) {
+                    self.asking.insert(id.to_owned());
+                }
+            }
+            ("mux", "permission_decision" | "permission_auto") => {
+                if let Some(id) = event.msg.get("permissionId").and_then(Value::as_str) {
+                    self.asking.remove(id);
                 }
             }
             ("mux", kind @ ("turn_end" | "turn_error")) => {

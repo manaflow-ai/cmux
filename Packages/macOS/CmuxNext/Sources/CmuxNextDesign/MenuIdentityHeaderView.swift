@@ -1,0 +1,244 @@
+public import AppKit
+
+/// The name-and-colors header of a right-click menu (Chrome's tab-group menu): a name field over a
+/// row of color swatches, inset as the menu's rows are. The app's `MenuIdentityHeader` builds it
+/// from a menu's rename and color rows.
+public final class MenuIdentityHeaderView: NSView, ThemedMenuItemView {
+    public let field: MenuNameField?
+    public let strip: MenuSwatchStrip?
+    static let inset: CGFloat = 12, top: CGFloat = 6, fieldHeight: CGFloat = 24, gap: CGFloat = 4, minimumWidth: CGFloat = 240
+
+    public init(field: MenuNameField?, strip: MenuSwatchStrip?) {
+        self.field = field
+        self.strip = strip
+        let height = Self.top + (field == nil ? 0 : Self.fieldHeight + Self.gap) + (strip == nil ? 0 : MenuSwatchStrip.height)
+        let width = max(Self.minimumWidth, (strip?.naturalWidth ?? 0) + 2 * Self.inset)
+        super.init(frame: NSRect(x: 0, y: 0, width: width, height: height))
+        // The menu widens the header to its widest row.
+        autoresizingMask = .width
+        if let field { addSubview(field) }
+        if let strip { addSubview(strip) }
+        layoutParts()
+    }
+
+    @available(*, unavailable)
+    public required init?(coder: NSCoder) { fatalError() }
+
+    public func adoptMenuScope(_ scope: ThemeScope) { strip?.adoptMenuScope(scope) }
+
+    public override func layout() {
+        super.layout()
+        layoutParts()
+    }
+
+    private func layoutParts() {
+        // Top down in a flipped sense: the field first, the swatches under it.
+        var y = bounds.height - Self.top
+        if let field {
+            y -= Self.fieldHeight
+            field.frame = NSRect(x: Self.inset, y: y, width: bounds.width - 2 * Self.inset, height: Self.fieldHeight)
+            y -= Self.gap
+        }
+        strip?.frame = NSRect(x: Self.inset, y: y - MenuSwatchStrip.height, width: bounds.width - 2 * Self.inset, height: MenuSwatchStrip.height)
+    }
+
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard let field else { return }
+        if window == nil {
+            field.menuClosed(by: NSApp.currentEvent)
+        } else {
+            field.reset()
+            // Typing renames at once, as in Chrome; the name starts selected.
+            window?.makeFirstResponder(field)
+            field.currentEditor()?.selectAll(nil)
+        }
+    }
+}
+
+/// The name field: commits a changed, non-empty name once per opening.
+public final class MenuNameField: NSTextField, NSTextFieldDelegate {
+    private let original: String
+    private let onRename: (String) -> Void
+    private var done = false
+
+    public init(name: String, placeholder: String, onRename: @escaping (String) -> Void) {
+        original = name
+        self.onRename = onRename
+        super.init(frame: .zero)
+        stringValue = name
+        placeholderString = placeholder
+        font = .menuFont(ofSize: NSFont.systemFontSize)
+        bezelStyle = .roundedBezel
+        isBezeled = true
+        lineBreakMode = .byTruncatingTail
+        cell?.isScrollable = true
+        delegate = self
+        setAccessibilityLabel(placeholder)
+    }
+
+    @available(*, unavailable)
+    public required init?(coder: NSCoder) { fatalError() }
+
+    /// A new opening of the menu: the original name, not yet committed.
+    public func reset() {
+        done = false
+        stringValue = original
+    }
+
+    /// Renames once when the name changed and is not blank.
+    public func commit() {
+        guard !done else { return }
+        done = true
+        let name = stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, name != original else { return }
+        onRename(name)
+    }
+
+    /// The menu closed on `event`: a changed name is kept, as Chrome keeps it, unless Escape closed
+    /// it. The menu takes Escape before the field editor sees it, so `cancelOperation` never runs.
+    public func menuClosed(by event: NSEvent?) {
+        if let event, event.type == .keyDown, event.keyCode == Self.escapeKeyCode {
+            done = true
+            return
+        }
+        commit()
+    }
+
+    private static let escapeKeyCode: UInt16 = 53
+
+    public func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        switch selector {
+        case #selector(NSResponder.insertNewline(_:)):
+            commit()
+            closeMenu()
+            return true
+        case #selector(NSResponder.moveUp(_:)), #selector(NSResponder.moveDown(_:)):
+            // The arrows leave the field for the menu's rows (the name typed so far is kept); the
+            // same press then moves the menu's highlight.
+            // Only once the field let go, so the press can't come back here.
+            if let window, window.makeFirstResponder(nil), let event = NSApp.currentEvent, event.type == .keyDown { window.sendEvent(event) }
+            return true
+        case #selector(NSResponder.cancelOperation(_:)):
+            // Escape puts the name back and closes the menu, as Escape on any menu does.
+            stringValue = original
+            done = true
+            closeMenu()
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func closeMenu() {
+        var menu = enclosingMenuItem?.menu
+        while let parent = menu?.supermenu { menu = parent }
+        menu?.cancelTracking()
+    }
+}
+
+/// One row of color swatches; the current one is ringed in the label's ink, the hovered one in the
+/// menu scope's accent. VoiceOver offers each color as an action of the row.
+public final class MenuSwatchStrip: NSView {
+    private let choices: [NSMenuItem]
+    /// Each choice's color; nil draws the scope's tertiary ink.
+    private let colors: [GroupColor?]
+    private let current: GroupColor?
+    private var hovered: Int?
+    /// The scope of the view whose menu this is (`themeRows(in:)`); nil until a themed menu hands it.
+    private var menuScope: ThemeScope?
+    static let diameter: CGFloat = 16, gap: CGFloat = 10, height: CGFloat = 30
+
+    var naturalWidth: CGFloat { CGFloat(choices.count) * (Self.diameter + Self.gap) - Self.gap + 6 }
+
+    /// One swatch per choice, drawn in `colors` (same order); `current` is ringed.
+    public init(title: String, choices: [NSMenuItem], colors: [GroupColor?], current: GroupColor?) {
+        self.choices = choices
+        self.colors = colors
+        self.current = current
+        super.init(frame: NSRect(x: 0, y: 0, width: 0, height: Self.height))
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        setAccessibilityLabel(title)
+        setAccessibilityCustomActions(choices.indices.map { index in
+            NSAccessibilityCustomAction(name: choices[index].title) { [weak self] in
+                self?.run(index)
+                return self != nil
+            }
+        })
+    }
+
+    @available(*, unavailable)
+    public required init?(coder: NSCoder) { fatalError() }
+
+    public func adoptMenuScope(_ scope: ThemeScope) {
+        menuScope = scope
+        needsDisplay = true
+    }
+
+    /// The hovered swatch's ring: the menu scope's accent.
+    @objc public var hoverRingColor: NSColor {
+        if let menuScope { return menuScope.perform { Palette.accent } }
+        return performWithTheme { Palette.accent }
+    }
+
+    /// A swatch whose color can't be read: the scope's tertiary ink, not the system gray.
+    @objc public var unknownSwatchColor: NSColor {
+        if let menuScope { return menuScope.perform { Palette.textTertiary } }
+        return performWithTheme { Palette.textTertiary }
+    }
+
+    /// The swatches' rects, from the leading edge past the ring's reach. Read from the bounds each
+    /// time: the header sets this view's frame by hand, so no layout pass is promised.
+    private var swatches: [NSRect] {
+        choices.indices.map { index in
+            NSRect(x: 3 + CGFloat(index) * (Self.diameter + Self.gap), y: (bounds.height - Self.diameter) / 2,
+                   width: Self.diameter, height: Self.diameter)
+        }
+    }
+
+    public override func draw(_ dirtyRect: NSRect) {
+        let hoverRing = hoverRingColor, unknown = unknownSwatchColor
+        for (index, rect) in swatches.enumerated() {
+            let color = colors.indices.contains(index) ? colors[index] : nil
+            (color?.markColor ?? unknown).setFill()
+            NSBezierPath(ovalIn: rect).fill()
+            let ringed = index == hovered ? hoverRing : color != nil && color == current ? NSColor.labelColor : nil
+            if let ringed {
+                ringed.setStroke()
+                let ring = NSBezierPath(ovalIn: rect.insetBy(dx: -2.5, dy: -2.5))
+                ring.lineWidth = 1.5
+                ring.stroke()
+            }
+        }
+    }
+
+    private func swatch(at event: NSEvent) -> Int? {
+        let point = convert(event.locationInWindow, from: nil)
+        return swatches.firstIndex { $0.insetBy(dx: -Self.gap / 2, dy: -6).contains(point) }
+    }
+
+    public override func mouseMoved(with event: NSEvent) { setHovered(swatch(at: event)) }
+    public override func mouseEntered(with event: NSEvent) { setHovered(swatch(at: event)) }
+    public override func mouseExited(with event: NSEvent) { setHovered(nil) }
+
+    private func setHovered(_ index: Int?) {
+        guard index != hovered else { return }
+        hovered = index
+        needsDisplay = true
+    }
+
+    public override func mouseUp(with event: NSEvent) {
+        guard let index = swatch(at: event) else { return }
+        run(index)
+    }
+
+    private func run(_ index: Int) {
+        let choice = choices[index]
+        var menu = enclosingMenuItem?.menu
+        while let parent = menu?.supermenu { menu = parent }
+        menu?.cancelTracking()
+        if let action = choice.action { NSApp.sendAction(action, to: choice.target, from: choice) }
+    }
+}

@@ -208,7 +208,7 @@ Registry rule for the new palette: one row below = one registered action with a 
 | palette.newAgentChat | New agent chat | ⌘I | P | ContentView+AgentChatCommandPalette:31 |
 | palette.openTerminalChatView | Open terminal as chat | — | P | :37 |
 | palette.launchClaudeTeams / launchCodexTeams | Claude / Codex Teams | — | P | :88 |
-| palette.forkAgentConversation{Right,Left,Top,Bottom,NewTab,NewWorkspace} | Fork Conversation To ▸ | — | PC | CV:8509, GhosttyNSView+ForkConversationContextMenu:288 |
+| palette.forkAgentConversation{Right,Left,Top,Bottom,NewTab,NewWorkspace,NewWindow} | Fork Conversation To ▸ (terminals and agent chats; Right: ⌥⌘Y) | — | PC | CV:8509, GhosttyNSView+ForkConversationContextMenu:288 |
 | palette.computerUse.* | Computer Use Setup / Accessibility / Screen Recording | — | P | ContentView+ComputerUseCommandPalette:5 |
 | (status menu) | Focus Computer Use / Calling Terminal / Stop Using <App> | — | M | ComputerUseMenuBarController:12 |
 

@@ -76,8 +76,11 @@ Every tier runs on:
 - a dispatch on any ref (`gh workflow run cmux-next.yml --ref <branch>`);
 - every `feat-cmux-next` push, except `swift test`: push CI is the app build
   (Release compile and app scheme compile), so a merged PR's Swift suites run
-  on the PR itself or a dispatch. A superseded push skips its Mac jobs, so
-  a burst of merges is checked once at its newest commit. When a push job fails,
+  on the PR itself or a dispatch. A superseded push skips its other Mac jobs,
+  so a burst of merges is checked once at its newest commit. The Release
+  compile still runs on superseded pushes: one runs at a time and only the
+  newest waits (a newer push replaces a waiting one), so a base compile break
+  turns the base red within one compile of its commit. When a push job fails,
   `cmux-next push attribution` comments on each PR merged since that job last
   passed on a push. The owning lane fixes forward;
 - a change to the manifest, the target graph, the router, the workflow or the
@@ -162,6 +165,16 @@ entry: regenerate the stamp after the merge, never hand-merge it. `cmux-next gen
 `feat-cmux-next`, the base autofix's Mac job runs the same script after a
 settings change and commits the exports and the snapshot, so a lane does not
 have to run the export itself.
+
+The defaults snapshot (`schemas/defaults/cmux-next.json`) is bot-only (#21946):
+no pull request commits it, and the PR autofix leaves it out. It is stale
+between a merge and the base autofix's commit, so CI runs `check-stamp`, never
+`check-fresh`, on every event, including the base and batches. The settings
+exports lag the same way, so the defaults-snapshot job passes `--base` (the
+event's parent commit): a stale export of a source the event changed fails, and
+one already stale on the base is a warning. The base autofix
+rewrites it after each merge. The defaults guard judges a pull request by the defaults its
+exports and sources produce, never by a committed snapshot.
 
 ## Measurements
 

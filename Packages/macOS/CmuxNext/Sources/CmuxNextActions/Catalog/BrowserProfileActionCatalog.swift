@@ -74,6 +74,10 @@ nonisolated enum BrowserProfileActionCatalog: ActionCatalogGroup {
                                    CatalogArgument.clearKind("cookies", text("argument.browsingData.cookies", "Cookies and Site Data")),
                                    CatalogArgument.clearKind("cache", text("argument.browsingData.cache", "Cached Images and Files"))],
                        targets: [.browserProfile], destructive: true),
+            // Everything Import from Browser saved into the profile (pages, bookmarks, tabs), and its Keep in Sync.
+            descriptor("browserProfile.removeImportedData", text("action.browserProfile.removeImportedData", "Remove Imported Browser Data…"),
+                       "tray.and.arrow.down", "remove-imported-data", extra: ["import", "imported", "history", "bookmarks", "privacy", "delete"],
+                       destructive: true),
             descriptor("browserProfile.manageExtensions", text("action.browserProfile.manageExtensions", "Manage Extensions in Browser Profile…"),
                        "puzzlepiece", "manage-extensions", extra: ["extension", "extensions", "addon"], arguments: [profile], targets: []),
         ]

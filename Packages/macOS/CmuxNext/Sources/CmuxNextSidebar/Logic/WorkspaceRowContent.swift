@@ -49,11 +49,27 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// Compact rows under a badge style (`SidebarRowBadgeStyle`): the dim time since the last
     /// change on the right, unless the second line shows the last activity already.
     public var badgeTime: String?
+    /// While the agent works: when it began (`SidebarWorkspaceDetail.activitySince`). The row
+    /// shows how long ("4m") beside the working dot when its name keeps its full width
+    /// (`WorkspaceRowView+Elapsed`); the hover card shows it to the second.
+    public var workingSince: Date?
     /// The status block under the name (classic's): the reported entries
     /// with `agentStatus` on, the log line with `log` on and the progress
     /// label with `progress` on. Nil when none of those is reported, so a
     /// quiet workspace keeps its one-line row.
     public var status: SidebarWorkspaceStatus?
+    /// The session tree (`sidebar.sessionTree`): 1 under the workspace whose agent started this one's.
+    public var treeDepth = 0
+    /// The session tree: the Command-number that goes to the row (1 to 9), drawn as a keycap.
+    public var keycap: Int?
+    /// The session tree: the row's pull requests, a glyph and a count in their status color.
+    public var pullRequests: SidebarPullRequestBadge?
+    /// The Priority view's chip (`SidebarWorkspace.agentChip`): the row view draws its word as the
+    /// name line's trailing text in the chip's color, in place of the age or one-line status.
+    public var chip: SidebarPriorityEntry.State?
+    /// What the working agent does now (`SidebarWorkspace.agentStep`), in place of the second
+    /// line's text: the row view draws it as "Now: …". Set only on a row that has a second line.
+    public var now: String?
 
     public init(icon: WorkspaceIcon? = nil, detail: String? = nil, tabCount: Int? = nil, badge: String? = nil,
                 activity: StatusIndicatorState = .idle, progress: SidebarProgress? = nil, showsWorking: Bool = false,
@@ -109,6 +125,7 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
         )
         trailingStatus = trailing
         badgeTime = set.secondLine.contains(.lastActivity) ? nil : ws.lastActivity.map { Self.ageText($0, now: now) }
+        if case .working = activity { workingSince = ws.detail.activitySince }
     }
 
     /// An expanded row (`sidebar.density`, cx-13w3; T3 Code / Codex
@@ -133,6 +150,7 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
         expanded = true
         time = ws.lastActivity.map { Self.ageText($0, now: now) }
         self.meta = meta.isEmpty ? nil : meta.joined(separator: Self.separator)
+        if case .working = activity { workingSince = ws.detail.activitySince }
     }
 
     /// The age of a change, short: a time today, else days (`3d`), weeks
@@ -146,6 +164,18 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
         formatter.maximumUnitCount = 1
         formatter.allowedUnits = [.day, .weekOfMonth, .month]
         return formatter.string(from: TimeInterval(days) * 86_400) ?? ""
+    }
+
+    /// How long a row has worked, in whole minutes ("4m", "1h 3m"); nil under a minute, so the
+    /// row's text changes once a minute at most.
+    static func workingElapsed(since date: Date, now: Date) -> String? {
+        let minutes = (now.timeIntervalSince(date) / 60).rounded(.down)
+        guard minutes >= 1 else { return nil }
+        let formatter = DateComponentsFormatter()
+        formatter.unitsStyle = .abbreviated
+        formatter.maximumUnitCount = 2
+        formatter.allowedUnits = [.day, .hour, .minute]
+        return formatter.string(from: minutes * 60)
     }
 
     /// The part of `reported` the shown elements draw; nil when empty.

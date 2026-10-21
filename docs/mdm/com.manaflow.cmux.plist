@@ -171,6 +171,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>cmux keeps running in the menu bar, out of the Dock and the app switcher, until a window opens.</string>
+			<key>pfm_name</key>
+			<string>app.hideDockIconWithoutWindows</string>
+			<key>pfm_title</key>
+			<string>Hide Dock Icon When No Windows Are Open</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>cards</string>
 			<key>pfm_description</key>
 			<string>The layout of the New Tab page. Terminal skips the page and opens a terminal. The dots at the bottom of the page also change it.</string>
@@ -190,6 +202,18 @@
 			<string>New Tab Template</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>When on, Cmd-T, Cmd-D and Cmd-Shift-D open a terminal, as in cmux classic, instead of the New Tab page.</string>
+			<key>pfm_name</key>
+			<string>tabs.terminalFirst</string>
+			<key>pfm_title</key>
+			<string>New Tabs and Splits Open a Terminal</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -245,9 +269,26 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>top</string>
+			<key>pfm_description</key>
+			<string>Where the address bar row of browser and Markdown panes sits. At the bottom, its suggestions and menus open upward.</string>
+			<key>pfm_name</key>
+			<string>browser.toolbarPosition</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>top</string>
+				<string>bottom</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Browser Toolbar Position</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>aboveToolbar</string>
 			<key>pfm_description</key>
-			<string>In a browser pane with the tab bar at the top: the tab bar above the address bar, or below it.</string>
+			<string>In a browser pane with the tab bar and the address bar on the same edge: the tab bar above the address bar, or below it.</string>
 			<key>pfm_name</key>
 			<string>tabs.barOrder</string>
 			<key>pfm_range_list</key>
@@ -377,7 +418,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<false/>
+			<true/>
 			<key>pfm_description</key>
 			<string>When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu.</string>
 			<key>pfm_name</key>
@@ -517,6 +558,25 @@
 			<string>Show Shortcuts When Holding a Modifier</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>nightly</string>
+			<key>pfm_description</key>
+			<string>Canary and Dev get builds before they reach Nightly. Stable gets only builds that have run a week without problems, so switching to it may mean no updates for a while.</string>
+			<key>pfm_name</key>
+			<string>updates.channel</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>stable</string>
+				<string>nightly</string>
+				<string>canary</string>
+				<string>dev</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Update Channel</string>
+			<key>pfm_type</key>
+			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -724,6 +784,30 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Off, cmux won't switch an agent into a mode that skips approvals.</string>
+			<key>pfm_name</key>
+			<string>sessions.allowFullAccess</string>
+			<key>pfm_title</key>
+			<string>Allow Full-Access Modes</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Agents can suggest next tasks, which you start as child chats beside the current one. Agents started after the change get it.</string>
+			<key>pfm_name</key>
+			<string>sessions.promptSuggestions</string>
+			<key>pfm_title</key>
+			<string>Suggest Follow-Up Tasks</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
 			<string>So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers. Exception: while “Show This Mac's Workspaces on Your Phone While It's Off” is on, cmux servers store each workspace's ID, resource ID, short ID, name, name revision, group, color, icon, pinned state, unread mark, unread count and whether it is active.</string>
@@ -790,6 +874,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>When an agent in a sub-session asks a question, the session that started it can answer, and the answer shows who gave it. Permission requests always wait for you. Off: only you answer.</string>
+			<key>pfm_name</key>
+			<string>agents.subsessions.answerQuestions</string>
+			<key>pfm_title</key>
+			<string>Let Sessions Answer Their Sub-sessions' Questions</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<integer>50</integer>
 			<key>pfm_description</key>
 			<string>The most sub-sessions one session can have open at the same time. Closing a sub-session frees its place.</string>
@@ -819,6 +915,60 @@
 			<string>Deepest Nesting</string>
 			<key>pfm_type</key>
 			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Agents start in folders under your project roots, and in repositories owned by your organizations, without asking. Other folders ask first.</string>
+			<key>pfm_name</key>
+			<string>agents.trust.autoTrust</string>
+			<key>pfm_title</key>
+			<string>Trust My Own Folders Without Asking</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<array/>
+			<key>pfm_description</key>
+			<string>Everything inside these folders is trusted. Use full paths or ~/ paths.</string>
+			<key>pfm_name</key>
+			<string>agents.trust.projectRoots</string>
+			<key>pfm_subkeys</key>
+			<array>
+				<dict>
+					<key>pfm_name</key>
+					<string>Item</string>
+					<key>pfm_type</key>
+					<string>string</string>
+				</dict>
+			</array>
+			<key>pfm_title</key>
+			<string>Trusted Project Roots</string>
+			<key>pfm_type</key>
+			<string>array</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<array/>
+			<key>pfm_description</key>
+			<string>A repository is trusted when all of its GitHub remotes belong to these users or organizations.</string>
+			<key>pfm_name</key>
+			<string>agents.trust.ownOrgs</string>
+			<key>pfm_subkeys</key>
+			<array>
+				<dict>
+					<key>pfm_name</key>
+					<string>Item</string>
+					<key>pfm_type</key>
+					<string>string</string>
+				</dict>
+			</array>
+			<key>pfm_title</key>
+			<string>Trusted GitHub Owners</string>
+			<key>pfm_type</key>
+			<string>array</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -1010,7 +1160,7 @@
 			<key>pfm_default</key>
 			<string>split-right</string>
 			<key>pfm_description</key>
-			<string>Where a link or file you open from a terminal, an agent chat, Home or a page appears. Split Right uses the pane on the right, or makes one.</string>
+			<string>Where a link or file you Command-click in a terminal or a browser page appears. Split Right uses the pane on the right, or makes one. What you open from an agent chat, Home or another page opens as a tab in its own pane.</string>
 			<key>pfm_name</key>
 			<string>layout.linkPlacement</string>
 			<key>pfm_range_list</key>
@@ -1021,6 +1171,23 @@
 			</array>
 			<key>pfm_title</key>
 			<string>Open Links and Files</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>agent-chats</string>
+			<key>pfm_description</key>
+			<string>Agent Chats keeps an agent chat as the main pane: links, files, subagents and side chats it opens appear as tabs in a column on its right, and closing that column gives the chat its full width back.</string>
+			<key>pfm_name</key>
+			<string>layout.mainPane</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>agent-chats</string>
+				<string>off</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Main Pane</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>
@@ -1455,66 +1622,40 @@
 			<array>
 				<string>none</string>
 				<string>david-death-of-marat</string>
-				<string>goya-saturn</string>
 				<string>velde-small-ship-storm</string>
-				<string>bosch-garden-right</string>
 				<string>bosch-ascent-blessed</string>
 				<string>goya-witches-flight</string>
-				<string>bocklin-self-portrait-death</string>
-				<string>caravaggio-medusa</string>
 				<string>martin-pandemonium</string>
 				<string>moran-burning-philadelphia</string>
 				<string>goya-burial-sardine</string>
 				<string>arbo-wild-hunt</string>
-				<string>caravaggio-david-goliath</string>
-				<string>van-gogh-skeleton-cigarette</string>
 				<string>altdorfer-battle-of-issus</string>
-				<string>gentileschi-judith</string>
 				<string>munch-madonna</string>
-				<string>bocklin-isle-of-the-dead</string>
 				<string>klee-fish-magic</string>
 				<string>friedrich-forest-moonlight</string>
-				<string>goya-witches-sabbath</string>
 				<string>bosch-garden-left</string>
 				<string>rembrandt-storm-galilee</string>
 				<string>cole-voyage-manhood</string>
-				<string>fuseli-nightmare-2</string>
-				<string>hiremy-hirschl-souls-of-acheron</string>
 				<string>munch-scream</string>
-				<string>klimt-judith</string>
-				<string>repin-ivan</string>
-				<string>millais-ophelia</string>
 				<string>bruegel-fall-rebel-angels</string>
-				<string>fuseli-nightmare</string>
-				<string>bundy-death-general</string>
 				<string>wright-vesuvius</string>
 				<string>gerome-botsaris</string>
-				<string>durer-knight-death-devil</string>
 				<string>martin-joshua</string>
 				<string>velde-gale</string>
 				<string>hogai-nio</string>
-				<string>klimt-death-and-life</string>
-				<string>klimt-medicine</string>
 				<string>bosch-garden-central</string>
 				<string>martin-great-day-wrath</string>
 				<string>bonheur-wounded-eagle</string>
-				<string>gerome-pollice-verso</string>
 				<string>cole-voyage-old-age</string>
 				<string>friedrich-abbey-oakwood</string>
 				<string>goya-sleep-of-reason</string>
 				<string>bosch-garden-fragment</string>
-				<string>bruegel-triumph-death</string>
 				<string>spilliaert-vertigo</string>
 				<string>rothaug-melpomene</string>
-				<string>schiele-death-and-the-maiden</string>
 				<string>aivazovsky-ship-stormy-seas</string>
-				<string>vereshchagin-apotheosis-war</string>
-				<string>ensor-skeleton-painter</string>
 				<string>cabanel-fallen-angel</string>
 				<string>spilliaert-woman-shoreline</string>
 				<string>el-greco-view-of-toledo</string>
-				<string>gericault-raft-of-the-medusa</string>
-				<string>moreau-apparition</string>
 				<string>rembrandt-prodigal-son</string>
 				<string>velazquez-las-meninas</string>
 				<string>matejko-stanczyk</string>
@@ -1524,7 +1665,6 @@
 				<string>rembrandt-night-watch</string>
 				<string>vigee-lebrun-madame-grand</string>
 				<string>waterhouse-lady-shalott</string>
-				<string>draper-lament-icarus</string>
 				<string>fragonard-swing</string>
 				<string>rubens-st-francis-xavier</string>
 				<string>vermeer-pearl-earring</string>
@@ -1621,7 +1761,6 @@
 				<string>hokusai-umezawa</string>
 				<string>whistler-falling-rocket</string>
 				<string>dore-fall-of-satan</string>
-				<string>dore-flood</string>
 				<string>dore-wolves-sheep</string>
 				<string>dore-leviathan</string>
 				<string>dore-paradise-lost-book-vi</string>
@@ -1646,66 +1785,40 @@
 				<string>none</string>
 				<string>daily</string>
 				<string>david-death-of-marat</string>
-				<string>goya-saturn</string>
 				<string>velde-small-ship-storm</string>
-				<string>bosch-garden-right</string>
 				<string>bosch-ascent-blessed</string>
 				<string>goya-witches-flight</string>
-				<string>bocklin-self-portrait-death</string>
-				<string>caravaggio-medusa</string>
 				<string>martin-pandemonium</string>
 				<string>moran-burning-philadelphia</string>
 				<string>goya-burial-sardine</string>
 				<string>arbo-wild-hunt</string>
-				<string>caravaggio-david-goliath</string>
-				<string>van-gogh-skeleton-cigarette</string>
 				<string>altdorfer-battle-of-issus</string>
-				<string>gentileschi-judith</string>
 				<string>munch-madonna</string>
-				<string>bocklin-isle-of-the-dead</string>
 				<string>klee-fish-magic</string>
 				<string>friedrich-forest-moonlight</string>
-				<string>goya-witches-sabbath</string>
 				<string>bosch-garden-left</string>
 				<string>rembrandt-storm-galilee</string>
 				<string>cole-voyage-manhood</string>
-				<string>fuseli-nightmare-2</string>
-				<string>hiremy-hirschl-souls-of-acheron</string>
 				<string>munch-scream</string>
-				<string>klimt-judith</string>
-				<string>repin-ivan</string>
-				<string>millais-ophelia</string>
 				<string>bruegel-fall-rebel-angels</string>
-				<string>fuseli-nightmare</string>
-				<string>bundy-death-general</string>
 				<string>wright-vesuvius</string>
 				<string>gerome-botsaris</string>
-				<string>durer-knight-death-devil</string>
 				<string>martin-joshua</string>
 				<string>velde-gale</string>
 				<string>hogai-nio</string>
-				<string>klimt-death-and-life</string>
-				<string>klimt-medicine</string>
 				<string>bosch-garden-central</string>
 				<string>martin-great-day-wrath</string>
 				<string>bonheur-wounded-eagle</string>
-				<string>gerome-pollice-verso</string>
 				<string>cole-voyage-old-age</string>
 				<string>friedrich-abbey-oakwood</string>
 				<string>goya-sleep-of-reason</string>
 				<string>bosch-garden-fragment</string>
-				<string>bruegel-triumph-death</string>
 				<string>spilliaert-vertigo</string>
 				<string>rothaug-melpomene</string>
-				<string>schiele-death-and-the-maiden</string>
 				<string>aivazovsky-ship-stormy-seas</string>
-				<string>vereshchagin-apotheosis-war</string>
-				<string>ensor-skeleton-painter</string>
 				<string>cabanel-fallen-angel</string>
 				<string>spilliaert-woman-shoreline</string>
 				<string>el-greco-view-of-toledo</string>
-				<string>gericault-raft-of-the-medusa</string>
-				<string>moreau-apparition</string>
 				<string>rembrandt-prodigal-son</string>
 				<string>velazquez-las-meninas</string>
 				<string>matejko-stanczyk</string>
@@ -1715,7 +1828,6 @@
 				<string>rembrandt-night-watch</string>
 				<string>vigee-lebrun-madame-grand</string>
 				<string>waterhouse-lady-shalott</string>
-				<string>draper-lament-icarus</string>
 				<string>fragonard-swing</string>
 				<string>rubens-st-francis-xavier</string>
 				<string>vermeer-pearl-earring</string>
@@ -1812,7 +1924,6 @@
 				<string>hokusai-umezawa</string>
 				<string>whistler-falling-rocket</string>
 				<string>dore-fall-of-satan</string>
-				<string>dore-flood</string>
 				<string>dore-wolves-sheep</string>
 				<string>dore-leviathan</string>
 				<string>dore-paradise-lost-book-vi</string>
@@ -1903,6 +2014,22 @@
 			<string>Material</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>0</integer>
+			<key>pfm_description</key>
+			<string>How much more theme color covers a window while another one is in front. 0 keeps the same look.</string>
+			<key>pfm_name</key>
+			<string>appearance.inactiveWindowDim</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Dim Inactive Windows</string>
+			<key>pfm_type</key>
+			<string>real</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -2108,7 +2235,7 @@
 			<key>pfm_default</key>
 			<string>fade</string>
 			<key>pfm_description</key>
-			<string>How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet drops the selected pill.</string>
+			<string>How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet keeps only a faint selected pill.</string>
 			<key>pfm_name</key>
 			<string>focus.inactiveTabStyle</string>
 			<key>pfm_range_list</key>
@@ -2364,6 +2491,24 @@
 			<string>Show With One Pane</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>off</string>
+			<key>pfm_description</key>
+			<string>Calm: nothing slides, springs or spins, hover cards stay closed and the pointer leaves no highlight on tabs, rows and buttons. Still: Calm, and every animation is instant. Your other motion and hover card settings come back when it is off.</string>
+			<key>pfm_name</key>
+			<string>ui.calm</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>off</string>
+				<string>calm</string>
+				<string>still</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Calm Mode</string>
+			<key>pfm_type</key>
+			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -2971,7 +3116,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<false/>
+			<true/>
 			<key>pfm_name</key>
 			<string>diff.wordDiffs</string>
 			<key>pfm_title</key>
@@ -3276,6 +3421,23 @@
 			<string>Chat Code Size</string>
 			<key>pfm_type</key>
 			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>overlay</string>
+			<key>pfm_description</key>
+			<string>Where the Inspector opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.inspector.placement</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>push</string>
+				<string>overlay</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Inspector</string>
+			<key>pfm_type</key>
+			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_description</key>
@@ -4023,11 +4185,23 @@
 			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
-			<string>Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar.</string>
+			<string>On the New Tab page, the Threads and Console styles list every coding agent chat on this computer, newest first. Off, they show the recent chats only.</string>
 			<key>pfm_name</key>
 			<string>sidebar.showChats</string>
 			<key>pfm_title</key>
-			<string>Show All Chats</string>
+			<string>Show All Chats on New Tab</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Lists a workspace that another workspace's agent started under it, and shows each row's pull requests and the first rows' Command-number keys.</string>
+			<key>pfm_name</key>
+			<string>sidebar.sessionTree</string>
+			<key>pfm_title</key>
+			<string>Session Tree</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -4194,6 +4368,30 @@
 			<string>sidebar.cards.tips</string>
 			<key>pfm_title</key>
 			<string>Show Tips</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A bell at the top of the sidebar shows every agent chat on every machine, the ones waiting on you first, then finished, failed, working and idle.</string>
+			<key>pfm_name</key>
+			<string>sidebar.priorityView.enabled</string>
+			<key>pfm_title</key>
+			<string>Priority View</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>The sidebar bell's state while the Priority view is on. Off, the sidebar is unchanged.</string>
+			<key>pfm_name</key>
+			<string>sidebar.priorityView.shown</string>
+			<key>pfm_title</key>
+			<string>Show Priority View</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -6187,6 +6385,22 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>hosted</string>
+			<key>pfm_description</key>
+			<string>Direct messages and group chats use cmux Cloud by default. A self-hosted server is reached over Tailscale by its MagicDNS name, for example http://mini.tail1234.ts.net:7320. No password is sent: the server knows you by your Tailscale login. Also accepts a dictionary {"selfHosted": "http(s)://host[:port]"} in a raw profile.</string>
+			<key>pfm_name</key>
+			<string>home.server</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>hosted</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Server</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>imessage</string>
 			<key>pfm_description</key>
 			<string>iMessage shows your messages in blue and the Chief's in gray. Theme uses your theme's accent and surface colors.</string>
@@ -6262,7 +6476,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>focus</string>
+			<string>click</string>
 			<key>pfm_name</key>
 			<string>notifications.dismissal</string>
 			<key>pfm_range_list</key>
@@ -6474,6 +6688,24 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>whenUnlocked</string>
+			<key>pfm_description</key>
+			<string>Whether a banner shows what the agent said, or only where and what state.</string>
+			<key>pfm_name</key>
+			<string>notifications.showPreviews</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>always</string>
+				<string>whenUnlocked</string>
+				<string>never</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Show Message in Banners</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
 			<string>Notifications from agents and cmux notify go to your cmux account's feed and can reach your iPhone.</string>
@@ -6516,7 +6748,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>blink</string>
+			<string>steady</string>
 			<key>pfm_name</key>
 			<string>notifications.attention.style</string>
 			<key>pfm_range_list</key>
@@ -6594,6 +6826,28 @@
 		<dict>
 			<key>pfm_default</key>
 			<true/>
+			<key>pfm_description</key>
+			<string>Clicking an unread pane, typing in it or jumping to it flashes its ring as it goes.</string>
+			<key>pfm_name</key>
+			<string>notifications.attention.flash</string>
+			<key>pfm_title</key>
+			<string>Flash the Pane When Read</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_name</key>
+			<string>notifications.attention.flashOnTyping</string>
+			<key>pfm_title</key>
+			<string>Flash When Typing Reads It</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
 			<key>pfm_name</key>
 			<string>notifications.attention.showOnTab</string>
 			<key>pfm_title</key>
@@ -6613,7 +6867,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
+			<false/>
 			<key>pfm_description</key>
 			<string>A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane.</string>
 			<key>pfm_name</key>

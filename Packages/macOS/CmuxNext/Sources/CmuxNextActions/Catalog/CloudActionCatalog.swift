@@ -231,7 +231,7 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "cloudDiagnostics",
-                title: String(localized: "action.cloudDiagnostics", defaultValue: "Cloud Diagnostics…", bundle: .module),
+                title: String(localized: "action.cloudDiagnostics", defaultValue: "Cloud Diagnostics", bundle: .module),
                 keywords: ["vm", "debug"], category: .cloud, symbol: "stethoscope", surfaces: [.menu],
                 cliName: "cloud diagnostics", mainMenu: .help
             ),
@@ -240,7 +240,7 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.openTeamPicker", defaultValue: "Switch Active Team…", bundle: .module),
                 keywords: ["team", "active", "account", "switch"],
                 defaultShortcut: Shortcut("t", modifiers: [.option, .shift, .command]), category: .cloud,
-                symbol: "person.2", surfaces: [.palette, .keyboard], cliName: "cloud team-picker"
+                symbol: "person.2", surfaces: [.palette, .keyboard], arguments: [CatalogArgument.cloudTeam], cliName: "cloud team-picker"
             ),
             ActionDescriptor(
                 id: "palette.auth.signIn",
@@ -267,6 +267,10 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
             "cloudTunnelAttach", "cloudTunnelDetach", "cloudTunnelRotateKey", "cloudNetworkList",
             "cloudFirewallList", "cloudFirewallGet", "cloudFirewallCreate", "cloudFirewallDelete",
             "cloudDomainList", "cloudPublicationList",
+            // A CLI or agent run answers with the result: the machine's facts, the command's
+            // output, the new machine's or workspace's id (CloudHandlers+Results.swift).
+            "palette.cloud.status", "palette.cloud.ports", "palette.cloud.tools", "palette.cloud.handoff",
+            "palette.cloud.snapshot", "palette.cloud.promoteTemplate", "cloudExec", "newCloudMachine", "cloudNewTerminal",
         ]
         for index in actions.indices where waitsForResult.contains(actions[index].id) {
             actions[index].waitsForResult = true

@@ -1,6 +1,137 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "agentPane.error.environment": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تغيير البيئات المحفوظة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sačuvana okruženja nije moguće promijeniti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De gemte miljøer kunne ikke ændres."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die gespeicherten Umgebungen konnten nicht geändert werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The saved environments could not be changed."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron cambiar los entornos guardados."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de modifier les environnements enregistrés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile modificare gli ambienti salvati."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存した環境を変更できませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចផ្លាស់ប្ដូរបរិស្ថានដែលបានរក្សាទុកបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장된 환경을 변경할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke endre de lagrede miljøene."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można zmienić zapisanych środowisk."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível alterar os ambientes salvos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось изменить сохранённые окружения."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถเปลี่ยนสภาพแวดล้อมที่บันทึกไว้ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kayıtlı ortamlar değiştirilemedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося змінити збережені середовища."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể thay đổi các môi trường đã lưu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法更改已保存的环境。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法變更已儲存的環境。"
+          }
+        }
+      }
+    },
     "agentPane.processTerminal.title": {
       "comment": "Title of the terminal tab that shows everything a background task printed, until the task's command replaces it",
       "extractionState": "manual",
@@ -5259,131 +5390,131 @@
     "extractionState": "manual",
     "localizations": {
       "en": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Continue in…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue In…"
+          }
+        },
       "ja": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "…で続行"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "…で続行"
+          }
+        },
       "ar": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "المتابعة في…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "المتابعة في…"
+          }
+        },
       "bs": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Nastavi: Continue in…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nastavi u…"
+          }
+        },
       "da": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Fortsæt: Continue in…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fortsæt i…"
+          }
+        },
       "de": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Weiter in…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weiter in…"
+          }
+        },
       "es": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Continuar en…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuar en…"
+          }
+        },
       "fr": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Continuer dans…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuer dans…"
+          }
+        },
       "it": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Continua: Continue in…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continua in…"
+          }
+        },
       "km": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "បន្ត៖ Continue in…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្តក្នុង…"
+          }
+        },
       "ko": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "다음에서 계속…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "다음에서 계속…"
+          }
+        },
       "nb": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Fortsett: Continue in…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fortsett i…"
+          }
+        },
       "pl": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Kontynuuj: Continue in…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontynuuj w…"
+          }
+        },
       "pt-BR": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Continuar: Continue in…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuar em…"
+          }
+        },
       "ru": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Продолжить: Continue in…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Продолжить в…"
+          }
+        },
       "th": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "ดำเนินการต่อ: Continue in…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "ดำเนินการต่อใน…"
+          }
+        },
       "tr": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Devam: Continue in…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Şurada devam et…"
+          }
+        },
       "uk": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Продовжити: Continue in…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Продовжити в…"
+          }
+        },
       "vi": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Tiếp tục: Continue in…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiếp tục trong…"
+          }
+        },
       "zh-Hans": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "继续使用…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "继续使用…"
+          }
+        },
       "zh-Hant": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "繼續使用…"
+          "stringUnit": {
+            "state": "translated",
+            "value": "繼續使用…"
+          }
         }
-      }
     }
   },
     "agentPane.handoff.review": {

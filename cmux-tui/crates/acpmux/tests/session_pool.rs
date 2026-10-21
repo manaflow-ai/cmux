@@ -299,6 +299,25 @@ fn taken(daemon: &Daemon, session: &str) -> bool {
     daemon.events(session).iter().any(|e| e["kind"] == "pool_taken")
 }
 
+/// `session` runs on the pooled host `pooled` (its pool record): the same
+/// host and agent processes, started once. A switch that started a fresh
+/// host instead would wait the fake's initialize and session/new delays; its
+/// wall time is no proof on a loaded machine, the processes are.
+fn assert_runs_on_pooled_host(daemon: &Daemon, session: &str, pooled: &Value) {
+    let record = daemon
+        .host_records()
+        .into_iter()
+        .find(|r| r["session_id"] == session)
+        .unwrap_or_else(|| panic!("{session} has no host record"));
+    assert_eq!(record["host_pid"], pooled["host_pid"], "not the pooled host: {record}");
+    assert_eq!(record["harness_pid"], pooled["harness_pid"], "not the pooled agent: {record}");
+    let kinds: Vec<Value> = daemon.events(session).iter().map(|e| e["kind"].clone()).collect();
+    for once in ["host_started", "initialize"] {
+        let n = kinds.iter().filter(|kind| *kind == once).count();
+        assert_eq!(n, 1, "{once} {n} times: {kinds:?}");
+    }
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_hinted_switch_takes_a_hidden_session_that_was_never_listed() {
     let daemon = Daemon::new("hit", 0);
@@ -320,14 +339,15 @@ async fn a_hinted_switch_takes_a_hidden_session_that_was_never_listed() {
     assert_eq!(daemon.stored_sessions(), 1);
     assert_eq!(daemon.host_records().len(), 1, "only the user's session has a host record");
     assert_eq!(daemon.pool_records().len(), 1);
-    let pooled_id = daemon.pool_records()[0]["session_id"].as_str().unwrap().to_owned();
+    let pooled = daemon.pool_records()[0].clone();
+    let pooled_id = pooled["session_id"].as_str().unwrap().to_owned();
 
     let (second, warm) = new_session(&mut rpc, &home, "fakeb").await;
     eprintln!("session/new: cold {cold:?}, pooled {warm:?}");
     assert_eq!(second, pooled_id, "the session takes the pooled id");
     assert!(taken(&daemon, &second));
     assert!(cold >= Duration::from_millis(INIT_MS + NEW_MS), "cold {cold:?}");
-    assert!(warm < Duration::from_millis(300), "pooled switch took {warm:?}");
+    assert_runs_on_pooled_host(&daemon, &second, &pooled);
     // The taken session is durable like any other: its record moved.
     assert!(daemon.pool_records().is_empty());
     assert!(daemon.host_records().iter().any(|r| r["session_id"] == second.as_str()));
@@ -350,10 +370,11 @@ async fn a_hinted_switch_takes_a_hidden_session_that_was_never_listed() {
 
     // Back and forth: the harness used before (fake) is now pooled.
     wait_pool_ready(&mut rpc, "fake").await;
+    let pooled_fake = daemon.pool_records()[0].clone();
     let (third, back) = new_session(&mut rpc, &home, "fake").await;
     eprintln!("session/new back to the last-used harness: {back:?}");
     assert!(taken(&daemon, &third));
-    assert!(back < Duration::from_millis(300), "{back:?}");
+    assert_runs_on_pooled_host(&daemon, &third, &pooled_fake);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -469,7 +490,8 @@ async fn a_session_new_that_fails_after_its_claim_puts_the_entry_back() {
     let (_first, _) = new_session(&mut rpc, &home, "fake").await;
     rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
     wait_pool_ready(&mut rpc, "fakeb").await;
-    let pooled = daemon.pool_records()[0]["session_id"].as_str().unwrap().to_owned();
+    let record = daemon.pool_records()[0].clone();
+    let pooled = record["session_id"].as_str().unwrap().to_owned();
     // The name is taken: the create fails after it claimed the pooled entry
     // (a cancelled session/new drops its claim the same way).
     let err = rpc
@@ -484,10 +506,10 @@ async fn a_session_new_that_fails_after_its_claim_puts_the_entry_back() {
     assert_eq!(entry["harness"], "fakeb", "{status}");
     assert_eq!(entry["state"], "ready", "the entry is back in the pool: {status}");
     assert_eq!(daemon.pool_records().len(), 1, "its host still runs");
-    let (second, warm) = new_session(&mut rpc, &home, "fakeb").await;
+    let (second, _) = new_session(&mut rpc, &home, "fakeb").await;
     assert_eq!(second, pooled, "the next switch takes the same entry");
     assert!(taken(&daemon, &second));
-    assert!(warm < Duration::from_millis(300), "{warm:?}");
+    assert_runs_on_pooled_host(&daemon, &second, &record);
 }
 
 /// ACP-REMOTE-GUARD B1: a pool claim writes the pooled session's mode

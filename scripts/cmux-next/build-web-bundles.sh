@@ -140,7 +140,8 @@ bun install --frozen-lockfile >/dev/null
 # The strings tables are inputs of the pane and page bundles. They are build
 # output, ignored by git (#21946), made here from the commit's xcstrings
 # catalogs and settings schema, which the source key hashes; so a build still
-# ships only what a commit holds (cx-t3e5). A missing translation fails.
+# ships only what a commit holds (cx-t3e5). A missing translation fails, unless
+# CMUX_STRINGS_BEST_EFFORT=1 (the autofix export jobs, whose bundles never ship).
 bun scripts/pages/gen-strings.mjs
 cd "$ROOT"
 
