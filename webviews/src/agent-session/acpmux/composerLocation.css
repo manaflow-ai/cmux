@@ -1203,3 +1203,5 @@
 .acpmux-composer-bar .acpmux-send.acpmux-steer-now {
   margin-inline: 0 var(--acpmux-row-inset);
 }
+/* In the plain footer Stop follows ↵ and brings its own leading inset (above), so ↵ adds none. */
+.acpmux-composer-bar .acpmux-send.acpmux-steer-now:has(+ .acpmux-send) { margin-inline-end: 0; }
