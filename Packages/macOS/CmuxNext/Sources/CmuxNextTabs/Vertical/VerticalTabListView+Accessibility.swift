@@ -20,8 +20,7 @@ extension VerticalTabListView {
             if item.isUnread { parts.append(Strings.axUnread) }
             element.setAccessibilityLabel(parts.joined(separator: ", "))
             element.setAccessibilityValue(id == model.selectedID ? 1 : 0)
-            let close: (@MainActor () -> Void)? = item.isClosable ? { [weak self] in self?.model.send(.close(id, source: .accessibility)) } : nil
-            element.onClose = close
+            element.onClose = item.isClosable ? { [weak self] () -> Void in self?.model.send(.close(id, source: .accessibility)) } : nil
             let mute: @MainActor () -> Void = { [weak self] in self?.model.send(.toggleAudioMute(id)) }
             element.audioAction = item.audio.map { audio in (name: audio == .muted ? Strings.unmuteTab : Strings.muteTab, run: mute) }
             // Unflipped parent space; a scrolled-away row keeps its place outside the bounds.
