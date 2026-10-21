@@ -50,9 +50,12 @@ jobs:
         timeout-minutes: 2
         env:
           MERGE_SHA: ${{ github.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           git fetch --no-tags --quiet --depth=2 --filter=blob:none origin "$MERGE_SHA"
+          # Only the merge of this head counts; a stale or one-parent commit reads the files API.
+          [ "$(git rev-parse "$MERGE_SHA^2")" = "$HEAD_SHA" ]
           git diff --name-only -z -M "$MERGE_SHA^1" "$MERGE_SHA" | tr '\0' '\n' > "$RUNNER_TEMP/paths.txt"
           echo "listed=true" >> "$GITHUB_OUTPUT"
 
