@@ -221,7 +221,7 @@ fn child(client: &RpcClient, name: &str) -> Result<SessionSummary, String> {
 const ANSWER: &str = "\u{0}answer";
 
 /// A message to a child: steered into its running turn when its agent steers (acpmux queues it
-/// otherwise), so the child reads it now instead of when that turn ends.
+/// otherwise), so the child reads it at its next tool boundary instead of when that turn ends.
 fn tell_params(session: &str, text: &str, prompt_id: &str) -> Value {
     json!({"sessionId": session, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": {"promptId": prompt_id, "steer": true}}})
 }

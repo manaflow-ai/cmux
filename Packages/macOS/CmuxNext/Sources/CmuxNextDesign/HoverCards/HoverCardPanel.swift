@@ -369,7 +369,7 @@ extension HoverCardPanel {
         case .beside:
             // Right of the row; left of it when the screen ends first. Top-aligned, kept on screen.
             if origin.x + size.width > room.maxX {
-                origin.x = (anchor.minX * scale).rounded(.up) / scale - Self.targetGap - size.width
+                origin.x = ((anchor.minX - HoverCardEscapeGeometry.rowGap) * scale).rounded(.up) / scale - size.width
                 isLeading = true
             }
             origin.x = clampX(origin.x)
@@ -385,9 +385,10 @@ extension HoverCardPanel {
         return HoverCardRest(origin: origin, placement: side, isLeading: isLeading)
     }
 
-    /// The room between a card and its target: none. The card touches its tab (or row), so the
-    /// pointer never crosses empty space between them (Lawrence 2026-10-19: "there is a gap in
-    /// between ... such that there is no gap in between").
+    /// The room between a card and its tab: none. The card touches its tab, so the pointer never
+    /// crosses empty space between them (Lawrence 2026-10-19: "there is a gap in between ... such
+    /// that there is no gap in between"). A card beside a sidebar row stands
+    /// `HoverCardEscapeGeometry.rowGap` off it instead (Leo 2026-10-20).
     static let targetGap: CGFloat = 0
 
     /// The card's origin (screen coordinates, y up) for `placement` next to `anchor`, before
@@ -402,8 +403,8 @@ extension HoverCardPanel {
         case .below: CGPoint(x: anchor.minX, y: up(anchor.minY - targetGap) - size.height)
         // The card's bottom edge on the tab's top edge (rounded down: into the tab).
         case .above: CGPoint(x: anchor.minX, y: down(anchor.maxY + targetGap))
-        // The card's leading edge on the row's trailing edge, top-aligned.
-        case .beside: CGPoint(x: down(anchor.maxX + targetGap), y: anchor.maxY - size.height)
+        // The card's leading edge `rowGap` past the row's trailing edge, top-aligned.
+        case .beside: CGPoint(x: down(anchor.maxX + HoverCardEscapeGeometry.rowGap), y: anchor.maxY - size.height)
         // Right of the row, below its escape slot (before any flip the screen needs).
         case .besideRow: HoverCardEscapeGeometry(anchor: anchor, cardSize: size, scale: scale).card.origin
         }

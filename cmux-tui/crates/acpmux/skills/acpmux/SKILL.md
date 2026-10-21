@@ -89,9 +89,9 @@ acpmux --json run -m claude "…"                    # {"sessionId","name","repl
 acpmux exec -m claude "…"                          # run, then delete the session
 acpmux ensure NAME -m codex --cwd DIR              # get the session, or create it (idempotent)
 acpmux send NAME "next step"                       # stream the reply; -q for the final text only
-acpmux send NAME --no-wait "…"                     # a message: steers into the running turn when the harness steers, else queues; returns at once
+acpmux send NAME --no-wait "…"                     # a message: steers into the running turn when the harness steers (read at its next tool boundary; never stops it), else queues; returns at once
 acpmux send NAME --no-wait --no-steer "…"          # queue behind the running turn instead
-acpmux send NAME --steer "stop, do X instead"      # steer a send that waits for its reply (it queues by default)
+acpmux send NAME --steer "…"                       # steer a send that waits for its reply (it queues by default)
 acpmux last NAME [-n 3]                            # last reply text
 acpmux history NAME                                # one line per turn: prompt, status, tools, tokens, wall time
 acpmux ls [--status running|ready|waiting|idle|closed] [--pending] [--tag k=v]
