@@ -101,25 +101,30 @@ public nonisolated struct AcpmuxChiefHandoff: Sendable {
     /// caller asks once per daemon pid. Returns `.handOff` when it stopped one, `.waitForHost`
     /// when the Chief host hands off when its turn ends, else `.keep`.
     ///
-    /// - Parameter waitFor: called once a handoff is due; true when the handoff must wait (the
-    ///   Chief host was asked to hand off when idle), as in ``handOffIfStale(waitFor:)``.
-    @concurrent public func handOffReplaced(waitFor: @Sendable () async -> Bool) async -> ReplacedAction {
+    /// - Parameters:
+    ///   - waitFor: called once a handoff is due; true when the handoff must wait (the Chief host
+    ///     was asked to hand off when idle), as in ``handOffIfStale(waitFor:)``.
+    ///   - force: Restart Background Services (cmux issue 23089): the person asked for the restart,
+    ///     so a daemon that does not run from a replaced bundle (another build, or the same one)
+    ///     is handed off the same way.
+    @concurrent public func handOffReplaced(force: Bool = false, waitFor: @Sendable () async -> Bool) async -> ReplacedAction {
         guard let status = try? await AcpmuxStatusClient.status(socketPath: environment.socketPath),
               let pid = status.pid else { return .keep }
-        let replaced = AcpmuxVersionHandoff.replaced(pid: pid)
+        let replaced = force || AcpmuxVersionHandoff.replaced(pid: pid)
+        let why = force ? "is restarted on request" : "runs from a replaced bundle"
         switch await Self.replacedAction(replaced: replaced, agentHosts: status.agentHosts, hostWaits: waitFor) {
         case .keep:
             if replaced {
-                Self.logger.error("Chief acpmux \(pid) runs from a replaced bundle but has no agent hosts; it keeps running so its agents do not end")
+                Self.logger.error("Chief acpmux \(pid) \(why, privacy: .public) but has no agent hosts; it keeps running so its agents do not end")
             }
             return .keep
         case .waitForHost:
-            Self.logger.info("Chief acpmux \(pid) runs from a replaced bundle; the handoff waits until the Chief host's turn ends")
+            Self.logger.info("Chief acpmux \(pid) \(why, privacy: .public); the handoff waits until the Chief host's turn ends")
             return .waitForHost
         case .handOff:
             break
         }
-        Self.logger.info("Chief acpmux \(pid) runs from a replaced bundle; handing it off now")
+        Self.logger.info("Chief acpmux \(pid) \(why, privacy: .public); handing it off now")
         do {
             try await AcpmuxStatusClient.shutdown(socketPath: environment.socketPath, home: environment.home)
         } catch {

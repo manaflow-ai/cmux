@@ -72,7 +72,7 @@ public nonisolated enum AgentPaneHostError: Error, Equatable, Sendable {
 /// only looks; it never starts a daemon.
 public actor AcpmuxHost: AgentPaneHostProviding {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.acpmux")
-    private let resolveEnvironment: @Sendable () -> AcpmuxEnvironment?
+    let resolveEnvironment: @Sendable () -> AcpmuxEnvironment?
     /// The Computer Use socket and agent token now (`AcpmuxEnvironment.computerUse`),
     /// read at each daemon start, since Computer Use turns on and off while the app runs.
     private let computerUse: @Sendable () -> [String: String]
@@ -89,14 +89,14 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// the Computer Use helper v2 can register this daemon.
     private let daemonReady: @Sendable (String) async -> Void
     /// Kept only once found, so acpmux installed after the first chat is picked up.
-    private var environment: AcpmuxEnvironment?
+    var environment: AcpmuxEnvironment?
     /// The lookup in flight, by whether it may start a daemon.
-    private var inFlight: [Bool: Task<AcpmuxWebEndpoint, any Error>] = [:]
+    var inFlight: [Bool: Task<AcpmuxWebEndpoint, any Error>] = [:]
     /// False for a daemon this app does not own (the Chief home's, which the
     /// Chief host starts): every handshake then only looks, as a reconnect
     /// does. It never stops, hands off or starts that daemon, so a subagent
     /// tab never ends the Chief's acpmux under its host (cx-ebm.54).
-    private let startsDaemons: Bool
+    let startsDaemons: Bool
     /// Heals a daemon this app does not own that runs a replaced bundle: its
     /// owner hands it off and starts the bundled one (the Chief host,
     /// `ChiefAcpmuxHeal`). Returns whether it did. Nil: this host cannot heal.
@@ -161,7 +161,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         return try await AcpmuxStatusClient.sessionFolder(socketPath: environment.socketPath, sessionId: sessionId)
     }
 
-    private func endpoint(startsDaemon asked: Bool) async throws -> AcpmuxWebEndpoint {
+    func endpoint(startsDaemon asked: Bool) async throws -> AcpmuxWebEndpoint {
         let startsDaemon = asked && startsDaemons
         if let task = inFlight[startsDaemon] { return try await task.value }
         // A reconnect during a start waits for that daemon instead of

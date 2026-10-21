@@ -155,6 +155,19 @@ public final class ChiefConversationOwner {
         await connection.close()
     }
 
+    /// Restart Background Services (cmux issue 23089): the person asked to move this owner to
+    /// the bundled build. It is handed off like an app daemon after an update (`shutdown-daemon`
+    /// without `end_terminals`: its terminals and conversations stay), and this connection's next
+    /// `ensure` starts the owner from this app's binary. Returns whether the owner accepted.
+    public func restartOnBundledBuild() async -> Bool {
+        guard let connection, let identity else { return false }
+        return await connection.quietHandoff {
+            guard let reply = try? await connection.request(
+                ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation)) else { return false }
+            return reply.accepted != false
+        }
+    }
+
     private func noteFailure(_ error: DaemonError) {
         lastError = error.description
     }
