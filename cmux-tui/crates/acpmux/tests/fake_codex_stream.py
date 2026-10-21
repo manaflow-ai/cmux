@@ -241,7 +241,7 @@ while True:
         if not p.get("collaborationMode") and STATE.get("collab"):
             p = dict(p, collaborationMode={"mode": STATE["collab"]})
         turn(rid, p)
-    elif meth in ("mcpServerStatus/list", "thread/list", "thread/loaded/list", "skills/list"):
+    elif meth in ("thread/list", "thread/loaded/list"):
         send({"id": rid, "result": {"data": [], "nextCursor": None}})
     else:
         send({"id": rid, "result": {}})
