@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import CmuxNextWakeups
+import CmuxUpdater
 import Network
 public import Foundation
 
@@ -135,16 +136,27 @@ extension UpdaterService {
 
 extension UpdaterService {
     /// Applies `updates.checkAutomatically`, `checkIntervalSeconds`,
-    /// `downloadAutomatically` and `meteredNetwork` to Sparkle. No-op
-    /// without a driver.
+    /// `downloadAutomatically`, `meteredNetwork` and, when given, `channel`
+    /// (``follow(ring:)``) to Sparkle. The ring is kept without a driver too (the probe reads it).
     public func configure(checkAutomatically: Bool, checkInterval: TimeInterval, downloadAutomatically: Bool,
-                          metered: UpdateMeteredMode = .deferLowData) {
+                          metered: UpdateMeteredMode = .deferLowData, ring: String? = nil) {
+        if let ring { follow(ring: ring) }
         downloadSetting = (downloadAutomatically, metered)
         if automaticUpdates != downloadAutomatically { automaticUpdates = downloadAutomatically }
         guard let controller else { return }
         controller.setSchedule(automaticChecks: checkAutomatically, interval: checkInterval)
         followNetwork()
         applyDownloadPolicy()
+    }
+
+    /// Follows `updates.channel`: which release ring's appcast items Sparkle and the probe offer.
+    /// Takes the setting's raw value (`stable`, `nightly`, `canary`, `dev`); anything else is Nightly.
+    public func follow(ring rawValue: String) {
+        let ring = UpdateRing(rawValue: rawValue) ?? .nightly
+        guard self.ring != ring else { return }
+        self.ring = ring
+        controller?.ring = ring
+        log.append("update ring \(ring.rawValue)")
     }
 
     /// Recomputes whether found updates download by themselves: the user's
