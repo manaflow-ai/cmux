@@ -17,8 +17,8 @@ HID tap (mouse down on the source, about 40 drag moves, a hold over Home, mouse 
   cmux-browser    the same page in a cmux browser tab of the tagged app (its own window)
   preview         Preview's Select All, dragged from the picture
 
-Per case it records the drag's pasteboard as Home saw it when the app has it (`debug.home.drive draft`,
-newer builds), a window snapshot while the pointer holds over Home (the drop highlight), the draft after
+Per case it records the draft as Home holds it when the app reports it (`debug.home.drive geometry`:
+draftAttachments, dropPending, dropHighlighted on newer builds), a window snapshot while the pointer holds over Home (the drop highlight), the draft after
 the drop, and then sends the draft (`debug.home.drive send`): a send that goes with attachments lists them
 in the transcript rows. Writes OUT/result.json and OUT/*.png. Photos needs a library item and is not
 covered (the host's library is empty). Cleans up what it opened (its Chrome profile instance, the Safari
@@ -312,7 +312,12 @@ def home_point(where="transcript"):
 
 
 def draft():
-    return rpc("debug.home.drive", {"action": "draft"})
+    """The draft's attachment count, drops on their way and the drop highlight (`geometry`, newer builds)."""
+    g = (rpc("debug.home.drive", {"action": "geometry"}) or {}).get("geometry") or {}
+    if "draftAttachments" not in g:
+        return {"ok": False, "error": "this build reports no draft"}
+    return {"ok": True, "attachments": int(g["draftAttachments"]), "pending": int(g.get("dropPending", 0)),
+            "highlighted": g.get("dropHighlighted") == 1}
 
 
 def rows():
@@ -345,7 +350,7 @@ def run_case(name, source_pid, src_point, where="transcript", cleanup=None, refr
         # no draft, so this waits out the 15 s and the send below says what attached).
         want = 5 if name.startswith("finder-multi") else 1
         settled = until(lambda: (d := draft()) and isinstance(d, dict) and d.get("ok") and not d.get("pending")
-                        and len(d.get("attachments") or []) >= want and d, 15)
+                        and (d.get("attachments") or 0) >= want and d, 15)
         case["draft"] = settled or draft()
         rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(opts.out, f"{name}-after.png")}, 20)
         sent = rpc("debug.home.drive", {"action": "send"})

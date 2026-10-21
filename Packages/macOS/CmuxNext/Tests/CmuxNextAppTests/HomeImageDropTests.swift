@@ -13,7 +13,7 @@ import UniformTypeIdentifiers
 /// does. The drags reach Home's views as AppKit delivers them: the destination is the deepest view
 /// under the pointer registered for one of the drag's types (as AppKit finds it), which gets
 /// `draggingEntered`, a few `draggingUpdated`, `performDragOperation` and `draggingEnded`. What the
-/// drag carries is a value the intake reads (`dropContents`): the CI Macs' pasteboard server answers
+/// drag carries is a value the intake reads (`drop.contents`): the CI Macs' pasteboard server answers
 /// reads inconsistently (`HomePasteAnywhereTests`), and the user's drag and clipboard are never touched.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3))) struct HomeImageDropTests {
     /// One drag session: a private pasteboard, its sequence number and the pointer in window coordinates.
@@ -129,7 +129,7 @@ import UniformTypeIdentifiers
         /// drop was taken, and whether the highlight was gone after the drag.
         func drop(_ board: Board, sequence: Int, over view: NSView) -> (operation: NSDragOperation, highlighted: Bool, dropped: Bool, cleared: Bool) {
             showConversation()
-            transcript.dropContents = { _ in board }
+            transcript.drop.contents = { _ in board }
             let point = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
             let drag = Drag(sequence: sequence, at: point, in: window)
             defer { drag.release() }
@@ -140,10 +140,15 @@ import UniformTypeIdentifiers
             if target.responds(to: #selector(NSDraggingDestination.draggingUpdated(_:))) {
                 for _ in 0..<5 { operation = target.draggingUpdated(drag) }
             }
-            let highlighted = operation.contains(.copy)  // the drop highlight lands with the fix
+            // Showing, and drawn over the pane: a finite frame, inside the transcript's bounds when the pane
+            // has room (a CI Mac with no display shrinks the test window to a point).
+            let outline = transcript.drop.highlight.frame, pane = transcript.bounds
+            let roomy = pane.width > 2 * HomeDropHighlightView.inset && pane.height > 2 * HomeDropHighlightView.inset
+            let highlighted = transcript.drop.highlight.isShowing && !outline.isNull && outline.minX.isFinite && outline.minY.isFinite
+                && (!roomy || (pane.contains(outline) && outline.width > 0))
             // The message box's own text drop (NSTextView) reads private drag state this stand-in drag
             // does not have: the box drops here only when Home's intake took the drag (its highlight shows).
-            let intakeTook = !(target is NSTextView)  // the field reports its drags with the fix
+            let intakeTook = !(target is NSTextView) || transcript.drop.highlight.isShowing
             let dropped = operation.contains(.copy) && intakeTook && target.performDragOperation(drag)
             // NSTextView's own drag end reads private drag-session state this stand-in lacks.
             if target is NSTextView {
@@ -151,7 +156,7 @@ import UniformTypeIdentifiers
             } else if target.responds(to: #selector(NSDraggingDestination.draggingEnded(_:))) {
                 target.draggingEnded(drag)
             }
-            return (operation, highlighted, dropped, true)
+            return (operation, highlighted, dropped, !transcript.drop.highlight.isShowing)
         }
 
         /// The test process serves no local conversations, so Home would show why it can't (and may say
@@ -276,7 +281,7 @@ import UniformTypeIdentifiers
         defer { h.close() }
         var sequence = 0
         let places = h.places
-        #expect(places.count >= 4, "\(container): the pane has \(places.map(\.0))")
+        #expect(places.count >= (container == .conversationTab ? 3 : 4), "\(container): the pane has \(places.map(\.0))")
         for (place, view) in places {
             for batch in [[urls[0]], urls] {
                 sequence += 1
@@ -301,7 +306,7 @@ import UniformTypeIdentifiers
         let source = Promise(name: "Screenshot 2026-10-20 at 21.00.00.png", bytes: bytes)
         let rows = try #require(h.places.first { $0.0 == "transcript" }?.1)
         let (operation, highlighted, dropped, _) = h.drop(Board(promises: [source]), sequence: 900, over: rows)
-        let pendingShown = true  // the pending notice lands with the fix
+        let pendingShown = h.transcript.notice == HomeStrings.attachPending
         await h.transcript.attachmentsReady()
         #expect(operation == .copy && highlighted, "\(container): a file promise showed \(operation), highlight \(highlighted)")
         #expect(dropped)
@@ -309,6 +314,21 @@ import UniformTypeIdentifiers
         #expect(pendingShown, "\(container): no pending notice while the promised file came")
         #expect(h.drafted == [source.name], "\(container): the draft holds \(h.drafted)")
         #expect(h.transcript.notice == nil, "\(container): the notice stayed: \(h.transcript.notice ?? "")")
+    }
+
+    /// A browser's picture: a promise of its file the drag can't read before the drop, its bytes and its
+    /// link. The bytes alone make the drag a picture drop (the promise answered nothing).
+    @Test func aBrowserPictureWithAnUnreadablePromiseAttachesItsBytes() async throws {
+        let h = try await Self.harness(.homeTab)
+        defer { h.close() }
+        let data = try #require(Self.picture(.png))
+        let rows = try #require(h.places.first { $0.0 == "transcript" }?.1)
+        var board = Board(bytes: [.png: data], text: "https://example.com/cat.png", link: true)
+        board.promiseTypesOnly = true
+        let (operation, _, dropped, _) = h.drop(board, sequence: 902, over: rows)
+        await h.transcript.attachmentsReady()
+        #expect(operation == .copy && dropped, "a browser picture showed \(operation), dropped \(dropped)")
+        #expect(h.drafted.count == 1, "the draft holds \(h.drafted)")
     }
 
     /// Preview's selection and a browser's picture carry picture bytes (TIFF, PDF, GIF) with no file;

@@ -42,9 +42,8 @@ public final class HomeNativeTranscriptView: NSView {
     /// The chain of attachment preparations, in the order they arrived.
     // task-owner: replaced by the next intake; awaited by attachmentsReady
     var intake: Task<Void, Never>?
-    /// What a drag's pasteboard holds, as the intake reads it (the pasteboard itself; a value in
-    /// tests: a ci-step mini has no pasteboard server).
-    var dropContents: (NSPasteboard) -> any HomePasteboardContents = { $0 }
+    /// The pane's drop target state: its highlight, the current drag's answer, drops on their way.
+    let drop = HomeDropState()
     private var stopped = false
     /// The composer rect toasts last moved clear of (posted on change).
     private var lastToastAvoidance = NSRect.zero
@@ -430,10 +429,6 @@ public final class HomeNativeTranscriptView: NSView {
         applyTheme()
     }
 
-    private func windowStateChanged() {
-        transcript.isVisibleToUser = window.map { $0.isKeyWindow && $0.occlusionState.contains(.visible) } ?? false
-    }
-
     /// The theme's palette (the key window's, for every window) for the MessagesLab
     /// Fixture colours, and the first-run panel's colours.
     private func applyTheme() {
@@ -450,6 +445,7 @@ public final class HomeNativeTranscriptView: NSView {
                                  danger: Palette.danger, done: Palette.highlight)
             noticeLabel.textColor = Palette.textSecondary
         }
+        drop.highlight.applyTheme()
     }
 }
 
