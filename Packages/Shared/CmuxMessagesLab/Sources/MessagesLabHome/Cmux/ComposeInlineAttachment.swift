@@ -1,8 +1,12 @@
 // cmux: one attachment in the message box's text (Draft+InlineMarks.swift). Not a vendored file.
 import AppKit
+import UniformTypeIdentifiers
 
 /// One attachment in the field's text: an image's thumbnail or a file's pill,
-/// drawn by `ComposeInlineAttachmentView`.
+/// drawn by `ComposeInlineAttachmentView`. When the field does not place that view, the
+/// attachment draws the same picture itself (`image(forBounds:)`): AppKit otherwise draws an
+/// attachment with no contents as a blank document page (a screenshot pasted in the Chief's box
+/// showed only that page, 2026-10-20).
 final class ComposeInlineAttachment: NSTextAttachment {
     let attachmentID: ID
     private(set) var model: Attachment
@@ -11,6 +15,8 @@ final class ComposeInlineAttachment: NSTextAttachment {
     /// The thumbnail, once decoded (nil: the placeholder grey).
     private(set) var thumbnail: CGImage?
     private weak var shownView: ComposeInlineAttachmentView?
+    /// The text container that last drew this attachment itself, redrawn when the thumbnail arrives.
+    private weak var drawnIn: NSTextContainer?
 
     init(_ a: Attachment, scale: CGFloat) {
         attachmentID = a.id
@@ -59,12 +65,77 @@ final class ComposeInlineAttachment: NSTextAttachment {
             guard let self, self.model.asset == asset else { return }
             self.thumbnail = image
             self.shownView?.show(image)
+            self.redrawField()
         }
     }
 
-    /// The thumbnail's long side in pixels at SCALE (no trap on NaN).
-    private func thumbnailPixels(_ scale: CGFloat) -> Int {
-        CrashGuard.int((max(bounds.width, bounds.height) * max(1, scale)).rounded(.up))
+    /// The field draws the attachment again (the thumbnail arrived after it drew the placeholder).
+    private func redrawField() {
+        guard let tv = drawnIn?.textView else { return }
+        if let tlm = tv.textLayoutManager { tlm.invalidateRendering(for: tlm.documentRange) }
+        tv.needsDisplay = true
+    }
+
+    // MARK: Drawn by the attachment (the field placed no view)
+
+    override func image(forBounds imageBounds: CGRect, attributes: [NSAttributedString.Key: Any], location: any NSTextLocation,
+                        textContainer: NSTextContainer?) -> NSImage? {
+        drawnIn = textContainer
+        return drawnImage(imageBounds.size)
+    }
+
+    override func image(forBounds imageBounds: NSRect, textContainer: NSTextContainer?, characterIndex charIndex: Int) -> NSImage? {
+        drawnIn = textContainer
+        return drawnImage(imageBounds.size)
+    }
+
+    /// What the view shows, as an image: the thumbnail aspect-filled in a rounded box (the box's
+    /// fill until it decodes), or the file's pill with its icon, name and kind.
+    func drawnImage(_ size: CGSize) -> NSImage {
+        let fill = Fixture.isLight ? Fixture.chipFill : NSColor(white: 1, alpha: 0.08)
+        let corner = ComposeAttachmentStrip.corner
+        let image = isImage ? thumbnail : nil
+        let labels = isImage ? nil : FileLabels(model, width: size.width - 60)
+        return NSImage(size: size, flipped: false) { r in
+            NSBezierPath(roundedRect: r, xRadius: corner, yRadius: corner).addClip()
+            fill.setFill()
+            r.fill()
+            if let image, let ctx = NSGraphicsContext.current?.cgContext {
+                ctx.interpolationQuality = .high
+                ctx.draw(image, in: Self.aspectFill(CGSize(width: image.width, height: image.height), in: r))
+            }
+            labels?.draw(in: r)
+            return true
+        }
+    }
+
+    /// IMAGE's rect scaled to cover BOX, centred (the view's `resizeAspectFill`).
+    static func aspectFill(_ image: CGSize, in box: CGRect) -> CGRect {
+        guard image.width > 0, image.height > 0 else { return box }
+        let k = max(box.width / image.width, box.height / image.height)
+        let w = image.width * k, h = image.height * k
+        return CGRect(x: box.midX - w / 2, y: box.midY - h / 2, width: w, height: h)
+    }
+
+    /// A file pill's icon, name and kind, laid out as `ComposeInlineAttachmentView` does.
+    struct FileLabels {
+        let icon: NSImage
+        let name: NSAttributedString
+        let kind: NSAttributedString
+
+        init(_ a: Attachment, width: CGFloat) {
+            icon = NSWorkspace.shared.icon(for: UTType(mimeType: a.mimeType) ?? .data)
+            name = NSAttributedString(string: ComposeAttachmentStrip.fit(a.fileName, ComposeAttachmentStrip.nameFont, width),
+                                      attributes: [.font: ComposeAttachmentStrip.nameFont, .foregroundColor: Fixture.incomingText])
+            kind = NSAttributedString(string: ComposeAttachmentStrip.fit(ComposeAttachmentStrip.kindText(a), ComposeAttachmentStrip.kindFont, width),
+                                      attributes: [.font: ComposeAttachmentStrip.kindFont, .foregroundColor: Fixture.secondaryText])
+        }
+
+        func draw(in r: CGRect) {
+            icon.draw(in: CGRect(x: r.minX + 10, y: r.midY - 16, width: 32, height: 32))
+            name.draw(at: CGPoint(x: r.minX + 50, y: r.midY))
+            kind.draw(at: CGPoint(x: r.minX + 50, y: r.midY - 15))
+        }
     }
 
     /// Decodes the thumbnail now (tests).
