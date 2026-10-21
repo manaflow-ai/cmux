@@ -28,7 +28,7 @@
 //!   walk reads that answer.
 
 use super::*;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// How much a session's harness runs without asking.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -210,28 +210,116 @@ fn folder_allowed(
     ))
 }
 
-/// The folder a sub-session starts in, resolved once: the checks pass on the folder the session
-/// gets, so `..` or a link swapped after the check cannot move it.
-pub(super) fn resolved_folder(asked: &Path) -> Result<std::path::PathBuf, RpcError> {
-    if !asked.is_absolute() {
-        return Err(RpcError::invalid_params(format!(
-            "cwd {} must be an absolute path to an existing folder",
-            asked.display()
-        )));
+/// The folder a sub-session starts in, resolved once and held open (unix): the checks pass on
+/// the folder the session gets. Its worktree is made, and its harness spawns, only while the path
+/// still leads to that very folder (the same device and inode), so a folder renamed or a link
+/// swapped after the check (while the start waits on the trust card, say) cannot move the start
+/// into a folder nobody checked. The open handle keeps the inode from being reused meanwhile.
+/// Windows compares the session's folder only once it runs (`Hub::settle_subsession`).
+#[derive(Clone, Debug)]
+pub struct CheckedFolder {
+    path: PathBuf,
+    #[cfg(unix)]
+    id: (u64, u64),
+    #[cfg(unix)]
+    _held: Arc<std::fs::File>,
+}
+
+impl std::ops::Deref for CheckedFolder {
+    type Target = Path;
+
+    fn deref(&self) -> &Path {
+        &self.path
     }
-    std::fs::canonicalize(asked).ok().filter(|f| f.is_dir()).ok_or_else(|| {
-        refusal(
-            "subsessions.cwd_unresolved",
-            format!(
-                "start_session refused: {} does not resolve to a folder on this machine",
+}
+
+impl CheckedFolder {
+    /// `asked`, an absolute path, resolved to a folder on this machine and held.
+    pub(super) fn resolve(asked: &Path) -> Result<Self, RpcError> {
+        if !asked.is_absolute() {
+            return Err(RpcError::invalid_params(format!(
+                "cwd {} must be an absolute path to an existing folder",
                 asked.display()
-            ),
-            json!({"cwd": asked}),
-        )
-    })
+            )));
+        }
+        Self::open(asked).ok_or_else(|| {
+            refusal(
+                "subsessions.cwd_unresolved",
+                format!(
+                    "start_session refused: {} does not resolve to a folder on this machine",
+                    asked.display()
+                ),
+                json!({"cwd": asked}),
+            )
+        })
+    }
+
+    fn open(asked: &Path) -> Option<Self> {
+        let path = std::fs::canonicalize(asked).ok().filter(|f| f.is_dir())?;
+        #[cfg(unix)]
+        let (id, held) = {
+            use std::os::unix::fs::MetadataExt;
+            let held = std::fs::File::open(&path).ok()?;
+            let m = held.metadata().ok().filter(std::fs::Metadata::is_dir)?;
+            ((m.dev(), m.ino()), Arc::new(held))
+        };
+        Some(Self {
+            path,
+            #[cfg(unix)]
+            id,
+            #[cfg(unix)]
+            _held: held,
+        })
+    }
+
+    /// Ok when `cwd` still leads to this folder: it resolves to the same path, and that is the
+    /// same device and inode. Else `subsessions.cwd_moved`, and nothing may start there.
+    pub(super) fn still_at(&self, cwd: &Path) -> Result<(), RpcError> {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let resolved = std::fs::canonicalize(cwd).ok();
+            let now = std::fs::metadata(cwd).ok().map(|m| (m.dev(), m.ino()));
+            if resolved.as_deref() != Some(self.path.as_path()) || now != Some(self.id) {
+                return Err(refusal(
+                    "subsessions.cwd_moved",
+                    format!(
+                        "start_session refused: {} is no longer the folder that was checked (it was moved, or a link now leads elsewhere), so nothing started there",
+                        cwd.display()
+                    ),
+                    json!({"cwd": self.path}),
+                ));
+            }
+        }
+        #[cfg(not(unix))]
+        let _ = cwd;
+        Ok(())
+    }
+
+    /// Its path, while it still leads to this folder ([`CheckedFolder::still_at`]).
+    pub(super) fn still_here(&self) -> Result<&Path, RpcError> {
+        self.still_at(&self.path).map(|()| self.path.as_path())
+    }
 }
 
 impl Hub {
+    /// `ensure_child` for new session `session`, refused with nothing started when its folder is
+    /// no longer the one a sub-session start checked (`checked`). Right before the spawn, not only
+    /// once the agent runs: an agent started in a folder nobody checked has already run that
+    /// folder's own code (its settings hooks, folder profiles, MCP config). The check after the
+    /// start (`settle_subsession`) stays as a backstop.
+    pub(super) async fn ensure_checked_child(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        spawn: &super::spawn::Spawn,
+        checked: Option<&CheckedFolder>,
+    ) -> Result<Arc<ChildAgent>, RpcError> {
+        if let Some(checked) = checked {
+            checked.still_at(&session.meta().cwd)?;
+        }
+        self.ensure_child(session, spawn).await
+    }
+
     /// Everything a new sub-session takes before its first prompt: the
     /// parent's rules and turned-off tools, the folder it was checked for,
     /// its start mode, and [`Hub::hold_subsession`]. An error means the
