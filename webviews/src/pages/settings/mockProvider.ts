@@ -458,9 +458,9 @@ export class MockSettingsProvider {
     provide("cmux.settings.harnesses.changed", (ctx) => this.track(this.harnessesChanged, ctx));
   }
 
-  /** The Chief records the host's page relay lists (`chief.profile.list`). */
   /** Settings > Updates' channels; null: the host has no updater. */
   channels: ChannelsState | null = mockChannels;
+  /** The Chief records the host's page relay lists (`chief.profile.list`). */
   chiefs: Params[] = [
     {
       id: "agent_chief",

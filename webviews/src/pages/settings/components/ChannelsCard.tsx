@@ -18,7 +18,7 @@ function BuildRow({ build, labels }: { build: ChannelBuild; labels: ChannelsStat
             {build.commit && build.commit_url && (
               <>
                 {" · "}
-                <a href={build.commit_url} title={labels.commit} className="font-mono">
+                <a href={build.commit_url} title={labels.commit} className="channel-link font-mono">
                   {build.commit}
                 </a>
               </>
@@ -26,13 +26,13 @@ function BuildRow({ build, labels }: { build: ChannelBuild; labels: ChannelsStat
             {build.prs.map((pr) => (
               <span key={pr.number}>
                 {" · "}
-                <a href={pr.url} data-channel-pr={pr.number}>{`#${pr.number}`}</a>
+                <a href={pr.url} className="channel-link" data-channel-pr={pr.number}>{`#${pr.number}`}</a>
               </span>
             ))}
             {build.compare_url && (
               <>
                 {" · "}
-                <a href={build.compare_url} data-channel-compare="">
+                <a href={build.compare_url} className="channel-link" data-channel-compare="">
                   {labels.compare}
                 </a>
               </>
@@ -79,7 +79,7 @@ function Track({
                 {labels.following}
               </span>
             )}
-            {track.release_url && <a href={track.release_url}>{labels.release}</a>}
+            {track.release_url && <a href={track.release_url} className="channel-link">{labels.release}</a>}
           </div>
         </div>
       </div>
