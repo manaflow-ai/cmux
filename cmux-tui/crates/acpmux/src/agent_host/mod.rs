@@ -202,6 +202,14 @@ pub struct TranslatorSpec {
     pub claude_session_id: Option<String>,
 }
 
+impl SpawnSpec {
+    /// The session's caller token in the harness env, which the host keeps in its record.
+    pub fn caller_token(&self) -> Option<String> {
+        let key = crate::hub::person::CALLER_TOKEN_ENV;
+        self.env.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone())
+    }
+}
+
 /// The host's answer on the bootstrap pipe.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "t", rename_all = "snake_case")]

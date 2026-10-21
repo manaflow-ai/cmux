@@ -34,6 +34,22 @@ fn caller_secret() -> &'static [u8; 32] {
     })
 }
 
+/// Caller tokens of an earlier daemon run, by session: the one each host
+/// this run adopted started its harness with (`Hub::adopt_caller_token`).
+/// An agent host outlives its daemon (an update restarts acpmux), and its
+/// harness and MCP servers keep the earlier run's token, so the host keeps
+/// it in its owner-only record (`HostRecord::caller_token`) beside its
+/// `owner_token`, which grants more (the harness's own stdio): reading the
+/// record gains nothing that token did not already give. The run that adopts
+/// the host accepts it for that one session until a new host of the session
+/// starts. A token that proves nothing is refused with how to get a new one
+/// (`acpmux session restart`, `server/subsessions.rs`).
+fn adopted_callers() -> &'static std::sync::Mutex<HashMap<String, String>> {
+    static ADOPTED: std::sync::OnceLock<std::sync::Mutex<HashMap<String, String>>> =
+        std::sync::OnceLock::new();
+    ADOPTED.get_or_init(Default::default)
+}
+
 /// The caller token of session `session_id` on this daemon run (`hub/person.rs`
 /// (a)): lowercase hex HMAC-SHA256(run secret,
 /// "acpmux-caller-session-v1" 0 session id).
@@ -198,7 +214,7 @@ impl Hub {
     /// Whether `token` is the caller token session `session_id`'s adopted
     /// host started its harness with under an earlier daemon run (constant time).
     fn adopted_caller_proves(&self, session_id: &str, token: &str) -> bool {
-        let adopted = self.adopted_callers.lock().unwrap();
+        let adopted = adopted_callers().lock().unwrap();
         adopted
             .get(session_id)
             .is_some_and(|known| valid_key(token) && cmux_local_auth::tokens_match(token, known))
@@ -209,7 +225,7 @@ impl Hub {
     /// record, so this run knows the session by that token too. A token of
     /// this run, a malformed one or none (a host of an older build) records nothing.
     pub(super) fn adopt_caller_token(&self, session_id: &str, token: Option<String>) {
-        let mut adopted = self.adopted_callers.lock().unwrap();
+        let mut adopted = adopted_callers().lock().unwrap();
         match token.filter(|t| valid_key(t) && !caller_proves(session_id, t)) {
             Some(token) => adopted.insert(session_id.to_owned(), token),
             None => adopted.remove(session_id),
@@ -219,7 +235,7 @@ impl Hub {
     /// A new host of session `session_id` started: its harness has this
     /// run's token, and the adopted one's process group is gone.
     pub(super) fn forget_adopted_caller(&self, session_id: &str) {
-        self.adopted_callers.lock().unwrap().remove(session_id);
+        adopted_callers().lock().unwrap().remove(session_id);
     }
 
     /// A `session/new` without the person (module docs, (a), (b)): a mode

@@ -66,9 +66,8 @@ pub struct Conn {
     pub(super) holds_calls: std::sync::atomic::AtomicU32,
     /// The acpmux session it runs in, proven at its first `initialize` (`hub/person.rs` (a)).
     caller: std::sync::OnceLock<String>,
-    /// The session a first unix `initialize` named with a caller token that
-    /// did not prove it: what the refusal of a sub-session tool names.
-    unproven_caller: std::sync::OnceLock<String>,
+    /// The session a first unix `initialize` named with a token that did not prove it.
+    pub(super) unproven_caller: std::sync::OnceLock<String>,
 }
 
 impl Conn {
@@ -80,12 +79,6 @@ impl Conn {
     /// The acpmux session this connection proved it runs in (`hub/person.rs` (a)).
     pub(super) fn caller(&self) -> Option<&str> {
         self.caller.get().map(String::as_str)
-    }
-
-    /// The session this connection named with a caller token that proved
-    /// nothing (`caller` is None then).
-    pub(super) fn unproven_caller(&self) -> Option<&str> {
-        self.unproven_caller.get().map(String::as_str)
     }
 
     /// Whether this connection gets the person challenge: the unix socket or the proven local app.
@@ -108,11 +101,8 @@ impl Conn {
         }
         let first_local = n == 1 && m == method::INITIALIZE && self.origin == Origin::Local;
         if let Some((id, token)) = caller.filter(|_| first_local) {
-            let cell = match hub.proven_caller((id.clone(), token)) {
-                Some(_) => &self.caller,
-                None => &self.unproven_caller,
-            };
-            let _ = cell.set(id);
+            let proven = hub.proven_caller((id.clone(), token)).is_some();
+            let _ = if proven { &self.caller } else { &self.unproven_caller }.set(id);
         }
         if n == 2 && m == method::MUX_PERSON_PROVE && self.challenged.load(Ordering::SeqCst) {
             let proof = params.as_ref().and_then(|p| p.get("proof")).and_then(Value::as_str);

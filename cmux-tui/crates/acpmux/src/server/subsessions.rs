@@ -36,7 +36,7 @@ fn caller_required(conn: &Conn) -> RpcError {
     // A token this daemon run did not issue: most often an agent that kept
     // running across a daemon restart under a host that did not record its
     // token (an older build). A new harness process gets a new one.
-    if let Some(session) = conn.unproven_caller() {
+    if let Some(session) = conn.unproven_caller.get() {
         return RpcError::invalid_params(format!(
             "this session's caller token is not one this acpmux daemon knows: the daemon restarted (a cmux update or restart) after the agent started, so its tools still hold the earlier daemon's token. Restart the agent to get a new one: run `acpmux session restart {session}` (it restarts after the current turn ends, in the same conversation, and keeps its sub-sessions), or ask the person to restart the chat. Until then sub-session tools cannot act for it."
         ))

@@ -103,16 +103,7 @@
 //!   `ACPMUX_SESSION_TOKEN_SOCKET`, this daemon's socket, and the CLI sends
 //!   the token only to that socket ([`caller_env`], `client.rs`). A
 //!   profile's, preset's or request's env never sets either variable: the
-//!   spawn drops them from every env it layers after `caller_env`.
-//!   An agent host outlives its daemon (an update restarts acpmux), and its
-//!   harness and MCP servers keep the earlier run's token. So the host
-//!   records that token in its owner-only record (`HostRecord::caller_token`,
-//!   beside `owner_token`, which grants more: the harness's own stdio), and
-//!   the run that adopts the host accepts it for that one session until a
-//!   new host of the session starts (`Hub::adopt_caller_token`). Reading the
-//!   record gains nothing its `owner_token` did not already give. A token
-//!   that proves nothing is refused with how to get a new one
-//!   (`acpmux session restart`, `server/subsessions.rs`).
+//!   spawn drops them from every env it layers after `caller_env`; adoption: `adopted_callers`.
 //! - No start mode that does not ask applies to an adopt without the
 //!   person: an adopt may find a session already running
 //!   (`hub/adoption.rs`, `ifLive: "open"`), and only the person widens a
