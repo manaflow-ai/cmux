@@ -321,4 +321,23 @@ struct SessionSnapshotRepositoryTests {
         }
         #expect(loaded == snapshot)
     }
+
+    @Test("import rejects a single oversized JSON string before decoding")
+    func oversizedJSONStringIsRejectedBeforeDecode() throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let repository = makeRepository(appSupport: dir)
+        let fileURL = dir.appendingPathComponent("oversized.json")
+        let payload = String(repeating: "x", count: 2 * 1024 * 1024 + 1)
+        let data = Data("{\"version\":1,\"windows\":[{\"name\":\"".utf8)
+            + Data(payload.utf8)
+            + Data("\"}]}".utf8)
+        try data
+            .write(to: fileURL)
+
+        guard case .failure(.notASessionSnapshot) = repository.importableSnapshot(fileURL: fileURL) else {
+            Issue.record("expected oversized JSON string to be rejected before decoding")
+            return
+        }
+    }
 }

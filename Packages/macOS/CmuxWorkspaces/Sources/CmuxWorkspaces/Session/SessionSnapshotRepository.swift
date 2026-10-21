@@ -76,6 +76,7 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
     }
 
     private func decodedSnapshot(from data: Data) -> SnapshotValue? {
+        guard Self.jsonIsWithinDecodeLimits(data) else { return nil }
         let decoder = JSONDecoder()
         for (key, value) in decoderUserInfo {
             decoder.userInfo[key] = value
@@ -149,8 +150,56 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
     }
 
     /// Upper bound on a snapshot file accepted for import. Real snapshots
-    /// (scrollback included) are a few MiB at most.
-    static var maximumImportableSnapshotBytes: Int64 { 256 * 1024 * 1024 }
+    /// (scrollback included) are a few MiB at most. Keeping this well below
+    /// the old 256 MiB ceiling prevents a valid but hostile payload from
+    /// materializing hundreds of megabytes before topology caps run.
+    static var maximumImportableSnapshotBytes: Int64 { 32 * 1024 * 1024 }
+
+    /// Lexical limits applied before Foundation materializes the Codable graph.
+    /// The layout model is recursive, so post-decode caps alone are too late
+    /// to protect the process from deeply nested JSON or one giant string.
+    // Generic types cannot declare static stored properties on the Swift
+    // versions supported by cmux; computed constants retain one source of
+    // truth without allocating per repository instance.
+    private static var maximumJSONNesting: Int { 512 }
+    private static var maximumJSONStringBytes: Int { 2 * 1024 * 1024 }
+
+    private static func jsonIsWithinDecodeLimits(_ data: Data) -> Bool {
+        var nesting = 0
+        var stringBytes = 0
+        var inString = false
+        var escaped = false
+        for byte in data {
+            if inString {
+                if escaped {
+                    escaped = false
+                } else if byte == 92 { // backslash
+                    escaped = true
+                } else if byte == 34 { // quote
+                    inString = false
+                    stringBytes = 0
+                } else {
+                    stringBytes += 1
+                    if stringBytes > maximumJSONStringBytes { return false }
+                }
+                continue
+            }
+            switch byte {
+            case 34: // quote
+                inString = true
+                stringBytes = 0
+            case 91, 123: // [ or {
+                nesting += 1
+                if nesting > maximumJSONNesting { return false }
+            case 93, 125: // ] or }
+                nesting -= 1
+                if nesting < 0 { return false }
+            default:
+                break
+            }
+        }
+        return !inString && nesting == 0
+    }
 
     private func importableSnapshot(
         data: Data,
