@@ -52,8 +52,13 @@ final class FileExplorerService {
 
     /// The focused tab's folder when it is a local terminal's.
     func folder(focusedIn controller: WindowController) -> URL? {
-        guard let services, let key = controller.focusedPane?.currentTabKey,
-              let (tab, pane) = services.locateTab(key), services.daemon(for: pane).isLocal,
+        controller.focusedPane.flatMap(folder(of:))
+    }
+
+    /// The selected tab's folder of `pane` when it is a local terminal's.
+    func folder(of pane: PaneController) -> URL? {
+        guard let services, let key = pane.currentTabKey,
+              let (tab, model) = services.locateTab(key), services.daemon(for: model).isLocal,
               let cwd = tab.cwd, !cwd.isEmpty else { return nil }
         return URL(fileURLWithPath: cwd, isDirectory: true)
     }
