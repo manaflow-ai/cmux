@@ -73,6 +73,9 @@ extension ChatIntents {
     /// No Forward… unless the host routes it (test hosts, the New Message composer).
     var canForward: Bool { false }
     func forward(_ text: String) {}
+    /// cmux (perf100): the host was hidden, shown, moved to another window, or its window's
+    /// occlusion changed: work that only moves pixels (the live line's seconds) stops or resumes.
+    func shownChanged() {}
 }
 
 /// One-shot wake-ups for the controller's engine clock (scheduled actions,
