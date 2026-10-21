@@ -166,14 +166,6 @@ export const Check = (p: CvIconProps) => (
   </Svg>
 );
 
-/** Two checks: a prompt the agent started on (conversation/PromptDelivery.tsx). */
-export const DoubleCheck = (p: CvIconProps) => (
-  <Svg {...p}>
-    <path d="M2.2 8.3 4.8 10.9 9.8 5.2" />
-    <path d="M7.4 10.6 7.8 10.9 12.8 5.2" />
-  </Svg>
-);
-
 /** A clock: a prompt still on its way (conversation/PromptDelivery.tsx). */
 export const Clock = (p: CvIconProps) => (
   <Svg {...p}>

@@ -20,9 +20,9 @@ never turns into a spinner and is never disabled because a prompt is in flight.
 
 | State | Entered when | Row shows |
 | --- | --- | --- |
-| `sending` | the pane wrote `session/prompt` | a small clock, after 1 s only (a fast send shows nothing) |
-| `delivered` | acpmux recorded it: `_acpmux/prompt_accepted`, a `queued` or `user_message` record, or the `session/prompt` answer | ✓ |
-| `read` | the agent started on it: its `user_message` record (a queued prompt dequeued) or a steer's `steered` | ✓✓ (icon owned by the message-actions lane) |
+| `sending` | the pane wrote `session/prompt` | a small clock beside the bubble, after 1 s only (a fast send shows nothing) |
+| `delivered` | acpmux recorded it: `_acpmux/prompt_accepted`, a `queued` or `user_message` record, or the `session/prompt` answer | the bubble's check, unread |
+| `read` | the agent started on it: its `user_message` record (a queued prompt dequeued) or a steer's `steered` | the bubble's check, read (UserBubble.tsx, owned by the message-actions lane) |
 | `failed` | a refusal, or the timeout below | the reason, and Retry, Edit, Remove, Details |
 
 A state only moves forward. A late signal for an earlier state is ignored.

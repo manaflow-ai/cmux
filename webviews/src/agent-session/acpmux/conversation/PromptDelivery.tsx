@@ -1,13 +1,13 @@
-// A sent prompt's way to the agent, under its bubble (plans/cmux-next/composer-delivery-DESIGN.md):
-// a clock while it is on its way (only after a second, so a fast send shows nothing), one check once
-// acpmux took it, two once the agent started on it. A prompt that did not get there says why, with
+// A sent prompt's way to the agent (plans/cmux-next/composer-delivery-DESIGN.md): a clock beside its
+// bubble while it is on its way (only after a second, so a fast send shows nothing); once it got
+// there the bubble's read check (UserBubble.tsx) says so. A prompt that did not get there says why, with
 // Retry, Edit, Remove and Details: the hop it stopped at, its error, each hop's time and the ids,
 // and Copy debug info.
 import { useEffect, useState } from "react";
 import type { AcpmuxRow, PromptDelivery } from "../model";
 import { useT, type StringKey } from "../i18n";
 import { copyText } from "./clipboard";
-import { Check, Clock, DoubleCheck } from "./icons";
+import { Clock } from "./icons";
 
 /// How long a send stays unmarked before its clock shows.
 const CLOCK_AFTER_MS = 1000;
@@ -18,7 +18,7 @@ const HOP_LABEL = {
   agent: "prompt.delivery.hop.agent",
 } as const satisfies Record<NonNullable<PromptDelivery["hop"]>, StringKey>;
 
-/// The clock or checks after a sent prompt's bubble.
+/// The clock beside a prompt that is still on its way.
 export function DeliveryMark({ delivery }: { delivery: PromptDelivery }) {
   const t = useT();
   const sending = delivery.state === "sending";
@@ -28,16 +28,8 @@ export function DeliveryMark({ delivery }: { delivery: PromptDelivery }) {
     const timer = setTimeout(() => setLate(true), Math.max(0, CLOCK_AFTER_MS - (Date.now() - delivery.sentAt)));
     return () => clearTimeout(timer);
   }, [sending, late, delivery.sentAt]);
-  if (delivery.state === "failed" || (sending && !late && !delivery.slow)) return null;
-  const label = t(
-    sending
-      ? delivery.slow
-        ? "prompt.delivery.stillSending"
-        : "prompt.delivery.sending"
-      : delivery.state === "read"
-        ? "prompt.delivery.read"
-        : "prompt.delivery.delivered",
-  );
+  if (!sending || (!late && !delivery.slow)) return null;
+  const label = t(delivery.slow ? "prompt.delivery.stillSending" : "prompt.delivery.sending");
   return (
     <output
       className="cv-user__status cv-user__delivery"
@@ -45,8 +37,8 @@ export function DeliveryMark({ delivery }: { delivery: PromptDelivery }) {
       aria-label={label}
       title={label}
     >
-      {sending ? <Clock size={12} /> : delivery.state === "read" ? <DoubleCheck size={12} /> : <Check size={12} />}
-      {sending && delivery.slow && <span>{label}</span>}
+      <Clock size={12} />
+      {delivery.slow && <span>{label}</span>}
     </output>
   );
 }

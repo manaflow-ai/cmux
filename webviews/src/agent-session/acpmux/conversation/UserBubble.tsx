@@ -33,7 +33,8 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
   const [copied, setCopied] = useState(false);
   const mark = usePromptRowMark(row);
   const through = edit?.seqs.get(row.id);
-  const unread = row.pending || row.steer === "waiting";
+  // A prompt this pane sent is read once the agent started on it (its delivery), else as before.
+  const unread = row.delivery ? row.delivery.state !== "read" : row.pending || row.steer === "waiting";
   // Fork goes through the prompt's own turn, as its right-click Fork does, so the new chat keeps it.
   const own = promptTurns?.get(row.id);
   const forkThrough = fork && own !== undefined && (forkAny || own === forkSeq) ? own : undefined;
@@ -58,7 +59,7 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
       {row.images && row.images.length > 0 && <SentImages images={row.images} />}
       <div className="cv-user__bubble selectable">
         {text}
-        {/* Where a prompt this pane sent is on its way; a steer's mark says it instead. */}
+        {/* A prompt this pane sent that is still on its way; a steer's mark says it instead. */}
         {row.delivery && !row.steer && <DeliveryMark delivery={row.delivery} />}
       </div>
       {text && !row.failed && !row.queued && (

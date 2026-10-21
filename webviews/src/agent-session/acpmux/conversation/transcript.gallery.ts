@@ -470,7 +470,6 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/PromptDelivery.tsx#DeliveryFailure",
     "agent-session/acpmux/conversation/PromptDelivery.tsx#DeliveryMark",
     "agent-session/acpmux/conversation/icons.tsx#Clock",
-    "agent-session/acpmux/conversation/icons.tsx#DoubleCheck",
     "agent-session/acpmux/PermissionCard.tsx",
   ],
   variants: {
@@ -1098,7 +1097,7 @@ export default agentPaneEntry({
       ]),
     },
     "prompt-delivery": {
-      note: "Each sent prompt's way to the agent: two checks once it started, one once acpmux took it, a clock and Still sending while it waits, and one that failed with Retry, Edit, Remove and Details.",
+      note: "Each sent prompt's way to the agent: the read check once it started, unread once acpmux took it, a clock and Still sending while it waits, and one that failed with Retry, Edit, Remove and Details.",
       snapshot: chat([
         user("Add retries to the client", 6, {
           delivery: { state: "read", promptId: "p1", sessionId: "s", sentAt: 0, acceptedAt: 40, readAt: 90 },
