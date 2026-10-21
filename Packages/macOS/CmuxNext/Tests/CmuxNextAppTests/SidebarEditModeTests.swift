@@ -111,12 +111,13 @@ import Testing
         sidebar.layoutSubtreeIfNeeded()
         let bar = try #require(sidebar.editBar)
         #expect(bar.superview === sidebar && bar.frame.width > 0)
-        #expect((sidebar.bandRegions + sidebar.list.blockRegions).allSatisfy(\.isEditing))
+        let regions = sidebar.bandRegions + sidebar.list.blockRegions
+        #expect(regions.allSatisfy { $0.isEditing })
         bar.add.performClick(nil)
         #expect(intents == [.addItems])
         bar.done.performClick(nil)
         #expect(!sidebar.isEditingItems && sidebar.editBar == nil)
-        #expect(!(sidebar.bandRegions + sidebar.list.blockRegions).contains(where: \.isEditing))
+        #expect(!regions.contains { $0.isEditing })
     }
 
     @Test func editSidebarIsOnTheSidebarsMenusAndThePalette() throws {
