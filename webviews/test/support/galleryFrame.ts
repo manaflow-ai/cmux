@@ -32,6 +32,13 @@ export function galleryEntryPath(id: string): string {
 
 type Params = Record<string, string | number | undefined>;
 
+/**
+ * The first line of a load error that a dependency-optimizer reload causes. Only the first line:
+ * Playwright appends a call log ("navigating to …") to every goto error, a refused connection too.
+ */
+export const RELOADED =
+  /context was destroyed|interrupted by another navigation|ERR_ABORTED|cancell?ed|frame was detached/i;
+
 /** `/gallery/frame.html` for one variant of one entry, narrowed to the entry's own file. */
 export function galleryFrame(entry: string, params: Params = {}): string {
   const query = new URLSearchParams({ entry, entryPath: galleryEntryPath(entry) });
@@ -80,8 +87,7 @@ export async function warmGalleryFrame(
             ]);
             break;
           } catch (error) {
-            if (Date.now() >= deadline || !/context was destroyed|navigat|ERR_ABORTED/i.test(String(error)))
-              throw error;
+            if (Date.now() >= deadline || !RELOADED.test(String(error).split("\n")[0]!)) throw error;
           }
         }
         if (ready === "error") throw new Error(`warmGalleryFrame: ${entry}: ${message}`);

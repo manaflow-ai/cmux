@@ -129,9 +129,10 @@ const EVERY_ENTRY_PENDING = new Map<string, string>([
  * says why in a `// gallery-frame-every-entry: <reason>` comment.
  */
 export function checkGalleryFrameSource(file: string, text: string): string[] {
-  if (!/^import\b[^;]*\bfrom "playwright";/m.test(text)) return [];
   const name = path.relative(root, file);
   const pending = EVERY_ENTRY_PENDING.has(name);
+  if (!/^import\b[^;]*\bfrom "playwright";/m.test(text))
+    return pending ? [`${name}: opens no browser now; remove it from EVERY_ENTRY_PENDING`] : [];
   if (/^\s*\/\/ gallery-frame-every-entry: \S/m.test(text))
     return pending ? [`${name}: says why it opens every entry; remove it from EVERY_ENTRY_PENDING`] : [];
   const errors = text
