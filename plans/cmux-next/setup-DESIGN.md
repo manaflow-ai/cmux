@@ -10,7 +10,7 @@ for what a person must do: an OAuth sign-in, a secret, a macOS switch.
 | Task | Done today | Agent path today | JSON | Safe to re-run |
 | --- | --- | --- | --- | --- |
 | cmux sign-in, accounts | GUI (Settings > Accounts, sidebar) | `cmux accounts list` reads; `cmux cloud sign-in` opens the browser; reauth/connect are person-only | yes (list) | list yes; sign-in refuses when signed in |
-| Harness install and sign-in | GUI (Settings > Agents, Harnesses page) | `cmux harness list/doctor/login --json`; `cmux agent check-harness`; install is left to the user | yes | yes |
+| Harness install and sign-in | GUI (Settings > Agents, Harnesses page) | `cmux setup harness [ID ...]`; `cmux harness list/doctor/login --json`; install and sign-in are the user's | yes | yes |
 | Folder trust | GUI (TrustAsk line, sub-session card) | none: raw `acp.trust.set` over the acpmux socket | - | - |
 | Add an ssh machine | GUI (Connect to Machine...) | `cmux acp host setup SSH --json`; `cmux remote connect` | yes (acp) | yes |
 | acpmux peers, host updates | none in the app | `cmux acp host ls/update --json` | yes | yes |
@@ -76,13 +76,59 @@ The Chief loads the `cmux-setup` skill (shipped in optchat-chief's
    it forgets it at `via`, as the pane's Undo does, so every worktree of the
    repository asks again; `written` names the folder whose record changed
    and `through` whether the daemon or the record file took it.
-2. `harness [ID]` (next): `harness doctor` and `login --status` for each
-   harness; a missing CLI or sign-in comes back as `needs_user` with the
-   login command.
-3. `machine SSH_TARGET [--name NAME]` (this change). It reads the peers
+2. `harness [ID ...]`: for each named harness, else every configured or
+   discovered one, whether its CLI is installed (its command resolves),
+   signed in and outdated. It runs acpmux's health check
+   (`acpmux::harness_health`, the rows of `_acpmux/harness/health`) as a
+   library, so the answer is fresh and needs no daemon. A sign-in that
+   evidence (`auth.check`, the agent's login files) leaves unknown is asked
+   of an ACP harness itself, as `cmux harness login ID --status` does
+   (`initialize` and `session/new`); `cmux harness doctor` runs a prompt
+   turn and stays the deep check. Setup never reads the login keychain
+   itself, as the health check does not (cx-hh0vu), and does not start a
+   harness whose sign-in may be there: one whose profile env names a
+   Keychain item, Codex keeping its login in the keychain
+   (`cli_auth_credentials_store` `keyring` or `auto`), or a Claude Code
+   adapter. What any other harness reads when it starts is its own. One
+   whose unknown the check already explained (a provider key that is not
+   set) is not asked either; both keep `signed_in: null` with the reason
+   in `auth_detail`. Outdated compares the installed version
+   with the newest one the daemon last read (`harness-health.json`), so
+   setup asks no registry. A named id that is not configured is checked
+   with the profile acpmux ships for it (`configured: false`). The result
+   is
+
+   ```json
+   {"schema_version": 1, "task": "harness", "state": "needs_user", "dry_run": false,
+    "harnesses": [{"id": "gemini", "name": "gemini", "state": "needs_user",
+      "configured": true, "installed": true, "program": "gemini",
+      "path": "/usr/local/bin/gemini", "version": "0.1.0", "signed_in": false,
+      "auth_detail": "session/new failed (-32000): ...", "outdated": false,
+      "latest": "0.1.0", "update": null, "problem": null,
+      "user_action": {"kind": "oauth", "command": "cmux harness login gemini", ...}}],
+    "undo": null, "user_action": {"kind": "oauth", ...}}
+   ```
+
+   A harness is `ok` when it is installed and nothing says it is signed
+   out (`signed_in` is `null` when cmux cannot see the sign-in, such as
+   Claude Code's keychain login; its first chat asks if it must). Signed
+   out is `needs_user` with kind `oauth` and `cmux harness login ID`, or
+   the profile's own login command (`codex login`) for a harness not
+   configured yet; a missing CLI is `needs_user` with kind `install` and the profile's docs
+   as `url`. The task state is `needs_user` when any harness is, and its
+   `user_action` is the first one. It writes nothing: install and sign-in
+   are the person's, and an update has no undo, so an outdated harness
+   names its `update` command instead of running it. UniiChat (the bundled
+   adapter, offered everywhere) counts only when named or configured; no
+   harness at all is `needs_user` to install one. `cmux setup status`
+   adds a `harness` check with the same rows.
+3. `machine SSH_TARGET [--name NAME]`. It reads the peers
    from the running acpmux daemon (or acpmux's config without one; it never
-   starts a daemon to check) and matches the peer by name, or without
-   `--name` by ssh host:
+   starts a daemon to check) and matches the peer by `--name`, or without
+   it by ssh host. Without `--name`, a default name (the host's first
+   label) that already names a peer elsewhere is `needs_user`
+   (`user_action.kind` `name`) and nothing runs: moving that peer would
+   drop it, and a `ws://` peer's token with no undo.
    - connected and on this build: `ok`, nothing runs, not even ssh;
    - connected on another build: `cmux acp host update NAME`, `changed`,
      `undo` null (`undo_note`: the old binary is not kept);

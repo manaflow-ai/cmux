@@ -61,6 +61,10 @@ public final class ActionRegistry {
     /// installs its `KeyRouter` here so menus follow the same tier rules as
     /// the window (browser focus mode, text fields). Nil allows everything.
     @ObservationIgnored public var menuKeyEquivalentGate: (@MainActor (ActionID) -> Bool)?
+    /// Whether the binding table holds the workspaces-as-tabs keys (`KeyBindingDefaults.workspacesAsTabs`).
+    /// The App reads its Debug tunable here; off (the default), the table, the shortcut list and its
+    /// conflicts are the shipped ones.
+    @ObservationIgnored public var includesWorkspaceTabKeys: @MainActor () -> Bool = { false }
     /// True while AppKit dispatches a key-down (a menu key equivalent), not
     /// a click in an open menu. Replaceable in tests.
     @ObservationIgnored public var isDispatchingKeyDown: @MainActor () -> Bool = { NSApp.currentEvent?.type == .keyDown }

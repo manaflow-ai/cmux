@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextApps
 import CmuxNextDesign
 @testable import CmuxNextSettings
+import CmuxNextSettingsWindow
 import CmuxNextSidebar
 import Foundation
 import Testing
@@ -62,6 +63,28 @@ import Testing
                         "\(feature.id) is on by default, so Remove could not turn it off")
             }
         }
+    }
+
+    /// The Chief Pet card's Settings… link opens Settings > Chief Pet (Settings on its key's rows);
+    /// a card whose feature names no rows, or an app that cannot show Settings, has no link.
+    @Test func theChiefPetCardLinksToItsSettings() throws {
+        for feature in AppFeature.catalog {
+            guard let key = feature.settingsLink else { continue }
+            // The anchor Settings scrolls to (`SettingsWindowService.show(setting:)`), not just a schema key.
+            #expect(SettingsAnchor(key: key) != nil, "\(feature.id) links to \(key), which Settings cannot show")
+        }
+        var shown: [String] = []
+        let bridge = SettingsAppFeatures(settings: { nil }, showSettings: { shown.append($0) })
+        let pet = try Self.feature("chief.pet")
+        #expect(bridge.hasSettings(pet))
+        AppStoreModel(client: AppsClient(transport: FeaturesOfflineAppsTransport()), features: bridge).openSettings(pet)
+        #expect(shown == ["home.chiefPetEnabled"])
+
+        let perPane = try Self.feature("backgrounds.perPane")
+        #expect(!bridge.hasSettings(perPane))
+        bridge.openSettings(perPane)
+        #expect(shown == ["home.chiefPetEnabled"], "a feature with no settings rows opened Settings")
+        #expect(!SettingsAppFeatures(settings: { nil }).hasSettings(pet), "a link that cannot open Settings is shown")
     }
 
     @Test func getWritesTheOnValueAndRemoveTurnsItOff() async throws {
@@ -144,6 +167,60 @@ import Testing
         try await bridge.set(newTabPlayer, on: false)
         #expect(settings.fileRoot.value(at: newTabPlayer.path) == .bool(false))
         #expect(!bridge.isOn(newTabPlayer))
+    }
+
+    /// Leo (2026-10-21): view toggles such as Expanded need no palette. Each density is a card
+    /// whose Get picks it and whose Remove goes back to Compact, and a workspace row's ⋮ menu
+    /// offers the densities that are not in effect.
+    @Test func theSidebarDensityCardsPickADensityAndTheRowMenuOffersThem() async throws {
+        let (settings, home) = try await Self.make()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let bridge = SettingsAppFeatures(settings: { settings })
+        let comfortable = try Self.feature("sidebar.comfortable"), expanded = try Self.feature("sidebar.expanded")
+        #expect(bridge.isAvailable(expanded) && !bridge.isOn(expanded) && !bridge.isOn(comfortable))
+
+        try await bridge.set(expanded, on: true)
+        #expect(settings.snapshot.sidebarSections.density == .expanded)
+        try await bridge.set(comfortable, on: true)
+        #expect(settings.snapshot.sidebarSections.density == .comfortable)
+        #expect(bridge.isOn(comfortable) && !bridge.isOn(expanded), "one density at a time")
+        try await bridge.set(comfortable, on: false)
+        #expect(settings.snapshot.sidebarSections.density == .compact)
+        #expect(settings.fileRoot.value(at: comfortable.path) == nil)
+
+        let catalog = ContextMenuCatalog.shared
+        let ids = Set(catalog.referencedIDs(catalog.entries(for: .workspaceRow)).map(\.rawValue))
+        #expect(ids.isSuperset(of: ["sidebar.density.compact", "sidebar.density.comfortable", "sidebar.density.expanded"]),
+                "a workspace row's ⋮ menu offers the sidebar densities")
+    }
+
+    /// Every sidebar item the tab lists is one the sidebar's side offers (the list comes from the
+    /// catalog), off in the default layout and on once the layout holds it; the Chief stays with
+    /// its own sidebar. Channels writes its existing key.
+    @Test func theSidebarOffersEveryListedItemAndChannelsWritesItsKey() async throws {
+        let items = SidebarSectionHandlers.storeItems(chief: nil, document: { .defaults }, registry: ActionRegistry(catalog: []))
+        let listed = Set(AppFeature.catalog.compactMap(\.sidebarItem))
+        #expect(items.names == listed.subtracting(["chief"]))
+        for name in ["search_chats", "new_terminal", "new_browser", "new_agent_chat", "customize"] {
+            #expect(items.names.contains(name) && !items.isShown(name), "\(name) is offered and off by default")
+            let builtIn = try #require(SidebarBuiltIn(rawValue: name))
+            let op = try #require(SidebarLayoutDocument.defaults.addToTopOp(.builtIn(builtIn)))
+            let document = try SidebarLayoutReducer.reduce(.defaults, op).get()
+            let placed = SidebarSectionHandlers.storeItems(chief: nil, document: { document }, registry: ActionRegistry(catalog: []))
+            #expect(placed.isShown(name), "\(name) is on once the sidebar shows it")
+        }
+
+        let (settings, home) = try await Self.make()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let bridge = SettingsAppFeatures(settings: { settings })
+        for id in ["chief.channels"] {
+            let feature = try Self.feature(id)
+            #expect(bridge.isAvailable(feature) && !bridge.isOn(feature))
+            try await bridge.set(feature, on: true)
+            #expect(settings.fileRoot.value(at: feature.path) == .bool(true))
+            try await bridge.set(feature, on: false)
+            #expect(settings.fileRoot.value(at: feature.path) == nil)
+        }
     }
 
     @Test func aCardFollowsAWriteMadeElsewhere() async throws {

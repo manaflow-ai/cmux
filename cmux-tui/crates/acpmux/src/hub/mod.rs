@@ -79,6 +79,7 @@ mod tags;
 mod tap;
 mod titles;
 mod tools;
+mod watch;
 pub use new_request::{
     NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
 };
@@ -100,6 +101,7 @@ mod remote_floor;
 mod remote_sandbox;
 pub use remote_sandbox::vm_host_peer_approves;
 mod start_gate;
+mod subsession_answer;
 pub mod subsessions;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 mod drafts;
@@ -146,12 +148,12 @@ pub const IDLE_CHILD: std::time::Duration = std::time::Duration::from_secs(5 * 6
 /// Git hash and date stamped at build time (see build.rs).
 pub const BUILD: &str = env!("ACPMUX_BUILD");
 
-/// Fan-out item: one appended record for one session. `remote` carries the
-/// peer name and the peer's session summary when the session lives elsewhere.
+/// Fan-out item: one appended record for one session, shared by every receiver, never copied.
+/// `remote` carries the peer name and the peer's summary when the session lives elsewhere.
 #[derive(Debug, Clone)]
 pub struct HubEvent {
     pub session_id: String,
-    pub record: EventRecord,
+    pub record: Arc<EventRecord>,
     pub remote: Option<RemoteRef>,
 }
 
@@ -176,6 +178,8 @@ pub(super) struct PendingPermission {
     /// The nonce a relayed allow's decision proof covers (`person.rs`,
     /// cx-0q7o): new for each prompt, valid only while it is pending.
     pub(super) decision_nonce: String,
+    /// A session above may answer it (`questions::ancestor_answerable`): fixed when it was asked.
+    pub(super) ancestor_may_answer: bool,
     /// The session's status before this prompt made it Waiting (`settle_permission`).
     pub(super) prev_status: SessionStatus,
 }
@@ -582,6 +586,10 @@ impl Hub {
         self.mark_lost_waits(&waiting, &hosted);
         self.mark_unknown_outcomes(&hosted);
         self.restore_queues();
+        // A watched chat goes on following its transcript where it stopped (`watch.rs`).
+        if tokio::runtime::Handle::try_current().is_ok() {
+            sessions.iter().for_each(|s| self.start_watch(s));
+        }
         tracing::info!(
             "loaded the chat logs of {} sessions in {} ms",
             sessions.len(),
@@ -625,6 +633,9 @@ impl Hub {
             let mut meta = session.meta.lock().unwrap();
             meta.event_count += extra;
             meta.last_seq = last;
+            // The log ran ahead of the saved session (a hard stop): a newer command list may be
+            // in that tail, so a client reads the log for it instead of trusting the saved one.
+            meta.available_commands = None;
             session.seq.fetch_max(last, Ordering::SeqCst);
         }
     }
@@ -855,7 +866,7 @@ impl Hub {
         }
         let _ = self.events.send(HubEvent {
             session_id: session.id.clone(),
-            record: record.clone(),
+            record: Arc::new(record.clone()),
             remote: None,
         });
         (record, stored)
@@ -1019,7 +1030,8 @@ impl Hub {
     /// may have run to completion.
     pub(super) fn mark_unknown_outcomes(&self, hosted: &std::collections::HashSet<String>) {
         for session in self.sessions() {
-            if hosted.contains(&session.id) {
+            // A watched chat's open turn is the other app's, and goes on (`watch.rs`).
+            if hosted.contains(&session.id) || session.meta().watching.is_some() {
                 continue;
             }
             // Scan the whole log: a long turn can stream far more records
@@ -1050,12 +1062,10 @@ impl Hub {
         }
     }
 
-    /// Saves the session's record; never a purged session's. A late save
-    /// (a generated title after the turn, a tag) would write its record
-    /// back after the purge deleted it, and the next daemon start loaded it
-    /// as a closed session: the Chief's compactor, which purges each node's
-    /// session when the node is built, left about 450 of them in two hours
-    /// (2026-10-20).
+    /// Saves the session's record; never a purged session's. A late save (a generated title after
+    /// the turn, a tag) would write its record back after the purge deleted it, and the next daemon
+    /// start loaded it as a closed session: the Chief's compactor, which purges each node's session
+    /// when the node is built, left about 450 of them in two hours (2026-10-20).
     pub(super) fn save_meta(&self, session: &Session) {
         if session.purged.load(Ordering::SeqCst) {
             return;
@@ -1120,10 +1130,9 @@ impl Hub {
     }
 }
 
-/// `sessions` newest first. Each session's `updated_at` is read once: other
-/// tasks move it at any time (every logged event), and a key that is read
-/// again on each comparison is not a total order, which makes Rust's sort
-/// panic (the Chief daemon, 2026-10-14). Ties keep the session id order, so
+/// `sessions` newest first. Each session's `updated_at` is read once: other tasks move it at any
+/// time (every logged event), and a key that is read again on each comparison is not a total order,
+/// which makes Rust's sort panic (the Chief daemon, 2026-10-14). Ties keep the session id order, so
 /// the list is the same for the same values.
 fn newest_first(sessions: Vec<Arc<Session>>) -> Vec<Arc<Session>> {
     let mut keyed: Vec<_> = sessions
