@@ -200,6 +200,28 @@ export async function activePersonalSubscriptions(
   };
 }
 
+/**
+ * What the subscription behind `planId` actually charges, for the pricing
+ * pages' plan card. A refinement only: a failed read returns undefined and
+ * the card keeps today's list price.
+ */
+export async function currentPersonalSubscriptionPrice(
+  stackUserId: string,
+  planId: string,
+  readSubscriptions: typeof activePersonalSubscriptions = activePersonalSubscriptions,
+): Promise<SubscriptionPrice | undefined> {
+  try {
+    const { subscription } = await readSubscriptions(stackUserId);
+    if (subscription?.plan !== planId) return undefined;
+    return subscription.price ?? undefined;
+  } catch (error) {
+    console.error("Subscription price lookup failed", {
+      errorType: error instanceof Error ? error.name : typeof error,
+    });
+    return undefined;
+  }
+}
+
 export function teamBillingViewJson(view: TeamBillingView): TeamBillingViewJson {
   if (view.status !== "ready") return view;
   const { subscription } = view;
