@@ -57,6 +57,11 @@ export type AcpmuxCompaction = {
 /// acpmux moved the chat onto its fallback harness after a usage limit (a `failover` record).
 export type AcpmuxFailover = { from: string; to: string };
 
+/// The chat's permission policy (an acpmux policy id narrower than approve-all) that its harness
+/// cannot keep (a `policy_unenforced` record): OpenCode's own settings decide what it asks
+/// (`ownSettings`); another harness has no mode that asks (`noAskingMode`).
+export type AcpmuxPolicyUnenforced = { policy: string; harness?: string; why: "ownSettings" | "noAskingMode" };
+
 /// A message to this chat that acpmux holds while its pair is paused (`agent_pair_held`).
 export type AcpmuxHeldMessage = { promptId: string; text: string };
 
@@ -156,6 +161,8 @@ export type AcpmuxRow = {
   compaction?: AcpmuxCompaction;
   /// A failover row's harnesses.
   failover?: AcpmuxFailover;
+  /// A policy note's policy and the harness that cannot keep it.
+  policyUnenforced?: AcpmuxPolicyUnenforced;
   /// An agent pair row's pause (conversation/AgentPairNote.tsx).
   agentPair?: AcpmuxAgentPair;
   /// A session start row's agent, version, model, route and folder.
@@ -794,6 +801,7 @@ function fallbackRowHeight(row: AcpmuxRow, width: number, beforeFooter = false, 
     row.kind === SUBAGENT_DONE ||
     row.kind === "compaction" ||
     row.kind === "failover" ||
+    row.kind === "policyUnenforced" ||
     row.kind === "plan" ||
     row.kind === "typing"
   )

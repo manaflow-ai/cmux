@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures (sample prompts and harness names), not shipped UI.
 // Compaction and failover notes in the transcript (CompactionNote.tsx): a compaction running, one
-// that failed and why, one subrouter ran to move the chat to another account, and acpmux moving the chat to its fallback
-// harness after a usage limit.
+// that failed and why, one subrouter ran to move the chat to another account, acpmux moving the chat to its fallback
+// harness after a usage limit, and a permission policy the chat's harness cannot keep.
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, row, summary, user } from "../../../gallery/fixtures/acpmux";
 
@@ -40,6 +40,23 @@ export default agentPaneEntry({
         assistant("Continuing the refactor from the restored context.", 3),
         summary(3, { status: "completed", durationMs: 12_000, toolCount: 0 }),
       ]),
+    },
+    "policy-unenforced": {
+      note: "Both policy notes: OpenCode, whose own settings decide what it asks, and Pi, which has no mode that asks.",
+      snapshot: chat(
+        [
+          row("policyUnenforced", 6, {
+            policyUnenforced: { policy: "approve-reads", harness: "opencode", why: "ownSettings" },
+          }),
+          user("Tidy the README", 5),
+          assistant("Done: the install section now comes first.", 4),
+          summary(4, { status: "completed", durationMs: 9_000, toolCount: 1 }),
+          row("policyUnenforced", 3, {
+            policyUnenforced: { policy: "deny-all", harness: "pi", why: "noAskingMode" },
+          }),
+        ],
+        { harness: "opencode" },
+      ),
     },
   },
 });
