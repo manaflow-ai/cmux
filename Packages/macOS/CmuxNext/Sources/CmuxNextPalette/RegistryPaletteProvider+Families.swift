@@ -55,7 +55,7 @@ extension RegistryPaletteProvider {
     /// when the row runs, not on every open.
     static func familyRow(_ family: PaletteFamily, members: [PaletteItem]) -> PaletteItem {
         let id = "family:\(family.id)"
-        PaletteItem(
+        return PaletteItem(
             id: id,
             title: family.title,
             symbol: family.symbol,
