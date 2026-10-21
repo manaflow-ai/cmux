@@ -2235,6 +2235,268 @@
         }
       }
     },
+    "settings.sessions.promptSuggestions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suggest Follow-Up Tasks"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اقتراح مهام متابعة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Predlaži naredne zadatke"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Foreslå opfølgende opgaver"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Folgeaufgaben vorschlagen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sugerir tareas de seguimiento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suggérer des tâches de suivi"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suggerisci attività successive"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次のタスクを提案"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ណែនាំកិច្ចការបន្ត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "후속 작업 제안"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Foreslå oppfølgingsoppgaver"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proponuj kolejne zadania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sugerir tarefas de acompanhamento"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Предлагать следующие задачи"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แนะนำงานต่อเนื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Takip görevleri öner"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пропонувати наступні завдання"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gợi ý việc tiếp theo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "建议后续任务"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "建議後續任務"
+          }
+        }
+      }
+    },
+    "settings.sessions.promptSuggestions.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents can suggest next tasks, which you start as child chats beside the current one. Agents started after the change get it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكن للوكلاء اقتراح مهام تالية تبدؤها كمحادثات فرعية بجانب المحادثة الحالية. يحصل عليها الوكلاء الذين يبدؤون بعد التغيير."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenti mogu predložiti sljedeće zadatke, koje pokrećete kao podređene razgovore pored trenutnog. Važi za agente pokrenute nakon promjene."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenter kan foreslå næste opgaver, som du starter som underchats ved siden af den aktuelle. Gælder for agenter, der startes efter ændringen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten können nächste Aufgaben vorschlagen, die du als Unterchats neben dem aktuellen startest. Gilt für Agenten, die nach der Änderung starten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los agentes pueden sugerir próximas tareas, que inicias como chats secundarios junto al actual. Se aplica a los agentes que se inicien después del cambio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les agents peuvent suggérer des tâches suivantes, que vous lancez comme chats enfants à côté du chat actuel. S’applique aux agents lancés après le changement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gli agenti possono suggerire le prossime attività, che avvii come chat secondarie accanto a quella attuale. Vale per gli agenti avviati dopo la modifica."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントが次のタスクを提案し、現在のチャットの横に子チャットとして開始できます。変更後に開始したエージェントに適用されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងារអាចណែនាំកិច្ចការបន្ទាប់ ដែលអ្នកចាប់ផ្ដើមជាការជជែករងនៅក្បែរការជជែកបច្ចុប្បន្ន។ អនុវត្តចំពោះភ្នាក់ងារដែលចាប់ផ្ដើមក្រោយការផ្លាស់ប្ដូរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트가 다음 작업을 제안하면 현재 채팅 옆에 하위 채팅으로 시작할 수 있습니다. 변경 후 시작된 에이전트에 적용됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenter kan foreslå neste oppgaver, som du starter som underchatter ved siden av den nåværende. Gjelder agenter som startes etter endringen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenci mogą proponować kolejne zadania, które uruchamiasz jako czaty podrzędne obok bieżącego. Dotyczy agentów uruchomionych po zmianie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os agentes podem sugerir próximas tarefas, que você inicia como chats filhos ao lado do atual. Vale para agentes iniciados depois da mudança."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агенты могут предлагать следующие задачи, которые вы запускаете как дочерние чаты рядом с текущим. Действует для агентов, запущенных после изменения."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์สามารถแนะนำงานถัดไป ซึ่งคุณเริ่มเป็นแชตย่อยข้างแชตปัจจุบันได้ มีผลกับเอเจนต์ที่เริ่มหลังการเปลี่ยนแปลง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajanlar sonraki görevleri önerebilir; bunları mevcut sohbetin yanında alt sohbet olarak başlatırsınız. Değişiklikten sonra başlatılan ajanlar için geçerlidir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агенти можуть пропонувати наступні завдання, які ви запускаєте як дочірні чати поруч із поточним. Діє для агентів, запущених після зміни."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tác tử có thể gợi ý việc tiếp theo, bạn bắt đầu chúng thành cuộc trò chuyện con bên cạnh cuộc hiện tại. Áp dụng cho tác tử khởi động sau khi thay đổi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智能体可以建议后续任务，你可以在当前聊天旁把它们作为子聊天开始。更改后启动的智能体生效。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式可以建議後續任務，你可以在目前聊天旁把它們當成子聊天開始。變更後啟動的代理程式生效。"
+          }
+        }
+      }
+    },
     "settings.sidebar.nowPlaying.enabled": {
       "extractionState": "manual",
       "localizations": {
@@ -73314,6 +73576,268 @@
         }
       }
     },
+    "settings.tabs.terminalFirst": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Tabs and Splits Open a Terminal"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "علامات التبويب والتقسيمات الجديدة تفتح طرفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nove kartice i podjele otvaraju terminal"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nye faner og opdelinger åbner en terminal"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neue Tabs und Teilungen öffnen ein Terminal"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las pestañas y divisiones nuevas abren una terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les nouveaux onglets et divisions ouvrent un terminal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuove schede e divisioni aprono un terminale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいタブと分割でターミナルを開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំង និងការបំបែកថ្មីបើកទែមីណាល់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 탭과 분할에서 터미널 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nye faner og delinger åpner en terminal"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nowe karty i podziały otwierają terminal"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Novas abas e divisões abrem um terminal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новые вкладки и разделения открывают терминал"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แท็บและการแบ่งใหม่เปิดเทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni Sekmeler ve Bölmeler Terminal Açar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нові вкладки й поділи відкривають термінал"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thẻ và vùng chia mới mở terminal"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新标签页和拆分打开终端"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新分頁和分割開啟終端機"
+          }
+        }
+      }
+    },
+    "settings.tabs.terminalFirst.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When on, Cmd-T, Cmd-D and Cmd-Shift-D open a terminal, as in cmux classic, instead of the New Tab page."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند التشغيل، تفتح Cmd-T وCmd-D وCmd-Shift-D طرفية كما في cmux classic بدلاً من صفحة علامة التبويب الجديدة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada je uključeno, Cmd-T, Cmd-D i Cmd-Shift-D otvaraju terminal, kao u cmux classic, umjesto stranice nove kartice."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når den er slået til, åbner Cmd-T, Cmd-D og Cmd-Shift-D en terminal som i cmux classic i stedet for siden Ny fane."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn an, öffnen Cmd-T, Cmd-D und Cmd-Shift-D ein Terminal wie in cmux classic statt der Seite „Neuer Tab“."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Si está activado, Cmd-T, Cmd-D y Cmd-Shift-D abren una terminal, como en cmux classic, en lugar de la página Nueva pestaña."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activé, Cmd-T, Cmd-D et Cmd-Shift-D ouvrent un terminal, comme dans cmux classic, au lieu de la page Nouvel onglet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se attivato, Cmd-T, Cmd-D e Cmd-Shift-D aprono un terminale, come in cmux classic, invece della pagina Nuova scheda."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オンのとき、Cmd-T、Cmd-D、Cmd-Shift-D は新規タブページではなく、cmux classic と同じようにターミナルを開きます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពេលបើក Cmd-T, Cmd-D និង Cmd-Shift-D បើកទែមីណាល់ ដូចក្នុង cmux classic ជំនួសឱ្យទំព័រផ្ទាំងថ្មី។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "켜면 Cmd-T, Cmd-D, Cmd-Shift-D가 새 탭 페이지 대신 cmux classic처럼 터미널을 엽니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når på, åpner Cmd-T, Cmd-D og Cmd-Shift-D en terminal som i cmux classic i stedet for Ny fane-siden."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdy włączone, Cmd-T, Cmd-D i Cmd-Shift-D otwierają terminal, jak w cmux classic, zamiast strony nowej karty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando ativado, Cmd-T, Cmd-D e Cmd-Shift-D abrem um terminal, como no cmux classic, em vez da página Nova Aba."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Если включено, Cmd-T, Cmd-D и Cmd-Shift-D открывают терминал, как в cmux classic, а не страницу новой вкладки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อเปิด Cmd-T, Cmd-D และ Cmd-Shift-D จะเปิดเทอร์มินัลเหมือนใน cmux classic แทนหน้าแท็บใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Açıkken Cmd-T, Cmd-D ve Cmd-Shift-D, Yeni Sekme sayfası yerine cmux classic'teki gibi bir terminal açar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Якщо ввімкнено, Cmd-T, Cmd-D і Cmd-Shift-D відкривають термінал, як у cmux classic, замість сторінки нової вкладки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi bật, Cmd-T, Cmd-D và Cmd-Shift-D mở terminal như trong cmux classic thay vì trang Thẻ mới."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开启时，Cmd-T、Cmd-D 和 Cmd-Shift-D 会像 cmux classic 一样打开终端，而不是新标签页页面。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟時，Cmd-T、Cmd-D 和 Cmd-Shift-D 會像 cmux classic 一樣開啟終端機，而不是新分頁頁面。"
+          }
+        }
+      }
+    },
     "settings.tabs.cmdWClosesPinnedTabs": {
       "extractionState": "manual",
       "localizations": {
@@ -77502,138 +78026,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "代理"
-          }
-        }
-      }
-    },
-    "settings.category.chief": {
-      "comment": "Settings sidebar: the category with every Chief setting (the Chiefs list, Chief Chat, Chief Pet). Chief is a product name, keep it untranslated.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief"
           }
         }
       }
@@ -135104,6 +135496,137 @@
         }
       }
     },
+    "settings.category.import": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستيراد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uvoz"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importation"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importa"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み込み"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នាំចូល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가져오기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Импорт"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "นำเข้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İçe aktar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Імпорт"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhập"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导入"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匯入"
+          }
+        }
+      }
+    },
     "settings.category.mobile": {
       "extractionState": "manual",
       "localizations": {
@@ -149834,6 +150357,793 @@
         }
       }
     },
+    "settings.browser.toolbarPosition": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser Toolbar Position"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "موضع شريط أدوات المتصفح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Položaj alatne trake preglednika"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Placering af browserens værktøjslinje"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Position der Browser-Symbolleiste"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Posición de la barra de herramientas del navegador"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Position de la barre d’outils du navigateur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Posizione della barra degli strumenti del browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ブラウザツールバーの位置"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទីតាំងរបារឧបករណ៍កម្មវិធីរុករក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "브라우저 도구 막대 위치"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Plassering av nettleserens verktøylinje"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Położenie paska narzędzi przeglądarki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Posição da barra de ferramentas do navegador"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Положение панели инструментов браузера"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตำแหน่งแถบเครื่องมือเบราว์เซอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tarayıcı Araç Çubuğu Konumu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Розташування панелі інструментів браузера"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vị trí thanh công cụ trình duyệt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "浏览器工具栏位置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "瀏覽器工具列位置"
+          }
+        }
+      }
+    },
+    "settings.browser.toolbarPosition.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Where the address bar row of browser and Markdown panes sits. At the bottom, its suggestions and menus open upward."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مكان صف شريط العنوان في أجزاء المتصفح و Markdown. في الأسفل، تُفتح اقتراحاته وقوائمه إلى الأعلى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gdje se nalazi red adresne trake u oknima preglednika i Markdowna. Na dnu se njeni prijedlozi i meniji otvaraju prema gore."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvor adresselinjens række sidder i browser- og Markdown-ruder. Nederst åbner dens forslag og menuer opad."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wo die Zeile mit der Adressleiste in Browser- und Markdown-Bereichen sitzt. Unten öffnen sich ihre Vorschläge und Menüs nach oben."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dónde se sitúa la fila de la barra de direcciones en los paneles de navegador y de Markdown. Abajo, sus sugerencias y menús se abren hacia arriba."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’emplacement de la rangée de la barre d’adresse dans les sous-fenêtres de navigateur et Markdown. En bas, ses suggestions et menus s’ouvrent vers le haut."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dove si trova la riga della barra degli indirizzi nei riquadri del browser e Markdown. In basso, i suggerimenti e i menu si aprono verso l’alto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ブラウザと Markdown のペインでアドレスバーの行を置く位置。下に置くと、候補とメニューは上向きに開きます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កន្លែងដែលជួររបារអាសយដ្ឋាននៃផ្ទាំងកម្មវិធីរុករក និង Markdown ស្ថិតនៅ។ នៅខាងក្រោម សំណើ និងម៉ឺនុយរបស់វាបើកឡើងលើ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "브라우저 및 Markdown 패널에서 주소 막대 행의 위치입니다. 아래에 두면 제안과 메뉴가 위쪽으로 열립니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvor adresselinjeraden står i nettleser- og Markdown-ruter. Nederst åpnes forslagene og menyene oppover."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gdzie znajduje się wiersz paska adresu w panelach przeglądarki i Markdown. Na dole jego podpowiedzi i menu otwierają się w górę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Onde fica a linha da barra de endereço nos painéis de navegador e Markdown. Embaixo, as sugestões e os menus abrem para cima."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Где находится строка адресной строки в панелях браузера и Markdown. Внизу её подсказки и меню открываются вверх."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตำแหน่งของแถวแถบที่อยู่ในบานหน้าต่างเบราว์เซอร์และ Markdown เมื่ออยู่ด้านล่าง คำแนะนำและเมนูจะเปิดขึ้นด้านบน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tarayıcı ve Markdown bölmelerinde adres çubuğu satırının yeri. Altta olduğunda öneriler ve menüler yukarı doğru açılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Де розташований рядок адресного рядка в панелях браузера й Markdown. Унизу його підказки та меню відкриваються вгору."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vị trí hàng thanh địa chỉ trong các ngăn trình duyệt và Markdown. Khi ở dưới cùng, gợi ý và menu của nó mở lên trên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "浏览器和 Markdown 窗格中地址栏一行的位置。放在底部时，其建议和菜单向上打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "瀏覽器和 Markdown 窗格中網址列一行的位置。放在底部時，其建議和選單會向上開啟。"
+          }
+        }
+      }
+    },
+    "settings.attention.flash": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flash the Pane When Read"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "既読時にペインを点滅"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "وميض الجزء عند القراءة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bljesni okno kad je pročitano"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Blink ruden, når den læses"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bereich beim Lesen aufblinken lassen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Destellar el panel al leer"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Faire clignoter le volet à la lecture"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fai lampeggiare il riquadro alla lettura"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បញ្ចេញពន្លឺផ្ទាំងពេលបានអាន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "읽을 때 패널 깜박임"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Blink ruten når den leses"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mignij panelem po przeczytaniu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Piscar o painel ao ler"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Мигать панелью при прочтении"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กะพริบบานหน้าต่างเมื่ออ่าน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Okununca Bölmeyi Yanıp Söndür"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Блимати панеллю під час прочитання"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nháy khung khi đã đọc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已读时闪烁窗格"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已讀時閃爍窗格"
+          }
+        }
+      }
+    },
+    "settings.attention.flash.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clicking an unread pane, typing in it or jumping to it flashes its ring as it goes."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未読のペインをクリック、入力、またはジャンプすると、リングが消えるときに点滅します。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "النقر على جزء غير مقروء أو الكتابة فيه أو الانتقال إليه يجعل حلقته تومض أثناء اختفائها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klik na nepročitano okno, kucanje u njemu ili skok na njega bljesne njegov prsten dok nestaje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når du klikker på en ulæst rude, skriver i den eller hopper til den, blinker dens ring, mens den forsvinder."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klicken in einen ungelesenen Bereich, Tippen darin oder Springen dorthin lässt seinen Ring beim Verschwinden aufblinken."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hacer clic en un panel no leído, escribir en él o saltar a él hace destellar su anillo al desaparecer."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cliquer dans un volet non lu, y saisir du texte ou y aller fait clignoter son anneau quand il disparaît."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fare clic su un riquadro non letto, digitarvi o saltarvi fa lampeggiare il suo anello mentre scompare."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការចុចលើផ្ទាំងមិនទាន់អាន ការវាយក្នុងវា ឬការលោតទៅវា បញ្ចេញពន្លឺរង្វង់របស់វាពេលវាបាត់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "읽지 않은 패널을 클릭하거나, 입력하거나, 이동하면 링이 사라지면서 깜박입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når du klikker i en ulest rute, skriver i den eller hopper til den, blinker ringen mens den forsvinner."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kliknięcie nieprzeczytanego panelu, pisanie w nim lub przejście do niego miga jego pierścieniem, gdy znika."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Clicar em um painel não lido, digitar nele ou ir até ele faz seu anel piscar ao sumir."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Щелчок по непрочитанной панели, ввод в ней или переход к ней мигает её кольцом, когда оно исчезает."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การคลิกบานหน้าต่างที่ยังไม่อ่าน การพิมพ์ในนั้น หรือการข้ามไปยังนั้น จะทำให้วงแหวนกะพริบขณะหายไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Okunmamış bir bölmeye tıklamak, içinde yazmak veya ona atlamak, halkası kaybolurken onu yanıp söndürür."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Клацання по непрочитаній панелі, введення в ній або перехід до неї блимає її кільцем, коли воно зникає."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhấp vào khung chưa đọc, gõ phím trong đó hoặc chuyển đến nó sẽ nháy vòng của nó khi biến mất."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "点击未读窗格、在其中输入或跳转到它时，其光环会在消失时闪烁。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "點按未讀窗格、在其中輸入或跳至它時，其光環會在消失時閃爍。"
+          }
+        }
+      }
+    },
+    "settings.attention.flashOnTyping": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flash When Typing Reads It"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "入力で既読になったときに点滅"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "وميض عند القراءة بالكتابة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bljesni kad ga kucanje pročita"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Blink, når indtastning læser den"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aufblinken, wenn Tippen ihn liest"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Destellar al leerlo escribiendo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Clignoter quand la saisie le lit"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lampeggia quando la digitazione lo legge"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បញ្ចេញពន្លឺពេលការវាយអានវា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "입력으로 읽을 때 깜박임"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Blink når skriving leser den"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mignij, gdy pisanie go odczyta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Piscar quando a digitação o lê"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Мигать при прочтении вводом"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กะพริบเมื่อการพิมพ์ทำให้อ่านแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yazmak Okuduğunda Yanıp Sön"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Блимати, коли введення його читає"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nháy khi gõ phím đọc nó"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "输入使其已读时闪烁"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "輸入使其已讀時閃爍"
+          }
+        }
+      }
+    },
+    "settings.category.chief": {
+      "comment": "Settings sidebar: the category with every Chief setting (the Chiefs list, Chief Chat, Chief Pet). Chief is a product name, keep it untranslated.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        }
+      }
+    },
     "settings.agentPane.display.inspector": {
       "comment": "Settings > Appearance > Agent Chat: the row choosing how the Inspector (the chat's right-hand panel) opens",
       "extractionState": "manual",
@@ -150358,1185 +151668,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "疊放"
-          }
-        }
-      }
-    },
-    "settings.tabs.terminalFirst": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "New Tabs and Splits Open a Terminal"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "علامات التبويب والتقسيمات الجديدة تفتح طرفية"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nove kartice i podjele otvaraju terminal"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nye faner og opdelinger åbner en terminal"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Neue Tabs und Teilungen öffnen ein Terminal"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Las pestañas y divisiones nuevas abren una terminal"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Les nouveaux onglets et divisions ouvrent un terminal"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nuove schede e divisioni aprono un terminale"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新しいタブと分割でターミナルを開く"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ផ្ទាំង និងការបំបែកថ្មីបើកទែមីណាល់"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "새 탭과 분할에서 터미널 열기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nye faner og delinger åpner en terminal"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nowe karty i podziały otwierają terminal"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Novas abas e divisões abrem um terminal"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Новые вкладки и разделения открывают терминал"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แท็บและการแบ่งใหม่เปิดเทอร์มินัล"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Yeni Sekmeler ve Bölmeler Terminal Açar"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Нові вкладки й поділи відкривають термінал"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Thẻ và vùng chia mới mở terminal"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新标签页和拆分打开终端"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新分頁和分割開啟終端機"
-          }
-        }
-      }
-    },
-    "settings.tabs.terminalFirst.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "When on, Cmd-T, Cmd-D and Cmd-Shift-D open a terminal, as in cmux classic, instead of the New Tab page."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "عند التشغيل، تفتح Cmd-T وCmd-D وCmd-Shift-D طرفية كما في cmux classic بدلاً من صفحة علامة التبويب الجديدة."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kada je uključeno, Cmd-T, Cmd-D i Cmd-Shift-D otvaraju terminal, kao u cmux classic, umjesto stranice nove kartice."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Når den er slået til, åbner Cmd-T, Cmd-D og Cmd-Shift-D en terminal som i cmux classic i stedet for siden Ny fane."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wenn an, öffnen Cmd-T, Cmd-D und Cmd-Shift-D ein Terminal wie in cmux classic statt der Seite „Neuer Tab“."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Si está activado, Cmd-T, Cmd-D y Cmd-Shift-D abren una terminal, como en cmux classic, en lugar de la página Nueva pestaña."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Activé, Cmd-T, Cmd-D et Cmd-Shift-D ouvrent un terminal, comme dans cmux classic, au lieu de la page Nouvel onglet."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Se attivato, Cmd-T, Cmd-D e Cmd-Shift-D aprono un terminale, come in cmux classic, invece della pagina Nuova scheda."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "オンのとき、Cmd-T、Cmd-D、Cmd-Shift-D は新規タブページではなく、cmux classic と同じようにターミナルを開きます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ពេលបើក Cmd-T, Cmd-D និង Cmd-Shift-D បើកទែមីណាល់ ដូចក្នុង cmux classic ជំនួសឱ្យទំព័រផ្ទាំងថ្មី។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "켜면 Cmd-T, Cmd-D, Cmd-Shift-D가 새 탭 페이지 대신 cmux classic처럼 터미널을 엽니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Når på, åpner Cmd-T, Cmd-D og Cmd-Shift-D en terminal som i cmux classic i stedet for Ny fane-siden."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gdy włączone, Cmd-T, Cmd-D i Cmd-Shift-D otwierają terminal, jak w cmux classic, zamiast strony nowej karty."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Quando ativado, Cmd-T, Cmd-D e Cmd-Shift-D abrem um terminal, como no cmux classic, em vez da página Nova Aba."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Если включено, Cmd-T, Cmd-D и Cmd-Shift-D открывают терминал, как в cmux classic, а не страницу новой вкладки."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เมื่อเปิด Cmd-T, Cmd-D และ Cmd-Shift-D จะเปิดเทอร์มินัลเหมือนใน cmux classic แทนหน้าแท็บใหม่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Açıkken Cmd-T, Cmd-D ve Cmd-Shift-D, Yeni Sekme sayfası yerine cmux classic'teki gibi bir terminal açar."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Якщо ввімкнено, Cmd-T, Cmd-D і Cmd-Shift-D відкривають термінал, як у cmux classic, замість сторінки нової вкладки."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Khi bật, Cmd-T, Cmd-D và Cmd-Shift-D mở terminal như trong cmux classic thay vì trang Thẻ mới."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "开启时，Cmd-T、Cmd-D 和 Cmd-Shift-D 会像 cmux classic 一样打开终端，而不是新标签页页面。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "開啟時，Cmd-T、Cmd-D 和 Cmd-Shift-D 會像 cmux classic 一樣開啟終端機，而不是新分頁頁面。"
-          }
-        }
-      }
-    },
-    "settings.browser.toolbarPosition": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Browser Toolbar Position"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "موضع شريط أدوات المتصفح"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Položaj alatne trake preglednika"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Placering af browserens værktøjslinje"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Position der Browser-Symbolleiste"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Posición de la barra de herramientas del navegador"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Position de la barre d’outils du navigateur"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Posizione della barra degli strumenti del browser"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ブラウザツールバーの位置"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ទីតាំងរបារឧបករណ៍កម្មវិធីរុករក"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "브라우저 도구 막대 위치"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Plassering av nettleserens verktøylinje"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Położenie paska narzędzi przeglądarki"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Posição da barra de ferramentas do navegador"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Положение панели инструментов браузера"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ตำแหน่งแถบเครื่องมือเบราว์เซอร์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tarayıcı Araç Çubuğu Konumu"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Розташування панелі інструментів браузера"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vị trí thanh công cụ trình duyệt"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "浏览器工具栏位置"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "瀏覽器工具列位置"
-          }
-        }
-      }
-    },
-    "settings.browser.toolbarPosition.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Where the address bar row of browser and Markdown panes sits. At the bottom, its suggestions and menus open upward."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "مكان صف شريط العنوان في أجزاء المتصفح و Markdown. في الأسفل، تُفتح اقتراحاته وقوائمه إلى الأعلى."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Gdje se nalazi red adresne trake u oknima preglednika i Markdowna. Na dnu se njeni prijedlozi i meniji otvaraju prema gore."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hvor adresselinjens række sidder i browser- og Markdown-ruder. Nederst åbner dens forslag og menuer opad."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Wo die Zeile mit der Adressleiste in Browser- und Markdown-Bereichen sitzt. Unten öffnen sich ihre Vorschläge und Menüs nach oben."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dónde se sitúa la fila de la barra de direcciones en los paneles de navegador y de Markdown. Abajo, sus sugerencias y menús se abren hacia arriba."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "L’emplacement de la rangée de la barre d’adresse dans les sous-fenêtres de navigateur et Markdown. En bas, ses suggestions et menus s’ouvrent vers le haut."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dove si trova la riga della barra degli indirizzi nei riquadri del browser e Markdown. In basso, i suggerimenti e i menu si aprono verso l’alto."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ブラウザと Markdown のペインでアドレスバーの行を置く位置。下に置くと、候補とメニューは上向きに開きます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "កន្លែងដែលជួររបារអាសយដ្ឋាននៃផ្ទាំងកម្មវិធីរុករក និង Markdown ស្ថិតនៅ។ នៅខាងក្រោម សំណើ និងម៉ឺនុយរបស់វាបើកឡើងលើ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "브라우저 및 Markdown 패널에서 주소 막대 행의 위치입니다. 아래에 두면 제안과 메뉴가 위쪽으로 열립니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hvor adresselinjeraden står i nettleser- og Markdown-ruter. Nederst åpnes forslagene og menyene oppover."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Gdzie znajduje się wiersz paska adresu w panelach przeglądarki i Markdown. Na dole jego podpowiedzi i menu otwierają się w górę."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Onde fica a linha da barra de endereço nos painéis de navegador e Markdown. Embaixo, as sugestões e os menus abrem para cima."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Где находится строка адресной строки в панелях браузера и Markdown. Внизу её подсказки и меню открываются вверх."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ตำแหน่งของแถวแถบที่อยู่ในบานหน้าต่างเบราว์เซอร์และ Markdown เมื่ออยู่ด้านล่าง คำแนะนำและเมนูจะเปิดขึ้นด้านบน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tarayıcı ve Markdown bölmelerinde adres çubuğu satırının yeri. Altta olduğunda öneriler ve menüler yukarı doğru açılır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Де розташований рядок адресного рядка в панелях браузера й Markdown. Унизу його підказки та меню відкриваються вгору."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vị trí hàng thanh địa chỉ trong các ngăn trình duyệt và Markdown. Khi ở dưới cùng, gợi ý và menu của nó mở lên trên."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "浏览器和 Markdown 窗格中地址栏一行的位置。放在底部时，其建议和菜单向上打开。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "瀏覽器和 Markdown 窗格中網址列一行的位置。放在底部時，其建議和選單會向上開啟。"
-          }
-        }
-      }
-    },
-    "settings.sessions.promptSuggestions": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Suggest Follow-Up Tasks"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "اقتراح مهام متابعة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Predlaži naredne zadatke"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Foreslå opfølgende opgaver"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Folgeaufgaben vorschlagen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sugerir tareas de seguimiento"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Suggérer des tâches de suivi"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Suggerisci attività successive"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "次のタスクを提案"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ណែនាំកិច្ចការបន្ត"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "후속 작업 제안"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Foreslå oppfølgingsoppgaver"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Proponuj kolejne zadania"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sugerir tarefas de acompanhamento"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Предлагать следующие задачи"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แนะนำงานต่อเนื่อง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Takip görevleri öner"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Пропонувати наступні завдання"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gợi ý việc tiếp theo"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "建议后续任务"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "建議後續任務"
-          }
-        }
-      }
-    },
-    "settings.sessions.promptSuggestions.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agents can suggest next tasks, which you start as child chats beside the current one. Agents started after the change get it."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يمكن للوكلاء اقتراح مهام تالية تبدؤها كمحادثات فرعية بجانب المحادثة الحالية. يحصل عليها الوكلاء الذين يبدؤون بعد التغيير."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agenti mogu predložiti sljedeće zadatke, koje pokrećete kao podređene razgovore pored trenutnog. Važi za agente pokrenute nakon promjene."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agenter kan foreslå næste opgaver, som du starter som underchats ved siden af den aktuelle. Gælder for agenter, der startes efter ændringen."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agenten können nächste Aufgaben vorschlagen, die du als Unterchats neben dem aktuellen startest. Gilt für Agenten, die nach der Änderung starten."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Los agentes pueden sugerir próximas tareas, que inicias como chats secundarios junto al actual. Se aplica a los agentes que se inicien después del cambio."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Les agents peuvent suggérer des tâches suivantes, que vous lancez comme chats enfants à côté du chat actuel. S’applique aux agents lancés après le changement."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gli agenti possono suggerire le prossime attività, che avvii come chat secondarie accanto a quella attuale. Vale per gli agenti avviati dopo la modifica."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントが次のタスクを提案し、現在のチャットの横に子チャットとして開始できます。変更後に開始したエージェントに適用されます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ភ្នាក់ងារអាចណែនាំកិច្ចការបន្ទាប់ ដែលអ្នកចាប់ផ្ដើមជាការជជែករងនៅក្បែរការជជែកបច្ចុប្បន្ន។ អនុវត្តចំពោះភ្នាក់ងារដែលចាប់ផ្ដើមក្រោយការផ្លាស់ប្ដូរ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "에이전트가 다음 작업을 제안하면 현재 채팅 옆에 하위 채팅으로 시작할 수 있습니다. 변경 후 시작된 에이전트에 적용됩니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agenter kan foreslå neste oppgaver, som du starter som underchatter ved siden av den nåværende. Gjelder agenter som startes etter endringen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agenci mogą proponować kolejne zadania, które uruchamiasz jako czaty podrzędne obok bieżącego. Dotyczy agentów uruchomionych po zmianie."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Os agentes podem sugerir próximas tarefas, que você inicia como chats filhos ao lado do atual. Vale para agentes iniciados depois da mudança."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Агенты могут предлагать следующие задачи, которые вы запускаете как дочерние чаты рядом с текущим. Действует для агентов, запущенных после изменения."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เอเจนต์สามารถแนะนำงานถัดไป ซึ่งคุณเริ่มเป็นแชตย่อยข้างแชตปัจจุบันได้ มีผลกับเอเจนต์ที่เริ่มหลังการเปลี่ยนแปลง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ajanlar sonraki görevleri önerebilir; bunları mevcut sohbetin yanında alt sohbet olarak başlatırsınız. Değişiklikten sonra başlatılan ajanlar için geçerlidir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Агенти можуть пропонувати наступні завдання, які ви запускаєте як дочірні чати поруч із поточним. Діє для агентів, запущених після зміни."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tác tử có thể gợi ý việc tiếp theo, bạn bắt đầu chúng thành cuộc trò chuyện con bên cạnh cuộc hiện tại. Áp dụng cho tác tử khởi động sau khi thay đổi."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "智能体可以建议后续任务，你可以在当前聊天旁把它们作为子聊天开始。更改后启动的智能体生效。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "代理程式可以建議後續任務，你可以在目前聊天旁把它們當成子聊天開始。變更後啟動的代理程式生效。"
-          }
-        }
-      }
-    },
-    "settings.attention.flash": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Flash the Pane When Read"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "既読時にペインを点滅"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "وميض الجزء عند القراءة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bljesni okno kad je pročitano"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Blink ruden, når den læses"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bereich beim Lesen aufblinken lassen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Destellar el panel al leer"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Faire clignoter le volet à la lecture"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fai lampeggiare il riquadro alla lettura"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បញ្ចេញពន្លឺផ្ទាំងពេលបានអាន"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "읽을 때 패널 깜박임"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Blink ruten når den leses"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mignij panelem po przeczytaniu"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Piscar o painel ao ler"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Мигать панелью при прочтении"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "กะพริบบานหน้าต่างเมื่ออ่าน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Okununca Bölmeyi Yanıp Söndür"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Блимати панеллю під час прочитання"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nháy khung khi đã đọc"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "已读时闪烁窗格"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "已讀時閃爍窗格"
-          }
-        }
-      }
-    },
-    "settings.attention.flash.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Clicking an unread pane, typing in it or jumping to it flashes its ring as it goes."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "未読のペインをクリック、入力、またはジャンプすると、リングが消えるときに点滅します。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "النقر على جزء غير مقروء أو الكتابة فيه أو الانتقال إليه يجعل حلقته تومض أثناء اختفائها."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Klik na nepročitano okno, kucanje u njemu ili skok na njega bljesne njegov prsten dok nestaje."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Når du klikker på en ulæst rude, skriver i den eller hopper til den, blinker dens ring, mens den forsvinder."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Klicken in einen ungelesenen Bereich, Tippen darin oder Springen dorthin lässt seinen Ring beim Verschwinden aufblinken."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hacer clic en un panel no leído, escribir en él o saltar a él hace destellar su anillo al desaparecer."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cliquer dans un volet non lu, y saisir du texte ou y aller fait clignoter son anneau quand il disparaît."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fare clic su un riquadro non letto, digitarvi o saltarvi fa lampeggiare il suo anello mentre scompare."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការចុចលើផ្ទាំងមិនទាន់អាន ការវាយក្នុងវា ឬការលោតទៅវា បញ្ចេញពន្លឺរង្វង់របស់វាពេលវាបាត់។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "읽지 않은 패널을 클릭하거나, 입력하거나, 이동하면 링이 사라지면서 깜박입니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Når du klikker i en ulest rute, skriver i den eller hopper til den, blinker ringen mens den forsvinner."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kliknięcie nieprzeczytanego panelu, pisanie w nim lub przejście do niego miga jego pierścieniem, gdy znika."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Clicar em um painel não lido, digitar nele ou ir até ele faz seu anel piscar ao sumir."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Щелчок по непрочитанной панели, ввод в ней или переход к ней мигает её кольцом, когда оно исчезает."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "การคลิกบานหน้าต่างที่ยังไม่อ่าน การพิมพ์ในนั้น หรือการข้ามไปยังนั้น จะทำให้วงแหวนกะพริบขณะหายไป"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Okunmamış bir bölmeye tıklamak, içinde yazmak veya ona atlamak, halkası kaybolurken onu yanıp söndürür."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Клацання по непрочитаній панелі, введення в ній або перехід до неї блимає її кільцем, коли воно зникає."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nhấp vào khung chưa đọc, gõ phím trong đó hoặc chuyển đến nó sẽ nháy vòng của nó khi biến mất."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "点击未读窗格、在其中输入或跳转到它时，其光环会在消失时闪烁。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "點按未讀窗格、在其中輸入或跳至它時，其光環會在消失時閃爍。"
-          }
-        }
-      }
-    },
-    "settings.attention.flashOnTyping": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Flash When Typing Reads It"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "入力で既読になったときに点滅"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "وميض عند القراءة بالكتابة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bljesni kad ga kucanje pročita"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Blink, når indtastning læser den"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Aufblinken, wenn Tippen ihn liest"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Destellar al leerlo escribiendo"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Clignoter quand la saisie le lit"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lampeggia quando la digitazione lo legge"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បញ្ចេញពន្លឺពេលការវាយអានវា"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "입력으로 읽을 때 깜박임"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Blink når skriving leser den"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mignij, gdy pisanie go odczyta"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Piscar quando a digitação o lê"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Мигать при прочтении вводом"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "กะพริบเมื่อการพิมพ์ทำให้อ่านแล้ว"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Yazmak Okuduğunda Yanıp Sön"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Блимати, коли введення його читає"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nháy khi gõ phím đọc nó"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "输入使其已读时闪烁"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "輸入使其已讀時閃爍"
           }
         }
       }
