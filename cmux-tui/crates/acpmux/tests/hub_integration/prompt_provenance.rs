@@ -3,7 +3,9 @@
 //! `user_message` carries it as `_meta.provenance`, a queued prompt keeps it until it runs, a
 //! steer records it, and an edit of the waiting prompt drops it. Only the unix socket may
 //! send it, except the app pane's reply in place: from a chat here, to the chat that sent it
-//! the message `replyTo` names.
+//! the message `replyTo` names. That reply is never prompted here: it goes to the cmux session
+//! daemon as an agent message (`server/app_reply.rs`; cmux-tui
+//! tests/agent_message_reply_in_place.rs covers the daemon side).
 
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
@@ -227,7 +229,7 @@ fn app_reply(from: &str, to: &str) -> Value {
 }
 
 #[tokio::test]
-async fn the_app_pane_may_send_a_reply_from_a_chat_here_and_nothing_else() {
+async fn the_app_pane_reply_in_place_goes_only_to_the_cmux_daemon_from_a_chat_here() {
     let hub = hub();
     let mut local = Client::open(&hub);
     let sender = local.new_session(json!({"harness": "fake"})).await;
@@ -241,30 +243,21 @@ async fn the_app_pane_may_send_a_reply_from_a_chat_here_and_nothing_else() {
         .await;
     let mut app = Client::open_as(&hub, Origin::LocalApp);
     // The pane shows the chat the message came to; it holds the sender's chat unseen to reply.
-    let shown = app.call("_acpmux/attach", json!({"sessionId": replier, "limit": 0})).await;
+    app.call("_acpmux/attach", json!({"sessionId": replier, "limit": 0})).await;
     app.call("_acpmux/attach", json!({"sessionId": sender, "limit": 0, "visible": false})).await;
 
-    // A reply from the chat the message came to, to the chat that sent it: recorded with the
-    // replying chat's address, so the sender's chat links it back, and signed with its name.
+    // A reply from the chat the message came to, to the chat that sent it, goes to the cmux
+    // session daemon as an agent message (`app_reply.rs`), never into the sender's chat from
+    // here. This test runs no daemon (`CMUX_TUI_SOCKET` unset): it is refused, and not prompted.
     let reply = app_reply(&replier, &sender);
-    app.call("session/prompt", prompt(&sender, "p-reply", "Rebased; tests pass.", Some(&reply)))
-        .await;
-    let ran = local.user_message(&sender, "p-reply").await;
-    assert_eq!(ran["text"], "Rebased; tests pass.", "{ran}");
-    // Signed with the replying chat's own name: its title, its name or its id.
-    let own_name = ran.pointer("/_meta/provenance/fromName").cloned().unwrap_or_default();
-    let info = local.call("_acpmux/info", json!({"sessionId": replier})).await;
-    let names: Vec<&str> =
-        [&shown["session"]["title"], &shown["session"]["name"], &info["title"], &info["name"]]
-            .into_iter()
-            .filter_map(Value::as_str)
-            .map(str::trim)
-            .chain([replier.as_str()])
-            .collect();
-    assert!(own_name.as_str().is_some_and(|n| names.contains(&n)), "{own_name} not in {names:?}");
-    let mut signed = reply.clone();
-    signed["fromName"] = own_name.clone();
-    assert_eq!(ran.pointer("/_meta/provenance"), Some(&signed), "{ran}");
+    let params = prompt(&sender, "p-reply", "Rebased; tests pass.", Some(&reply));
+    let value = app.reply("session/prompt", params).await;
+    assert_eq!(
+        value.pointer("/error/data/reason"),
+        Some(&json!("reply.daemon_unavailable")),
+        "{value}"
+    );
+    assert!(local.records(&sender, "user_message").await.is_empty(), "a reply was prompted here");
 
     // Not a reply, a reply to a message the chat never got, a sender that is no chat here, the
     // prompt's own chat as its sender, a `to` that is not the prompt's chat, or a bare id for
@@ -295,7 +288,7 @@ async fn the_app_pane_may_send_a_reply_from_a_chat_here_and_nothing_else() {
         );
     }
     let ran = local.records(&sender, "user_message").await;
-    assert_eq!(ran.len(), 1, "a refused reply ran: {ran:?}");
+    assert!(ran.is_empty(), "a refused reply ran: {ran:?}");
 
     // Default deny for what the pane signs (cx-kybz1 review): a `from` chat this pane does not
     // show (not attached, or only held unseen), or a thread that is not the message's.
@@ -322,15 +315,7 @@ async fn the_app_pane_may_send_a_reply_from_a_chat_here_and_nothing_else() {
         );
     }
     let ran = local.records(&sender, "user_message").await;
-    assert_eq!(ran.len(), 1, "a refused reply ran: {ran:?}");
-
-    // A name the pane picks never signs the reply: acpmux records the chat's own instead, so a
-    // stale title after a rename is not refused either.
-    let mut posing = app_reply(&replier, &sender);
-    posing["fromName"] = json!("Chief");
-    app.call("session/prompt", prompt(&sender, "p-posing", "Named.", Some(&posing))).await;
-    let ran = local.user_message(&sender, "p-posing").await;
-    assert_eq!(ran.pointer("/_meta/provenance/fromName"), Some(&own_name), "{ran}");
+    assert!(ran.is_empty(), "a refused reply ran: {ran:?}");
 
     // A remote browser may not send even a reply.
     let mut web = Client::open_as(&hub, Origin::Web);

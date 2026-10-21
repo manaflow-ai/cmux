@@ -11,7 +11,9 @@
 //! agent message that chat `from` (`acp:<id>`, a chat of this daemon) got from the prompt's chat
 //! `to` (`acp:<id>`) (`Hub::app_reply_fits`), and acpmux signs it with that chat's own name. It
 //! is the person's answer to that message, typed in place in the chat it came to
-//! (IncomingMessageCard.tsx), so it lands in the sender's chat in its thread.
+//! (IncomingMessageCard.tsx). It is never prompted here: acpmux sends it on through the cmux
+//! session daemon as that chat's agent message in the thread (`server/app_reply.rs`), whose pump
+//! delivers it to the sender's chat.
 //! A queued prompt keeps it, across a restart too (`queue.rs`); an edit of a waiting prompt
 //! (`_acpmux/queue_edit`) drops it: the person rewrote the prompt.
 //!

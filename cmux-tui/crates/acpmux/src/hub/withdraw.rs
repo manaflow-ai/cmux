@@ -124,7 +124,8 @@ fn unshown_mark(c: char) -> bool {
 impl Hub {
     /// The provenance of a `session/prompt` to chat `to` from a connection of `origin`
     /// (`prompt_provenance::of`); the app pane's reply in place must answer a message a chat
-    /// this connection `shows` got from `to`, and is recorded as `app_reply_fits` signs it.
+    /// this connection `shows` got from `to`, and goes out as `app_reply_fits` signs it
+    /// (`server/app_reply.rs`).
     pub(crate) fn prompt_provenance(
         &self,
         params: &Value,

@@ -505,6 +505,10 @@ async fn dispatch_request(
                 .and_then(Value::as_str)
                 .filter(|p| !p.is_empty())
                 .map(str::to_owned);
+            // The app pane's reply in place goes out as a cmux agent message (`app_reply.rs`).
+            if let Some(reply) = provenance.as_ref().filter(|_| conn.origin == Origin::LocalApp) {
+                return super::app_reply::send(reply, &blocks, prompt_id.as_deref()).await;
+            }
             let notify = conn.clone();
             let opts = crate::hub::PromptOptions {
                 prompt_id,
