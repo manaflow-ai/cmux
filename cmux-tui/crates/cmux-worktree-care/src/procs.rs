@@ -7,6 +7,8 @@
 //! pid reads as running, which keeps a worktree: the safe side.
 
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
+use std::time::Duration;
 
 use serde::Deserialize;
 
@@ -99,8 +101,82 @@ pub fn inside<'a>(processes: &'a [Process], folder: &Path) -> Option<&'a Process
     })
 }
 
+/// How long the open-file check of one folder may take.
+pub const OPEN_CHECK: Duration = Duration::from_secs(10);
+
+/// Whether a program has a folder open, and which: see [`open_inside`].
+pub type Open = dyn Fn(&Path) -> Result<Option<u32>, String> + Send + Sync;
+
+/// A program other than this one that has `folder` open: its working folder,
+/// or a file at the folder's top level (`lsof +d`, not `+D`: no walk of the
+/// tree). For what no registry records (a shell, an editor, a build started
+/// by hand). One bounded check of one folder right before it is removed,
+/// never a machine scan (the reviewed keep row in
+/// `scripts/cmux-next/process-scan-baseline.tsv`). A timeout or an error is
+/// an error, so the folder stays.
+#[cfg(unix)]
+pub fn open_inside(folder: &Path) -> Result<Option<u32>, String> {
+    // lsof is in /usr/sbin on macOS, which a daemon's PATH may lack.
+    let mut dirs: Vec<PathBuf> = vec!["/usr/sbin".into(), "/usr/bin".into()];
+    dirs.extend(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()));
+    let path = std::env::join_paths(dirs).map_err(|error| error.to_string())?;
+    let mut command = std::process::Command::new("lsof");
+    command
+        .env("PATH", path)
+        .args(["-w", "-t", "+d"])
+        .arg(folder)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let output =
+        crate::git::run_within(command, OPEN_CHECK).map_err(|error| format!("lsof: {error}"))?;
+    let own = std::process::id();
+    let pid = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| line.trim().parse::<u32>().ok())
+        .find(|pid| *pid != own);
+    if pid.is_some() {
+        return Ok(pid);
+    }
+    // lsof exits 1 both when nothing has the folder open and on an error;
+    // with warnings off (-w), only an error says something.
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    if output.status.success() || (output.status.code() == Some(1) && stderr.is_empty()) {
+        Ok(None)
+    } else if stderr.is_empty() {
+        Err(format!("lsof: {}", output.status))
+    } else {
+        Err(format!("lsof: {stderr}"))
+    }
+}
+
+/// Windows: an open file there makes the removal itself fail.
+#[cfg(not(unix))]
+pub fn open_inside(_folder: &Path) -> Result<Option<u32>, String> {
+    Ok(None)
+}
+
 #[cfg(test)]
 mod care_tests {
+    #[cfg(unix)]
+    #[test]
+    fn care_a_program_working_in_a_folder_has_it_open() {
+        let folder = std::env::temp_dir().join(format!("care-open-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        let mut child =
+            std::process::Command::new("sleep").arg("30").current_dir(&folder).spawn().unwrap();
+        let found = super::open_inside(&folder);
+        let _ = child.kill();
+        let _ = child.wait();
+        let _ = std::fs::remove_dir_all(&folder);
+        match found {
+            Ok(pid) => assert_eq!(pid, Some(child.id())),
+            // No lsof on this machine: the check fails closed, which is
+            // what a pass needs; nothing more to test here.
+            Err(error) => assert!(error.starts_with("lsof"), "{error}"),
+        }
+    }
+
     use super::*;
 
     #[test]

@@ -10,11 +10,11 @@
 //! from 90%. Nothing runs on a timer. One pass at a time, off the runtime:
 //! the settings, the disk and the session files are read on a blocking
 //! thread too.
-//! Automatic passes are off unless the `worktrees.autoCleanup` setting is
-//! `true`: whether a pass may remove a worktree without a per-folder check
-//! that nothing has it open is not decided yet. `_acpmux/worktree/clean`
-//! (the machine view's Clean up now) runs one regardless, with the same
-//! guards: quiet time, archive first, live sessions kept.
+//! The `worktrees.autoCleanup` setting (default on) turns the automatic
+//! passes off; `_acpmux/worktree/clean` (the machine view's Clean up now)
+//! runs one regardless. Either way a worktree goes only after its quiet
+//! time, archived first, with no session in it and nothing holding it open
+//! (`procs::open_inside`, right before the removal).
 //!
 //! A session that starts again in a reclaimed worktree gets it back first
 //! (`care_restore_for`, from `cold_start`): its files, index and archived
@@ -32,7 +32,7 @@ use cmux_worktree_care::pass::{self, Options};
 use cmux_worktree_care::policy::{self as care_policy, Pressure, Settings as CareSettings};
 use cmux_worktree_care::{Store as ArchiveStore, disk};
 
-/// The setting that turns automatic passes on.
+/// The setting that turns automatic passes off.
 pub const SETTING_AUTO_CLEANUP: &str = "worktrees.autoCleanup";
 
 const MINUTE_MS: u64 = 60 * 1000;
@@ -82,17 +82,16 @@ impl Drop for Running<'_> {
     }
 }
 
-/// Whether automatic passes are on: only when the setting says `true`. An
-/// unreadable settings file leaves them off: a removal must not follow a
-/// guess.
+/// Whether automatic passes are on: the setting, else on. An unreadable
+/// settings file turns them off: a removal must not follow a guess.
 pub fn auto_cleanup_enabled() -> bool {
     match crate::user_settings::read() {
-        crate::user_settings::Settings::Missing => false,
+        crate::user_settings::Settings::Missing => true,
         crate::user_settings::Settings::Unreadable(_) => false,
         crate::user_settings::Settings::Parsed(doc) => {
             crate::user_settings::value(&doc, SETTING_AUTO_CLEANUP)
                 .and_then(|value| value.as_bool())
-                .unwrap_or(false)
+                .unwrap_or(true)
         }
     }
 }
@@ -196,6 +195,7 @@ impl Hub {
                 uses: crate::worktree_sessions::uses(crate::worktree_sessions::claude_homes(
                     &home, &configs,
                 )),
+                open: Arc::new(cmux_worktree_care::procs::open_inside),
                 settings: CareSettings::default(),
                 apply,
                 pressure: None,

@@ -12,7 +12,7 @@ use crate::archive;
 use crate::disk::{self, Usage};
 use crate::inventory::{self, now_ms};
 use crate::policy::{self, Action, Pressure, Session, Settings, Verdict};
-use crate::procs::Uses;
+use crate::procs::{Open, Uses};
 use crate::store::Store;
 
 /// How long measuring one worktree may take.
@@ -27,6 +27,9 @@ pub struct Options {
     pub sessions: Vec<Session>,
     /// What else works where (`procs::claude_sessions`, ...).
     pub uses: Arc<Uses>,
+    /// Whether a program has a folder open, checked right before it goes
+    /// (`procs::open_inside`).
+    pub open: Arc<Open>,
     pub settings: Settings,
     /// Act; otherwise only report.
     pub apply: bool,
@@ -216,6 +219,7 @@ fn act(
             &verdict.reason,
             store,
             &*options.uses,
+            &*options.open,
         )
         .map(|manifest| (manifest.freed, Some(manifest.id))),
     }

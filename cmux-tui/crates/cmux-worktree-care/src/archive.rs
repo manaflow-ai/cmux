@@ -19,7 +19,7 @@ use cmux_git::write_run::{Bound, WriteGit};
 use crate::git::{self, HASH, MAX_ARGUMENT_BYTES};
 use crate::inventory::{Facts, Repo, Worktree, now_ms};
 use crate::policy::Action;
-use crate::procs::{self, Uses};
+use crate::procs::{self, Open, Uses};
 use crate::store::{Manifest, Store, new_id};
 
 /// How long removing a folder (many files) may take before git is waited on
@@ -55,6 +55,7 @@ pub fn trim(worktree: &Worktree, facts: &Facts, uses: &Uses) -> Result<u64, Stri
 /// it; else it
 /// stays and the archive is dropped. Returns the manifest, with the bytes
 /// freed.
+#[allow(clippy::too_many_arguments)]
 pub fn reclaim(
     repo: &Repo,
     worktree: &Worktree,
@@ -63,6 +64,7 @@ pub fn reclaim(
     reason: &str,
     store: &Store,
     uses: &Uses,
+    open: &Open,
 ) -> Result<Manifest, String> {
     if let Some(why) = &facts.unarchivable {
         return Err(format!("cannot archive: {why}"));
@@ -135,9 +137,18 @@ pub fn reclaim(
         discard(&wt, store, &manifest);
         return Err(error);
     }
-    if let Err(why) =
-        unchanged(repo, worktree, facts, &fingerprint, files.as_deref(), &wt, store, &id, uses)
-    {
+    if let Err(why) = unchanged(
+        repo,
+        worktree,
+        facts,
+        &fingerprint,
+        files.as_deref(),
+        &wt,
+        store,
+        &id,
+        uses,
+        open,
+    ) {
         discard(&wt, store, &manifest);
         return Err(format!("{why}; it stays"));
     }
@@ -166,6 +177,7 @@ fn unchanged(
     store: &Store,
     id: &str,
     uses: &Uses,
+    open: &Open,
 ) -> Result<(), String> {
     if fingerprint != self::fingerprint(repo, worktree)?.as_slice() {
         return Err("its status changed while it was archived".to_string());
@@ -189,7 +201,12 @@ fn unchanged(
     if let Some(process) = procs::inside(&uses()?, &worktree.path) {
         return Err(format!("process {} started working in it", process.pid));
     }
-    Ok(())
+    // Last, right before the folder goes: what no registry records.
+    match open(&worktree.path) {
+        Ok(None) => Ok(()),
+        Ok(Some(pid)) => Err(format!("process {pid} has it open")),
+        Err(error) => Err(format!("could not check what has it open ({error})")),
+    }
 }
 
 /// Drops an archive whose worktree stays: its ref, bundle and manifest.
