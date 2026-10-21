@@ -3005,10 +3005,10 @@ struct WorkspaceProcessWideObserverRetirementTests {
 
         await drainMainActorQueue()
         var publicationCount = 0
-        let publication = workspace.objectWillChange.sink {
+        workspace.sharedLiveAgentIndexChangeHandledForTesting = {
             publicationCount += 1
         }
-        defer { publication.cancel() }
+        defer { workspace.sharedLiveAgentIndexChangeHandledForTesting = nil }
 
         NotificationCenter.default.post(
             name: .sharedLiveAgentIndexDidChange,
