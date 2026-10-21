@@ -17,6 +17,7 @@ mod bookmarks;
 mod cancel;
 mod catalog_reload;
 mod complete;
+pub mod composers;
 mod cursor_ext;
 mod fork;
 mod fork_at;
@@ -679,6 +680,7 @@ impl Hub {
             subagents: StdMutex::new(Default::default()),
             processes: StdMutex::new(Default::default()),
             pr_creates: StdMutex::new(Default::default()),
+            composers: StdMutex::new(Default::default()),
         })
     }
 

@@ -122,6 +122,8 @@ pub struct Session {
     /// Tool calls that run `gh pr create`, and the URL each printed so far, until they end
     /// (`pull_requests.rs`).
     pub(super) pr_creates: StdMutex<std::collections::HashMap<String, Option<String>>>,
+    /// The places typing into it, and who sent its prompts (`composers.rs`).
+    pub(super) composers: StdMutex<super::composers::Composers>,
 }
 
 impl Session {
