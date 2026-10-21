@@ -425,7 +425,8 @@ export class HarnessSwitch {
     if (!intent || !prompt) return;
     intent.queued = intent.queued.filter((candidate) => candidate !== prompt);
     this.handlers.restore?.(prompt.text, prompt.attachments);
-    prompt.reject(new Error(t("switch.cancelled")));
+    // Back in the composer (`handedBack`): the sender puts nothing back.
+    prompt.reject(Object.assign(new Error(t("switch.cancelled")), { handedBack: true }));
     this.changed();
   }
 
@@ -500,7 +501,8 @@ export class HarnessSwitch {
     intent.sessionId = undefined;
     if (restoreQueued && intent.queued.length) {
       this.handBack(intent.queued);
-      for (const prompt of intent.queued) prompt.reject(new Error(t("switch.cancelled")));
+      for (const prompt of intent.queued)
+        prompt.reject(Object.assign(new Error(t("switch.cancelled")), { handedBack: true }));
       intent.queued = [];
     }
     intent.done.resolve(undefined);

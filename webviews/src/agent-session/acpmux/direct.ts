@@ -2636,8 +2636,11 @@ export class AcpmuxDirectClient {
       ...(this.summary?.host ? { connection: String(this.summary.host) } : {}),
     };
     this.deliveries.set(promptId, { delivery, rowId, timers: [] });
-    if (waits)
+    if (waits) {
       this.queue = [...this.queue.filter((entry) => entry.id !== promptId), queuedEntry(promptId, text, false, true)];
+      // A Retry behind the turn waits in the queue: its failed bubble goes.
+      this.rows.delete(rowId);
+    }
     // A Retry draws over its failed row: a newer version, so the memoized row redraws.
     else
       this.rows.set(rowId, {

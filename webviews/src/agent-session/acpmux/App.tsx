@@ -4483,6 +4483,11 @@ function AcpmuxPane() {
       postNative<{ ticket?: string }>("transport.gesture", { intent }).then((reply) => reply?.ticket),
     );
     holdPrompt.current = () => void heldPrompt.hold();
+    /// The gesture a failed prompt row kept for its Trust re-send, apart from `heldPrompt`, which
+    /// the next ordinary send takes: a prompt typed before Trust never goes under the row's id.
+    const heldRowPrompt = heldPrompts((intent) =>
+      postNative<{ ticket?: string }>("transport.gesture", { intent }).then((reply) => reply?.ticket),
+    );
     const restorePrompt = (text: string, attachments: ComposerAttachment[]) => {
       if (composerHandle.current) composerHandle.current.restore(text, attachments);
       else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
@@ -4734,9 +4739,11 @@ function AcpmuxPane() {
               const row = failedRowOf(error);
               // The send's own gesture is kept for this prompt now, before the Trust click, whose
               // gesture goes to the trust answer (heldPrompt.ts).
-              void heldPrompt.hold(row ? client.promptDelivery(row)?.promptId : undefined);
-              if (row) trustRefused.current?.(error, () => void client.retryPrompt(row, heldPrompt.take()?.ticket));
-              else {
+              if (row) {
+                void heldRowPrompt.hold(client.promptDelivery(row)?.promptId);
+                trustRefused.current?.(error, () => void client.retryPrompt(row, heldRowPrompt.take()?.ticket));
+              } else {
+                void heldPrompt.hold();
                 if (!inComposer) restorePrompt(text, attachments);
                 trustRefused.current?.(error, () => composerHandle.current?.send());
               }
@@ -4748,12 +4755,9 @@ function AcpmuxPane() {
           const held = harnessSwitch.send(text, attachments, () => promptLanded.current(), promptId);
           if (held) {
             accepted?.();
-            return held.catch((error: unknown) => {
-              // A prompt the switch turns away is back in the composer already (harnessSwitch.ts
-              // handBack, cancelQueued): the sender puts nothing back.
-              if (error && typeof error === "object") Object.assign(error, { inComposer: true });
-              return refused(error, (error as { handedBack?: unknown }).handedBack === true);
-            });
+            return held.catch((error: unknown) =>
+              refused(error, (error as { handedBack?: unknown }).handedBack === true),
+            );
           }
           // A prompt acpmux held goes with the gesture its first send kept.
           const kept = heldPrompt.take();
@@ -6148,7 +6152,8 @@ function AcpmuxPane() {
                 (error: unknown) => {
                   cancelOpenInWindow();
                   if (failedRowOf(error) || isTrustRefusal(error)) return;
-                  if ((error as { inComposer?: unknown } | null)?.inComposer === true) return;
+                  // A prompt a harness switch handed back (harnessSwitch.ts) is in the composer already.
+                  if ((error as { handedBack?: unknown } | null)?.handedBack === true) return;
                   (composerHandle.current ?? holder)?.restore(text, attachments);
                 },
               );
