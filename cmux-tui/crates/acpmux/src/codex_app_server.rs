@@ -149,7 +149,9 @@ fn into_message(v: Value) -> Result<Message, RpcError> {
     };
     let id = obj.remove("id").filter(|v| !v.is_null());
     match (method, id) {
-        (Some(method), Some(id)) => Ok(Message::Request { id, method, params: obj.remove("params") }),
+        (Some(method), Some(id)) => {
+            Ok(Message::Request { id, method, params: obj.remove("params") })
+        }
         (Some(method), None) => Ok(Message::Notification { method, params: obj.remove("params") }),
         (None, Some(id)) => {
             let error = match obj.remove("error") {

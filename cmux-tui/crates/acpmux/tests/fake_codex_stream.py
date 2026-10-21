@@ -4,7 +4,8 @@
 Same fixture for every adapter under test, so the adapter is the only
 variable. Env: FIX_DELTAS (agent message deltas, default 4000), FIX_REASON
 (reasoning deltas, 200), FIX_OUT (command output deltas, 200), FIX_LOG
-(file that gets each method the adapter sent).
+(file that gets each method the adapter sent, the approval decision and the
+delta count), FIX_TEXT (file that gets the whole agent message).
 A prompt with "cancel-me" streams 10 deltas, then waits for turn/interrupt.
 No sleeps: it only reacts to what it reads.
 """
@@ -94,12 +95,16 @@ def turn(rid, params):
         d = WORDS[i % len(WORDS)] + " "; full.append(d)
         ev("item/agentMessage/delta", threadId=th, turnId=tid, itemId="m1", delta=d)
     ev("item/completed", threadId=th, turnId=tid, item={"type": "agentMessage", "id": "m1", "text": "".join(full)})
+    # Written before the turn ends, so a client that saw the end can read them.
+    if LOG:
+        LOG.write("approval-decision %s\nagent-deltas %d\n" % (decision, n_msg)); LOG.flush()
+    if os.environ.get("FIX_TEXT"):
+        with open(os.environ["FIX_TEXT"], "w") as f: f.write("".join(full))
     ev("thread/tokenUsage/updated", threadId=th, turnId=tid, tokenUsage={
         "total": {"totalTokens": N + 100, "inputTokens": 100, "cachedInputTokens": 0, "outputTokens": n_msg, "reasoningOutputTokens": NR},
         "last": {"totalTokens": N + 100, "inputTokens": 100, "cachedInputTokens": 0, "outputTokens": N, "reasoningOutputTokens": NR},
         "modelContextWindow": 400000})
     ev("turn/completed", threadId=th, turn=dict(tobj, status="completed"))
-    if LOG: LOG.write("approval-decision %s\n" % decision); LOG.flush()
 
 while True:
     m = read()

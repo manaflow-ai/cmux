@@ -24,7 +24,8 @@ use std::process::Output;
 
 /// Agent message deltas in the measured turn.
 const DELTAS: u64 = 20_000;
-/// Agent host CPU per delta (measured about 30 us).
+/// Agent host CPU per delta. Measured: 22 us (release, Freestyle VM 8 vCPU)
+/// and 15 us (debug `cargo test`, rbx).
 const MAX_HOST_CPU_NS_PER_DELTA: u64 = 100_000;
 /// Agent host resident memory after the turn (measured about 12 MB).
 const MAX_HOST_RSS_KIB: u64 = 48 * 1024;
@@ -41,8 +42,6 @@ fn cli(dir: &Path, args: &[&str]) -> Output {
         .args(args)
         .env("ACPMUX_HOME", dir)
         .env("ACPMUX_LOGIN_ENV", "0")
-        .env("FIX_DELTAS", DELTAS.to_string())
-        .env("FIX_LOG", dir.join("fixture.log"))
         .current_dir(dir.join("p"))
         .output()
         .unwrap()
@@ -68,7 +67,8 @@ fn cmdline(pid: u32) -> String {
 
 /// The daemon and every process under it.
 fn tree(daemon: u32) -> Vec<u32> {
-    let parents: HashMap<u32, Option<u32>> = proc_ids().into_iter().map(|p| (p, parent(p))).collect();
+    let parents: HashMap<u32, Option<u32>> =
+        proc_ids().into_iter().map(|p| (p, parent(p))).collect();
     let mut out = vec![daemon];
     let mut i = 0;
     while i < out.len() {
@@ -79,14 +79,27 @@ fn tree(daemon: u32) -> Vec<u32> {
     out
 }
 
-/// CPU time of every thread of `pid`, in ns.
+/// CPU time of `pid` (utime + stime, which keeps the time of threads that
+/// already exited), in ns.
 fn cpu_ns(pid: u32) -> u64 {
-    let Ok(tasks) = fs::read_dir(format!("/proc/{pid}/task")) else { return 0 };
-    tasks
-        .filter_map(Result::ok)
-        .filter_map(|t| fs::read_to_string(t.path().join("schedstat")).ok())
-        .filter_map(|s| s.split_whitespace().next()?.parse::<u64>().ok())
-        .sum()
+    let Ok(stat) = fs::read_to_string(format!("/proc/{pid}/stat")) else { return 0 };
+    let Some(at) = stat.rfind(')') else { return 0 };
+    let fields: Vec<&str> = stat[at + 2..].split(' ').collect();
+    let ticks: u64 =
+        fields.get(11..13).map_or(0, |f| f.iter().filter_map(|t| t.parse::<u64>().ok()).sum());
+    // SAFETY: sysconf has no preconditions.
+    let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) }.max(1) as u64;
+    ticks * 1_000_000_000 / hz
+}
+
+/// Ends the daemon and its agents however the test ends.
+struct Shutdown<'a>(&'a Path);
+
+impl Drop for Shutdown<'_> {
+    fn drop(&mut self) {
+        let _ = cli(self.0, &["daemon", "shutdown", "--end-agents"]);
+        let _ = fs::remove_dir_all(self.0);
+    }
 }
 
 fn rss_kib(pid: u32) -> u64 {
@@ -104,17 +117,36 @@ fn a_streamed_codex_turn_runs_in_process_within_budget() {
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fake_codex_stream.py");
     // The bridge takes a program named `codex` whose first argument is `app-server`.
     let codex = dir.join("codex");
-    fs::write(&codex, format!("#!/bin/sh\nexec python3 {} \"$@\"\n", daemon_env::sh_quote(fixture.display())))
-        .unwrap();
+    fs::write(
+        &codex,
+        format!("#!/bin/sh\nexec python3 {} \"$@\"\n", daemon_env::sh_quote(fixture.display())),
+    )
+    .unwrap();
     fs::set_permissions(&codex, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
     fs::write(
         dir.join("config.json"),
-        json!({"harnesses": {"codex-fixture": {"argv": [codex, "app-server"], "family": "codex"}}}).to_string(),
+        json!({"harnesses": {"codex-fixture": {"argv": [codex, "app-server"], "family": "codex",
+            "env": {"FIX_DELTAS": DELTAS.to_string(), "FIX_LOG": dir.join("fixture.log"), "FIX_TEXT": dir.join("reply.txt")}}}})
+            .to_string(),
     )
     .unwrap();
 
+    let _shutdown = Shutdown(&dir);
     // A short turn first: the session, its agent host and the app-server exist.
-    let warm = cli(&dir, &["--json", "run", "-m", "codex-fixture", "-n", "bench", "--policy", "approve-all", "short warm-up"]);
+    let warm = cli(
+        &dir,
+        &[
+            "--json",
+            "run",
+            "-m",
+            "codex-fixture",
+            "-n",
+            "bench",
+            "--policy",
+            "approve-all",
+            "short warm-up",
+        ],
+    );
     assert!(warm.status.success(), "warm-up turn: {}", String::from_utf8_lossy(&warm.stderr));
     let daemon: u32 = fs::read_to_string(dir.join("daemon.pid")).unwrap().trim().parse().unwrap();
     let before: HashMap<u32, u64> = tree(daemon).into_iter().map(|p| (p, cpu_ns(p))).collect();
@@ -129,14 +161,23 @@ fn a_streamed_codex_turn_runs_in_process_within_budget() {
         .iter()
         .map(|&p| {
             json!({"pid": p, "cmd": cmdline(p).chars().take(80).collect::<String>(),
-                   "cpu_ms": (cpu_ns(p) - before.get(&p).copied().unwrap_or(0)) as f64 / 1e6, "rss_kib": rss_kib(p)})
+                   "cpu_ms": cpu_ns(p).saturating_sub(before.get(&p).copied().unwrap_or(0)) as f64 / 1e6, "rss_kib": rss_kib(p)})
         })
         .collect();
-    let _ = cli(&dir, &["daemon", "stop"]);
     eprintln!("processes after the turn: {}", serde_json::to_string_pretty(&report).unwrap());
 
-    // Behavior: the whole reply arrived, and the permission was approved at the app-server.
-    assert!(reply.len() > 100_000, "the reply is {} bytes: {:.200}", reply.len(), reply);
+    // Behavior: the fixture streamed every delta, the reply is its message
+    // (`last` may show only its end), and the permission reached the
+    // app-server as approved.
+    let sent_text = fs::read_to_string(dir.join("reply.txt")).unwrap_or_default();
+    assert!(log.contains(&format!("agent-deltas {DELTAS}")), "the fixture saw: {log}");
+    assert!(
+        reply.len() > 1000 && sent_text.trim_end().ends_with(&reply),
+        "the reply ({} bytes) is not the end of the streamed message ({} bytes): {:.200}",
+        reply.len(),
+        sent_text.len(),
+        reply
+    );
     assert!(log.contains("approval-decision accept"), "the fixture saw: {log}");
 
     // No adapter process: everything under the daemon is acpmux or the fixture.
@@ -151,8 +192,8 @@ fn a_streamed_codex_turn_runs_in_process_within_budget() {
         .iter()
         .copied()
         .find(|&p| cmdline(p).contains("__agent-host"))
-        .or_else(|| procs.iter().copied().find(|&p| p != daemon && cmdline(p).contains("acpmux") && !cmdline(p).contains("router")));
-    if let Some(host) = host {
+        .expect("the session runs in an agent host");
+    {
         let row = report.iter().find(|r| r["pid"] == host).unwrap();
         let ns_per_delta = (row["cpu_ms"].as_f64().unwrap() * 1e6) as u64 / DELTAS;
         assert!(
@@ -160,7 +201,9 @@ fn a_streamed_codex_turn_runs_in_process_within_budget() {
             "the agent host used {ns_per_delta} ns of CPU per delta (budget {MAX_HOST_CPU_NS_PER_DELTA})"
         );
         let rss = row["rss_kib"].as_u64().unwrap();
-        assert!(rss <= MAX_HOST_RSS_KIB, "the agent host holds {rss} KiB (budget {MAX_HOST_RSS_KIB})");
+        assert!(
+            rss <= MAX_HOST_RSS_KIB,
+            "the agent host holds {rss} KiB (budget {MAX_HOST_RSS_KIB})"
+        );
     }
-    let _ = fs::remove_dir_all(&dir);
 }
