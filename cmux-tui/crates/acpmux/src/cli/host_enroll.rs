@@ -317,7 +317,8 @@ struct Probe {
     bins: Vec<(String, Option<String>)>,
     /// The first daemon that answered.
     running: Option<Running>,
-    /// The running daemon's executable, when the host names it.
+    /// The running daemon's executable, when its `daemon status` names it
+    /// (`exe`).
     exe: Option<String>,
     /// The running daemon runs as `cmux-tui acp …` from another file than
     /// [`DAEMON_BIN`] resolves to: a cmux session daemon started it
@@ -336,6 +337,9 @@ struct Running {
     build: Option<String>,
     /// It holds a person key: the cmux app started it (`hub/person.rs`).
     person_key: bool,
+    /// Its command line, as its `daemon status` reports it (`argv`); empty
+    /// from a daemon too old to report it.
+    args: String,
 }
 
 /// The acpmux the host uses: the running daemon's, else the first binary.
@@ -367,7 +371,20 @@ fn parse_probe(stdout: &str) -> Probe {
                         pid,
                         build: v.get("build").and_then(Value::as_str).map(str::to_owned),
                         person_key: v.get("personKey").and_then(Value::as_bool) == Some(true),
+                        args: v
+                            .get("argv")
+                            .and_then(Value::as_array)
+                            .map(|a| {
+                                a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" ")
+                            })
+                            .unwrap_or_default(),
                     });
+                    // The daemon names its own executable; an older one does not.
+                    probe.exe = v
+                        .get("exe")
+                        .and_then(Value::as_str)
+                        .filter(|e| e.starts_with('/'))
+                        .map(str::to_owned);
                 }
             }
             _ => {}
@@ -386,7 +403,8 @@ fn is_cmux_tui(path: &str) -> bool {
     path.rsplit('/').next() == Some("cmux-tui")
 }
 
-/// Whether a `ps -o args=` line runs `cmux-tui acp …`, not `acpmux …`.
+/// Whether a daemon's command line (its status `argv`, joined) runs
+/// `cmux-tui acp …`, not `acpmux …`.
 fn runs_as_cmux_tui_acp(args: &str) -> bool {
     let mut words = args.split_whitespace();
     words.next().is_some_and(is_cmux_tui) && words.next() == Some("acp")
@@ -440,21 +458,18 @@ impl Probe {
     }
 }
 
-/// Run [`probe_script`], then name the running daemon's executable (Linux
-/// `/proc`, else `ps`) and its command line. Reads only.
+/// Run [`probe_script`]: the running daemon names its own executable and
+/// command line in its `daemon status` (no process is scanned). When it
+/// runs as `cmux-tui acp …`, resolve [`DAEMON_BIN`] to tell enroll's own
+/// link from a cmux session daemon. Reads only.
 fn probe(r: &dyn Remote) -> Result<Probe> {
     let mut probe = parse_probe(&r.exec(&probe_script(), None)?.stdout);
-    if let Some(pid) = probe.running.as_ref().map(|run| run.pid) {
-        let script = format!(
-            "readlink /proc/{pid}/exe 2>/dev/null || ps -o comm= -p {pid}; printf '\\0'; ps -o args= -p {pid} 2>/dev/null; printf '\\0'; readlink -f {DAEMON_BIN} 2>/dev/null"
-        );
+    if let Some(args) = probe.running.as_ref().map(|run| run.args.clone())
+        && runs_as_cmux_tui_acp(&args)
+    {
+        let script = format!("readlink -f {DAEMON_BIN} 2>/dev/null");
         let stdout = r.exec(&script, None)?.stdout;
-        let mut parts = stdout.split('\0');
-        let exe = parts.next().unwrap_or("").trim().to_owned();
-        let args = parts.next().unwrap_or("").trim();
-        let daemon_bin = parts.next().unwrap_or("").trim();
-        probe.exe = exe.starts_with('/').then_some(exe);
-        probe.run_by_cmux_tui = cmux_session_daemon(args, probe.exe.as_deref(), daemon_bin);
+        probe.run_by_cmux_tui = cmux_session_daemon(&args, probe.exe.as_deref(), stdout.trim());
     }
     Ok(probe)
 }
@@ -517,7 +532,14 @@ fn app_build(step: Step, host: &str, used: &InUse, ok: &str) -> StepResult {
             StepState::Warn,
             format!("{host} runs cmux's own acpmux (build {}, this is {want})", b.unwrap_or("?")),
         )
-        .with_fix(format!("Update cmux on {host}.")),
+        // A version skew: name the matching CLI or the one command that
+        // installs this build (plans/cmux-next/version-skew.md, step 4).
+        .with_fix(match b {
+            Some(b) => format!(
+                "Enroll {host} from a cmux of build {b}, or run `cmux remote install` for {host}."
+            ),
+            None => format!("Run `cmux remote install` for {host}."),
+        }),
     }
 }
 

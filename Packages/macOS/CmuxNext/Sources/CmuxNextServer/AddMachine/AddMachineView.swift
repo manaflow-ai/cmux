@@ -149,6 +149,7 @@ struct AddMachineCandidateList: View {
                         ForEach(list) { candidate in row(candidate) }
                     }
                 }
+                .thinScrollers()
                 .frame(maxHeight: AddMachineMetrics.candidateListHeight)
                 .card(radius: ServerMetrics.fieldRadius)
             }

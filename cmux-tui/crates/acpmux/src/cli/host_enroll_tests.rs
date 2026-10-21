@@ -208,12 +208,30 @@ const TUI_BIN: &str = "/home/leo/.local/bin/cmux-tui";
 /// What [`probe_script`] prints for these binaries (path, build), with a daemon of
 /// `daemon` (build, person key) answering through the first of them.
 fn probe_out(bins: &[(&str, &str)], daemon: Option<(&str, bool)>) -> String {
+    probe_out_with(bins, daemon, "", "")
+}
+
+/// [`probe_out`], with the daemon's status naming its executable `exe` and
+/// its command line `args` (one word per space; neither when empty).
+fn probe_out_with(
+    bins: &[(&str, &str)],
+    daemon: Option<(&str, bool)>,
+    exe: &str,
+    args: &str,
+) -> String {
     let mut out = String::new();
     for (i, (path, build)) in bins.iter().enumerate() {
         out.push_str(&format!("bin\t{path}\tacpmux 0.1.0 ({build})\n"));
         let status = match daemon.filter(|_| i == 0) {
             Some((b, key)) => {
-                format!("{{  \"pid\": 7,  \"build\": \"{b}\",  \"personKey\": {key}}}")
+                let mut v = json!({ "pid": 7, "build": b, "personKey": key });
+                if !exe.is_empty() {
+                    v["exe"] = json!(exe);
+                }
+                if !args.is_empty() {
+                    v["argv"] = json!(args.split(' ').collect::<Vec<_>>());
+                }
+                serde_json::to_string_pretty(&v).unwrap().replace('\n', "")
             }
             None => String::new(),
         };
@@ -222,8 +240,8 @@ fn probe_out(bins: &[(&str, &str)], daemon: Option<(&str, bool)>) -> String {
     format!("{out}\0{CONFIG}")
 }
 
-/// A host with these binaries and daemon (its executable `exe`), whose
-/// harness folder holds `profile`; any write panics.
+/// A host with these binaries and daemon (its status names its executable
+/// `exe`), whose harness folder holds `profile`; any write panics.
 fn host_with<'a>(
     bins: &'a [(&'a str, &'a str)],
     daemon: Option<(&'a str, bool)>,
@@ -235,9 +253,7 @@ fn host_with<'a>(
         if script == "true" {
             out("")
         } else if script == probe_script().as_str() {
-            out(probe_out(bins, daemon))
-        } else if script.starts_with("readlink /proc/7/exe") {
-            out(exe)
+            out(probe_out_with(bins, daemon, exe, ""))
         } else if script.starts_with("printf 'bin=") {
             let local = bins.iter().find(|(p, _)| *p == LOCAL_BIN);
             out(local.map(|(_, b)| version(b)).unwrap_or_else(|| "bin=\n".into()))
@@ -339,7 +355,8 @@ fn cmux_own_acpmux_is_never_replaced_or_started_beside() {
         assert!(results[1].detail.contains("cmux's own acpmux"), "{results:?}");
         assert_read_only(&fake);
 
-        // The app's daemon runs an older build: warn, update cmux.
+        // The app's daemon runs an older build: warn, name the matching CLI
+        // or the install command, never "update".
         let app: &[(&str, &str)] = &[(APP_BIN, "old")];
         let fake = host_with(app, Some(("old", false)), APP_EXE, "");
         let results = machine_steps(
@@ -357,7 +374,12 @@ fn cmux_own_acpmux_is_never_replaced_or_started_beside() {
             results[1].detail,
             format!("leo@box.tail runs cmux's own acpmux (build old, this is {build})")
         );
-        assert_eq!(results[1].fix.as_deref(), Some("Update cmux on leo@box.tail."));
+        assert_eq!(
+            results[1].fix.as_deref(),
+            Some(
+                "Enroll leo@box.tail from a cmux of build old, or run `cmux remote install` for leo@box.tail."
+            )
+        );
         assert_eq!(results[3].state, StepState::Skip, "no harness asked for");
         assert_read_only(&fake);
 
@@ -438,9 +460,7 @@ fn enroll_copies_a_stale_profile_rewritten_and_owner_only() {
         if script == "true" {
             out("")
         } else if script == probe_script().as_str() {
-            out(probe_out(bins, Some((build, false))))
-        } else if script.starts_with("readlink /proc/7/exe") {
-            out(LOCAL_BIN)
+            out(probe_out_with(bins, Some((build, false)), LOCAL_BIN, ""))
         } else if script.starts_with("printf 'bin=") {
             out(version(build))
         } else if script.starts_with("printf %s") {
@@ -754,15 +774,17 @@ fn a_daemon_started_through_the_acpmux_link_stays_ours() {
     assert!(!cmux_session_daemon(ARGS, Some(&format!("{TUI_BIN} (deleted)")), TUI_BIN));
     assert!(!cmux_session_daemon("/home/leo/.local/bin/acpmux daemon run", Some(LOCAL_BIN), ""));
 
-    // Through probe(): the link's daemon is repairable, not cmux's.
+    // Through probe(): the daemon names its exe and command line in its
+    // status; only the link is resolved on the host. The link's daemon is
+    // repairable, not cmux's.
     let build = crate::hub::BUILD;
     let bins: &[(&str, &str)] = &[(LOCAL_BIN, build), (TUI_BIN, build)];
     for (link_target, ours) in [(TUI_BIN, true), ("", false)] {
         let fake = Fake::new(|script, _| {
             if script == probe_script().as_str() {
-                out(probe_out(bins, Some((build, false))))
-            } else if script.starts_with("readlink /proc/7/exe") {
-                out(format!("{TUI_BIN}\n\0{ARGS}\n\0{link_target}\n"))
+                out(probe_out_with(bins, Some((build, false)), TUI_BIN, ARGS))
+            } else if script == format!("readlink -f {DAEMON_BIN} 2>/dev/null") {
+                out(format!("{link_target}\n"))
             } else {
                 panic!("unexpected script: {script}")
             }
@@ -770,5 +792,27 @@ fn a_daemon_started_through_the_acpmux_link_stays_ours() {
         let p = probe(&fake).unwrap();
         assert_eq!(p.exe.as_deref(), Some(TUI_BIN));
         assert_eq!(p.in_use().unwrap().app, !ours, "link target {link_target:?}");
+        assert_eq!(fake.calls.borrow().len(), 2);
+    }
+}
+
+#[test]
+fn the_probe_never_scans_processes() {
+    let build = crate::hub::BUILD;
+    let bins: &[(&str, &str)] = &[(LOCAL_BIN, build)];
+    // A standalone daemon (`acpmux daemon run`) and one too old to name its
+    // exe and command line: the status alone answers, one script in all.
+    for (exe, args) in [(LOCAL_BIN, "/home/leo/.local/bin/acpmux daemon run"), ("", "")] {
+        let fake = Fake::new(|script, _| {
+            assert_eq!(script, probe_script().as_str(), "a second script");
+            out(probe_out_with(bins, Some((build, false)), exe, args))
+        });
+        let p = probe(&fake).unwrap();
+        assert_eq!(p.exe.as_deref(), (!exe.is_empty()).then_some(exe));
+        assert!(!p.run_by_cmux_tui);
+        assert_eq!(fake.calls.borrow().len(), 1);
+    }
+    for scan in ["/proc/", "ps -", "pgrep", "lsof"] {
+        assert!(!probe_script().contains(scan), "{scan}");
     }
 }
