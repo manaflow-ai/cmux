@@ -163,8 +163,6 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var statusBehavior = StatusBehaviorSettings()
     /// `appearance.borders`; "default" when unset or invalid.
     public var borders: BorderMode = BordersSetting.fallback
-    /// `appearance.glass`; "plain" when unset or invalid.
-    public var glass: GlassLensMode = GlassSetting().fallback
     /// `appearance.focusIndicator`; "tabs" when unset or invalid.
     public var focusIndicator: FocusIndicator = PaneFocusSettings.focusIndicatorFallback
     /// `focus.inactiveTabStyle`; "fade" when unset or invalid.
@@ -341,7 +339,6 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (borders, bordersDiagnostic) = BordersSetting.parse(root)
         snapshot.borders = borders
         if let bordersDiagnostic { snapshot.diagnostics.append(bordersDiagnostic) }
-        snapshot.glass = GlassSetting().parse(root, diagnostics: &snapshot.diagnostics)
         let (indicator, indicatorDiagnostic) = PaneFocusSettings.parse(
             root, at: PaneFocusSettings.focusIndicatorPath, fallback: PaneFocusSettings.focusIndicatorFallback)
         snapshot.focusIndicator = indicator

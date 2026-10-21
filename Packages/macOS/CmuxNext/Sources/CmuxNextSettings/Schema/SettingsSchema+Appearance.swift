@@ -99,7 +99,7 @@ nonisolated enum AppearanceSettingsSchema {
                 default: .string(BackdropRotation.defaultRotation.rawValue),
                 keywords: ["shuffle", "rotate", "rotating", "wallpaper", "interval", "change picture", "background"]
             ),
-            PaneBackgroundsSetting.descriptor(group: window), GlassSetting().descriptor(group: window),
+            PaneBackgroundsSetting.descriptor(group: window),
             SettingDescriptor(
                 ExperimentalAppearanceSetting().configPath, section: .appearance, group: window,
                 title: SettingsText.keyed("settings.appearance.experimentalControls", "Experimental Appearance Controls"),

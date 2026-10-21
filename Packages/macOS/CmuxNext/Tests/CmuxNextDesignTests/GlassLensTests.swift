@@ -4,7 +4,7 @@ import Foundation
 import Testing
 
 /// The glass mode pages draw and the theme that carries it (plans/cmux-next/glass-lens-DESIGN.md):
-/// `appearance.glass` unless Reduce Transparency or Low Power Mode make it plain, sent as `glass`
+/// the Debug choice `glass.lens` unless Reduce Transparency or Low Power Mode make it plain, sent as `glass`
 /// in the theme payload and set as `data-glass` by the bootstrap, which also defines the backdrop push.
 @MainActor @Suite struct GlassLensTests {
     /// Leo 2026-10-21: the lens is a toggle to see and feel; the palette flips it on and off.
@@ -24,17 +24,32 @@ import Testing
         #expect(GlassLensMode.lens.refracts && GlassLensMode.spectrum.refracts && !GlassLensMode.plain.refracts)
     }
 
-    @Test func theCurrentModeReadsTheSettingAndBothSystemSwitches() {
-        let settings = DesignSettings()
-        #expect(settings.glass == .plain)
-        settings.glass = .spectrum
+    @Test func theCurrentModeReadsTheDebugChoiceAndBothSystemSwitches() {
+        let store = TunableStore()
+        store.register([GlassLensMode.tunable.descriptor])
+        store.activate(file: nil)
         let clear = ReduceTransparency(system: { false }, changes: NotificationCenter())
         let reduced = ReduceTransparency(system: { true }, changes: NotificationCenter())
-        #expect(GlassLensMode.current(settings: settings, reduceTransparency: clear, lowPower: LowPowerMode(enabled: false)) == .spectrum)
-        #expect(GlassLensMode.current(settings: settings, reduceTransparency: reduced, lowPower: LowPowerMode(enabled: false)) == .plain)
+        #expect(GlassLensMode.current(store: store, reduceTransparency: clear, lowPower: LowPowerMode(enabled: false)) == .plain)
+        GlassLensMode.choose(.spectrum, in: store)
+        #expect(GlassLensMode.current(store: store, reduceTransparency: clear, lowPower: LowPowerMode(enabled: false)) == .spectrum)
+        #expect(GlassLensMode.current(store: store, reduceTransparency: reduced, lowPower: LowPowerMode(enabled: false)) == .plain)
         let lowPower = LowPowerMode(enabled: false)
         lowPower.override = true
-        #expect(GlassLensMode.current(settings: settings, reduceTransparency: clear, lowPower: lowPower) == .plain)
+        #expect(GlassLensMode.current(store: store, reduceTransparency: clear, lowPower: lowPower) == .plain)
+    }
+
+    /// Plain is the default and stores nothing; Release never activates the store, so it stays plain.
+    @Test func choosingPlainClearsTheOverrideAndAnInertStoreStaysPlain() {
+        let store = TunableStore()
+        store.register([GlassLensMode.tunable.descriptor])
+        GlassLensMode.choose(.lens, in: store)
+        #expect(GlassLensMode.tunable.value(in: store) == .plain)
+        store.activate(file: nil)
+        #expect(GlassLensMode.tunable.value(in: store) == .lens)
+        GlassLensMode.choose(.plain, in: store)
+        #expect(store.overrides[GlassLensMode.tunable.key] == nil)
+        #expect(GlassLensMode.tunable.value(in: store) == .plain)
     }
 
     @Test func thePayloadCarriesTheGlassMode() throws {

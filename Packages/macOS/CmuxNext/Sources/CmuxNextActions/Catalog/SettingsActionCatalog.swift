@@ -440,13 +440,15 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 keywords: ["titlebar", "title bar", "window", "workspace name", "show", "appearance"], category: .settings,
                 symbol: "macwindow.badge.plus", surfaces: [.palette], cliName: "settings use-standard-titlebar"
             ),
-            // Leo 2026-10-21: the lens is a toggle to see and feel before it is the default. Flips
-            // `appearance.glass` between Plain Glass (the default) and Lens, live.
+            // Leo 2026-10-21: the lens is a toggle to see and feel before it is the default. Flips the
+            // Debug choice `glass.lens` between Plain Glass (the default) and Lens, live, from the
+            // palette or the Debug menu (DEV and NIGHTLY).
             ActionDescriptor(
                 id: "appearance.glass.lens.toggle",
                 title: String(localized: "action.appearance.glass.lens.toggle", defaultValue: "Toggle Liquid Glass Lens", bundle: .module),
                 keywords: ["glass", "liquid glass", "lens", "refraction", "wallpaper", "plain glass", "appearance"],
-                category: .settings, symbol: "drop", surfaces: [.palette], cliName: "settings toggle-glass-lens"
+                category: .settings, symbol: "drop", surfaces: [.palette, .menu], mainMenu: .debug, isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
             ActionDescriptor(
                 id: "appearance.customize",

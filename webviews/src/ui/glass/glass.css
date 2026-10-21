@@ -2,8 +2,8 @@
    surface of every first-party page and the agent pane: a surface adds `.ui-glass` and may override
    any token below on itself. desktop.ts loads this sheet and starts the lens (lens.ts) everywhere.
 
-   - Lens (data-glass="lens", opt-in: Settings > Appearance > Glass or the palette's Toggle Liquid
-     Glass Lens): the tint, a light frost and a thin top-lit specular rim. While the lens draws the host's wallpaper still behind
+   - Lens (data-glass="lens", opt-in: the Debug choice glass.lens, or Toggle Liquid Glass Lens in
+     the palette or the Debug menu): the tint, a light frost and a thin top-lit specular rim. While the lens draws the host's wallpaper still behind
      the glass (data-glass-lens on the root), the frost and the edge bend come from the lens, so the
      surface drops its own backdrop blur; with no still (no art, a moving wallpaper) it keeps it.
    - Spectrum: the lens plus a faint red and cyan fringe at the rim.

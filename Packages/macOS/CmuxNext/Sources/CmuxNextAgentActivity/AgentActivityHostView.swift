@@ -18,7 +18,7 @@ public final class AgentActivityHostView: NSView {
     private lazy var glassFeed = GlassBackdropFeed(host: webView, zoom: { [webView] in webView.pageZoom * webView.magnification }) { [weak self] in
         self?.webView.evaluateJavaScript($0, completionHandler: nil)
     }
-    /// Pushes the theme again on every repaint of this view's scope (`appearance.glass` included).
+    /// Pushes the theme again on every repaint of this view's scope (the glass mode included).
     private lazy var themeFollower = ThemeFollower(self) { [weak self] in self?.applyTheme() }
 
     /// Makes an Activity web view for a model and its native data source.

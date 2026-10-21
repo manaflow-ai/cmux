@@ -62,7 +62,7 @@ enum AppearanceHandlers {
         for style in TitlebarStyle.allCases {
             registry.bind(ActionID(rawValue: "appearance.titlebar.\(style.rawValue)"), run: { _ in try setTitlebar(style, context) })
         }
-        registry.bind("appearance.glass.lens.toggle", run: { _ in try toggleGlassLens(context) })
+        registry.bind("appearance.glass.lens.toggle", run: { _ in GlassLensMode.choose(GlassLensMode.tunable.value.lensToggled) })
         registry.bind("appearance.interfaceSize.reset", run: { _ in
             let path = context.design.interfaceSizePath; try requireUnmanaged(path, context); context.design.resetInterfaceSize()
             context.writeSetting("reset interface size", path, nil, reloadOnFailure: true)
@@ -135,18 +135,6 @@ enum AppearanceHandlers {
         // The default removes the key (and an emptied `window` object).
         let value: JSONValue? = style == WindowTitlebarSetting.fallback ? nil : .string(style.rawValue)
         context.writeSetting("set titlebar", WindowTitlebarSetting.configPath, value, reloadOnFailure: true)
-    }
-
-    /// Lens on or off (Plain Glass, the default): the pages redraw at once (`GlassModeWatch`), then
-    /// cmux-next.json keeps it. Spectrum counts as on, so the toggle turns it off.
-    private static func toggleGlassLens(_ context: AppActionContext) throws {
-        let setting = GlassSetting()
-        try requireUnmanaged(setting.configPath, context)
-        let next = context.design.glass.lensToggled
-        context.design.glass = next
-        // The default removes the key (and an emptied `appearance` object).
-        let value: JSONValue? = next == setting.fallback ? nil : .string(next.rawValue)
-        context.writeSetting("toggle glass lens", setting.configPath, value, reloadOnFailure: true)
     }
 
     private static func stepInterfaceSize(by delta: Double, _ context: AppActionContext) throws {
