@@ -6,6 +6,8 @@ public import CmuxNextSettings
 @MainActor
 public final class SettingsAppFeatures: AppFeatureSettings {
     private let settings: () -> SettingsController?
+    /// Shows Settings on a key's rows (the app's settings window); nil: the cards have no link.
+    private let showSettings: (@MainActor (String) -> Void)?
 
     /// The sidebar's side of the `.sidebarItem` features, given by the sidebar's owner
     /// (`ChiefSidebar.bind`): the items it answers for, whether the sidebar shows one (observable),
@@ -25,8 +27,17 @@ public final class SettingsAppFeatures: AppFeatureSettings {
     /// Nil until the sidebar binds its actions: no `.sidebarItem` feature is listed then.
     public static var sidebarItems: SidebarItems?
 
-    public init(settings: @escaping () -> SettingsController?) {
+    public init(settings: @escaping () -> SettingsController?, showSettings: (@MainActor (String) -> Void)? = nil) {
         self.settings = settings
+        self.showSettings = showSettings
+    }
+
+    /// Whether the card shows its Settings… link: the feature names rows and the app can show them.
+    public func hasSettings(_ feature: AppFeature) -> Bool { feature.settingsLink != nil && showSettings != nil }
+
+    public func openSettings(_ feature: AppFeature) {
+        guard let key = feature.settingsLink else { return }
+        showSettings?(key)
     }
 
     public func isAvailable(_ feature: AppFeature) -> Bool {
