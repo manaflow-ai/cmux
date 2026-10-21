@@ -774,6 +774,8 @@ export function installGlassLens(doc: Document = document): void {
   const view = doc.defaultView;
   if (!view || lenses.has(doc)) return;
   installBackdropFallback(view);
+  // A DOM without observers (a unit test's light DOM) has nothing to lens: CSS glass only.
+  if (typeof MutationObserver !== "function" || typeof ResizeObserver !== "function") return;
   lenses.set(doc, new GlassLens(doc));
 }
 
