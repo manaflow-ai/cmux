@@ -5306,7 +5306,8 @@
     "signedOutSignIn": "Log ind",
     "manageInAppStore": "Administrer i App Store",
     "billedYearly": "Faktureres ${amount} årligt",
-    "earlySupporterPrice": "Pris for tidlige støtter"
+    "earlySupporterPrice": "Pris for tidlige støtter",
+    "foundersEditionPrice": "Founder's Edition"
   },
   "platforms": {
     "macos": "macOS",
