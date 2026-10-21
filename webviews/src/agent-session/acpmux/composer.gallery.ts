@@ -865,6 +865,16 @@ export default agentPaneEntry({
         ],
       }),
     },
+    "queued-from-agent": {
+      note: "Another agent's message waiting behind the turn: its sender's name leads it as a chip, and it has no Send now (the person's prompt below keeps it).",
+      snapshot: chat(working, {
+        isWorking: true,
+        queue: [
+          { id: "q1", prompt: "Rebase onto #23738 before you push; it moves the queue rows.", from: "coord-deputy" },
+          { id: "q2", prompt: "And update the README" },
+        ],
+      }),
+    },
     "queued-images": {
       note: "A prompt queued with two screenshots: small thumbnails under its text, each opening the image viewer.",
       snapshot: chat(working, { isWorking: true, queue: [pictured, { id: "q2", prompt: "And update the README" }] }),
