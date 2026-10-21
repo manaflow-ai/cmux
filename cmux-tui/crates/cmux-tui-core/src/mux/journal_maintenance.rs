@@ -74,8 +74,9 @@ struct ControlState {
     waiting_for_change: bool,
 }
 
-/// The worker's stop signal and its "the journal changed" wake. The mux owns
-/// it from construction, so every [`Mux::publish_journal_event`] can mark it.
+/// The worker's stop signal and its "the registry changed" wake. The mux owns
+/// it from construction, so every [`Mux::publish_journal_event`] (and a
+/// ledger write that publishes none) can mark it.
 #[derive(Default)]
 pub(super) struct JournalMaintenanceControl {
     state: Mutex<ControlState>,
@@ -87,9 +88,10 @@ impl JournalMaintenanceControl {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// A journal commit was published. Wakes the worker only when it sleeps
-    /// until the next change, and only for the first commit of a burst.
-    pub(super) fn note_journal_change(&self) {
+    /// The registry changed (a published journal event, or a write that
+    /// fills a mutation ledger without one). Wakes the worker only when it
+    /// sleeps until the next change, and only for the first of a burst.
+    pub(super) fn note_change(&self) {
         let mut state = self.lock();
         if !state.journal_changed {
             state.journal_changed = true;
@@ -112,7 +114,8 @@ impl JournalMaintenanceControl {
         state.waiting_for_change = true;
         while !state.stopped && !state.journal_changed {
             let Some(left) = deadline.checked_duration_since(Instant::now()) else { break };
-            state = self.changed.wait_timeout(state, left).unwrap_or_else(PoisonError::into_inner).0;
+            state =
+                self.changed.wait_timeout(state, left).unwrap_or_else(PoisonError::into_inner).0;
         }
         state.waiting_for_change = false;
         !state.stopped
@@ -126,7 +129,8 @@ impl JournalMaintenanceControl {
         let mut state = self.lock();
         while !state.stopped {
             let Some(left) = deadline.checked_duration_since(Instant::now()) else { break };
-            state = self.changed.wait_timeout(state, left).unwrap_or_else(PoisonError::into_inner).0;
+            state =
+                self.changed.wait_timeout(state, left).unwrap_or_else(PoisonError::into_inner).0;
         }
         state.journal_changed = false;
         !state.stopped
