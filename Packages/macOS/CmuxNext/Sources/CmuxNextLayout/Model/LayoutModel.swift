@@ -265,6 +265,7 @@ public final class LayoutModel {
     func showOverlaid() {
         let shown = overlaid(daemonScreens)
         if shown != screens { screens = shown }
+        reconcileCanvases() // a canvas draws its own frames: a pane a close hid leaves it now
     }
 
     /// Applies live and unconfirmed overrides onto daemon screens. An ended

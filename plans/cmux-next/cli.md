@@ -182,6 +182,17 @@ On `feat-cmux-next-browser-input` (browser group 4):
   events, which needs engine input support (not done; temporary until browser step e routes
   `press` to the host's `input.key`). `select` with words is this verb; bare `select` is the
   tab verb. Selector actions do not retry for an element that has not appeared yet.
+- `browser.page.mouse {kind: down|up|move|click, x, y, button?, click_count?, modifiers?}`,
+  `browser.page.wheel {x, y, dx?, dy?, modifiers?}`, `browser.page.insert_text {text}` and
+  `browser.page.key {key, kind?: down|up|press, modifiers?}`: raw input at a viewport point
+  (CSS px) or on the focused element, as page events. A mouse down focuses what it hits, a right
+  down sends `contextmenu`, an up after a down of the same button clicks (`dblclick` at a count of
+  2, `auxclick` for other buttons). A wheel the page does not cancel scrolls the box under the
+  point. Text goes in at the caret with `beforeinput`/`input` (`not_editable` with no editable
+  focus); a printable key press types its character. Daemon `browser.input.mouse|wheel|text|key`
+  on a page the app draws (WebKit or CEF) run as these: the daemon answers
+  `browser_rendered_by_app` and the CLI and MCP route the verb (`cli/app_browser_route.rs`).
+  `pointer_frame_seq` names a daemon frame and is not read there.
 
 On `feat-cmux-next-mcp` (PR into `feat-cmux-next-acpmux`):
 

@@ -169,6 +169,31 @@ import Testing
         #expect(!bridge.isOn(newTabPlayer))
     }
 
+    /// Leo (2026-10-21): view toggles such as Expanded need no palette. Each density is a card
+    /// whose Get picks it and whose Remove goes back to Compact, and a workspace row's ⋮ menu
+    /// offers the densities that are not in effect.
+    @Test func theSidebarDensityCardsPickADensityAndTheRowMenuOffersThem() async throws {
+        let (settings, home) = try await Self.make()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let bridge = SettingsAppFeatures(settings: { settings })
+        let comfortable = try Self.feature("sidebar.comfortable"), expanded = try Self.feature("sidebar.expanded")
+        #expect(bridge.isAvailable(expanded) && !bridge.isOn(expanded) && !bridge.isOn(comfortable))
+
+        try await bridge.set(expanded, on: true)
+        #expect(settings.snapshot.sidebarSections.density == .expanded)
+        try await bridge.set(comfortable, on: true)
+        #expect(settings.snapshot.sidebarSections.density == .comfortable)
+        #expect(bridge.isOn(comfortable) && !bridge.isOn(expanded), "one density at a time")
+        try await bridge.set(comfortable, on: false)
+        #expect(settings.snapshot.sidebarSections.density == .compact)
+        #expect(settings.fileRoot.value(at: comfortable.path) == nil)
+
+        let catalog = ContextMenuCatalog.shared
+        let ids = Set(catalog.referencedIDs(catalog.entries(for: .workspaceRow)).map(\.rawValue))
+        #expect(ids.isSuperset(of: ["sidebar.density.compact", "sidebar.density.comfortable", "sidebar.density.expanded"]),
+                "a workspace row's ⋮ menu offers the sidebar densities")
+    }
+
     @Test func aCardFollowsAWriteMadeElsewhere() async throws {
         let (settings, home) = try await Self.make()
         defer { try? FileManager.default.removeItem(at: home) }

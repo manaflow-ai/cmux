@@ -691,6 +691,8 @@ export type SessionSummary = {
   turnCount: number;
   unread: boolean;
   updatedAt: number;
+  /** The family of a conversation another app runs that this chat only shows; null otherwise. */
+  watching?: (string | null);
 } & Record<string, unknown>;
 
 /** Also the page fields of `_acpmux/watch` (`hub::session_pages`). */

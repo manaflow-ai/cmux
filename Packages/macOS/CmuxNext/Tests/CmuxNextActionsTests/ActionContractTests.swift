@@ -28,7 +28,7 @@ import Testing
     /// replaces while it is open; the page menu's copy, save and Look Up
     /// rows act on the right-clicked element; Archive Chief and Open
     /// Conversation act on a row of the Home page's list, and Open Chief Subagent on a row of the Chief
-    /// pane's Subagents menu; Send Message… and Send to (Chief)… act on
+    /// pane's Subagents menu, and Pin or Unpin Chat on a row of the sidebar's chat history; Send Message… and Send to (Chief)… act on
     /// the right-clicked object or selection, and Send Message To… is their palette row; Start Agent from
     /// Any App and Message the Chief from Any App are the system-wide keys of Start Agent and Message the
     /// Chief, whose rows they are; the sidebar's Compact
@@ -46,7 +46,7 @@ import Testing
                 "chief.openSubagent", "commandPaletteNext", "commandPalettePrevious", "history.goTo", "home.archiveChief", "home.messageAbout", "home.messageChiefFromAnyApp", "home.openConversation", "home.sendSelectionTo",
                 "home.sendSelectionToChief", "list.next", "list.previous",
                 "omnibar.openInBackgroundTab", "omnibar.openInForegroundTab", "openBrowser.chromium", "palette.startAgentFromAnyApp",
-                "sidebar.density.comfortable", "sidebar.density.compact", "toggleTabAudioMute"]
+                "sidebar.chat.togglePin", "sidebar.density.comfortable", "sidebar.density.compact", "toggleTabAudioMute"]
             + ["paletteKey.firstItem", "paletteKey.lastItem", "paletteKey.pageUp", "paletteKey.pageDown", "paletteKey.submit",
                "paletteKey.submitAlternate", "paletteKey.openActions", "paletteKey.closeActions", "paletteKey.toggleActions",
                "paletteKey.escape", "paletteKey.enterRow", "paletteKey.leaveLevel", "paletteKey.back",

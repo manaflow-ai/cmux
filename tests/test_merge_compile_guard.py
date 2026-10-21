@@ -131,6 +131,38 @@ class FleetCompileCheck(unittest.TestCase):
         self.assertNotIn("pull_request", text)
 
 
+class AdvisoryTestCompile(unittest.TestCase):
+    """fleet-test-compile.yml's check is advisory: the guard neither waits for it nor needs it.
+
+    It compiles the test targets a PR reaches on a fleet Mac (#23360, #23163 broke the base's test build
+    after the app-only fleet/compile-check passed). A red or pending one never holds a merge here, and it
+    never posts the fleet/compile-check status the guard trusts.
+    """
+
+    ADVISORY = "fleet/test-compile (advisory)"
+    WORKFLOW = ROOT / ".github/workflows/fleet-test-compile.yml"
+
+    def test_a_red_or_pending_advisory_check_never_holds_a_merge(self):
+        for state, conclusion in (("completed", "failure"), ("queued", None), ("in_progress", None)):
+            with self.subTest(state=state):
+                advisory = check(self.ADVISORY, state, conclusion or "success")
+                self.assertEqual(guard.verdict(pr(), SWIFT, [check(COMPILE), advisory]), "")
+                self.assertEqual(guard.verdict(pr(), SWIFT, [check(COMPILE, "queued"), advisory], fleet_passed=True), "")
+                # And it never stands in for the Release compile.
+                self.assertIn("still running", guard.verdict(pr(), SWIFT, [check(COMPILE, "queued"), advisory]))
+
+    def test_it_is_not_the_fleet_check_the_guard_trusts(self):
+        self.assertNotEqual(guard.FLEET_WORKFLOW, self.WORKFLOW.name)
+        text = self.WORKFLOW.read_text()
+        self.assertIn(f"name: {self.ADVISORY}\n", text)
+        self.assertNotIn(guard.FLEET_CONTEXT + "\n", text)
+        self.assertNotIn("statuses", text)
+        self.assertNotIn(guard.FLEET_TITLE, text)
+        fleet = (ROOT / ".github/workflows" / guard.FLEET_WORKFLOW).read_text()
+        self.assertNotIn("compile-tests", fleet)
+        self.assertNotIn("test-compile", fleet)
+
+
 def status(state="success", creator="github-actions[bot]", run=99):
     return {"state": state, "creator": creator, "url": f"https://github.com/manaflow-ai/cmux/actions/runs/{run}"}
 
