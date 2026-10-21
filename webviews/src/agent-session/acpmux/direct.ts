@@ -146,6 +146,10 @@ type Listener = (snapshot: AcpmuxSnapshot) => void;
 
 /// A hint that a harness is likely next, so acpmux can warm its adapter (cmux-tui acpmux lane).
 export const PREWARM_METHOD = "_acpmux/prewarm";
+/// Keeps an image or a PDF with acpmux ahead of the prompt that names it (`putAttachments`).
+export const ATTACHMENT_PUT = "_acpmux/attachment_put";
+/// How long one put may take before its attachment goes inline instead.
+const PUT_DEADLINE_MS = 30_000;
 
 /// The slash commands are not transcript, so the pane asks for their updates by kind.
 /// How long Stop waits for the turn to end before the pane stops showing it as working. It is
@@ -864,6 +868,8 @@ export class AcpmuxDirectClient {
   private handoffSupported = false;
   /// The `_acpmux/*` methods acpmux's `initialize` lists (`_meta.acpmux.extensions`).
   private extensions: readonly string[] = [];
+  /// Settles when the last sent prompt's request is written (`send`).
+  private promptOrder: Promise<void> = Promise.resolve();
   /// acpmux calls this connection local (`_meta.acpmux.origin: "local"`). Without that, a
   /// WebSocket connection is remote-origin to acpmux, which never pools for it.
   private localOrigin = false;
@@ -3008,17 +3014,23 @@ export class AcpmuxDirectClient {
       }, deliveryTiming.failMs),
     );
     this.emit();
+    // Settles once this prompt's request is written, or it failed first: the next prompt waits.
+    let wrote!: () => void;
+    const order = new Promise<void>((resolve) => (wrote = resolve));
     try {
-      await this.request("session/prompt", {
+      // A recording goes only to a harness that takes voice input; one moved to another
+      // harness (a switch, a held prompt put back) goes as its transcript.
+      const carried = takesAudio(this.summary?.agentCapabilities?.promptCapabilities, this.summary?.configOptions)
+        ? attachments
+        : attachments.filter((attachment) => attachment.kind !== "audio");
+      // Prompts go to acpmux in the order they were sent, however long one's puts take.
+      const before = this.promptOrder;
+      this.promptOrder = order;
+      const kept = await this.putAttachments(sessionId, carried);
+      await before;
+      const request = this.request("session/prompt", {
         sessionId,
-        // A recording goes only to a harness that takes voice input; one moved to another
-        // harness (a switch, a held prompt put back) goes as its transcript.
-        prompt: promptBlocks(
-          input,
-          takesAudio(this.summary?.agentCapabilities?.promptCapabilities, this.summary?.configOptions)
-            ? attachments
-            : attachments.filter((attachment) => attachment.kind !== "audio"),
-        ),
+        prompt: promptBlocks(input, carried, kept),
         _meta: {
           acpmux: {
             promptId,
@@ -3029,6 +3041,8 @@ export class AcpmuxDirectClient {
           ...(ticket ? { cmuxGesture: ticket } : {}),
         },
       });
+      wrote();
+      await request;
       accept();
       // A steer's answer comes once the agent read it (Claude Code's `steered`) or its turn ended.
       if (
@@ -3045,6 +3059,7 @@ export class AcpmuxDirectClient {
       this.queuedSends.delete(promptId);
       this.optimisticPromptAttachments.delete(promptId);
     } catch (error) {
+      wrote();
       this.promptAccepts.delete(promptId);
       // A Send now refused at dispatch answers its sender with the refusal (a remote acpmux sends the
       // pane no prompt_refused record): the turn it ended reads as ended. A transport error (a
@@ -3446,6 +3461,26 @@ export class AcpmuxDirectClient {
       )
       // A prompt acpmux refused shows in the chat itself.
       .catch(() => undefined);
+  }
+  /// Images and PDFs go to acpmux on their own, ahead of the prompt that names them, so no prompt
+  /// frame carries their bytes: six screenshots in one prompt passed acpmux's frame limit and reset
+  /// the chat's connection (2026-10-20). An acpmux without `_acpmux/attachment_put` (an older one,
+  /// or a peer's), or a put that fails, gets them inline as before. Answers acpmux's id for each
+  /// kept attachment, by the attachment's id.
+  private async putAttachments(sessionId: string, attachments: ComposerAttachment[]): Promise<Map<string, string>> {
+    const kept = new Map<string, string>();
+    if (!this.extensions.includes(ATTACHMENT_PUT)) return kept;
+    for (const attachment of attachments) {
+      if ((attachment.kind !== "image" && attachment.kind !== "document") || !attachment.data) continue;
+      // A put with no answer goes inline after a while: prompts after it wait for this one.
+      const reply = (await this.request(
+        ATTACHMENT_PUT,
+        { sessionId, mimeType: attachment.mimeType, data: attachment.data },
+        PUT_DEADLINE_MS,
+      ).catch(() => undefined)) as { id?: unknown } | undefined;
+      if (typeof reply?.id === "string") kept.set(attachment.id, reply.id);
+    }
+    return kept;
   }
   /// An offer the reducer draws: offers of one group share one card, in the order they came.
   private addOffer(offer: AcpmuxSessionOffer, at: number): void {
