@@ -297,6 +297,7 @@ import {
 import { endedEditRow, markRows, type RowMarks } from "./rowMarks";
 import { ShellActionsContext, ShellRow, type ShellActions } from "./shell/ShellRow";
 import { SwitchNotice } from "./SwitchNotice";
+import { BACKGROUND_NOTICE_TEXT, useBackgroundNotice } from "./conversation/backgroundNotice";
 import { InstructionsNotice, type InstructionsFailure } from "./header/InstructionsNotice";
 import { FolderChoice, showsFolderChoice } from "./FolderChoice";
 import { type FolderAsk, StartFolderAsk, WorktreeFailure, confirmFolder, newWorktree, pickFolder } from "./startFolder";
@@ -4223,9 +4224,13 @@ function AcpmuxPane() {
   // Ctrl-B moves a Claude Code chat's running command or subagent to the background, and a
   // running command's row says so (conversation/runInBackground.ts).
   const canBackground = backgroundsWork(snapshot.summary);
+  // When nothing moves (nothing in the foreground, a refusal, no answer), a line above the composer
+  // says so (conversation/backgroundNotice.ts).
+  const background = useBackgroundNotice(shownSessionId);
+  const trackBackground = background.track;
   const runInBackground = useCallback(
-    (toolCallId?: string) => void directClient.current?.backgroundWork(toolCallId).catch(() => undefined),
-    [],
+    (toolCallId?: string) => trackBackground(directClient.current?.backgroundWork(toolCallId)),
+    [trackBackground],
   );
   const foreground = useMemo(
     () => (canBackground && snapshot.isWorking ? foregroundCalls(snapshot.rows) : []),
@@ -6452,6 +6457,11 @@ function AcpmuxPane() {
           />
         </Notice>
       )}
+      <Notice id="background" tier="status" when={background.notice}>
+        <output className="acpmux-switch-notice acpmux-background-notice">
+          {background.notice && t(BACKGROUND_NOTICE_TEXT[background.notice])}
+        </output>
+      </Notice>
       <Notice id="worktree-creating" tier="status" when={worktreeCreating && freshChat && !snapshot.sessionId}>
         <output className="acpmux-switch-notice acpmux-worktree-creating">{t("worktree.creating")}</output>
       </Notice>
