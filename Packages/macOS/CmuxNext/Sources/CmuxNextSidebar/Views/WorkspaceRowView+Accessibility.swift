@@ -31,6 +31,7 @@ extension WorkspaceRowView {
         if let s = content.trailingStatus { parts.append(s) }
         if let s = content.status?.searchText, !s.isEmpty { parts.append(s) }
         if let s = content.badge { parts.append(s) }
+        if let badge = content.pullRequests { parts.append(Strings.pullRequests(badge)) }
         if let value = content.progress?.value { parts.append(Strings.progressPercent(Int((value * 100).rounded()))) }
         if let count { parts.append(Strings.tabCount(count)) }
         switch ws.unread {
@@ -39,7 +40,7 @@ extension WorkspaceRowView {
         default: break
         }
         if let text = Strings.activity(content.activity) { parts.append(text) }
-        if ws.muted { parts.append(Strings.muted) }
+        if ws.muted { parts.append(Strings.notificationsMuted) }
         if !presenceDots.isHidden { parts += presenceDots.presence.map(Strings.presenceLine) }
         return parts.joined(separator: ", ")
     }

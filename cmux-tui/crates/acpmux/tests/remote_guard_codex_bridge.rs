@@ -47,8 +47,12 @@ fn hub(d: &Path) -> Arc<Hub> {
     std::fs::set_permissions(&codex, std::fs::Permissions::from_mode(0o755)).unwrap();
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
-            "bridge": {"argv": [codex, "app-server"]},
+            "bridge": {"argv": [codex.clone(), "app-server"]},
+            "bridge-placeholder": {"argv": [d.join("missing/codex"), "app-server"]},
             "adapter": {"argv": ["python3", FAKE_AGENT, "codex-acp"], "family": "codex"},
+        },
+        "defaults": {
+            "bridge-placeholder": {"env": {"CODEX_PATH": codex}}
         },
         "defaultHarness": "bridge",
         "permissionPolicy": "ask",
@@ -132,6 +136,25 @@ async fn an_authenticated_web_connection_drives_the_codex_bridge_in_full_access(
 }
 
 #[tokio::test]
+async fn a_remote_codex_bridge_validates_the_effective_codex_path() {
+    let d = dir("effective-path");
+    let hub = hub(&d);
+    let mut web = Client::new(&hub, Origin::Web, ConnAuth::ListenerToken);
+    let created = web.new_on(&d, "bridge-placeholder").await;
+    let session = created["result"]["sessionId"]
+        .as_str()
+        .unwrap_or_else(|| panic!("valid CODEX_PATH was refused: {created}"));
+    let reply = web
+        .call(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]}),
+        )
+        .await;
+    assert_eq!(reply["result"]["stopReason"], "end_turn", "{reply}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[tokio::test]
 async fn the_codex_acp_adapter_stays_refused_on_the_web() {
     let d = dir("adapter");
     let hub = hub(&d);
@@ -177,5 +200,27 @@ async fn the_unix_socket_and_a_peers_local_client_still_need_the_person() {
     via_web["_meta"] = json!({"acpmux": {"via": "web"}});
     let r = peer.call("session/set_mode", via_web).await;
     assert!(r.get("error").is_none(), "peer via web: {r}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// A session a remote device STARTS on the bridge begins in its `ask` mode
+/// (approval `untrusted`: Codex asks before every change), never in the
+/// bridge's default `agent`, and the catalog tells the device so: the
+/// bridge is startable in `ask`, the adapter is not (cnx-ios parity round 2).
+#[tokio::test]
+async fn a_remote_device_starts_the_codex_bridge_in_its_asking_mode() {
+    let d = dir("ask");
+    let hub = hub(&d);
+    let mut web = Client::new(&hub, Origin::Web, ConnAuth::ListenerToken);
+    let created = web.new_on(&d, "bridge").await;
+    assert_eq!(created["result"]["modes"]["currentModeId"], "ask", "{created}");
+    let catalog = web.call("_acpmux/harnesses", json!({})).await;
+    let rows = &catalog["result"]["harnesses"];
+    assert_eq!(rows["bridge"]["remote"], json!({"startable": true, "modes": ["ask"]}), "{catalog}");
+    assert_eq!(rows["adapter"]["remote"]["startable"], json!(false), "{catalog}");
+    // The unix socket's own new session keeps the bridge's default.
+    let mut local = Client::new(&hub, Origin::Local, ConnAuth::LocalSocket);
+    let own = local.new_on(&d, "bridge").await;
+    assert_ne!(own["result"]["modes"]["currentModeId"], "ask", "{own}");
     let _ = std::fs::remove_dir_all(&d);
 }

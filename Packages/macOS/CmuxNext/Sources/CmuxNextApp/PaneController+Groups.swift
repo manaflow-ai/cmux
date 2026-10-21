@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextTabs
 
 // Tab group intents -> daemon tab group commands. The strip
@@ -11,7 +12,7 @@ import CmuxNextTabs
 // v2 operation and stay on the raw commands.
 extension PaneController {
     /// The v2 tab group operations apply (state resources and public ids).
-    private var usesStateGroups: Bool { daemon.store.servesStateResources && pane.resourceID != nil }
+    var usesStateGroups: Bool { daemon.store.servesStateResources && pane.resourceID != nil }
 
     func handleGroup(_ intent: TabStripIntent) {
         let handle = pane.handle
@@ -37,31 +38,14 @@ extension PaneController {
             }
         case .addToGroup(let tabID, let id, let index):
             guard let tab = tab(tabID) else { return }
-            let surface = tab.surface, resource = tab.resourceID, index = index.map { StripOrder.groupIndex($0, moving: tabID, group: id, in: self) }
-            let group = TabGroupID_(id)
-            groupCommand("add-tabs-to-group") { connection, transaction in
-                if v2, let resource { return try await connection.state.addTabs([resource], toTabGroup: group.rawValue, index: index) }
-                _ = try await connection.addTabs([surface], toGroup: group, index: index, transaction: transaction)
-            }
+            let index = index.map { StripOrder.groupIndex($0, moving: tabID, group: id, in: self) }
+            groupCommand("add-tabs-to-group", groupWrites.add([tab], to: TabGroupID_(id), index: index))
         case .removeFromGroup(let tabID, _):
             guard let tab = tab(tabID) else { return }
-            let surface = tab.surface, resource = tab.resourceID
-            groupCommand("remove-tabs-from-group") { connection, transaction in
-                if v2, let resource { return try await connection.state.removeTabsFromTabGroup([resource]) }
-                _ = try await connection.removeTabsFromGroup([surface], transaction: transaction)
-            }
+            groupCommand("remove-tabs-from-group", groupWrites.remove([tab]))
         case .createGroup(let item, let tabs):
-            let models = tabs.compactMap { tab($0) }
-            let surfaces = models.map(\.surface), resources = models.compactMap(\.resourceID)
             // Writes stay on the token path until the daemon takes `#RRGGBB` for tab groups (cx-wqn5).
-            let name = item.name, color = item.colorToken.rawValue
-            groupCommand("create-tab-group") { connection, transaction in
-                if v2, resources.count == surfaces.count, !resources.isEmpty {
-                    _ = try await connection.state.createTabGroup(tabs: resources, name: name, color: color)
-                    return
-                }
-                _ = try await connection.createTabGroup(in: handle, tabs: surfaces, name: name, color: color, transaction: transaction)
-            }
+            groupCommand("create-tab-group", groupWrites.create(tabs.compactMap { tab($0) }, name: item.name, color: item.colorToken.rawValue))
         case .group(let command):
             run(command)
         default:
@@ -116,25 +100,20 @@ extension PaneController {
     /// group when nil) if membership differs. Needs tab-groups-v1.
     func syncGroupMembership(of tab: TabModel, to group: String?) {
         guard tab.tabGroup?.rawValue != group, daemon.supports(DaemonCapabilities.shared.tabGroups) else { return }
-        let surface = tab.surface, resource = usesStateGroups ? tab.resourceID : nil
         if let group {
-            let id = CmuxNextDaemon.TabGroupID(rawValue: group)
-            groupCommand("add-tabs-to-group") { c, t in
-                if let resource { return try await c.state.addTabs([resource], toTabGroup: group) }
-                _ = try await c.addTabs([surface], toGroup: id, transaction: t)
-            }
+            groupCommand("add-tabs-to-group", groupWrites.add([tab], to: CmuxNextDaemon.TabGroupID(rawValue: group)))
         } else {
-            groupCommand("remove-tabs-from-group") { c, t in
-                if let resource { return try await c.state.removeTabsFromTabGroup([resource]) }
-                _ = try await c.removeTabsFromGroup([surface], transaction: t)
-            }
+            groupCommand("remove-tabs-from-group", groupWrites.remove([tab]))
         }
     }
 
     /// Sends a group command with a fresh transaction, shown at once
     /// through the store's intent log when it has an `intent`.
-    private func groupCommand(_ label: String, intent: Intent? = nil,
-                              _ body: @escaping @Sendable (DaemonConnection, ClientTransactionID) async throws -> Void) {
+    /// This pane's group membership writes (`TabGroupWrites`), shared with the tab group actions.
+    var groupWrites: TabGroupWrites { TabGroupWrites(pane: pane, daemon: daemon) }
+
+    func groupCommand(_ label: String, intent: Intent? = nil,
+                      _ body: @escaping @Sendable (DaemonConnection, ClientTransactionID) async throws -> Void) {
         Task {
             let ok = await daemon.runGroupCommand(label, intent: intent, body)
             if ok { StripOrder.settle([self]) } else { resyncStrip() } // one ordering source (R38)
@@ -143,6 +122,6 @@ extension PaneController {
 }
 
 /// Daemon tab group id from the strip's id.
-private func TabGroupID_(_ id: CmuxNextTabs.TabGroupID) -> CmuxNextDaemon.TabGroupID {
+func TabGroupID_(_ id: CmuxNextTabs.TabGroupID) -> CmuxNextDaemon.TabGroupID {
     CmuxNextDaemon.TabGroupID(rawValue: id.rawValue)
 }

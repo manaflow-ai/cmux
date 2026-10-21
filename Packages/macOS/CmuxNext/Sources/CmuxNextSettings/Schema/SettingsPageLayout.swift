@@ -12,7 +12,9 @@ public nonisolated struct SettingsPageLayout: Sendable {
     /// studio, file actions). Raw values are the export's card ids.
     public nonisolated enum Card: String, Sendable, Hashable, CaseIterable {
         case themeStudio, terminalInfo, ghosttyDiagnostics, computerUse, harnesses, spaces, browserProfiles
-        case machines, accounts, agentHarnesses, agentIntegrations, advancedInfo, advancedActions, backdrops
+        case machines, accounts, agentHarnesses, agentIntegrations, chiefs, advancedInfo, advancedActions, backdrops, mobile, chiefPet
+        /// The density tiles, preview and custom density editor (plans/cmux-next/density-DESIGN.md).
+        case density
     }
 
     /// A group card as the layout states it: the rows of a schema group
@@ -92,7 +94,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 group("settings.group.window"), group("settings.group.tabs"), group("settings.group.columns"),
                 group("settings.group.history"), group("settings.group.quit"), group("settings.group.picker"),
                 group("settings.group.tasks"), group("settings.group.diffViewer"), group("settings.group.markdownViewer"),
-                group("settings.group.files"), group("settings.group.updates"),
+                // The Screenshots pane's folders sit beside the other file-viewer groups.
+                group("settings.group.files"), group("settings.group.screenshots"), group("settings.group.updates"),
                 group("settings.group.announcements"), group("settings.group.chats"),
             ],
             trail: [.spaces], actions: [.general, .rooms], aliases: [.general, .rooms]),
@@ -105,14 +108,18 @@ public nonisolated struct SettingsPageLayout: Sendable {
         CategorySpec(
             id: "appearance", title: section(.appearance), symbol: "paintbrush",
             groups: [
-                group("settings.group.terminalFont"), group("settings.group.densityMotion"), group("settings.group.colorTransition"),
+                // Motion holds ui.animations.enabled and the per-area switches (f35023e54c1c);
+                // without a group here they had no row on the page.
+                group("settings.group.terminalFont"), group("settings.group.densityMotion"), group("settings.group.motion"),
+                group("settings.group.colorTransition"),
                 group("settings.group.windowBackground"), group("settings.group.panes"), group("settings.group.focusRing"),
                 group("settings.group.sidebar"), group("settings.group.workspaceRows"),
                 group("settings.group.statusIndicator"), group("settings.group.surfaces"),
             ],
             // Change Background… lands here: the art picker draws appearance.background and
             // appearance.backgroundOpacity (search still shows them as rows).
-            lead: [.backdrops], actions: [.appearance], aliases: [.appearance]),
+            // The density card draws appearance.density, .customDensity and .customDensities.
+            lead: [.backdrops, .density], actions: [.appearance], aliases: [.appearance]),
         CategorySpec(
             id: "terminal", title: section(.terminal), symbol: "terminal",
             groups: [
@@ -143,13 +150,19 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 group("settings.group.sessions"),
                 // Whether agent sessions may start sub-sessions, how many and how deep.
                 group("settings.group.subsessions"),
-                // The Chief pet floating over every app, and its character.
-                group("settings.group.chiefPet"),
+                // Folders that start an agent without the trust question.
+                group("settings.group.folderTrust"),
             ],
             // Harnesses lists every harness; Your Agents (BRING-YOUR-OWN-HARNESS) adds, checks and
-            // removes the ones you added. Agent integrations (optional help, collapsed) installs
-            // the hooks that report an agent's state, through `cmux agent hook`.
-            trail: [.harnesses, .agentHarnesses, .computerUse, .agentIntegrations]),
+            // removes the ones you added; Chiefs lists every Chief, each opening its editor (u2586).
+            // Agent integrations (optional help, collapsed) installs the hooks that report an
+            // agent's state, through `cmux agent hook`.
+            trail: [.harnesses, .agentHarnesses, .chiefs, .computerUse, .agentIntegrations]),
+        // The Chief pet floating over every app (ChatGPT's Mini & Pets): its card draws the preview,
+        // Show/Hide and the characters from its group's two rows (the page lists them for search).
+        CategorySpec(
+            id: "chief-pet", title: SettingsText.keyed("settings.category.chiefPet", "Chief Pet"), symbol: "pawprint",
+            groups: [group("settings.group.chiefPet")], lead: [.chiefPet]),
         // A core cmux feature: banners, sounds, the attention ring and the
         // feed for agents, terminal programs and `cmux notify`.
         CategorySpec(
@@ -192,6 +205,10 @@ public nonisolated struct SettingsPageLayout: Sendable {
             // Phone access sits beside the account it signs in with and the machines list.
             groups: [group("settings.group.phone")],
             lead: [.accounts, .machines], actions: [.accounts, .machines], aliases: [.accounts, .machines]),
+        // Phones reaching this Mac: the iPhone host's switch, then its live status and phones.
+        CategorySpec(
+            id: "mobile", title: SettingsText.keyed("settings.category.mobile", "Mobile"), symbol: "iphone",
+            groups: [group("settings.group.mobile")], trail: [.mobile]),
         CategorySpec(
             id: "advanced", title: section(.advanced), symbol: "curlybraces", groups: [],
             lead: [.advancedInfo], trail: [.advancedActions], actions: [.advanced], aliases: [.advanced]),

@@ -6,7 +6,7 @@
 //
 // - ↑ on the empty prompt reaches the last queued prompt; ⌥↑ moves it up, and it keeps focus.
 // - Return edits a queued prompt in its row; it keeps its place.
-// - ⌘Return sends one now; Delete removes one.
+// - ⌘Return on a queued prompt does nothing (it means "not now"); Delete removes one.
 // - A queue a failed turn paused says so, and Resume runs it again.
 //
 // Real Chromium from Playwright; skipped where it is not installed (the hosted webviews job).
@@ -260,23 +260,20 @@ await requireBrowserLane("agent-pane-queue.test.ts", async () => {
       await page.close();
     });
 
-    test("⌘Return sends a queued prompt now; Delete removes one", async () => {
+    test("⌘Return on a queued prompt sends nothing and keeps it focused; Delete removes it", async () => {
       const page = await openChat();
       await page.locator(".acpmux-composer-prompt").click();
       await page.keyboard.press("ArrowUp");
       await page.keyboard.press("ArrowUp");
       expect(await focused(page)).toBe("q-2");
       await page.keyboard.press("Meta+Enter");
-      await page.waitForFunction(() => document.querySelectorAll(".acpmux-queued").length === 2);
-      await page.waitForFunction(() => (document.activeElement as HTMLElement | null)?.dataset.promptId === "q-3");
+      await page.waitForTimeout(300);
+      expect({ edits, focused: await focused(page) }).toEqual({ edits: [], focused: "q-2" });
       await page.keyboard.press("Delete");
-      await page.waitForFunction(() => document.querySelectorAll(".acpmux-queued").length === 1);
+      await page.waitForFunction(() => document.querySelectorAll(".acpmux-queued").length === 2);
       expect({ edits, rows: await rows(page) }).toEqual({
-        edits: [
-          { op: "send_now", promptId: "q-2" },
-          { op: "remove", promptId: "q-3" },
-        ],
-        rows: ["first"],
+        edits: [{ op: "remove", promptId: "q-2" }],
+        rows: ["first", "third"],
       });
       await page.close();
     });

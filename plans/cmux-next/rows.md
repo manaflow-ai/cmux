@@ -305,7 +305,7 @@ the row axis; the app step builds on 6553984ff79 or later.
   `SetRowHeights` for the column.
 - Z2. Resize Pane Up/Down (Ctrl-Shift-K/J or Ctrl-Cmd-Up/Down) at a row boundary changes the row height by the same
   step as a column edge.
-- Z3. Equalize Splits (Ctrl-Shift-Cmd-=) also equalizes the focused column's rows when they fit
+- Z3. Equalize Splits (Ctrl-Cmd-=) also equalizes the focused column's rows when they fit
   (sum at most 1000); otherwise only the splits.
 
 ## Off switch (`layout.rows`)

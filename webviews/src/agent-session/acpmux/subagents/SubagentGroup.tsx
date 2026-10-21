@@ -53,8 +53,14 @@ export function groupElapsed(agents: readonly Subagent[], now: number): number {
   return Math.max(0, end - start);
 }
 
-/// The current time, ticking each second only while `live`.
+/// The session's clock against this computer's (the snapshot's `clockOffsetMs`: this computer's
+/// clock minus the session's; a peer runs on its own). A subagent's times are the session's.
+export const SubagentClockContext = createContext(0);
+
+/// The current time on the session's clock (SubagentClockContext), ticking each second only
+/// while `live`, so it counts against the subagents' own start and end times.
 export function useNow(live: boolean): number {
+  const offset = useContext(SubagentClockContext);
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     if (!live) return;
@@ -62,7 +68,7 @@ export function useNow(live: boolean): number {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [live]);
-  return now;
+  return now - offset;
 }
 
 function Avatar({ agent, dot = false }: { agent: Subagent; dot?: boolean }) {
@@ -82,12 +88,15 @@ function groupLabel(t: Translate, language: PaneLanguage, agents: readonly Subag
   const n = agents.length;
   const count = (state: string) => agents.filter((agent) => agent.state === state).length;
   const [runningCount, failed, done] = [count("running"), count("failed"), count("completed")];
+  // Stopped by the person (cancelled) or lost by acpmux (disconnected): ended, not failed.
+  const stopped = count("cancelled") + count("disconnected");
   if (n > 0 && runningCount === n) return t("subagents.allRunning", { n });
   if (n > 0 && done === n) return t("subagents.allDone", { n });
   if (n > 0 && failed === n) return t("subagents.allFailed", { n });
   const states = [
     runningCount > 0 && t("summary.subagents.running", { n: runningCount }),
     failed > 0 && t("summary.subagents.failed", { n: failed }),
+    stopped > 0 && t("summary.subagents.stopped", { n: stopped }),
     runningCount === 0 && done > 0 && t("summary.subagents.done", { n: done }),
   ].filter((part): part is string => typeof part === "string");
   const total = t("subagents.count", { n });

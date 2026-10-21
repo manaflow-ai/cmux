@@ -205,8 +205,8 @@ cmux workspace <selector> show|focus|close
 cmux workspace <selector> rename --name <value>
 cmux workspace <selector> update [--title <value>|--clear-title] [--color <value>|--clear-color] [--icon <value>|--clear-icon]
 cmux workspace <selector> move --index <n>
-cmux workspace <selector> run [--on-exit <close|keep>] [--cwd <path>] [--name <value>] -- <argv...>
-cmux workspace <selector> run [--on-exit <close|keep>] shell <script>
+cmux workspace <selector> run [--on-exit <close|keep|shell>] [--cwd <path>] [--name <value>] -- <argv...>
+cmux workspace <selector> run [--on-exit <close|keep|shell>] shell <script>
 cmux workspace <selector> layout apply --layout <json>
 cmux workspace <selector> screen ...
 cmux workspace [<selector>] status list
@@ -290,7 +290,7 @@ cmux pane <selector> swap --other-workspace <sel> --other-screen <sel> --other-p
 cmux pane <selector> zoom [--enabled <bool>]
 cmux pane <selector> split ratio set --split <split_id> --ratio <value>
 cmux pane <selector> viewport width set --columns <value>
-cmux pane <selector> run [--on-exit <close|keep>] [--cwd <path>] [--name <value>] -- <argv...>
+cmux pane <selector> run [--on-exit <close|keep|shell>] [--cwd <path>] [--name <value>] -- <argv...>
 cmux pane <selector> tab ...
 ```
 
@@ -543,6 +543,12 @@ Every action in the app's registry is also a verb under its CLI name:
 `--<argument> <value>` per the action's schema; `--target`, `--wait` and
 `--interactive` work as in `action run`. `cmux action list` lists the names and
 `cmux action describe <id>` shows the arguments and targets.
+
+Move to New Window is `cmux <noun> move-to-new-window --target <id>` for
+`tab`, `tab-group`, `pane`, `screen`, `screen-group`, `workspace` and
+`workspace-group`; `cmux <noun> move-to-window --new --target <id>` is the
+same command. The new window opens beside the old one and takes the focus;
+terminals keep running and pages keep their state.
 
 ## `cmux coderouter`
 
