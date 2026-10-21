@@ -75,6 +75,22 @@ import Testing
         #expect(bar.order == [Self.keys[0], Self.keys[2], Self.keys[1]])
     }
 
+    /// While the dot moves, the strip shows the order a drop would give and the model keeps its own
+    /// until the drop; off the band the strip shows the order unchanged.
+    @Test func theOtherDotsMakeWayWhileTheDotMoves() {
+        let bar = Bar()
+        defer { bar.window.orderOut(nil) }
+        let y = bar.center(0).y
+        bar.view.mouseDown(with: bar.event(.leftMouseDown, bar.center(0)))
+        bar.view.mouseDragged(with: bar.event(.leftMouseDragged, NSPoint(x: bar.center(1).x + 2, y: y)))
+        #expect(bar.view.previewOrder == [Self.keys[1], Self.keys[0], Self.keys[2]])
+        #expect(bar.order == Self.keys, "the model moved before the drop")
+        bar.view.mouseDragged(with: bar.event(.leftMouseDragged, NSPoint(x: bar.center(1).x + 2, y: y - 200)))
+        #expect(bar.view.previewOrder == Self.keys, "off the footer band the strip still shows a move")
+        bar.view.mouseUp(with: bar.event(.leftMouseUp, NSPoint(x: bar.center(1).x + 2, y: y - 200)))
+        #expect(bar.reorders.isEmpty, "\(bar.intents)")
+    }
+
     /// The drop target is the footer band: released far above it, nothing moves.
     @Test func aDotDroppedOffTheFooterBandMovesNothing() {
         let bar = Bar()
