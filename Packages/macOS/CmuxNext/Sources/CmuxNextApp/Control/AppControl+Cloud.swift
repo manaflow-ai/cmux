@@ -57,7 +57,8 @@ extension AppControl {
                     ]
                     return .object(fields)
                 }
-                return .value(.object(["machines": .array(rows), "creations": .array(services.cloud.creations.controlRows),
+                return .value(.object(["machines": .array(rows), "loaded": .bool(services.cloud.hasLoadedMachines),
+                                       "creations": .array(services.cloud.creations.controlRows),
                                        "last_error": services.cloud.lastError.map(JSONValue.string) ?? .null]))
             },
         ])

@@ -52,7 +52,8 @@ them). The full set is in [the command reference](references/commands.md).
 
 Before creating a machine, check whether it already exists: `cmux cloud list-machines`
 answers the app's own machine list (the sidebar's Cloud machines), each with the
-`target` the other verbs take and its `status` (`paused` for a paused machine).
+`target` the other verbs take and its `status` (`paused` for a paused machine). Act on
+it only when it says `loaded: true`: `loaded: false` means the list is not known yet.
 `cmux machine list` reads the daemon's machine catalog, which does not list Cloud machines.
 
 ## Work inside a machine

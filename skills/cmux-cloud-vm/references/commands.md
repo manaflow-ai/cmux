@@ -39,10 +39,18 @@ cmux cloud list-machines --json
 ```
 
 ```json
-{"machines": [{"machine_id": "vm-…", "target": "machine:vm-…", "title": "api",
+{"loaded": true,
+ "machines": [{"machine_id": "vm-…", "target": "machine:vm-…", "title": "api",
                "status": "running", "owner": "team", "created_at": "2026-10-21T08:00:00Z"}],
  "count": 1, "account": {"signed_in": true}}
 ```
+
+- `loaded` says whether the app holds a machine list the server answered. Until it
+  does (right after launch, signed out, or a first list that failed) the answer is
+  `loaded: false` with no machines: that means "not known yet", not "none", so do
+  not create a machine on it. A run that finds the list unloaded loads it first and
+  answers within about 25 s; a load that takes longer answers `loaded: false` and
+  `pending: true` while it finishes, so run it again.
 
 - `status` is the machine's record: `provisioning`, `running`, `paused`, `failed` or
   `unknown`. A paused machine reads `paused`, never `failed`.
@@ -51,9 +59,8 @@ cmux cloud list-machines --json
 - `account` has `signed_in`. It has no `limits`: the app does not keep the plan's
   `max_active_vms`, and a machine count is not an entitlement (`0` means provisioning
   is closed on the plan, `null` means uncapped), so check the plan, not the count.
-- Signed out, it answers `signed_in: false` and no machines. Right after launch it waits
-  for the saved sign-in to restore first. Signed in with a list that has not loaded, it
-  loads it, and refuses if that fails rather than answering an empty list.
+- Signed out, it answers `signed_in: false` and `loaded: false`. Right after launch it
+  waits for the saved sign-in to restore first.
 - `cmux machine list` reads the daemon's machine catalog, which does not list Cloud
   machines; use `cloud list-machines` for those.
 

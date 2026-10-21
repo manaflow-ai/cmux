@@ -36,8 +36,21 @@ struct CloudListMachinesTests {
         return members
     }
 
+    /// The CLI, MCP and a script all get the list as JSON (arrays and objects, not a string).
     @Test(arguments: [ActionOrigin.cli, .mcp, .script])
-    func aNonPersonRunGetsTheMachinesAsJSON(origin: ActionOrigin) async throws {
+    func aNonPersonRunGetsTheListAsJSON(origin: ActionOrigin) async throws {
+        let services = Self.services()
+        let fields = try #require(try await Self.run(services, origin: origin), "a \(origin) run tracked no result")
+        guard case .bool(_)? = fields["loaded"], case .array(_)? = fields["machines"], case .int(_)? = fields["count"] else {
+            Issue.record("not the list's shape: \(fields)")
+            return
+        }
+        #expect(Self.members(fields["account"])?["signed_in"] != nil)
+    }
+
+    /// Each machine of a loaded list, with the target the other verbs take; a paused one reads
+    /// `paused` (its progress stage says failed).
+    @Test func aLoadedListGivesEachMachineAndItsStatus() throws {
         let services = Self.services()
         let running = MachineIconTests.cloudMachine(services, id: "vm-list-run-\(UUID().uuidString.prefix(8))")
         let paused = MachineIconTests.cloudMachine(services, id: "vm-list-pause-\(UUID().uuidString.prefix(8))")
@@ -45,7 +58,8 @@ struct CloudListMachinesTests {
         paused.machine.displayName = "Paused VM"
         paused.machine.createdAt = Date(timeIntervalSince1970: 1_760_000_000)
 
-        let fields = try #require(try await Self.run(services, origin: origin), "a \(origin) run tracked no result")
+        let fields = CloudHandlers.machineListFields(AppActionContext(services: services), loaded: true)
+        #expect(fields["loaded"] == .bool(true))
         guard case .array(let rows)? = fields["machines"] else {
             Issue.record("machines is not a list: \(String(describing: fields["machines"]))")
             return

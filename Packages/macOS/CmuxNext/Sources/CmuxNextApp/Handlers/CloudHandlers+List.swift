@@ -28,35 +28,44 @@ extension CloudHandlers {
             return
         }
         let cloud = context.services.cloud
-        result("list Cloud machines", context) {
-            // At launch the session may still be restoring: signed out until it is, which
-            // would answer an empty list for an account that has machines.
+        // A first load that outlasts `listLoadWait` answers what the store has
+        // now (`loaded: false`, `pending: true`) inside `action.run`'s result
+        // deadline; the refresh keeps going and the next run reads its list.
+        result("list Cloud machines", context, pendingAfter: listLoadWait, pending: machineListFields(context, loaded: false)) {
+            // At launch the session may still be restoring: signed out until it is.
             if cloud.auth.isRestoring { await cloud.auth.awaitRestored() }
             // The list is fetched at sign-in, after every machine change and on
             // activation, so a loaded store is current: no request. One that has
             // not loaded yet takes the same refresh the sidebar's does.
             if cloud.isSignedIn, !cloud.hasLoadedMachines { await cloud.refresh() }
-            // An unloaded list is not an empty one: answering "no machines" would
-            // send an idempotent caller off to create a second machine.
-            if cloud.isSignedIn, !cloud.hasLoadedMachines {
-                throw ActionFailure(message: CloudStrings.machineListUnavailable)
-            }
-            return machineListFields(context)
+            return machineListFields(context, loaded: cloud.hasLoadedMachines)
         }
     }
 
-    /// `cloud list-machines`' result: `machines` (one object per machine in
-    /// the store) and `account`. `account` holds only what the store knows:
-    /// it keeps no plan limits (`max_active_vms`), and a count of machines is
-    /// no entitlement (0 is a closed plan, null an uncapped one), so the
-    /// answer leaves `limits` out rather than guess.
-    static func machineListFields(_ context: AppActionContext) -> [String: ActionResultValue] {
+    /// How long a run waits for the store's first load before it answers
+    /// `loaded: false`: inside `action.run`'s 40 s result deadline.
+    static let listLoadWait: Duration = .seconds(25)
+
+    /// `cloud list-machines`' result: `loaded`, `machines` (one object per
+    /// machine in the store), `count` and `account`.
+    ///
+    /// `loaded` is whether the store holds a list the server answered
+    /// (``CloudService/hasLoadedMachines``). Before that (a relaunch, signed
+    /// out, a failed first list) the store's list says nothing about which
+    /// machines exist, so the answer has no machines: a caller never reads
+    /// "not loaded yet" as "none" and creates a second one.
+    ///
+    /// `account` holds only what the store knows: it keeps no plan limits
+    /// (`max_active_vms`), and a count of machines is no entitlement (0 is a
+    /// closed plan, null an uncapped one), so the answer leaves `limits` out.
+    static func machineListFields(_ context: AppActionContext, loaded: Bool) -> [String: ActionResultValue] {
         let cloud = context.services.cloud
         // The list is fetched for the account's team when it has one (the
         // `X-Cmux-Team-Id` the API client sends), else for the person alone.
         let owner = cloud.auth.teamID == nil ? "personal" : "team"
-        let machines = context.services.machines.cloud.map { listedMachine($0, owner: owner) }
+        let machines = loaded ? context.services.machines.cloud.map { listedMachine($0, owner: owner) } : []
         return [
+            "loaded": .bool(loaded),
             "machines": .array(machines),
             "count": .int(machines.count),
             "account": .object(["signed_in": .bool(cloud.isSignedIn)]),
