@@ -14,6 +14,7 @@ use cmux_cloud_wire::{
     CloudVmReceiverPeerServicesItem, Op, OpRequest, ReadResponse,
 };
 use cmux_link::dial::Service;
+use cmux_link::elapsed::Elapsed;
 use cmux_link::keyset::{Keyset, read_answer};
 use cmux_link::native_token::{NativeBinding, NativePeer, NativePolicy, ReceiverTime};
 use serde::Deserialize;
@@ -50,6 +51,7 @@ pub struct ReceiverSnapshot {
     policy: CloudVmNetworkPolicyView,
     keys: Keyset,
     started: Instant,
+    elapsed: Option<Elapsed>,
     issuer: String,
 }
 
@@ -64,6 +66,16 @@ impl ReceiverSnapshot {
     pub fn expires(&self) -> Instant {
         self.started
             + Duration::from_millis((self.policy.expires_at - self.policy.checked_at) as u64)
+    }
+
+    /// Local age of the original request. Suspend-inclusive readings can only
+    /// increase the debit; backwards or unavailable clocks close the snapshot.
+    pub fn elapsed(&self, now: Instant) -> Option<Duration> {
+        let active = now.checked_duration_since(self.started)?;
+        Some(match &self.elapsed {
+            Some(source) => active.max(source.elapsed()?),
+            None => active,
+        })
     }
 
     /// Conservative issuer time: debit the whole request, including auth and
@@ -153,6 +165,17 @@ impl<H: Http> CloudClient<H> {
         now_wall_ms: u64,
         started: Instant,
     ) -> Result<ReceiverSnapshot, String> {
+        let elapsed = Elapsed::system().ok_or(UNAVAILABLE)?;
+        self.receiving_policy_with_elapsed(wg_public, now_wall_ms, started, elapsed)
+    }
+
+    pub(super) fn receiving_policy_with_elapsed(
+        &mut self,
+        wg_public: &str,
+        now_wall_ms: u64,
+        started: Instant,
+        elapsed: Elapsed,
+    ) -> Result<ReceiverSnapshot, String> {
         let deadline = started + REQUEST_BUDGET;
         let token = self.token_until(now_wall_ms, Some(deadline))?;
         let body = serde_json::to_value(OpRequest::new::<CloudVmNetworkPolicyOp>(
@@ -189,6 +212,7 @@ impl<H: Http> CloudClient<H> {
             policy: read.value.0,
             keys,
             started,
+            elapsed: Some(elapsed),
             issuer: format!("cmux:cloud:{}", self.bound().env.auth_environment()),
         };
         snapshot.time(Instant::now()).ok_or(UNAVAILABLE)?;

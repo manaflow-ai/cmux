@@ -110,7 +110,7 @@ impl ReceiverSnapshot {
         // without rewriting authenticated NumericDates. It can only shorten.
         let started = deadline.checked_sub(lifetime).ok_or(UNAVAILABLE)?;
         let keys = read_keyset(&keyset).map_err(|_| UNAVAILABLE)?;
-        let snapshot = Self { policy, keys, started, issuer };
+        let snapshot = Self { policy, keys, started, issuer, elapsed: None };
         if snapshot.time(now).ok_or(UNAVAILABLE)?.unix_ms < issuer_time_ms {
             return Err(UNAVAILABLE.into());
         }
