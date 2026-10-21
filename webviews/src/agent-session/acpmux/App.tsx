@@ -95,6 +95,7 @@ import { openPicker } from "./pickerOpeners";
 import { EmptyState, type EmptyStateProjects, isNewChat, projectName } from "./EmptyState";
 import { PastChat, type PastTurn, readPastTurns } from "./PastChat";
 import type { Project } from "./ProjectChooser";
+import { parseProjectRepos } from "./projectRepos";
 import { HomeLists } from "./HomeLists";
 import { endsTurn, turnFiles, turnRows, type TurnFile } from "./diff";
 import { opensTurn } from "./turnStart";
@@ -5823,12 +5824,17 @@ function AcpmuxPane() {
   };
   const loadNewTabProjects = useCallback(
     () =>
-      callNative<{ projects?: string[] }>("project.list").then((result) =>
-        (result?.projects ?? []).map((cwd) => ({ cwd, label: projectName(cwd) ?? cwd })),
-      ),
+      callNative<{ projects?: string[]; repos?: unknown }>("project.list").then((result) => {
+        // Each folder's repository (projectRepos.ts): the pickers fold worktrees under it.
+        const repos = parseProjectRepos(result?.repos);
+        return (result?.projects ?? []).map((cwd): Project => {
+          const repo = repos[cwd];
+          return { cwd, label: projectName(cwd) ?? cwd, ...(repo ? { repo } : {}) };
+        });
+      }),
     [],
   );
-  const [directProjects, setDirectProjects] = useState<{ cwd: string; label: string }[]>([]);
+  const [directProjects, setDirectProjects] = useState<Project[]>([]);
   const onNewTab = Boolean(newTab);
   useEffect(() => {
     // Start Agent's folder picker lists them too (cx-hkat), and so does the New Tab page: the
@@ -5880,15 +5886,20 @@ function AcpmuxPane() {
     [directProjects, newTab?.projects],
   );
   const newTabProjects = useMemo(() => {
-    const byPath = new Map<string, { cwd: string; label: string }>();
+    const byPath = new Map<string, Project>();
+    // A folder the host listed keeps its repository (projectRepos.ts) when a chat names it again.
+    const listed = (cwd: string): Project => {
+      const repo = byPath.get(cwd)?.repo;
+      return { cwd, label: projectLabel(cwd), ...(repo ? { repo } : {}) };
+    };
     for (const project of directProjects) byPath.set(project.cwd, project);
-    for (const path of newTab?.projects ?? []) byPath.set(path, { cwd: path, label: projectLabel(path) });
+    for (const path of newTab?.projects ?? []) byPath.set(path, listed(path));
     for (const session of newTabSnapshot.sessions) {
       if (typeof session.cwd !== "string" || !session.cwd) continue;
       if (session.host && session.hostKind !== "local") continue;
-      byPath.set(session.cwd, { cwd: session.cwd, label: projectLabel(session.cwd) });
+      byPath.set(session.cwd, listed(session.cwd));
     }
-    if (newTab?.cwd) byPath.set(newTab.cwd, { cwd: newTab.cwd, label: projectLabel(newTab.cwd) });
+    if (newTab?.cwd) byPath.set(newTab.cwd, listed(newTab.cwd));
     return [...byPath.values()];
   }, [newTabSnapshot.sessions, newTab?.cwd, newTab?.projects, directProjects]);
   // The new chat's hero picker (cx-9g0w): this Mac's projects, then other machines' folders from

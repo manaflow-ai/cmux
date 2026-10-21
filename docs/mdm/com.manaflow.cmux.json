@@ -182,6 +182,34 @@
       "title" : "Deepest Nesting",
       "type" : "number"
     },
+    "agents.trust.autoTrust" : {
+      "default" : false,
+      "description" : "Agents start in folders under your project roots, and in repositories owned by your organizations, without asking. Other folders ask first.",
+      "title" : "Trust My Own Folders Without Asking",
+      "type" : "boolean"
+    },
+    "agents.trust.ownOrgs" : {
+      "default" : [
+
+      ],
+      "description" : "A repository is trusted when all of its GitHub remotes belong to these users or organizations.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Trusted GitHub Owners",
+      "type" : "array"
+    },
+    "agents.trust.projectRoots" : {
+      "default" : [
+
+      ],
+      "description" : "Everything inside these folders is trusted. Use full paths or ~/ paths.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Trusted Project Roots",
+      "type" : "array"
+    },
     "AllowedSignInMethods" : {
       "description" : "Sign-in methods the app offers.",
       "items" : {
@@ -3336,6 +3364,12 @@
       ],
       "title" : "Section Look",
       "type" : "string"
+    },
+    "sidebar.sessionTree" : {
+      "default" : false,
+      "description" : "Lists a workspace that another workspace's agent started under it, and shows each row's pull requests and the first rows' Command-number keys.",
+      "title" : "Session Tree",
+      "type" : "boolean"
     },
     "sidebar.showChats" : {
       "default" : true,

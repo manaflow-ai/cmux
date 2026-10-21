@@ -107,7 +107,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         )
         themeScope.root(contentView)
         contentView.backgroundMenu = { [weak services, weak self] in
-            services?.registry.makeContextMenu(for: .windowBackground, target: self.map { ActionTargetRef(kind: .workspace, id: $0.workspace.id) })
+            self.flatMap { services?.registry.makeContextMenu(for: .windowBackground, target: ActionTargetRef(kind: .workspace, id: $0.workspace.id)).themeRows(in: $0.themeScope.fullStrength) }
         }
         contentView.showsBar = screenBar.isVisible
         screenBar.onVisibilityChange = { [weak self] visible in self?.contentView.showsBar = visible }
@@ -171,7 +171,12 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         attentionObservation = Task { [weak self] in
             for await marks in ObservationStream({ notifications.attentionMarks(for: workspace) }) {
                 guard let self else { return }
-                if self.layoutModel.attention != marks { self.layoutModel.attention = marks }
+                guard self.layoutModel.attention != marks else { continue }
+                // A ring read by going into its pane blinks out (classic's dismiss flash); one
+                // cleared any other way fades. Set first, so the change that removes it sees it.
+                let removed = Set(self.layoutModel.attention.keys).subtracting(marks.keys)
+                self.layoutModel.attentionReadByEntry = notifications.takeEntryReads(removed: removed, in: workspace)
+                self.layoutModel.attention = marks
             }
         }
     }
