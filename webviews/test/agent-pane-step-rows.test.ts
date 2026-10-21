@@ -207,8 +207,12 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
     expect(await page.locator(".cv-thought__body, .cv-thought__text").count()).toBe(0);
     await toggle.click();
     // The fold plays, then the text has its height.
-    await page.waitForTimeout(500);
     const thought = page.locator(".cv-thought__body");
+    await page.waitForFunction(
+      () => (document.querySelector(".cv-thought__body")?.getBoundingClientRect().height ?? 0) > 26,
+      undefined,
+      { timeout: 5_000 },
+    );
     expect((await thought.innerText()).replace(/\s+/g, " ")).toContain(THOUGHT);
     expect(await thought.evaluate((node) => node.closest("[title]") === null && !node.querySelector("[title]"))).toBe(
       true,
