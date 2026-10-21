@@ -7,6 +7,10 @@
 // past the last goes back to the prompt), Return edits it in place, ⌥↑/⌥↓ move it in the queue,
 // ⌘Return sends it now and Delete removes it. Esc goes back to the prompt.
 //
+// Every row shows its actions (Leo, 2026-10-20: "where the hell is the edit button?"): Edit,
+// Remove, Stop & send (the running turn stops and it runs next) and Send now (steered into the
+// running turn at its next step, or next when its agent cannot steer). The menu has them too.
+//
 // After a failed turn acpmux pauses the queue: a note above the rows says so, with Resume.
 //
 // A long queue folds (Leo, 2026-10-14): past three queued prompts it shows the next two and one
@@ -20,8 +24,6 @@ import { Icon } from "./icons/Icon";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import type { Translate } from "./i18n";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
-import { experimentArm } from "../../experiments/experiment";
-import { hoverActions } from "../../ui/hoverActions.experiment";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 
 type QueuedEntry = AcpmuxSnapshot["queue"][number];
@@ -240,7 +242,9 @@ export function ComposerQueue({
   // Hiding it as leaving showed nothing until the turn it stopped had ended (live run 2026-10-14).
   const sendNow =
     onChange && ((entry: QueuedEntry) => void onChange(entry.id, { op: "send_now" }).catch(() => undefined));
-  const allActions = experimentArm(hoverActions) === "all";
+  // Stop & send: acpmux puts it next and stops the running turn, which a steer would not.
+  const stopAndSend =
+    onChange && ((entry: QueuedEntry) => void onChange(entry.id, { op: "interrupt" }).catch(() => undefined));
   // A move to the place of the row shown at `index` (acpmux counts rows still leaving too); the
   // moved row keeps focus once acpmux's new order draws.
   const move =
@@ -276,8 +280,10 @@ export function ComposerQueue({
     };
     if (event.key === "Enter" && event.metaKey && sendNow) {
       done();
-      sendNow(entry);
-      focusAfter(index);
+      // A held ⌘↩ sends this row once. Focus stays on it (it reads Steering or runs next): moving
+      // on to the next row let a held or repeated ⌘↩ send every row in turn (claude-sr2,
+      // 2026-10-20).
+      if (!event.repeat) sendNow(entry);
     } else if (event.key === "Enter" && plain && onChange) {
       done();
       setEditing(entry.id);
@@ -307,19 +313,20 @@ export function ComposerQueue({
     else onLeave?.();
   };
   // The row's menu names each action's key on the row.
-  const item = (id: string, label: string, key: string, onSelect: () => void): ContextMenuItem => ({
+  const item = (id: string, label: string, key: string | undefined, onSelect: () => void): ContextMenuItem => ({
     id,
     ariaLabel: label,
     label: (
       <>
         {label}
-        <span className="ui-menu-shortcut">{key}</span>
+        {key && <span className="ui-menu-shortcut">{key}</span>}
       </>
     ),
     onSelect,
   });
   const menu = (entry: QueuedEntry, index: number): ContextMenuItem[] => [
     ...(sendNow ? [item("send", t("composer.queueSendNow"), "⌘↩", () => sendNow(entry))] : []),
+    ...(stopAndSend ? [item("stop", t("composer.queueStopAndSend"), undefined, () => stopAndSend(entry))] : []),
     ...(onChange ? [item("edit", t("composer.queueEdit"), "↩", () => setEditing(entry.id))] : []),
     ...(move
       ? [
@@ -344,6 +351,20 @@ export function ComposerQueue({
         ]
       : []),
   ];
+  // One of a row's actions: an icon button named by its tooltip.
+  const action = (id: string, icon: string, label: string, onClick: () => void) => (
+    <button
+      key={id}
+      type="button"
+      className="acpmux-queued-action"
+      data-action={id}
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+    >
+      <Icon name={icon} size={14} />
+    </button>
+  );
   // A row's mark, text (or its edit) and actions.
   const cells = (entry: QueuedEntry, index: number) => (
     <>
@@ -393,43 +414,12 @@ export function ComposerQueue({
           </span>
         </button>
       )}
-      {/* Send now is the row's one hover action; Edit and Remove are on its menu and keys (Leo dogfood
-          2026-10-13). The `hover-actions` experiment's "all" arm shows them too. */}
-      {editing !== entry.id && (sendNow || (allActions && (onChange || remove))) && (
+      {editing !== entry.id && (onChange || remove) && (
         <span className="acpmux-queued-actions">
-          {sendNow && (
-            <button
-              type="button"
-              className="acpmux-queued-action"
-              aria-label={t("composer.queueSendNow")}
-              title={t("composer.queueSendNow")}
-              onClick={() => sendNow(entry)}
-            >
-              <Icon name="composer.send" size={14} />
-            </button>
-          )}
-          {onChange && allActions && (
-            <button
-              type="button"
-              className="acpmux-queued-action"
-              aria-label={t("composer.queueEdit")}
-              title={t("composer.queueEdit")}
-              onClick={() => setEditing(entry.id)}
-            >
-              <Icon name="action.edit" size={14} />
-            </button>
-          )}
-          {remove && allActions && (
-            <button
-              type="button"
-              className="acpmux-queued-action"
-              aria-label={t("composer.queueRemove")}
-              title={t("composer.queueRemove")}
-              onClick={() => remove(entry)}
-            >
-              <Icon name="action.delete" size={14} />
-            </button>
-          )}
+          {onChange && action("edit", "action.edit", t("composer.queueEdit"), () => setEditing(entry.id))}
+          {remove && action("remove", "action.close", t("composer.queueRemove"), () => remove(entry))}
+          {stopAndSend && action("stop", "action.stop", t("composer.queueStopAndSend"), () => stopAndSend(entry))}
+          {sendNow && action("send", "composer.send", t("composer.queueSendNow"), () => sendNow(entry))}
         </span>
       )}
     </>
