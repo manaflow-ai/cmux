@@ -80,4 +80,16 @@ import Testing
         #expect(ids == ChiefPaneTools.actions.map { "cmux.action.\($0.rawValue)" })
         #expect(tools.intrinsicContentSize.width > 0)
     }
+
+    /// Chief Actions is the app's one more button (⋮, OverflowButton): VoiceOver's press opens the
+    /// same menu a pointer press does.
+    @Test func chiefActionsIsTheOverflowButton() {
+        let registry = ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases)
+        let tools = ChiefPaneTools(chief: ChiefSidebar(lanes: AgentLaneStore()), registry: registry)
+        var shown: NSMenu?
+        tools.actionsButton.presentMenu = { menu, _ in shown = menu }
+        #expect(tools.actionsButton.accessibilityPerformPress())
+        #expect(shown?.items.count == ChiefPaneTools.actions.count)
+        #expect(tools.actionsButton.accessibilityLabel() == tools.actionsButton.label)
+    }
 }
