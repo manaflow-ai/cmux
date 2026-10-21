@@ -214,6 +214,7 @@ public final class BrowserToolbarButtonsView: NSStackView {
             view.setIcon(state.icon, label: state.label)
             view.isEnabled = state.isEnabled
             view.isOn = state.isActive
+            view.progress = state.progress
         }
     }
 

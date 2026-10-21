@@ -68,8 +68,23 @@ final class BrowserDownloadList {
     /// download runs, so a running one stays reachable from every tab. The
     /// menu it opens still lists every download, kept ones included.
     func toolbarSummary(forTab key: String) -> BrowserToolbarDownloads {
-        BrowserToolbarDownloads(count: items.filter { origins[ObjectIdentifier($0)] == key }.count,
-                                inProgress: items.contains { $0.status == .inProgress })
+        let running = items.filter { $0.status == .inProgress }
+        return BrowserToolbarDownloads(count: items.filter { origins[ObjectIdentifier($0)] == key }.count,
+                                       inProgress: !running.isEmpty, progress: Self.progress(of: running))
+    }
+
+    /// The running downloads' bytes over their sizes, in whole percent
+    /// steps (so the toolbar redraws at most 100 times per download); nil
+    /// when none runs or one has no known size.
+    static func progress(of running: [BrowserDownload]) -> Double? {
+        guard !running.isEmpty else { return nil }
+        var received: Int64 = 0, total: Int64 = 0
+        for item in running {
+            guard let size = item.totalBytes, size > 0 else { return nil }
+            received += min(item.receivedBytes, size)
+            total += size
+        }
+        return (Double(received) / Double(total) * 100).rounded(.down) / 100
     }
 
     /// Forgets the origins of rows no longer listed (dropped past `limit`,
