@@ -2388,6 +2388,16 @@
       "title" : "Open Links and Files",
       "type" : "string"
     },
+    "layout.mainPane" : {
+      "default" : "agent-chats",
+      "description" : "Agent Chats keeps an agent chat as the main pane: links, files, subagents and side chats it opens appear as tabs in a column on its right, and closing that column gives the chat its full width back.",
+      "enum" : [
+        "agent-chats",
+        "off"
+      ],
+      "title" : "Main Pane",
+      "type" : "string"
+    },
     "layout.minimumPaneHeight" : {
       "default" : 64,
       "description" : "layout.minimumPaneHeight",
@@ -2671,6 +2681,18 @@
       "minimum" : 0.3,
       "title" : "Pulse Duration",
       "type" : "number"
+    },
+    "notifications.attention.flash" : {
+      "default" : true,
+      "description" : "Clicking an unread pane, typing in it or jumping to it flashes its ring as it goes.",
+      "title" : "Flash the Pane When Read",
+      "type" : "boolean"
+    },
+    "notifications.attention.flashOnTyping" : {
+      "default" : true,
+      "description" : "notifications.attention.flashOnTyping",
+      "title" : "Flash When Typing Reads It",
+      "type" : "boolean"
     },
     "notifications.attention.moveToTop" : {
       "default" : false,
@@ -3081,6 +3103,12 @@
       ],
       "title" : "Keep Mac Awake While Agents Work",
       "type" : "string"
+    },
+    "sessions.promptSuggestions" : {
+      "default" : false,
+      "description" : "Agents can suggest next tasks, which you start as child chats beside the current one. Agents started after the change get it.",
+      "title" : "Suggest Follow-Up Tasks",
+      "type" : "boolean"
     },
     "sessions.resumeAgents" : {
       "default" : true,
@@ -4021,6 +4049,12 @@
       "title" : "Swap Cmd-T and Cmd-N",
       "type" : "boolean"
     },
+    "tabs.terminalFirst" : {
+      "default" : false,
+      "description" : "When on, Cmd-T, Cmd-D and Cmd-Shift-D open a terminal, as in cmux classic, instead of the New Tab page.",
+      "title" : "New Tabs and Splits Open a Terminal",
+      "type" : "boolean"
+    },
     "tabs.toolbarButtons" : {
       "default" : [
 
@@ -4288,7 +4322,7 @@
       "type" : "boolean"
     },
     "workspaces.newPlacement" : {
-      "default" : "top",
+      "default" : "afterCurrent",
       "description" : "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. Pinned workspaces stay above it.",
       "enum" : [
         "top",
