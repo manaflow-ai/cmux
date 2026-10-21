@@ -33,7 +33,8 @@ const ROW_ICON = rowIconSize(13);
 /** The rail's icon-only buttons keep the 18px glyphs' footprint: a 15px row crop inks about 14px. */
 const RAIL_ICON = 15;
 const MARK_GLYPHS: Record<Exclude<SessionMark, undefined>, React.ReactNode> = {
-  input: <Icon name="status.needsinput" size={ROW_ICON} row />,
+  // The one Needs you mark (needsYou/needsYou.css): the header badge and the chat's pill wear it too.
+  input: <span className="acpmux-needs-you-dot" />,
   running: <Icon name="status.running" size={ROW_ICON} row />,
   error: <Icon name="status.disconnected" size={ROW_ICON} row />,
   unread: null,
@@ -641,7 +642,7 @@ const SessionRow = memo(function SessionRow({
         </span>
       )}
       {mark === "input" ? (
-        // A chat waiting on the person says so in amber, like the question card's pill.
+        // A chat waiting on the person says so with the Needs you dot and its label.
         <span className="acpmux-session-mark acpmux-session-mark-input acpmux-session-mark-labeled" aria-hidden="true">
           {MARK_GLYPHS.input}
           {t(MARK_LABELS.input)}
