@@ -29,13 +29,25 @@ public final class WebUpdater {
     nonisolated public struct App: Sendable {
         /// `pages/web-abi.json` of the bundled pages.
         public var abi: Int
-        /// When the bundled web was built (that file's modification time), unix seconds: an update
-        /// from an older commit than this is never newer than the bundle.
+        /// When the bundled web was built, unix seconds: an update from an older commit than this
+        /// is never newer than the bundle.
         public var webBuiltAt: Int
 
         public init(abi: Int, webBuiltAt: Int) {
             self.abi = abi
             self.webBuiltAt = webBuiltAt
+        }
+
+        /// The running app's bundled web: the `abi` of its `pages/web-abi.json` and, as its build
+        /// time, the modification time of the app's `Info.plist`. NIGHTLY updates by Sparkle
+        /// delta, which rewrites only the files whose bytes changed, so `web-abi.json` keeps the
+        /// first install's time while every nightly rewrites the plist (its build number and
+        /// commit). The plist's time is at or after the build, never before its commit.
+        public static func bundled(pages: URL, infoPlist: URL) -> App? {
+            guard let abi = WebUpdateTree.abi(inPages: pages),
+                  let built = (try? infoPlist.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            else { return nil }
+            return App(abi: abi, webBuiltAt: Int(built.timeIntervalSince1970))
         }
     }
 

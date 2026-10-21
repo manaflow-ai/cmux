@@ -44,17 +44,19 @@ An update is taken only when all of these hold, in this order, before any downlo
 
 - a signature by a trusted key covers the payload, and the payload is well formed for the channel;
 - `abi` equals the `abi` of the app's own bundled `pages/web-abi.json` (below);
-- `committed_at` is newer than the app's bundled web (the modification time of that
-  `web-abi.json`, written when the app's bundles were built, always after their commit) and newer
-  than the newest update the app took (`state.json` `floor`).
+- `committed_at` is newer than the app's bundled web (the modification time of the app's
+  `Info.plist`, which every nightly rewrites, so a Sparkle delta writes it too; it is never before
+  the build's commit) and newer than the newest update the app took (`state.json` `floor`). Not
+  `web-abi.json`'s: a delta rewrites only changed files, and that file keeps one install's time
+  for as long as the abi stays the same.
 
 The archive must then have the pointer's size and SHA-256, and the unpacked tree the pointer's
 `outputs` digest (the same algorithm as `web-bundle-key.py --outputs`; `WebUpdateTree`) and `abi`.
 A tree is checked against its pointer's digest again at every launch, so a file changed on disk is
 never served. The floor stops a replayed old signed pointer from rolling the web back.
 
-Comparing build time with commit time can miss an update (a commit that merged while the nightly
-built is older than the build) but never takes an older one. The next merge after the build arrives.
+Comparing build (or delta install) time with commit time can miss an update (a commit that merged
+while the nightly built or before it installed is older than the plist) but never takes an older one. The next merge after the build arrives.
 
 ## Native interface (`abi`)
 

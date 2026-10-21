@@ -40,7 +40,8 @@ public final class WebUpdates {
         guard !started else { return }
         started = true
         guard Self.isAvailable(bundleID: bundle.bundleIdentifier),
-              let app = Self.app(pages: WebBundleOverlay.bundledPages),
+              let pages = WebBundleOverlay.bundledPages,
+              let app = WebUpdater.App.bundled(pages: pages, infoPlist: bundle.bundleURL.appending(path: "Contents/Info.plist")),
               let store = WebUpdateStore.standard(bundleIdentifier: bundle.bundleIdentifier)
         else { return }
         let overlay = WebBundleOverlay.shared
@@ -77,15 +78,6 @@ public final class WebUpdates {
                 self?.updater?.noteActivation()
             }
         })
-    }
-
-    /// The running app's bundled web: the abi and build time of its `pages/web-abi.json`.
-    static func app(pages: URL?) -> WebUpdater.App? {
-        guard let pages, let abi = WebUpdateTree.abi(inPages: pages),
-              let built = (try? pages.appending(path: "web-abi.json").resourceValues(forKeys: [.contentModificationDateKey]))?
-                .contentModificationDate
-        else { return nil }
-        return WebUpdater.App(abi: abi, webBuiltAt: Int(built.timeIntervalSince1970))
     }
 
     /// `updates.*`: the channel and what downloads may use. The first call starts web updates.
