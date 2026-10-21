@@ -1201,7 +1201,15 @@ impl Orchestrator for Spawner {
             };
             // A paused VM resumes first (B4); a no-op when it runs.
             let resumed = match (&sub_peer, &self.cloud_vms) {
-                (Some(p), Some(vms)) => vms.resume(p),
+                (Some(p), Some(vms)) => {
+                    let began = Instant::now();
+                    let r = vms.resume(p);
+                    (self.log)(&format!(
+                        "cloud: {p} up for {id} in {} ms",
+                        began.elapsed().as_millis()
+                    ));
+                    r
+                }
                 _ => Ok(()),
             };
             let started_one = resumed.and_then(|()| {

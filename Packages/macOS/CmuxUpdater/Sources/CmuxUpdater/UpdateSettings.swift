@@ -18,6 +18,8 @@ public struct UpdateSettings: Sendable {
     public static let sendProfileInfoKey = "SUSendProfileInfo"
     /// cmux's marker that the v2 automatic-checks migration already ran.
     public static let migrationKey = "cmux.sparkle.automaticChecksMigration.v2"
+    /// cmux's marker that the v3 stale-interval migration already ran.
+    public static let intervalMigrationKey = "cmux.sparkle.scheduledCheckIntervalMigration.v3"
 
     /// The previous default scheduled-check interval (24h) that the migration upgrades from.
     public let previousDefaultScheduledCheckInterval: TimeInterval
@@ -49,6 +51,7 @@ public struct UpdateSettings: Sendable {
             Self.sendProfileInfoKey: false,
         ])
 
+        migrateStaleInterval(in: defaults)
         guard !defaults.bool(forKey: Self.migrationKey) else { return }
 
         // Repair older installs that may have ended up with automatic checks disabled
@@ -73,5 +76,19 @@ public struct UpdateSettings: Sendable {
         }
 
         defaults.set(true, forKey: Self.migrationKey)
+    }
+
+    /// v3: installs whose v2 migration already ran can still hold the legacy 24h interval (the
+    /// shipped Info.plist value, or a later write by an older build), so Sparkle's first schedule
+    /// after launch waited up to a day. Upgrades a persisted legacy interval once, only when cmux
+    /// now checks more often; a different persisted interval is the user's choice and stays.
+    func migrateStaleInterval(in defaults: UserDefaults) {
+        guard !defaults.bool(forKey: Self.intervalMigrationKey) else { return }
+        defaults.set(true, forKey: Self.intervalMigrationKey)
+        guard scheduledCheckInterval < previousDefaultScheduledCheckInterval,
+              // Registered defaults hold the new interval, so a 24h value here was persisted.
+              let interval = defaults.object(forKey: Self.scheduledCheckIntervalKey) as? NSNumber,
+              abs(interval.doubleValue - previousDefaultScheduledCheckInterval) < 1 else { return }
+        defaults.set(scheduledCheckInterval, forKey: Self.scheduledCheckIntervalKey)
     }
 }

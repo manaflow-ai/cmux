@@ -1,3 +1,5 @@
+import CmuxNextCompat
+import CmuxNextWakeups
 public import Foundation
 
 /// Runs `/usr/bin/osascript` with arguments and returns its standard output: the seam that
@@ -51,9 +53,40 @@ public nonisolated struct OsascriptRunner: VerificationScriptRunning {
         return String(decoding: stdout, as: UTF8.self)
     }
 
-    /// Reads a pipe to its end, by raw descriptor (an `Int32` is `Sendable`; a `FileHandle` is not).
+    /// Reads a pipe to its end, by raw descriptor (an `Int32` is `Sendable`), without holding a
+    /// thread: FileHandle calls a readability handler when bytes are ready, and the handler takes
+    /// them with one `read(2)`. End of file or a read error ends the drain with what arrived;
+    /// FirstOutcome resumes the wait once even if the handler runs again after that.
     @concurrent private static func drain(_ fd: Int32) async -> Data {
         let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: false)
-        return (try? handle.readToEnd()) ?? Data()
+        let collected = PipeOutput()
+        let outcome = FirstOutcome<Data>()
+        handle.readabilityHandler = { handle in
+            var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+            // One read of bytes that are ready; unlike `availableData` a failure returns -1
+            // instead of raising an Objective-C exception.
+            let count = Darwin.read(fd, &buffer, buffer.count)
+            if count > 0 { return collected.append(Data(buffer[..<count])) }
+            if count < 0, errno == EINTR || errno == EAGAIN { return }
+            handle.readabilityHandler = nil
+            outcome.resolve(collected.data)
+        }
+        let data = await outcome.value()
+        // The handle owns the readability source: keep it until the drain ends.
+        withExtendedLifetime(handle) {}
+        return data
+    }
+}
+
+/// One pipe's output so far, appended by its readability handler.
+private nonisolated final class PipeOutput: Sendable {
+    private let storage = Mutex(Data())
+
+    func append(_ chunk: Data) {
+        storage.withLock { $0.append(chunk) }
+    }
+
+    var data: Data {
+        storage.withLock { $0 }
     }
 }

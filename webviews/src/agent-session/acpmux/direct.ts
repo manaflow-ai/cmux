@@ -28,6 +28,7 @@ import { HandoffClient } from "./handoff/client";
 import { PermissionGroupClient } from "./permissions/client";
 import { questionFromPermission, questionSummary, summaryLines, type AgentQuestion } from "./question/model";
 import { decidedQuestion, QUESTION_RECORD } from "./question/record";
+import { DECISION_TEXT, PERMISSION_RECORD, permissionDecision } from "./permissions/record";
 import { isNotification, typedRequest } from "./protocol/client";
 import type { SessionChanged, SessionSummary } from "./protocol/generated/types";
 import { supportsPermissionGroups, type PermissionDecision } from "./permissions/protocol";
@@ -38,6 +39,8 @@ import { acpWire, redactEndpoint, type AcpWireLog } from "./wire";
 import { acpmuxPerf } from "./perf";
 import { translate } from "./i18n";
 import { OFFER_RESULT, offersShown } from "./offer/offersShown";
+import { incomingPrompt } from "./conversation/incomingMessage";
+import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage } from "./transportErrors";
 import { SessionPager, type SessionPage } from "./sessionPages";
@@ -47,6 +50,7 @@ import { WORKSPACE_CONTEXT } from "./workspaceContext";
 import { BOOKMARKS_KIND, bookmarksHeard } from "./threadMinimap/bookmarks";
 import { type StartMode, startModeChanged } from "./startMode";
 import { sameSessionStart, sessionStartOf } from "./conversation/sessionStart";
+import { reduceAgentPair } from "./conversation/agentPairs";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -713,6 +717,9 @@ export class AcpmuxDirectClient {
   /// The questions asked and not yet decided, by permission id: a decision draws a record of what
   /// was chosen where the card was (`questionRecord`, question/record.ts).
   private askedQuestions = new Map<string, AgentQuestion>();
+  /// The single permission cards asked and not yet answered, by permission id: an answer draws a
+  /// receipt (`permissionRecord`, permissions/record.ts).
+  private askedPermissions = new Map<string, AcpmuxPermission>();
   private commands: SlashCommand[] = [];
   private usage: { used: number; size: number } | undefined;
   /// Set once an update for this session is applied, so an older fetched list cannot replace it.
@@ -1101,6 +1108,7 @@ export class AcpmuxDirectClient {
     this.groupedPermissions.clear();
     this.openQuestions.clear();
     this.askedQuestions.clear();
+    this.askedPermissions.clear();
     this.heldEdits.clear();
     // The chat's commands from its last visit on this page, so `/` lists them before the attach.
     this.commands = (this.selectedSessionId && knownCommands.get(this.selectedSessionId)) || [];
@@ -1671,7 +1679,8 @@ export class AcpmuxDirectClient {
       // A change that doesn't carry the queue keeps the one already mapped.
       if (session.queue) this.queue = mergeQueue(this.queue, session.queue);
     }
-    if (this.offerChildIds().includes(session.sessionId)) this.childChanged(session.sessionId);
+    if (this.offerChildIds().includes(session.sessionId) || this.isStartedChild(session))
+      this.childChanged(session.sessionId);
     // The picker lists every session, so a change elsewhere still needs a snapshot.
     this.emit("session changed");
   }
@@ -1830,8 +1839,13 @@ export class AcpmuxDirectClient {
       this.openQuestions.add(String(msg.permissionId ?? `permission-${event.seq}`));
       this.markAwaitingPermission(msg.request?.toolCall?.toolCallId);
       this.applyPermission({ ...msg, sessionId: event.sessionId });
+      // A single card (not the grouped panel's, not a question's) leaves a receipt once answered.
+      const card = this.pendingPermission;
+      if (!asked && card && card.permissionId === String(msg.permissionId ?? ""))
+        this.askedPermissions.set(card.permissionId, card);
     } else if (event.kind === "permission_decision") {
       this.recordQuestion(event, msg);
+      this.recordPermission(event, msg);
       if (msg.permissionId) this.groupedPermissions.delete(String(msg.permissionId));
       else this.groupedPermissions.clear();
       if (msg.permissionId) this.openQuestions.delete(String(msg.permissionId));
@@ -1875,10 +1889,7 @@ export class AcpmuxDirectClient {
     // the stream again then would split the reply that streams on.
     if (this.rows.has(rowId)) return;
     const question = decidedQuestion(asked, msg.outcome);
-    // The text and tool fold before it close, as a tool call's would: the work after the answer
-    // draws below the record, never in the row above it.
-    this.endAssistantSegment();
-    this.streamingActivity = undefined;
+    this.closeSegment();
     this.rows.set(rowId, {
       id: rowId,
       version: 1,
@@ -1891,6 +1902,41 @@ export class AcpmuxDirectClient {
           ? summaryLines(question, question.state.answer).join("\n")
           : translate("question.cancelled", { prompt: questionSummary(question) }),
     });
+  }
+
+  /// A single permission card, answered, leaves a one-line receipt where it was answered: "Allowed:
+  /// Run npm test", or Denied, Always allowed, Not answered. The grouped panel keeps its own.
+  private recordPermission(event: EventRecord, msg: any): void {
+    const id = msg.permissionId ? String(msg.permissionId) : undefined;
+    const asked = id ? this.askedPermissions.get(id) : undefined;
+    if (!id || !asked) return;
+    this.askedPermissions.delete(id);
+    const rowId = `permission-${id}`;
+    // Drawn already: a resync replays the live records after its rebuild drew them, and closing
+    // the stream again then would split the reply that streams on.
+    if (this.rows.has(rowId)) return;
+    const decision = permissionDecision(asked, msg.outcome);
+    this.closeSegment();
+    this.rows.set(rowId, {
+      id: rowId,
+      version: 1,
+      at: event.at,
+      kind: PERMISSION_RECORD,
+      permission: asked,
+      decision,
+      // What Copy reads; the row draws its words in the pane's language as it is then.
+      text: translate(DECISION_TEXT[decision.kind], {
+        action: asked.title?.trim() || translate("permission.required"),
+        option: decision.kind === "answered" ? decision.option : "",
+      }),
+    });
+  }
+
+  /// The text and tool fold before a record close, as a tool call's would: the work after an answer
+  /// draws below its record, never in the row above it.
+  private closeSegment(): void {
+    this.endAssistantSegment();
+    this.streamingActivity = undefined;
   }
 
   /// The subagent group rows that changed, into the transcript.
@@ -2013,7 +2059,25 @@ export class AcpmuxDirectClient {
           this.planCalls.clear();
         }
         this.streamingActivity = undefined;
-        const received = offersShown() ? offerResult(msg) : undefined;
+        // A task's result is not the person's prompt, shown or not: it never enters prompt recall.
+        const taskResult = offerResult(msg);
+        const received = offersShown() ? taskResult : undefined;
+        // Another agent's message or harness bookkeeping (conversation/incomingMessage.ts): the row
+        // keeps the sender's words, or the typed prompt without the bookkeeping. Bookkeeping alone
+        // keeps an empty row that draws nothing, so the answer it brought stays its own turn
+        // (turns.ts). Retry resends a message as the agent got it (`resend`); a notice, like
+        // bookkeeping, is the harness's, not a prompt to send again, so it offers no Retry.
+        const incoming = received ? undefined : incomingPrompt(String(msg.text ?? ""), msg);
+        const raw = String(msg.text ?? "");
+        const shown =
+          incoming?.kind === "message"
+            ? { text: incoming.message.text, incoming, resend: raw }
+            : incoming?.kind === "notice"
+              ? { text: incoming.text, incoming }
+              : incoming?.kind === "hidden"
+                ? { text: "", incoming }
+                : { text: incoming?.kind === "prompt" ? incoming.text : raw };
+        const untyped = taskResult !== undefined || (incoming !== undefined && incoming.kind !== "prompt");
         // Its queued line, if the result waited, gives way to this prompt's.
         if (received) this.rows.delete(`received-${received.offerId}`);
         if (received) this.receivedOffers.add(received.offerId);
@@ -2026,7 +2090,8 @@ export class AcpmuxDirectClient {
           version: 1,
           at: event.at,
           kind: "user",
-          text: String(msg.text ?? ""),
+          ...shown,
+          ...(untyped ? { untyped } : {}),
           ...(sentByChief(msg) ? { from: "chief" as const } : {}),
           ...(received ? { received } : {}),
           ...(steer ? { steer } : {}),
@@ -2097,7 +2162,7 @@ export class AcpmuxDirectClient {
         this.streamingAssistant = undefined;
         this.streamingAssistantMessageId = undefined;
         this.streamingActivity = undefined;
-      } else this.reduceLiveState(event);
+      } else if (!reduceAgentPair(this.rows, event)) this.reduceLiveState(event);
       return;
     }
     if (!update) return;
@@ -2173,7 +2238,7 @@ export class AcpmuxDirectClient {
       const itemIndex = items.findIndex((item) => item.tool?.id === callId);
       const item = this.holdEdit(
         mergeToolItem(itemIndex >= 0 ? items[itemIndex] : undefined, update, callId, text, event.at),
-        event.kind === "tool_call",
+        itemIndex < 0 || items[itemIndex].tool?.status === "pending",
       );
       if (itemIndex >= 0) items[itemIndex] = item;
       else items.push(item);
@@ -2273,7 +2338,9 @@ export class AcpmuxDirectClient {
 
   /// `item` as the transcript shows it: an edit that waits on a permission question stays
   /// "pending". Claude asks one question at a time, so an edit that arrives while another's
-  /// question is open sends its diff before its own question, and waits too.
+  /// question is open sends its diff before its own question, and waits too. `isNew` is whether
+  /// the call had not run yet: acpmux names a call as its block starts, pending, and its input
+  /// (diff included) comes in its update.
   private holdEdit(item: AcpmuxActivity, isNew: boolean): AcpmuxActivity {
     const tool = item.tool;
     if (!tool) return item;
@@ -2748,6 +2815,13 @@ export class AcpmuxDirectClient {
     if (!sessionId) return { removed: false };
     return this.request("_acpmux/queue_remove", { sessionId, promptId });
   }
+  /// Resumes the shown chat's paused messages with `peer` (acpmux `hub/agent_pairs.rs`): acpmux
+  /// delivers what the pair held, and its `agent_pair_resumed` record ends the pause.
+  resumeAgentPair(peer: string): Promise<{ resumed?: number; delivered?: number }> {
+    const sessionId = this.actingSessionId;
+    if (!sessionId) return Promise.reject(new Error(translate("error.notOpen")));
+    return this.request("_acpmux/agent_pair_resume", { sessionId, peerSessionId: peer });
+  }
   /// Archive has acpmux tag the selected chat `archived` (the lists hide it; acpmux values it with
   /// when); Unarchive removes the tag. The page sends it on its own connection (cx-jlzsf).
   async archive(archived: boolean): Promise<void> {
@@ -2901,6 +2975,10 @@ export class AcpmuxDirectClient {
     return [...new Set(this.offerRows.values())].flatMap(
       (id) => this.rows.get(id)?.offers?.flatMap((offer) => (offer.childSessionId ? [offer.childSessionId] : [])) ?? [],
     );
+  }
+  /// A chat the shown chat's agent started, while started session cards draw (started/startedSessions.ts).
+  private isStartedChild(session: Session): boolean {
+    return !!this.selectedSessionId && session.spawnedBy === this.selectedSessionId && startedCardsShown();
   }
   /// Attaches to the started chats that run, for their rows' subtitles (offer/offerChildren.ts).
   private watchOfferChildren(): void {
