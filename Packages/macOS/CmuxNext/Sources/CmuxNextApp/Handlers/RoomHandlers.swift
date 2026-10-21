@@ -82,6 +82,16 @@ enum RoomHandlers {
         }
         bind("space.setDefaults") { invocation in
             let room = try context.room(invocation)
+            // Neither argument named (the palette or the space menu with nothing collected): ask
+            // for the directory, never clear. Clearing takes both named empty (`cwd=` `env=`).
+            guard RoomDefaultsArguments.names(invocation) else {
+                guard invocation.origin == .user,
+                      context.services.registry.ask("space.setDefaults", RoomDefaultsArguments.keepingEnv(of: room.defaults, invocation),
+                                                    ActionArgumentAsk(argument: "cwd", initialText: room.defaults?.cwd)) else {
+                    throw ActionFailure.invalidTarget(RoomStrings.defaultsArgumentRequired)
+                }
+                return
+            }
             let defaults = try RoomDefaultsArguments.parse(invocation)
             update(room.id, context) { try await $0.updateProfile($1, defaults: defaults.isEmpty ? .clear : .set(defaults)) }
         }
