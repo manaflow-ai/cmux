@@ -14,7 +14,9 @@ MEMBER or OWNER `dev-build` PR keeps its scheme compile, and every
 native tier compiles the PR's head on the build fleet: `cmux-next app compile
 (build fleet)` runs `cmux-ci compile-check --ref <head> --app` (about a minute,
 Debug, swift.org toolchain). Its red is the PR's red; when the fleet gives no
-verdict, the Mac Release compile runs instead. A fork pull
+verdict, the Mac Release compile runs instead. A red only the Linux toolchain
+shows: add `full-ci` and push again (labels do not re-run this workflow), and the
+Mac Release compile decides. A fork pull
 request runs `cmux-next checks`, the fast tier and, for a CmuxNext `.swift`
 change, the Release compile; the other Mac tiers wait for a maintainer's
 `full-ci`. It never gets an owned runner, a secret or a tree dispatch. To run

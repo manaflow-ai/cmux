@@ -325,7 +325,16 @@ def compile_wait(checks: list[dict]) -> bool:
         return False  # an attempt finished red: a rerun queued after it is no wait (every attempt is read)
     return (not checks or any(c.get("status") in RUNNING for c in named)
             or (not named and any(c.get("name") in ROUTING and c.get("status") in RUNNING for c in checks))
-            or (len(finished) == len(named) and set(finished) - NOT_RUN == {"cancelled"}))
+            or (len(finished) == len(named) and set(finished) - NOT_RUN == {"cancelled"})
+            or fleet_stopped(checks))
+
+
+def fleet_stopped(checks: list[dict]) -> bool:
+    """The PR's build-fleet compile was cancelled with no pass and no Release compile ran: no verdict at all
+    (a run cancelled mid-compile also skips the Release compile)."""
+    fleet = [c.get("conclusion") for c in checks if c.get("name") == FLEET_COMPILE and c.get("status") == "completed"]
+    ran = [c for c in checks if c.get("name") == COMPILE and c.get("conclusion") not in NOT_RUN]
+    return bool(fleet) and set(fleet) == {"cancelled"} and not ran
 
 
 def compile_refusal(pr: dict, swift: list[str], checks: list[dict]) -> str:
@@ -347,6 +356,8 @@ def compile_refusal(pr: dict, swift: list[str], checks: list[dict]) -> str:
     if red and "success" not in fleet and not any(c.get("conclusion") == "success" for c in ran):
         return (f"{what} and its {FLEET_COMPILE} finished {red[0]} on {head}. "
                 f"Fix it, or merge the base in when the base has the fix, and merge once it passes.")
+    if fleet_stopped(checks):
+        return f"{what} and its {FLEET_COMPILE} was cancelled on {head}, so nothing compiled it; rerun it."
     return ""
 
 
