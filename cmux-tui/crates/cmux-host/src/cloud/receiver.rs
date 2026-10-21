@@ -320,7 +320,7 @@ pub(super) fn install_point(jwk: &Value) -> Option<String> {
 
 // Validate duplicate map members without retaining arbitrary response fields.
 pub(super) struct UniqueJson;
-impl<'de> serde::Deserialize<'de> for UniqueJson {
+impl<'de> Deserialize<'de> for UniqueJson {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         struct Visitor;
         impl<'de> serde::de::Visitor<'de> for Visitor {
