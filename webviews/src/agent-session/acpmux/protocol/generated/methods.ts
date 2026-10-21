@@ -65,6 +65,7 @@ export interface AcpmuxRequests {
   "_acpmux/info": { params: unknown; result: unknown };
   "_acpmux/events": { params: EventsParams; result: EventsResult };
   "_acpmux/attachment": { params: unknown; result: unknown };
+  "_acpmux/attachment_put": { params: unknown; result: unknown };
   "_acpmux/mail/send": { params: MailSendParams; result: MailSendResult };
   "_acpmux/mail/read": { params: MailReadParams; result: MailPageResult };
   "_acpmux/mail/wait": { params: MailWaitParams; result: MailPageResult };
@@ -265,6 +266,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/info", kind: "request", acp: false, typed: false },
   { name: "_acpmux/events", kind: "request", acp: false, typed: true },
   { name: "_acpmux/attachment", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/attachment_put", kind: "request", acp: false, typed: false },
   { name: "_acpmux/mail/send", kind: "request", acp: false, typed: true },
   { name: "_acpmux/mail/read", kind: "request", acp: false, typed: true },
   { name: "_acpmux/mail/wait", kind: "request", acp: false, typed: true },
