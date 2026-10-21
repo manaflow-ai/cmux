@@ -32,6 +32,8 @@ extension SidebarViewComponents {
         var cards: SidebarBottomCards
         /// The session tree (`sidebar.sessionTree`): nesting, pull requests, keycaps.
         var tree: SidebarSessionTreeState?
+        /// The session tree's chat history: Pinned and Earlier.
+        var history: SidebarChatHistoryState?
         /// Workspaces as tabs (`SidebarTunables.workspacesAsTabs`): one-line rows.
         var workspacesAsTabs: Bool
         init(_ model: SidebarModel, _ design: DesignSettings) {
@@ -54,6 +56,7 @@ extension SidebarViewComponents {
             titlebarHeight = Metrics.titlebarHeight
             cards = SidebarBottomCards(update: model.updateCard, nowPlaying: model.nowPlaying, updated: model.updatedCard, notice: model.noticeCard)
             tree = SidebarSessionTree.shared.state
+            history = SidebarChatHistory.shared.state
             workspacesAsTabs = SidebarTunables.workspacesAsTabs.value
         }
     }
@@ -87,6 +90,7 @@ extension SidebarViewComponents {
         let selectionChanged = lastState?.selection != state.selection || lastState?.selected != state.selected
         let rowsChanged = lastState?.sectionsRevision != state.sectionsRevision || lastState?.filter != state.filter || chromeChanged || profileChanged
             || state.preferences.changesList(from: lastState?.preferences) || lastState?.tree != state.tree
+            || lastState?.history != state.history
             || lastState?.workspacesAsTabs != state.workspacesAsTabs
         let listChanged = rowsChanged || selectionChanged
         let previous = lastState == nil ? nil : lastSections
