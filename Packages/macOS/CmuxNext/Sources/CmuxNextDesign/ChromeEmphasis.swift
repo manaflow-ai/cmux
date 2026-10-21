@@ -61,7 +61,8 @@ extension ThemeTokens {
             t.textSecondary = fade(textSecondary, s, floor: Self.subtleSecondaryFloor)
             t.textTertiary = fade(textTertiary, s, floor: Self.subtleTertiaryFloor)
             t.selectionFill = selectionFill.withAlpha(selectionFill.alpha * (1 - s))
-            t.hoverFill = hoverFill.withAlpha(hoverFill.alpha * (1 - s))
+            // Hover fades half as much: hovering a tab is how a person picks that pane next.
+            t.hoverFill = hoverFill.withAlpha(hoverFill.alpha * (1 - s * 0.5))
         case .tonal:
             t.textPrimary = textSecondary
             t.textSecondary = textTertiary
