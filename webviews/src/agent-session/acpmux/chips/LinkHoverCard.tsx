@@ -23,6 +23,7 @@ export function linkHost(href: string): string {
 }
 
 export function LinkHoverCard({
+  id,
   href,
   anchor,
   hover,
@@ -31,6 +32,8 @@ export function LinkHoverCard({
   pullRequest,
   side,
 }: {
+  /// For the link's `aria-describedby` while the card shows.
+  id?: string;
   href: string;
   /// The link the card describes; it shows while `hover.open`.
   anchor: HTMLElement | null;
@@ -44,6 +47,8 @@ export function LinkHoverCard({
 }) {
   const t = useT();
   const host = linkHost(href);
+  // A pull request's page title repeats its own title, which the body shows: the head names the host.
+  const head = pullRequest ? host : (siteTitle ?? host);
   const onOpen = (event: PointerEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
@@ -51,16 +56,17 @@ export function LinkHoverCard({
   };
   return (
     <AnchoredCard
+      id={id}
       anchor={hover.open ? anchor : null}
       className={pullRequest ? "cv-link-preview acpmux-pr-card" : "cv-link-preview"}
       side={side}
       interactive
-      ariaLabel={siteTitle ?? host}
+      ariaLabel={head}
     >
       <div {...hover.card}>
         <div className="cv-link-preview__head">
           <span className="cv-link-preview__icon">{mark}</span>
-          <span className="cv-link-preview__site">{siteTitle ?? host}</span>
+          <span className="cv-link-preview__site">{head}</span>
           <button type="button" className="cv-link-preview__open" onClick={onOpen}>
             {t("image.open")}
             <span aria-hidden="true">↗</span>

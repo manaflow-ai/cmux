@@ -6,7 +6,7 @@
 // Show more; a dismissed bar stays hidden for this chat (the page's storage, so a reload keeps it
 // hidden). Hovering a bar, or focusing it, opens the shared link card (chips/LinkHoverCard.tsx) with
 // the pull request's full title, state, author and checks.
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
@@ -144,12 +144,21 @@ function PullRequestBar({
   const hover = useHoverCard();
   const site = useSiteInfo(pr.url);
   const [bar, setBar] = useState<HTMLAnchorElement | null>(null);
+  const card = useId();
   return (
     <>
-      <a ref={setBar} className="acpmux-pr-dock__bar" href={pr.url} data-state={state} {...hover.trigger}>
+      <a
+        ref={setBar}
+        className="acpmux-pr-dock__bar"
+        href={pr.url}
+        data-state={state}
+        aria-describedby={hover.open ? card : undefined}
+        {...hover.trigger}
+      >
         {children}
       </a>
       <LinkHoverCard
+        id={card}
         href={pr.url}
         anchor={bar}
         hover={hover}
