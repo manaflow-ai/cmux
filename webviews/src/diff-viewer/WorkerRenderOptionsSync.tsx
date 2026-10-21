@@ -40,6 +40,18 @@ export async function drawPlainBeforeWorkers(
     return "ready";
   }
   target.highlighter = highlighter;
+  // The pool replaces it with its own once the workers are up (or clears it when terminated)
+  // without disposing it; the pool broadcasts its stats after either, so it is disposed then.
+  let unsubscribe: (() => void) | null = null;
+  let disposed = false;
+  const releaseWhenReplaced = () => {
+    if (disposed || target.highlighter === highlighter) return;
+    disposed = true;
+    unsubscribe?.();
+    highlighter.dispose();
+  };
+  unsubscribe = pool.subscribeToStatChanges(releaseWhenReplaced);
+  if (disposed) unsubscribe();
   return "drawn";
 }
 

@@ -885,14 +885,23 @@ const PARSE_SLICE_MS = 12;
  * queue, so input, the highlight workers' replies, React's commits and a due frame run first.
  * (Not `scheduler.yield()`: its continuation runs ahead of those tasks, so worker replies waited
  * for the whole parse.)
+ * One channel for the page, as React's scheduler does: a started port that is still connected is
+ * never collected, so a channel per yield would keep hundreds alive after a big patch.
  */
+let yieldChannel: MessageChannel | null = null;
+const yieldWaiters: (() => void)[] = [];
+
 function yieldToTask(): Promise<void> {
   if (typeof MessageChannel === "undefined") {
     return new Promise((resolve) => setTimeout(resolve, 0));
   }
+  if (yieldChannel == null) {
+    yieldChannel = new MessageChannel();
+    yieldChannel.port1.onmessage = () => yieldWaiters.shift()?.();
+  }
+  const channel = yieldChannel;
   return new Promise((resolve) => {
-    const channel = new MessageChannel();
-    channel.port1.onmessage = () => resolve();
+    yieldWaiters.push(resolve);
     channel.port2.postMessage(undefined);
   });
 }
