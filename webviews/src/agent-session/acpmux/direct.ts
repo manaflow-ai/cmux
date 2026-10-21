@@ -733,6 +733,10 @@ export class AcpmuxDirectClient {
   /// running line's count (conversation/WorkingFor.tsx). Unset outside a turn, and for a turn
   /// whose start this client did not see (it missed calls before it attached).
   private turnTokens: number | undefined;
+  /// The first seq whose usage this client holds: the attach page's first record when acpmux has
+  /// older ones (older pages carry no usage), else 0. A turn that started before it has calls this
+  /// client never saw, so every rebuild leaves its tokens unset.
+  private usageFromSeq = 0;
   /// Set once an update for this session is applied, so an older fetched list cannot replace it.
   private commandsApplied = false;
   private optimisticPromptRows = new Map<string, string>();
@@ -1093,6 +1097,7 @@ export class AcpmuxDirectClient {
     this.configSeq = 0;
     this.usage = undefined;
     this.turnTokens = undefined;
+    this.usageFromSeq = 0;
     this.queue = [];
     this.turnOpen = false;
     this.streamingAssistant = undefined;
@@ -1590,6 +1595,7 @@ export class AcpmuxDirectClient {
     this.syncView();
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
     const page: EventRecord[] = result?.events ?? [];
+    this.usageFromSeq = result?.hasMore === true ? (page[0]?.seq ?? 0) : 0;
     // An agent usually lists its commands once, at start, which is older than the page.
     if (
       !page.some((event) => event.kind === COMMANDS_KIND) &&
@@ -2124,7 +2130,7 @@ export class AcpmuxDirectClient {
         this.turnOpen = true;
       } else if (event.kind === "turn_started") {
         this.turnOpen = true;
-        this.turnTokens = 0;
+        this.turnTokens = event.seq >= this.usageFromSeq ? 0 : undefined;
         this.subagents.startTurn();
         this.settleCompactions(event.seq);
         // A Stop before this turn never judges it.
@@ -3566,12 +3572,8 @@ export class AcpmuxDirectClient {
       this.foldOlder(older);
     } else {
       // The open page began mid-turn (or this page holds no turn start): fold everything once.
-      // Pages carry no usage, so a running turn whose start this page brings would count only
-      // the calls since the attach: its tokens stay as they were (hidden when its start was missed).
-      const turnTokens = this.turnTokens;
       this.events = mergeEventRecords(older, this.events);
       this.rebuildKeepingLiveState();
-      this.turnTokens = turnTokens;
     }
     this.historyExhausted = !more || older.length === 0 || (this.firstSeq ?? 1) <= 1;
     this.emit("history");
