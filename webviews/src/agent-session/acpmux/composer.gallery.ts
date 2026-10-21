@@ -60,6 +60,32 @@ const waiting = [
   { id: "q3", prompt: "Run the whole suite" },
 ];
 
+// A screenshot-like picture (a title bar, a sidebar and lines of text) in `hue`, as a data URL, so
+// a queued prompt's thumbnails draw without acpmux.
+const shot = (hue: number, width = 1440, height = 900) =>
+  `data:image/svg+xml,${encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">` +
+      `<rect width="100%" height="100%" fill="hsl(${hue} 30% 16%)"/>` +
+      `<rect width="100%" height="7%" fill="hsl(${hue} 30% 26%)"/>` +
+      `<rect width="22%" height="100%" fill="hsl(${hue} 30% 24%)"/>` +
+      [0, 1, 2, 3, 4, 5]
+        .map(
+          (line) =>
+            `<rect x="27%" y="${14 + line * 11}%" width="${30 + ((line * 37) % 40)}%" height="3%" fill="hsl(${hue} 70% 62%)"/>`,
+        )
+        .join("") +
+      "</svg>",
+  )}`;
+// A prompt queued with two screenshots (Leo, 2026-10-21: "do queued messages have pics?").
+const pictured = {
+  id: "q1",
+  prompt: "Why does the sidebar overlap the toolbar here?",
+  images: [
+    { id: "a".repeat(64), mimeType: "image/svg+xml", name: "sidebar.png", src: shot(220) },
+    { id: "b".repeat(64), mimeType: "image/svg+xml", name: "image.png", src: shot(150, 2458, 1180) },
+  ],
+};
+
 // A running turn of an agent that steers (Claude Code, Codex) or not (acpmux `steering`).
 const steering = (steers: boolean) => {
   const running = chat(working, { isWorking: true });
@@ -305,6 +331,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/MarkdownField.tsx",
     "agent-session/acpmux/EmptyState.tsx",
     "agent-session/acpmux/ComposerQueue.tsx#ComposerQueue",
+    "agent-session/acpmux/QueuedImages.tsx#QueuedImages",
     "agent-session/acpmux/MentionMenu.tsx#MentionMenu",
   ],
   variants: {
@@ -800,6 +827,19 @@ export default agentPaneEntry({
           { id: "q2", prompt: "And update the README" },
         ],
       }),
+    },
+    "queued-images": {
+      note: "A prompt queued with two screenshots: small thumbnails under its text, each opening the image viewer.",
+      snapshot: chat(working, { isWorking: true, queue: [pictured, { id: "q2", prompt: "And update the README" }] }),
+    },
+    "queued-images-edit": {
+      note: "Play: Edit on a queued prompt with images: each thumbnail shows its remove control; removing one and saving keeps the other.",
+      snapshot: chat(working, { isWorking: true, queue: [pictured, { id: "q2", prompt: "And update the README" }] }),
+      native: { "chat.queue.edit": { ok: true } },
+      play: async (ctx) => {
+        await ctx.click({ selector: '.acpmux-queued[data-prompt-id="q1"] .acpmux-queued-action[data-action="edit"]' });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-queued-image-remove").length === 2);
+      },
     },
     "queued-paused": {
       note: "A turn failed with prompts queued: they wait, in order, until Resume. A prompt sent meanwhile runs now.",
