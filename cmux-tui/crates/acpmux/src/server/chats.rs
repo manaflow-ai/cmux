@@ -79,6 +79,10 @@ pub(super) async fn route(
         return reply;
     }
     // So do the process methods (`processes.rs`).
+    // And the worktree cleanup methods (`worktrees.rs`).
+    if let Some(reply) = super::worktrees::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
     if let Some(reply) = super::processes::dispatch(hub, conn, m, &params).await {
         return reply;
     }
