@@ -124,7 +124,7 @@ fn the_receipt_leaves_the_chiefs_reply_at_the_top_level() {
             } if voice::of(key).is_none() => Some((key, thread_root, reply_to)),
             _ => None,
         })
-        .last()
+        .next_back()
         .expect("the turn's reply");
     assert_eq!((reply.1, reply.2), (&None, &None), "{reply:?}");
 }

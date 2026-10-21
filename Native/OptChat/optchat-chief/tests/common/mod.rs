@@ -413,6 +413,8 @@ impl ConversationPort for FakeDaemon {
                 let seq = owner.messages.len() as u64 + 1;
                 let mut m = message(seq, "agent_mux", "");
                 m.parts = parts.clone();
+                // The owner keeps the sender's client_msg_id (a voice rides in it).
+                m.client_msg_id = key.to_owned();
                 owner.messages.push(m.clone());
                 Ok(Some(Change::Message { message: m }))
             }

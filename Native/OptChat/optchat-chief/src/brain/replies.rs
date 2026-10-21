@@ -108,9 +108,12 @@ impl Brain {
         }
     }
 
-    /// A message the Chief posted in its conversation (the owner's answer).
-    pub(super) fn note_posted(&mut self, conversation: &str, message: &Message) {
-        if self.state.conversation.as_deref() == Some(conversation) && !aside(message) {
+    /// A message the Chief posted in its conversation under `key` (the
+    /// owner's answer).
+    pub(super) fn note_posted(&mut self, conversation: &str, key: &str, message: &Message) {
+        if self.state.conversation.as_deref() == Some(conversation)
+            && crate::voice::of(key).is_none()
+        {
             self.newest_seq = self.newest_seq.max(message.seq);
         }
     }
