@@ -19,11 +19,14 @@ public final class AgentPaneView: NSView {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.webview")
     public let model: AgentPaneModel
     public let webView: WKWebView
-    /// Opens a link the user clicked in the transcript: the shared link rule (``LinkRouter``,
-    /// `browser.openLinksInCmuxBrowser`), `otherTarget` for a Shift-Command click, beside the pane
-    /// that shows this chat (set in `init`; never the focused pane).
-    public var openURL: (_ url: URL, _ otherTarget: Bool) -> Void = AgentPaneView.routedOpenURL
-    static let routedOpenURL: (URL, Bool) -> Void = { LinkRouter.shared.open($0, otherTarget: $1) }
+    /// Opens a link the user clicked in the transcript with the click's `modifiers`: the shared
+    /// link rule (``LinkRouter``, `browser.openLinksInCmuxBrowser`; Shift-Command the other target,
+    /// Command alone a background tab), from the pane that shows this chat (set in `init`; never
+    /// the focused pane).
+    public var openURL: (_ url: URL, _ modifiers: NSEvent.ModifierFlags) -> Void = AgentPaneView.routedOpenURL
+    static let routedOpenURL: (URL, NSEvent.ModifierFlags) -> Void = {
+        LinkRouter.shared.open($0, otherTarget: LinkRouter.isOtherTarget($1), background: LinkRouter.opensInBackground($1))
+    }
 
     public let source: AgentPaneSource
     public var customization = AgentPaneCustomization() { didSet { if customization != oldValue { applyCustomization() } } }
@@ -84,13 +87,15 @@ public final class AgentPaneView: NSView {
     /// next context menu, and where the menu's copies go (tests record them instead).
     var messageMenuTarget: AgentPaneMessageTarget?
     var menuSelection: String?
+    /// Pairs a Chromium page's right-click with the page's report for it.
+    let menuReports = AgentPaneMenuReportWait()
     var copyText: @MainActor (String) -> Void = { text in
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
     }
     /// The pane's first frame until its page paints (`AgentPaneView+Loading`).
     public let loadingView = AgentPaneLoadingView()
-    public private(set) lazy var redraw = AgentPageRedraw(webView: webView) // a chat shown again draws first
+    public private(set) lazy var redraw = page.map { AgentPageRedraw(page: $0) } ?? AgentPageRedraw(webView: webView) // a chat shown again draws first
     public private(set) lazy var topBar = AgentPaneTopBar(pane: self) // the App's omnibar row over a New Tab page (cx-e2aa)
     /// The process pool every agent page shares (R81: fonts are listed once per pool).
     static let processPool = WKProcessPool()
@@ -158,7 +163,7 @@ public final class AgentPaneView: NSView {
             inputReadiness = PageInputReadiness(configuration: configuration)
             // Pages share web content processes, 8 per process (WebProcessGroups): a process per
             // page made 55 tabs cost 54 processes and 4 GB (plans/cmux-next/sequoia-lag.md).
-            // webview-allow: agent chat needs WebKit (native context menu, file drops, input hooks)
+            // webview-allow: the old agent host (agent.pageHost off, or a dev-server page); the page host picks the engine otherwise
             webView = Self.processGroups.webView(for: configuration) { AgentPaneWKWebView(frame: .zero, configuration: $0) }
             #if DEBUG
             // Automation launches (capture slots) keep a covered window's page drawing, as
@@ -171,8 +176,8 @@ public final class AgentPaneView: NSView {
         }
         self.webView = webView
         super.init(frame: .zero)
-        openURL = { [weak self] url, other in
-            if let self { LinkRouter.shared.open(url, otherTarget: other, from: self) } else { Self.routedOpenURL(url, other) }
+        openURL = { [weak self] url, modifiers in
+            if let self { LinkRouter.shared.open(url, modifiers: modifiers, from: self) } else { Self.routedOpenURL(url, modifiers) }
         }
         inputReadiness.attach(webView)
         if let page {
@@ -267,7 +272,12 @@ public final class AgentPaneView: NSView {
     }
 
     func applyZoom() {
-        if let page { page.additionalZoom = zoom } else { webView.pageZoom = Double(DesignSettings.shared.uiScale) * zoom }
+        // The page host applies the UI scale and the interface scale itself, in either engine.
+        if let page {
+            page.additionalZoom = zoom
+            return
+        }
+        webView.pageZoom = Double(DesignSettings.shared.uiScale) * zoom
         webView.evaluateJavaScript(DesignSettings.shared.interfaceScaleScript, completionHandler: nil)
     }
 
@@ -299,7 +309,7 @@ public final class AgentPaneView: NSView {
     var rateReapply: Task<Void, Never>?
     /// An image of the page as shown; nil skips the re-apply (tests set it).
     lazy var snapshotPage: () async -> NSImage? = { [weak self] in
-        try? await self?.webView.takeSnapshot(configuration: nil)
+        await self?.pageSnapshot()
     }
     /// Times the re-apply's steps (tests set it).
     var clock: any Clock<Duration> = ContinuousClock()
@@ -379,7 +389,8 @@ public final class AgentPaneView: NSView {
 
     /// Runs a script in the page (tests record them).
     lazy var evaluateScript: (String) -> Void = { [weak self] script in
-        self?.webView.evaluateJavaScript(script, completionHandler: nil)
+        guard let self else { return }
+        if let page = self.page { page.evaluate(script) } else { self.webView.evaluateJavaScript(script, completionHandler: nil) }
     }
 
     /// Focus Location Bar on a new tab page: the field takes the keyboard and

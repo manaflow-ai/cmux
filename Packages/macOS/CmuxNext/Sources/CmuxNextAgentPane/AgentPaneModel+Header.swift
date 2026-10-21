@@ -1,3 +1,5 @@
+import AppKit
+import CmuxNextActions
 import Foundation
 
 /// The app side of the chat header (`pane.action`, `pane.tabState`): runs a
@@ -139,7 +141,9 @@ extension AgentPaneModel {
             guard let header else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.tabState")
             }
-            return AgentPaneReply.success(header.state(refresh: refresh).reply)
+            var state = header.state(refresh: refresh).reply
+            state["moves"] = offeredMoves()
+            return AgentPaneReply.success(state)
         case .sideChat(let fork):
             return await AgentPaneSideChat.open(fork, in: self)
         case .subagentPane(let agent, let focus):
@@ -190,5 +194,20 @@ enum AgentPaneSideChat {
         }
         header.openSide(sessionId, fork)
         return AgentPaneReply.success()
+    }
+}
+
+extension AgentPaneModel {
+    /// The Cloud moves (`cloudMove`, `cloudBringBack`) the chat's right-click menu offers now, so the
+    /// composer's picker offers the same: the App decides which apply (it hides Bring Back Local on a
+    /// chat no move from this Mac put on its machine, and Move to Cloud on a chat of another machine).
+    func offeredMoves() -> [String] {
+        func ids(_ items: [NSMenuItem]) -> [String] {
+            items.flatMap { item in
+                (ActionRegistry.menuRun(of: item).map { [$0.id.rawValue] } ?? []) + ids(item.submenu?.items ?? [])
+            }
+        }
+        let moves: Set<String> = ["cloudMove", "cloudBringBack"]
+        return ids(chatMenuItems?() ?? []).filter(moves.contains)
     }
 }

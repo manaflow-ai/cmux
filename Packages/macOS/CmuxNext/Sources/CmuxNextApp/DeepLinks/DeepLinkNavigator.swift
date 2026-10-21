@@ -53,10 +53,7 @@ struct DeepLinkNavigator {
             guard services.agentTabs.chiefHost == host, let shown = services.agentTabs.tab(showing: session, host: host),
                   services.revealTab(shown, intent: intent) else { throw Self.gone }
         case .agent(let harness, let session):
-            // hq#2555: only a tab already showing that session (the chat that adopted it, else the terminal running
-            // it), never a new tab, resume or connection. A user's open raises it, so its composer or terminal has the keyboard.
-            guard AgentPaneTunables.agentLinks.value else { throw ActionFailure(message: RefusalStrings.agentLinksOff) }
-            guard DeepLink.agentTabs(harness: harness, session: session, adopted: services.agentTabs.tab(resuming: AgentPaneAdopt(harness: harness, agentSessionId: session)), harnessSessions: services.machines.daemons.flatMap(\.store.reachableAgentHarnessSessions)).contains(where: { services.revealTab($0, intent: intent) }) else { throw Self.gone }
+            try openAgent(harness: harness, session: session, message: link.message, intent)
         case .legacyWorkspace(let key, let fallback):
             guard let workspace = legacyWorkspace(key, fallback: fallback) else { throw Self.gone }
             try reveal(workspace: workspace.id, intent)
@@ -105,6 +102,24 @@ struct DeepLinkNavigator {
         guard let pane = services.windows.active?.focusedPane else { throw ActionFailure(message: MiscHandlerStrings.noPane) }
         // The store commits the tab first; the turn waits for its page.
         pane.openAgentSession(id) { key in if let turn { tabs.revealTurn(turn, in: key) } }
+    }
+
+    /// An outside agent's session (hq#2555): only a tab already showing it (the chat that adopted
+    /// it, else the terminal running it), never a new tab, resume or connection. A user's open
+    /// raises it, so its composer or terminal has the keyboard. A link's `message=<id>` then
+    /// scrolls that message's row into view and marks it, in the chat tab that shows the session;
+    /// a message this machine's transcript does not have, or a terminal, leaves the view where it
+    /// is (schemas/deeplinks/agent-link.json).
+    private func openAgent(harness: String, session: String, message: String?,
+                           _ intent: WindowActivation.Intent) throws {
+        guard AgentPaneTunables.agentLinks.value else { throw ActionFailure(message: RefusalStrings.agentLinksOff) }
+        let adopted = services.agentTabs.tab(resuming: AgentPaneAdopt(harness: harness, agentSessionId: session))
+        let tabs = DeepLink.agentTabs(harness: harness, session: session, adopted: adopted,
+                                      harnessSessions: services.machines.daemons.flatMap(\.store.reachableAgentHarnessSessions))
+        guard let shown = tabs.first(where: { services.revealTab($0, intent: intent) }) else { throw Self.gone }
+        if let message, shown == adopted {
+            services.agentTabs.revealTurn(AgentTabStore.messageReveal(message), in: shown)
+        }
     }
 
     /// Nightly's durable workspace UUID is `WorkspaceModel.id` (the
