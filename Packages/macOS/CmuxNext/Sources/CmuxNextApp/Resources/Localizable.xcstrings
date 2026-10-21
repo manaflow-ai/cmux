@@ -13024,6 +13024,138 @@
           }
         }
       }
+    },
+    "notifications.permission.unavailable": {
+      "comment": "The error cmux setup notifications gets when this app launch never uses macOS notifications, so it cannot read or ask for the permission.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يستخدم تشغيل cmux هذا إشعارات macOS (تشغيل آلي أو مهمة اختبار واجهة)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovo pokretanje cmuxa ne koristi macOS obavještenja (automatizirano pokretanje ili GUI test)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne cmux-start bruger ikke macOS-notifikationer (en automatiseret start eller et GUI-testjob)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser cmux-Start verwendet keine macOS-Mitteilungen (ein automatisierter Start oder ein GUI-Testjob)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This cmux launch does not use macOS notifications (an automation launch or a GUI test job)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este inicio de cmux no usa las notificaciones de macOS (un inicio automatizado o una prueba de interfaz)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce lancement de cmux n’utilise pas les notifications macOS (un lancement automatisé ou un test d’interface)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo avvio di cmux non usa le notifiche di macOS (un avvio automatico o un test dell’interfaccia)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この cmux の起動は macOS の通知を使いません（自動化された起動か GUI テストジョブです）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការបើក cmux នេះមិនប្រើការជូនដំណឹង macOS ទេ (ការបើកស្វ័យប្រវត្តិ ឬការធ្វើតេស្ត GUI)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 cmux 실행은 macOS 알림을 사용하지 않습니다(자동화 실행 또는 GUI 테스트 작업)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne cmux-starten bruker ikke macOS-varsler (en automatisert start eller en GUI-testjobb)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To uruchomienie cmux nie używa powiadomień macOS (uruchomienie automatyczne lub test GUI)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta execução do cmux não usa as notificações do macOS (uma execução automatizada ou um teste de interface)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот запуск cmux не использует уведомления macOS (автоматический запуск или тест интерфейса)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเปิด cmux ครั้งนี้ไม่ใช้การแจ้งเตือนของ macOS (การเปิดแบบอัตโนมัติหรืองานทดสอบ GUI)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu cmux açılışı macOS bildirimlerini kullanmıyor (otomatik bir açılış veya GUI test işi)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей запуск cmux не використовує сповіщення macOS (автоматичний запуск або тест інтерфейсу)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lần chạy cmux này không dùng thông báo macOS (một lần chạy tự động hoặc tác vụ kiểm thử GUI)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此次 cmux 启动不使用 macOS 通知（自动化启动或 GUI 测试任务）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此次 cmux 啟動不使用 macOS 通知（自動化啟動或 GUI 測試工作）"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
