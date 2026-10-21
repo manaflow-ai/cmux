@@ -126,12 +126,18 @@ impl Mux {
         terminal_id: &str,
         command: Option<&str>,
     ) -> anyhow::Result<Option<String>> {
-        self.workspace_registry.lock().unwrap().set_terminal_resume_command(terminal_id, command)
+        self.workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .set_terminal_resume_command(terminal_id, command)
     }
 
     /// The resume command of one hosted terminal, if one is set.
     pub fn terminal_resume_command(&self, terminal_id: &str) -> anyhow::Result<Option<String>> {
-        self.workspace_registry.lock().unwrap().terminal_resume_command(terminal_id)
+        self.workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .terminal_resume_command(terminal_id)
     }
 }
 
