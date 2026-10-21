@@ -26,6 +26,7 @@ pub(super) fn session_change_kind(record_kind: &str) -> Option<&str> {
         | "tags"
         | "turn_started"
         | "turn_result"
+        | "git"
         | "subsession"
         | "watch_started"
         | "watch_taken_over" => record_kind,

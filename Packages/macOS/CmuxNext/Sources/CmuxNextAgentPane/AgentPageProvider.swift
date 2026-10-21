@@ -106,7 +106,9 @@ public final class AgentPageProvider: PageProvider {
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         guard let method = AgentPageOps.method(for: op) else { throw PageError.unknownOp(op) }
         if method == "pane.edit" { return try edit(params, op: op, context: context) }
-        if method.hasPrefix("chat.scrollAnchor") { return try Self.scrollAnchor(method, params: params, op: op) }
+        // Named, not a prefix: `scrollAnchor` treats anything but `.get` as a write, so a later
+        // `chat.scrollAnchor.forget` would have erased a chat's place instead of being refused.
+        if AgentPaneScrollAnchors.handles(method: method) { return try Self.scrollAnchor(method, params: params, op: op) }
         if method.hasPrefix("chat.draftAttachments") { return try await Self.draftAttachments(method, params: params, op: op) }
         let request = AgentPaneRequest(body: ["method": method, "params": params.foundationObject])
         if case .unsupported = request { throw PageError.invalidParams(op) }

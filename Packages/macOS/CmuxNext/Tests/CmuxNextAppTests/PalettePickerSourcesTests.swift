@@ -9,7 +9,7 @@ import Testing
 
 /// An action with a required argument of kind K asks for K in the palette, which lists the
 /// objects `PaletteSourcesBridge.targetSource` gives for K. No source listed spaces, panes, tab
-/// groups or workspace groups, so New Workspace in Space…, Swap With Session…, Add Tab to
+/// groups or workspace groups, so New Workspace in Space…, Swap with Session…, Add Tab to
 /// Group…, Reopen Saved Tab Group… and the rest opened an empty list and could never run from
 /// the app (unimpl-audit-actions rows 2-10). The guard covers every catalog action, so a new
 /// action of a kind nothing lists fails here.
@@ -108,7 +108,7 @@ import Testing
         }
     }
 
-    /// Swap With Session… lists both panes, the focused one last, and the picked row names
+    /// Swap with Session… lists both panes, the focused one last, and the picked row names
     /// that pane (a pane's own id holds a colon: `pane:2`).
     @Test func swapWithSessionListsThePanesAndPicksTheChosenOne() async throws {
         let fixture = try await Self.fixture()
