@@ -29,6 +29,10 @@ hidden page hibernated is printed.
 Usage (a fleet or capture mini, never a laptop; DEV build, it reads debug.surfaces):
   bench_hibernation.py --app BUNDLE [--tabs 6] [--heap-mb 40] [--measure 20]
       [--config JSON] [--pressure] [--out FILE.json]
+  launch (default): starts the bundle's app with a scratch HOME and config, quits it at the end.
+  attach (--socket PATH --app-pid PID): an app `capture-host launch` started in a capture
+      slot; the run's settings are set over the socket (the slot's own cmux-next.json),
+      and its tabs are closed at the end.
 Prints PERF-HIBERNATE lines (one per phase and kind, one per wake, a summary).
 """
 from __future__ import annotations
@@ -110,9 +114,17 @@ def hibernation(sock: str) -> dict:
     return surfaces(sock).get("hibernation") or {}
 
 
-def evaluate(sock: str, tab: str, script: str, timeout: float = 30):
-    answer = bp.rpc(sock, "browser.page.eval", {"tab": tab, "script": script}, timeout=timeout)
-    return None if answer.get("error") else answer.get("value")
+def evaluate(sock: str, tab: str, script: str, seconds: float = 30):
+    """The script's value once the page runs it without an error (a WebKit page answers
+    before its document loads, a woken page before it is back), or None after `seconds`."""
+    deadline = time.monotonic() + seconds
+    while True:
+        answer = bp.rpc(sock, "browser.page.eval", {"tab": tab, "script": script}, timeout=seconds)
+        if not answer.get("error"):
+            return answer.get("value")
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(0.02)  # test script: the page is still loading
 
 
 def wait_for(predicate, seconds: float, step: float = 0.25):
@@ -151,14 +163,23 @@ def wake(app: bm.App, sock: str, tab: str, engine: str) -> dict:
     started = time.monotonic()
     app.run("tab.focus", target=tab)
     mounted = wait_for(lambda: (hibernation(sock).get("restored_total") or 0) > restored and time.monotonic(), 15, 0.01)
-    state = evaluate(sock, tab, READ_STATE)
-    usable = time.monotonic()
+    # Usable: the page runs script again. Restored: its scroll and form are back (WebKit
+    # restores scroll after the load, so the first answer can still be at the top).
+    state, usable, restored_at, got = evaluate(sock, tab, READ_STATE), time.monotonic(), None, {}
+    deadline = usable + 5
+    while state is not None:
+        try:
+            got = json.loads(state) if isinstance(state, str) else {}
+        except ValueError:
+            got = {}
+        if matches(got) or time.monotonic() >= deadline:
+            restored_at = time.monotonic() if matches(got) else None
+            break
+        time.sleep(0.02)  # test script: the page restores its scroll after it loads
+        state = evaluate(sock, tab, READ_STATE, 5)
     row = {"tab": tab, "engine": engine, "mounted_ms": round((mounted - started) * 1000) if mounted else None,
-           "usable_ms": round((usable - started) * 1000) if state is not None else None}
-    try:
-        got = json.loads(state) if isinstance(state, str) else {}
-    except ValueError:
-        got = {}
+           "usable_ms": round((usable - started) * 1000) if state is not None else None,
+           "restored_ms": round((restored_at - started) * 1000) if restored_at else None}
     row["scroll_ok"] = abs((got.get("y") or 0) - SCROLL_Y) <= 2
     row["form_ok"] = all(got.get(key) == value for key, value in FORM.items())
     row["got"] = got
@@ -169,9 +190,29 @@ def wake(app: bm.App, sock: str, tab: str, engine: str) -> dict:
         row.update({"painted_ms": own.get("painted_ms"), "app_mounted_ms": own.get("mounted_ms"),
                     "snapshot": own.get("snapshot")})
     print(f"PERF-HIBERNATE-WAKE engine={engine} tab={tab} mounted_ms={row['mounted_ms']} usable_ms={row['usable_ms']} "
-          f"painted_ms={row.get('painted_ms')} snapshot={row.get('snapshot')} scroll_ok={row['scroll_ok']} "
+          f"restored_ms={row['restored_ms']} painted_ms={row.get('painted_ms')} snapshot={row.get('snapshot')} scroll_ok={row['scroll_ok']} "
           f"form_ok={row['form_ok']}", flush=True)
     return row
+
+
+def matches(got: dict) -> bool:
+    return abs((got.get("y") or 0) - SCROLL_Y) <= 2 and all(got.get(key) == value for key, value in FORM.items())
+
+
+def exited(before: dict, after: dict, kind: str) -> list[dict]:
+    """The `kind` processes of `before` gone by `after`: the closed pages' own processes, apart
+    from the app's other pages, which can start, reload or grow meanwhile."""
+    left = {row["pid"] for row in after["processes"]}
+    return [row for row in before["processes"] if row["kind"] == kind and row["pid"] not in left]
+
+
+def total(rows: list[dict], key: str, phase: dict | None = None):
+    """`key` summed over `rows`, read from `phase`'s sample of the same pids when given."""
+    if phase is not None:
+        pids = {row["pid"] for row in rows}
+        rows = [row for row in phase["processes"] if row["pid"] in pids]
+    values = [row[key] for row in rows if row.get(key) is not None]
+    return round(sum(values), 3) if values else None
 
 
 def percentile(values, q):
@@ -189,6 +230,8 @@ def main():
     parser.add_argument("--freeze", type=float, default=10, help="browser.freezeHiddenTabs for the run")
     parser.add_argument("--config", default="{}", help="extra cmux.json settings (JSON)")
     parser.add_argument("--pressure", action="store_true", help="also simulate critical memory pressure (needs sudo -n)")
+    parser.add_argument("--socket", help="attach: the running app's control socket")
+    parser.add_argument("--app-pid", type=int, help="attach: the running app's pid")
     parser.add_argument("--out")
     args = parser.parse_args()
     if sys.platform != "darwin":
@@ -201,11 +244,21 @@ def main():
                        json.loads(args.config))
     bundle = os.path.realpath(args.app)
     signal.signal(signal.SIGTERM, bm.interrupted)
-    bp.wipe_state(bundle)
-    pid, sock, scratch = bm.launch(bundle, config)
+    if args.socket:
+        if not args.app_pid:
+            raise SystemExit("bench-hibernation: --socket needs --app-pid")
+        pid, sock, scratch = args.app_pid, args.socket, None
+        for path, value in flatten(config):
+            answer = bp.rpc(sock, "settings.set", {"path": path, "value": value})
+            if answer.get("error"):
+                print(f"   settings.set {path}: {answer['error']}", file=sys.stderr)
+    else:
+        bp.wipe_state(bundle)
+        pid, sock, scratch = bm.launch(bundle, config)
     app = bm.App(bundle, sock)
     report = {"app": bundle, "tabs": args.tabs, "heap_mb": args.heap_mb, "config": config, "phases": [], "wakes": []}
     opened: dict[str, list[str]] = {}
+    opened_extra: list[str] = []
 
     def open_tab(engine: str, url: str) -> str | None:
         response = app.run(f"openBrowser.{engine}", url=url)
@@ -224,6 +277,7 @@ def main():
             opened[engine] = [t for t in (open_tab(engine, page_url(engine, i, ports)) for i in range(args.tabs)) if t]
         # One shown tab in front of them all (its page counts in every phase alike).
         front = open_tab("chromium", f"http://front.localhost:{ports[0]}/?n=front")
+        opened_extra.append(front)
         tabs = [t for engine in engines for t in opened[engine]]
         report["opened"] = opened
         # Agent grace (30 s after the last script call) and the page's own load work pass first.
@@ -257,18 +311,22 @@ def main():
             count = len(opened.get(engine, []))
             if not count:
                 continue
-            awake = phases["awake"]["kinds"].get(kind, {})
-            slept = phases["hibernated"]["kinds"].get(kind, {})
+            # The bench tabs' own processes: those that exited when they hibernated.
+            gone = exited(phases["awake"], phases["hibernated"], kind)
             rows = [w for w in report["wakes"] if w["engine"] == engine]
             summary[engine] = {
-                "tabs": count,
-                "freed_mb_per_tab": round((awake.get("footprint_mb", 0) - slept.get("footprint_mb", 0)) / count, 1),
-                "awake_cpu_pct": awake.get("cpu_pct"), "hibernated_cpu_pct": slept.get("cpu_pct"),
-                "frozen_cpu_pct": phases.get("frozen", {}).get("kinds", {}).get(kind, {}).get("cpu_pct"),
-                "processes_awake": awake.get("count", 0), "processes_hibernated": slept.get("count", 0),
+                "tabs": count, "processes_exited": len(gone),
+                "freed_mb_per_tab": round((total(gone, "footprint_mb") or 0) / count, 1),
+                "kind_delta_mb": round(phases["awake"]["kinds"].get(kind, {}).get("footprint_mb", 0)
+                                       - phases["hibernated"]["kinds"].get(kind, {}).get("footprint_mb", 0), 1),
+                "app_delta_mb": round(phases["awake"]["total_footprint_mb"] - phases["hibernated"]["total_footprint_mb"], 1),
+                "hidden_cpu_pct": total(gone, "cpu_pct"), "hidden_wakeups_per_s": total(gone, "wakeups_per_s"),
+                "frozen_cpu_pct": total(gone, "cpu_pct", phases["frozen"]) if "frozen" in phases else None,
+                "frozen_wakeups_per_s": total(gone, "wakeups_per_s", phases["frozen"]) if "frozen" in phases else None,
                 "mounted_p50_ms": percentile([r["mounted_ms"] for r in rows], 0.5),
                 "usable_p50_ms": percentile([r["usable_ms"] for r in rows], 0.5),
                 "usable_p90_ms": percentile([r["usable_ms"] for r in rows], 0.9),
+                "restored_p50_ms": percentile([r["restored_ms"] for r in rows], 0.5),
                 "painted_p50_ms": percentile([r.get("painted_ms") for r in rows], 0.5),
                 "snapshots": sum(1 for r in rows if r.get("snapshot")),
                 "scroll_restored": sum(1 for r in rows if r["scroll_ok"]), "form_restored": sum(1 for r in rows if r["form_ok"]),
@@ -276,31 +334,48 @@ def main():
             }
             s = summary[engine]
             print(f"PERF-HIBERNATE-SUMMARY engine={engine} tabs={count} freed_mb_per_tab={s['freed_mb_per_tab']} "
-                  f"processes={s['processes_awake']}->{s['processes_hibernated']} cpu_pct awake={s['awake_cpu_pct']} "
-                  f"frozen={s['frozen_cpu_pct']} hibernated={s['hibernated_cpu_pct']} mounted_p50_ms={s['mounted_p50_ms']} "
-                  f"usable_p50_ms={s['usable_p50_ms']} usable_p90_ms={s['usable_p90_ms']} painted_p50_ms={s['painted_p50_ms']} "
+                  f"processes_exited={s['processes_exited']} app_delta_mb={s['app_delta_mb']} "
+                  f"hidden_cpu_pct={s['hidden_cpu_pct']} frozen_cpu_pct={s['frozen_cpu_pct']} "
+                  f"hidden_wakeups_per_s={s['hidden_wakeups_per_s']} frozen_wakeups_per_s={s['frozen_wakeups_per_s']} "
+                  f"mounted_p50_ms={s['mounted_p50_ms']} usable_p50_ms={s['usable_p50_ms']} usable_p90_ms={s['usable_p90_ms']} "
+                  f"restored_p50_ms={s['restored_p50_ms']} painted_p50_ms={s['painted_p50_ms']} "
                   f"snapshots={s['snapshots']}/{s['woken']} scroll={s['scroll_restored']}/{s['woken']} "
                   f"form={s['form_restored']}/{s['woken']}", flush=True)
         report["summary"] = summary
         if args.pressure:
-            report["pressure"] = pressure(app, sock, engines, ports, args.tabs, open_tab, front)
+            report["pressure"] = pressure(app, sock, engines, ports, args.tabs, open_tab, front, opened_extra)
     finally:
-        app.run("quit")
-        bm.wait_gone(pid, 20)
-        bm.end_bundle(bundle)
-        shutil.rmtree(scratch, ignore_errors=True)
+        if scratch is None:
+            for tab in [t for tabs in opened.values() for t in tabs] + opened_extra:
+                app.run("tab.close", target=tab)
+        else:
+            app.run("quit")
+            bm.wait_gone(pid, 20)
+            bm.end_bundle(bundle)
+            shutil.rmtree(scratch, ignore_errors=True)
         if args.out:
             with open(args.out, "w") as handle:
                 json.dump(report, handle, indent=1)
             print(f"bench-hibernation: wrote {args.out}")
 
 
-def pressure(app, sock, engines, ports, count, open_tab, front) -> dict:
+def flatten(config: dict, prefix: str = ""):
+    """(dotted path, value) for every leaf of a cmux.json fragment."""
+    for key, value in config.items():
+        path = f"{prefix}.{key}" if prefix else key
+        if isinstance(value, dict):
+            yield from flatten(value, path)
+        else:
+            yield path, value
+
+
+def pressure(app, sock, engines, ports, count, open_tab, front, opened_extra) -> dict:
     """Simulated critical memory pressure: the time until every new hidden page hibernated."""
     if subprocess.run(["sudo", "-n", "true"], capture_output=True).returncode != 0:
         print("PERF-HIBERNATE-PRESSURE skipped: no passwordless sudo", flush=True)
         return {"skipped": "no sudo"}
     tabs = [t for engine in engines for t in (open_tab(engine, page_url(engine, 100 + i, ports)) for i in range(count)) if t]
+    opened_extra.extend(tabs)
     app.run("tab.focus", target=front)
     time.sleep(35)  # test script: agent grace after the script calls
     before = hibernation(sock).get("hibernated_total") or 0
