@@ -91,10 +91,8 @@ pub(super) fn connect_and_attach(
         children: Mutex::default(),
     });
     if let Ok(watched) = &watched {
-        attachment.follow_children(&super::agent_session_children::descendant_ids(
-            &attachment.session,
-            watched,
-        ));
+        attachment
+            .follow_children(&agent_session_children::descendant_ids(&attachment.session, watched));
     }
     for pending in page.pointer("/session/pending").and_then(Value::as_array).into_iter().flatten()
     {

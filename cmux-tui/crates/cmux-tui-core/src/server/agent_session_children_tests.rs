@@ -61,10 +61,7 @@ fn own_host(mux: &Mux) -> String {
 
 fn refused_as_mismatch(result: anyhow::Result<Value>) {
     let error = result.expect_err("a session of another chat never binds to a registry: tab");
-    assert!(
-        error.downcast_ref::<super::conversation_tabs_wire::MachineMismatch>().is_some(),
-        "{error:#}"
-    );
+    assert!(error.downcast_ref::<conversation_tabs_wire::MachineMismatch>().is_some(), "{error:#}");
 }
 
 #[test]
