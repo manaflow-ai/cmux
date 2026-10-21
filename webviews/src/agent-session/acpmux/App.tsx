@@ -1654,6 +1654,9 @@ export function VirtualTranscript({
     setFollowing(next);
   };
   const settle = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  /// Where Jump to latest's glide is headed while it is in flight: its steps are the view following,
+  /// not the reader's scroll, and nothing snaps it to the end before it arrives.
+  const jumpTarget = useRef<number | undefined>(undefined);
   // The last transcript box on this page until this one is measured (before its first paint, below).
   const [height, setHeight] = useState(() => lastTranscriptBox.height);
   const ref = useRef<HTMLDivElement>(null);
@@ -2304,6 +2307,7 @@ export function VirtualTranscript({
       seenAnchor.current = undefined;
       clearTimeout(settle.current);
       settle.current = undefined;
+      jumpTarget.current = undefined;
       setScroll({ top: 0, delta: 0 });
       follow(true);
     }
@@ -2366,7 +2370,13 @@ export function VirtualTranscript({
         const latest = Math.max(0, layout.totalHeight - node.clientHeight);
         // A clamp moved the offset already (content that shrank under the view): from where it was.
         const before = top;
-        const settled = settleFollowBottom(node, latest) || clamped;
+        // Jump to latest's glide in flight heads for the new end instead of snapping there.
+        const jumping = jumpTarget.current !== undefined;
+        if (jumping && Math.abs(latest - jumpTarget.current!) > 0.5) {
+          jumpTarget.current = latest;
+          node.scrollTo({ top: latest, behavior: "smooth" });
+        }
+        const settled = jumping ? clamped : settleFollowBottom(node, latest) || clamped;
         // The glide holds the latest row the reader saw where it was painted, then slides it to its
         // place. Gliding by the offset's step alone also moved it by what grew above it (a working
         // line opening over a turn's first tool call), and by layouts of the same frame that never
@@ -2699,6 +2709,17 @@ export function VirtualTranscript({
     if (event.currentTarget.clientHeight === 0) return;
     const node = event.currentTarget;
     const next = node.scrollTop;
+    // A step of Jump to latest's glide: the view is following on its way to the end, not snapped
+    // there (a first step inside the deadband read as layout work), and not stopped (a longer one
+    // read as the reader's scroll up).
+    if (jumpTarget.current !== undefined) {
+      // WebKit keeps the offset to whole pixels: within one of the end is there.
+      if (next >= jumpTarget.current - 1) jumpTarget.current = undefined;
+      scrolledTo.current = { top: next, atLatest: true };
+      followTrace.set(next);
+      setScroll((current) => ({ top: next, delta: next - current.top }));
+      return;
+    }
     const programmatic = performance.now() - readerAt.current > READER_SCROLL_MS;
     // ResizeObserver/layout work can emit a scroll event after the stack below the transcript
     // changes. While the reader is following, keep the viewport at the new end and do not let
@@ -2771,12 +2792,14 @@ export function VirtualTranscript({
     const reduce = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     // The layout the room just taken committed (flushSync above), not the one this render closed over.
     const target = Math.max(0, latestLayout.current.layout.totalHeight - node.clientHeight);
+    jumpTarget.current = reduce || target - node.scrollTop <= 0.5 ? undefined : target;
     node.scrollTo({ top: target, behavior: reduce ? "auto" : "smooth" });
     // The landing: whether the smooth scroll arrived, was cut short as rows above settled, or the
     // reply grew past it. Only the reader's own scroll meanwhile cancels it.
     clearTimeout(settle.current);
     settle.current = setTimeout(() => {
       settle.current = undefined;
+      jumpTarget.current = undefined;
       const scroller = ref.current;
       if (scroller) scroller.scrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
     }, JUMP_LATEST_SETTLE_MS);
@@ -2788,6 +2811,7 @@ export function VirtualTranscript({
       followTrace.input();
       clearTimeout(settle.current);
       settle.current = undefined;
+      jumpTarget.current = undefined;
     };
     const inputs = ["wheel", "pointerdown", "touchstart", "keydown"] as const;
     for (const name of inputs) node?.addEventListener(name, reader, { passive: true });
