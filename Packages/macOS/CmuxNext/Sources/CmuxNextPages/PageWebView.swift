@@ -47,6 +47,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The file of the last drag from outside that entered the Chromium page and that ``fileDrop``
     /// takes, with when it entered; the page's drop opens it once.
     var chromiumDragFile: (url: URL, at: Date)?
+    /// Shows the Chromium page's context menu at a point of this view (tests capture it).
+    var chromiumMenuPresenter: @MainActor (NSMenu, NSPoint, NSView) -> Void = { menu, point, view in
+        menu.popUp(positioning: nil, at: point, in: view)
+    }
     /// Making the Chromium page (cancelled when the view closes or falls back).
     var chromiumStart: Task<Void, Never>?
     /// How long a Chromium page may take to reach the host before the view falls back to WebKit.
