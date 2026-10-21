@@ -115,6 +115,7 @@ export interface AcpmuxRequests {
   "_acpmux/harness/doctor": { params: unknown; result: unknown };
   "_acpmux/harness/secret/set": { params: unknown; result: unknown };
   "_acpmux/harness/health": { params: unknown; result: unknown };
+  "_acpmux/harness/changelog": { params: unknown; result: unknown };
   "_acpmux/harness/inventory/watch": { params: InventoryWatchParams; result: unknown };
   "_acpmux/harness/inventory/refresh": { params: InventoryRefreshParams; result: unknown };
   "_acpmux/harness/update/plan": { params: HarnessUpdatePlanParams; result: unknown };
@@ -163,6 +164,7 @@ export interface AcpmuxNotifications {
   "_acpmux/session_changed": SessionChanged;
   "_acpmux/permission_pending": PermissionPending;
   "_acpmux/harnesses_changed": unknown;
+  "_acpmux/harness_updated": unknown;
   "_acpmux/harness_inventory": unknown;
   "_acpmux/start_mode_changed": unknown;
   "_acpmux/prompt_accepted": unknown;
@@ -302,6 +304,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/harness/doctor", kind: "request", acp: false, typed: false },
   { name: "_acpmux/harness/secret/set", kind: "request", acp: false, typed: false },
   { name: "_acpmux/harness/health", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/harness/changelog", kind: "request", acp: false, typed: false },
   { name: "_acpmux/harness/inventory/watch", kind: "request", acp: false, typed: true },
   { name: "_acpmux/harness/inventory/refresh", kind: "request", acp: false, typed: true },
   { name: "_acpmux/harness/update/plan", kind: "request", acp: false, typed: true },
@@ -335,6 +338,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/session_changed", kind: "notification", acp: false, typed: true },
   { name: "_acpmux/permission_pending", kind: "notification", acp: false, typed: true },
   { name: "_acpmux/harnesses_changed", kind: "notification", acp: false, typed: false },
+  { name: "_acpmux/harness_updated", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/harness_inventory", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/start_mode_changed", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/prompt_accepted", kind: "notification", acp: false, typed: false },
