@@ -148,41 +148,35 @@ pub(super) fn follow_split_panes(members: &mut [Value], panes: &HashMap<String, 
     }
 }
 
-/// Point the members of every other closed group whose split neighbor is a
-/// closed pane that this reopen split again (`panes`, by closed pane id) at
-/// that new pane and its screen: close A, then its neighbor B, and two
-/// reopens put B back and then A beside it, not into the focused pane. Only
-/// the groups whose record names such a pane are read.
+/// Point the members of every other closed group (all but `reopening`)
+/// whose split neighbor is a closed pane that this reopen split again
+/// (`panes`, by closed pane id) at that new pane and its screen: close A,
+/// then its neighbor B, and two reopens put B back and then A beside it,
+/// not into the focused pane. Only the groups whose record names such a
+/// pane are read.
 pub(super) fn retarget_split_neighbors(
     transaction: &rusqlite::Transaction<'_>,
+    reopening: &str,
     panes: &HashMap<String, SplitPane>,
 ) -> anyhow::Result<()> {
-    for (closed, split) in panes {
+    for closed in panes.keys() {
         let rows = {
             let mut statement = transaction.prepare(
-                "SELECT closed_id, record_json FROM closed_groups WHERE instr(record_json, ?1) > 0",
+                "SELECT closed_id, record_json FROM closed_groups
+                 WHERE instr(record_json, ?1) > 0 AND closed_id != ?2",
             )?;
             statement
-                .query_map([closed], |row| {
+                .query_map(rusqlite::params![closed, reopening], |row| {
                     Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
                 })?
                 .collect::<Result<Vec<_>, _>>()?
         };
         for (closed_id, record) in rows {
             let mut record: Value = serde_json::from_str(&record)?;
-            let mut changed = false;
-            for member in record["members"].as_array_mut().into_iter().flatten() {
-                let placement = &mut member["split"];
-                if placement["neighbor"].as_str() == Some(closed.as_str()) {
-                    placement["neighbor"] = json!(split.pane);
-                    placement["screen"] = json!(split.screen);
-                    // The split it sat beside is gone with that pane.
-                    if let Some(fields) = placement.as_object_mut() {
-                        fields.remove("around");
-                    }
-                    changed = true;
-                }
-            }
+            let changed = record
+                .get_mut("members")
+                .and_then(Value::as_array_mut)
+                .is_some_and(|members| retarget_members(members, panes));
             if changed {
                 transaction.execute(
                     "UPDATE closed_groups SET record_json = ?2 WHERE closed_id = ?1",
@@ -192,6 +186,26 @@ pub(super) fn retarget_split_neighbors(
         }
     }
     Ok(())
+}
+
+/// Point each of `members` whose split neighbor is a closed pane in `panes`
+/// at the pane it was split again as. Returns whether any changed.
+pub(super) fn retarget_members(members: &mut [Value], panes: &HashMap<String, SplitPane>) -> bool {
+    let mut changed = false;
+    for member in members {
+        let Some(placement) = member.get_mut("split") else { continue };
+        let Some(split) = placement["neighbor"].as_str().and_then(|pane| panes.get(pane)) else {
+            continue;
+        };
+        placement["neighbor"] = json!(split.pane);
+        placement["screen"] = json!(split.screen);
+        // The split it sat beside may be gone with that pane.
+        if let Some(fields) = placement.as_object_mut() {
+            fields.remove("around");
+        }
+        changed = true;
+    }
+    changed
 }
 
 impl Mux {
