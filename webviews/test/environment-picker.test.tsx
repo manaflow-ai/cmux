@@ -165,6 +165,19 @@ async function type(text: string) {
   });
 }
 
+// Typing as a person does: Base UI auto-highlights only on an input event with an `inputType`.
+async function typeKeys(text: string) {
+  const field = doc().querySelector<HTMLInputElement>(".acpmux-env-popover input")!;
+  const setValue = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!;
+  for (const data of text) {
+    await act(async () => {
+      setValue.call(field, field.value + data);
+      field.dispatchEvent(new dom.window.InputEvent("input", { bubbles: true, inputType: "insertText", data }));
+    });
+  }
+  return field;
+}
+
 async function press(target: Element, init: KeyboardEventInit) {
   await act(async () => {
     target.dispatchEvent(new dom.window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init }));
@@ -275,6 +288,25 @@ test("New Cloud Machine and SSH… open the host's create and connect flows", as
     ["connect", "ssh"],
   ]);
   expect(doc().querySelector(".acpmux-env-popover")).toBeNull();
+});
+
+test("Return on a search runs no action Base UI highlighted by itself, but picks a matching machine", async () => {
+  let calls = await mount(true);
+  await openPicker();
+  await press(await typeKeys("gpu"), { key: "Enter" });
+  expect(calls).toEqual([["project", "/home/dev/model", "gpu-box"]]);
+  act(() => root?.unmount());
+  calls = await mount(true);
+  await openPicker();
+  // "gpu" shows gpu-box; the "z" leaves only New Cloud Machine and SSH…, and Base UI moves its
+  // highlight onto New Cloud Machine.
+  const field = await typeKeys("gpuz");
+  await press(field, { key: "Enter" });
+  expect(calls).toEqual([]);
+  await press(field, { key: "ArrowDown" });
+  await press(field, { key: "ArrowUp" });
+  await press(field, { key: "Enter" });
+  expect(calls).toEqual([["connect", "cloud"]]);
 });
 
 test("choosing the environment already chosen hands focus back to the prompt", async () => {

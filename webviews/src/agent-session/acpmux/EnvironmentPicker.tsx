@@ -139,6 +139,8 @@ export function EnvironmentPicker({
     return () => window.removeEventListener("keydown", onKey, true);
   }, [control]);
 
+  // The row Base UI highlighted by itself (reason "none"), not by the arrow keys or the pointer.
+  const autoHighlighted = useRef<string | undefined>(undefined);
   const submit = (value: string) => {
     const action = actions.find((candidate) => candidate.value === value);
     close();
@@ -226,6 +228,16 @@ export function EnvironmentPicker({
           onCommand={(event) => {
             if (event.key === "Escape") escaped.current = true;
             if (event.key === "Tab") event.preventDefault();
+            // Return runs New Cloud Machine (it creates a machine) or SSH… only once the arrow keys
+            // or the pointer reached it, never when Base UI highlighted it on its own: a search that
+            // leaves no machine moves that highlight onto the first action.
+            if (event.key === "Enter" && autoHighlighted.current?.startsWith(ACTION)) {
+              event.preventDefault();
+              event.preventBaseUIHandler?.();
+            }
+          }}
+          onHighlight={(value, by) => {
+            autoHighlighted.current = by === "none" ? value : undefined;
           }}
           label={t("composer.environmentSearch")}
           placeholder={t("composer.environmentSearch")}
@@ -233,9 +245,7 @@ export function EnvironmentPicker({
           listClassName="acpmux-location-folders"
           itemClassName="acpmux-menu-item"
           renderItem={row}
-          // Only a machine is highlighted for Return: with none shown, Return on a search must not
-          // land on New Cloud Machine (it creates a machine) or SSH…; arrow onto them to choose.
-          autoHighlight={shown.length > 0}
+          autoHighlight
           inline
         />
         {query.trim() !== "" && shown.length === 0 && (
