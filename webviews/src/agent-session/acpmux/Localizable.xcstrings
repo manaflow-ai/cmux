@@ -204028,6 +204028,138 @@
           }
         }
       }
+    },
+    "failover.refusedRestricted": {
+      "comment": "Agent pane: transcript note where acpmux kept a restricted chat (a folder the person has not trusted) on its harness after a usage limit instead of moving it to its fallback harness, which cannot run restricted; {to} is the fallback harness name",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يمكن التبديل إلى {to} في مجلد لم تمنحه الثقة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nije moguće prebaciti na {to} u folderu kojem niste dali povjerenje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kan ikke skifte til {to} i en mappe, du ikke har givet tillid"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wechsel zu {to} ist in einem Ordner, dem du nicht vertraust, nicht möglich"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can't switch to {to} in a folder you haven't trusted"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se puede cambiar a {to} en una carpeta en la que no has confiado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible de passer à {to} dans un dossier auquel vous n’avez pas fait confiance"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile passare a {to} in una cartella di cui non ti sei fidato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "信頼していないフォルダでは {to} に切り替えられません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចប្ដូរទៅ {to} ក្នុងថតដែលអ្នកមិនទាន់ទុកចិត្តបានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "신뢰하지 않은 폴더에서는 {to}(으)로 전환할 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kan ikke bytte til {to} i en mappe du ikke har stolt på"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie można przełączyć na {to} w folderze, któremu nie zaufano"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não é possível mudar para {to} em uma pasta em que você não confiou"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нельзя переключиться на {to} в папке, которой вы не доверяете"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สลับไปใช้ {to} ไม่ได้ในโฟลเดอร์ที่คุณยังไม่ได้เชื่อถือ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Güvenmediğiniz bir klasörde {to} aracına geçilemez"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдається перейти на {to} у теці, якій ви не довіряєте"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể chuyển sang {to} trong thư mục bạn chưa tin cậy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法在你未信任的文件夹中切换到 {to}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法在你未信任的資料夾中切換到 {to}"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

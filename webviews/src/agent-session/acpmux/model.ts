@@ -49,8 +49,10 @@ export type AcpmuxCompaction = {
   postTokens?: number;
 };
 
-/// acpmux moved the chat onto its fallback harness after a usage limit (a `failover` record).
-export type AcpmuxFailover = { from: string; to: string };
+/// acpmux moved the chat onto its fallback harness after a usage limit (a `failover` record), or
+/// kept a restricted chat on its harness because the fallback cannot run restricted (a
+/// `failover_refused` record, `refused: "restricted"`).
+export type AcpmuxFailover = { from: string; to: string; refused?: "restricted" };
 
 /// A message to this chat that acpmux holds while its pair is paused (`agent_pair_held`).
 export type AcpmuxHeldMessage = { promptId: string; text: string };

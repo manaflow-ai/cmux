@@ -353,9 +353,17 @@ impl Hub {
         if let Err(e) = &result {
             // A pool launcher that dies on the prompt (its proxy is down)
             // moves the session too, not only a usage or auth limit.
-            if (is_limit_error(&e.message) || e.message.starts_with("agent process closed"))
-                && let Some(to) = self.fallback_profile(session).await
+            let mut fallback = None;
+            if is_limit_error(&e.message) || e.message.starts_with("agent process closed") {
+                fallback = self.fallback_profile(session).await;
+            }
+            // A restricted chat moves only onto a harness that runs restricted too
+            // (`restricted.rs`); else the turn's error stands, with why it stayed.
+            if let Some(to) = &fallback
+                && let Some(refused) = self.refuse_failover(session, to, e, &turn_id).await
             {
+                result = Err(refused);
+            } else if let Some(to) = fallback {
                 let from = session.meta().harness;
                 self.append(
                     session,
@@ -803,12 +811,7 @@ impl Hub {
         mode_id: &str,
     ) -> Result<Value, RpcError> {
         // A restricted chat runs in an asking mode only (`restricted.rs`), whoever asks.
-        if session.meta().restricted && !super::restricted::MODES.contains(&mode_id) {
-            return Err(RpcError::invalid_params(format!(
-                "restricted.widening: a restricted chat runs in Normal or Plan, not {mode_id}; trust the folder first"
-            ))
-            .with_data(json!({"reason": "restricted.widening"})));
-        }
+        super::restricted::refuse_mode(&session.meta(), Some(mode_id))?;
         let r = self.forward(session, method::SESSION_SET_MODE, json!({"modeId": mode_id})).await?;
         self.write_mode_state(session, [ModeWrite::CurrentMode(json!(mode_id))]);
         self.append(session, "mux", "mode", json!({"modeId": mode_id}));
@@ -822,6 +825,10 @@ impl Hub {
         config_id: &str,
         value: Value,
     ) -> Result<Value, RpcError> {
+        // The mode as a config option is a mode too (`set_mode`).
+        if config_id == "mode" {
+            super::restricted::refuse_mode(&session.meta(), value.as_str())?;
+        }
         // Make sure the child is up so its option list is known, then map
         // portable names (effort) onto the harness's own id.
         let _ = self.child_for(session).await?;

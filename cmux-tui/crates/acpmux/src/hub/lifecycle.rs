@@ -487,6 +487,9 @@ impl Hub {
         let meta = session.meta();
         let tap = self.session_tap(session);
         let is_claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
+        // A restricted chat starts only as Claude Code, with the command line `restricted_plan`
+        // builds below: any other harness would start with the folder's own config.
+        self.refuse_unrestricted_start(session, profile)?;
         let mut existing_sid = session.meta().agent_session_id.clone();
         // Cleared only once the fork has started; a failed start retries it.
         let fork_from = session.fork_from.lock().unwrap().clone();
