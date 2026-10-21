@@ -52,14 +52,14 @@ enum TabLifecycle {
         if let controller = ctx.services.paneController(for: pane) {
             // From the docked agent chat, a tab in the strip (ChatColumnPlacement). Its
             // cwd is the explicit one, else the chat's, else nil for the daemon's resolver (NEW-TERMINAL-INHERITS-CWD).
+            // The chat's folder here, not the daemon's: its resolver skips chats (the strip, the dock's respawn).
+            let chatStart = tabCwd ?? NewTerminalStart.folder(of: controller.selectedTab, services: ctx.services)
             var target: PaneController? = controller
             if invocation.origin == .user {
-                let spawn = SpawnOptions(cwd: tabCwd, workspace: ctx.services.workspaceKey(of: pane), keep: keep)
+                let spawn = SpawnOptions(cwd: chatStart, workspace: ctx.services.workspaceKey(of: pane), keep: keep)
                 target = ChatColumnPlacement.route(from: controller, respawn: .terminal(spawn), services: ctx.services)
             }
-            // The strip's terminal still starts in the chat's folder: the daemon's resolver skips chats.
-            let start = target === controller ? tabCwd : tabCwd ?? NewTerminalStart.folder(of: controller.selectedTab, services: ctx.services)
-            target?.newTerminalTab(cwd: start, keep: keep, fromSelectedTab: true, daemonResolvesCwd: target !== controller,
+            target?.newTerminalTab(cwd: target === controller ? tabCwd : chatStart, keep: keep, fromSelectedTab: true, daemonResolvesCwd: target !== controller,
                                    then: NewTabSlot.placing(slot, services: ctx.services, then: nil))
             return
         }
