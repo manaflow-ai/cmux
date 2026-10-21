@@ -170,6 +170,12 @@
       "title" : "Permission Mode for New Chats",
       "type" : "string"
     },
+    "agents.subsessions.answerQuestions" : {
+      "default" : false,
+      "description" : "When an agent in a sub-session asks a question, the session that started it can answer, and the answer shows who gave it. Permission requests always wait for you. Off: only you answer.",
+      "title" : "Let Sessions Answer Their Sub-sessions' Questions",
+      "type" : "boolean"
+    },
     "agents.subsessions.enabled" : {
       "default" : true,
       "description" : "An agent can start other agent sessions to work on parts of a task in parallel. They show under its session in the sidebar.",
@@ -1712,7 +1718,7 @@
       "type" : "boolean"
     },
     "diff.wordDiffs" : {
-      "default" : true,
+      "default" : false,
       "description" : "diff.wordDiffs",
       "title" : "Highlight Word Changes",
       "type" : "boolean"
@@ -3232,6 +3238,12 @@
       "default" : false,
       "description" : "A collapsed group shows how many unread notifications its workspaces have. Off, it shows only its loading spinner.",
       "title" : "Show Group Unread Count",
+      "type" : "boolean"
+    },
+    "sidebar.groupLineJoinsHeader" : {
+      "default" : false,
+      "description" : "The line beside a group's workspaces runs into the group's header as one shape. Off, the line starts just below the header, with a small gap.",
+      "title" : "Join Group Lines to Headers",
       "type" : "boolean"
     },
     "sidebar.hoverCards.delay" : {
