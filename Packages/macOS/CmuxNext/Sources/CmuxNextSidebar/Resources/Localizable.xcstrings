@@ -16904,10 +16904,22 @@
     "sidebar.priority.title": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
+        "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Priority"
+            "value": "الأولوية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prioritet"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prioritet"
           }
         },
         "de": {
@@ -16916,16 +16928,10 @@
             "value": "Priorität"
           }
         },
-        "fr": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Priorité"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الأولوية"
+            "value": "Priority"
           }
         },
         "es": {
@@ -16934,16 +16940,28 @@
             "value": "Prioridad"
           }
         },
-        "zh-Hant": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Priorité"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Priorità"
+          }
+        },
+        "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "優先"
           }
         },
-        "zh-Hans": {
+        "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "优先"
+            "value": "អាទិភាព"
           }
         },
         "ko": {
@@ -16952,7 +16970,61 @@
             "value": "우선순위"
           }
         },
-        "ja": {
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prioritet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Priorytet"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prioridade"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Приоритет"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลำดับความสำคัญ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öncelik"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пріоритет"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ưu tiên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "优先"
+          }
+        },
+        "zh-Hant": {
           "stringUnit": {
             "state": "translated",
             "value": "優先"
@@ -16963,10 +17035,22 @@
     "sidebar.priority.show": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
+        "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show Priority View"
+            "value": "إظهار عرض الأولوية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži prikaz prioriteta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis prioritetsvisning"
           }
         },
         "de": {
@@ -16975,16 +17059,10 @@
             "value": "Prioritätsansicht einblenden"
           }
         },
-        "fr": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Afficher la vue Priorité"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إظهار عرض الأولوية"
+            "value": "Show Priority View"
           }
         },
         "es": {
@@ -16993,16 +17071,28 @@
             "value": "Mostrar vista de prioridad"
           }
         },
-        "zh-Hant": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "顯示優先檢視"
+            "value": "Afficher la vue Priorité"
           }
         },
-        "zh-Hans": {
+        "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "显示优先视图"
+            "value": "Mostra vista Priorità"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "優先ビューを表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញទិដ្ឋភាពអាទិភាព"
           }
         },
         "ko": {
@@ -17011,10 +17101,64 @@
             "value": "우선순위 보기 표시"
           }
         },
-        "ja": {
+        "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "優先ビューを表示"
+            "value": "Vis prioritetsvisning"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż widok priorytetów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar visualização de prioridade"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать вид «Приоритет»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงมุมมองลำดับความสำคัญ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öncelik görünümünü göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показати вигляд «Пріоритет»"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện chế độ xem ưu tiên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示优先视图"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示優先檢視"
           }
         }
       }
@@ -17022,10 +17166,22 @@
     "sidebar.priority.hide": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
+        "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hide Priority View"
+            "value": "إخفاء عرض الأولوية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sakrij prikaz prioriteta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjul prioritetsvisning"
           }
         },
         "de": {
@@ -17034,16 +17190,10 @@
             "value": "Prioritätsansicht ausblenden"
           }
         },
-        "fr": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Masquer la vue Priorité"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إخفاء عرض الأولوية"
+            "value": "Hide Priority View"
           }
         },
         "es": {
@@ -17052,16 +17202,28 @@
             "value": "Ocultar vista de prioridad"
           }
         },
-        "zh-Hant": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "隱藏優先檢視"
+            "value": "Masquer la vue Priorité"
           }
         },
-        "zh-Hans": {
+        "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "隐藏优先视图"
+            "value": "Nascondi vista Priorità"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "優先ビューを隠す"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លាក់ទិដ្ឋភាពអាទិភាព"
           }
         },
         "ko": {
@@ -17070,10 +17232,64 @@
             "value": "우선순위 보기 숨기기"
           }
         },
-        "ja": {
+        "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "優先ビューを隠す"
+            "value": "Skjul prioritetsvisning"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukryj widok priorytetów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar visualização de prioridade"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скрыть вид «Приоритет»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซ่อนมุมมองลำดับความสำคัญ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öncelik görünümünü gizle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сховати вигляд «Пріоритет»"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ẩn chế độ xem ưu tiên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏优先视图"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱藏優先檢視"
           }
         }
       }
@@ -17081,10 +17297,22 @@
     "sidebar.priority.empty": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
+        "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "No agent chats right now"
+            "value": "لا توجد محادثات وكلاء الآن"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trenutno nema razgovora s agentima"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen agentchats lige nu"
           }
         },
         "de": {
@@ -17093,16 +17321,10 @@
             "value": "Gerade keine Agent-Chats"
           }
         },
-        "fr": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aucune conversation d’agent pour le moment"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لا توجد محادثات وكلاء الآن"
+            "value": "No agent chats right now"
           }
         },
         "es": {
@@ -17111,16 +17333,28 @@
             "value": "No hay chats de agentes ahora"
           }
         },
-        "zh-Hant": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "目前沒有代理聊天"
+            "value": "Aucune conversation d’agent pour le moment"
           }
         },
-        "zh-Hans": {
+        "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "当前没有代理聊天"
+            "value": "Nessuna chat degli agenti al momento"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在エージェントのチャットはありません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនមានការជជែកភ្នាក់ងារឥឡូវនេះទេ"
           }
         },
         "ko": {
@@ -17129,10 +17363,64 @@
             "value": "지금은 에이전트 채팅이 없습니다"
           }
         },
-        "ja": {
+        "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "現在エージェントのチャットはありません"
+            "value": "Ingen agentchatter akkurat nå"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brak czatów agentów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum chat de agente no momento"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сейчас нет чатов агентов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยังไม่มีแชตของเอเจนต์ในตอนนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Şu anda ajan sohbeti yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зараз немає чатів агентів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện không có cuộc trò chuyện tác tử nào"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前没有代理聊天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前沒有代理聊天"
           }
         }
       }
@@ -17140,10 +17428,22 @@
     "sidebar.priority.state.needsYou": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
+        "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Needs you"
+            "value": "بحاجة إليك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Treba te"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Venter på dig"
           }
         },
         "de": {
@@ -17152,16 +17452,10 @@
             "value": "Braucht dich"
           }
         },
-        "fr": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vous attend"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "بحاجة إليك"
+            "value": "Needs you"
           }
         },
         "es": {
@@ -17170,16 +17464,28 @@
             "value": "Te necesita"
           }
         },
-        "zh-Hant": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "需要你"
+            "value": "Vous attend"
           }
         },
-        "zh-Hans": {
+        "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "需要你"
+            "value": "Ti aspetta"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対応が必要"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ត្រូវការអ្នក"
           }
         },
         "ko": {
@@ -17188,10 +17494,64 @@
             "value": "확인 필요"
           }
         },
-        "ja": {
+        "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "対応が必要"
+            "value": "Venter på deg"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czeka na ciebie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Precisa de você"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ждёт вас"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รอคุณอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seni bekliyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чекає на вас"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cần bạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要你"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要你"
           }
         }
       }
@@ -17199,10 +17559,22 @@
     "sidebar.priority.state.done": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
+        "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Done"
+            "value": "تم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gotovo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Færdig"
           }
         },
         "de": {
@@ -17211,16 +17583,10 @@
             "value": "Fertig"
           }
         },
-        "fr": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminé"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تم"
+            "value": "Done"
           }
         },
         "es": {
@@ -17229,16 +17595,28 @@
             "value": "Listo"
           }
         },
-        "zh-Hant": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "完成"
+            "value": "Terminé"
           }
         },
-        "zh-Hans": {
+        "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "完成"
+            "value": "Fatto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រួចរាល់"
           }
         },
         "ko": {
@@ -17247,10 +17625,64 @@
             "value": "완료"
           }
         },
-        "ja": {
+        "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "完了"
+            "value": "Ferdig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gotowe"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Concluído"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Готово"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เสร็จแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bitti"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Готово"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Xong"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成"
           }
         }
       }
@@ -17258,10 +17690,22 @@
     "sidebar.priority.state.failed": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
+        "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Failed"
+            "value": "فشل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neuspjelo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mislykkedes"
           }
         },
         "de": {
@@ -17270,16 +17714,10 @@
             "value": "Fehlgeschlagen"
           }
         },
-        "fr": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Échec"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "فشل"
+            "value": "Failed"
           }
         },
         "es": {
@@ -17288,16 +17726,28 @@
             "value": "Falló"
           }
         },
-        "zh-Hant": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Échec"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non riuscito"
+          }
+        },
+        "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "失敗"
           }
         },
-        "zh-Hans": {
+        "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "失败"
+            "value": "បរាជ័យ"
           }
         },
         "ko": {
@@ -17306,7 +17756,61 @@
             "value": "실패"
           }
         },
-        "ja": {
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mislyktes"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Niepowodzenie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falhou"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ошибка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ล้มเหลว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başarısız"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Помилка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thất bại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "失败"
+          }
+        },
+        "zh-Hant": {
           "stringUnit": {
             "state": "translated",
             "value": "失敗"
@@ -17317,10 +17821,22 @@
     "sidebar.priority.state.lost": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
+        "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lost"
+            "value": "مفقود"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Izgubljeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mistet"
           }
         },
         "de": {
@@ -17329,16 +17845,10 @@
             "value": "Verloren"
           }
         },
-        "fr": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Perdu"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "مفقود"
+            "value": "Lost"
           }
         },
         "es": {
@@ -17347,16 +17857,28 @@
             "value": "Perdido"
           }
         },
-        "zh-Hant": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "已中斷"
+            "value": "Perdu"
           }
         },
-        "zh-Hans": {
+        "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "已中断"
+            "value": "Perso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切断"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បាត់"
           }
         },
         "ko": {
@@ -17365,10 +17887,64 @@
             "value": "연결 끊김"
           }
         },
-        "ja": {
+        "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "切断"
+            "value": "Mistet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utracono"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perdido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Потеряно"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขาดการเชื่อมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kayıp"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Втрачено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mất kết nối"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已中断"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已中斷"
           }
         }
       }
@@ -17376,10 +17952,22 @@
     "sidebar.priority.state.working": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
+        "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Working"
+            "value": "يعمل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Radi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbejder"
           }
         },
         "de": {
@@ -17388,16 +17976,10 @@
             "value": "Arbeitet"
           }
         },
-        "fr": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "En cours"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يعمل"
+            "value": "Working"
           }
         },
         "es": {
@@ -17406,16 +17988,28 @@
             "value": "Trabajando"
           }
         },
-        "zh-Hant": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "處理中"
+            "value": "En cours"
           }
         },
-        "zh-Hans": {
+        "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "处理中"
+            "value": "In corso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作業中"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងដំណើរការ"
           }
         },
         "ko": {
@@ -17424,10 +18018,64 @@
             "value": "작업 중"
           }
         },
-        "ja": {
+        "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "作業中"
+            "value": "Jobber"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pracuje"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trabalhando"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Работает"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Працює"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đang làm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "处理中"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "處理中"
           }
         }
       }
@@ -17435,10 +18083,22 @@
     "sidebar.priority.state.workingFor": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
+        "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Working %@"
+            "value": "يعمل %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Radi %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbejder %@"
           }
         },
         "de": {
@@ -17447,16 +18107,10 @@
             "value": "Arbeitet %@"
           }
         },
-        "fr": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "En cours %@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يعمل %@"
+            "value": "Working %@"
           }
         },
         "es": {
@@ -17465,16 +18119,28 @@
             "value": "Trabajando %@"
           }
         },
-        "zh-Hant": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "處理中 %@"
+            "value": "En cours %@"
           }
         },
-        "zh-Hans": {
+        "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "处理中 %@"
+            "value": "In corso %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作業中 %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងដំណើរការ %@"
           }
         },
         "ko": {
@@ -17483,10 +18149,64 @@
             "value": "작업 중 %@"
           }
         },
-        "ja": {
+        "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "作業中 %@"
+            "value": "Jobber %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pracuje %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trabalhando %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Работает %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังทำงาน %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışıyor %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Працює %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đang làm %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "处理中 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "處理中 %@"
           }
         }
       }
@@ -17494,10 +18214,22 @@
     "sidebar.priority.state.idle": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
+        "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Idle"
+            "value": "خامل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neaktivno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inaktiv"
           }
         },
         "de": {
@@ -17506,16 +18238,10 @@
             "value": "Inaktiv"
           }
         },
-        "fr": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inactif"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "خامل"
+            "value": "Idle"
           }
         },
         "es": {
@@ -17524,16 +18250,28 @@
             "value": "Inactivo"
           }
         },
-        "zh-Hant": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "閒置"
+            "value": "Inactif"
           }
         },
-        "zh-Hans": {
+        "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "空闲"
+            "value": "Inattivo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待機中"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទំនេរ"
           }
         },
         "ko": {
@@ -17542,10 +18280,64 @@
             "value": "유휴"
           }
         },
-        "ja": {
+        "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "待機中"
+            "value": "Inaktiv"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bezczynny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocioso"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Простаивает"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ว่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boşta"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Простоює"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rảnh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空闲"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閒置"
           }
         }
       }
@@ -17553,10 +18345,22 @@
     "sidebar.priority.markRead": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
+        "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mark as Read"
+            "value": "وضع علامة كمقروء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Označi kao pročitano"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markér som læst"
           }
         },
         "de": {
@@ -17565,16 +18369,10 @@
             "value": "Als gelesen markieren"
           }
         },
-        "fr": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Marquer comme lu"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "وضع علامة كمقروء"
+            "value": "Mark as Read"
           }
         },
         "es": {
@@ -17583,16 +18381,28 @@
             "value": "Marcar como leído"
           }
         },
-        "zh-Hant": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "標示為已讀"
+            "value": "Marquer comme lu"
           }
         },
-        "zh-Hans": {
+        "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "标记为已读"
+            "value": "Segna come letto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "既読にする"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សម្គាល់ថាបានអាន"
           }
         },
         "ko": {
@@ -17601,10 +18411,64 @@
             "value": "읽음으로 표시"
           }
         },
-        "ja": {
+        "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "既読にする"
+            "value": "Merk som lest"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oznacz jako przeczytane"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Marcar como lido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отметить как прочитанное"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทำเครื่องหมายว่าอ่านแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Okundu olarak işaretle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Позначити як прочитане"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đánh dấu đã đọc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标记为已读"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標示為已讀"
           }
         }
       }
@@ -17612,10 +18476,22 @@
     "sidebar.priority.pin": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
+        "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pin to Priority"
+            "value": "تثبيت في الأولوية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikači u prioritet"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fastgør i Prioritet"
           }
         },
         "de": {
@@ -17624,16 +18500,10 @@
             "value": "An Priorität anheften"
           }
         },
-        "fr": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Épingler dans Priorité"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تثبيت في الأولوية"
+            "value": "Pin to Priority"
           }
         },
         "es": {
@@ -17642,16 +18512,28 @@
             "value": "Fijar en Prioridad"
           }
         },
-        "zh-Hant": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "釘選到優先"
+            "value": "Épingler dans Priorité"
           }
         },
-        "zh-Hans": {
+        "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "固定到优先"
+            "value": "Fissa in Priorità"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "優先に固定"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ខ្ទាស់ទៅអាទិភាព"
           }
         },
         "ko": {
@@ -17660,10 +18542,64 @@
             "value": "우선순위에 고정"
           }
         },
-        "ja": {
+        "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "優先に固定"
+            "value": "Fest til Prioritet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przypnij do priorytetów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fixar em Prioridade"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закрепить в приоритете"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปักหมุดไว้ในลำดับความสำคัญ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Önceliğe sabitle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закріпити в пріоритеті"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghim vào Ưu tiên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "固定到优先"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "釘選到優先"
           }
         }
       }
@@ -17671,10 +18607,22 @@
     "sidebar.priority.unpin": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
+        "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unpin from Priority"
+            "value": "إلغاء التثبيت من الأولوية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otkači iz prioriteta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frigør fra Prioritet"
           }
         },
         "de": {
@@ -17683,16 +18631,10 @@
             "value": "Von Priorität lösen"
           }
         },
-        "fr": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Désépingler de Priorité"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إلغاء التثبيت من الأولوية"
+            "value": "Unpin from Priority"
           }
         },
         "es": {
@@ -17701,16 +18643,28 @@
             "value": "Dejar de fijar en Prioridad"
           }
         },
-        "zh-Hant": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "從優先取消釘選"
+            "value": "Désépingler de Priorité"
           }
         },
-        "zh-Hans": {
+        "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "从优先取消固定"
+            "value": "Rimuovi da Priorità"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "優先から固定解除"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឈប់ខ្ទាស់ពីអាទិភាព"
           }
         },
         "ko": {
@@ -17719,10 +18673,64 @@
             "value": "우선순위에서 고정 해제"
           }
         },
-        "ja": {
+        "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "優先から固定解除"
+            "value": "Løsne fra Prioritet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odepnij od priorytetów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desafixar de Prioridade"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открепить из приоритета"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เลิกปักหมุดจากลำดับความสำคัญ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öncelikten sabitlemeyi kaldır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкріпити з пріоритету"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bỏ ghim khỏi Ưu tiên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从优先取消固定"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從優先取消釘選"
           }
         }
       }
@@ -17730,10 +18738,22 @@
     "sidebar.priority.snooze": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
+        "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Snooze for 1 Hour"
+            "value": "تأجيل لمدة ساعة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odgodi 1 sat"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udsæt 1 time"
           }
         },
         "de": {
@@ -17742,16 +18762,10 @@
             "value": "1 Stunde zurückstellen"
           }
         },
-        "fr": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reporter d’une heure"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تأجيل لمدة ساعة"
+            "value": "Snooze for 1 Hour"
           }
         },
         "es": {
@@ -17760,16 +18774,28 @@
             "value": "Posponer 1 hora"
           }
         },
-        "zh-Hant": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "延後 1 小時"
+            "value": "Reporter d’une heure"
           }
         },
-        "zh-Hans": {
+        "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "推迟 1 小时"
+            "value": "Posticipa di 1 ora"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1時間スヌーズ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពន្យារ ១ ម៉ោង"
           }
         },
         "ko": {
@@ -17778,10 +18804,64 @@
             "value": "1시간 미루기"
           }
         },
-        "ja": {
+        "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "1時間スヌーズ"
+            "value": "Utsett 1 time"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odłóż na 1 godzinę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adiar por 1 hora"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отложить на 1 час"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เลื่อน 1 ชั่วโมง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 saat ertele"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкласти на 1 годину"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tạm hoãn 1 giờ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推迟 1 小时"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "延後 1 小時"
           }
         }
       }
@@ -17789,10 +18869,22 @@
     "sidebar.priority.archive": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
+        "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Archive"
+            "value": "أرشفة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arhiviraj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arkivér"
           }
         },
         "de": {
@@ -17801,16 +18893,10 @@
             "value": "Archivieren"
           }
         },
-        "fr": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Archiver"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "أرشفة"
+            "value": "Archive"
           }
         },
         "es": {
@@ -17819,16 +18905,28 @@
             "value": "Archivar"
           }
         },
-        "zh-Hant": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "封存"
+            "value": "Archiver"
           }
         },
-        "zh-Hans": {
+        "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "归档"
+            "value": "Archivia"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーカイブ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រក្សាទុកក្នុងបណ្ណសារ"
           }
         },
         "ko": {
@@ -17837,10 +18935,64 @@
             "value": "보관"
           }
         },
-        "ja": {
+        "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "アーカイブ"
+            "value": "Arkiver"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archiwizuj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arquivar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В архив"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เก็บถาวร"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arşivle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Архівувати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lưu trữ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "归档"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "封存"
           }
         }
       }

@@ -22,7 +22,7 @@ final class SidebarPriorityFeed {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "sidebar.priority")
     static let toggleAction: ActionID = "sidebar.priorityView.toggle"
 
-    private unowned let services: AppServices
+    private weak var services: AppServices?
     private let marks: AgentPriorityMarks
     private let stores: [AgentLaneStore]
     private let ranking = AgentPriorityRanking()
@@ -67,20 +67,20 @@ final class SidebarPriorityFeed {
         let shown = preferences.priorityViewShown, state = marks.state
         let entries = ranking.entries(lanes, marks: state, now: clock.now)
         return SidebarPriorityPanel(entries: shown ? entries : entries.filter(\.needsAttention), shown: shown, collapsed: state.collapsed,
-                                    shortcut: services.registry.shortcutDisplay(for: Self.toggleAction))
+                                    shortcut: services?.registry.shortcutDisplay(for: Self.toggleAction))
     }
 
     func perform(_ action: SidebarPriorityAction) {
         switch action {
         case .open(let id):
             guard let lane = lane(id) else { return }
-            services.agentActivityPage.jump(to: lane)
+            services?.agentActivityPage.jump(to: lane)
         case .markRead(let id): if let lane = lane(id) { marks.markRead(lane) }
         case .togglePin(let id): marks.togglePin(id)
         case .snooze(let id): if let lane = lane(id) { marks.snooze(lane) }
         case .archive(let id): archive(id)
         case .setCollapsed(let collapsed): marks.setCollapsed(collapsed)
-        case .toggleShown: _ = services.registry.perform(Self.toggleAction, invocation: ActionInvocation(origin: .user))
+        case .toggleShown: _ = services?.registry.perform(Self.toggleAction, invocation: ActionInvocation(origin: .user))
         }
     }
 
@@ -91,6 +91,7 @@ final class SidebarPriorityFeed {
     /// Hides the chat here at once, then archives it in acpmux (this Mac's or the Chief home's).
     private func archive(_ id: String) {
         marks.archive(id)
+        guard let services else { return }
         let chief = AgentLaneStore.shared.lanes[id] == nil && ChatsFeed.chiefLanes.lanes[id] != nil
         let environment = chief ? ChiefHomeAcpmux.environment(home: ChiefHome.resolve(tag: services.environment.tag))
             : QuitAgents.environment(services)
