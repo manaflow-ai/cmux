@@ -144,6 +144,19 @@ struct ImportCardDeckTests {
         #expect(deck.cards(for: .home, now: Self.now).first?.primary == nil)
     }
 
+    /// Resume and Try Again start over from 0, not at the fraction the cut-off run had reached.
+    @Test func aResumedClassicJobStartsAtZeroProgress() {
+        var job = ImportJob(finding: Self.classicAllHere, now: Self.now)
+        job.progressed(0.6, now: Self.now)
+        job.paused(.interrupted, now: Self.now)
+        job.resumed(now: Self.now)
+        #expect(job.phase == .running && job.fraction == 0)
+        job.progressed(0.4, now: Self.now)
+        job.failed(.importFailed, now: Self.now)
+        job.resumed(now: Self.now)
+        #expect(job.fraction == 0)
+    }
+
     // MARK: Jobs
 
     @Test func aBrowserJobHasOneStepPerProfileWithoutPasswords() {
