@@ -146,6 +146,8 @@ on:
       - scripts/cmux-next/skew-matrix*
       - scripts/cmux-next/check-capability-text.py
       - scripts/cmux-next/check-single-omnibar.py
+      - scripts/cmux-next/check-perf-source-guard.py
+      - tests/test_cmux_next_perf_source_guard.py
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
       - scripts/cmux-next/gen-settings-sources.py
@@ -363,6 +365,8 @@ on:
       - scripts/cmux-next/skew-matrix*
       - scripts/cmux-next/check-capability-text.py
       - scripts/cmux-next/check-single-omnibar.py
+      - scripts/cmux-next/check-perf-source-guard.py
+      - tests/test_cmux_next_perf_source_guard.py
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
       - scripts/cmux-next/gen-settings-sources.py
@@ -1429,6 +1433,16 @@ jobs:
           python3 tests/test_cmux_next_ios_test_notes_retry.py
           python3 -I scripts/cmux-next/check-app-store-rules.py --source .
 
+      # The perf gate's source guard without an app (I5: a theme change captures no window and
+      # forces no commit). The perf gate runs only where the scheme compiles, which a direct
+      # push skips; two hits landed that way (36c5b4217488, 715f623c97e1).
+      - name: Perf source guard (no window capture or CATransaction.flush)
+        id: perf-source-guard
+        continue-on-error: true
+        run: |
+          python3 tests/test_cmux_next_perf_source_guard.py
+          python3 -I scripts/cmux-next/check-perf-source-guard.py
+
       - name: Checks job structure
         id: checks-structure
         continue-on-error: true
@@ -1636,6 +1650,7 @@ jobs:
             ${{ steps.browser-chrome-icons.outcome }}|Browser chrome icons
             ${{ steps.capability-text.outcome }}|Capability texts never say update the app
             ${{ steps.app-store-rules.outcome }}|App Store review rules (cmux-next-ios intents, Info.plist)
+            ${{ steps.perf-source-guard.outcome }}|Perf source guard (no window capture or CATransaction.flush)
             ${{ steps.checks-structure.outcome }}|Checks job structure
             ${{ steps.tier-routing.outcome }}|Tier routing
             ${{ steps.package-dependency-lists.outcome }}|Package dependency lists sorted
