@@ -15,6 +15,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserContext, type BrowserType, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -119,6 +120,7 @@ await requireBrowserLane("new-tab-warm-first-frame.test.ts", async () => {
   /// records each distinct Chats list and location strip it paints.
   async function load(browserContext: BrowserContext, context: Context, handshakeDelay = 300): Promise<Page> {
     const page = await browserContext.newPage();
+    await installPaintedFrames(page);
     await page.exposeFunction("__postWarm", (warm: unknown) => {
       warmed = JSON.stringify(warm);
     });
@@ -183,11 +185,7 @@ await requireBrowserLane("new-tab-warm-first-frame.test.ts", async () => {
           characterData: true,
           attributes: true,
         });
-        const frame = () => {
-          read();
-          requestAnimationFrame(frame);
-        };
-        requestAnimationFrame(frame);
+        window.cmuxAfterPaint(read);
       },
       { endpoint, context, handshakeDelay, device },
     );
