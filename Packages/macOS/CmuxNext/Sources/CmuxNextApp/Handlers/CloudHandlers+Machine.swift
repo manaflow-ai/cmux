@@ -32,8 +32,10 @@ extension CloudHandlers {
             let command = try commandArgument(invocation)
             // A CLI or agent run gets the command's exit code and output: it runs through the
             // Cloud API's exec and opens no tab (the CLI cannot read a tab on the machine's
-            // daemon). A person's run, or a machine without API exec, types it into a new tab.
-            if invocation.origin != .user, session.machine.allows(.exec) {
+            // daemon); a machine without API exec refuses it. A person's run types it into a new tab.
+            if origin(of: invocation) != .user {
+                // Typing into a tab gives a CLI or agent nothing to read: refuse instead.
+                guard session.machine.allows(.exec) else { throw ActionFailure(message: CloudStrings.execUnavailable) }
                 return result("exec on Cloud machine", context) {
                     let ran = try await cloud.api.exec(session.machineID, command: command, timeoutMs: execTimeoutMs)
                     return ["machine_id": .string(session.machineID), "exit_code": .int(ran.exitCode),
@@ -125,7 +127,7 @@ extension CloudHandlers {
             guard session.daemon.connection != nil else { throw ActionFailure(message: CloudStrings.notConnected) }
             // A CLI or agent run gets the new workspace's id, and the window keeps what it shows
             // unless the run asked for focus.
-            guard invocation.origin == .user else {
+            guard origin(of: invocation) == .user else {
                 return result("new terminal on machine", context) {
                     guard let id = await context.services.windows.createWorkspace(on: session.daemon) else {
                         throw ActionFailure(message: CloudStrings.notConnected)

@@ -91,6 +91,58 @@ struct CloudCLITargetTests {
         #expect(failure.message == CloudStrings.notConnected)
     }
 
+    /// A nested run is built with the default user origin; the run it sits in
+    /// (``ActionRunScope``) decides, so a composite action started from the CLI
+    /// gets no fallback either.
+    @Test func aNestedRunInsideACLIRunNeedsAMachineTarget() {
+        let f = Self.fixture()
+        ActionRunScope.$current.withValue(ActionRunScope(origin: .cli, allowsViewChange: false)) {
+            #expect(throws: ActionFailure(message: CloudStrings.noMachine)) {
+                try CloudHandlers.machine(ActionInvocation(), f.context)
+            }
+        }
+    }
+
+    /// Slow work (a snapshot can take minutes) answers `pending` once
+    /// `pendingAfter` passes, well inside `action.run`'s 40 s result deadline,
+    /// and keeps running; it never holds the answer until the work ends.
+    @Test(.timeLimit(.minutes(1)))
+    func slowWorkAnswersPendingWhenItsWaitEnds() async throws {
+        let f = Self.fixture()
+        let clock = ContinuousClock()
+        let run = f.services.registry.capturingRun {
+            CloudHandlers.result("slow snapshot", f.context, pendingAfter: .milliseconds(100), pending: ["machine_id": .string("vm-slow")]) {
+                // wakeup-allow: a test's stand-in for a snapshot that takes longer than the answer's wait
+                try await Task.sleep(for: .seconds(8))
+                return ["snapshot_id": .string("late")]
+            }
+        }
+        let task = try #require(run.results.first)
+        let started = clock.now
+        guard case .success(let fields) = await task.value else {
+            Issue.record("slow work failed")
+            return
+        }
+        #expect(fields["pending"] == .bool(true))
+        #expect(fields["machine_id"] == .string("vm-slow"))
+        #expect(fields["snapshot_id"] == nil)
+        #expect(started.duration(to: clock.now) < .seconds(5), "the answer waited for the work")
+    }
+
+    @Test func quickWorkAnswersWithItsResultBeforeTheWaitEnds() async throws {
+        let f = Self.fixture()
+        let run = f.services.registry.capturingRun {
+            CloudHandlers.result("quick snapshot", f.context, pendingAfter: .seconds(20)) { ["snapshot_id": .string("snap-1")] }
+        }
+        let task = try #require(run.results.first)
+        guard case .success(let fields) = await task.value else {
+            Issue.record("quick work failed")
+            return
+        }
+        #expect(fields["snapshot_id"] == .string("snap-1"))
+        #expect(fields["pending"] == nil)
+    }
+
     @Test func newMachineAnswersWithTheMachineOnceTheServerReturnsIt() async throws {
         let f = Self.fixture()
         let creations = f.services.cloud.creations

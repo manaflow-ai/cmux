@@ -9,4 +9,12 @@ extension CloudStrings {
         String(localized: "cloud.cli.createDeclined", defaultValue: "No Cloud machine was created: the person declined or dismissed it in cmux.",
                table: "Cloud", bundle: .module)
     }
+
+    /// `cloud exec` from a CLI or agent on a machine whose provider runs no commands through the
+    /// API: typing it into a tab would give the caller nothing to read.
+    static var execUnavailable: String {
+        String(localized: "cloud.cli.execUnavailable",
+               defaultValue: "This Cloud machine can't run a command for the CLI and return its output. Open a terminal on it with cmux cloud open-machine instead.",
+               table: "Cloud", bundle: .module)
+    }
 }

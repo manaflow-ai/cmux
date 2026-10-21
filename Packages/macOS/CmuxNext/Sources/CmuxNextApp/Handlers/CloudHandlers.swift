@@ -49,10 +49,17 @@ enum CloudHandlers {
             guard let session = machines.session(target.id) else { throw ActionFailure.notFound(RefusalStrings.notShownInAnyWindow(target.description)) }
             return session
         }
-        guard invocation.origin == .user || fallsBack else { throw ActionFailure(message: CloudStrings.noMachine) }
+        guard origin(of: invocation) == .user || fallsBack else { throw ActionFailure(message: CloudStrings.noMachine) }
         if let state = context.services.windows.active?.state, let session = machines.session(state.machineID) { return session }
         if machines.cloud.count == 1, let only = machines.cloud.first { return only }
         throw ActionFailure(message: CloudStrings.noMachine)
+    }
+
+    /// Who started the run `invocation` belongs to. A nested perform builds its
+    /// invocation with the default `user` origin, so the enclosing run's scope
+    /// (``ActionRunScope``) decides: a composite action from the CLI stays the CLI's.
+    static func origin(of invocation: ActionInvocation) -> ActionOrigin {
+        ActionRunScope.current?.origin ?? invocation.origin
     }
 
     /// The origin of a connect an invocation starts: `user` only for the

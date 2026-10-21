@@ -24,7 +24,7 @@ extension CloudHandlers {
     static func answer(_ label: String, _ invocation: ActionInvocation, _ context: AppActionContext,
                        pendingAfter: Duration? = nil, pending: [String: ActionResultValue] = [:],
                        _ work: @escaping @MainActor () async throws -> CloudAnswer) {
-        guard invocation.origin != .user else {
+        guard origin(of: invocation) != .user else {
             return runTracked(label, context) {
                 let answer = try await work()
                 CloudPresenter.show(answer.title, answer.text, copyable: answer.copyable, in: window(context))
@@ -63,20 +63,31 @@ extension CloudHandlers {
         guard let pendingAfter else { return context.services.registry.track(result: inner) }
         // task-owner: the action run's answer: the work's, or `pending` once the wait ends.
         let task: ActionResultWork = Task { @MainActor in
-            // concurrency-allow: the losing child is cancelled; cancelling the wait on `inner` leaves the work running
-            let answered = await withTaskGroup(of: Result<[String: ActionResultValue], ActionWorkFailure>?.self) { group in
-                group.addTask { await inner.value }
-                group.addTask {
-                    // wakeup-allow: one-shot answer deadline; this task is cancelled when the work answers first
-                    try? await Task.sleep(for: pendingAfter)
-                    return nil
-                }
-                defer { group.cancelAll() }
-                return await group.next() ?? nil
-            }
-            return answered ?? .success(pending.merging(["pending": .bool(true)]) { field, _ in field })
+            await firstAnswer(inner, within: pendingAfter) ?? .success(pending.merging(["pending": .bool(true)]) { field, _ in field })
         }
         context.services.registry.track(result: task)
+    }
+
+    /// `work`'s answer if it comes within `wait`, else nil (the work keeps
+    /// running). Both sides yield into one stream and the first value wins:
+    /// awaiting an unstructured task's `value` ignores cancellation, so a
+    /// task group racing it would wait for the work to end anyway.
+    static func firstAnswer(_ work: ActionResultWork, within wait: Duration) async -> Result<[String: ActionResultValue], ActionWorkFailure>? {
+        let (answers, continuation) = AsyncStream<Result<[String: ActionResultValue], ActionWorkFailure>?>.makeStream()
+        // task-owner: relays the work's answer; it ends with the work (a yield after finish is dropped).
+        Task { continuation.yield(await work.value) }
+        // task-owner: the answer deadline; cancelled below once an answer is in.
+        let deadline = Task {
+            // wakeup-allow: one-shot answer deadline; cancelled when the work answers first
+            try? await Task.sleep(for: wait)
+            continuation.yield(nil)
+        }
+        defer {
+            deadline.cancel()
+            continuation.finish()
+        }
+        for await answer in answers { return answer }
+        return nil
     }
 
     /// `cloud new-machine` from a CLI or MCP: the run answers once the server

@@ -12971,6 +12971,137 @@
           }
         }
       }
+    },
+    "cloud.cli.execUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Cloud machine can't run a command for the CLI and return its output. Open a terminal on it with cmux cloud open-machine instead."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن لهذا الجهاز السحابي تشغيل أمر لواجهة سطر الأوامر وإرجاع مخرجاته. افتح طرفية عليه باستخدام ‎cmux cloud open-machine‎ بدلاً من ذلك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova Cloud mašina ne može pokrenuti naredbu za CLI i vratiti njen izlaz. Umjesto toga otvorite terminal na njoj pomoću cmux cloud open-machine."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Cloud-maskine kan ikke køre en kommando for CLI'en og returnere outputtet. Åbn i stedet en terminal på den med cmux cloud open-machine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Cloud-Maschine kann keinen Befehl für die CLI ausführen und seine Ausgabe zurückgeben. Öffne stattdessen mit cmux cloud open-machine ein Terminal darauf."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta máquina en la nube no puede ejecutar un comando para la CLI y devolver su salida. Abre una terminal en ella con cmux cloud open-machine."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette machine Cloud ne peut pas exécuter de commande pour la CLI et en renvoyer la sortie. Ouvrez plutôt un terminal dessus avec cmux cloud open-machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa macchina Cloud non può eseguire un comando per la CLI e restituirne l’output. Apri invece un terminale con cmux cloud open-machine."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Cloud マシンでは CLI のためにコマンドを実行して出力を返すことができません。代わりに cmux cloud open-machine でターミナルを開いてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីន Cloud នេះមិនអាចដំណើរការពាក្យបញ្ជាសម្រាប់ CLI ហើយបញ្ជូនលទ្ធផលត្រឡប់មកវិញបានទេ។ សូមបើកស្ថានីយនៅលើវាដោយប្រើ cmux cloud open-machine ជំនួសវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Cloud 머신은 CLI를 위해 명령을 실행하고 출력을 반환할 수 없습니다. 대신 cmux cloud open-machine으로 터미널을 여세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Cloud-maskinen kan ikke kjøre en kommando for CLI-en og returnere utdataene. Åpne heller en terminal på den med cmux cloud open-machine."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta maszyna Cloud nie może uruchomić polecenia dla CLI i zwrócić jego wyniku. Zamiast tego otwórz na niej terminal poleceniem cmux cloud open-machine."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta máquina na nuvem não pode executar um comando para a CLI e retornar a saída. Abra um terminal nela com cmux cloud open-machine."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эта облачная машина не может выполнить команду для CLI и вернуть её вывод. Вместо этого откройте на ней терминал командой cmux cloud open-machine."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่อง Cloud นี้ไม่สามารถรันคำสั่งให้ CLI และส่งผลลัพธ์กลับได้ ให้เปิดเทอร์มินัลบนเครื่องด้วย cmux cloud open-machine แทน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Cloud makinesi CLI için komut çalıştırıp çıktısını döndüremez. Bunun yerine cmux cloud open-machine ile üzerinde bir terminal açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ця хмарна машина не може виконати команду для CLI і повернути її вивід. Натомість відкрийте на ній термінал командою cmux cloud open-machine."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy Cloud này không thể chạy lệnh cho CLI và trả về kết quả. Hãy mở terminal trên máy bằng cmux cloud open-machine."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台云端机器无法为 CLI 运行命令并返回输出。请改用 cmux cloud open-machine 在其上打开终端。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台雲端機器無法為 CLI 執行指令並傳回輸出。請改用 cmux cloud open-machine 在其上開啟終端機。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
