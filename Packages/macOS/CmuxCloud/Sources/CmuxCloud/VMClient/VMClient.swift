@@ -1907,6 +1907,27 @@ public actor VMClient {
         }
     }
 
+    /// `POST /api/vm/<id>/hygiene`: disk cleanup on one of the caller's own machines.
+    /// Without `apply` it is a dry-run that only reports what could be removed; the
+    /// server never wakes a paused machine (409 `vm_not_running`) and allows one apply
+    /// at a time (409 `vm_hygiene_busy`). Returns the JSON report as sent.
+    public func hygiene(id: String, apply: Bool, teamID: String? = nil) async throws -> Data {
+        return try await withOperation(.exec, foreground: true) {
+            let encodedID = try pathSegment(id, fieldName: "vm id")
+            let body: [String: Any] = apply ? ["apply": true] : [:]
+            let (data, http) = try await request(
+                "POST",
+                path: "/api/vm/\(encodedID)/hygiene",
+                jsonBody: body,
+                timeoutSeconds: 300,
+                teamID: teamID
+            )
+            try ensureOK(http, data: data)
+            _ = try decodeJSONObject(data)
+            return data
+        }
+    }
+
     private func lifecycleTransition(
         id: String,
         action: String,

@@ -32,6 +32,7 @@ import CryptoKit
 import Darwin
 import Network
 import CoreText
+import CmuxTextActions
 
 private func externalBrowserFallbackURL(
     url: URL?,
@@ -611,6 +612,7 @@ extension Workspace {
         let projectSnapshot: SessionProjectPanelSnapshot?; var workspaceTodoSnapshot: SessionWorkspaceTodoPanelSnapshot? = nil
         var coderouterGuideSnapshot: SessionCoderouterGuidePanelSnapshot? = nil
         var notificationsPanelSnapshot: SessionNotificationsPanelSnapshot? = nil
+        var chiefSnapshot: SessionChiefPanelSnapshot? = nil
         switch panel.panelType {
         case .terminal:
             guard let terminalPanel = panel as? TerminalPanel else { return nil }
@@ -829,6 +831,14 @@ extension Workspace {
             terminalSnapshot = nil; browserSnapshot = nil; markdownSnapshot = nil; filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil; agentSessionSnapshot = nil; projectSnapshot = nil
             notificationsPanelSnapshot = SessionNotificationsPanelSnapshot()
+        case .chief:
+            guard let chiefPanel = panel as? ChiefPanel else { return nil }
+            terminalSnapshot = nil; browserSnapshot = nil; markdownSnapshot = nil; filePreviewSnapshot = nil
+            rightSidebarToolSnapshot = nil; agentSessionSnapshot = nil; projectSnapshot = nil
+            chiefSnapshot = SessionChiefPanelSnapshot(
+                conversationID: chiefPanel.conversationID?.rawValue,
+                isHome: chiefPanel.isHome
+            )
         case .extensionBrowser:
             return nil
         case .cloudVMLoading:
@@ -870,7 +880,8 @@ extension Workspace {
             project: projectSnapshot,
             workspaceTodo: workspaceTodoSnapshot,
             coderouterGuide: coderouterGuideSnapshot,
-            notificationsPanel: notificationsPanelSnapshot
+            notificationsPanel: notificationsPanelSnapshot,
+            chief: chiefSnapshot
         )
     }
     private func closedPanelHistoryEntry(panelId: UUID, tabId: TabID, pane: PaneID) -> ClosedPanelHistoryEntry? {
@@ -2378,6 +2389,11 @@ extension Workspace {
                   let notificationsPanel = newNotificationsSurface(inPane: paneId, focus: false) else { return nil }
             applySessionPanelMetadata(snapshot, toPanelId: notificationsPanel.id)
             return notificationsPanel.id
+        case .chief:
+            guard let chiefSnapshot = snapshot.chief,
+                  let chiefPanel = restoreChiefSurface(inPane: paneId, snapshot: chiefSnapshot) else { return nil }
+            applySessionPanelMetadata(snapshot, toPanelId: chiefPanel.id)
+            return chiefPanel.id
         case .extensionBrowser:
             return nil
         case .cloudVMLoading:
@@ -2793,22 +2809,41 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// fallback: a workspace that never fired a notification still carries a
     /// real timestamp instead of nothing.
     let createdAt = Date()
-    private let sidebarTitleDidChangeSubject: CurrentValueSubject<String, Never>
+    private var automaticTitleMutationDepth = 0
+    private let sidebarTitleDidChangeSubject = CurrentValueSubject<UInt64, Never>(0)
     @Published var title: String {
         didSet {
             // Combine's @Published publisher emits from willSet. The sidebar
             // snapshot reads the workspace after this property changes, so
             // publish a second value from didSet for a committed title.
-            sidebarTitleDidChangeSubject.send(title)
+            // Automatic process-title writes use the settled observation
+            // model instead; forwarding them here would wake every sidebar
+            // row for each animation frame. Send a revision rather than the
+            // title: a skipped automatic write leaves the subject behind, and
+            // a later rename back to that stale value must not look like a
+            // duplicate.
+            guard automaticTitleMutationDepth == 0 else { return }
+            sidebarTitleDidChangeSubject.send(sidebarTitleDidChangeSubject.value &+ 1)
         }
     }
-    /// Publishes the workspace title after the stored value has been updated.
+    /// Publishes a revision after each committed non-automatic title write.
     ///
     /// `@Published` emits from `willSet`; sidebar snapshots must read the
     /// committed title so the first refresh after a rename cannot cache the
     /// previous value.
-    var sidebarTitleDidChangePublisher: AnyPublisher<String, Never> {
+    var sidebarTitleDidChangePublisher: AnyPublisher<UInt64, Never> {
         sidebarTitleDidChangeSubject.eraseToAnyPublisher()
+    }
+
+    /// Performs an automatic title write without invalidating the immediate
+    /// sidebar publisher; the settled process-title model owns that refresh.
+    ///
+    /// The depth counter keeps nested title reconciliation safe if a future
+    /// caller performs another automatic write from inside the mutation.
+    func withAutomaticTitleMutation(_ body: () -> Void) {
+        automaticTitleMutationDepth += 1
+        defer { automaticTitleMutationDepth -= 1 }
+        body()
     }
     @Published var customTitle: String?
     /// Provenance of `customTitle`: `.user` for manual renames (sidebar,
@@ -4283,7 +4318,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         self.portOrdinal = portOrdinal
         let admittedAutomaticTitle = AutomaticTerminalTitle(title)?.value ?? String(localized: "notification.desktop.defaultTerminalTitle", defaultValue: "Terminal")
         self.processTitle = admittedAutomaticTitle
-        self.sidebarTitleDidChangeSubject = CurrentValueSubject(admittedAutomaticTitle)
         self.title = admittedAutomaticTitle
         self.customTitle = nil
         self.customTitleSource = nil
@@ -4733,7 +4767,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         let executableButtons = Dictionary(
             uniqueKeysWithValues: buttons.compactMap { button in
-                if button.terminalCommand != nil {
+                if button.terminalCommand != nil || button.action.textPayload != nil {
                     return (
                         button.id,
                         SurfaceTabBarExecutableButton(
@@ -11333,6 +11367,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     func requestCloseTab(_ tabId: TabID, force: Bool) -> Bool {
+        // Chief Home is the workspace's canonical anchor. Its split tab is
+        // intentionally pinned (which hides Bonsplit's close affordance), but
+        // keep this guard for force/API paths that bypass the tab chrome.
+        if let panelId = panelIdFromSurfaceId(tabId),
+           (panels[panelId] as? ChiefPanel)?.isHome == true {
+            return false
+        }
         if force { forceCloseTabIds.insert(tabId) }
         let closed = bonsplitController.closeTab(tabId); if force && !closed { forceCloseTabIds.remove(tabId) }
         return closed
@@ -11572,6 +11613,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     func moveSurface(panelId: UUID, toPane paneId: PaneID, atIndex index: Int? = nil, focus: Bool = true) -> Bool {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return false }
         guard bonsplitController.allPaneIds.contains(paneId) else { return false }
+        if let home = panels[panelId] as? ChiefPanel, home.isHome {
+            return duplicateChiefSurface(home, inPane: paneId, atIndex: index, focus: focus)
+        }
         guard bonsplitController.moveTab(tabId, toPane: paneId, atIndex: index) else { return false }
 
         if focus {
@@ -11588,6 +11632,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     func detachSurface(panelId: UUID) -> DetachedSurfaceTransfer? {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return nil }
         guard let sourcePanel = panels[panelId] else { return nil }
+        if let home = sourcePanel as? ChiefPanel, home.isHome {
+            // Canonical Home cannot leave its owning workspace. Pane drags
+            // resolve it as a Chief conversation and create an ordinary copy
+            // at the destination instead of consuming this panel.
+            _ = home
+            return nil
+        }
         let surfaceMachine = machineOwningSurface(panelId)
         surfaceTransferringPanelIds.insert(panelId)
         defer { surfaceTransferringPanelIds.remove(panelId) }
@@ -14496,6 +14547,12 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, shouldCloseTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
+        // Pinned protects normal Bonsplit UI; this delegate guard covers
+        // callers that ask the controller to close directly.
+        if let panelId = panelIdFromSurfaceId(tab.id),
+           (panels[panelId] as? ChiefPanel)?.isHome == true {
+            return false
+        }
         func recordPostCloseState() {
             let tabs = controller.tabs(inPane: pane)
             // Only a close that takes the zoomed pane with it ends the zoom. While
@@ -15123,6 +15180,12 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, shouldClosePane pane: PaneID) -> Bool {
         let tabs = controller.tabs(inPane: pane)
+        if tabs.contains(where: { tab in
+            guard let panelId = panelIdFromSurfaceId(tab.id) else { return false }
+            return (panels[panelId] as? ChiefPanel)?.isHome == true
+        }) {
+            return false
+        }
         var promptTitles: [String] = []
         var needsPrompt = false
         for tab in tabs {
@@ -15453,6 +15516,30 @@ extension Workspace: BonsplitDelegate {
                 iconSourcePath: executable.button.iconSourcePath,
                 presentingWindow: presentingWindow
             )
+            return
+        }
+
+        if let payload = executable.button.action.textPayload {
+            _ = CmuxConfigExecutor.deliverTextActionIfAuthorized(
+                payload,
+                confirm: executable.button.confirm ?? false,
+                actionID: executable.button.id,
+                configSourcePath: executable.terminalCommandSourcePath ?? surfaceTabBarButtonSourcePath,
+                globalConfigPath: globalConfigPath,
+                displayTitle: executable.button.title ?? executable.button.tooltip,
+                icon: executable.button.icon ?? executable.button.action.defaultButtonIcon,
+                iconSourcePath: executable.button.iconSourcePath,
+                presentingWindow: presentingWindow
+            ) { [weak self] in
+                guard let self else { return false }
+                self.bonsplitController.focusPane(pane)
+                guard let panel = self.selectedTerminalPanel(inPane: pane),
+                      CmuxConfigExecutor.deliver(payload, to: panel) else {
+                    NSSound.beep()
+                    return false
+                }
+                return true
+            }
             return
         }
 

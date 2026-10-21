@@ -63,6 +63,7 @@ extension CMUXCLI {
             case nested(timeoutMs: Int)  // Nested type/command/timeout hooks; timeout unit is agent-specific.
             case kiroAgentJSON(timeoutMs: Int) // ~/.kiro/agents/*.json flat command entries with timeout_ms
             case antigravityJSON(timeoutSeconds: Int) // ~/.gemini/config/hooks.json named hook groups
+            case copilotHooksJSON(timeoutSeconds: Int) // ~/.copilot/hooks/cmux.json: version 1, camelCase events, bash/timeoutSec entries
             case rovoDevYAML
             case hermesAgentYAML
             case tomlArrayTable // Kimi config.toml [[hooks]] array-of-tables

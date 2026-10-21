@@ -4,6 +4,77 @@ import CmuxControlSocket
 import Foundation
 
 extension TerminalController {
+    /// Whether the terminal menu should offer Review Approval for the stored binding.
+    func surfaceResumeBindingAllowsUserReview(
+        routing: ControlRoutingSelectors,
+        explicitTargetID: UUID
+    ) -> Bool {
+        guard let tabManager = resolveTabManager(routing: routing),
+              let binding = resolveSurfaceResumeTarget(
+                  routing: routing, explicitTargetID: explicitTargetID,
+                  hasResolvedWindowID: false, fallbackTabManager: tabManager
+              )?.binding else {
+            return false
+        }
+        return SurfaceResumeApprovalStore.proposalAllowsExplicitReview(binding: binding)
+    }
+
+    /// User-interface-only entry point. Re-resolve the target after modal event
+    /// processing so an approval cannot overwrite a replacement owner/binding.
+    func reviewSurfaceResumeBindingFromUserInterface(
+        routing: ControlRoutingSelectors,
+        explicitTargetID: UUID
+    ) -> ControlSurfaceResumeResolution {
+        guard let tabManager = resolveTabManager(routing: routing) else {
+            return .windowUnavailable
+        }
+        guard let target = resolveSurfaceResumeTarget(
+            routing: routing, explicitTargetID: explicitTargetID,
+            hasResolvedWindowID: false, fallbackTabManager: tabManager
+        ), let proposal = target.binding else {
+            return .surfaceNotFound
+        }
+        guard SurfaceResumeApprovalStore.proposalAllowsExplicitReview(binding: proposal) else {
+            return .setFailed
+        }
+        let owner = target.tabManager
+        let workspaceID = target.workspaceID
+        let surfaceID = target.surfaceID
+        let proposalIsCurrent = { [self] in
+            guard let current = resolveSurfaceResumeTarget(
+                routing: routing, explicitTargetID: explicitTargetID,
+                hasResolvedWindowID: false, fallbackTabManager: tabManager
+            ) else { return false }
+            switch (target, current) {
+            case let (.workspace(_, original, _), .workspace(_, current, _)):
+                guard original === current else { return false }
+            case let (.dock(_, original, _), .dock(_, current, _)):
+                guard original === current else { return false }
+            default:
+                return false
+            }
+            return current.tabManager === owner &&
+                current.workspaceID == workspaceID &&
+                current.surfaceID == surfaceID && current.binding == proposal
+        }
+        let reviewed: SurfaceResumeBindingSnapshot
+        let approvalRequired: Bool
+        switch surfaceResumeBindingByReviewingApproval(proposal, proposalIsCurrent: proposalIsCurrent) {
+        case .pendingSigningSecret:
+            return .approvalPending(message: surfaceResumeApprovalPendingMessage)
+        case let .resolved(result):
+            reviewed = result.binding
+            approvalRequired = result.approvalRequired
+        }
+        guard proposalIsCurrent() else { return .setFailed }
+        // A failed/cancelled review must not rewrite even the same proposal.
+        guard !approvalRequired else { return .setFailed }
+        guard target.setBinding(reviewed) else { return .setFailed }
+        return .result(surfaceResumeSnapshot(
+            target: target, binding: reviewed, cleared: false, approvalRequired: false
+        ))
+    }
+
     private func resolveSurfaceResumeTarget(
         routing: ControlRoutingSelectors,
         explicitTargetID: UUID?,

@@ -113,6 +113,12 @@ extension CMUXCLI {
     }
 
     func resolveClaudeExecutable(configuredCandidates: [String?], searchPath: String?) -> String? {
+        configuredClaudeExecutable(configuredCandidates) ?? resolveClaudeExecutable(searchPath: searchPath)
+    }
+
+    /// The first configured custom Claude path that is a real executable and
+    /// not one of cmux's own wrappers, shims or bundled binaries.
+    func configuredClaudeExecutable(_ configuredCandidates: [String?]) -> String? {
         for raw in configuredCandidates {
             guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !trimmed.isEmpty else { continue }
@@ -125,8 +131,7 @@ extension CMUXCLI {
                   !isCmuxClaudeWrapper(at: trimmed) else { continue }
             return URL(fileURLWithPath: trimmed, isDirectory: false).standardizedFileURL.path
         }
-
-        return resolveClaudeExecutable(searchPath: searchPath)
+        return nil
     }
 
     func resolveClaudeExecutable(searchPath: String?) -> String? {

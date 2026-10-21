@@ -157,6 +157,31 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
+    @Test func renameToTitleBeforeAutomaticTitleRefreshesSynchronously() {
+        let workspace = Workspace()
+        let originalTitle = workspace.title
+
+        var publishCount = 0
+        let cancellable = workspace.sidebarImmediateObservationPublisher.sink {
+            publishCount += 1
+        }
+        defer { cancellable.cancel() }
+
+        // Automatic titles refresh rows through the settle model, not the
+        // immediate publisher. A later rename back to the pre-agent title must
+        // not be mistaken for a duplicate of what the immediate path last saw.
+        workspace.applyProcessTitle("Agent title")
+        publishCount = 0
+
+        workspace.setCustomTitle(originalTitle)
+
+        #expect(workspace.title == originalTitle)
+        #expect(
+            publishCount == 1,
+            "A rename must reach the sidebar synchronously even when it matches the title from before an automatic title change."
+        )
+    }
+
     @Test func customTitleChangeRefreshesTheCachedSidebarRow() throws {
         let workspace = Workspace()
         let suiteName = "WorkspaceSidebarObservationTests.\(UUID())"

@@ -279,7 +279,7 @@ public actor CloudTuiPersistentResourceConnection {
         if !ok.boolValue {
             let errorObject: Any = entry.request.raw
                 ? ["code": "raw.command_failed", "details": ["error": root["error"] ?? "request rejected"]]
-                : root["error"] ?? [:]
+                : (root["error"] as? [String: Any]) ?? ["code": "request.rejected", "details": ["error": root["error"] ?? NSNull()]]
             let errorData = (try? JSONSerialization.data(withJSONObject: errorObject)) ?? Data()
             entry.continuation.resume(throwing: CloudMachineLink.LinkError.exited(status: 1, output: String(decoding: errorData, as: UTF8.self)))
         } else if entry.request.raw {

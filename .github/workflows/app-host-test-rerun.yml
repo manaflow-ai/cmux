@@ -226,7 +226,7 @@ jobs:
           test -n "$framework_source"
           for dest in "$RUNNER_TEMP/cmux-app-host-package-frameworks" /private/tmp/cmux-app-host-package-frameworks; do
             mkdir -p "$dest"
-            rsync -aL "$(dirname "$framework_source")/" "$dest/"
+            rsync -aL --no-times "$(dirname "$framework_source")/" "$dest/"
           done
           # Source-backed test fixtures resolve #fileID through this stable
           # location, so baseline runs do not need the producer root.
@@ -349,7 +349,7 @@ jobs:
           find "$products/PackageFrameworks" -maxdepth 1 | head -n 5
           if [ -L "$products/PackageFrameworks" ]; then rm "$products/PackageFrameworks"; fi
           mkdir -p "$products/PackageFrameworks"
-          rsync -aL "$RUNNER_TEMP/cmux-app-host-package-frameworks/" "$products/PackageFrameworks/"
+          rsync -aL --no-times "$RUNNER_TEMP/cmux-app-host-package-frameworks/" "$products/PackageFrameworks/"
           find "$products/PackageFrameworks" -maxdepth 1 -type d -name 'CmuxAgentJournal*_PackageProduct.framework' | grep -q .
           # The receipt binds the products to the revision they were built
           # from, so validate with that revision checked out; the plan job

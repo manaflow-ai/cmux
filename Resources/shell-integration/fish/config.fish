@@ -661,6 +661,12 @@ if test "$_cmux_integration_enabled" != 0
     end
 
     function _cmux_preexec --on-event fish_preexec
+        # Claude reports its own cwd through hooks while it runs (`claude
+        # --worktree` moves it to another checkout), so the next prompt must
+        # re-report $PWD even though the shell never left it.
+        if string match -qr -- '(^|[\s;&|(/])(claude|cmux-claude-wrapper)($|[\s;&|)])' $argv[1]
+            set -g _CMUX_PWD_LAST_PWD ""
+        end
         _cmux_tmux_sync_cmux_environment
         _cmux_report_tty_once
         _cmux_report_shell_activity_state running

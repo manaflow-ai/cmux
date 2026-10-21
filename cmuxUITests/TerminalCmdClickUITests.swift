@@ -13,6 +13,7 @@ final class TerminalCmdClickUITests: XCTestCase {
         case altScreenLog = "alt_screen_log"
         case osc8
         case plainURL = "url"
+        case githubReference = "reference"
     }
 
     private struct SetupData {
@@ -657,6 +658,202 @@ final class TerminalCmdClickUITests: XCTestCase {
         )
     }
 
+    func testStationaryCmdClickBareIssueReferenceOpensItAgainstThePaneRepository() throws {
+        // The fixture names a repository that does not exist and is not the one
+        // CI is running from. If the pane ever resolved to the cmux checkout
+        // instead of this fixture, the opened URL would say `cmux`, and the
+        // assertion below would fail rather than pass for the wrong reason.
+        try makeFixtureAGitRepository(remote: "https://github.com/manaflow-ai/cmux-reference-fixture.git")
+
+        let app = launchApp(
+            displayMode: .raw,
+            lineFormat: .githubReference,
+            captureOpenPaths: false,
+            captureHoverDiagnostics: false,
+            referenceToken: "#847"
+        )
+        defer { app.terminate() }
+
+        _ = try waitForReadySetup()
+        let result = try runCommand(action: "stationary_cmd_click_token")
+
+        // The bare form has to read the pane's remote before it knows where to
+        // go, so the URL lands after the click returns. The capture file, not
+        // the command result, is what says it happened.
+        let openedURLs = waitForCapturedOpenPaths(timeout: 15.0, path: openURLCapturePath)
+        XCTAssertTrue(
+            openedURLs.contains("https://github.com/manaflow-ai/cmux-reference-fixture/issues/847"),
+            "Expected cmd-click on #847 to open the pane repository's issue 847. opened=\(openedURLs) result=\(result)"
+        )
+    }
+
+    func testStationaryCmdClickSlugQualifiedReferenceNeedsNoRepository() throws {
+        // No git repository here on purpose: the token names its own.
+        let app = launchApp(
+            displayMode: .raw,
+            lineFormat: .githubReference,
+            captureOpenPaths: false,
+            captureHoverDiagnostics: false,
+            referenceToken: "manaflow-ai/cmux#847"
+        )
+        defer { app.terminate() }
+
+        _ = try waitForReadySetup()
+        let result = try runCommand(action: "stationary_cmd_click_token")
+
+        let openedURLs = waitForCapturedOpenPaths(timeout: 10.0, path: openURLCapturePath)
+        XCTAssertTrue(
+            openedURLs.contains("https://github.com/manaflow-ai/cmux/issues/847"),
+            "Expected cmd-click on manaflow-ai/cmux#847 to open that issue without a remote. opened=\(openedURLs) result=\(result)"
+        )
+    }
+
+    func testStationaryCmdClickCommitShaOpensThatCommit() throws {
+        try makeFixtureAGitRepository(remote: "git@github.com:manaflow-ai/cmux-reference-fixture.git")
+
+        let app = launchApp(
+            displayMode: .raw,
+            lineFormat: .githubReference,
+            captureOpenPaths: false,
+            captureHoverDiagnostics: false,
+            referenceToken: "73396e624a9"
+        )
+        defer { app.terminate() }
+
+        _ = try waitForReadySetup()
+        let result = try runCommand(action: "stationary_cmd_click_token")
+
+        let openedURLs = waitForCapturedOpenPaths(timeout: 15.0, path: openURLCapturePath)
+        XCTAssertTrue(
+            openedURLs.contains("https://github.com/manaflow-ai/cmux-reference-fixture/commit/73396e624a9"),
+            "Expected cmd-click on an abbreviated SHA to open that commit, including from an ssh remote. opened=\(openedURLs) result=\(result)"
+        )
+    }
+
+    func testStationaryCmdClickOrdinaryWordOpensNothingInARepository() throws {
+        try makeFixtureAGitRepository(remote: "https://github.com/manaflow-ai/cmux-reference-fixture.git")
+
+        let app = launchApp(
+            displayMode: .raw,
+            lineFormat: .githubReference,
+            captureOpenPaths: false,
+            captureHoverDiagnostics: false,
+            referenceToken: "nothing-at-all"
+        )
+        defer { app.terminate() }
+
+        _ = try waitForReadySetup()
+        let result = try runCommand(action: "stationary_cmd_click_token")
+
+        // This is the false-positive guard: a word that is not a reference must
+        // never become one. The detector rejects it outright, so no repository
+        // lookup is started and there is nothing late to wait for.
+        //
+        // An absence assertion passes when nothing happened at all, so first
+        // prove the click ran and found a point. Without this the test would
+        // stay green with the whole feature deleted.
+        XCTAssertEqual(
+            result["lastCommandAction"] as? String,
+            "stationary_cmd_click_token",
+            "The click harness did not run, so an empty capture proves nothing. result=\(result)"
+        )
+        XCTAssertNotEqual(
+            result["lastCommandError"] as? String,
+            "Missing command point",
+            "The click never resolved a point on the token. result=\(result)"
+        )
+        XCTAssertNotNil(
+            result["lastCommandResult"],
+            "The click never reached the terminal view. result=\(result)"
+        )
+
+        let openedURLs = waitForCapturedOpenPaths(timeout: 6.0, path: openURLCapturePath)
+        XCTAssertTrue(
+            openedURLs.isEmpty,
+            "Expected cmd-click on an ordinary word to open nothing. opened=\(openedURLs) result=\(result)"
+        )
+    }
+
+    func testStationaryCmdClickBareReferenceOpensNothingWhenTheRemoteIsNotGitHub() throws {
+        // The discriminating negative. `#847` is a reference, so unlike an
+        // ordinary word it does take the resolve-the-repository path: the click
+        // returns, the slug lookup runs, and it comes back with nothing because
+        // the remote is not GitHub. Opening must not happen afterwards. This is
+        // the late-lookup case, and it is the one an over-eager fallback (say,
+        // defaulting to some hardcoded slug) would break.
+        try makeFixtureAGitRepository(remote: "git@gitlab.com:manaflow-ai/cmux-reference-fixture.git")
+
+        let app = launchApp(
+            displayMode: .raw,
+            lineFormat: .githubReference,
+            captureOpenPaths: false,
+            captureHoverDiagnostics: false,
+            referenceToken: "#847"
+        )
+        defer { app.terminate() }
+
+        _ = try waitForReadySetup()
+        let result = try runCommand(action: "stationary_cmd_click_token")
+
+        XCTAssertEqual(
+            result["lastCommandAction"] as? String,
+            "stationary_cmd_click_token",
+            "The click harness did not run, so an empty capture proves nothing. result=\(result)"
+        )
+        XCTAssertNotEqual(
+            result["lastCommandError"] as? String,
+            "Missing command point",
+            "The click never resolved a point on the token. result=\(result)"
+        )
+
+        // Long enough that the asynchronous slug lookup has certainly finished.
+        let openedURLs = waitForCapturedOpenPaths(timeout: 10.0, path: openURLCapturePath)
+        XCTAssertTrue(
+            openedURLs.isEmpty,
+            "Expected #847 to open nothing when the pane's remote is not GitHub. opened=\(openedURLs) result=\(result)"
+        )
+    }
+
+    /// Makes the fixture directory a git repository with one GitHub remote, so
+    /// a bare `#847` in that pane has a repository to resolve against.
+    ///
+    /// Writes `.git` by hand rather than running `git init`. The UI test runner
+    /// is sandboxed, and `git` there resolves to the xcrun shim, which refuses
+    /// with "xcrun: error: cannot be used within an App Sandbox".
+    ///
+    /// Writing the files is also closer to what is under test. cmux never
+    /// shells out to git for this: `GitMetadataService.resolveGitRepository`
+    /// walks up for a `.git` directory and the config readers parse
+    /// `<gitDirectory>/config` themselves. A fixture built out of files
+    /// exercises exactly that, and does not depend on a `git` binary, on a
+    /// global `user.name`, or on whatever `init.defaultBranch` is set to.
+    private func makeFixtureAGitRepository(remote: String) throws {
+        let gitDirectoryURL = fixtureDirectoryURL.appendingPathComponent(".git")
+        try FileManager.default.createDirectory(
+            at: gitDirectoryURL,
+            withIntermediateDirectories: true
+        )
+        let config = """
+            [core]
+            \trepositoryformatversion = 0
+            \tbare = false
+            [remote "origin"]
+            \turl = \(remote)
+            \tfetch = +refs/heads/*:refs/remotes/origin/*
+
+            """
+        try config.write(
+            to: gitDirectoryURL.appendingPathComponent("config"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "ref: refs/heads/main\n".write(
+            to: gitDirectoryURL.appendingPathComponent("HEAD"),
+            atomically: true,
+            encoding: .utf8
+        )
+    }
+
     private func assertCommandHoverResolves(
         fileName: String,
         lineFormat: LineFormat,
@@ -1034,6 +1231,7 @@ final class TerminalCmdClickUITests: XCTestCase {
         captureHoverDiagnostics: Bool,
         openSupportedFilesInCmux: Bool = false,
         openMarkdownInCmuxViewer: Bool? = nil,
+        referenceToken: String? = nil,
         quicklookOverride: String? = nil,
         viewportOffsetDelta: Int? = nil,
         mouseReporting: Bool = false,
@@ -1079,8 +1277,11 @@ final class TerminalCmdClickUITests: XCTestCase {
         if captureOpenPaths {
             app.launchEnvironment["CMUX_UI_TEST_CAPTURE_OPEN_PATH"] = openCapturePath
         }
-        if lineFormat == .osc8 || lineFormat == .plainURL {
+        if lineFormat == .osc8 || lineFormat == .plainURL || lineFormat == .githubReference {
             app.launchEnvironment["CMUX_UI_TEST_CAPTURE_OPEN_URL_PATH"] = openURLCapturePath
+        }
+        if let referenceToken {
+            app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_REFERENCE_TOKEN"] = referenceToken
         }
         if captureHoverDiagnostics {
             app.launchEnvironment["CMUX_UI_TEST_CMD_HOVER_DIAGNOSTICS_PATH"] = hoverDiagnosticsPath

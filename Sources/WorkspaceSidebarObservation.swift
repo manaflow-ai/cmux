@@ -199,7 +199,7 @@ extension View {
 }
 
 private struct SidebarImmediateObservationState: Equatable {
-    let title: String
+    let titleRevision: UInt64
     let customDescription: String?
     let isPinned: Bool
     let isMuted: Bool
@@ -283,7 +283,7 @@ extension Workspace {
             .combineLatest(conversationFields, todoFields)
             .map { workspaceFields, conversationFields, todoFields in
                 SidebarImmediateObservationState(
-                    title: workspaceFields.0.0.0,
+                    titleRevision: workspaceFields.0.0.0,
                     customDescription: workspaceFields.0.0.1,
                     isPinned: workspaceFields.0.0.2,
                     isMuted: workspaceFields.1,

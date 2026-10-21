@@ -66,6 +66,9 @@ import urllib.request
 from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pr_status  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[2]
 FAST_WORKFLOW = "CI fast guards"
 FAST_WORKFLOW_FILE = "ci-fast-guards.yml"
@@ -915,7 +918,7 @@ def analyze_pr(gh: GitHub | None, run: Mapping, root: Path, log: str) -> dict:
             report["state"] = "noop"
         elif marked:
             # `report` edits this comment without reading the PR's comments again.
-            report["comments"] = [{"id": c.get("id"), "body": c.get("body")} for c in marked]
+            report["comments"] = [{"id": c.get("id"), "body": c.get("body"), "user": c.get("user")} for c in marked]
         return report
     failures = parse_guard_log(log)
     issue = tracking_issue(gh.open_issues(), "fast-guards") if gh else None
@@ -1117,9 +1120,8 @@ def render_pr_comment(report: Mapping) -> str:
     if report["state"] == "green":
         # Only the fast guards: on #17074 and #17233 this line was the only bot comment while the PR's own
         # app-host tests were red, and it read as an all-green CI.
-        out.append(f"`{FAST_WORKFLOW}` passes on `{short(report.get('sha'))}` ({report.get('run_url')}). "
-                   "This covers only the fast guards, not CI: CI's result is the `ci-status` check, and "
-                   "the CI failure attribution comment names any failing test.")
+        out.append(f"`{FAST_WORKFLOW}` passes on `{short(report.get('sha'))}` ([run]({report.get('run_url')})). "
+                   "This covers only the fast guards, not CI: CI's result is `ci-status`.")
         return "\n".join(out) + "\n"
     steps = report.get("steps") or []
     out.append(f"**`{FAST_WORKFLOW}` failed** on `{short(report.get('sha'))}` ({report.get('run_url')}). "
@@ -1139,8 +1141,7 @@ def render_pr_comment(report: Mapping) -> str:
     if not steps:
         out.append("The log named no failed step; see the run.")
     out.append("")
-    out.append("Agents: `python3 scripts/ci/guard_attribution.py fix` applies the mechanical fixes locally. "
-               "This comment is updated in place on each push.")
+    out.append("Agents: `python3 scripts/ci/guard_attribution.py fix` applies the mechanical fixes locally.")
     return cap("\n".join(out) + "\n")
 
 
@@ -1178,7 +1179,20 @@ class Writer:
 
 
 def upsert_comment(writer: Writer, repo: str, number: int, marker: str, body: str,
-                   existing: list[dict] | None) -> None:
+                   existing: list[dict] | None, section: str | None = None) -> None:
+    """One marked comment, or with `section`, that line of the PR's status comment
+    (scripts/ci/pr_status.py), which then deletes the old marked comment."""
+    if section is not None:
+        # The first plan uses the comments the caller read; the check after the write reads them
+        # again (other jobs write other lines of the same comment). One more read per write.
+        gh, first = writer.gh, [existing]
+
+        def read() -> list[dict]:
+            given = first.pop() if first else None
+            return list(given) if given is not None else gh.comments(number) if gh else []
+        pr_status.apply(read, writer.call, repo, number, section, body, legacy=marker,
+                        sleep=None if writer.dry_run or gh is None else time.sleep)
+        return
     current = next((c for c in existing or [] if marker in str(c.get("body") or "")), None)
     if current is None:
         writer.call("POST", f"repos/{repo}/issues/{number}/comments", {"body": body})
@@ -1239,7 +1253,7 @@ def report_pr(writer: Writer, gh: GitHub | None, repo: str, report: Mapping) -> 
     current = next((c for c in existing if PR_MARKER in str(c.get("body") or "")), None)
     if report["state"] == "green" and current is None:
         return  # never red on this PR: nothing to say
-    upsert_comment(writer, repo, int(pr), PR_MARKER, render_pr_comment(report), existing)
+    upsert_comment(writer, repo, int(pr), PR_MARKER, render_pr_comment(report), existing, section="guards")
 
 
 # ---------------------------------------------------------------- commands

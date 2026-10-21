@@ -8142,6 +8142,82 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
+    func testTextBoxSubmitCloudImagesUploadsAtPromptPosition() throws {
+        let imageURL = try makeTemporaryPNGFile(named: "cloud-prompt.png")
+        let attachment = TextBoxAttachment(
+            localURL: imageURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: imageURL)
+        )
+
+        XCTAssertEqual(
+            TextBoxSubmit.dispatchEvents(
+                for: [.text("what is "), .attachment(attachment), .text("now")],
+                terminalAgentContext: "restoredAgent:codex",
+                imageTransferTarget: .cloud
+            ),
+            [
+                .validateCloudImages([imageURL.standardizedFileURL]),
+                .pasteText("what is "),
+                .pasteCloudImages([imageURL.standardizedFileURL]),
+                .pasteText(" now"),
+                .namedKey("return")
+            ]
+        )
+    }
+
+    /// Every image is checked before the first text reaches the terminal, so a
+    /// refused later image cannot leave a partial prompt that a retry repeats.
+    func testTextBoxSubmitCloudImagesValidateEveryImageBeforeAnyText() throws {
+        let first = try makeTemporaryPNGFile(named: "cloud-first.png")
+        let second = try makeTemporaryPNGFile(named: "cloud-second.png")
+        let attachments = [first, second].map {
+            TextBoxAttachment(
+                localURL: $0,
+                submissionText: TextBoxAttachment.submissionText(forLocalFileURL: $0)
+            )
+        }
+
+        let events = TextBoxSubmit.dispatchEvents(
+            for: [.text("compare "), .attachment(attachments[0]), .text("with"), .attachment(attachments[1])],
+            terminalAgentContext: "restoredAgent:codex",
+            imageTransferTarget: .cloud
+        )
+        XCTAssertEqual(
+            events.first,
+            .validateCloudImages([first.standardizedFileURL, second.standardizedFileURL])
+        )
+        XCTAssertEqual(events.dropFirst().filter {
+            if case .validateCloudImages = $0 { return true }
+            return false
+        }.count, 0)
+    }
+
+    /// After a Cloud submit the image bytes live on the machine, so the local
+    /// file is disposable even though its submission text is a local path.
+    func testTextBoxSubmitCloudImagesCleanUpAfterSuccessfulSubmit() throws {
+        let imageURL = try makeTemporaryPNGFile(named: "cloud-uploaded.png")
+        let attachment = TextBoxAttachment(
+            localURL: imageURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: imageURL),
+            cleanupLocalURLWhenDisposed: true
+        )
+
+        XCTAssertEqual(
+            TextBoxSubmit.cleanupAttachmentsAfterSubmit(
+                from: [.attachment(attachment)],
+                terminalAgentContext: "restoredAgent:codex",
+                imageTransferTarget: .cloud
+            ).compactMap(\.localURL),
+            [imageURL.standardizedFileURL]
+        )
+        XCTAssertTrue(
+            TextBoxSubmit.cleanupAttachmentsAfterSubmit(
+                from: [.attachment(attachment)],
+                terminalAgentContext: "restoredAgent:codex"
+            ).isEmpty
+        )
+    }
+
     func testTextBoxSubmitStagesClaudeImagePromptWithMultilineTail() throws {
         let imageURL = try makeTemporaryPNGFile(named: "moon.png")
         let attachment = TextBoxAttachment(
