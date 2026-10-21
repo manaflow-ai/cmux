@@ -641,11 +641,12 @@ function liveTurn(
 }
 
 /// A running turn as the Codex app draws it (Debug toggles `codexToolRuns` and `liveLineBelow`, both
-/// on by default): "Working for 42s" over the turn's work, as before; each finished run folded into
-/// its summary line between the paragraphs (codexRuns); and at the bottom one live line that each
-/// step replaces in place (Leo 2026-10-20: "Thinking (shimmer) -> Running <short label> ->
-/// Thinking"): "Thinking" while the agent thinks, "Running <what the call does> 13s" while a call
-/// runs. The line keeps the Thinking line's id from send to the turn's end, so it never leaves and
+/// on by default): each finished run folded into its summary line between the paragraphs
+/// (codexRuns), and at the bottom the turn's one live block, a line that each step replaces in place
+/// (Leo 2026-10-20: "Thinking (shimmer) -> Running <short label> -> Thinking"): "Thinking 18s"
+/// (the turn's time) while the agent thinks, "Running <what the call does> 13s" while a call runs.
+/// Nothing draws over the turn's work (Leo 2026-10-21: a "Working for" there sat far above the
+/// line, past his steers). The line keeps the Thinking line's id from send to the turn's end, so it never leaves and
 /// comes back. While text streams it waits, quiet (`quietKey`, Thinking.tsx): the words are the
 /// motion then. With a todo list (`sessionStatus`) the list sits just over the line.
 function codexLiveTurn(

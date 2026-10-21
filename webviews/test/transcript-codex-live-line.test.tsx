@@ -94,6 +94,19 @@ test("the live line carries the turn's tokens while it times the turn, not besid
   );
 });
 
+test("with the tray off the live line counts the work still going, beside a call too", () => {
+  const start = 1_000_000;
+  const counts = { agents: 2, commands: 1, sessions: 0, openAgents() {}, openCommands() {}, openSessions() {} };
+  const drawn = (node: ReactElement) =>
+    words(renderToStaticMarkup(<WorkingCountsContext.Provider value={counts}>{node}</WorkingCountsContext.Provider>));
+  expect(drawn(<Thinking doing="Read app.ts" doingAt={start} now={() => start + 3_000} />)).toBe(
+    "Read app.ts 3s · 2 agents · 1 command",
+  );
+  expect(drawn(<Thinking since={start} now={() => start + 18_000} />)).toBe("Thinking 18s · 2 agents · 1 command");
+  // Not on the start status line, before the agent runs.
+  expect(drawn(<Thinking status="Starting Claude Code…" />)).toBe("Starting Claude Code…");
+});
+
 test("a command Claude is still writing reads Writing a command, with no Ctrl-B", () => {
   // Claude sends a Bash call with no input first and its command up to 20s later, as the model
   // writes it (Leo's session, 2026-10-21): it had read "Running a command 9s".
@@ -198,7 +211,7 @@ test("two runs with only a short note between them draw as one run, the note fol
     row("n", "assistant", { text: "Relay the decisions, then answer." }),
     row("r2", "activity", { items: [call("gh pr view 1"), call("acpmux send", "in_progress")] }),
   ]);
-  expect(kinds(shaped)).toEqual(["user", WORKING, "activity", THINKING]);
+  expect(kinds(shaped)).toEqual(["user", "activity", THINKING]);
   const run = shaped.find((entry) => entry.kind === "activity")!;
   expect(run.id).toBe("r1");
   expect(run.items?.map((item) => item.tool?.id ?? item.text)).toEqual([
@@ -221,7 +234,7 @@ test("a long note, or one with code, stays its own paragraph between the runs", 
       row("n", "assistant", { text }),
       row("r2", "activity", { items: [call("b")] }),
     ]);
-    expect(kinds(shaped)).toEqual(["user", WORKING, "activity", "assistant", "activity", THINKING]);
+    expect(kinds(shaped)).toEqual(["user", "activity", "assistant", "activity", THINKING]);
   }
 });
 

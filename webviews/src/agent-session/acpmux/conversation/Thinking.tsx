@@ -9,9 +9,8 @@
 // ask above the composer, waitingOn.ts), the line says that instead, with no time and no sweep:
 // never "Thinking" while the agent is blocked on them.
 import { useContext, useEffect, useState } from "react";
-import { useT } from "../i18n";
+import { usePaneLanguage, useT } from "../i18n";
 import { BackgroundHint } from "./BackgroundHint";
-import { usePaneLanguage } from "../i18n";
 import { formatDuration } from "./turns";
 import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
 import { useTicking, WorkingCountsContext, workingTokens } from "./WorkingFor";
@@ -88,10 +87,33 @@ export function Thinking({
             ? t("tools.writingCommand")
             : t("tools.runningUnnamed")
         : doing);
-  // The turn's tokens so far (WorkingFor.tsx), on the line while it times the turn.
+  // The turn's tokens so far (WorkingFor.tsx), on the line while it times the turn; and, with the
+  // running tray off, the work still going in the background, each count opening what it counts
+  // (App.tsx counts nothing while the tray lists it).
   const language = usePaneLanguage();
-  const tokens = useContext(WorkingCountsContext)?.tokens;
+  const counts = useContext(WorkingCountsContext);
+  const tokens = counts?.tokens;
   const showTokens = Boolean(tokens) && timed && doing === undefined;
+  const parts =
+    counts && !status && !waiting
+      ? [
+          counts.agents > 0 && {
+            key: "agents",
+            label: t("turn.working.agents", { n: counts.agents }),
+            open: counts.openAgents,
+          },
+          counts.commands > 0 && {
+            key: "commands",
+            label: t("turn.working.commands", { n: counts.commands }),
+            open: counts.openCommands,
+          },
+          counts.sessions > 0 && {
+            key: "sessions",
+            label: t("turn.working.sessions", { n: counts.sessions }),
+            open: counts.openSessions,
+          },
+        ].filter((part) => part !== false)
+      : [];
   return (
     <div className={`cv-worked${below ? " is-below" : ""}${quiet ? "" : " is-quiet"}`} data-find-skip>
       {waiting ? (
@@ -110,6 +132,16 @@ export function Thinking({
           <span className="cv-worked__tokens">{workingTokens(t, language, tokens!)}</span>
         </span>
       )}
+      {parts.map((part) => (
+        <span key={part.key} className="cv-worked__count">
+          <span className="cv-worked__sep" aria-hidden="true">
+            ·
+          </span>
+          <button type="button" className="cv-worked__open" onClick={part.open}>
+            {part.label}
+          </button>
+        </span>
+      ))}
       {/* Keyed by the call, so each command's hint waits its moment again. */}
       {command && !waiting && doing !== undefined && <BackgroundHint key={doingAt} />}
       {status && onCancel && (

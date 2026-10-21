@@ -222,7 +222,8 @@ export type AcpmuxRow = {
   /// flight's start on this computer's clock, which its time counts from; whether `doing` is a raw
   /// command line, which reads "Running <command>" (or "Running a command" when empty); whether
   /// the agent still writes that command (`doingDraft`: a pending shell call with no command yet,
-  /// "Writing a command"); no time beside "Thinking" (`untimed`); and the streaming text it waits
+  /// "Writing a command"); no time beside "Thinking" (`untimed`, the older layout's line, whose
+  /// "Working for" over the work timed the turn); and the streaming text it waits
   /// behind, by id and version, while that text still moves.
   doingAt?: number;
   doingShell?: boolean;
