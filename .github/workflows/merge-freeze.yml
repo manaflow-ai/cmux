@@ -57,6 +57,7 @@ jobs:
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
+          permission-contents: read
           permission-issues: read
           permission-pull-requests: read
       - name: Check the pull request against open freezes

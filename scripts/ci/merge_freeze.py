@@ -179,12 +179,25 @@ def ok_labeler(events: list[dict]) -> str | None:
 def repo_role(repo: str, login: str) -> str | None:
     """The person's role on the repository (admin, maintain, write, triage, read), or None for a
     non-collaborator."""
+    endpoint = f"repos/{repo}/collaborators/{login}/permission"
     try:
-        return json.loads(gh("api", f"repos/{repo}/collaborators/{login}/permission")).get("role_name")
+        return json.loads(gh("api", endpoint)).get("role_name")
+    except subprocess.CalledProcessError as error:
+        if "404" not in (error.stderr or ""):
+            raise
+    # A 404 drops the freeze, so it must be the repository's answer, not a narrow App token's: ask
+    # again with the workflow's own token before trusting it.
+    fallback = os.environ.get("GH_FALLBACK_TOKEN", "")
+    if not fallback or fallback == os.environ.get("GH_TOKEN"):
+        return None
+    try:
+        out = subprocess.run(["gh", "api", endpoint], check=True, capture_output=True, text=True,
+                             env={**os.environ, "GH_TOKEN": fallback}).stdout
     except subprocess.CalledProcessError as error:
         if "404" in (error.stderr or ""):
             return None
         raise
+    return json.loads(out).get("role_name")
 
 
 def last_edited(repo: str, number: int) -> str | None:

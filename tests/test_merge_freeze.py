@@ -296,6 +296,22 @@ class CheckApiCalls(unittest.TestCase):
                     freeze.gh("issue", "close", "7", write=True)
         self.assertEqual(len(fake.calls), 1)
 
+    def test_a_collaborator_404_on_the_app_token_is_asked_again_with_the_workflow_token(self):
+        # A 404 means "not a collaborator" and drops the freeze; a narrow App token must not decide that.
+        calls = []
+
+        def fake(args, **kwargs):
+            token = (kwargs.get("env") or os.environ).get("GH_TOKEN")
+            calls.append(token)
+            if token == "app":
+                raise subprocess.CalledProcessError(1, args, "", "gh: Not Found (HTTP 404)")
+            return subprocess.CompletedProcess(args, 0, json.dumps({"role_name": "admin"}), "")
+
+        with mock.patch.dict(os.environ, {"GH_TOKEN": "app", "GH_FALLBACK_TOKEN": "workflow"}), \
+                mock.patch.object(freeze.subprocess, "run", fake):
+            self.assertEqual(freeze.repo_role("o/r", "maintainer"), "admin")
+        self.assertEqual(calls, ["app", "workflow"])
+
 
 if __name__ == "__main__":
     unittest.main()
