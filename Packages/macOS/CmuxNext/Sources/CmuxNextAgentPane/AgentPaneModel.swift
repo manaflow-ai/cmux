@@ -271,9 +271,10 @@ public final class AgentPaneModel {
             return AgentPaneReply.success()
         case .painted(let fromKeptTail):
             AgentPaneLaunchTimings.shared.mark(newTab != nil ? "agent_pane.newtab_painted" : "agent_pane.painted")
-            // Before `markPainted`: the pane's loading state leaves on that call, and what it drew
-            // is what decides whether the page fades in (``AgentPaneView/pageFades``).
-            paintedFromKeptTail = fromKeptTail
+            // The first report only, and before `markPainted`: the pane's loading state leaves on
+            // that call, and what that frame drew is what decides whether the page fades in
+            // (``AgentPaneView/pageFades``). A later report describes a frame nothing is waiting on.
+            if !hasPainted { paintedFromKeptTail = fromKeptTail }
             markPainted()
             return AgentPaneReply.success()
         case .openTab(let request): return request.open(in: self)
