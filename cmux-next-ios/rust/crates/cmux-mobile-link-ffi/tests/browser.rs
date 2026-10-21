@@ -395,39 +395,6 @@ async fn the_shown_tab_takes_the_lane_back_over_webrtc() {
     the_shown_tab_takes_the_media_lane_back(Transport::WebRtc, false, "webrtc-track").await;
 }
 
-// TEMPORARY: three loaded instances of the WebRTC lane-back test, 100 rounds
-// each (base failed 3 of 300 this way); reverted before landing.
-#[test]
-fn lane_back_over_webrtc_repeats() {
-    let instances: Vec<_> = (0..3)
-        .map(|_| {
-            std::thread::spawn(|| {
-                let runtime = tokio::runtime::Builder::new_multi_thread()
-                    .worker_threads(4)
-                    .enable_all()
-                    .build()
-                    .unwrap();
-                (0..100u32)
-                    .filter(|_| {
-                        runtime
-                            .block_on(async {
-                                tokio::spawn(the_shown_tab_takes_the_media_lane_back(
-                                    Transport::WebRtc,
-                                    false,
-                                    "webrtc-track",
-                                ))
-                                .await
-                            })
-                            .is_err()
-                    })
-                    .count()
-            })
-        })
-        .collect();
-    let failed: Vec<usize> = instances.into_iter().map(|t| t.join().unwrap()).collect();
-    assert_eq!(failed.iter().sum::<usize>(), 0, "lane-back repeats failed per instance: {failed:?}");
-}
-
 /// The real CEF browser host (`CMUX_MOBILE_RB_HOST_EXE`, e.g. a DEV app's
 /// `Contents/Helpers/cmux-remote-browser-host.app/Contents/MacOS/...`) over
 /// the WebRTC video track, with a page from `CMUX_MOBILE_RB_URL`. Measurement support,
