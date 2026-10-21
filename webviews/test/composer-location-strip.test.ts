@@ -323,6 +323,22 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       const { left, right, top, bottom, width } = element.getBoundingClientRect();
       return { left, right, top, bottom, width };
     };
+    // A stroke icon's drawn ink, left to right in page px: its shapes' boxes widened by half their
+    // stroke, mapped through the icon's viewBox. The ink lies a different way inside each icon's box
+    // (the mic's ~2.4 px, the chevron's ~3.5 px), so the marks are compared ink to ink.
+    const ink = (element: Element | null | undefined) => {
+      const svg = element instanceof SVGSVGElement ? element : element?.querySelector("svg");
+      const shapes = [...(svg?.querySelectorAll<SVGGraphicsElement>("path, line, circle, rect, polyline, polygon") ?? [])];
+      const edges = shapes.flatMap((shape) => {
+        const box = shape.getBBox();
+        const matrix = shape.getScreenCTM();
+        if (!matrix) return [];
+        const style = getComputedStyle(shape);
+        const half = style.stroke === "none" ? 0 : parseFloat(style.strokeWidth) / 2;
+        return [matrix.a * (box.x - half) + matrix.e, matrix.a * (box.x + box.width + half) + matrix.e];
+      });
+      return edges.length ? { left: Math.min(...edges), right: Math.max(...edges) } : null;
+    };
     const strip = document.querySelector(".acpmux-composer-strip")!;
     const pickers = [...strip.querySelectorAll<HTMLElement>(".acpmux-location-picker")];
     const computer = strip.querySelector<HTMLElement>('.acpmux-location-picker[data-kind="computer"]');
@@ -335,15 +351,15 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
         document.querySelector(".acpmux-composer-box .acpmux-input, .acpmux-composer-box [contenteditable]"),
       ),
       // The Claude desktop box (composerLocation.css): + and the trailing actions sit beside the
-      // prompt, so the box's columns are the + glyph's 16 px box and the last action's glyph: the
-      // mic in this empty new chat (no Send until there is a draft, Leo 2026-10-20), Send with one.
-      plusGlyph: rect(document.querySelector(".acpmux-composer-inner .acpmux-composer-plus .acpmux-icon")),
-      trailGlyph: rect(
+      // prompt, so the box's columns are the + glyph and the last action's glyph: the mic in this
+      // empty new chat (no Send until there is a draft, Leo 2026-10-20), Send with one.
+      plusInk: ink(document.querySelector(".acpmux-composer-inner .acpmux-composer-plus .acpmux-icon")),
+      trailInk: ink(
         [...document.querySelectorAll(".acpmux-composer-inner .acpmux-composer-actions .acpmux-icon")].at(-1),
       ),
       strip: rect(strip),
-      folderIcon: rect(pickers[0]?.querySelector(".acpmux-location-icon")),
-      branchChevron: rect(branch.querySelector(".ui-ghost-icon:last-child")),
+      folderInk: ink(pickers[0]?.querySelector(".acpmux-location-icon")),
+      branchChevronInk: ink(branch.querySelector(".ui-ghost-icon:last-child")),
       text: strip.textContent ?? "",
       head: head ? { clipped: head.scrollWidth > head.clientWidth + 0.5, text: head.textContent } : null,
       tail: rect(strip.querySelector(".acpmux-location-tail")),
@@ -378,17 +394,19 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       const marks = await page.evaluate(measureMarks);
       await page.close();
       const prompt = marks.prompt!;
-      const folderIcon = marks.folderIcon!;
-      const branchChevron = marks.branchChevron!;
-      // The marks sit over the box's content edges: the prompt's, or + and the last action's
-      // (the mic at rest) where they stand beside it, ink to ink. A 14 px stroke icon's ink (the +, the
-      // folder, the mic) lies ~1.5 px inside its box at each side; the chevron's ink ends 4 px inside.
-      const lead = marks.plusGlyph?.left ?? prompt.left;
-      const trail = marks.trailGlyph ? marks.trailGlyph.right - 1.5 : prompt.right;
-      expect(Math.abs(folderIcon.left + 1.5 - lead)).toBeLessThanOrEqual(2);
+      const folderInk = marks.folderInk!;
+      const chevronInk = marks.branchChevronInk!;
+      // The marks sit over the box's content edges: the prompt's, or the ink of + and of the last
+      // action (the mic at rest) where they stand beside it.
+      const lead = marks.plusInk?.left ?? prompt.left;
+      const trail = marks.trailInk?.right ?? prompt.right;
       expect(
-        Math.abs(branchChevron.right - 4 - trail),
-        `the branch chevron ends at ${branchChevron.right.toFixed(1)}, the last action's glyph's ink at ${trail.toFixed(1)}`,
+        Math.abs(folderInk.left - lead),
+        `the folder's ink starts at ${folderInk.left.toFixed(1)}, the leading mark's at ${lead.toFixed(1)}`,
+      ).toBeLessThanOrEqual(2);
+      expect(
+        Math.abs(chevronInk.right - trail),
+        `the branch chevron's ink ends at ${chevronInk.right.toFixed(1)}, the last action's at ${trail.toFixed(1)}`,
       ).toBeLessThanOrEqual(2);
       expect(marks.text).not.toContain("·");
       // At or under 460 px the computer is its icon (the strip's first step).
