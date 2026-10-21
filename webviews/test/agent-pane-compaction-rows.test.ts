@@ -385,3 +385,72 @@ test("a compaction that went quiet is not taken back by a later compaction", asy
     [302, "completed"],
   ]);
 });
+
+// Review of #22727: a page boundary at the next prompt left an account switch's compaction, which
+// runs between turns, spinning above the row the newer page drew for it once the older page loaded.
+test("a compaction an older page leaves running is the newer page's row of it", async () => {
+  const steps: Step[] = [
+    ["mux", "user_message", { text: "newtab-minimal: PR open" }],
+    ["mux", "turn_started", {}],
+    ["mux", "turn_result", { status: "completed" }],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+    ["mux", "user_message", { text: "prompt-queue-edit: taken" }],
+    ["mux", "turn_started", {}],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+    [
+      "in",
+      "compaction",
+      update({ sessionUpdate: "compaction", state: "completed", preTokens: 58163, postTokens: 20129 }),
+    ],
+  ];
+  const compactions = (rows: AcpmuxRow[]) =>
+    rows.filter((row) => row.kind === "compaction").map((row) => row.compaction?.state);
+  const { client, rows } = await connect(fakeDaemon(record(steps), 4));
+  expect(compactions(rows())).toEqual(["completed"]);
+  await client.loadOlder();
+  expect(compactions(rows())).toEqual(["completed"]);
+});
+
+test("a compaction an older page leaves running long before the newer page's stops running", async () => {
+  const steps: Step[] = [
+    ["mux", "user_message", { text: "go on" }],
+    ["mux", "turn_started", {}],
+    ["mux", "turn_result", { status: "completed" }],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+  ];
+  const later: Step[] = [
+    ["mux", "user_message", { text: "next" }],
+    ["mux", "turn_started", {}],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+  ];
+  const compactions = (rows: AcpmuxRow[]) =>
+    rows.filter((row) => row.kind === "compaction").map((row) => [row.seq, row.compaction?.state]);
+  const { client, rows } = await connect(fakeDaemon([...record(steps), ...record(later, 300)], 3));
+  await client.loadOlder();
+  expect(compactions(rows())).toEqual([
+    [4, "failed"],
+    [302, "running"],
+  ]);
+});
+
+// Review of #22791: a compaction a forced Stop noted as failed on the older page ended on the newer one.
+test("a compaction an older page noted as failed after a forced Stop is the newer page's row of it", async () => {
+  const steps: Step[] = [
+    ["mux", "user_message", { text: "go on" }],
+    ["mux", "turn_started", {}],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+    ["mux", "turn_result", { status: "cancelled", cancelForced: true }],
+    ["mux", "user_message", { text: "next" }],
+    ["mux", "turn_started", {}],
+    [
+      "in",
+      "compaction",
+      update({ sessionUpdate: "compaction", state: "completed", preTokens: 58163, postTokens: 20129 }),
+    ],
+  ];
+  const compactions = (rows: AcpmuxRow[]) =>
+    rows.filter((row) => row.kind === "compaction").map((row) => row.compaction?.state);
+  const { client, rows } = await connect(fakeDaemon(record(steps), 3));
+  await client.loadOlder();
+  expect(compactions(rows())).toEqual(["completed"]);
+});

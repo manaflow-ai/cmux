@@ -203,8 +203,8 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Workspace | `revealWorkspaceInFinder` | Show Workspace in Finder |  | b. standard | its section, catalog order |
 | Workspace | `saveLayoutTemplate` | Save Layout as Template… | ⌃⌘S | b. standard | its section, catalog order |
 | Workspace | `selectWorkspaceByNumber` | Select Workspace 1…9 | ⌘1 | b. standard | its section, catalog order |
-| Workspace | `space.clearColor` | Clear Space Color |  | b. standard | its section, catalog order |
-| Workspace | `space.clearIcon` | Clear Space Icon |  | b. standard | its section, catalog order |
+| Workspace | `space.clearColor` | Remove Space Color |  | b. standard | its section, catalog order |
+| Workspace | `space.clearIcon` | Remove Space Icon |  | b. standard | its section, catalog order |
 | Workspace | `space.clearTheme` | Reset Space Theme |  | b. standard | its section, catalog order |
 | Workspace | `space.color.blue` | Space Color: Blue |  | c. family member | folded into Set Space Color… |
 | Workspace | `space.color.cyan` | Space Color: Cyan |  | c. family member | folded into Set Space Color… |
@@ -234,8 +234,8 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Workspace | `space.switch` | Switch to Space… |  | b. standard | its section, catalog order |
 | Workspace | `toggleChecklistItemComplete` | Toggle Checklist Item Complete | ⌘
  | b. standard | its section, catalog order |
-| Workspace | `toggleFocusedWorkspaceGroupCollapsed` | Toggle Group Collapse | ⌃⌘. | b. standard | its section, catalog order |
-| Workspace | `workspace.clearIcon` | Clear Workspace Icon |  | b. standard | its section, catalog order |
+| Workspace | `toggleFocusedWorkspaceGroupCollapsed` | Collapse/Expand Workspace Group | ⌃⌘. | b. standard | its section, catalog order |
+| Workspace | `workspace.clearIcon` | Remove Workspace Icon |  | b. standard | its section, catalog order |
 | Workspace | `workspace.clearTheme` | Reset Workspace Theme |  | b. standard | its section, catalog order |
 | Workspace | `workspace.closeAll` | Close All Workspaces |  | c. family member | folded into Workspace: Close Several… |
 | Workspace | `workspace.closeAllInAllWindows` | Close All Workspaces in All Windows |  | c. family member | folded into Workspace: Close Several… |
@@ -430,7 +430,7 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Screens | `screen.selectLast` | Select Last Screen |  | b. standard | its section, catalog order |
 | Screens | `screen.setColor` | Set Screen Color… |  | b. standard | its section, catalog order |
 | Screens | `screen.setIcon` | Set Screen Icon… |  | b. standard | its section, catalog order |
-| Screens | `screen.togglePin` | Pin or Unpin Screen |  | b. standard | its section, catalog order |
+| Screens | `screen.togglePin` | Pin/Unpin Screen |  | b. standard | its section, catalog order |
 | Screens | `screenGroup.addScreen` | Add Screen to Group… |  | b. standard | its section, catalog order |
 | Screens | `screenGroup.clearIcon` | Remove Screen Group Icon |  | b. standard | its section, catalog order |
 | Screens | `screenGroup.close` | Close Screen Group |  | b. standard | its section, catalog order |
@@ -459,7 +459,7 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Screens | `screenGroup.save` | Save Screen Group |  | b. standard | its section, catalog order |
 | Screens | `screenGroup.setColor` | Set Screen Group Color… |  | b. standard | its section, catalog order |
 | Screens | `screenGroup.setIcon` | Set Screen Group Icon… |  | b. standard | its section, catalog order |
-| Screens | `screenGroup.toggleCollapsed` | Collapse or Expand Screen Group |  | b. standard | its section, catalog order |
+| Screens | `screenGroup.toggleCollapsed` | Collapse/Expand Screen Group |  | b. standard | its section, catalog order |
 | Screens | `screenGroup.ungroup` | Ungroup Screens |  | b. standard | its section, catalog order |
 | Screens | `screenGroup.unsave` | Unsave Screen Group |  | b. standard | its section, catalog order |
 | Tabs | `closeOtherTabsInPane` | Close Other Tabs | ⌥⌘T | c. family member | folded into Tab: Close Several… |
@@ -677,8 +677,8 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Browser and Viewers | `browserLinkHintsNewSplit` | Open Link by Hint in New Split | ⇧F | b. standard | its section, catalog order |
 | Browser and Viewers | `browserPrint` | Print… |  | b. standard | its section, catalog order |
 | Browser and Viewers | `browserProfile.clearBrowsingData` | Clear Browsing Data… |  | c. family member | folded into Browser Profile: All Commands… |
-| Browser and Viewers | `browserProfile.clearColor` | Clear Browser Profile Color |  | c. family member | folded into Browser Profile: All Commands… |
-| Browser and Viewers | `browserProfile.clearIcon` | Clear Browser Profile Icon |  | c. family member | folded into Browser Profile: All Commands… |
+| Browser and Viewers | `browserProfile.clearColor` | Remove Browser Profile Color |  | c. family member | folded into Browser Profile: All Commands… |
+| Browser and Viewers | `browserProfile.clearIcon` | Remove Browser Profile Icon |  | c. family member | folded into Browser Profile: All Commands… |
 | Browser and Viewers | `browserProfile.clearSpaceDefault` | Clear Space Browser Profile |  | c. family member | folded into Browser Profile: All Commands… |
 | Browser and Viewers | `browserProfile.clearWorkspaceDefault` | Clear Workspace Browser Profile |  | c. family member | folded into Browser Profile: All Commands… |
 | Browser and Viewers | `browserProfile.delete` | Delete Browser Profile and Its Data… |  | c. family member | folded into Browser Profile: All Commands… |
@@ -850,10 +850,10 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Sidebar | `sidebar.home.add` | Add Home to Sidebar |  | b. standard | its section, catalog order |
 | Sidebar | `sidebar.home.remove` | Remove Home from Sidebar |  | b. standard | its section, catalog order |
 | Sidebar | `sidebar.item.add` | Add to Sidebar… |  | b. standard | its section, catalog order |
-| Sidebar | `sidebar.item.hideApp` | Hide |  | b. standard | its section, catalog order |
+| Sidebar | `sidebar.item.hideApp` | Hide App |  | b. standard | its section, catalog order |
 | Sidebar | `sidebar.item.remove` | Remove from Section |  | b. standard | its section, catalog order |
 | Sidebar | `sidebar.item.removeEverywhere` | Remove from Sidebar |  | b. standard | its section, catalog order |
-| Sidebar | `sidebar.item.toggleLabel` | Show or Hide Label |  | b. standard | its section, catalog order |
+| Sidebar | `sidebar.item.toggleLabel` | Show/Hide Label |  | b. standard | its section, catalog order |
 | Sidebar | `sidebar.layout.reset` | Reset Sidebar Layout |  | b. standard | its section, catalog order |
 | Sidebar | `sidebar.profileControl.hide` | Hide Profile Button |  | c. niche | last in its section, −120 while typing |
 | Sidebar | `sidebar.profileControl.show` | Show Profile Button |  | c. niche | last in its section, −120 while typing |
@@ -875,9 +875,9 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Sidebar | `sidebar.section.setColumns` | Set Grid Columns… |  | c. family member | folded into Sidebar Section: Layout… |
 | Sidebar | `sidebar.section.setGap` | Set Section Spacing… |  | c. family member | folded into Sidebar Section: Layout… |
 | Sidebar | `sidebar.section.setMaxRows` | Set Section Height… |  | c. family member | folded into Sidebar Section: Layout… |
-| Sidebar | `sidebar.section.toggleCollapsed` | Collapse or Expand Section |  | b. standard | its section, catalog order |
+| Sidebar | `sidebar.section.toggleCollapsed` | Collapse/Expand Section |  | b. standard | its section, catalog order |
 | Sidebar | `sidebar.section.toggleSpaceScope` | Show Only in This Space |  | c. family member | folded into Sidebar Section: Layout… |
-| Sidebar | `sidebar.section.toggleTitle` | Show or Hide Section Title |  | c. family member | folded into Sidebar Section: Layout… |
+| Sidebar | `sidebar.section.toggleTitle` | Show/Hide Section Title |  | c. family member | folded into Sidebar Section: Layout… |
 | Sidebar | `sidebar.section.useBuiltInLook` | Built-in Look |  | c. family member | folded into Sidebar Section: Layout… |
 | Sidebar | `sidebar.section.useListLook` | List Look |  | c. family member | folded into Sidebar Section: Layout… |
 | Sidebar | `sidebar.sections.showHidden` | Show Hidden Sections |  | b. standard | its section, catalog order |
@@ -915,7 +915,7 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Notifications | `notifications.dismissal.never` | Never Clear Notifications Automatically |  | c. family member | folded into Notifications: When to Clear… |
 | Notifications | `notifications.dismissal.timeout` | Clear Notifications After a Timeout |  | c. family member | folded into Notifications: When to Clear… |
 | Notifications | `notifications.toggleBanners` | Toggle Notification Banners |  | b. standard | its section, catalog order |
-| Notifications | `notifications.toggleWorkspaceMute` | Mute or Unmute Workspace Notifications |  | b. standard | its section, catalog order |
+| Notifications | `notifications.toggleWorkspaceMute` | Mute/Unmute Workspace Notifications |  | b. standard | its section, catalog order |
 | Notifications | `showNotifications` | Show Notifications |  | b. standard | its section, catalog order |
 | Notifications | `toggleUnread` | Toggle Tab Unread | ⌥⌘U | b. standard | its section, catalog order |
 | Agents | `agent.harness.add` | Add ACP Agent… |  | b. standard | its section, catalog order |
@@ -926,7 +926,7 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Agents | `agent.harness.updateAll` | Update Agent CLIs |  | b. standard | its section, catalog order |
 | Agents | `agentActivity.open` | Agent Activity |  | b. standard | its section, catalog order |
 | Agents | `agentChat.copyIdentifier` | Copy Agent Identifier |  | c. niche | last in its section, −120 while typing |
-| Agents | `agentChat.toggleNotificationMute` | Mute or Unmute Chat Notifications |  | b. standard | its section, catalog order |
+| Agents | `agentChat.toggleNotificationMute` | Mute/Unmute Chat Notifications |  | b. standard | its section, catalog order |
 | Agents | `agentPane.archiveChat` | Archive Chat | ⌃⌘A | b. standard | its section, catalog order |
 | Agents | `agentPane.continueIn` | Continue in… |  | b. standard | its section, catalog order |
 | Agents | `agentPane.copyLastCodeBlock` | Copy Last Code Block | ⌥⌘; | b. standard | its section, catalog order |

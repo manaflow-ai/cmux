@@ -1188,6 +1188,16 @@
 .acpmux-env-popover .acpmux-env-icon { flex: none; color: var(--agent-muted); }
 .acpmux-env-popover .acpmux-env-icon[data-kind="ssh"] { color: var(--agent-ansi-2, currentColor); }
 .acpmux-env-popover .acpmux-env-icon[data-kind="cloud"] { color: var(--agent-ansi-4, currentColor); }
+/* New Cloud Machine: its name, then one quiet line of what a cloud machine gives. */
+.acpmux-env-new[data-kind="cloud"] .acpmux-menu-text { display: flex; flex-direction: column; min-width: 0; }
+.acpmux-env-new .acpmux-env-detail {
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  line-height: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* The ↵ disc while a turn runs: its own inset on the mic's side, as Send's sits on its leading
    side, so ↵, the mic and Stop draw one gap apart. */
 .acpmux-composer-bar .acpmux-send.acpmux-steer-now {
