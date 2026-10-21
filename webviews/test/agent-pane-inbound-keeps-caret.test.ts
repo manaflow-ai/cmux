@@ -4,19 +4,20 @@
 // agent's message then queues behind the turn, is sent into it as a steer, and the turn ends. After
 // each, the prompt keeps its text, its selection, its focus and its editor (no remount).
 //
-// Real Chromium from Playwright; skipped where it is not installed (the hosted webviews job).
+// Real Chromium and WebKit (the app's pane is a WKWebView) from Playwright; skipped where they are
+// not installed (the hosted webviews job).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
-import { chromium, type Browser, type Page } from "playwright";
+import { chromium, webkit, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("agent-pane-inbound-keeps-caret.test.ts", async () => {
   setDefaultTimeout(120_000);
   try {
-    await (await chromium.launch({ headless: true })).close();
+    for (const engine of [chromium, webkit]) await (await engine.launch({ headless: true })).close();
   } catch {
-    console.warn("agent-pane-inbound-keeps-caret: skipping (run `bunx playwright install chromium`)");
+    console.warn("agent-pane-inbound-keeps-caret: skipping (run `bunx playwright install chromium webkit`)");
     describe.skip("inbound messages keep the caret", () => test("chromium", () => {}));
     return;
   }
@@ -88,7 +89,7 @@ await requireBrowserLane("agent-pane-inbound-keeps-caret.test.ts", async () => {
 
   let daemon: ReturnType<typeof Bun.serve> | undefined;
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
-  let browser: Browser | undefined;
+  const browsers: Record<string, Browser> = {};
   beforeAll(async () => {
     daemon = Bun.serve({
       port: 0,
@@ -115,10 +116,11 @@ await requireBrowserLane("agent-pane-inbound-keeps-caret.test.ts", async () => {
     });
     await vite.listen();
     await warmViteServer(vite, "/");
-    browser = await chromium.launch({ headless: true });
+    browsers.chromium = await chromium.launch({ headless: true });
+    browsers.webkit = await webkit.launch({ headless: true });
   });
   afterAll(async () => {
-    await browser?.close();
+    for (const browser of Object.values(browsers)) await browser.close();
     await vite?.close();
     await daemon?.stop(true);
   });
@@ -146,69 +148,74 @@ await requireBrowserLane("agent-pane-inbound-keeps-caret.test.ts", async () => {
     });
 
   describe("inbound messages leave the prompt as the person left it", () => {
-    test("another agent's queued message, its steer and the turn's end keep the caret mid-text", async () => {
-      running = true;
-      queue = [];
-      const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
-      const { port } = vite!.httpServer!.address() as { port: number };
-      const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
-      await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
-      const prompt = page.locator(".acpmux-composer-prompt .acpmux-md");
-      await prompt.waitFor();
-      await prompt.click();
-      await page.keyboard.type("fix the flaky retry test");
-      // The caret goes after "fix the " and "flaky" is selected, as a person would.
-      await page.keyboard.press("Home");
-      for (let i = 0; i < 8; i++) await page.keyboard.press("ArrowRight");
-      for (let i = 0; i < 5; i++) await page.keyboard.press("Shift+ArrowRight");
-      await page.evaluate(() => {
-        const editor = document.querySelector<HTMLElement>(".acpmux-composer-prompt .acpmux-md");
-        if (editor) editor.dataset.testMark = "kept";
-      });
-      const before = await where(page);
-      expect(before).toEqual({ text: "fix the flaky retry test", start: 8, end: 13, focused: true, same: true });
+    test.each(["chromium", "webkit"])(
+      "%s: another agent's queued message, its steer and the turn's end keep the caret mid-text",
+      async (engine) => {
+        running = true;
+        queue = [];
+        const page = await browsers[engine]!.newPage({ viewport: { width: 900, height: 760 } });
+        const { port } = vite!.httpServer!.address() as { port: number };
+        const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
+        await page.goto(
+          `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`,
+        );
+        const prompt = page.locator(".acpmux-composer-prompt .acpmux-md");
+        await prompt.waitFor();
+        await prompt.click();
+        await page.keyboard.type("fix the flaky retry test");
+        // The caret goes after "fix the " and "flaky" is selected, as a person would.
+        await page.keyboard.press("Home");
+        for (let i = 0; i < 8; i++) await page.keyboard.press("ArrowRight");
+        for (let i = 0; i < 5; i++) await page.keyboard.press("Shift+ArrowRight");
+        await page.evaluate(() => {
+          const editor = document.querySelector<HTMLElement>(".acpmux-composer-prompt .acpmux-md");
+          if (editor) editor.dataset.testMark = "kept";
+        });
+        const before = await where(page);
+        expect(before).toEqual({ text: "fix the flaky retry test", start: 8, end: 13, focused: true, same: true });
 
-      const from = { kind: "agent_message", from: "acp:a162", fromName: "a162", msgId: "m-1" };
-      const steps: [string, () => void][] = [
-        [
-          "queued",
-          () => {
-            queue = [{ promptId: "agent-1", prompt: "rebase first" }];
-            event("queued", { promptId: "agent-1", text: "rebase first", position: 1, _meta: { provenance: from } });
-            changed("queued");
-          },
-        ],
-        [
-          "steered",
-          () => {
-            queue = [];
-            event("dequeued", { promptId: "agent-1" });
-            event("user_message", {
-              text: "rebase first",
-              promptId: "agent-1",
-              turnId: "turn-1",
-              steer: true,
-              _meta: { provenance: from },
-            });
-            changed("dequeued");
-          },
-        ],
-        [
-          "answered",
-          () => {
-            running = false;
-            event("turn_result", { status: "completed" });
-            changed("turn_result");
-          },
-        ],
-      ];
-      for (const [name, step] of steps) {
-        step();
-        // Let the pane take the records and draw (and any effect they start run).
-        await page.waitForTimeout(600);
-        expect({ step: name, ...(await where(page)) }).toEqual({ step: name, ...before });
-      }
-      await page.close();
-    });
+        const from = { kind: "agent_message", from: "acp:a162", fromName: "a162", msgId: "m-1" };
+        const steps: [string, () => void][] = [
+          [
+            "queued",
+            () => {
+              queue = [{ promptId: "agent-1", prompt: "rebase first" }];
+              event("queued", { promptId: "agent-1", text: "rebase first", position: 1, _meta: { provenance: from } });
+              changed("queued");
+            },
+          ],
+          [
+            "steered",
+            () => {
+              queue = [];
+              event("dequeued", { promptId: "agent-1" });
+              event("user_message", {
+                text: "rebase first",
+                promptId: "agent-1",
+                turnId: "turn-1",
+                steer: true,
+                _meta: { provenance: from },
+              });
+              changed("dequeued");
+            },
+          ],
+          [
+            "answered",
+            () => {
+              running = false;
+              event("turn_result", { status: "completed" });
+              changed("turn_result");
+            },
+          ],
+        ];
+        for (const [name, step] of steps) {
+          step();
+          // Let the pane take the records and draw (and any effect they start run).
+          await page.waitForTimeout(600);
+          expect({ step: name, ...(await where(page)) }).toEqual({ step: name, ...before });
+        }
+        await page.close();
+      },
+    );
   });
 });
