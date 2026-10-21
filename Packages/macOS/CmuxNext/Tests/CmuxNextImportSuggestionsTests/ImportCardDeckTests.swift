@@ -15,6 +15,8 @@ struct ImportCardDeckTests {
     static let safari = ImportFinding(id: "browser.safari", kind: .browser, browser: .safari, name: "Safari",
                                       profiles: [.init(directoryName: "Safari", kinds: [.history])], access: .needsFullDiskAccess)
     static let ghostty = ImportFinding(id: "terminal.ghostty", kind: .ghostty, name: "Ghostty", access: .inUse)
+    /// cmux Classic with a saved session whose workspaces all came over already.
+    static let classicAllHere = ImportFinding(id: "cmux.classic", kind: .cmuxClassic, name: "cmux Classic", count: 0)
 
     static func deck(_ findings: [ImportFinding], state: ImportSuggestionState = ImportSuggestionState(),
                      jobs: ImportJobLedger = ImportJobLedger()) -> ImportCardDeck {
@@ -111,6 +113,35 @@ struct ImportCardDeckTests {
         #expect(Self.deck(many).cards(for: .newTab, now: Self.now).count == 3)
         #expect(Self.deck(many).cards(for: .home, now: Self.now).count == 4)
         #expect(Self.deck(many).cards(for: .settings, now: Self.now).count == 8)
+    }
+
+    /// Everything classic saved is already here: Home and New Tab have nothing one click brings,
+    /// while Settings › Import keeps the card so the person can run the import again.
+    @Test func settingsKeepsClassicOnceEverythingCameOver() throws {
+        let deck = Self.deck([Self.classicAllHere])
+        #expect(deck.cards(for: .home, now: Self.now).isEmpty)
+        #expect(deck.cards(for: .newTab, now: Self.now).isEmpty)
+        let card = try #require(deck.cards(for: .settings, now: Self.now).first)
+        #expect(card.id == "cmux.classic" && card.state == .ready)
+        #expect(card.primary?.action == .start && card.primary?.title == "Import Again")
+        #expect(card.facts != ImportSuggestionStrings.workspaces(0) && !card.facts.isEmpty && !card.benefit.isEmpty)
+        // Workspaces still to bring: the one-click card, on Home too.
+        var more = Self.classicAllHere
+        more.count = 2
+        let home = try #require(Self.deck([more]).cards(for: .home, now: Self.now).first)
+        #expect(home.primary?.title == ImportSuggestionStrings.importWorkspaces)
+    }
+
+    /// A finished classic import stays offered again in Settings › Import, not on Home.
+    @Test func aFinishedClassicImportOffersItAgainInSettings() {
+        var job = ImportJob(finding: Self.classicAllHere, now: Self.now)
+        job.finishedStep(0, counts: ImportCounts(), now: Self.now)
+        var ledger = ImportJobLedger()
+        ledger.put(job)
+        let deck = Self.deck([Self.classicAllHere], jobs: ledger)
+        let settings = deck.cards(for: .settings, now: Self.now).first
+        #expect(settings?.state == .done && settings?.primary?.action == .start && settings?.primary?.title == "Import Again")
+        #expect(deck.cards(for: .home, now: Self.now).first?.primary == nil)
     }
 
     // MARK: Jobs

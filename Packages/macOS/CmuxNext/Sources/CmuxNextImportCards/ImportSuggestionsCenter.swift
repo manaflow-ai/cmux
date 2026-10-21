@@ -31,12 +31,14 @@ public final class ImportSuggestionsCenter {
     /// cmux comes forward this long after the last scan before the next one.
     public static let rescanInterval: TimeInterval = 10 * 60
 
-    @ObservationIgnored private var host: ImportCardsHost?
+    @ObservationIgnored var host: ImportCardsHost?
+    /// What a scan finds on this Mac (a test's fixed findings).
+    @ObservationIgnored var scanThisMac: @MainActor (ImportCardsHost) async -> [ImportFinding] = ImportSuggestionsCenter.scanLive
     @ObservationIgnored private weak var registry: ActionRegistry?
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let ledgerURL: URL
     @ObservationIgnored private var lastScan: Date?
-    @ObservationIgnored private var running: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored var running: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var activation: (any NSObjectProtocol)?
     @ObservationIgnored private var started = false
     /// A page's start is waiting on the person's answer (one question at a time).
@@ -67,10 +69,7 @@ public final class ImportSuggestionsCenter {
         self.registry = registry
         guard !started else { return }
         started = true
-        var loaded = ImportJobLedger.load(from: ledgerURL)
-        loaded.relaunched(now: now())
-        ledger = loaded
-        saveLedger()
+        restoreJobs()
         state.expire(now: now())
         AgentPaneImportCards.shared.onAction = { [weak self] id, action in
             guard let action = ImportCardAction(rawValue: action) else { return }
@@ -92,6 +91,14 @@ public final class ImportSuggestionsCenter {
         }
     }
 
+    /// The jobs saved before this launch: one a quit cut off is paused for Resume.
+    func restoreJobs() {
+        var loaded = ImportJobLedger.load(from: ledgerURL)
+        loaded.relaunched(now: now())
+        ledger = loaded
+        saveLedger()
+    }
+
     // MARK: Scan
 
     func rescanIfStale() {
@@ -104,21 +111,27 @@ public final class ImportSuggestionsCenter {
         guard isEnabled, !isScanning, let host else { then?(); return }
         isScanning = true
         lastScan = now()
-        let environment = ImportEnvironment.live { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }
-        let variables = ProcessInfo.processInfo.environment
+        let scanning = scanThisMac
         Task { [weak self] in
-            let imported = await host.importedProfiles()
-            // Classic's session file is up to 32 MB of JSON: read and planned off the main actor.
-            let classic = await Task.detached(priority: .utility) { await ClassicWorkspaceCount().count() }.value
-            let found = await Task.detached(priority: .utility) {
-                ImportScanner(home: environment.homeDirectory, environment: environment, variables: variables,
-                              importedProfiles: imported, classicWorkspaces: { classic }).scan()
-            }.value
+            let found = await scanning(host)
             guard let self else { return }
             findings = found
             isScanning = false
             then?()
         }
+    }
+
+    /// This Mac's sources, read off the main thread.
+    static func scanLive(_ host: ImportCardsHost) async -> [ImportFinding] {
+        let environment = ImportEnvironment.live { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }
+        let variables = ProcessInfo.processInfo.environment
+        let imported = await host.importedProfiles()
+        // Classic's session file is up to 32 MB of JSON: read and planned off the main actor.
+        let classic = await Task.detached(priority: .utility) { await ClassicWorkspaceCount().count() }.value
+        return await Task.detached(priority: .utility) {
+            ImportScanner(home: environment.homeDirectory, environment: environment, variables: variables,
+                          importedProfiles: imported, classicWorkspaces: { classic }).scan()
+        }.value
     }
 
     // MARK: Cards
@@ -332,6 +345,9 @@ public final class ImportSuggestionsCenter {
 
     /// Settings › Import.
     public func openSettings() { host?.openSettings("#/settings/import") }
+
+    /// Waits until card `id`'s import is no longer running.
+    func settled(_ id: String) async { await running[id]?.value }
 
     // MARK: Jobs
 

@@ -99,6 +99,15 @@ struct ImportScannerTests {
         #expect(found.first { $0.kind == .cmuxClassic }?.count == 7)
     }
 
+    /// Classic has a saved session and all of it is already here: the card stays (Settings ›
+    /// Import offers the import again); no saved session means no card.
+    @Test func classicWithEverythingHereIsStillFound() throws {
+        let home = try Home()
+        let found = Self.scanner(home, classic: 0) { _ in .missing }.scan()
+        #expect(found.first { $0.kind == .cmuxClassic }?.count == 0)
+        #expect(Self.scanner(home, classic: nil) { _ in .missing }.scan().allSatisfy { $0.kind != .cmuxClassic })
+    }
+
     @Test func iTermProfilesAndTheirColors() throws {
         let color = { (r: Double, g: Double, b: Double) in ["Red Component": r, "Green Component": g, "Blue Component": b] }
         let plist: [String: Any] = [
