@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""pr-capture-check lists the changed paths from the event's merge commit, not the files API.
+"""pr-capture-check and cmux-next-media's route list the changed paths from the merge commit, not the API.
 
 The check runs on every push, label and description edit of a feat-cmux-next
 pull request, and each run paged through `pulls/N/files` on the repository's
@@ -42,7 +42,9 @@ def write(repo: Path, path: str, text: str) -> None:
     target.write_text(text, encoding="utf-8")
 
 
-class CapturePathsTests(unittest.TestCase):
+class MergeCommitFixture(unittest.TestCase):
+    """A base that moved on, a pull request, and its merge commit, reachable only by SHA."""
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name)
@@ -106,6 +108,8 @@ class CapturePathsTests(unittest.TestCase):
     def gh_calls(self) -> list[str]:
         return self.gh_log.read_text().splitlines() if self.gh_log.exists() else []
 
+
+class CapturePathsTests(MergeCommitFixture):
     def test_the_merge_commit_lists_the_files_api_set(self):
         result, outputs = self.run_step("List the changed paths", MERGE_SHA=self.merge)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -141,6 +145,48 @@ class CapturePathsTests(unittest.TestCase):
                                   BODY="", LABELS="", PR="1", REPOSITORY="o/r", HEAD_SHA="a" * 40,
                                   GH_FILES="docs/readme.md")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(len(self.gh_calls()), 1)
+        self.assertIn("pulls/1/files", self.gh_calls()[0])
+
+
+MEDIA = yaml.safe_load((ROOT / ".github/workflows/cmux-next-media.yml").read_text())
+
+
+class MediaRoutePathsTests(MergeCommitFixture):
+    """cmux-next-media's route reads the same merge-commit diff instead of pulls/N/files and compare."""
+
+    def media_step(self, name: str, **env: str) -> tuple[subprocess.CompletedProcess, dict]:
+        for path in ("scripts/ci/media_auto_tour.py", "scripts/cmux-next/media/path_map.py"):
+            (self.clone / path).parent.mkdir(parents=True, exist_ok=True)
+            (self.clone / path).write_text((ROOT / path).read_text())
+        script = next(s for s in MEDIA["jobs"]["route"]["steps"] if s.get("name") == name)["run"]
+        output = self.temp / "github_output"
+        if not output.exists():
+            output.write_text("")
+        full = {**os.environ, "PATH": f"{self.bin}:{os.environ['PATH']}", "GH_LOG": str(self.gh_log),
+                "RUNNER_TEMP": str(self.temp), "GITHUB_OUTPUT": str(output), "GITHUB_SHA": self.merge,
+                "GITHUB_REPOSITORY": "o/r", "EVENT": "pull_request", "PR": "1", "LABELS": "[]",
+                "ACTION": "synchronize", "DRAFT": "false", **env}
+        result = subprocess.run(["bash", "-e", "-c", script], cwd=self.clone, env=full, capture_output=True, text=True)
+        outputs = dict(line.split("=", 1) for line in output.read_text().splitlines() if "=" in line)
+        return result, outputs
+
+    def test_the_route_reads_no_api_for_a_pull_request(self):
+        result, outputs = self.media_step("Decide whether this pull request gets a tour")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(outputs.get("listed"), "true")
+        self.assertEqual(set((self.temp / "changed.txt").read_text(encoding="utf-8").splitlines()), self.api_set)
+        result, _ = self.media_step("List the changed paths", LISTED="true", BASE="b" * 40, HEAD="c" * 40)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        both = self.api_set | {"Packages/macOS/CmuxNext/Sources/CmuxNextApp/Sidebar/Old Card.swift"}
+        self.assertEqual(set((self.temp / "changed-paths.txt").read_text(encoding="utf-8").splitlines()), both)
+        self.assertEqual(self.gh_calls(), [])
+
+    def test_the_route_falls_back_to_the_files_api(self):
+        result, outputs = self.media_step("Decide whether this pull request gets a tour", GITHUB_SHA="0" * 40,
+                                          GH_FILES="docs/readme.md")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("listed", outputs)
         self.assertEqual(len(self.gh_calls()), 1)
         self.assertIn("pulls/1/files", self.gh_calls()[0])
 
