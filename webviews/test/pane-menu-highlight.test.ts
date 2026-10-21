@@ -13,9 +13,10 @@ const sheet = (name: string) => fs.readFileSync(path.join(acpmux, name), "utf8")
 describe("agent pane menu highlight", () => {
   const styles = sheet("styles.css");
 
-  test("the highlight token is the native themed menu's: the accent at 20%", () => {
+  test("the highlight token is the native themed menu's: the accent at 20%, on :root", () => {
+    // :root, not .acpmux-shell or .ui-positioner: the context menu portals into document.body.
     expect(styles).toContain(
-      "--acpmux-menu-highlight:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 20%,transparent)",
+      ":root{--acpmux-menu-highlight:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 20%,transparent)}",
     );
   });
 
@@ -31,7 +32,13 @@ describe("agent pane menu highlight", () => {
 
   test("no menu highlight names the system selection color", () => {
     for (const name of ["styles.css", "composerControls.css", "composerLocation.css"])
-      for (const rule of sheet(name).match(/[^{}]*\[data-highlighted\][^{}]*\{[^}]*\}/g) ?? [])
-        expect(rule).not.toMatch(/Highlight\b|SelectedItem|AccentColor|#0a84ff|#007aff|system-blue/i);
+      for (const rule of sheet(name)
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .match(/[^{}]*\[data-highlighted\][^{}]*\{[^}]*\}/g) ?? []) {
+        // Only the declarations, and the system color keywords case-sensitively: the token's own name ends in "highlight".
+        const body = rule.slice(rule.indexOf("{"));
+        expect(body).not.toMatch(/:[^;]*\b(Highlight|SelectedItem|AccentColor)\b/);
+        expect(body).not.toMatch(/#0a84ff|#007aff|system-blue/i);
+      }
   });
 });
