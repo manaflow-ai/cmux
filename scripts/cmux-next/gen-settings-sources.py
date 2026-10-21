@@ -92,8 +92,8 @@ SECTIONS = [
         "type": "UpdateSettingsSchema",
         "lists": {"updates": ("descriptors", "UpdatesSettings"),
                   "announcements": ("announcements", "AnnouncementsSettings")},
-        "enums": {"updates.meteredNetwork": "UpdatesMeteredSetting", "updates.notify": "UpdatesNotifySetting",
-                  "updates.web": "UpdatesWebSetting"},
+        "enums": {"updates.channel": "UpdatesChannelSetting", "updates.meteredNetwork": "UpdatesMeteredSetting",
+                  "updates.notify": "UpdatesNotifySetting", "updates.web": "UpdatesWebSetting"},
     },
     {
         "source": "schemas/settings/source/labs.json",

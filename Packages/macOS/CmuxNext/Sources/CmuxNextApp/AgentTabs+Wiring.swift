@@ -111,7 +111,11 @@ extension AgentTabStore {
         let tabs = AgentTabStore(build: services.environment.build, registry: services.registry, environment: services.agentPaneEnvironment ?? ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
                                  linkScheme: services.linkScheme, settings: services.settings)
         tabs.launchImages = AgentPaneLaunchImages(beside: services.environment.sidebarSnapshotFile)
-        tabs.unsentDrafts = AgentUnsentDrafts(beside: services.environment.sidebarSnapshotFile)
+        let state = services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()
+        tabs.unsentDrafts = AgentUnsentDrafts(directory: state)
+        // The composer chips and shell commands chat pages held at the last quit (every relaunch's quit).
+        tabs.relaunchWake = AgentPaneRelaunchWake(directory: state)
+        tabs.wakeStates = tabs.relaunchWake.take()
         // The Chief home's acpmux: the Chief host's subagent tabs attach there.
         let chief = ChiefHomeAcpmux(home: ChiefHome.resolve(tag: services.environment.tag)) { [weak services] in
             await MainActor.run { _ = services?.home.brain.ensure(asked: false) }
