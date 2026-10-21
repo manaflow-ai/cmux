@@ -642,9 +642,7 @@ test("a Claude turn steered twice keeps every call, each folded below the steer 
   // Under each bubble its own fold; the answer under the last steer's.
   expect(ids).toEqual(["u", `${WORKED}-u`, "s1", `${WORKED}-s1`, "s2", `${WORKED}-s2`, "r2", "sum"]);
   // Each part is timed from its prompt or steer to where it ended: the next steer, or the answer.
-  expect(view.filter((each) => each.kind === WORKED).map((each) => each.durationMs)).toEqual([
-    20_000, 30_000, 30_000,
-  ]);
+  expect(view.filter((each) => each.kind === WORKED).map((each) => each.durationMs)).toEqual([20_000, 30_000, 30_000]);
   const open = turnView(rows, new Set([`${WORKED}-u`, `${WORKED}-s1`, `${WORKED}-s2`]), now);
   expect(open.map((each) => each.id)).toEqual([
     "u",
