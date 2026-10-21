@@ -12,6 +12,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -172,6 +173,7 @@ await requireBrowserLane("agent-pane-session-offer.test.ts", async () => {
       );
     }
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await installPaintedFrames(page);
     await page.addInitScript(
       (arm) => localStorage.setItem("cmux.experiments", JSON.stringify({ "session-offer": arm })),
       experiment,
@@ -206,8 +208,8 @@ await requireBrowserLane("agent-pane-session-offer.test.ts", async () => {
     test("with the experiment off, the offer draws nothing", async () => {
       const page = await openChat("off");
       // The offer comes in the same attach answer as the message that is drawn now (with the
-      // experiment on it draws with it); two more frames for anything that answer earns.
-      await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      // experiment on it draws with it); a painted frame more for anything that answer earns.
+      await page.evaluate(() => window.cmuxPaintFrame());
       expect(await chip(page).count()).toBe(0);
       expect(await page.locator("body").innerText()).not.toContain(offer.title);
       await page.close();

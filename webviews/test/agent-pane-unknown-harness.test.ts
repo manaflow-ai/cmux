@@ -9,6 +9,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -180,6 +181,7 @@ await requireBrowserLane("agent-pane-unknown-harness.test.ts", async () => {
 
   test("a chat on a harness the catalog does not know still draws after its first prompt", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await installPaintedFrames(page);
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(`${error.message}\n${error.stack ?? ""}`));
     page.on("console", (message) => message.type() === "error" && errors.push(message.text()));
@@ -190,7 +192,7 @@ await requireBrowserLane("agent-pane-unknown-harness.test.ts", async () => {
     await drawn.waitFor({ timeout: 60_000 });
     // The pane has heard everything it asked while opening, and drawn what that earns.
     await within(trustAnswered, 15_000, "trust check from the opening pane");
-    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await page.evaluate(() => window.cmuxPaintFrame());
     const failedOpening = await page.locator(".acpmux-pane-failed").count();
     let failedSending = failedOpening;
     if (!failedOpening) {

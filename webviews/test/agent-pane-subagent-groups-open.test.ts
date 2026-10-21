@@ -10,6 +10,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -145,6 +146,7 @@ await requireBrowserLane("agent-pane-subagent-groups-open.test.ts", async () => 
   const open = async (session: string, shown: string) => {
     sockets.clear();
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await installPaintedFrames(page);
     await page.goto(url(session));
     await page.getByText(shown).waitFor({ timeout: 25_000 });
     return page;
@@ -167,7 +169,7 @@ await requireBrowserLane("agent-pane-subagent-groups-open.test.ts", async () => 
       return { open, lines: document.querySelectorAll(".cv-subagent").length };
     });
   /// Expects the page to show `want`: once it does (or after 4 s, so the expect says what it was), and
-  /// still two frames later.
+  /// still so once the next frame has painted.
   const expectGroups = async (page: Page, want: Groups) => {
     await page
       .waitForFunction(
@@ -181,7 +183,7 @@ await requireBrowserLane("agent-pane-subagent-groups-open.test.ts", async () => 
         { timeout: 4_000 },
       )
       .catch(() => {});
-    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await page.evaluate(() => window.cmuxPaintFrame());
     expect(await shown(page)).toEqual(want);
   };
   /// Waits until the first group's line (its count and states) is no longer `before`.

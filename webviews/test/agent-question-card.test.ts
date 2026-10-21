@@ -13,6 +13,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -95,7 +96,10 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
     if (draft) await page.keyboard.type(draft);
     await page.locator(".acpmux-preview-controls select").selectOption("question-pending-single");
     await page.locator(".acpmux-question").waitFor();
-    await page.waitForTimeout(300);
+    // The card takes an idle keyboard in an effect after it renders; React has run its effects by
+    // the time the next frame has painted.
+    await installPaintedFrames(page);
+    await page.evaluate(() => window.cmuxPaintFrame());
     return page;
   }
 

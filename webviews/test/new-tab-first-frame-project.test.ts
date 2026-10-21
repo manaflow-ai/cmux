@@ -182,7 +182,7 @@ await requireBrowserLane("new-tab-first-frame-project.test.ts", async () => {
     // the daemon is asked for its chats), and a painted frame after them.
     await listed;
     await page.waitForFunction(() => (window as unknown as { __hostPending: number }).__hostPending === 0);
-    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await page.evaluate(() => window.cmuxPaintFrame());
     const painted = await page.evaluate(() => (window as unknown as { __painted: string[] }).__painted);
     await page.close();
     console.info(`painted: ${JSON.stringify(painted)}`);
