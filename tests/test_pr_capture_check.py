@@ -1,4 +1,7 @@
-"""The PR capture check: native UI changes show a real capture in the description."""
+"""The PR capture check: native UI changes show a real capture in the description.
+
+Native UI is what scripts/cmux-next/media/path_map.py maps to a Mac tour.
+"""
 import importlib.util
 import subprocess
 import sys
@@ -33,7 +36,9 @@ class CaptureCheckTests(unittest.TestCase):
     def test_native_ui_paths_need_a_capture(self):
         self.assertEqual(module.ui_tours([SWIFT]), ["hover-card"])
         self.assertEqual(module.ui_tours(["Packages/macOS/CmuxNext/Sources/CmuxNextApp/Other.swift"]), ["core"])
+        self.assertEqual(module.ui_tours(["Packages/macOS/CmuxNext/Sources/CmuxNextApp/HitTest.swift"]), ["core"])
         for paths in (["docs/x.md"], ["Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/FooTests.swift"],
+                      ["webviews/src/pages/settings/theme.test.tsx"],
                       ["webviews/src/gallery/sidebar.gallery.tsx"], ["scripts/ci/x.py"], []):
             with self.subTest(paths=paths):
                 self.assertEqual(module.ui_tours(paths), [])
@@ -57,15 +62,26 @@ class CaptureCheckTests(unittest.TestCase):
         self.assertEqual(module.evidence("```\n" + CAPTURE + "```\n", set()), ("", None))
         mock = "![after](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/42/mock.png)\n"
         self.assertEqual(module.evidence(mock, set()), ("", None))
+        self.assertEqual(module.evidence("```\n" + CAPTURE, set()), ("", None))  # unclosed fence
+
+    def test_capture_must_be_this_pull_requests_media_right_after_the_marker(self):
+        self.assertEqual(module.evidence(CAPTURE, set(), "42"), ("capture", SHA))
+        self.assertEqual(module.evidence(CAPTURE, set(), "43"), ("", None))  # copied from another PR
+        far = CAPTURE.replace("| Light", "x" * 2500 + "\n| Light")
+        self.assertEqual(module.evidence(far, set(), "42"), ("", None))
+        hidden = CAPTURE.replace("| ![light]", "<!-- ![light]").replace("-light.png) ", "-light.png) -->")
+        hidden = hidden.replace("| ![dark](", "`").replace("-dark.png) |", "-dark.png`")
+        self.assertEqual(module.evidence(hidden, set(), "42"), ("", None))
 
     def test_tour_label_or_a_reason_passes(self):
         self.assertEqual(self.run_check("", [SWIFT], labels="risk:normal,media-tour")[0], 0)
         for body in ("No capture: renames a private type, nothing on screen changes",
                      "- **No capture:** layout constants only, verified identical",
-                     "no capture - internal refactor of the view model"):
+                     "no capture - internal refactor of the view model",
+                     "> No capture: copy only, the strings are unchanged on screen"):
             with self.subTest(body=body):
                 self.assertEqual(self.run_check(body, [SWIFT])[0], 0)
-        for body in ("No capture:", "No capture: ok", "<!-- No capture: hidden in a comment -->", "We have no capture tooling"):
+        for body in ("No capture:", "No capture: ok", "No capture-tooling exists here yet", "<!-- No capture: hidden in a comment -->", "We have no capture tooling"):
             with self.subTest(body=body):
                 self.assertEqual(self.run_check(body, [SWIFT])[0], 1)
 

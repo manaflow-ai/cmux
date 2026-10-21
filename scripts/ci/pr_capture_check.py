@@ -9,9 +9,10 @@ tour file. Webview-only changes are left to the gallery advisory run, which capt
 
 Real capture, any one of:
   - the marker `cmux-ci capture` prints into the body, `<!-- cmux-capture sha=<40 hex> ...-->`,
-    with a pr-media image next to it (a fleet build, driven on a capture mini, text-checked);
+    with an image from this pull request's pr-media folder right after it (a fleet build, driven
+    on a capture mini, text-checked);
   - the `media-tour` or `media-tour-mac` label (cmux-next-media.yml tours the head on a Mac and
-    posts the shots in the status comment);
+    posts the shots in the status comment; the label is taken on trust, the tour reports itself);
   - a line saying why none applies: `No capture: <reason>` (a refactor with no visible change).
 
 A capture of an older commit passes with a warning. Prints GitHub annotations; exits 1 when the
@@ -29,11 +30,15 @@ import path_map  # noqa: E402
 
 TOUR_LABELS = {"media-tour", "media-tour-mac"}
 MARKER = re.compile(r"<!--\s*cmux-capture\s+sha=(?P<sha>[0-9a-f]{40})\b[^>]*-->")
-MEDIA = re.compile(r"https://raw\.githubusercontent\.com/manaflow-ai/cmux/pr-media/\d+/\S+\.(?:png|gif|jpe?g)")
-NO_CAPTURE = re.compile(r"^\s*(?:[-*]\s+)?(?:\*\*)?No capture(?:\*\*)?\s*[:—-]\s*(?:\*\*)?\s*\S.{3,}",
+MEDIA = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/{pr}/" + r"\S+\.(?:png|gif|jpe?g)"
+MEDIA_WINDOW = 2000  # the stills follow the marker; an image elsewhere in the body is not its capture
+NO_CAPTURE = re.compile(r"^\s*(?:>\s*)*(?:[-*]\s+)?(?:\*\*)?No capture(?:\*\*)?(?:\s*:|\s+[—-])\s*(?:\*\*)?\s*\S.{3,}",
                         re.IGNORECASE | re.MULTILINE)
-TEST_PATH = re.compile(r"(?:^|/)Tests?/|(?:^|/)tests?/|_test\.|Tests?\.swift$")
-FENCE = re.compile(r"^\s{0,3}(```|~~~).*?^\s{0,3}\1", re.DOTALL | re.MULTILINE)
+TEST_PATH = re.compile(r"(?:^|/)Tests?/|(?:^|/)tests?/|_test\.|(?:^|/)\w+Tests\.swift$|\.(?:test|spec)\.[jt]sx?$")
+# A fenced block, or an unclosed fence to the end of the body.
+FENCE = re.compile(r"^\s{0,3}(```|~~~).*?(?:^\s{0,3}\1|\Z)", re.DOTALL | re.MULTILINE)
+COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
+INLINE_CODE = re.compile(r"`[^`\n]+`")
 COMMAND = "cmux-ci capture {sha} --state tour:{tour} --pr {pr}"
 
 
@@ -43,15 +48,17 @@ def ui_tours(paths: list[str]) -> list[str]:
     return list(result["tours"]) if result["is_ui"] else []
 
 
-def evidence(body: str, labels: set[str]) -> tuple[str, str | None]:
+def evidence(body: str, labels: set[str], pr: str = "") -> tuple[str, str | None]:
     """(how the PR shows a real capture or says why not, the captured sha), or ("", None)."""
     text = FENCE.sub("", body or "")  # an example in a code block is not a capture
-    marker = MARKER.search(text)
-    if marker and MEDIA.search(text):
-        return "capture", marker.group("sha")
+    media = re.compile(MEDIA.format(pr=pr if pr.isdigit() else r"\d+"))
+    for marker in MARKER.finditer(text):
+        after = text[marker.end():marker.end() + MEDIA_WINDOW]
+        if media.search(INLINE_CODE.sub("", COMMENT.sub("", after))):
+            return "capture", marker.group("sha")
     if labels & TOUR_LABELS:
         return "media tour label", None
-    if NO_CAPTURE.search(re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)):
+    if NO_CAPTURE.search(COMMENT.sub("", text)):
         return "no-capture reason", None
     return "", None
 
@@ -74,7 +81,7 @@ def main(argv: list[str] | None = None) -> int:
     if not tours:
         print("No native UI change: no capture needed.")
         return 0
-    how, sha = evidence(body, {l.strip() for l in a.labels.split(",") if l.strip()})
+    how, sha = evidence(body, {l.strip() for l in a.labels.split(",") if l.strip()}, a.pr)
     if how:
         print(f"Native UI change ({', '.join(tours)}); shown by: {how}.")
         if sha and a.head_sha and sha != a.head_sha:

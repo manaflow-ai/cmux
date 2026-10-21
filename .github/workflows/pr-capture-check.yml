@@ -19,7 +19,7 @@ concurrency:
 jobs:
   capture:
     name: pr-capture-check
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -45,6 +45,11 @@ jobs:
           LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
         run: |
           set -euo pipefail
+          if [ ! -f scripts/ci/pr_capture_check.py ]; then
+            # The pull request that adds the check: its base has no check to run yet.
+            echo "::notice::The base branch has no scripts/ci/pr_capture_check.py yet; nothing to check."
+            exit 0
+          fi
           printf '%s' "$BODY" > "$RUNNER_TEMP/body.md"
           gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[].filename' > "$RUNNER_TEMP/paths.txt"
           python3 scripts/ci/pr_capture_check.py --body-file "$RUNNER_TEMP/body.md" --paths-file "$RUNNER_TEMP/paths.txt" \
