@@ -127,7 +127,7 @@ dbTest("promotes a successful fan-out attempt into a persistent Runtime and repl
   expect(workspace).toMatchObject({ lifecycle: "running", provider_vm_id: handles.providerVmId, provider_workspace_id: handles.providerWorkspaceId });
 });
 
-dbTest("a refused promotion leaves no runtime behind, so a later request can promote", async () => {
+dbTest("a refused promotion releases its runtime, so a later request can promote", async () => {
   const { run, attempt } = await succeededAttempt();
   if (!db) throw new Error("test database not initialized");
   // The retention reaper holds the attempt's cleanup lease, so the runtime repository refuses it.
@@ -140,8 +140,9 @@ dbTest("a refused promotion leaves no runtime behind, so a later request can pro
     refused = error;
   }
   expect(refused).toBeInstanceOf(RuntimeAttemptConflictError);
-  const left = await db`select id from cloud_runtimes where owner_team_id = ${owner} and idempotency_key = ${`run-promotion:${refusedKey}`}`;
-  expect(left).toHaveLength(0);
+  const orphans = await db`select id from cloud_runtimes r where owner_team_id = ${owner} and lifecycle_state <> 'released'
+    and not exists (select 1 from run_attempts a where a.runtime_id = r.id)`;
+  expect(orphans).toHaveLength(0);
 
   // The reaper gave up without destroying the VM; a new request must not collide with the
   // refused one's runtime over the terminal's journal session id.
