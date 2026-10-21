@@ -96,7 +96,7 @@ final class GroupHeaderRowView: SidebarRowView {
         super.init(key: key)
         layer?.addSublayer(pill)
         layer?.addSublayer(dot)
-        pill.actions = ["bounds": NSNull(), "position": NSNull(), "backgroundColor": NSNull()]
+        pill.actions = ["bounds": NSNull(), "position": NSNull(), "backgroundColor": NSNull(), "cornerRadius": NSNull()]
         dot.actions = ["bounds": NSNull(), "position": NSNull(), "backgroundColor": NSNull()]
         [glyph, name, count, pin, chevron, activitySlot, badge, addButton, moreButton].forEach(addSubview)
         // The header's label says the name, the count and (through AXExpanded) the chevron.
@@ -122,6 +122,7 @@ final class GroupHeaderRowView: SidebarRowView {
 
     override func prepareForReuse(key: SidebarRowKey) {
         super.prepareForReuse(key: key)
+        springsNextJoin = false
         isDropTarget = false
         isKeyboardFocused = false
         isEditing = false

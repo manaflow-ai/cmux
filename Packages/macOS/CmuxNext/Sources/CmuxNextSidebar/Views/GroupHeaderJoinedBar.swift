@@ -44,6 +44,8 @@ import QuartzCore
                                                 lineWidth: SidebarStyle.groupBarWidth, length: length)
         let fresh = !(pill.mask is CAShapeLayer)
         let outline = pill.mask as? CAShapeLayer ?? CAShapeLayer()
+        // Only the gated springs below move the outline: no implicit action on its own writes.
+        outline.actions = ["bounds": NSNull(), "position": NSNull(), "anchorPoint": NSNull(), "path": NSNull()]
         outline.anchorPoint = .zero
         outline.position = .zero
         pill.cornerRadius = 0
