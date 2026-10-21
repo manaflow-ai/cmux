@@ -25,6 +25,7 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::Send { .. }
             | Command::Chats(..)
             | Command::Process(..)
+            | Command::Worktree(..)
             | Command::Attach { .. }
             | Command::Tail { .. }
             | Command::Info { .. }
@@ -472,6 +473,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         }
         Command::Chats(cmd) => crate::cli::chats::run(cmd, json_out).await,
         Command::Process(cmd) => crate::cli::process::run(cmd, json_out).await,
+        Command::Worktree(cmd) => crate::cli::worktree::run(cmd, json_out),
         Command::Attach { session, plain } => {
             let client = connect(true).await?;
             let id = match &session {
@@ -564,7 +566,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
 /// Whether `acpmux send` steers: `--steer` always, `--no-steer` never, else a message sent
 /// with `--no-wait` does (inter-session messages land in the running turn instead of waiting
 /// minutes for it to end), while a send that waits for its reply queues: a steer is answered
-/// `steered` as soon as the agent reads it, before the reply.
+/// `steered` as soon as the agent reads it, before the reply. A steer never stops a turn: the
+/// agent reads it at its next tool boundary, and to an agent that does not steer it queues.
 fn send_steers(steer: bool, no_steer: bool, no_wait: bool) -> bool {
     !no_steer && (steer || no_wait)
 }

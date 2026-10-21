@@ -195,11 +195,15 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   call in the log, and the floor of that moment).
 - A turn whose subagents are at work gets `Subagents at work now: a1, a3.`
   after the view, before its new messages (never logged).
-- `chief.stop` stops the running turn and every subagent at work
-  (`session/cancel` on each; their reports come quiet) and drops the queued
-  ones; it answers `{"stopped": true, "subagents": [...]}`.
-  `chief.stop {name: "a3"}` stops only that subagent and answers the
-  note `Stopped by the user: a3.`; the turn and the other subagents go on.
+- `chief.stop` stops only the running turn; subagents at work and queued
+  ones go on. It answers `{"stopped": bool}`. The Chief's own `stop` tool
+  (`{"tool": "stop", "end_turn": true}` on the tools socket, or any call from
+  a turn session) only ends its turn and is never taken for `chief.stop`.
+  `chief.stop {name: "a3"}` stops only that subagent (`session/cancel`; its
+  report comes quiet) and answers the note `Stopped by the user: a3.`; the
+  turn and the other subagents go on. A stopped or cancelled subagent is not
+  at work any more, even when its session never ends the turn: its slot frees
+  at once.
 - A subagent prompt the harness fails ends that run with `[a<N>] (failed:
   <error>)`, never a subagent that waits forever.
 

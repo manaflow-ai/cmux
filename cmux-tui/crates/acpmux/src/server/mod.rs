@@ -949,6 +949,7 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
     (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
+mod agent_messages;
 mod change_kind;
 mod chats;
 pub mod conn_auth;
@@ -959,11 +960,13 @@ mod harness_admin;
 mod harness_enable;
 mod inventory_watch;
 pub mod local_app;
+mod models_fanout;
 pub mod peer_auth;
 mod peer_forward;
 pub mod peer_text;
 mod pending;
 mod processes;
+mod worktrees;
 pub use pending::event_value;
 use pending::{is_permission_ask, peer_permission_pending, permission_pending};
 mod redact;

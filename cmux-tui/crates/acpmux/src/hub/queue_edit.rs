@@ -1,11 +1,14 @@
 //! Part of `Hub`; see `hub/mod.rs`. `_acpmux/queue_edit`: change a queued prompt before its
-//! turn (`update` its prompt, `move` it, or `send_now`), or `resume` the prompts a failed turn
+//! turn (`update` its prompt, `move` it, `send_now` or `interrupt`), or `resume` the prompts a failed turn
 //! holds (`queue.rs` `pause_queue`; any of the queue's prompts names it). Every change is a record in the log, so
 //! a new daemon rebuilds the edited queue (`queue.rs` `restore_queues`), and every client sees it.
 
 use super::queue::PromptRun;
 use super::*;
 use std::sync::atomic::Ordering;
+
+/// How long Send now waits for the agent to stop its step for a steer.
+const STEP_NOW_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 
 // `_acpmux/prompt_withdraw`, a queue change too (here: `hub/mod.rs` is at its size budget).
 #[path = "withdraw.rs"]
@@ -23,8 +26,8 @@ fn stricter(a: Control, b: Control) -> Control {
 
 impl Hub {
     /// `_acpmux/queue_edit {sessionId, promptId, op, prompt?|text?, index?}`. Answers
-    /// `{sessionId, promptId, op, ok}`, and `send_now` also how it was sent (`sent`: `steer`,
-    /// `interrupt` or `next`). `ok` is false when the prompt no longer waits.
+    /// `{sessionId, promptId, op, ok}`, and `send_now` and `interrupt` also how it was sent
+    /// (`sent`: `steer`, `interrupt` or `next`). `ok` is false when the prompt no longer waits.
     pub async fn queue_edit(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -64,13 +67,21 @@ impl Hub {
                 json!(self.move_queued(session, prompt_id, index as usize))
             }
             "send_now" => {
-                let sent = self.send_queued_now(session, prompt_id, control).await?;
+                let sent = match self.send_queued_now(session, prompt_id, control)? {
+                    Some(sent) => Some(sent),
+                    None => self.step_now(session, prompt_id, control).await?,
+                };
+                reply["sent"] = json!(sent);
+                json!(sent.is_some())
+            }
+            "interrupt" => {
+                let sent = self.interrupt_for_queued(session, prompt_id).await;
                 reply["sent"] = json!(sent);
                 json!(sent.is_some())
             }
             "resume" => json!(self.resume_queue(session)),
             _ => {
-                let e = "op must be update, move, send_now or resume";
+                let e = "op must be update, move, send_now, interrupt or resume";
                 return Err(RpcError::invalid_params(e));
             }
         };
@@ -147,20 +158,19 @@ impl Hub {
         true
     }
 
-    /// Sends a waiting prompt now. With no turn running it goes next (`next`); into a running turn
-    /// of an agent that steers it is steered in (`steer`) by the task that waits with it, so its
-    /// `session/prompt` answers how it ran; otherwise it goes next and the running turn stops
-    /// (`interrupt`). `None` when it no longer waits. A failed turn no longer holds it.
-    async fn send_queued_now(
+    /// Sends a waiting prompt now. Into a running turn of an agent that steers it is steered in
+    /// (`steer`) by the task that waits with it, so its `session/prompt` answers how it ran, and
+    /// the agent's current step stops so it reads it at once (Claude Code; another agent reads it
+    /// when its step ends); otherwise it goes next (`next`) and runs once the turn ends. It never
+    /// stops the turn: `interrupt` does. `None` when it no longer waits. A failed turn no longer
+    /// holds it.
+    fn send_queued_now(
         self: &Arc<Self>,
         session: &Arc<Session>,
         prompt_id: &str,
         control: Control,
     ) -> Result<Option<&'static str>, RpcError> {
-        let Some(running) = session.turn().map(|t| t.turn_id) else {
-            return Ok(self.put_next(session, prompt_id).then_some("next"));
-        };
-        if session.steering.load(Ordering::SeqCst) {
+        if session.turn().is_some() && session.steering.load(Ordering::SeqCst) {
             let Some(waiting) = session.queue().into_iter().find(|q| q.prompt_id == prompt_id)
             else {
                 return Ok(None);
@@ -182,13 +192,61 @@ impl Hub {
                 };
                 (q.run, q.steer) = (Arc::new(run), true);
             }
+            let mut now =
+                session.steer_now.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            now.step.insert(prompt_id.to_owned());
+            drop(now);
             session.queue_moved.notify_waiters();
             return Ok(Some("steer"));
         }
+        Ok(self.put_next(session, prompt_id).then_some("next"))
+    }
+
+    /// `interrupt`: a waiting prompt goes next and the running turn stops, whether or not its
+    /// agent could take the prompt as a steer (`next` with no turn running). `None` when it no
+    /// longer waits.
+    async fn interrupt_for_queued(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        prompt_id: &str,
+    ) -> Option<&'static str> {
+        let running = session.turn().map(|t| t.turn_id);
         if !self.put_next(session, prompt_id) {
+            return None;
+        }
+        let Some(running) = running else {
+            return Some("next");
+        };
+        self.cancel_turn(session, &running).await;
+        Some("interrupt")
+    }
+
+    /// Send now on a steer the agent has not read yet (`steer_end.rs`): the agent's current step
+    /// stops so it reads the steer at once, and the turn runs on (`now`). An agent that cannot
+    /// stop one step reads it when the step ends (`steer`). `None` when no steer of that id waits.
+    async fn step_now(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        prompt_id: &str,
+        control: Control,
+    ) -> Result<Option<&'static str>, RpcError> {
+        let waiting = session
+            .steer_now
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .waiting
+            .contains(prompt_id);
+        if !waiting {
             return Ok(None);
         }
-        self.cancel_turn(session, &running).await;
-        Ok(Some("interrupt"))
+        self.check_steer(session, control)?;
+        let child = session.child.lock().await.clone();
+        let (Some(child), Some(sid)) = (child, session.meta().agent_session_id) else {
+            return Ok(Some("steer"));
+        };
+        let ask = child.request(method::MUX_STEP_NOW, json!({"sessionId": sid}));
+        let answer = tokio::time::timeout(STEP_NOW_WAIT, ask).await;
+        let stopped = matches!(&answer, Ok(Ok(v)) if v["interrupted"] == true);
+        Ok(Some(if stopped { "now" } else { "steer" }))
     }
 }

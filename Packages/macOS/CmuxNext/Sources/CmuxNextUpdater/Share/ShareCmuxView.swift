@@ -124,7 +124,6 @@ public final class ShareCmuxView: NSView {
         closeButton.bezelStyle = .regularSquare
         closeButton.imagePosition = .imageOnly
         closeButton.setAccessibilityLabel(ShareCmuxStrings.close)
-        closeButton.themedToolTip = ShareCmuxStrings.close
         closeButton.identifier = NSUserInterfaceItemIdentifier("cmux.shareCmux.close")
         closeButton.translatesAutoresizingMaskIntoConstraints = false
         closeButton.widthAnchor.constraint(equalToConstant: 20).isActive = true
