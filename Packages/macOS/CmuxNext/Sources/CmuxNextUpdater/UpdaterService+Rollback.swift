@@ -9,10 +9,15 @@ nonisolated public struct RollbackInputs: Sendable {
     public var kept: [KeptVersion]
     /// The newest schema each store holds; nil when they could not be read.
     public var stored: [String: Int]?
+    /// The running bundle's signing team (``UpdateDropBack/signingTeam(of:)``), read off the
+    /// main thread with the rest: the check validates the whole bundle with its nested code
+    /// (the Chromium framework and every helper), seconds of disk reads.
+    public var runningTeam: String?
 
-    public init(kept: [KeptVersion], stored: [String: Int]?) {
+    public init(kept: [KeptVersion], stored: [String: Int]?, runningTeam: String? = nil) {
         self.kept = kept
         self.stored = stored
+        self.runningTeam = runningTeam
     }
 }
 
@@ -87,15 +92,15 @@ extension UpdaterService {
                 if version.storeSchemas == nil { version.storeSchemas = StoreSchemaProbe(bundle: version.bundle).readable() }
                 return version
             }
-            return RollbackInputs(kept: kept, stored: StoreSchemaProbe(bundle: bundle).stored(stateDirectories: stateDirectories))
+            return RollbackInputs(kept: kept, stored: StoreSchemaProbe(bundle: bundle).stored(stateDirectories: stateDirectories),
+                                  runningTeam: UpdateDropBack.signingTeam(of: bundle))
         }.value
     }
 
     /// Whether a rollback to `build` (nil: the newest kept) would run.
     public func rollbackDecision(to build: String?, inputs: RollbackInputs) -> Result<KeptVersion, RollbackRefusal> {
         guard let stored = inputs.stored else { return .failure(.storesUnknown) }
-        return RollbackDecision.decide(kept: inputs.kept, build: build, stored: stored,
-                                       teamID: UpdateDropBack.signingTeam(of: Bundle.main.bundleURL))
+        return RollbackDecision.decide(kept: inputs.kept, build: build, stored: stored, teamID: inputs.runningTeam)
     }
 }
 
@@ -106,12 +111,23 @@ extension UpdaterService {
     /// Rolls back to `build` (nil: the newest kept) when ``rollbackDecision``
     /// allows it: swaps the bundles, stops offering the build left behind,
     /// then quits keeping every session and lets `relaunch` reopen the app.
+    /// The swap runs off the main thread: it clones the running bundle into the store and
+    /// prunes it (signature reads of every kept build), seconds on a busy disk.
     @discardableResult
-    public func rollback(to build: String?, inputs: RollbackInputs, relaunch: (URL) -> Void) throws -> KeptVersion {
+    public func rollback(to build: String?, inputs: RollbackInputs, relaunch: (URL) -> Void) async throws -> KeptVersion {
         let target = try rollbackDecision(to: build, inputs: inputs).get()
+        // One swap at a time: a second rollback during the swap would keep the swapped-in build
+        // under the running build's name and lose the build the first one kept.
+        guard !isRollingBack else { throw RollbackRefusal.inProgress }
+        isRollingBack = true
+        defer { isRollingBack = false }
         let bundle = Bundle.main.bundleURL
-        try RollbackSwap.perform(current: bundle, currentBuild: identity.build, target: target,
-                                 store: keptVersions, limit: preferences.keepPreviousVersions)
+        let currentBuild = identity.build
+        let store = keptVersions
+        let limit = preferences.keepPreviousVersions
+        _ = try await Task.detached {
+            try RollbackSwap.perform(current: bundle, currentBuild: currentBuild, target: target, store: store, limit: limit)
+        }.value
         defaults.set(identity.build, forKey: Self.skipsBuildsThroughKey)
         controller?.skipsBuildsThrough = identity.build
         log.append("rolled back \(identity.build) -> \(target.build)")

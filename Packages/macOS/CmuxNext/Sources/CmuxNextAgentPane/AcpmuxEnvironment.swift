@@ -93,7 +93,19 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
         return resolve(build: build, bundledBinDirectory: bundledBinDirectory, environment: environment, userHome: userHome,
                        uid: uid, isExecutable: isExecutable, launchEnvironment: launchEnvironment,
                        executableOverride: executableOverride, teamIdentifier: AcpmuxServerPeer.ownTeam,
-                       isTrustedExecutable: AcpmuxServerPeer.executableSignedByAppTeam)
+                       isTrustedExecutable: AcpmuxServerPeer.executableSignedByAppTeamCached)
+    }
+
+    /// Answers the trust check of the acpmux that `resolve` will pick, off the main thread, so
+    /// the main-thread `resolve` calls at launch find the verdict cached
+    /// (``AcpmuxServerPeer/executableSignedByAppTeamCached(_:team:)``). The build does not change
+    /// which executable `resolve` picks (only its home), so this resolves with none. Called by
+    /// ``AgentPaneView/startWarmup()`` from `main`, before the run loop starts.
+    static func prewarmTrust(bundledBinDirectory: URL? = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)) {
+        // task-owner: one background trust check per process; it only fills a cache, nothing waits for it
+        Task.detached(priority: .userInitiated) {
+            _ = resolve(build: nil, bundledBinDirectory: bundledBinDirectory)
+        }
     }
 
     /// ``resolve(build:bundledBinDirectory:environment:userHome:uid:isExecutable:launchEnvironment:)`` with
@@ -109,7 +121,7 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
         launchEnvironment: [String: String] = [:],
         executableOverride: URL?,
         teamIdentifier: String? = AcpmuxServerPeer.ownTeam,
-        isTrustedExecutable: (URL, String) -> Bool = { AcpmuxServerPeer.executableSignedByAppTeam($0, team: $1) }
+        isTrustedExecutable: (URL, String) -> Bool = { AcpmuxServerPeer.executableSignedByAppTeamCached($0, team: $1) }
     ) -> AcpmuxEnvironment? {
         guard let executable = executableOverride
             ?? executableCandidates(bundledBinDirectory: bundledBinDirectory, environment: environment, userHome: userHome)

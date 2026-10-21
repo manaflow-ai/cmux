@@ -226,7 +226,100 @@ nonisolated enum AcpmuxServerPeer {
         let path = executable.resolvingSymlinksInPath()
         guard SecStaticCodeCreateWithPath(path as CFURL, [], &code) == errSecSuccess, let code else { return false }
         let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate)
+        // concurrency-allow: the launcher calls it off main (@concurrent). Main reaches it only through executableSignedByAppTeamCached when no verdict and no running check exist for the file (the launch prewarm starts one first); a later change of the acpmux file costs one main-thread check
         return SecStaticCodeCheckValidity(code, flags, requirement) == errSecSuccess
+    }
+
+    /// ``executableSignedByAppTeam(_:team:)`` answered once per file identity: the strict check
+    /// hashes the whole binary (72 MB, about 2 s on a cold file cache after an update), and
+    /// ``AcpmuxEnvironment/resolve(build:bundledBinDirectory:environment:userHome:uid:isExecutable:launchEnvironment:)``
+    /// runs on the main thread from eight call sites (Sentry MainThreadStall 2 s+ in
+    /// `SecStaticCodeCheckValidityWithErrors` from `AppServices.modelRouter`). The verdict is
+    /// keyed by the resolved path, team, device, inode, size, mtime and ctime: a rewrite in place
+    /// changes ctime (no user call sets it), a replacement changes the inode, so a changed file
+    /// is checked again. The launch itself (`AcpmuxDaemonLauncher.launch`) still runs the
+    /// uncached check, off the main thread.
+    ///
+    /// One check per key at a time: a caller that finds the check of its key running waits for
+    /// that check instead of hashing the file again (the launch prewarm and a main-thread
+    /// `resolve` right after it). The wait is bounded by the one check already running.
+    static func executableSignedByAppTeamCached(_ executable: URL, team: String? = ownTeam) -> Bool {
+        guard let team else { return true }
+        let path = executable.resolvingSymlinksInPath().path
+        guard let key = TrustKey(path: path, team: team) else { return false }
+        enum Lookup { case known(Bool), running(TrustCheck), mine(TrustCheck) }
+        let lookup = trustVerdicts.withLock { state -> Lookup in
+            if let known = state.verdicts[key] { return .known(known) }
+            if let running = state.running[key] { return .running(running) }
+            let check = TrustCheck()
+            state.running[key] = check
+            return .mine(check)
+        }
+        switch lookup {
+        case .known(let verdict):
+            return verdict
+        case .running(let check):
+            // concurrency-allow: waits only for the one strict check of this key already running (bounded by it), instead of a second full hash
+            return check.wait()
+        case .mine(let check):
+            let verdict = executableSignedByAppTeam(URL(fileURLWithPath: path), team: team)
+            // Kept only when the file did not change during the check (an mmap write moves mtime late).
+            let unchanged = TrustKey(path: path, team: team) == key
+            trustVerdicts.withLock { state in
+                state.running[key] = nil
+                if unchanged { state.verdicts[key] = verdict }
+            }
+            check.finish(verdict && unchanged)
+            return verdict && unchanged
+        }
+    }
+
+    private static let trustVerdicts = Mutex<TrustState>(TrustState())
+
+    private nonisolated struct TrustState {
+        var verdicts: [TrustKey: Bool] = [:]
+        var running: [TrustKey: TrustCheck] = [:]
+    }
+
+    /// One running trust check; other callers of the same key wait for its verdict.
+    private nonisolated final class TrustCheck: Sendable {
+        private let verdict = Mutex<Bool?>(nil)
+        // concurrency-allow: signalled once by the one running check (a bounded strict hash); waiters wait only for that check
+        private let done = DispatchSemaphore(value: 0)
+
+        func finish(_ value: Bool) {
+            verdict.withLock { $0 = value }
+            done.signal()
+        }
+
+        func wait() -> Bool {
+            // concurrency-allow: waits for the one strict check of this key already running (the launch prewarm); bounded by that check, and cheaper than a second hash
+            done.wait()
+            done.signal()
+            return verdict.withLock { $0 } ?? false
+        }
+    }
+
+    private nonisolated struct TrustKey: Hashable {
+        var path: String
+        var team: String
+        var device: dev_t
+        var inode: ino_t
+        var size: off_t
+        var modified: [Int]
+        var changed: [Int]
+
+        init?(path: String, team: String) {
+            var info = stat()
+            guard stat(path, &info) == 0 else { return nil }
+            self.path = path
+            self.team = team
+            device = info.st_dev
+            inode = info.st_ino
+            size = info.st_size
+            modified = [info.st_mtimespec.tv_sec, info.st_mtimespec.tv_nsec]
+            changed = [info.st_ctimespec.tv_sec, info.st_ctimespec.tv_nsec]
+        }
     }
 
     private static func requirement(team: String, identifier: String?) -> SecRequirement? {
