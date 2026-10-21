@@ -280,7 +280,7 @@ enum SessionSnapshotImportTrust {
                 launcher: launch.launcher,
                 environment: launch.environment
             ) else { return nil }
-            var environment = routing.capturedEnvironment(in: launch.environment)
+            var environment = routing.restoreMarkerEnvironment(in: launch.environment)
             environment.merge(routing.capturedAccountEnvironment(in: launch.environment)) { _, retained in retained }
             return AgentLaunchCommandSnapshot(
                 launcher: "claude",
