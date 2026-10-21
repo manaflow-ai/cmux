@@ -170,6 +170,14 @@ describe("base fingerprint and closure checks", () => {
     expect(aptClosureProblems({ ripgrep: "14.1.0-2" }, new Map([["ripgrep", "14.1.0-1"]]))).toEqual(["apt installed ripgrep=14.1.0-1, the lock says 14.1.0-2"]);
   });
 
+  test("a locked package the base already has at the locked version counts as installed", () => {
+    // The 10-21 Freestyle base started shipping ripgrep 14.1.0-1, so apt had nothing to add for it.
+    const base = parseDpkgList("ripgrep\t14.1.0-1\tamd64\nacl\t2.3.2-1build1\tamd64\n");
+    expect(aptClosureProblems({ ripgrep: "14.1.0-1" }, new Map(), base)).toEqual([]);
+    expect(aptClosureProblems({ acl: "2.3.2-1build1.1" }, new Map(), base)).toEqual(["lock package acl=2.3.2-1build1.1 was not installed (the base has 2.3.2-1build1)"]);
+    expect(aptClosureProblems({ ripgrep: "14.1.0-1" }, new Map())).toEqual(["lock package ripgrep was not installed"]);
+  });
+
   test("base packages and npm globals must be in the lock", () => {
     expect(basePackageProblems(lock, new Map(Object.entries(lock.base.basePackages)))).toEqual([]);
     expect(basePackageProblems(lock, new Map())).toHaveLength(Object.keys(lock.base.basePackages).length);
