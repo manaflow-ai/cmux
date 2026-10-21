@@ -171,7 +171,7 @@ nonisolated extension SidebarLayoutOptions {
         if !showsTimestamps { (content.time, content.badgeTime) = (nil, nil) }
         // What the agent needs outranks the row's age and one-line status on the name's line; the
         // row view words it (localized on the main actor, so the layout stays nonisolated).
-        if !minimal, let chip = ws.agentChip { (content.chip, content.time) = (chip, nil) }
+        if !minimal, let chip = WorkspaceRowContent.rowChip(ws.agentChip) { (content.chip, content.time) = (chip, nil) }
         // A row that already has a second line says there what its agent does now; a one-line row
         // keeps its height, so rows do not grow and shrink as agents start and stop.
         if !minimal, content.detail != nil, let step = ws.agentStep { (content.now, content.detail) = (step, step) }

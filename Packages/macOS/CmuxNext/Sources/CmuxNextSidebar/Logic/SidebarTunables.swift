@@ -91,10 +91,11 @@ public nonisolated enum SidebarTunables {
         default: true, code: "SidebarTunables.laneStatus")
 
     /// A row names the state of its most urgent agent chat with the Priority view's words (needs
-    /// you, done, failed, lost) at the right of its name (`SidebarLaneStatus`). On by default.
+    /// you, failed, lost; never Done, `WorkspaceRowContent.rowChip`) at the right of its name
+    /// (`SidebarLaneStatus`). On by default.
     public static let rowStatus = Tunable<Bool>.toggle(
         "sidebar.rowStatus", .sidebar, "Rows name their agent's state",
-        help: "A workspace row says needs you, done, failed or lost at the right of its name, in the Priority view's words, for the most urgent agent chat in it on this Mac.",
+        help: "A workspace row says needs you, failed or lost at the right of its name, in the Priority view's words, for the most urgent agent chat in it on this Mac.",
         default: true, code: "SidebarTunables.rowStatus")
 
     /// The workspace hover card says what its agents did since the person last looked at it

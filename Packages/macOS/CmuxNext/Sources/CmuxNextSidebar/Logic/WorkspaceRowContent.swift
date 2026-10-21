@@ -64,8 +64,9 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public var keycap: Int?
     /// The session tree: the row's pull requests, a glyph and a count in their status color.
     public var pullRequests: SidebarPullRequestBadge?
-    /// The Priority view's chip (`SidebarWorkspace.agentChip`): the row view draws its word as the
-    /// name line's trailing text in the chip's color, in place of the age or one-line status.
+    /// The Priority view's chip (`SidebarWorkspace.agentChip`) when it asks for something
+    /// (`rowChip`): the row view draws its word as the name line's trailing text in the chip's
+    /// color, in place of the age or one-line status.
     public var chip: SidebarPriorityEntry.State?
     /// What the working agent does now (`SidebarWorkspace.agentStep`), in place of the second
     /// line's text: the row view draws it as "Now: …". Set only on a row that has a second line.
@@ -164,6 +165,16 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
         formatter.maximumUnitCount = 1
         formatter.allowedUnits = [.day, .weekOfMonth, .month]
         return formatter.string(from: TimeInterval(days) * 86_400) ?? ""
+    }
+
+    /// The chip a row may draw: what asks for the user (needs you, failed, lost, Red CI). A finished
+    /// chat says nothing in words (Leo 2026-10-21, "WHO BROUGHT BACK THE DONE AND THE TIMERS"): its
+    /// unread dot is the cue. Working and idle never reach a row (`SidebarLaneStatus.chip`).
+    static func rowChip(_ state: SidebarPriorityEntry.State?) -> SidebarPriorityEntry.State? {
+        switch state {
+        case .needsYou?, .failed?, .lost?, .ciFailing?: state
+        case .done?, .working?, .idle?, nil: nil
+        }
     }
 
     /// How long a row has worked, in whole minutes ("4m", "1h 3m"); nil under a minute, so the
