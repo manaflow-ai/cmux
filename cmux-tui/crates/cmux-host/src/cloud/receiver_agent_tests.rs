@@ -173,13 +173,12 @@ fn receiver_owner_queued_read_debits_suspend_before_connecting_to_the_agent() {
     use cmux_link::elapsed::Elapsed;
     use std::sync::{Arc, Mutex};
     let (binding, keys, bytes) = public_fixture();
-    let active = Instant::now();
     let value = Arc::new(Mutex::new(Some(Duration::from_secs(10))));
     let source = value.clone();
     let elapsed = Elapsed::capture(move || *source.lock().unwrap()).unwrap();
     let receiver = AgentReceiver {
         binding,
-        owner: Owner::with_elapsed_clock(keys, move || Some(active), elapsed).unwrap(),
+        owner: Owner::with_elapsed_clock(keys, || Some(Instant::now()), elapsed).unwrap(),
         generation: None,
     };
     let (_dir, path, task) = server([bytes, b"\n".to_vec()].concat());
@@ -197,7 +196,7 @@ fn receiver_owner_queued_read_debits_suspend_before_connecting_to_the_agent() {
     );
     assert_eq!(
         listener.accept().unwrap_err().kind(),
-        std::io::ErrorKind::WouldBlock,
+        io::ErrorKind::WouldBlock,
         "expired queued work reached the authenticated source"
     );
 }
