@@ -7,6 +7,7 @@ import { ContextMenu } from "../../../ui/ContextMenu";
 import { Dialog } from "../../../ui/Dialog";
 import {
   filesFrom,
+  htmlImageFiles,
   installFileDropLifecycle,
   readAttachments,
   thumbnail,
@@ -83,9 +84,12 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     const paste = (event: ClipboardEvent) => {
       const owned = live.current.options.pasteTarget(event.target as Node);
       if (!owned) return;
-      const files = filesFrom(event.clipboardData);
+      const pasted = filesFrom(event.clipboardData);
+      // An image copied as HTML only (from a page or the transcript) comes in as a chip too; its
+      // text still goes into the field as it would (a textarea's own paste, the prompt's handler).
+      const files = pasted.length ? pasted : htmlImageFiles(event.clipboardData?.getData("text/html") ?? "");
       if (files.length === 0) return;
-      event.preventDefault();
+      if (pasted.length) event.preventDefault();
       void attach(files, owned.uploads);
     };
     const removeFileDropLifecycle = installFileDropLifecycle((files) => void attach(files, true), setDropping);

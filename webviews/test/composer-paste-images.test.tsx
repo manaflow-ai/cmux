@@ -77,8 +77,26 @@ function Chips() {
   return null;
 }
 
-// A PNG's first bytes, enough to stand for a copied screenshot.
-const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d, 0x49, 0x48, 0x44, 0x52]);
+// A PNG's signature and header, padded past a spacer image's size: a copied screenshot.
+const PNG = Uint8Array.from([
+  0x89,
+  0x50,
+  0x4e,
+  0x47,
+  0x0d,
+  0x0a,
+  0x1a,
+  0x0a,
+  0,
+  0,
+  0,
+  0x0d,
+  0x49,
+  0x48,
+  0x44,
+  0x52,
+  ...Array(512).fill(7),
+]);
 const pngBase64 = btoa(String.fromCharCode(...PNG));
 const dataUri = `data:image/png;base64,${pngBase64}`;
 /// What Chrome's Copy Image (or a copied transcript image) puts on the clipboard beside the file.
@@ -178,18 +196,64 @@ test("a pasted image goes to the agent as an image block; the prompt's text has 
   expect(sent[0]!.text).not.toContain("data:");
 });
 
-test("a data: image already written into a prompt's text goes as an image block, never as text", () => {
-  const typed = `![Screenshot · 778×696](${dataUri} "Screenshot · 778×696")what the heck\n\nand ${dataUri} too`;
+test("a markdown data: image already written into a prompt's text goes as an image block, never as text", () => {
+  const typed = `![Screenshot · 778×696](${dataUri} "Screenshot · 778×696")what the heck`;
   const blocks = promptBlocks(typed, []);
-  const text = blocks.filter((block) => block.type === "text");
-  expect(text).toEqual([{ type: "text", text: "what the heck\n\nand  too" }]);
+  expect(blocks.filter((block) => block.type === "text")).toEqual([{ type: "text", text: "what the heck" }]);
   expect(
     blocks.filter((block) => block.type === "image").map((block) => (block.type === "image" ? block.data : "")),
-  ).toEqual([pngBase64, pngBase64]);
+  ).toEqual([pngBase64]);
   // A title right after the base64, with no space (as Leo's prompt had), is part of the image.
   expect(liftInlineImages(`![a](${dataUri}"a")ok`).text).toBe("ok");
-  // Text with no data: URI is left exactly as written.
-  expect(liftInlineImages("  plain  ").text).toBe("  plain  ");
+});
+
+test("a data: URI written as text stays as written: in code, a source map, a CSS url(), an SVG", () => {
+  const written = [
+    "//# sourceMappingURL=data:application/json;base64,eyJ2IjozfQ==",
+    "```css",
+    `.logo { background: url(${dataUri}); }`,
+    `![in a fence](${dataUri})`,
+    "```",
+    `Inline \`![code](${dataUri})\` stays.`,
+    "![icon](data:image/svg+xml;base64,PHN2Zy8+)",
+    "  indented, with trailing spaces  ",
+  ].join("\n");
+  expect(liftInlineImages(written)).toEqual({ text: written, attachments: [] });
+  expect(promptBlocks(written, [])).toEqual([{ type: "text", text: written }]);
+  // Lifting one image leaves the rest of the prompt as typed.
+  const mixed = `  keep this\n\n![shot](${dataUri})\n\n\`${dataUri}\`  `;
+  expect(liftInlineImages(mixed).text).toBe(`  keep this\n\n\n\n\`${dataUri}\`  `);
+});
+
+test("an image copied as HTML into a plain text field comes in as a chip and the text still goes in", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { useAttachmentIntake } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
+  let held: ComposerAttachment[] = [];
+  function Field() {
+    const { attachments } = useAttachmentIntake({ allowImages: true, pasteTarget: () => ({ uploads: false }) });
+    held = attachments;
+    return <textarea aria-label="Prompt" />;
+  }
+  root ??= createRoot(host);
+  await act(async () => root!.render(<Field />));
+  const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "clipboardData", {
+    value: {
+      files: [],
+      types: ["text/html", "text/plain"],
+      getData: (type: string) =>
+        type === "text/html"
+          ? `<p>see this</p>${imageHtml(1)}<img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=">`
+          : "see this",
+    },
+  });
+  await act(async () => {
+    host.querySelector("textarea")!.dispatchEvent(event);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+  // The textarea's own paste still inserts the text; the spacer GIF is no chip.
+  expect(event.defaultPrevented).toBe(false);
+  expect(held.map((chip) => chip.kind)).toEqual(["image"]);
 });
 
 test("a bubble never draws a data: URI: each image reads as its name", async () => {

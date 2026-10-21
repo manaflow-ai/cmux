@@ -2,15 +2,20 @@
 // Chrome and pasted showed full size in the composer and went out as
 // `![Screenshot · 778×696](data:image/png;base64,…)`; the bubble showed pages of base64, the agent
 // read it as text and the chat's compaction failed). The field no longer makes image nodes from a
-// paste (MarkdownField.tsx); these are the checks behind it: a prompt's text never carries a `data:`
-// URI to the agent, and a bubble never shows one.
+// paste (MarkdownField.tsx); these are the checks behind it: a markdown image of base64 data in a
+// prompt goes to the agent as an image, and a bubble never draws a `data:` URI. A `data:` URI the
+// person wrote as text (in code, a source map, a CSS `url()`) stays as written.
 import type { ComposerAttachment } from "./attachments";
 
+/// The image types an agent takes as an image block (`attachments.ts` IMAGE_TYPES).
+const LIFTED_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 /// A markdown image whose source is a base64 `data:` URI, with its optional title.
 const MARKDOWN_DATA_IMAGE =
   /!\[([^\]\n]*)\]\(\s*<?data:([a-z]+\/[a-z0-9.+-]+)((?:;[a-z0-9-]+=[^;,\s)]+)*);base64,([a-z0-9+/=\s]+?)>?(?:\s*(?:"[^"\n]*"|'[^'\n]*'))?\s*\)/gi;
-/// A bare base64 `data:` URI anywhere in text (an `<img>` or a link the field kept as text).
+/// A bare base64 `data:` URI anywhere in text.
 const BARE_DATA_URI = /data:([a-z]+\/[a-z0-9.+-]+)(?:;[a-z0-9-]+=[^;,\s)"'>]+)*;base64,[a-z0-9+/=]+/gi;
+/// Code in markdown: a fenced block (to its closing fence or the end) or an inline span.
+const CODE = /(^|\n)(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:\n\2[^\n]*(?=\n|$)|$)|`[^`\n]+`/g;
 
 /// Whether `text` holds a base64 `data:` URI.
 export function hasDataUri(text: string): boolean {
@@ -18,55 +23,51 @@ export function hasDataUri(text: string): boolean {
   return BARE_DATA_URI.test(text);
 }
 
-/// `text` without its `data:` images, and each one as an image chip after `attachments` (in the
-/// order they were written). A `data:` URI that is not an image goes without a chip.
+/// Applies `edit` to the parts of `text` outside code.
+function outsideCode(text: string, edit: (prose: string) => string): string {
+  let out = "";
+  let at = 0;
+  for (const code of text.matchAll(CODE)) {
+    out += edit(text.slice(at, code.index)) + code[0];
+    at = code.index + code[0].length;
+  }
+  return out + edit(text.slice(at));
+}
+
+/// `text` without its markdown images of base64 data outside code, each one as an image chip after
+/// `attachments` (in the order they were written). Only the types an agent takes are lifted; any
+/// other is left as written.
 export function liftInlineImages(
   text: string,
   attachments: ComposerAttachment[] = [],
 ): { text: string; attachments: ComposerAttachment[] } {
   if (!text.includes("data:")) return { text, attachments };
   const lifted: ComposerAttachment[] = [];
-  const keep = (mimeType: string, data: string, name: string) => {
-    const clean = data.replace(/\s+/g, "");
-    if (!mimeType.toLowerCase().startsWith("image/") || !clean) return;
-    lifted.push({
-      id: `inline-${attachments.length + lifted.length}-${clean.length}`,
-      kind: "image",
-      name: name.trim() || "image",
-      mimeType: mimeType.toLowerCase(),
-      size: Math.floor((clean.length * 3) / 4),
-      data: clean,
-    });
-  };
-  let rest = text.replace(
-    MARKDOWN_DATA_IMAGE,
-    (_match, alt: string, mimeType: string, _params: string, data: string) => {
-      keep(mimeType, data, alt);
+  const rest = outsideCode(text, (prose) =>
+    prose.replace(MARKDOWN_DATA_IMAGE, (match, alt: string, type: string, _params: string, data: string) => {
+      const mimeType = type.toLowerCase();
+      const clean = data.replace(/\s+/g, "");
+      if (!LIFTED_TYPES.has(mimeType) || !clean) return match;
+      lifted.push({
+        id: `inline-${attachments.length + lifted.length}-${clean.length}`,
+        kind: "image",
+        name: alt.trim() || "image",
+        mimeType,
+        size: Math.floor((clean.length * 3) / 4),
+        data: clean,
+      });
       return "";
-    },
+    }),
   );
-  rest = rest.replace(BARE_DATA_URI, (match: string, mimeType: string) => {
-    keep(mimeType, match.slice(match.indexOf(",") + 1), "");
-    return "";
-  });
-  if (rest === text) return { text, attachments };
-  return { text: tidy(rest), attachments: [...attachments, ...lifted] };
+  if (!lifted.length) return { text, attachments };
+  return { text: rest.trim() ? rest : "", attachments: [...attachments, ...lifted] };
 }
 
-/// What a bubble shows for text that holds `data:` URIs: each image reads as its name in brackets
-/// (`label` for one with none), so the transcript never draws pages of base64.
+/// What a bubble shows for text that holds `data:` URIs: a markdown image reads as its name in
+/// brackets and any other URI as `[label]`, so the transcript never draws pages of base64.
 export function withoutDataUris(text: string, label: string): string {
   if (!text.includes("data:")) return text;
-  const rest = text
+  return text
     .replace(MARKDOWN_DATA_IMAGE, (_match, alt: string) => `[${alt.trim() || label}]`)
     .replace(BARE_DATA_URI, `[${label}]`);
-  return rest === text ? text : tidy(rest);
-}
-
-/// Text an image was taken out of: no run of blank lines or trailing spaces left where it stood.
-function tidy(text: string): string {
-  return text
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
 }

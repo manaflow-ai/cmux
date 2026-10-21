@@ -14,7 +14,7 @@ import type { AcpmuxRow, PromptImage } from "../model";
 import { useMinuteClock } from "../clock";
 import { usePaneLanguage, useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
-import { withoutDataUris } from "../inlineImages";
+import { liftInlineImages, withoutDataUris } from "../inlineImages";
 import { copyText } from "./clipboard";
 import { DeliveryMark } from "./PromptDelivery";
 import { Check, ChevronLeft, ChevronRight, Copy, ImageIcon, Pencil, TurnFork } from "./icons";
@@ -42,15 +42,16 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
   const forkThrough = fork && own !== undefined && (forkAny || own === forkSeq) ? own : undefined;
   // A prompt that went out with an image as `data:` text (before the composer stopped making them)
   // reads each one as its name: a bubble never draws base64 (inlineImages.ts, Leo 2026-10-20).
+  // Edit opens it without the images (the field would draw them full size again); Copy copies it as sent.
   const shown = withoutDataUris(text, t("image.viewer"));
-  const written = withoutDataUris(row.text ?? text, t("image.viewer"));
+  const editable = liftInlineImages(row.text ?? text).text;
   // An open editor stays while the chat changes under it (a reconnect, a turn starting), so the
   // draft is kept; Send waits until the prompt can be forked before again. A resend that fails
   // (the fork refused, the reader opened another chat) leaves the draft open too.
   if (editing) {
     return (
       <PromptEditor
-        initial={written}
+        initial={editable}
         canSend={edit !== undefined && through !== undefined}
         onCancel={() => setEditing(false)}
         onSend={async (value) => {
@@ -117,7 +118,7 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
             className="cv-iconbtn cv-iconbtn--compact"
             aria-label={copied ? t("turn.copied") : t("turn.copy")}
             onClick={() =>
-              void copyText(written).then(
+              void copyText(row.text ?? text).then(
                 () => setCopied(true),
                 () => setCopied(false),
               )

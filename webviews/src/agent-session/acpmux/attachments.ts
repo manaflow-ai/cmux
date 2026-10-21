@@ -368,13 +368,15 @@ function fenceLanguage(name: string): string {
 
 /// The files in a drop or paste.
 export function filesFrom(transfer: DataTransfer | null): File[] {
-  if (!transfer) return [];
-  const files = [...transfer.files];
-  return files.length ? files : htmlImageFiles(transfer.getData("text/html"));
+  return transfer ? [...transfer.files] : [];
 }
 
+/// Smaller than this is a page's spacer or icon, not an image someone copied.
+const MIN_HTML_IMAGE_BYTES = 256;
+
 /// The `data:` images of pasted HTML (an image copied from a page or a transcript with no file on
-/// the clipboard), as files the composer attaches: never markup in the prompt.
+/// the clipboard), as files the composer attaches: never markup in the prompt. Only the types an
+/// agent takes, and nothing as small as a spacer GIF.
 export function htmlImageFiles(html: string): File[] {
   if (!html || !/<img[\s>]/i.test(html)) return [];
   const files: File[] = [];
@@ -383,13 +385,14 @@ export function htmlImageFiles(html: string): File[] {
     const uri = /^data:(image\/[a-z0-9.+-]+)(?:;[^,;]+)*;base64,([a-z0-9+/=\s]+)$/i.exec(
       (source?.[1] ?? source?.[2] ?? "").trim(),
     );
-    if (!uri) continue;
+    const mimeType = uri?.[1]?.toLowerCase();
+    if (!uri || !mimeType || !IMAGE_TYPES.has(mimeType)) continue;
     try {
       const binary = atob(uri[2]!.replace(/\s+/g, ""));
+      if (binary.length < MIN_HTML_IMAGE_BYTES) continue;
       const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-      const mimeType = uri[1]!.toLowerCase();
       files.push(
-        new File([bytes], `image.${mimeType.split("/")[1]?.replace(/\+.*$/, "") || "png"}`, { type: mimeType }),
+        new File([bytes], `image.${mimeType === "image/jpeg" ? "jpg" : mimeType.slice(6)}`, { type: mimeType }),
       );
     } catch {
       // Not base64 after all: nothing to attach.
