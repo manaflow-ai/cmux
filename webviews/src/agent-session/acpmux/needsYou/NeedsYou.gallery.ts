@@ -154,7 +154,12 @@ export default agentPaneEntry({
       snapshot: snapshot(),
       play: async (ctx) => {
         await openList(ctx);
-        await ctx.click({ selector: ".acpmux-needs-you-item:nth-child(3) .acpmux-needs-you-ask-about" });
+        // The third ask sits below the list's fold (the popover is at most 75vh tall) and the
+        // matrix clicks with a real pointer at the button's centre, so bring it into view first,
+        // as a person scrolls the list to it.
+        const askAbout = ".acpmux-needs-you-item:nth-child(3) .acpmux-needs-you-ask-about";
+        ctx.find({ selector: askAbout }).scrollIntoView({ block: "center" });
+        await ctx.click({ selector: askAbout });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-needs-you-side-field"));
       },
     },
