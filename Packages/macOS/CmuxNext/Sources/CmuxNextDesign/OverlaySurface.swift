@@ -44,6 +44,16 @@ public final class OverlaySurfaceView: NSView {
         didSet { if cornerRadius != oldValue { applyShape() } }
     }
 
+    /// The vibrancy fallback blurs what is behind the window instead of the window's own
+    /// content: set it for a surface that is the whole content of a clear window of its own
+    /// (a hover card), where a blur within the window has nothing under it. Liquid Glass and
+    /// the solid surface ignore it.
+    public var samplesBehindWindow = false {
+        didSet { if samplesBehindWindow != oldValue { (materialView as? NSVisualEffectView)?.blendingMode = blending } }
+    }
+
+    private var blending: NSVisualEffectView.BlendingMode { samplesBehindWindow ? .behindWindow : .withinWindow }
+
     /// `material` pins one material (tests, previews); nil follows
     /// `reduceTransparency` on this Mac.
     /// `tone` picks the theme tint (default) or the shared neutral glass with a rim.
@@ -130,7 +140,7 @@ public final class OverlaySurfaceView: NSView {
         case .vibrancy:
             let effect = NSVisualEffectView()
             effect.material = .popover
-            effect.blendingMode = .withinWindow
+            effect.blendingMode = blending
             effect.state = .active
             effect.wantsLayer = true
             // The Ghostty-derived tint sits on the blur, under the content.

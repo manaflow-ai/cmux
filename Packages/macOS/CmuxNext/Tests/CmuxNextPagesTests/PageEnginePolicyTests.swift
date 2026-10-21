@@ -30,6 +30,19 @@ struct PageEnginePolicyTests {
         #expect(policy.decide(for: Self.plain, options: PageEngineOptions(requiresWebKit: .nativeHooks)) == .webKit(.nativeHooks))
     }
 
+    @Test func theAgentChatSpikeLiftsOnlyTheAgentChatHold() {
+        let policy = PageEnginePolicy(preference: .chromium, chromiumAvailable: true)
+        let spike = PageEngineOptions(chromiumAgentChat: true)
+        #expect(policy.decide(for: Self.agent, options: spike) == .chromium)
+        #expect(policy.decide(for: Self.dynamic, options: spike) == .webKit(.runtimeResources))
+        #expect(policy.decide(for: Self.agent, options: PageEngineOptions(requiresWebKit: .nativeHooks, chromiumAgentChat: true))
+            == .webKit(.nativeHooks))
+        #expect(PageEnginePolicy(preference: .webkit, chromiumAvailable: true).decide(for: Self.agent, options: spike)
+            == .webKit(.personChoseWebKit))
+        #expect(PageEnginePolicy(preference: .chromium, chromiumAvailable: false).decide(for: Self.agent, options: spike)
+            == .webKit(.chromiumUnavailable))
+    }
+
     @Test func missingOrUnservedChromiumKeepsThePageOnWebKit() {
         #expect(PageEnginePolicy(preference: .chromium, chromiumAvailable: false).decide(for: Self.plain, options: .standard)
             == .webKit(.chromiumUnavailable))

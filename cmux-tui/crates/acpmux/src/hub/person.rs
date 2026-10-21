@@ -103,7 +103,7 @@
 //!   `ACPMUX_SESSION_TOKEN_SOCKET`, this daemon's socket, and the CLI sends
 //!   the token only to that socket ([`caller_env`], `client.rs`). A
 //!   profile's, preset's or request's env never sets either variable: the
-//!   spawn drops them from every env it layers after `caller_env`.
+//!   spawn drops them from every env it layers after `caller_env`; adoption: `adopted_callers`.
 //! - No start mode that does not ask applies to an adopt without the
 //!   person: an adopt may find a session already running
 //!   (`hub/adoption.rs`, `ifLive: "open"`), and only the person widens a

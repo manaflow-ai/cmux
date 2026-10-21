@@ -182,6 +182,34 @@
       "title" : "Deepest Nesting",
       "type" : "number"
     },
+    "agents.trust.autoTrust" : {
+      "default" : false,
+      "description" : "Agents start in folders under your project roots, and in repositories owned by your organizations, without asking. Other folders ask first.",
+      "title" : "Trust My Own Folders Without Asking",
+      "type" : "boolean"
+    },
+    "agents.trust.ownOrgs" : {
+      "default" : [
+
+      ],
+      "description" : "A repository is trusted when all of its GitHub remotes belong to these users or organizations.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Trusted GitHub Owners",
+      "type" : "array"
+    },
+    "agents.trust.projectRoots" : {
+      "default" : [
+
+      ],
+      "description" : "Everything inside these folders is trusted. Use full paths or ~/ paths.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Trusted Project Roots",
+      "type" : "array"
+    },
     "AllowedSignInMethods" : {
       "description" : "Sign-in methods the app offers.",
       "items" : {
@@ -211,6 +239,12 @@
       "default" : false,
       "description" : "Show/Hide All Windows (⌃⌥⌘.) works while another app is in front.",
       "title" : "Global Hot Key",
+      "type" : "boolean"
+    },
+    "app.hideDockIconWithoutWindows" : {
+      "default" : true,
+      "description" : "cmux keeps running in the menu bar, out of the Dock and the app switcher, until a window opens.",
+      "title" : "Hide Dock Icon When No Windows Are Open",
       "type" : "boolean"
     },
     "app.quitBehavior" : {
@@ -280,40 +314,66 @@
       "enum" : [
         "none",
         "david-death-of-marat",
+        "goya-saturn",
         "velde-small-ship-storm",
+        "bosch-garden-right",
         "bosch-ascent-blessed",
         "goya-witches-flight",
+        "bocklin-self-portrait-death",
+        "caravaggio-medusa",
         "martin-pandemonium",
         "moran-burning-philadelphia",
         "goya-burial-sardine",
         "arbo-wild-hunt",
+        "caravaggio-david-goliath",
+        "van-gogh-skeleton-cigarette",
         "altdorfer-battle-of-issus",
+        "gentileschi-judith",
         "munch-madonna",
+        "bocklin-isle-of-the-dead",
         "klee-fish-magic",
         "friedrich-forest-moonlight",
+        "goya-witches-sabbath",
         "bosch-garden-left",
         "rembrandt-storm-galilee",
         "cole-voyage-manhood",
+        "fuseli-nightmare-2",
+        "hiremy-hirschl-souls-of-acheron",
         "munch-scream",
+        "klimt-judith",
+        "repin-ivan",
+        "millais-ophelia",
         "bruegel-fall-rebel-angels",
+        "fuseli-nightmare",
+        "bundy-death-general",
         "wright-vesuvius",
         "gerome-botsaris",
+        "durer-knight-death-devil",
         "martin-joshua",
         "velde-gale",
         "hogai-nio",
+        "klimt-death-and-life",
+        "klimt-medicine",
         "bosch-garden-central",
         "martin-great-day-wrath",
         "bonheur-wounded-eagle",
+        "gerome-pollice-verso",
         "cole-voyage-old-age",
         "friedrich-abbey-oakwood",
         "goya-sleep-of-reason",
         "bosch-garden-fragment",
+        "bruegel-triumph-death",
         "spilliaert-vertigo",
         "rothaug-melpomene",
+        "schiele-death-and-the-maiden",
         "aivazovsky-ship-stormy-seas",
+        "vereshchagin-apotheosis-war",
+        "ensor-skeleton-painter",
         "cabanel-fallen-angel",
         "spilliaert-woman-shoreline",
         "el-greco-view-of-toledo",
+        "gericault-raft-of-the-medusa",
+        "moreau-apparition",
         "rembrandt-prodigal-son",
         "velazquez-las-meninas",
         "matejko-stanczyk",
@@ -323,6 +383,7 @@
         "rembrandt-night-watch",
         "vigee-lebrun-madame-grand",
         "waterhouse-lady-shalott",
+        "draper-lament-icarus",
         "fragonard-swing",
         "rubens-st-francis-xavier",
         "vermeer-pearl-earring",
@@ -419,6 +480,7 @@
         "hokusai-umezawa",
         "whistler-falling-rocket",
         "dore-fall-of-satan",
+        "dore-flood",
         "dore-wolves-sheep",
         "dore-leviathan",
         "dore-paradise-lost-book-vi",
@@ -436,40 +498,66 @@
         "none",
         "daily",
         "david-death-of-marat",
+        "goya-saturn",
         "velde-small-ship-storm",
+        "bosch-garden-right",
         "bosch-ascent-blessed",
         "goya-witches-flight",
+        "bocklin-self-portrait-death",
+        "caravaggio-medusa",
         "martin-pandemonium",
         "moran-burning-philadelphia",
         "goya-burial-sardine",
         "arbo-wild-hunt",
+        "caravaggio-david-goliath",
+        "van-gogh-skeleton-cigarette",
         "altdorfer-battle-of-issus",
+        "gentileschi-judith",
         "munch-madonna",
+        "bocklin-isle-of-the-dead",
         "klee-fish-magic",
         "friedrich-forest-moonlight",
+        "goya-witches-sabbath",
         "bosch-garden-left",
         "rembrandt-storm-galilee",
         "cole-voyage-manhood",
+        "fuseli-nightmare-2",
+        "hiremy-hirschl-souls-of-acheron",
         "munch-scream",
+        "klimt-judith",
+        "repin-ivan",
+        "millais-ophelia",
         "bruegel-fall-rebel-angels",
+        "fuseli-nightmare",
+        "bundy-death-general",
         "wright-vesuvius",
         "gerome-botsaris",
+        "durer-knight-death-devil",
         "martin-joshua",
         "velde-gale",
         "hogai-nio",
+        "klimt-death-and-life",
+        "klimt-medicine",
         "bosch-garden-central",
         "martin-great-day-wrath",
         "bonheur-wounded-eagle",
+        "gerome-pollice-verso",
         "cole-voyage-old-age",
         "friedrich-abbey-oakwood",
         "goya-sleep-of-reason",
         "bosch-garden-fragment",
+        "bruegel-triumph-death",
         "spilliaert-vertigo",
         "rothaug-melpomene",
+        "schiele-death-and-the-maiden",
         "aivazovsky-ship-stormy-seas",
+        "vereshchagin-apotheosis-war",
+        "ensor-skeleton-painter",
         "cabanel-fallen-angel",
         "spilliaert-woman-shoreline",
         "el-greco-view-of-toledo",
+        "gericault-raft-of-the-medusa",
+        "moreau-apparition",
         "rembrandt-prodigal-son",
         "velazquez-las-meninas",
         "matejko-stanczyk",
@@ -479,6 +567,7 @@
         "rembrandt-night-watch",
         "vigee-lebrun-madame-grand",
         "waterhouse-lady-shalott",
+        "draper-lament-icarus",
         "fragonard-swing",
         "rubens-st-francis-xavier",
         "vermeer-pearl-earring",
@@ -575,6 +664,7 @@
         "hokusai-umezawa",
         "whistler-falling-rocket",
         "dore-fall-of-satan",
+        "dore-flood",
         "dore-wolves-sheep",
         "dore-leviathan",
         "dore-paradise-lost-book-vi",
@@ -603,6 +693,17 @@
       "minimum" : 0,
       "title" : "Opacity",
       "type" : "number"
+    },
+    "appearance.backgroundRotation" : {
+      "default" : "daily",
+      "description" : "How often a shuffled background turns to its next picture.",
+      "enum" : [
+        "15m",
+        "hourly",
+        "daily"
+      ],
+      "title" : "Change Picture",
+      "type" : "string"
     },
     "appearance.borders" : {
       "default" : "default",
@@ -755,7 +856,7 @@
     },
     "appearance.experimentalControls" : {
       "default" : false,
-      "description" : "Show the wallpaper grid and live appearance tuner while they are being integrated.",
+      "description" : "Applies Hue and Saturation to the window's tint. Off, they have no effect.",
       "title" : "Experimental Appearance Controls",
       "type" : "boolean"
     },
@@ -785,6 +886,14 @@
       "maximum" : 1,
       "minimum" : 0,
       "title" : "Hue",
+      "type" : "number"
+    },
+    "appearance.inactiveWindowDim" : {
+      "default" : 0,
+      "description" : "How much more theme color covers a window while another one is in front. 0 keeps the same look.",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Dim Inactive Windows",
       "type" : "number"
     },
     "appearance.interfaceScale" : {
@@ -1499,6 +1608,16 @@
       "title" : "Toolbar Buttons",
       "type" : "array"
     },
+    "browser.toolbarPosition" : {
+      "default" : "top",
+      "description" : "Where the address bar row of browser and Markdown panes sits. At the bottom, its suggestions and menus open upward.",
+      "enum" : [
+        "top",
+        "bottom"
+      ],
+      "title" : "Browser Toolbar Position",
+      "type" : "string"
+    },
     "browser.urlsToAlwaysOpenExternally" : {
       "default" : [
 
@@ -2041,7 +2160,7 @@
     },
     "focus.inactiveTabStyle" : {
       "default" : "fade",
-      "description" : "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet drops the selected pill.",
+      "description" : "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet keeps only a faint selected pill.",
       "enum" : [
         "fade",
         "tonal",
@@ -2157,7 +2276,7 @@
     },
     "home.chiefPetEnabled" : {
       "default" : false,
-      "description" : "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session.",
+      "description" : "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session. While it shows, ⌃⌥⌘C opens its reply box from any app.",
       "title" : "Show Chief Pet",
       "type" : "boolean"
     },
@@ -2260,7 +2379,7 @@
     },
     "layout.linkPlacement" : {
       "default" : "split-right",
-      "description" : "Where a link or file you open from a terminal, an agent chat, Home or a page appears. Split Right uses the pane on the right, or makes one.",
+      "description" : "Where a link or file you Command-click in a terminal or a browser page appears. Split Right uses the pane on the right, or makes one. What you open from an agent chat, Home or another page opens as a tab in its own pane.",
       "enum" : [
         "split-right",
         "new-column",
@@ -2357,6 +2476,12 @@
       "default" : true,
       "description" : "Off hides New Row and fits a column's existing rows into it without scrolling.",
       "title" : "Rows",
+      "type" : "boolean"
+    },
+    "layout.scrollAreas" : {
+      "default" : false,
+      "description" : "Side-by-side panes that do not fit scroll sideways instead of shrinking, also in docked columns.",
+      "title" : "Scroll Areas",
       "type" : "boolean"
     },
     "layout.splitSizing" : {
@@ -2548,7 +2673,7 @@
       "type" : "number"
     },
     "notifications.attention.moveToTop" : {
-      "default" : true,
+      "default" : false,
       "description" : "A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane.",
       "title" : "Move the Workspace to the Top",
       "type" : "boolean"
@@ -2572,7 +2697,7 @@
       "type" : "boolean"
     },
     "notifications.attention.style" : {
-      "default" : "blink",
+      "default" : "steady",
       "description" : "notifications.attention.style",
       "enum" : [
         "blink",
@@ -2604,7 +2729,7 @@
       "type" : "string"
     },
     "notifications.dismissal" : {
-      "default" : "focus",
+      "default" : "click",
       "description" : "notifications.dismissal",
       "enum" : [
         "keystroke",
@@ -2940,6 +3065,12 @@
       "title" : "More Screenshot Folders",
       "type" : "array"
     },
+    "sessions.allowFullAccess" : {
+      "default" : true,
+      "description" : "Off, cmux won't switch an agent into a mode that skips approvals.",
+      "title" : "Allow Full-Access Modes",
+      "type" : "boolean"
+    },
     "sessions.keepAwake" : {
       "default" : "pluggedIn",
       "description" : "Stops idle sleep while an agent on this Mac is working. Your display can still turn off, and closing the lid still puts the Mac to sleep.",
@@ -2950,6 +3081,12 @@
       ],
       "title" : "Keep Mac Awake While Agents Work",
       "type" : "string"
+    },
+    "sessions.resumeAgents" : {
+      "default" : true,
+      "description" : "Terminal agents reopen their session after a crash or restart.",
+      "title" : "Resume Agents After Restart",
+      "type" : "boolean"
     },
     "shortcuts.showModifierHoldHints" : {
       "default" : true,
@@ -3213,6 +3350,18 @@
       "title" : "Scroll Tall Sections",
       "type" : "boolean"
     },
+    "sidebar.priorityView.enabled" : {
+      "default" : false,
+      "description" : "A bell at the top of the sidebar shows every agent chat on every machine, the ones waiting on you first, then finished, failed, working and idle.",
+      "title" : "Priority View",
+      "type" : "boolean"
+    },
+    "sidebar.priorityView.shown" : {
+      "default" : true,
+      "description" : "The sidebar bell's state while the Priority view is on. Off, the sidebar is unchanged.",
+      "title" : "Show Priority View",
+      "type" : "boolean"
+    },
     "sidebar.sectionLook" : {
       "default" : "quiet",
       "description" : "How the sections above and below the workspace list draw.",
@@ -3225,6 +3374,12 @@
       ],
       "title" : "Section Look",
       "type" : "string"
+    },
+    "sidebar.sessionTree" : {
+      "default" : false,
+      "description" : "Lists a workspace that another workspace's agent started under it, and shows each row's pull requests and the first rows' Command-number keys.",
+      "title" : "Session Tree",
+      "type" : "boolean"
     },
     "sidebar.showChats" : {
       "default" : true,
@@ -3784,7 +3939,7 @@
     },
     "tabs.barOrder" : {
       "default" : "aboveToolbar",
-      "description" : "In a browser pane with the tab bar at the top: the tab bar above the address bar, or below it.",
+      "description" : "In a browser pane with the tab bar and the address bar on the same edge: the tab bar above the address bar, or below it.",
       "enum" : [
         "aboveToolbar",
         "belowToolbar"
@@ -3803,7 +3958,7 @@
       "type" : "string"
     },
     "tabs.cmdWClosesPinnedTabs" : {
-      "default" : false,
+      "default" : true,
       "description" : "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu.",
       "title" : "Cmd-W Closes Pinned Tabs",
       "type" : "boolean"
@@ -4007,6 +4162,17 @@
       "title" : "Animations",
       "type" : "string"
     },
+    "ui.calm" : {
+      "default" : "off",
+      "description" : "Calm: nothing slides, springs or spins, hover cards stay closed and the pointer leaves no highlight on tabs, rows and buttons. Still: Calm, and every animation is instant. Your other motion and hover card settings come back when it is off.",
+      "enum" : [
+        "off",
+        "calm",
+        "still"
+      ],
+      "title" : "Calm Mode",
+      "type" : "string"
+    },
     "ui.paneAnimations" : {
       "default" : true,
       "description" : "Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once.",
@@ -4020,6 +4186,18 @@
         "nightly"
       ],
       "title" : "UpdateChannel",
+      "type" : "string"
+    },
+    "updates.channel" : {
+      "default" : "nightly",
+      "description" : "Canary and Dev get builds before they reach Nightly. Stable gets only builds that have run a week without problems, so switching to it may mean no updates for a while.",
+      "enum" : [
+        "stable",
+        "nightly",
+        "canary",
+        "dev"
+      ],
+      "title" : "Update Channel",
       "type" : "string"
     },
     "updates.checkAutomatically" : {

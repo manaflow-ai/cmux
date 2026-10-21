@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextOnboarding
 import Foundation
@@ -199,7 +200,8 @@ struct ClassicUpgradeSimulationTests {
         let services = sim.services
         let manual = Task { @MainActor in
             while services.onboarding.classicMigrationRun == nil { try? await Task.sleep(for: .milliseconds(10)) }
-            return try await AppOnboardingServices(owner: services.onboarding).migrateClassic(.manual)
+            return try await AppOnboardingServices(owner: services.onboarding)
+                .migrateClassic(.manual) { _ in true }
         }
         _ = await sim.launch()
         _ = try await manual.value
@@ -236,4 +238,42 @@ struct ClassicUpgradeSimulationTests {
         try sim.verify(profile, classicBefore: before)
         await sim.shutdown()
     }
+
+    /// Background workspaces come over parked: their tabs stay, their shells
+    /// do not run (no PTY), and showing one starts its terminals in place.
+    @Test func backgroundWorkspacesStartTheirTerminalsWhenFirstShown() async throws {
+        let profile = ClassicUpgradeProfile.small
+        let mac = try ClassicUpgradeSimulator.Mac()
+        try mac.save(profile)
+        let before = try mac.classicDigest()
+        let sim = try ClassicUpgradeSimulator(mac: mac)
+        _ = await sim.launch()
+        await sim.settle()
+        try sim.verify(profile, classicBefore: before)
+        let store = sim.services.daemon.store
+        let ledger = try mac.readLedger()
+        let decoded = try ClassicSessionImporter(fileURL: mac.session()).decodeSnapshot(Data(contentsOf: mac.session()))
+        let selected = decoded.windows[0].selectedWorkspace.map { decoded.windows[0].workspaces[$0].key }
+        let background = decoded.windows[0].workspaces.filter { $0.key != selected }.compactMap { ledger.workspaces[$0.key]?.nextWorkspace }
+        try #require(!background.isEmpty)
+        let tabs = { (id: String) in store.workspace(id: id)?.screens.flatMap(\.panes).flatMap(\.tabs).filter { $0.kind == .pty } ?? [] }
+        for id in background {
+            #expect(!tabs(id).isEmpty && tabs(id).allSatisfy { $0.dead && $0.relaunch?.onShow == true },
+                    "\(store.workspace(id: id)?.name ?? id) is not parked: \(tabs(id).map { ($0.dead, $0.relaunch?.onShow) })")
+        }
+        // Shown: its terminals start, in the same tabs.
+        let shown = background[0]
+        let surfaces = tabs(shown).map(\.surface)
+        let window = try #require(sim.services.windows.registry.value.owner(of: shown).flatMap { sim.services.windows.controller(for: $0) })
+        window.state.showWorkspace(shown)
+        let clock = ContinuousClock()
+        let deadline = clock.now + .seconds(15)
+        while clock.now < deadline, tabs(shown).contains(where: \.dead) { try? await Task.sleep(for: .milliseconds(100)) }
+        #expect(tabs(shown).allSatisfy { !$0.dead }, "\(tabs(shown).map { ($0.dead, $0.relaunch) })")
+        #expect(tabs(shown).map(\.surface) == surfaces)
+        // The others stay parked.
+        for id in background.dropFirst() { #expect(tabs(id).allSatisfy { $0.dead }) }
+        await sim.shutdown()
+    }
 }
+
