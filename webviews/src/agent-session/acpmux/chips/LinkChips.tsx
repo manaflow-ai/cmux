@@ -83,9 +83,6 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
   const cardHoverRef = useRef(false);
   /// The card's Open in menu is open: the card stays until it closes.
   const menuOpenRef = useRef(false);
-  /// The menu just closed: a pointer pick puts focus back on its trigger in the card, which is not
-  /// the person coming back to the card, so that one focus doesn't pin it.
-  const menuClosedRef = useRef(false);
   const anchor = useRef<HTMLAnchorElement | null>(null);
   const openTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -155,13 +152,10 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
             hideCard();
           }}
           onFocusCapture={(event) => {
-            if (menuClosedRef.current) {
-              menuClosedRef.current = false;
-              if (!event.currentTarget.matches(":hover")) {
-                (event.target as HTMLElement).blur();
-                return;
-              }
-            }
+            // Keyboard focus keeps the card. A pointer pick in Open in puts focus back on its trigger
+            // with no ring (Menu's focusAfterClose); that alone doesn't pin the card once the pointer
+            // has left it.
+            if (!(event.target as Element).matches(":focus-visible") && !event.currentTarget.matches(":hover")) return;
             clearTimers();
             cardHoverRef.current = true;
             setCardOpen(true);
@@ -183,7 +177,6 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
               onOpenInPane={(url) => void callChipHost("browser.open", { url })}
               onOpenChange={(open) => {
                 menuOpenRef.current = open;
-                menuClosedRef.current = !open;
                 if (open) clearTimers();
                 else hideCard();
               }}
