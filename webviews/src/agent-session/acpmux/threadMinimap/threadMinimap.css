@@ -30,13 +30,15 @@
     opacity: 0;
   }
 }
+/* The list moves only under the rail's own control (it keeps the band in view, a scrub reaches past
+   an edge, a focused row scrolls in), never by the wheel: `overflow: hidden` still scrolls from
+   script and focus but draws no scroller, so the transcript's shared one is the only one on screen
+   (SCROLLBARS-THIN; #23285 left this list a second visible scroller). */
 .acpmux-minimap__list {
   display: flex;
   flex-direction: column;
   height: 100%;
-  overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  overflow: hidden;
 }
 /* A rail longer than its room fades 2.5rem at an edge with more rows past it. */
 .acpmux-minimap__list[data-fade-top] {

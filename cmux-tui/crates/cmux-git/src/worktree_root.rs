@@ -18,10 +18,15 @@ use std::path::{Path, PathBuf};
 /// The real folder's name, beside the `worktrees` link.
 pub const NOINDEX_NAME: &str = "worktrees.noindex";
 
+/// `home/.cmux/worktrees`, without touching it: where [`worktree_root`] makes its worktrees.
+pub fn worktree_root_path(home: &Path) -> PathBuf {
+    home.join(".cmux").join("worktrees")
+}
+
 /// `home/.cmux/worktrees`, after making it the link to
 /// `home/.cmux/worktrees.noindex` on macOS. Elsewhere it only returns the path.
 pub fn worktree_root(home: &Path) -> io::Result<PathBuf> {
-    let root = home.join(".cmux").join("worktrees");
+    let root = worktree_root_path(home);
     if cfg!(target_os = "macos") {
         link_noindex(&root)?;
     }
