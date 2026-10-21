@@ -225,7 +225,14 @@ import Testing
         return Snapshot(layout: layout, rowViews: rowViews, rails: rails, railModel: railModel, state: state)
     }
 
-    /// Lets the list's completions run (a landing's end, a deferred reload), then compares it with a fresh rebuild.
+    /// Whether a spring, fade or flight still runs in `view`'s layer tree.
+    static func animates(_ view: NSView) -> Bool {
+        func runs(_ layer: CALayer) -> Bool { !(layer.animationKeys() ?? []).isEmpty || (layer.sublayers ?? []).contains(where: runs) }
+        return view.layer.map(runs) ?? false
+    }
+
+    /// Lets the list's completions run (a landing's end, a deferred reload) and, with motion on, its springs and fades
+    /// end (a rebuild draws ends, not flights; at most 3 s), then compares it with a fresh rebuild.
     static func expectMatchesRebuild(_ sidebar: SidebarView, _ when: String) async {
         let list = sidebar.list
         for _ in 0..<3 {
@@ -233,6 +240,10 @@ import Testing
             sidebar.renderNow()
             try? await Task.sleep(for: .milliseconds(30))
         }
+        for _ in 0..<100 where animates(list) || !list.fadingRows.isEmpty {
+            try? await Task.sleep(for: .milliseconds(30))
+        }
+        #expect(!animates(list), "\(when): the list still animates after 3 s")
         let (fresh, window) = rebuilt(from: list.model, design: sidebar.design)
         defer { window.close() }
         let mine = snapshot(list), theirs = snapshot(fresh.list)

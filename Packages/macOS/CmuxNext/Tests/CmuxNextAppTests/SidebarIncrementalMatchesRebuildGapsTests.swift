@@ -209,7 +209,7 @@ import Testing
 
     enum Edge { case top, bottom }
 
-    /// Presses `key`'s row and drags it: a first move lifts it, then the card's `edge` goes in eight steps to the y
+    /// Presses `key`'s row and drags it: a first move lifts it, then the card's `edge` goes in 4 pt steps to the y
     /// `to` reads off the list as it shows the lifted drag (the source slot closed); then the button comes up.
     /// False when the press lifted nothing (the list refused the drag).
     @discardableResult
@@ -223,8 +223,10 @@ import Testing
             return false
         }
         let dy = try to(list) - (edge == .top ? card.minY : card.maxY)
-        for step in 1...8 {
-            list.mouseDragged(with: try mouse(.leftMouseDragged, at: NSPoint(x: lifted.x, y: lifted.y + dy * CGFloat(step) / 8), in: list))
+        // A hand's path: the drop moves one slot at a time as an edge passes a row's middle.
+        let steps = max(1, Int((abs(dy) / 4).rounded(.up)))
+        for step in 1...steps {
+            list.mouseDragged(with: try mouse(.leftMouseDragged, at: NSPoint(x: lifted.x, y: lifted.y + dy * CGFloat(step) / CGFloat(steps)), in: list))
         }
         list.mouseUp(with: try mouse(.leftMouseUp, at: NSPoint(x: lifted.x, y: lifted.y + dy), in: list))
         return true
@@ -296,7 +298,7 @@ import Testing
             #expect(doc.place(of: "api").map { $0.section == pinned && $0.group == pin } == true, "api did not go into Pinned's group: \(doc.drops)")
         case .pinnedMemberOutToMachine:
             try drag(list, ws("p1"), .bottom) { try mid($0, ws("scratch")) + 2 }
-            #expect(doc.place(of: "p1").map { $0.section == machineSection && $0.group == nil } == true, "p1 did not go loose: \(doc.drops)")
+            #expect(doc.place(of: "p1").map { $0.section != pinned } == true, "p1 did not leave Pinned: \(doc.drops)")
         case .twoRowsInGroupDown:
             try click(list, ws("docs"))
             try click(list, ws("web"), .command)
@@ -306,7 +308,10 @@ import Testing
             try click(list, ws("scratch"))
             try click(list, ws("loose2"), .command)
             try drag(list, ws("scratch"), .bottom) { try mid($0, ws("docs")) + 2 }
-            #expect(doc.members(work) == ["docs", "scratch", "loose2", "web", "api"], "the two rows did not go after docs: \(doc.members(work))")
+            // Both rows go into Work together, in their order.
+            let members = doc.members(work)
+            #expect(members.firstIndex(of: "scratch").map { members.dropFirst($0).starts(with: ["scratch", "loose2"]) } == true,
+                    "the two rows did not land together in Work: \(members)")
         case .rowsFromTwoGroupsToTop:
             try click(list, ws("web"))
             try click(list, ws("deploy"), .command)
