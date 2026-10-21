@@ -124,7 +124,7 @@
   height: 4px;
   overflow: hidden;
   border: 0;
-  border-radius: 2px;
+  border-radius: 1px;
   appearance: none;
   background: color-mix(in srgb, var(--import-text) 10%, transparent);
 }
@@ -134,12 +134,12 @@
 }
 
 .import-card-progress::-webkit-progress-value {
-  border-radius: 2px;
+  border-radius: 1px;
   background: var(--import-accent);
 }
 
 .import-card-progress::-moz-progress-bar {
-  border-radius: 2px;
+  border-radius: 1px;
   background: var(--import-accent);
 }
 
