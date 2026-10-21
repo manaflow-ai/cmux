@@ -420,6 +420,7 @@ class ScriptBehavior(unittest.TestCase):
         self.assertEqual(calls["web lint"]["argv"][:4], ["--base", base, "--head", merge])
         self.assertEqual(calls["prepush gate"]["argv"][:4], ["--base", base, "--head", merge])
         self.assertEqual(calls["defaults stamp"]["argv"], ["check-stamp", "--base", base])
+        self.assertEqual(calls["webviews checks"]["argv"], ["--base", base])
         ratchet = calls["crash ratchet"]["argv"]
         self.assertEqual(ratchet[:2], ["--script", "scripts/cmux-next/crash_ratchet.py"])
         self.assertEqual(Path(ratchet[ratchet.index("--head") + 1]).resolve(), work.resolve())
@@ -463,6 +464,98 @@ class ScriptBehavior(unittest.TestCase):
         result = self.script(work, "run", "--base", "0" * 40, "--web", "false")
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self.gate_log(), [])
+
+
+# A stand-in for bun: `install` succeeds; `run CHECK` prints webviews/findings/CHECK (each line a finding) and
+# fails when that file has any.
+FAKE_BUN = textwrap.dedent("""\
+    #!/bin/sh
+    [ "$1" = install ] && exit 0
+    f="findings/$2"
+    [ -s "$f" ] || { echo "$2: ok"; exit 0; }
+    echo "$2: found"; cat "$f"; exit 1
+""")
+
+
+class WebviewsChecksGate(unittest.TestCase):
+    """scripts/ci/fast_gate_webviews_checks.py fails only on findings the pull request adds over BASE."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="webviews-checks-test-"))
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(self.tmp)])
+        self.bin = self.tmp / "bin"
+        self.bin.mkdir()
+        (self.bin / "bun").write_text(FAKE_BUN)
+        (self.bin / "bun").chmod(0o755)
+        self.repo = self.tmp / "repo"
+        self.repo.mkdir()
+        git(self.repo, "init", "-q", "-b", "feat-cmux-next")
+        spec = importlib.util.spec_from_file_location("fast_gate_webviews_checks", WEBVIEWS_CHECKS)
+        self.module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.module)
+
+    def findings(self, by_check: dict[str, str], message: str) -> str:
+        files = {"webviews/package.json": "{}\n"}
+        for check in self.module.CHECKS:
+            files[f"webviews/findings/{check}"] = by_check.get(check, "")
+        return commit(self.repo, files, message)
+
+    def gate(self, base: str) -> subprocess.CompletedProcess:
+        env = {**os.environ, "PATH": f"{self.bin}:{os.environ['PATH']}"}
+        return subprocess.run([sys.executable, str(WEBVIEWS_CHECKS), "--base", base, "--repo", str(self.repo)],
+                              capture_output=True, text=True, env=env)
+
+    def test_a_check_the_pull_request_breaks_fails(self):
+        base = self.findings({}, "base, green")
+        self.findings({"check:fixed-waits": "  test/agent-pane-queued-images.test.ts: 2 fixed waits, baseline 0\n"},
+                      "the merge")
+        result = self.gate(base)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("check:fixed-waits failed", result.stdout)
+
+    def test_replay_of_22975_its_own_finding_over_a_red_base_fails(self):
+        # #22975 merged with 01ea78b3, the commit that added check:fixed-waits: the base already had two findings,
+        # the merge adds a third, in a test file of its own.
+        red = ("  test/agent-pane-history-paging.test.ts: 3 fixed waits, baseline 2\n"
+               "    test/agent-pane-history-paging.test.ts:191\n"
+               "  test/agent-pane-stream-jitter.test.ts: 23 fixed waits, baseline 22\n"
+               "    test/agent-pane-stream-jitter.test.ts:178\n")
+        base = self.findings({"check:fixed-waits": red}, "01ea78b3")
+        self.findings({"check:fixed-waits": red.replace(":191", ":195")
+                       + "  test/agent-pane-queued-images.test.ts: 2 fixed waits, baseline 0\n"}, "#22975 merged")
+        result = self.gate(base)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        added = result.stdout.split("adds, over the base", 1)[1]
+        self.assertIn("agent-pane-queued-images.test.ts: 2 fixed waits, baseline 0", added)
+        self.assertNotIn("history-paging", added)  # a line number the merge moved is not a new finding
+
+    def test_a_base_red_the_pull_request_adds_nothing_to_passes(self):
+        red = "  test/a.test.ts: 3 fixed waits, baseline 2\n"
+        base = self.findings({"check:fixed-waits": red}, "red base")
+        self.findings({"check:fixed-waits": red, "check:browser-lanes": ""}, "the merge, same red")
+        result = self.gate(base)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("fails on the base", result.stdout)
+        self.assertIn("all passed", result.stdout)
+
+    def test_one_more_wait_in_a_file_the_base_already_fails_is_the_pull_requests(self):
+        base = self.findings({"check:fixed-waits": "  test/a.test.ts: 3 fixed waits, baseline 2\n"}, "red base")
+        self.findings({"check:fixed-waits": "  test/a.test.ts: 4 fixed waits, baseline 2\n"}, "the merge")
+        self.assertEqual(self.gate(base).returncode, 1)
+
+    def test_every_check_runs_after_a_red_one(self):
+        base = self.findings({}, "base")
+        self.findings({check: "  x\n" for check in self.module.CHECKS}, "all red")
+        result = self.gate(base)
+        self.assertEqual(result.returncode, 1)
+        for check in self.module.CHECKS:
+            self.assertIn(f"{check}: found", result.stdout)
+
+    def test_the_base_worktree_is_removed(self):
+        base = self.findings({}, "base")
+        self.findings({"check:fixed-waits": "  x\n"}, "red")
+        self.gate(base)
+        self.assertEqual(len(git(self.repo, "worktree", "list").splitlines()), 1)
 
 
 if __name__ == "__main__":

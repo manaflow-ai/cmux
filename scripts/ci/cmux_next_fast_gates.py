@@ -25,8 +25,8 @@ The gates, each the same invocation as its push-time job:
   crash-class rules  scripts/ci/crash_class_fast_gate.py on the merge and BASE's exported tree
                   (cmux-next-crash-class.yml: concurrency crash classes, super-call selectors and the
                   Chromium Objective-C contract; only findings the PR adds)
-  webviews checks scripts/ci/fast_gate_webviews_checks.py (ci-web.yml's fail-mode webviews checks), on a
-                  dispatch only: on a pull_request event ci-web runs them on this same merge. A merger
+  webviews checks scripts/ci/fast_gate_webviews_checks.py --base BASE (ci-web.yml's fail-mode webviews
+                  checks; only findings the PR adds), on a dispatch only: on a pull_request event ci-web runs them on this same merge. A merger
                   dispatches when a check path (scripts/ci/check-paths.txt) changed on the base after the
                   pull request's last fast-gates base, so a check that landed since runs before the merge.
 """
@@ -183,7 +183,7 @@ def gates(repo: Path, base: str, merge: str, base_tree: Path, web: bool,
         ("defaults stamp", [py, "scripts/ci/defaults_guard.py", "check-stamp", "--base", base]),
         ("prepush gate", [py, "-I", "scripts/cmux-next/prepush-gate.py", "--base", base, "--head", merge]),
         ("crash-class rules", [py, "scripts/ci/crash_class_fast_gate.py", "--base", str(base_tree)]),
-        ("webviews checks", [py, "scripts/ci/fast_gate_webviews_checks.py"] if checks else None),
+        ("webviews checks", [py, "scripts/ci/fast_gate_webviews_checks.py", "--base", base] if checks else None),
     ]
 
 
