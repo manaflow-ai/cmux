@@ -441,10 +441,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
-    /// Dock click with no window open: the last closed window comes back with its workspaces, else a new window with a new workspace.
+    /// Dock click with no window open: the last closed window comes back
+    /// with its workspaces, else a new window (in background mode a panel or the menu bar item may count as visible).
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
-        guard !hasVisibleWindows, let windows = services?.windows else { return true }
-        windows.reopenOrCreateWindow()
+        guard let services, !hasVisibleWindows || services.background.isBackground else { return true }
+        services.windows.reopenOrCreateWindow()
         return false
     }
 }
