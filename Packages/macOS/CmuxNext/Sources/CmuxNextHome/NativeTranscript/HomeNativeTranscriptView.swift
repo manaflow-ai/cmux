@@ -295,7 +295,7 @@ public final class HomeNativeTranscriptView: NSView {
         }
     }
 
-    /// Settings > Agents > Chief Chat > Bubble Style: iMessage's colours or the theme's, live.
+    /// Settings > Chief > Chief Chat > Bubble Style: iMessage's colours or the theme's, live.
     private func followBubbleStyle() {
         withObservationTracking {
             bubbleStyle = DesignSettings.shared.homeChiefBubblesThemed ? .theme : .iMessage
@@ -401,14 +401,13 @@ public final class HomeNativeTranscriptView: NSView {
         transcript.isVisibleToUser = window.map { $0.isKeyWindow && $0.occlusionState.contains(.visible) } ?? false
     }
 
-    /// The theme's palettes (key and non-key window) for the MessagesLab
+    /// The theme's palette (the key window's, for every window) for the MessagesLab
     /// Fixture colours, and the first-run panel's colours.
     private func applyTheme() {
         let accent = accentOverride, style = bubbleStyle
         let active = performWithTheme { HomeThemePalette.resolveInScope(active: true, style: style, accentOverride: accent) }
-        let inactive = performWithTheme { HomeThemePalette.resolveInScope(active: false, style: style, accentOverride: accent) }
         let measured = performWithTheme { HomeThemePalette.usesMessagesBlueInScope(style: style, accentOverride: accent) }
-        transcript.applyTheme(active: active, inactive: inactive, measuredAccent: measured)
+        transcript.applyTheme(active: active, measuredAccent: measured)
         // The header: a thin glass band over the transcript and a glass name pill, as
         // Messages on macOS 26 (HeaderGlass.swift).
         transcript.setHeaderGlass()

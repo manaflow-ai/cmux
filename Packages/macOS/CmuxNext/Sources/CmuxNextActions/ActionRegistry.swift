@@ -361,10 +361,11 @@ public final class ActionRegistry {
     /// action does not act on that kind itself: right-clicking a browser
     /// profile and choosing New Tab with Browser Profile… uses that profile,
     /// while Merge Workspace into… (which acts on a workspace) still asks
-    /// for the other workspace.
+    /// for the other workspace, unless the argument names the target itself
+    /// (`isSuppliedByTarget`: New Workspace in Space… on a right-clicked Space).
     static func target(of invocation: ActionInvocation, supplies argument: ActionArgument, for descriptor: ActionDescriptor) -> Bool {
         guard case .target(let kind) = argument.kind, let target = invocation.target else { return false }
-        return target.kind == kind && !descriptor.targets.contains(kind)
+        return target.kind == kind && (argument.isSuppliedByTarget || !descriptor.targets.contains(kind))
     }
 
     static func synthesizedDescriptor(for action: Action) -> ActionDescriptor {

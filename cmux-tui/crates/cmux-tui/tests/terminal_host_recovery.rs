@@ -508,11 +508,11 @@ fn keep_on_exit_retains_tab_and_final_screen_until_close_and_degrades_on_restart
                 "session":"current",
                 "workspace":workspace,
                 "argv":["/bin/sh","-c","exit 0"],
-                "on_exit":"shell",
+                "on_exit":"linger",
             },
         }),
     );
-    assert_eq!(unsupported["ok"], false, "on_exit shell must be rejected: {unsupported}");
+    assert_eq!(unsupported["ok"], false, "on_exit linger must be rejected: {unsupported}");
     assert_eq!(unsupported["error"]["code"], "validation.invalid");
 
     let run = resource_request(
