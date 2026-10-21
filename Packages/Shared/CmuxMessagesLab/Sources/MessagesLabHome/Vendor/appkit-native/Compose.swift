@@ -410,18 +410,32 @@ final class FieldTextView: NSTextView {
             tlm.ensureLayout(for: tlm.documentRange)
             laidOut = state
         }
-        var line: CGRect?
-        tlm.enumerateTextSegments(in: NSTextRange(location: loc), type: .standard, options: upstream ? [.rangeNotRequired, .upstreamAffinity] : [.rangeNotRequired]) { _, r, _, _ in
-            line = r; return false
+        func segment(upstream: Bool) -> CGRect? {
+            var line: CGRect?
+            tlm.enumerateTextSegments(in: NSTextRange(location: loc), type: .standard,
+                                      options: upstream ? [.rangeNotRequired, .upstreamAffinity] : [.rangeNotRequired]) { _, r, _, _ in
+                line = r; return false
+            }
+            return line
         }
-        guard let l = line else { return nil }
         let o = textContainerOrigin
-        // cmux: a picture takes its whole line, as in Messages (ComposeInlineAttachment): right
-        // after one the caret starts the next line, where the next character goes.
-        if index > 0, let s = textStorage, index <= s.length, l.height > Fixture.lineHeight + 0.5,
-           s.attribute(.attachment, at: index - 1, effectiveRange: nil) is ComposeInlineAttachment {
-            return CGRect(x: o.x, y: l.maxY + Fixture.lineHeight / 2 + o.y + Self.caretDY, width: Self.caretWidth, height: 17)
+        // cmux: a picture takes its whole line, as in Messages (ComposeInlineAttachment).
+        let storageText = textStorage
+        func picture(_ i: Int) -> Bool {
+            guard let s = storageText, i >= 0, i < s.length else { return false }
+            return s.attribute(.attachment, at: i, effectiveRange: nil) is ComposeInlineAttachment
         }
+        let length = storageText?.length ?? 0
+        let next: unichar? = index < length ? (storageText?.string as NSString?)?.character(at: index) : nil
+        let previous: unichar? = index > 0 && index <= length ? (storageText?.string as NSString?)?.character(at: index - 1) : nil
+        // Right after a picture, where nothing follows on its line (the end, a line break or another
+        // picture), the caret starts the line under it: the next character goes there.
+        if picture(index - 1), next == nil || next == 0x0A || picture(index), let above = segment(upstream: true) {
+            return CGRect(x: o.x, y: above.maxY + Fixture.lineHeight / 2 + o.y + Self.caretDY, width: Self.caretWidth, height: 17)
+        }
+        // Just before a picture that follows text, the caret ends the text's line above it.
+        let beforePicture = picture(index) && previous != nil && previous != 0x0A && !picture(index - 1)
+        guard let l = segment(upstream: upstream || beforePicture) else { return nil }
         // cmux: on a line an inline picture makes taller the text sits at the bottom, so the caret
         // is on the line's last text line, not its middle (Draft+InlineMarks.swift).
         let y = l.height > Fixture.lineHeight + 0.5 ? l.maxY - Fixture.lineHeight / 2 : l.midY
