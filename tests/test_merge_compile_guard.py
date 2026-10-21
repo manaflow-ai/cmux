@@ -88,6 +88,14 @@ class FleetCompileCheck(unittest.TestCase):
                 self.assertIn(f"finished {conclusion}", guard.verdict(pr(), SWIFT, runs, fleet_passed=True))
                 self.assertFalse(guard.compile_wait(runs))
 
+    def test_a_rerun_queued_after_a_red_compile_is_not_a_wait(self):
+        # `gh run rerun --failed` on a red Xcode-only error: the fleet pass must not merge it meanwhile.
+        runs = [check(COMPILE, conclusion="failure"), check(COMPILE, "queued")]
+        self.assertFalse(guard.compile_wait(runs))
+        self.assertIn("still running", guard.verdict(pr(), SWIFT, runs, fleet_passed=True))
+        # A rerun after a green one is still a wait for the rerun, as before; a pass then stands in.
+        self.assertTrue(guard.compile_wait([check(COMPILE, conclusion="cancelled"), check(COMPILE, "queued")]) is False)
+
     def test_every_gh_call_shares_one_deadline_under_the_hooks_timeout(self):
         self.assertLess(guard.BUDGET, 120)
         spent = guard.STARTED
@@ -257,7 +265,7 @@ class Hook(unittest.TestCase):
                 "repos/manaflow-ai/cmux/pulls/22835/files": "\n".join(json.dumps(f) for f in SWIFT),
                 "repos/manaflow-ai/cmux/pulls/22835": json.dumps(pr(22835)),
                 "view": json.dumps({"number": 22835}),
-                f"repos/manaflow-ai/cmux/commits/{HEAD}/check-runs": "\n".join(json.dumps(r) for r in runs),
+                f"repos/manaflow-ai/cmux/commits/{HEAD}/check-runs?filter=all": "\n".join(json.dumps(r) for r in runs),
             }
             if statuses is not None:
                 answers[f"repos/manaflow-ai/cmux/commits/{HEAD}/statuses"] = "\n".join(json.dumps(s) for s in statuses)
@@ -349,6 +357,10 @@ class Hook(unittest.TestCase):
                 out, _ = self.run_hook(self.MERGE, ("queued", None), statuses=[status()],
                                        fleet_runs={99: fleet_run()}, on_base=on_base)
                 self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
+
+    def test_every_attempt_of_the_compile_is_read(self):
+        out, calls = self.run_hook(self.MERGE, ("queued", None), statuses=[status()], fleet_runs={99: fleet_run()})
+        self.assertTrue(any("check-runs?filter=all&" in " ".join(json.loads(c)) for c in calls))
 
     def test_a_fleet_pass_does_not_let_a_red_release_compile_merge(self):
         out, calls = self.run_hook(self.MERGE, ("completed", "failure"), statuses=[status()],
