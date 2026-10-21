@@ -6628,5 +6628,57 @@
   "importSuggestions.request.chief": {
     "class": "brand",
     "source": "Chief"
+  },
+  "backdrop.collage.untitled": {
+    "source": "Collage",
+    "identityLocales": {
+      "da": {
+        "reason": "Collage is the standard Danish noun for an arrangement of pictures.",
+        "values": [
+          "Collage"
+        ]
+      },
+      "de": {
+        "reason": "Collage is the standard German noun for an arrangement of pictures.",
+        "values": [
+          "Collage"
+        ]
+      },
+      "es": {
+        "reason": "Collage is the standard Spanish noun (RAE) for an arrangement of pictures.",
+        "values": [
+          "Collage"
+        ]
+      },
+      "fr": {
+        "reason": "Collage is the standard French noun for an arrangement of pictures.",
+        "values": [
+          "Collage"
+        ]
+      },
+      "it": {
+        "reason": "Collage is the standard Italian noun for an arrangement of pictures.",
+        "values": [
+          "Collage"
+        ]
+      },
+      "nb": {
+        "reason": "Collage is the standard Norwegian Bokmål noun for an arrangement of pictures.",
+        "values": [
+          "Collage"
+        ]
+      }
+    }
+  },
+  "settingsWindow.collage.name": {
+    "source": "Name",
+    "identityLocales": {
+      "de": {
+        "reason": "Name is the standard German noun for a label field.",
+        "values": [
+          "Name"
+        ]
+      }
+    }
   }
 }
