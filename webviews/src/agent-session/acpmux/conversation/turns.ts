@@ -641,11 +641,12 @@ function liveTurn(
 }
 
 /// A running turn as the Codex app draws it (Debug toggles `codexToolRuns` and `liveLineBelow`, both
-/// on by default): "Working for 42s" over the turn's work, as before; each finished run folded into
-/// its summary line between the paragraphs (codexRuns); and at the bottom one live line that each
-/// step replaces in place (Leo 2026-10-20: "Thinking (shimmer) -> Running <short label> ->
-/// Thinking"): "Thinking" while the agent thinks, "Running <what the call does> 13s" while a call
-/// runs. The line keeps the Thinking line's id from send to the turn's end, so it never leaves and
+/// on by default): each finished run folded into its summary line between the paragraphs
+/// (codexRuns), and at the bottom the turn's one live block, a line that each step replaces in place
+/// (Leo 2026-10-20: "Thinking (shimmer) -> Running <short label> -> Thinking"): "Thinking 18s"
+/// (the turn's time) while the agent thinks, "Running <what the call does> 13s" while a call runs.
+/// Nothing draws over the turn's work (Leo 2026-10-21: a "Working for" there sat far above the
+/// line, past his steers). The line keeps the Thinking line's id from send to the turn's end, so it never leaves and
 /// comes back. While text streams it waits, quiet (`quietKey`, Thinking.tsx): the words are the
 /// motion then. With a todo list (`sessionStatus`) the list sits just over the line.
 function codexLiveTurn(
@@ -657,41 +658,32 @@ function codexLiveTurn(
   clockOffset: number,
   sessionStatus: boolean,
 ): AcpmuxRow[] {
+  // The one live block sits at the turn's bottom, as the ChatGPT and Codex apps draw it: no
+  // "Working for" over the turn (with steers it stood above all of them, far from the line; Leo,
+  // 2026-10-21). Between steps it reads "Thinking 18s", timed from the prompt.
   const line: AcpmuxRow = { id: LIVE_THINKING, version: 1, at, kind: THINKING, below: true };
-  // Before any output, "Thinking 4s" times the turn from the prompt.
   if (!last) return [...rows, line];
-  line.untimed = true;
   const call = runningCall(last);
   if (call) {
-    // A command reads its short line; one with no line yet reads its title ("Run make"), or
-    // "Running a command" when that is only the shell tool's name ("Bash").
+    // A command reads its short line; one with no line yet reads its title ("Run make"). While
+    // Claude still writes its input (a pending "Bash" with no command, often 20s for a long
+    // script) it reads "Writing a command", never "Running" a command that has not started.
     const shell =
       call.kind === "execute" && !call.description && (Boolean(call.command) || isBareShellName(call, call.title));
     line.doing = shell ? (call.command ? shortCommand(call.command) : "") : runningLabel(call, "");
     line.doingShell = shell;
-    // A command shows "⌃B to run in background" on the line, where its own row would (Thinking.tsx).
-    if (call.kind === "execute") line.doingCommand = true;
+    if (shell && !call.command && call.status === "pending") line.doingDraft = true;
+    // A started command shows "⌃B to run in background" on the line, where its own row would
+    // (Thinking.tsx).
+    if (call.kind === "execute" && !line.doingDraft) line.doingCommand = true;
     line.doingAt = (call.startedAt ?? last.at) + clockOffset;
-    line.untimed = false;
   } else if (last.kind === "assistant") line.quietKey = `${last.id}:${last.version}`;
   const answering = last.kind === "assistant";
-  const header: AcpmuxRow[] =
-    answering && drawn.length === 1
-      ? []
-      : [
-          {
-            id: `${WORKING}-${user.id}`,
-            version: answering ? 2 : 1,
-            at,
-            kind: WORKING,
-            ...(answering && { durationMs: Math.max(0, last.at - user.at) }),
-          },
-        ];
   const plan = sessionStatus ? [...rows].reverse().find((row) => row.kind === "plan" && row.plan?.length) : undefined;
-  if (!plan) return [...header, ...rows, line];
+  if (!plan) return [...rows, line];
   const work = rows.filter((row) => row !== plan);
   // The answer streams under the list, the line under both.
-  if (answering) return [...header, ...work.filter((row) => row !== last), plan, last, line];
+  if (answering) return [...work.filter((row) => row !== last), plan, last, line];
   // With a todo list the activity line under it is the live line (cx-ncc.102), as without these
   // toggles; it reads the call in flight from the turn's rows, which the runs no longer hold.
   return [

@@ -1389,6 +1389,12 @@ pre.cv-math-source {
   margin-left: 2px;
   white-space: nowrap;
 }
+/* The turn's tokens ("· 679.9K tokens") are secondary to its label and time, as on Claude
+   desktop's line: the tool rows' quieter color, in tabular numerals so the count ticks in place. */
+.cv-worked__count:has(> .cv-worked__tokens) {
+  color: var(--cv-text-dim);
+  font-variant-numeric: tabular-nums;
+}
 .cv-worked__open {
   all: unset;
   min-width: 0;
