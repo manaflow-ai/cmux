@@ -1,0 +1,203 @@
+{
+  "version": 1,
+  "build": "3951982493001",
+  "notes": "notes/3951982493001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 22651,
+      "title": "cmux-next sidebar: a group with no stored color draws a palette color, not grey",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22653,
+      "title": "cmux-next: ease the palette's window dim, drop empty tab hover previews",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22345,
+      "title": "Agent chat: links are blue; PR, issue and file references are pills",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22536,
+      "title": "cmux-next Settings: Reset to Defaults resets the retired Glass Transparency",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22402,
+      "title": "acpmux: name a Claude tool call as its block starts, not after its input streamed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22622,
+      "title": "cmux-next: a New Tab send's folder pick no longer leaves its first prompt Not sent",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22624,
+      "title": "cmux NEXT: chat-named sidebar rows keep their name while the chat title is unknown",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22640,
+      "title": "Chief: your own turns never ask; approvals are opt-in, Stop ends the turn, and an approval is a card",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22641,
+      "title": "ci(cmux-next): a starved light side lane spills to idle std side runners",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22642,
+      "title": "ci: the fleet canary checks the linked app, and sends unlinked targets to the Mac",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22578,
+      "title": "ci(crash-class): a dependency-only Package.swift edit no longer owns base findings",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22577,
+      "title": "cmux-next: one background for the app, or one that turns on its own",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22513,
+      "title": "fix(next): land the web base-red fixes together (react-apps-check)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22632,
+      "title": "ci(next): baseline the three menu row builders the check newly sees",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22631,
+      "title": "ci(next): checks job structure and App size cap base reds",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22630,
+      "title": "fix(next): constant regexes compile without try!, and one process-info return (crash safety base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22633,
+      "title": "fix(next): Cargo.lock lists cmux-history's sha2; classic snapshot limits are nonisolated (base reds)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22638,
+      "title": "cmux-next: four new system-blue colors take the theme (check-system-blue)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22637,
+      "title": "gallery-coverage: the Settings page counts again; new components join the allowlist",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22634,
+      "title": "test(webviews): the PR-scoped checks fixture links Packages/Shared",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22636,
+      "title": "webviews: new page code passes ui-rules and tooltip-rules (base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22635,
+      "title": "webviews: the Markdown and Mobile Pairing stylesheets follow the hairline, elevation and theme rules",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22013,
+      "title": "Agent pane: other agents' messages draw as cards from their sender, not your prompt",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22619,
+      "title": "cmux NEXT Quick Composer: Start Agent from Any App shows the panel even while cmux is hidden",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22625,
+      "title": "ci(app-ffi): the FFI release build takes the trusted promote mini on a feat-cmux-next push",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22312,
+      "title": "ci(next): run all ten CEF shim C++ tests, and run them on next pushes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22157,
+      "title": "ci: cmux-tui test job leaves formatting to lint",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22617,
+      "title": "ci(cmux-next): a DEV daily probe defers to its running cmux-tui publisher",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22591,
+      "title": "Home: the emoji button opens the picker for the message box; the + picker opens without a delay",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22613,
+      "title": "ci(next): terminal suites run their Linux-able half on Blacksmith 16 vCPU",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22055,
+      "title": "agent pane: hover cards on session references",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22596,
+      "title": "cmux NEXT Quick Composer: the Chief Dock is opt-in, so it no longer covers the prompt",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
