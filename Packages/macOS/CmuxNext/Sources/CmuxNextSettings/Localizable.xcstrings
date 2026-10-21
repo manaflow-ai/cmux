@@ -150105,127 +150105,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The most saved output one terminal keeps on disk, in bytes, from 1 MiB to 100 GiB. Empty uses the mode's limit: 100 MB in Full Scrollback; Snapshot has its own small limit. The oldest saved output goes first."
+            "value": "Full Scrollback: the most saved output one terminal keeps on disk (default 100 MiB); the oldest output goes first. Snapshot: the largest snapshot of one terminal, its uncompressed screen replay (default 4 MiB). In bytes, from 1 MiB to 100 GiB; empty uses the mode's default. It is never more than the disk limit for all terminals."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "أقصى قدر من المخرجات المحفوظة تبقيه طرفية واحدة على القرص، بالبايت، من 1 MiB إلى 100 GiB. القيمة الفارغة تستخدم حد الوضع: 100 MB في سجل التمرير الكامل؛ وللقطة حد صغير خاص بها. تُحذف أقدم المخرجات المحفوظة أولًا."
+            "value": "سجل التمرير الكامل: أقصى قدر من المخرجات المحفوظة تبقيه طرفية واحدة على القرص (الافتراضي 100 MiB)؛ تُحذف أقدم المخرجات أولًا. لقطة: أكبر لقطة لطرفية واحدة، أي إعادة عرض شاشتها غير المضغوطة (الافتراضي 4 MiB). بالبايت، من 1 MiB إلى 100 GiB؛ القيمة الفارغة تستخدم افتراضي الوضع. لا يتجاوز أبدًا حد القرص لكل الطرفيات."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Najviše sačuvanog izlaza koji jedan terminal čuva na disku, u bajtovima, od 1 MiB do 100 GiB. Prazno koristi ograničenje načina: 100 MB u cijeloj historiji pomicanja; snimak ima svoje malo ograničenje. Najstariji sačuvani izlaz ide prvi."
+            "value": "Cijela historija pomicanja: najviše sačuvanog izlaza koji jedan terminal čuva na disku (zadano 100 MiB); najstariji izlaz ide prvi. Snimak: najveći snimak jednog terminala, nekomprimirana reprodukcija ekrana (zadano 4 MiB). U bajtovima, od 1 MiB do 100 GiB; prazno koristi zadanu vrijednost načina. Nikad nije veće od ograničenja diska za sve terminale."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Det største gemte output, én terminal beholder på disken, i byte, fra 1 MiB til 100 GiB. Tom bruger tilstandens grænse: 100 MB ved fuld rullehistorik; øjebliksbillede har sin egen lille grænse. Det ældste gemte output fjernes først."
+            "value": "Fuld rullehistorik: det største gemte output, én terminal beholder på disken (standard 100 MiB); det ældste output fjernes først. Øjebliksbillede: det største øjebliksbillede af én terminal, dens ukomprimerede skærmgengivelse (standard 4 MiB). I byte, fra 1 MiB til 100 GiB; tom bruger tilstandens standard. Det er aldrig mere end diskgrænsen for alle terminaler."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Die größte gespeicherte Ausgabe, die ein Terminal behält, in Byte, von 1 MiB bis 100 GiB. Leer verwendet das Limit des Modus: 100 MB bei gesamtem Scrollback; die Momentaufnahme hat ihr eigenes kleines Limit. Die älteste gespeicherte Ausgabe wird zuerst entfernt."
+            "value": "Gesamter Scrollback: die größte gespeicherte Ausgabe, die ein Terminal behält (Standard 100 MiB); die älteste Ausgabe wird zuerst entfernt. Momentaufnahme: die größte Momentaufnahme eines Terminals, seine unkomprimierte Bildschirmwiedergabe (Standard 4 MiB). In Byte, von 1 MiB bis 100 GiB; leer verwendet den Standard des Modus. Nie mehr als das Speicherlimit für alle Terminals."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La mayor cantidad de salida guardada que un terminal conserva en el disco, en bytes, de 1 MiB a 100 GiB. Vacío usa el límite del modo: 100 MB en Historial completo; Instantánea tiene su propio límite pequeño. La salida guardada más antigua se borra primero."
+            "value": "Historial completo: la mayor cantidad de salida guardada que un terminal conserva en el disco (predeterminado 100 MiB); la salida más antigua se borra primero. Instantánea: la mayor instantánea de un terminal, la reproducción sin comprimir de su pantalla (predeterminado 4 MiB). En bytes, de 1 MiB a 100 GiB; vacío usa el valor predeterminado del modo. Nunca supera el límite de disco para todos los terminales."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La plus grande quantité de sortie enregistrée qu'un terminal garde sur le disque, en octets, de 1 Mio à 100 Gio. Vide utilise la limite du mode : 100 Mo en Historique complet ; Instantané a sa propre petite limite. La sortie enregistrée la plus ancienne part en premier."
+            "value": "Historique complet : la plus grande quantité de sortie enregistrée qu'un terminal garde sur le disque (par défaut 100 Mio) ; la sortie la plus ancienne part en premier. Instantané : le plus grand instantané d'un terminal, la relecture non compressée de son écran (par défaut 4 Mio). En octets, de 1 Mio à 100 Gio ; vide utilise la valeur par défaut du mode. Jamais plus que la limite disque pour tous les terminaux."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La quantità massima di output salvato che un terminale tiene su disco, in byte, da 1 MiB a 100 GiB. Vuoto usa il limite della modalità: 100 MB in Cronologia completa; Istantanea ha un suo limite ridotto. L'output salvato più vecchio viene rimosso per primo."
+            "value": "Cronologia completa: la quantità massima di output salvato che un terminale tiene su disco (predefinito 100 MiB); l'output più vecchio viene rimosso per primo. Istantanea: l'istantanea più grande di un terminale, la riproduzione non compressa del suo schermo (predefinito 4 MiB). In byte, da 1 MiB a 100 GiB; vuoto usa il valore predefinito della modalità. Non supera mai il limite disco per tutti i terminali."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "1 つのターミナルがディスクに保存する出力の上限（バイト、1 MiB〜100 GiB）。空欄の場合はモードの上限を使います: スクロールバック全体では 100 MB、スナップショットには独自の小さな上限があります。古い保存出力から削除されます。"
+            "value": "スクロールバック全体: 1 つのターミナルがディスクに保存する出力の上限（既定 100 MiB）。古い出力から削除されます。スナップショット: 1 つのターミナルのスナップショット（非圧縮の画面再生データ）の最大サイズ（既定 4 MiB）。単位はバイトで 1 MiB〜100 GiB、空欄の場合はモードの既定値を使います。全ターミナルのディスク上限を超えることはありません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "លទ្ធផលដែលបានរក្សាទុកច្រើនបំផុតដែលទែមីណាល់មួយរក្សានៅលើថាស គិតជាបៃ ពី 1 MiB ដល់ 100 GiB។ ទទេប្រើដែនកំណត់របស់របៀប៖ 100 MB ក្នុងប្រវត្តិរំកិលពេញលេញ រូបថតស្ថានភាពមានដែនកំណត់តូចផ្ទាល់ខ្លួន។ លទ្ធផលដែលបានរក្សាទុកចាស់បំផុតត្រូវលុបមុន។"
+            "value": "ប្រវត្តិរំកិលពេញលេញ៖ លទ្ធផលដែលបានរក្សាទុកច្រើនបំផុតដែលទែមីណាល់មួយរក្សានៅលើថាស (លំនាំដើម 100 MiB) លទ្ធផលចាស់បំផុតត្រូវលុបមុន។ រូបថតស្ថានភាព៖ រូបថតស្ថានភាពធំបំផុតរបស់ទែមីណាល់មួយ គឺការចាក់អេក្រង់ឡើងវិញដែលមិនបានបង្ហាប់ (លំនាំដើម 4 MiB)។ គិតជាបៃ ពី 1 MiB ដល់ 100 GiB ទទេប្រើលំនាំដើមរបស់របៀប។ វាមិនដែលលើសដែនកំណត់ថាសសម្រាប់ទែមីណាល់ទាំងអស់ទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "터미널 하나가 디스크에 보관하는 저장 출력의 최대 크기(바이트, 1MiB~100GiB). 비워 두면 모드의 한도를 사용합니다. 전체 스크롤백은 100MB이고, 스냅숏은 자체의 작은 한도가 있습니다. 가장 오래된 저장 출력부터 삭제됩니다."
+            "value": "전체 스크롤백: 터미널 하나가 디스크에 보관하는 저장 출력의 최대 크기(기본값 100MiB)이며, 가장 오래된 출력부터 삭제됩니다. 스냅숏: 터미널 하나의 가장 큰 스냅숏, 즉 압축하지 않은 화면 재생 데이터(기본값 4MiB)입니다. 바이트 단위로 1MiB~100GiB이며, 비워 두면 모드의 기본값을 사용합니다. 전체 터미널 디스크 한도를 넘지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mest lagrede utdata én terminal beholder på disken, i byte, fra 1 MiB til 100 GiB. Tom bruker modusens grense: 100 MB ved full rullehistorikk; øyeblikksbilde har sin egen lille grense. De eldste lagrede utdataene fjernes først."
+            "value": "Full rullehistorikk: mest lagrede utdata én terminal beholder på disken (standard 100 MiB); de eldste utdataene fjernes først. Øyeblikksbilde: det største øyeblikksbildet av én terminal, den ukomprimerte skjermavspillingen (standard 4 MiB). I byte, fra 1 MiB til 100 GiB; tom bruker modusens standard. Det er aldri mer enn diskgrensen for alle terminaler."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Największa ilość zapisanego wyjścia, którą jeden terminal trzyma na dysku, w bajtach, od 1 MiB do 100 GiB. Puste używa limitu trybu: 100 MB w pełnej historii przewijania; migawka ma własny mały limit. Najstarsze zapisane wyjście jest usuwane najpierw."
+            "value": "Pełna historia przewijania: największa ilość zapisanego wyjścia, którą jeden terminal trzyma na dysku (domyślnie 100 MiB); najstarsze wyjście jest usuwane najpierw. Migawka: największa migawka jednego terminala, nieskompresowane odtworzenie ekranu (domyślnie 4 MiB). W bajtach, od 1 MiB do 100 GiB; puste używa wartości domyślnej trybu. Nigdy nie przekracza limitu dysku dla wszystkich terminali."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O máximo de saída salva que um terminal mantém no disco, em bytes, de 1 MiB a 100 GiB. Vazio usa o limite do modo: 100 MB no Histórico completo; o Instantâneo tem seu próprio limite pequeno. A saída salva mais antiga sai primeiro."
+            "value": "Histórico completo: o máximo de saída salva que um terminal mantém no disco (padrão 100 MiB); a saída mais antiga sai primeiro. Instantâneo: o maior instantâneo de um terminal, a reprodução não compactada da tela (padrão 4 MiB). Em bytes, de 1 MiB a 100 GiB; vazio usa o padrão do modo. Nunca passa do limite de disco para todos os terminais."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Наибольший объём сохранённого вывода, который один терминал хранит на диске, в байтах, от 1 МиБ до 100 ГиБ. Пусто — лимит режима: 100 МБ для всей прокрутки; у снимка свой небольшой лимит. Самый старый сохранённый вывод удаляется первым."
+            "value": "Вся прокрутка: наибольший объём сохранённого вывода, который один терминал хранит на диске (по умолчанию 100 МиБ); самый старый вывод удаляется первым. Снимок: наибольший снимок одного терминала — несжатое воспроизведение его экрана (по умолчанию 4 МиБ). В байтах, от 1 МиБ до 100 ГиБ; пусто — значение режима по умолчанию. Никогда не больше лимита диска для всех терминалов."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ปริมาณเอาต์พุตที่บันทึกไว้สูงสุดที่เทอร์มินัลหนึ่งเก็บบนดิสก์ เป็นไบต์ ตั้งแต่ 1 MiB ถึง 100 GiB ค่าว่างใช้ขีดจำกัดของโหมด: 100 MB สำหรับประวัติการเลื่อนทั้งหมด สแนปช็อตมีขีดจำกัดเล็กของตัวเอง เอาต์พุตที่บันทึกไว้เก่าที่สุดจะถูกลบก่อน"
+            "value": "ประวัติการเลื่อนทั้งหมด: ปริมาณเอาต์พุตที่บันทึกไว้สูงสุดที่เทอร์มินัลหนึ่งเก็บบนดิสก์ (ค่าเริ่มต้น 100 MiB) เอาต์พุตเก่าที่สุดจะถูกลบก่อน สแนปช็อต: สแนปช็อตที่ใหญ่ที่สุดของเทอร์มินัลหนึ่ง คือการเล่นหน้าจอซ้ำแบบไม่บีบอัด (ค่าเริ่มต้น 4 MiB) เป็นไบต์ ตั้งแต่ 1 MiB ถึง 100 GiB ค่าว่างใช้ค่าเริ่มต้นของโหมด ไม่เกินขีดจำกัดดิสก์ของทุกเทอร์มินัล"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bir terminalin diskte tuttuğu en fazla kayıtlı çıktı, bayt olarak, 1 MiB ile 100 GiB arası. Boş bırakılırsa modun sınırı kullanılır: tüm kaydırma geçmişinde 100 MB; anlık görüntünün kendi küçük sınırı vardır. En eski kayıtlı çıktı önce silinir."
+            "value": "Tüm kaydırma geçmişi: bir terminalin diskte tuttuğu en fazla kayıtlı çıktı (varsayılan 100 MiB); en eski çıktı önce silinir. Anlık görüntü: bir terminalin en büyük anlık görüntüsü, ekranının sıkıştırılmamış yeniden oynatımı (varsayılan 4 MiB). Bayt olarak, 1 MiB ile 100 GiB arası; boş bırakılırsa modun varsayılanı kullanılır. Tüm terminallerin disk sınırını asla aşmaz."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Найбільший обсяг збереженого виводу, який один термінал зберігає на диску, у байтах, від 1 МіБ до 100 ГіБ. Порожнє — ліміт режиму: 100 МБ для всієї історії прокручування; знімок має власний невеликий ліміт. Найстаріший збережений вивід видаляється першим."
+            "value": "Уся історія прокручування: найбільший обсяг збереженого виводу, який один термінал зберігає на диску (типово 100 МіБ); найстаріший вивід видаляється першим. Знімок: найбільший знімок одного термінала — нестиснене відтворення його екрана (типово 4 МіБ). У байтах, від 1 МіБ до 100 ГіБ; порожнє — типове значення режиму. Ніколи не більше за ліміт диска для всіх терміналів."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Lượng đầu ra đã lưu tối đa mà một terminal giữ trên ổ đĩa, tính bằng byte, từ 1 MiB đến 100 GiB. Để trống dùng giới hạn của chế độ: 100 MB với Toàn bộ lịch sử cuộn; Ảnh chụp nhanh có giới hạn nhỏ riêng. Đầu ra đã lưu cũ nhất bị xóa trước."
+            "value": "Toàn bộ lịch sử cuộn: lượng đầu ra đã lưu tối đa mà một terminal giữ trên ổ đĩa (mặc định 100 MiB); đầu ra cũ nhất bị xóa trước. Ảnh chụp nhanh: ảnh chụp nhanh lớn nhất của một terminal, tức bản phát lại màn hình chưa nén (mặc định 4 MiB). Tính bằng byte, từ 1 MiB đến 100 GiB; để trống dùng mặc định của chế độ. Không bao giờ vượt giới hạn ổ đĩa cho mọi terminal."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "单个终端在磁盘上保存输出的上限，单位为字节，范围 1 MiB 至 100 GiB。留空则使用模式的上限：完整回滚缓冲为 100 MB；快照有自己较小的上限。最早保存的输出先被删除。"
+            "value": "完整回滚缓冲：单个终端在磁盘上保存输出的上限（默认 100 MiB），最早的输出先被删除。快照：单个终端最大的快照，即未压缩的屏幕重放数据（默认 4 MiB）。单位为字节，范围 1 MiB 至 100 GiB；留空则使用模式的默认值。不会超过所有终端的磁盘上限。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "單一終端機在磁碟上保留輸出的上限，單位為位元組，範圍 1 MiB 至 100 GiB。留空則使用模式的上限：完整回捲緩衝為 100 MB；快照有自己較小的上限。最早儲存的輸出先被刪除。"
+            "value": "完整回捲緩衝：單一終端機在磁碟上保留輸出的上限（預設 100 MiB），最早的輸出先被刪除。快照：單一終端機最大的快照，即未壓縮的畫面重播資料（預設 4 MiB）。單位為位元組，範圍 1 MiB 至 100 GiB；留空則使用模式的預設值。不會超過所有終端機的磁碟上限。"
           }
         }
       }
@@ -150369,127 +150369,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The most saved output all terminals keep on disk together, in bytes, from 1 MiB to 100 GiB. Empty uses the mode's limit: 50 MB in Snapshot, 2 GB in Full Scrollback. The oldest saved output goes first."
+            "value": "The most saved output all terminals keep on disk together, in bytes, from 1 MiB to 100 GiB. Empty uses the mode's limit: 50 MiB in Snapshot, 2 GiB in Full Scrollback. The oldest saved output goes first."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "أقصى قدر من المخرجات المحفوظة تبقيه كل الطرفيات معًا على القرص، بالبايت، من 1 MiB إلى 100 GiB. القيمة الفارغة تستخدم حد الوضع: 50 MB في اللقطة، و2 GB في سجل التمرير الكامل. تُحذف أقدم المخرجات المحفوظة أولًا."
+            "value": "أقصى قدر من المخرجات المحفوظة تبقيه كل الطرفيات معًا على القرص، بالبايت، من 1 MiB إلى 100 GiB. القيمة الفارغة تستخدم حد الوضع: 50 MiB في اللقطة، و2 GiB في سجل التمرير الكامل. تُحذف أقدم المخرجات المحفوظة أولًا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Najviše sačuvanog izlaza koji svi terminali zajedno čuvaju na disku, u bajtovima, od 1 MiB do 100 GiB. Prazno koristi ograničenje načina: 50 MB u snimku, 2 GB u cijeloj historiji pomicanja. Najstariji sačuvani izlaz ide prvi."
+            "value": "Najviše sačuvanog izlaza koji svi terminali zajedno čuvaju na disku, u bajtovima, od 1 MiB do 100 GiB. Prazno koristi ograničenje načina: 50 MiB u snimku, 2 GiB u cijeloj historiji pomicanja. Najstariji sačuvani izlaz ide prvi."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Det største gemte output, alle terminaler tilsammen beholder på disken, i byte, fra 1 MiB til 100 GiB. Tom bruger tilstandens grænse: 50 MB ved øjebliksbillede, 2 GB ved fuld rullehistorik. Det ældste gemte output fjernes først."
+            "value": "Det største gemte output, alle terminaler tilsammen beholder på disken, i byte, fra 1 MiB til 100 GiB. Tom bruger tilstandens grænse: 50 MiB ved øjebliksbillede, 2 GiB ved fuld rullehistorik. Det ældste gemte output fjernes først."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Die größte gespeicherte Ausgabe, die alle Terminals zusammen behalten, in Byte, von 1 MiB bis 100 GiB. Leer verwendet das Limit des Modus: 50 MB bei Momentaufnahme, 2 GB bei gesamtem Scrollback. Die älteste gespeicherte Ausgabe wird zuerst entfernt."
+            "value": "Die größte gespeicherte Ausgabe, die alle Terminals zusammen behalten, in Byte, von 1 MiB bis 100 GiB. Leer verwendet das Limit des Modus: 50 MiB bei Momentaufnahme, 2 GiB bei gesamtem Scrollback. Die älteste gespeicherte Ausgabe wird zuerst entfernt."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La mayor cantidad de salida guardada que todos los terminales conservan juntos en el disco, en bytes, de 1 MiB a 100 GiB. Vacío usa el límite del modo: 50 MB en Instantánea, 2 GB en Historial completo. La salida guardada más antigua se borra primero."
+            "value": "La mayor cantidad de salida guardada que todos los terminales conservan juntos en el disco, en bytes, de 1 MiB a 100 GiB. Vacío usa el límite del modo: 50 MiB en Instantánea, 2 GiB en Historial completo. La salida guardada más antigua se borra primero."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La plus grande quantité de sortie enregistrée que tous les terminaux gardent ensemble sur le disque, en octets, de 1 Mio à 100 Gio. Vide utilise la limite du mode : 50 Mo en Instantané, 2 Go en Historique complet. La sortie enregistrée la plus ancienne part en premier."
+            "value": "La plus grande quantité de sortie enregistrée que tous les terminaux gardent ensemble sur le disque, en octets, de 1 Mio à 100 Gio. Vide utilise la limite du mode : 50 Mio en Instantané, 2 Gio en Historique complet. La sortie enregistrée la plus ancienne part en premier."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La quantità massima di output salvato che tutti i terminali tengono insieme su disco, in byte, da 1 MiB a 100 GiB. Vuoto usa il limite della modalità: 50 MB in Istantanea, 2 GB in Cronologia completa. L'output salvato più vecchio viene rimosso per primo."
+            "value": "La quantità massima di output salvato che tutti i terminali tengono insieme su disco, in byte, da 1 MiB a 100 GiB. Vuoto usa il limite della modalità: 50 MiB in Istantanea, 2 GiB in Cronologia completa. L'output salvato più vecchio viene rimosso per primo."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "すべてのターミナルが合計でディスクに保存する出力の上限（バイト、1 MiB〜100 GiB）。空欄の場合はモードの上限を使います: スナップショットでは 50 MB、スクロールバック全体では 2 GB。古い保存出力から削除されます。"
+            "value": "すべてのターミナルが合計でディスクに保存する出力の上限（バイト、1 MiB〜100 GiB）。空欄の場合はモードの上限を使います: スナップショットでは 50 MiB、スクロールバック全体では 2 GiB。古い保存出力から削除されます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "លទ្ធផលដែលបានរក្សាទុកច្រើនបំផុតដែលទែមីណាល់ទាំងអស់រក្សារួមគ្នានៅលើថាស គិតជាបៃ ពី 1 MiB ដល់ 100 GiB។ ទទេប្រើដែនកំណត់របស់របៀប៖ 50 MB ក្នុងរូបថតស្ថានភាព 2 GB ក្នុងប្រវត្តិរំកិលពេញលេញ។ លទ្ធផលដែលបានរក្សាទុកចាស់បំផុតត្រូវលុបមុន។"
+            "value": "លទ្ធផលដែលបានរក្សាទុកច្រើនបំផុតដែលទែមីណាល់ទាំងអស់រក្សារួមគ្នានៅលើថាស គិតជាបៃ ពី 1 MiB ដល់ 100 GiB។ ទទេប្រើដែនកំណត់របស់របៀប៖ 50 MiB ក្នុងរូបថតស្ថានភាព 2 GiB ក្នុងប្រវត្តិរំកិលពេញលេញ។ លទ្ធផលដែលបានរក្សាទុកចាស់បំផុតត្រូវលុបមុន។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "모든 터미널이 합쳐서 디스크에 보관하는 저장 출력의 최대 크기(바이트, 1MiB~100GiB). 비워 두면 모드의 한도를 사용합니다. 스냅숏은 50MB, 전체 스크롤백은 2GB입니다. 가장 오래된 저장 출력부터 삭제됩니다."
+            "value": "모든 터미널이 합쳐서 디스크에 보관하는 저장 출력의 최대 크기(바이트, 1MiB~100GiB). 비워 두면 모드의 한도를 사용합니다. 스냅숏은 50MiB, 전체 스크롤백은 2GiB입니다. 가장 오래된 저장 출력부터 삭제됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mest lagrede utdata alle terminaler til sammen beholder på disken, i byte, fra 1 MiB til 100 GiB. Tom bruker modusens grense: 50 MB ved øyeblikksbilde, 2 GB ved full rullehistorikk. De eldste lagrede utdataene fjernes først."
+            "value": "Mest lagrede utdata alle terminaler til sammen beholder på disken, i byte, fra 1 MiB til 100 GiB. Tom bruker modusens grense: 50 MiB ved øyeblikksbilde, 2 GiB ved full rullehistorikk. De eldste lagrede utdataene fjernes først."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Największa ilość zapisanego wyjścia, którą wszystkie terminale razem trzymają na dysku, w bajtach, od 1 MiB do 100 GiB. Puste używa limitu trybu: 50 MB w migawce, 2 GB w pełnej historii przewijania. Najstarsze zapisane wyjście jest usuwane najpierw."
+            "value": "Największa ilość zapisanego wyjścia, którą wszystkie terminale razem trzymają na dysku, w bajtach, od 1 MiB do 100 GiB. Puste używa limitu trybu: 50 MiB w migawce, 2 GiB w pełnej historii przewijania. Najstarsze zapisane wyjście jest usuwane najpierw."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O máximo de saída salva que todos os terminais mantêm juntos no disco, em bytes, de 1 MiB a 100 GiB. Vazio usa o limite do modo: 50 MB no Instantâneo, 2 GB no Histórico completo. A saída salva mais antiga sai primeiro."
+            "value": "O máximo de saída salva que todos os terminais mantêm juntos no disco, em bytes, de 1 MiB a 100 GiB. Vazio usa o limite do modo: 50 MiB no Instantâneo, 2 GiB no Histórico completo. A saída salva mais antiga sai primeiro."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Наибольший объём сохранённого вывода, который все терминалы вместе хранят на диске, в байтах, от 1 МиБ до 100 ГиБ. Пусто — лимит режима: 50 МБ для снимка, 2 ГБ для всей прокрутки. Самый старый сохранённый вывод удаляется первым."
+            "value": "Наибольший объём сохранённого вывода, который все терминалы вместе хранят на диске, в байтах, от 1 МиБ до 100 ГиБ. Пусто — лимит режима: 50 МиБ для снимка, 2 ГиБ для всей прокрутки. Самый старый сохранённый вывод удаляется первым."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ปริมาณเอาต์พุตที่บันทึกไว้สูงสุดที่ทุกเทอร์มินัลรวมกันเก็บบนดิสก์ เป็นไบต์ ตั้งแต่ 1 MiB ถึง 100 GiB ค่าว่างใช้ขีดจำกัดของโหมด: 50 MB สำหรับสแนปช็อต 2 GB สำหรับประวัติการเลื่อนทั้งหมด เอาต์พุตที่บันทึกไว้เก่าที่สุดจะถูกลบก่อน"
+            "value": "ปริมาณเอาต์พุตที่บันทึกไว้สูงสุดที่ทุกเทอร์มินัลรวมกันเก็บบนดิสก์ เป็นไบต์ ตั้งแต่ 1 MiB ถึง 100 GiB ค่าว่างใช้ขีดจำกัดของโหมด: 50 MiB สำหรับสแนปช็อต 2 GiB สำหรับประวัติการเลื่อนทั้งหมด เอาต์พุตที่บันทึกไว้เก่าที่สุดจะถูกลบก่อน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tüm terminallerin birlikte diskte tuttuğu en fazla kayıtlı çıktı, bayt olarak, 1 MiB ile 100 GiB arası. Boş bırakılırsa modun sınırı kullanılır: anlık görüntüde 50 MB, tüm kaydırma geçmişinde 2 GB. En eski kayıtlı çıktı önce silinir."
+            "value": "Tüm terminallerin birlikte diskte tuttuğu en fazla kayıtlı çıktı, bayt olarak, 1 MiB ile 100 GiB arası. Boş bırakılırsa modun sınırı kullanılır: anlık görüntüde 50 MiB, tüm kaydırma geçmişinde 2 GiB. En eski kayıtlı çıktı önce silinir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Найбільший обсяг збереженого виводу, який усі термінали разом зберігають на диску, у байтах, від 1 МіБ до 100 ГіБ. Порожнє — ліміт режиму: 50 МБ для знімка, 2 ГБ для всієї історії прокручування. Найстаріший збережений вивід видаляється першим."
+            "value": "Найбільший обсяг збереженого виводу, який усі термінали разом зберігають на диску, у байтах, від 1 МіБ до 100 ГіБ. Порожнє — ліміт режиму: 50 МіБ для знімка, 2 ГіБ для всієї історії прокручування. Найстаріший збережений вивід видаляється першим."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Lượng đầu ra đã lưu tối đa mà mọi terminal cùng giữ trên ổ đĩa, tính bằng byte, từ 1 MiB đến 100 GiB. Để trống dùng giới hạn của chế độ: 50 MB với Ảnh chụp nhanh, 2 GB với Toàn bộ lịch sử cuộn. Đầu ra đã lưu cũ nhất bị xóa trước."
+            "value": "Lượng đầu ra đã lưu tối đa mà mọi terminal cùng giữ trên ổ đĩa, tính bằng byte, từ 1 MiB đến 100 GiB. Để trống dùng giới hạn của chế độ: 50 MiB với Ảnh chụp nhanh, 2 GiB với Toàn bộ lịch sử cuộn. Đầu ra đã lưu cũ nhất bị xóa trước."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "所有终端合计在磁盘上保存输出的上限，单位为字节，范围 1 MiB 至 100 GiB。留空则使用模式的上限：快照为 50 MB，完整回滚缓冲为 2 GB。最早保存的输出先被删除。"
+            "value": "所有终端合计在磁盘上保存输出的上限，单位为字节，范围 1 MiB 至 100 GiB。留空则使用模式的上限：快照为 50 MiB，完整回滚缓冲为 2 GiB。最早保存的输出先被删除。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "所有終端機合計在磁碟上保留輸出的上限，單位為位元組，範圍 1 MiB 至 100 GiB。留空則使用模式的上限：快照為 50 MB，完整回捲緩衝為 2 GB。最早儲存的輸出先被刪除。"
+            "value": "所有終端機合計在磁碟上保留輸出的上限，單位為位元組，範圍 1 MiB 至 100 GiB。留空則使用模式的上限：快照為 50 MiB，完整回捲緩衝為 2 GiB。最早儲存的輸出先被刪除。"
           }
         }
       }
@@ -151425,127 +151425,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The most memory all terminals use together for scrollback, in bytes, from 16 MiB. The default is 256 MiB. The limit for one terminal is Ghostty's scrollback-limit. When the total is over this limit, idle and background terminals give back scrollback first."
+            "value": "The most memory all terminals use together for scrollback, in bytes, from 16 MiB to 64 GiB. The default is 256 MiB. The limit for one terminal is Ghostty's scrollback-limit. When the total is over this limit, idle and background terminals give back scrollback first."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "أقصى ذاكرة تستخدمها كل الطرفيات معًا لسجل التمرير، بالبايت، بدءًا من 16 MiB. القيمة الافتراضية 256 MiB. حد الطرفية الواحدة هو scrollback-limit في Ghostty. عندما يتجاوز المجموع هذا الحد، تتخلى الطرفيات الخاملة والتي في الخلفية عن سجل التمرير أولًا."
+            "value": "أقصى ذاكرة تستخدمها كل الطرفيات معًا لسجل التمرير، بالبايت، من 16 MiB إلى 64 GiB. القيمة الافتراضية 256 MiB. حد الطرفية الواحدة هو scrollback-limit في Ghostty. عندما يتجاوز المجموع هذا الحد، تتخلى الطرفيات الخاملة والتي في الخلفية عن سجل التمرير أولًا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Najviše memorije koju svi terminali zajedno koriste za historiju pomicanja, u bajtovima, od 16 MiB. Zadano je 256 MiB. Ograničenje za jedan terminal je Ghosttyjev scrollback-limit. Kada je ukupno iznad ovog ograničenja, neaktivni i pozadinski terminali prvi vraćaju historiju."
+            "value": "Najviše memorije koju svi terminali zajedno koriste za historiju pomicanja, u bajtovima, od 16 MiB do 64 GiB. Zadano je 256 MiB. Ograničenje za jedan terminal je Ghosttyjev scrollback-limit. Kada je ukupno iznad ovog ograničenja, neaktivni i pozadinski terminali prvi vraćaju historiju."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Den største hukommelse, alle terminaler tilsammen bruger til rullehistorik, i byte, fra 16 MiB. Standard er 256 MiB. Grænsen for én terminal er Ghosttys scrollback-limit. Når det samlede forbrug er over denne grænse, afgiver inaktive terminaler og terminaler i baggrunden rullehistorik først."
+            "value": "Den største hukommelse, alle terminaler tilsammen bruger til rullehistorik, i byte, fra 16 MiB til 64 GiB. Standard er 256 MiB. Grænsen for én terminal er Ghosttys scrollback-limit. Når det samlede forbrug er over denne grænse, afgiver inaktive terminaler og terminaler i baggrunden rullehistorik først."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Der größte Arbeitsspeicher, den alle Terminals zusammen für Scrollback nutzen, in Byte, ab 16 MiB. Standard ist 256 MiB. Das Limit für ein Terminal ist Ghosttys scrollback-limit. Liegt die Summe über diesem Limit, geben inaktive Terminals und Terminals im Hintergrund zuerst Scrollback ab."
+            "value": "Der größte Arbeitsspeicher, den alle Terminals zusammen für Scrollback nutzen, in Byte, von 16 MiB bis 64 GiB. Standard ist 256 MiB. Das Limit für ein Terminal ist Ghosttys scrollback-limit. Liegt die Summe über diesem Limit, geben inaktive Terminals und Terminals im Hintergrund zuerst Scrollback ab."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La mayor cantidad de memoria que todos los terminales usan juntos para el historial, en bytes, desde 16 MiB. El valor predeterminado es 256 MiB. El límite de un terminal es scrollback-limit de Ghostty. Cuando el total supera este límite, los terminales inactivos y en segundo plano liberan historial primero."
+            "value": "La mayor cantidad de memoria que todos los terminales usan juntos para el historial, en bytes, de 16 MiB a 64 GiB. El valor predeterminado es 256 MiB. El límite de un terminal es scrollback-limit de Ghostty. Cuando el total supera este límite, los terminales inactivos y en segundo plano liberan historial primero."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La plus grande quantité de mémoire que tous les terminaux utilisent ensemble pour l'historique, en octets, à partir de 16 Mio. La valeur par défaut est 256 Mio. La limite d'un terminal est le scrollback-limit de Ghostty. Quand le total dépasse cette limite, les terminaux inactifs et en arrière-plan libèrent leur historique en premier."
+            "value": "La plus grande quantité de mémoire que tous les terminaux utilisent ensemble pour l'historique, en octets, de 16 Mio à 64 Gio. La valeur par défaut est 256 Mio. La limite d'un terminal est le scrollback-limit de Ghostty. Quand le total dépasse cette limite, les terminaux inactifs et en arrière-plan libèrent leur historique en premier."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La quantità massima di memoria che tutti i terminali usano insieme per lo scorrimento, in byte, da 16 MiB. Il valore predefinito è 256 MiB. Il limite per un terminale è lo scrollback-limit di Ghostty. Quando il totale supera questo limite, i terminali inattivi e in background liberano per primi la cronologia."
+            "value": "La quantità massima di memoria che tutti i terminali usano insieme per lo scorrimento, in byte, da 16 MiB a 64 GiB. Il valore predefinito è 256 MiB. Il limite per un terminale è lo scrollback-limit di Ghostty. Quando il totale supera questo limite, i terminali inattivi e in background liberano per primi la cronologia."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "すべてのターミナルが合計でスクロールバックに使うメモリの上限（バイト、16 MiB 以上）。既定値は 256 MiB です。1 つのターミナルの上限は Ghostty の scrollback-limit です。合計がこの上限を超えると、アイドル中やバックグラウンドのターミナルから先にスクロールバックを解放します。"
+            "value": "すべてのターミナルが合計でスクロールバックに使うメモリの上限（バイト、16 MiB〜64 GiB）。既定値は 256 MiB です。1 つのターミナルの上限は Ghostty の scrollback-limit です。合計がこの上限を超えると、アイドル中やバックグラウンドのターミナルから先にスクロールバックを解放します。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "អង្គចងចាំច្រើនបំផុតដែលទែមីណាល់ទាំងអស់ប្រើរួមគ្នាសម្រាប់ប្រវត្តិរំកិល គិតជាបៃ ចាប់ពី 16 MiB។ លំនាំដើមគឺ 256 MiB។ ដែនកំណត់សម្រាប់ទែមីណាល់មួយគឺ scrollback-limit របស់ Ghostty។ នៅពេលសរុបលើសដែនកំណត់នេះ ទែមីណាល់ទំនេរ និងនៅផ្ទៃខាងក្រោយត្រូវបោះបង់ប្រវត្តិរំកិលមុន។"
+            "value": "អង្គចងចាំច្រើនបំផុតដែលទែមីណាល់ទាំងអស់ប្រើរួមគ្នាសម្រាប់ប្រវត្តិរំកិល គិតជាបៃ ពី 16 MiB ដល់ 64 GiB។ លំនាំដើមគឺ 256 MiB។ ដែនកំណត់សម្រាប់ទែមីណាល់មួយគឺ scrollback-limit របស់ Ghostty។ នៅពេលសរុបលើសដែនកំណត់នេះ ទែមីណាល់ទំនេរ និងនៅផ្ទៃខាងក្រោយត្រូវបោះបង់ប្រវត្តិរំកិលមុន។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "모든 터미널이 합쳐서 스크롤백에 사용하는 최대 메모리(바이트, 16MiB 이상). 기본값은 256MiB입니다. 터미널 하나의 한도는 Ghostty의 scrollback-limit입니다. 합계가 이 한도를 넘으면 유휴 터미널과 백그라운드 터미널이 먼저 스크롤백을 반환합니다."
+            "value": "모든 터미널이 합쳐서 스크롤백에 사용하는 최대 메모리(바이트, 16MiB~64GiB). 기본값은 256MiB입니다. 터미널 하나의 한도는 Ghostty의 scrollback-limit입니다. 합계가 이 한도를 넘으면 유휴 터미널과 백그라운드 터미널이 먼저 스크롤백을 반환합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mest minne alle terminaler til sammen bruker til rullehistorikk, i byte, fra 16 MiB. Standard er 256 MiB. Grensen for én terminal er Ghosttys scrollback-limit. Når summen er over denne grensen, gir inaktive terminaler og terminaler i bakgrunnen fra seg rullehistorikk først."
+            "value": "Mest minne alle terminaler til sammen bruker til rullehistorikk, i byte, fra 16 MiB til 64 GiB. Standard er 256 MiB. Grensen for én terminal er Ghosttys scrollback-limit. Når summen er over denne grensen, gir inaktive terminaler og terminaler i bakgrunnen fra seg rullehistorikk først."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Największa ilość pamięci, jaką wszystkie terminale razem zużywają na historię przewijania, w bajtach, od 16 MiB. Domyślnie 256 MiB. Limit jednego terminala to scrollback-limit w Ghostty. Gdy suma przekracza ten limit, bezczynne terminale i terminale w tle najpierw oddają historię."
+            "value": "Największa ilość pamięci, jaką wszystkie terminale razem zużywają na historię przewijania, w bajtach, od 16 MiB do 64 GiB. Domyślnie 256 MiB. Limit jednego terminala to scrollback-limit w Ghostty. Gdy suma przekracza ten limit, bezczynne terminale i terminale w tle najpierw oddają historię."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O máximo de memória que todos os terminais usam juntos para o histórico, em bytes, a partir de 16 MiB. O padrão é 256 MiB. O limite de um terminal é o scrollback-limit do Ghostty. Quando o total passa desse limite, terminais ociosos e em segundo plano liberam histórico primeiro."
+            "value": "O máximo de memória que todos os terminais usam juntos para o histórico, em bytes, de 16 MiB a 64 GiB. O padrão é 256 MiB. O limite de um terminal é o scrollback-limit do Ghostty. Quando o total passa desse limite, terminais ociosos e em segundo plano liberam histórico primeiro."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Наибольший объём памяти, который все терминалы вместе используют для прокрутки, в байтах, от 16 МиБ. По умолчанию 256 МиБ. Лимит одного терминала — scrollback-limit в Ghostty. Когда сумма превышает этот лимит, неактивные и фоновые терминалы первыми освобождают прокрутку."
+            "value": "Наибольший объём памяти, который все терминалы вместе используют для прокрутки, в байтах, от 16 МиБ до 64 ГиБ. По умолчанию 256 МиБ. Лимит одного терминала — scrollback-limit в Ghostty. Когда сумма превышает этот лимит, неактивные и фоновые терминалы первыми освобождают прокрутку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "หน่วยความจำสูงสุดที่ทุกเทอร์มินัลรวมกันใช้สำหรับประวัติการเลื่อน เป็นไบต์ ตั้งแต่ 16 MiB ค่าเริ่มต้นคือ 256 MiB ขีดจำกัดของเทอร์มินัลหนึ่งคือ scrollback-limit ของ Ghostty เมื่อผลรวมเกินขีดจำกัดนี้ เทอร์มินัลที่ไม่ได้ใช้งานและที่อยู่เบื้องหลังจะคืนประวัติการเลื่อนก่อน"
+            "value": "หน่วยความจำสูงสุดที่ทุกเทอร์มินัลรวมกันใช้สำหรับประวัติการเลื่อน เป็นไบต์ ตั้งแต่ 16 MiB ถึง 64 GiB ค่าเริ่มต้นคือ 256 MiB ขีดจำกัดของเทอร์มินัลหนึ่งคือ scrollback-limit ของ Ghostty เมื่อผลรวมเกินขีดจำกัดนี้ เทอร์มินัลที่ไม่ได้ใช้งานและที่อยู่เบื้องหลังจะคืนประวัติการเลื่อนก่อน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tüm terminallerin birlikte kaydırma geçmişi için kullandığı en fazla bellek, bayt olarak, 16 MiB'tan itibaren. Varsayılan 256 MiB'tır. Tek bir terminalin sınırı Ghostty'nin scrollback-limit değeridir. Toplam bu sınırı aştığında boşta ve arka plandaki terminaller önce kaydırma geçmişini bırakır."
+            "value": "Tüm terminallerin birlikte kaydırma geçmişi için kullandığı en fazla bellek, bayt olarak, 16 MiB ile 64 GiB arası. Varsayılan 256 MiB'tır. Tek bir terminalin sınırı Ghostty'nin scrollback-limit değeridir. Toplam bu sınırı aştığında boşta ve arka plandaki terminaller önce kaydırma geçmişini bırakır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Найбільший обсяг пам'яті, який усі термінали разом використовують для прокручування, у байтах, від 16 МіБ. Типово 256 МіБ. Ліміт одного термінала — scrollback-limit у Ghostty. Коли сума перевищує цей ліміт, неактивні та фонові термінали першими звільняють історію прокручування."
+            "value": "Найбільший обсяг пам'яті, який усі термінали разом використовують для прокручування, у байтах, від 16 МіБ до 64 ГіБ. Типово 256 МіБ. Ліміт одного термінала — scrollback-limit у Ghostty. Коли сума перевищує цей ліміт, неактивні та фонові термінали першими звільняють історію прокручування."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Lượng bộ nhớ tối đa mà mọi terminal cùng dùng cho lịch sử cuộn, tính bằng byte, từ 16 MiB. Mặc định là 256 MiB. Giới hạn cho một terminal là scrollback-limit của Ghostty. Khi tổng vượt giới hạn này, các terminal đang rảnh và chạy nền sẽ trả lại lịch sử cuộn trước."
+            "value": "Lượng bộ nhớ tối đa mà mọi terminal cùng dùng cho lịch sử cuộn, tính bằng byte, từ 16 MiB đến 64 GiB. Mặc định là 256 MiB. Giới hạn cho một terminal là scrollback-limit của Ghostty. Khi tổng vượt giới hạn này, các terminal đang rảnh và chạy nền sẽ trả lại lịch sử cuộn trước."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "所有终端合计用于回滚缓冲的内存上限，单位为字节，最小 16 MiB。默认值为 256 MiB。单个终端的上限是 Ghostty 的 scrollback-limit。合计超过此上限时，空闲和后台终端先释放回滚缓冲。"
+            "value": "所有终端合计用于回滚缓冲的内存上限，单位为字节，范围 16 MiB 至 64 GiB。默认值为 256 MiB。单个终端的上限是 Ghostty 的 scrollback-limit。合计超过此上限时，空闲和后台终端先释放回滚缓冲。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "所有終端機合計用於回捲緩衝的記憶體上限，單位為位元組，最小 16 MiB。預設值為 256 MiB。單一終端機的上限是 Ghostty 的 scrollback-limit。合計超過此上限時，閒置和背景終端機先釋放回捲緩衝。"
+            "value": "所有終端機合計用於回捲緩衝的記憶體上限，單位為位元組，範圍 16 MiB 至 64 GiB。預設值為 256 MiB。單一終端機的上限是 Ghostty 的 scrollback-limit。合計超過此上限時，閒置和背景終端機先釋放回捲緩衝。"
           }
         }
       }
