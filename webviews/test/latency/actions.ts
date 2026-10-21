@@ -4,9 +4,28 @@
 import type { Page } from "playwright";
 import type { LatencyAction, LatencyPageSpec } from "./measure";
 
-const settle = (ms: number) => async (page: Page) => {
-  await page.waitForTimeout(ms);
-};
+/** After a run (not measured): resolves once the page holds still, 10 painted frames with no DOM
+ *  change and nothing animating (a new session streaming its patch, a slide, a menu closing), so
+ *  the next run starts on an idle page. The runner installs the painted-frame helpers. */
+async function quiet(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    let changed = true;
+    const observer = new MutationObserver(() => (changed = true));
+    observer.observe(document, { subtree: true, childList: true, characterData: true, attributes: true });
+    for (let held = 0, frames = 0; held < 10 && frames < 600; frames += 1) {
+      await window.cmuxPaintFrame();
+      const moving = document
+        .getAnimations()
+        .some(
+          (animation) =>
+            animation.playState === "running" && Number.isFinite(animation.effect?.getComputedTiming().endTime),
+        );
+      held = changed || moving ? 0 : held + 1;
+      changed = false;
+    }
+    observer.disconnect();
+  });
+}
 
 /** In-page helpers the predicates use (installed by `prepare`). */
 const HELPERS = `(() => {
@@ -71,7 +90,7 @@ const diffActions: LatencyAction[] = [
       await page.click(`[data-source-id="${target}"]`);
     },
     // A new session streams a new patch; let it finish before the next run.
-    settle: settle(900),
+    settle: quiet,
   },
   {
     name: "branch change",
@@ -82,7 +101,7 @@ const diffActions: LatencyAction[] = [
         await page.click("#source-menu-button");
         await page.click('[data-source-id="branch"]');
         await page.waitForSelector("#base-picker-button");
-        await page.waitForTimeout(900);
+        await quiet(page);
       }
       const current = await page.evaluate(() => document.querySelector(".base-picker-ref")?.textContent ?? "");
       const target = current === "origin/main" ? "feat-cmux-next" : "origin/main";
@@ -95,7 +114,7 @@ const diffActions: LatencyAction[] = [
       const target = targetOf(page);
       await page.click(`.base-picker-row:has(.base-picker-row-primary:text-is("${target}"))`);
     },
-    settle: settle(900),
+    settle: quiet,
   },
   {
     name: "toggle file",
@@ -113,7 +132,7 @@ const diffActions: LatencyAction[] = [
       const name = targetOf(page);
       await page.click(`.file-header:has(.file-header-name:text-is("${name}")) .file-header-stats`);
     },
-    settle: settle(150),
+    settle: quiet,
   },
   {
     name: "toggle viewed",
@@ -135,7 +154,7 @@ const diffActions: LatencyAction[] = [
       const name = targetOf(page);
       await page.click(`.file-header:has(.file-header-name:text-is("${name}")) .file-review-viewed`);
     },
-    settle: settle(150),
+    settle: quiet,
   },
   {
     name: "sidebar toggle",
@@ -149,23 +168,26 @@ const diffActions: LatencyAction[] = [
     async input(page) {
       await page.click("#files-toggle");
     },
-    settle: settle(350),
+    settle: quiet,
   },
   {
     name: "sidebar reverse",
     async prepare(page) {
       await page.waitForFunction(() => !document.querySelector<HTMLElement>("#files-sidebar")?.dataset.filesMotion);
       const hidden = await page.evaluate(() => document.body.dataset.filesHidden);
-      // Start a slide, then reverse it half-way (the measured input).
+      // Start a slide, then reverse it once it has run 50 ms (the measured input).
       await page.click("#files-toggle");
-      await page.waitForTimeout(50);
+      await page.waitForFunction(() => {
+        const slide = document.querySelector("#files-sidebar")?.getAnimations()[0];
+        return Number(slide?.currentTime ?? 0) >= 50;
+      });
       const target = hidden === "true" ? "closed" : "open";
       return `document.querySelector("#files-sidebar")?.dataset.filesMotionTarget === ${js(target)}`;
     },
     async input(page) {
       await page.click("#files-toggle");
     },
-    settle: settle(400),
+    settle: quiet,
   },
   {
     name: "layout toggle",
@@ -178,7 +200,7 @@ const diffActions: LatencyAction[] = [
     async input(page) {
       await page.click("#layout-toggle");
     },
-    settle: settle(250),
+    settle: quiet,
   },
   {
     name: "word-wrap toggle",
@@ -191,7 +213,7 @@ const diffActions: LatencyAction[] = [
     async input(page) {
       await page.click("#wrap-toggle");
     },
-    settle: settle(250),
+    settle: quiet,
   },
   {
     name: "jump to file",
@@ -209,7 +231,7 @@ const diffActions: LatencyAction[] = [
     async input(page) {
       await page.keyboard.press("Enter");
     },
-    settle: settle(300),
+    settle: quiet,
   },
   {
     name: "filter typing",
@@ -217,7 +239,7 @@ const diffActions: LatencyAction[] = [
       await helpers(page);
       if ((await attr(page, "body", "data-files-hidden")) === "true") {
         await page.click("#files-toggle");
-        await page.waitForTimeout(350);
+        await page.waitForFunction(() => !document.querySelector<HTMLElement>("#files-sidebar")?.dataset.filesMotion);
       }
       await page.fill("#file-filter-input", "");
       await page.waitForFunction(() =>
@@ -235,9 +257,9 @@ const diffActions: LatencyAction[] = [
       await page.keyboard.press("7");
     },
     async settle(page) {
-      await page.waitForTimeout(150);
+      await quiet(page);
       await page.fill("#file-filter-input", "");
-      await page.waitForTimeout(250);
+      await quiet(page);
     },
   },
 ];
@@ -264,14 +286,15 @@ const markdownActions: LatencyAction[] = [
     async input(page) {
       await page.click(`.md-mode button:text-is("${targetOf(page) === "source" ? "Source" : "Rich text"}")`);
     },
-    settle: settle(200),
+    settle: quiet,
   },
   {
     name: "open link target",
     async prepare(page) {
       if ((await attr(page, ".md-page", "data-mode")) !== "rich") {
         await page.click('.md-mode button:text-is("Rich text")');
-        await page.waitForTimeout(200);
+        await page.waitForFunction(() => document.querySelector<HTMLElement>(".md-doc")?.hidden === false);
+        await quiet(page);
       }
       const current = await page.evaluate(() => document.querySelector(".md-file")?.textContent ?? "");
       const target = current === "a.md" ? "b.md" : "a.md";
@@ -282,7 +305,7 @@ const markdownActions: LatencyAction[] = [
     async input(page) {
       await page.click(`.ProseMirror a[href="${targetOf(page)}"]`, { modifiers: ["Meta"] });
     },
-    settle: settle(500),
+    settle: quiet,
   },
   {
     name: "edit state",
@@ -385,7 +408,7 @@ const pickerActions: LatencyAction[] = [
     async input(page) {
       await page.keyboard.press("Tab");
     },
-    settle: settle(150),
+    settle: quiet,
   },
   {
     name: "up",
@@ -396,7 +419,7 @@ const pickerActions: LatencyAction[] = [
     async input(page) {
       await page.keyboard.press("Backspace");
     },
-    settle: settle(150),
+    settle: quiet,
   },
   {
     name: "choose",
@@ -460,7 +483,7 @@ const emptyActions: LatencyAction[] = [
     async input(page) {
       await page.keyboard.press("Enter");
     },
-    settle: settle(150),
+    settle: quiet,
   },
 ];
 
@@ -488,7 +511,8 @@ const agentPaneActions: LatencyAction[] = [
     },
     async settle(page) {
       await page.keyboard.press("Escape");
-      await page.waitForTimeout(100);
+      await page.waitForFunction(() => document.querySelector(".acpmux-model .acpmux-mp") === null);
+      await quiet(page);
     },
   },
   {
@@ -507,7 +531,8 @@ const agentPaneActions: LatencyAction[] = [
     },
     async settle(page) {
       await page.keyboard.press("Escape");
-      await page.waitForTimeout(100);
+      await page.waitForFunction(() => document.querySelector(".acpmux-slash-menu") === null);
+      await quiet(page);
     },
   },
 ];
