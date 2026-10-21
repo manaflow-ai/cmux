@@ -7,6 +7,7 @@
 
 #include <map>
 
+#include "cmux_page_path.h"
 #include "include/cef_permission_handler.h"
 #include "shim_internal.h"
 
@@ -34,6 +35,11 @@ class Handler : public CefPermissionHandler {
   bool OnShowPermissionPrompt(CefRefPtr<CefBrowser> browser, uint64_t prompt_id, const CefString& requesting_origin,
                               uint32_t requested_permissions,
                               CefRefPtr<CefPermissionPromptCallback> callback) override {
+    // A cmux page reaching its own loopback daemon: granted at once (cmux_page_path.h).
+    if (GrantsCmuxPageLocalNetwork(requesting_origin.ToString(), requested_permissions)) {
+      callback->Continue(CEF_PERMISSION_RESULT_ACCEPT);
+      return true;
+    }
     // A request that groups a host kind with another stays with Chromium.
     if (!browser || requested_permissions == 0 || (requested_permissions & ~kHostPermissions) != 0) {
       return false;

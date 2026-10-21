@@ -445,8 +445,11 @@ final class BrowserDownloadRowEventView: NSView, NSDraggingSource {
         onOpen(file)
     }
 
+    /// The row's right-click menu in the cmux NEXT menu look, in this row's theme.
+    func themedMenu() -> NSMenu? { menuProvider()?.themeRows(in: themeScope.fullStrength) }
+
     override func rightMouseDown(with event: NSEvent) {
-        guard let menu = menuProvider() else { return super.rightMouseDown(with: event) }
+        guard let menu = themedMenu() else { return super.rightMouseDown(with: event) }
         NSMenu.popUpContextMenu(menu, with: event, for: self)
     }
 
