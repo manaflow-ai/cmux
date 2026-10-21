@@ -90,9 +90,10 @@ const activity = (id: string, items: AcpmuxActivity[]): AcpmuxRow => ({
   items,
 });
 
-/// Claude Code's Write of a new file: its input names the file and the whole text, and its content
-/// carries no `diff` item (the call's result is plain text).
-const writeNewFile = () =>
+/// Claude Code's Write of a new file, as in the report: its ACP content is a `diff` with no old
+/// text. `fromInput`: the content carries no `diff` item (the call's result is plain text), and only
+/// its input names the file and the whole text.
+const writeNewFile = (fromInput = false) =>
   toolCall("write-1", [
     {
       title: "Write /tmp/l-setup.txt",
@@ -100,7 +101,12 @@ const writeNewFile = () =>
       status: "pending",
       rawInput: { file_path: SETUP, content: setupText },
     },
-    { status: "completed", content: [{ type: "content", content: { type: "text", text: "File created" } }] },
+    {
+      status: "completed",
+      content: fromInput
+        ? [{ type: "content", content: { type: "text", text: "File created" } }]
+        : [{ type: "diff", path: SETUP, oldText: null, newText: setupText }],
+    },
   ]);
 
 /// Claude Code's Edit inside the chat folder, with only `old_string` and `new_string` in its input.
@@ -189,8 +195,11 @@ async function opensIn(rows: AcpmuxRow[], rowId: string, folder: string | undefi
   return viewChangesBeside(rows, rowId, folder) ? "beside" : "in place";
 }
 
-test("a new file (Write, nothing before it) opens inline as all added lines", async () => {
-  const row = activity("turn-1", [await writeNewFile()]);
+test.each([
+  ["with a diff in its content", false],
+  ["with only its input", true],
+])("a new file (Write, nothing before it) %s opens inline as all added lines", async (_shape, fromInput) => {
+  const row = activity(`turn-1-${fromInput}`, [await writeNewFile(fromInput)]);
   await renderCard(row);
   expect(text(".acpmux-edited-title > div")).toBe("Edited l-setup.txt");
   expect(text(".acpmux-edited-sub")).toBe("+9-0");
@@ -206,7 +215,7 @@ test("a new file (Write, nothing before it) opens inline as all added lines", as
 });
 
 test("a new file's View changes opens the turn's own diff, all nine lines added", async () => {
-  const row = activity("turn-1", [await writeNewFile()]);
+  const row = activity("turn-1", [await writeNewFile(true)]);
   const opened = await renderCard(row);
   await click(host.querySelector(".acpmux-review-changes"));
   expect(opened).toEqual([{ rowId: "turn-1", path: SETUP }]);
