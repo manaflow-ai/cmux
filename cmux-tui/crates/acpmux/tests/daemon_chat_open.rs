@@ -99,7 +99,8 @@ impl Writer {
         let seq = self.log.records;
         let at = 1_791_000_000_000u64 + seq;
         let line =
-            format!(r#"{{"seq":{seq},"at":{at},"dir":"{dir}","kind":"{kind}","msg":{msg}}}"#) + "\n";
+            format!(r#"{{"seq":{seq},"at":{at},"dir":"{dir}","kind":"{kind}","msg":{msg}}}"#)
+                + "\n";
         if self.in_segment >= 8 * 1024 * 1024 {
             self.out.flush().unwrap();
             self.segment += 1;
@@ -126,7 +127,13 @@ fn write_log(dir: &Path, mb: u64) -> Log {
     let events = dir.join("events");
     private_dir(&events);
     let out = Writer::open(&events, 1);
-    let mut w = Writer { events, out, segment: 1, in_segment: 0, log: Log { records: 0, bytes: 0, transcript: Vec::new() } };
+    let mut w = Writer {
+        events,
+        out,
+        segment: 1,
+        in_segment: 0,
+        log: Log { records: 0, bytes: 0, transcript: Vec::new() },
+    };
     w.write(
         "in",
         "available_commands_update",
@@ -140,7 +147,12 @@ fn write_log(dir: &Path, mb: u64) -> Log {
     let mut turn = 0u64;
     while w.log.bytes < mb * 1_000_000 {
         turn += 1;
-        w.write("mux", "user_message", json!({"text": format!("prompt {turn}"), "promptId": format!("p{turn}")}), true);
+        w.write(
+            "mux",
+            "user_message",
+            json!({"text": format!("prompt {turn}"), "promptId": format!("p{turn}")}),
+            true,
+        );
         w.write("mux", "turn_started", json!({"turnId": format!("t{turn}")}), true);
         for k in 0..60 {
             w.write("in", "claude.stream_event", json!({"type": "stream_event", "event": {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "word "}}, "pad": pad}), false);
@@ -150,8 +162,18 @@ fn write_log(dir: &Path, mb: u64) -> Log {
         }
         w.write("in", "tool_call", update(json!({"sessionUpdate": "tool_call", "toolCallId": format!("c{turn}"), "content": [{"type": "text", "text": tool}]})), true);
         w.write("in", "claude.user", json!({"type": "user", "message": {"content": [{"type": "tool_result", "content": result}]}}), false);
-        w.write("in", "usage_update", update(json!({"sessionUpdate": "usage_update", "used": turn})), false);
-        w.write("mux", "turn_result", json!({"status": "completed", "turnId": format!("t{turn}")}), true);
+        w.write(
+            "in",
+            "usage_update",
+            update(json!({"sessionUpdate": "usage_update", "used": turn})),
+            false,
+        );
+        w.write(
+            "mux",
+            "turn_result",
+            json!({"status": "completed", "turnId": format!("t{turn}")}),
+            true,
+        );
     }
     w.out.flush().unwrap();
     w.log
@@ -176,10 +198,13 @@ fn env_or(name: &str, default: u64) -> u64 {
     std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
 }
 
+/// Starts the daemon and returns once it has read its chat logs (`Hub::load_logs`, which a
+/// daemon runs after its ready line and which reads each open chat's log): the reads measured
+/// after it are the requests' own.
 fn start(scratch: &Path, home: &Path) -> (Child, PathBuf) {
     let socket = scratch.join("s.sock");
     let mut child = daemon_env::acpmux(scratch)
-        .args(["daemon", "run", "--ready-fd", "1", "--log", "warn"])
+        .args(["daemon", "run", "--ready-fd", "1", "--log", "info"])
         .env("ACPMUX_HOME", home)
         .env("ACPMUX_SOCKET", &socket)
         .stdin(Stdio::null())
@@ -187,15 +212,25 @@ fn start(scratch: &Path, home: &Path) -> (Child, PathBuf) {
         .stderr(Stdio::null())
         .spawn()
         .unwrap();
+    // The ready line and the daemon's log both go to stdout.
+    let (events, seen) = std::sync::mpsc::channel();
     let stdout = child.stdout.take().unwrap();
-    for line in BufReader::new(stdout).lines() {
-        if serde_json::from_str::<Value>(&line.unwrap()).is_ok_and(|v| v["ready"] == true) {
-            return (child, socket);
+    std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            if serde_json::from_str::<Value>(&line).is_ok_and(|v| v["ready"] == true) {
+                let _ = events.send("ready");
+            } else if line.contains("loaded the chat logs") {
+                let _ = events.send("loaded");
+            }
         }
+    });
+    let wait = std::time::Duration::from_secs(120);
+    if seen.recv_timeout(wait) == Ok("ready") && seen.recv_timeout(wait) == Ok("loaded") {
+        return (child, socket);
     }
     let _ = child.kill();
     let _ = child.wait();
-    panic!("daemon exited without a readiness line");
+    panic!("daemon did not start and read its logs");
 }
 
 fn seqs(page: &Value) -> Vec<u64> {
@@ -239,18 +274,30 @@ fn a_long_chat_opens_on_its_newest_page_and_scrolls_to_its_first_message() {
         "_acpmux/attach",
         json!({"sessionId": id, "limit": 400, "maxBytes": 128 * 1024, "kinds": ATTACH_KINDS, "eventStream": true, "visible": true}),
     );
+    let attach_read = read_bytes(pid) - before_open;
     let first = seqs(&page)[0];
-    let opener =
-        rpc.call("_acpmux/events", json!({"sessionId": id, "beforeSeq": first, "limit": 16, "kinds": ["user_message"]}));
+    let opener = rpc.call(
+        "_acpmux/events",
+        json!({"sessionId": id, "beforeSeq": first, "limit": 16, "kinds": ["user_message"]}),
+    );
     let open_read = read_bytes(pid) - before_open;
-    assert_eq!(page["session"]["availableCommands"], commands, "the session does not name its commands");
+    assert_eq!(
+        page["session"]["availableCommands"], commands,
+        "the session does not name its commands"
+    );
     assert_eq!(page["hasMore"], true);
     let page_transcript: Vec<u64> =
         seqs(&page).into_iter().filter(|seq| log.transcript.binary_search(seq).is_ok()).collect();
     let tail = &log.transcript[log.transcript.len() - page_transcript.len()..];
-    assert_eq!(page_transcript, tail, "the open page is not the newest transcript records in order");
+    assert_eq!(
+        page_transcript, tail,
+        "the open page is not the newest transcript records in order"
+    );
     let prompts = seqs(&opener);
-    assert!(!prompts.is_empty() && prompts.iter().all(|seq| *seq < first), "no prompt before the page");
+    assert!(
+        !prompts.is_empty() && prompts.iter().all(|seq| *seq < first),
+        "no prompt before the page"
+    );
 
     // An older acpmux client finds the command list in the log: the first record.
     let listed = rpc.call(
@@ -269,7 +316,10 @@ fn a_long_chat_opens_on_its_newest_page_and_scrolls_to_its_first_message() {
         );
         pages += 1;
         let got = seqs(&older);
-        assert!(got.windows(2).all(|w| w[0] < w[1]) && got.last().is_none_or(|last| *last < before), "a page is out of order");
+        assert!(
+            got.windows(2).all(|w| w[0] < w[1]) && got.last().is_none_or(|last| *last < before),
+            "a page is out of order"
+        );
         held.splice(0..0, got.iter().copied());
         if older["hasMore"] != true || got.is_empty() {
             break;
@@ -277,11 +327,15 @@ fn a_long_chat_opens_on_its_newest_page_and_scrolls_to_its_first_message() {
         before = got[0];
     }
     let scroll_read = read_bytes(pid) - before_scroll;
-    let transcript: Vec<u64> = held.into_iter().filter(|seq| log.transcript.binary_search(seq).is_ok()).collect();
-    assert_eq!(transcript, log.transcript, "the scroll lost, repeated or reordered a transcript record");
+    let transcript: Vec<u64> =
+        held.into_iter().filter(|seq| log.transcript.binary_search(seq).is_ok()).collect();
+    assert_eq!(
+        transcript, log.transcript,
+        "the scroll lost, repeated or reordered a transcript record"
+    );
     println!(
         "acpmux-chat-open: {}",
-        json!({"log_mb": mb, "records": log.records, "open_read_mb": open_read as f64 / 1e6,
+        json!({"log_mb": mb, "records": log.records, "open_read_mb": open_read as f64 / 1e6, "attach_read_mb": attach_read as f64 / 1e6,
                "scroll_pages": pages, "scroll_read_mb": scroll_read as f64 / 1e6, "log_bytes_mb": log.bytes as f64 / 1e6})
     );
     // SAFETY: the pid is this test's own child.
@@ -289,7 +343,10 @@ fn a_long_chat_opens_on_its_newest_page_and_scrolls_to_its_first_message() {
     let _ = child.wait();
     let _ = std::fs::remove_dir_all(&dir);
     if cfg!(target_os = "linux") {
-        assert!(open_read <= open_budget, "opening the chat read {open_read} bytes (budget {open_budget})");
+        assert!(
+            open_read <= open_budget,
+            "opening the chat read {open_read} bytes (budget {open_budget})"
+        );
         assert!(
             scroll_read <= scroll_x * log.bytes,
             "the scroll to the first message read {scroll_read} bytes, over {scroll_x}x the {}-byte log",
