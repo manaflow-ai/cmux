@@ -30,6 +30,8 @@ parser.add_argument("--keys", type=int, default=40)
 parser.add_argument("--flings", type=int, default=3)
 parser.add_argument("--settle", type=float, default=10)
 parser.add_argument("--activate", action="store_true", help="run the app active, to see which window takes the keys")
+parser.add_argument("--open", action="store_true",
+                    help="launch through LaunchServices (`open -n`), for a shell outside the console's GUI session (ssh)")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--json")
 opts = parser.parse_args()
@@ -131,6 +133,17 @@ def focus_probe():
             "shell_window_is_key": any(w.get("is_key") for w in windows)}
 
 
+class Launched:
+    """An app LaunchServices started (`--open`): its pid, and a wait for it to exit."""
+
+    def __init__(self, pid):
+        self.pid = pid
+
+    def wait(self, timeout):
+        if not bench_memory.wait_gone(self.pid, timeout):
+            raise subprocess.TimeoutExpired("open", timeout)
+
+
 def launch(mode, scratch):
     global app
     config = os.path.join(scratch, "cmux.json")
@@ -145,8 +158,21 @@ def launch(mode, scratch):
            "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,900"}
     if not opts.activate:
         env["CMUX_NEXT_NO_ACTIVATE"] = "1"
-    log = open(os.path.join(opts.out, f"app-{TAG}-{mode}.log"), "a")
-    app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
+    log_path = os.path.join(opts.out, f"app-{TAG}-{mode}.log")
+    if opts.open:
+        # LaunchServices starts the app in the console user's GUI session, which a process
+        # started over ssh is not in; the app gets this environment on top of the session's.
+        pairs = [arg for key, value in env.items() if key not in ("HOME", "USER", "TMPDIR", "PATH")
+                 for arg in ("--env", f"{key}={value}")]
+        subprocess.run(["open", "-n", *([] if opts.activate else ["-g"]), "--stdout", log_path, "--stderr", log_path,
+                        *pairs, APP], check=True, timeout=60)
+        pid = wait(lambda: next((p for p, _, cmd in bench_memory.process_table() if bench_memory.is_binary(cmd, BINARY)), None), 60)
+        if pid is None:
+            return None
+        app = Launched(pid)
+    else:
+        log = open(log_path, "a")
+        app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
     return wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 120)
 
 
