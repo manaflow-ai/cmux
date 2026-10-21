@@ -17,7 +17,11 @@ typealias SidebarListViewComponents = SidebarListView
 
 final class SidebarListView: NSView {
     let model: SidebarModel
-    var displayed = SidebarLayout.empty
+    var displayed = SidebarLayout.empty {
+        didSet { onDisplayed?(displayed) }
+    }
+    /// Each layout the list draws, in order (a test reads every frame of a Cmd-N: RapidWorkspaceCreateTests).
+    var onDisplayed: ((SidebarLayout) -> Void)?
     var rowViews: [SidebarRowKey: SidebarRowView] = [:]
     var workspaces: [WorkspaceID: SidebarWorkspace] = [:]
     var tabs: [TabID: SidebarTab] = [:]
