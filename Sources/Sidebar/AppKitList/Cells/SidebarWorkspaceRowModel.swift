@@ -85,21 +85,34 @@ struct SidebarWorkspaceRowModel: Equatable {
     }
 
     /// Equality over every field that can influence the measured row height.
-    /// `index` feeds only the accessibility label and `isFirstRow` only the
-    /// drop-indicator frame in the apply pass (`layoutContent(apply: true)`),
-    /// so neither changes what `layoutContent(apply: false)` returns. Closing
-    /// a workspace shifts both for every row below it; height caching keyed on
-    /// full equality would re-measure that whole tail and lose its entries
-    /// exactly when a stale-width fallback needs them.
+    /// `index` and `accessibilityWorkspaceCount` feed only the accessibility
+    /// label; `isFirstRow`, `rowSpacing` and the drop indicators only the
+    /// apply-pass chrome frames (`layoutContent(apply: true)`); the shortcut
+    /// hint pill is an overlay; dragging only dims the row; and the unread
+    /// count matters only as badge visibility (the badge side is fixed). None
+    /// changes what `layoutContent(apply: false)` returns. Closing or creating
+    /// a workspace, holding the hint modifier, or a drag changes these on many
+    /// rows at once; keying the height cache on full equality re-measured the
+    /// whole list on the main actor and lost the entries a stale-width
+    /// fallback needs.
     func hasHeightEquivalentContent(to other: Self) -> Bool {
         if self == other { return true }
-        var normalizedSelf = self
-        var normalizedOther = other
-        normalizedSelf.index = 0
-        normalizedOther.index = 0
-        normalizedSelf.isFirstRow = false
-        normalizedOther.isFirstRow = false
-        return normalizedSelf == normalizedOther
+        return heightNormalized == other.heightNormalized
+    }
+
+    private var heightNormalized: Self {
+        var normalized = self
+        normalized.index = 0
+        normalized.isFirstRow = false
+        normalized.accessibilityWorkspaceCount = 0
+        normalized.unreadCount = unreadCount > 0 ? 1 : 0
+        normalized.rowSpacing = 0
+        normalized.isBeingDragged = false
+        normalized.topDropIndicatorVisible = false
+        normalized.bottomDropIndicatorVisible = false
+        normalized.shortcutHintText = nil
+        normalized.showsShortcutHints = false
+        return normalized
     }
 }
 
