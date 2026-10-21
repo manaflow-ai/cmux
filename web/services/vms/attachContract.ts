@@ -35,8 +35,8 @@ export function createAttachBlock(input: {
   // A create receipt cannot mint a daemon invitation without contacting the
   // guest. In grant-required mode the client follows with attach-endpoint,
   // which owns that authenticated mint and its lease ledger entry.
-  if (cloudClientGrantRequired()) return null;
   const { entry, manifestEntry } = input;
+  if (cloudClientGrantRequired() || manifestEntry?.cmuxRemoteAuth === "client-grant") return null;
   const ipv4 = entry.addressIpv4?.trim() || undefined;
   const ipv6 = entry.addressIpv6?.trim() || undefined;
   if (!manifestEntry || entry.cmuxTuiContract !== "snapshot-v2" || (!ipv4 && !ipv6)) return null;

@@ -88,8 +88,24 @@ import {
   type CmuxTuiInvoke,
 } from "./cmuxTuiDaemon";
 import { cloudClientGrantRequired } from "../clientGrant";
+import { cloudRemoteAuthMode } from "../clientGrant";
+import { findVmImageManifestEntry } from "../images/resolver";
 export { preconnectFreestyle } from "./freestyleWarmup";
 export type { FreestylePreconnectOptions } from "./freestyleWarmup";
+
+function freestyleRemoteAuthPlan(
+  metadata: Record<string, unknown> | undefined,
+  deviceFingerprint: string | undefined,
+): { readonly fingerprint?: string; readonly mintInvitation: boolean; readonly trustedCarrier: boolean } {
+  const authMode = cloudRemoteAuthMode(metadata);
+  const fingerprint = deviceFingerprint?.trim() || undefined;
+  return {
+    ...(fingerprint ? { fingerprint } : {}),
+    mintInvitation: fingerprint === undefined &&
+      (authMode === "client-grant" || cloudClientGrantRequired()),
+    trustedCarrier: authMode === "trusted-carrier" && fingerprint === undefined,
+  };
+}
 
 // The Freestyle driver, on the public platform (api.freestyle.sh /v5, SDK
 // freestyle@0.2.x). This is the only Freestyle arm: the legacy 0.1.x platform
@@ -1270,6 +1286,10 @@ export class FreestyleProvider implements VMProvider {
             providerMetadata: {
               ...(options.providerMetadata ?? {}),
               cmuxTuiContract: "snapshot-v2",
+              cmuxRemoteAuth: cloudRemoteAuthMode(
+                options.providerMetadata,
+                findVmImageManifestEntry("freestyle", image)?.cmuxRemoteAuth ?? "trusted-carrier",
+              ),
               ...(networkId ? { networkId } : {}),
               ...(freestyleNetworkAddressMetadata(data)),
             },
@@ -1733,6 +1753,7 @@ export class FreestyleProvider implements VMProvider {
             providerMetadata: {
               ...(options?.providerMetadata ?? {}),
               cmuxTuiContract: "snapshot-v2",
+              cmuxRemoteAuth: cloudRemoteAuthMode(options?.providerMetadata),
               ...(networkId ? { networkId, ...freestyleNetworkAddressMetadata(data) } : {}),
             },
           };
@@ -1765,9 +1786,12 @@ export class FreestyleProvider implements VMProvider {
           }
           span.setAttribute("cmux.vm.cmux_tui_contract", "snapshot-v2");
           const route = freestyleCmuxRemoteRoute(routeAddresses, vmId);
-          const requireClientGrant = cloudClientGrantRequired();
+          const auth = freestyleRemoteAuthPlan(
+            options?.providerMetadata,
+            options?.deviceFingerprint,
+          );
           let invitation: CmuxRemoteEndpoint["invitation"] | undefined;
-          if (requireClientGrant) {
+          if (auth.mintInvitation) {
             const vm = this.deps.client(EXEC_DEFAULT_TIMEOUT_MS + EXEC_OVERHEAD_TIMEOUT_MS).vms.ref(vmId);
             invitation = await mintCmuxTuiInvitation(this.cmuxTuiInvoke(vm), "freestyle", vmId);
           }
@@ -1787,7 +1811,10 @@ export class FreestyleProvider implements VMProvider {
             token,
             expiresAtUnix,
             session: CMUX_TUI_SESSION,
-            trustedCarrier: !requireClientGrant,
+            // A released client ignores `invitation` and uses this compatibility
+            // bit. A new client that names an enrolled fingerprint uses enrolled
+            // auth even on a compatibility image.
+            trustedCarrier: auth.trustedCarrier,
             ...(invitation ? { invitation } : {}),
             ...(Object.keys(networkAddresses).length ? { networkAddresses } : {}),
           };
