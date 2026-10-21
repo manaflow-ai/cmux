@@ -149,3 +149,58 @@ test("numeric entities decode", () => {
   );
   expect(message?.kind === "message" && message.message.text).toBe("\u00a9 \u{1F600} &#0;");
 });
+
+// As hub/subsessions.rs `send_family_prompt` records it: `from` is the sender's raw session id.
+const family = {
+  kind: "subsession_message",
+  from: "parent-1",
+  fromName: "claude-sr2/coordinator",
+  to: "child-1",
+  fromRole: "parent",
+};
+
+test("a sub-session family's message names its sender, who it is to this chat, and opens it", () => {
+  expect(incomingPrompt(" Run the tests. ", { _meta: { provenance: family }, client: "acpmux-subsession" })).toEqual({
+    kind: "message",
+    message: {
+      name: "claude-sr2/coordinator",
+      sessionId: "parent-1",
+      relation: "parent",
+      text: "Run the tests.",
+      raw: " Run the tests. ",
+    },
+  });
+  // A sub-session reporting to its parent goes by its short name.
+  const report = incomingPrompt("Done.", {
+    _meta: {
+      provenance: {
+        ...family,
+        from: "child-1",
+        fromName: "claude-sr2/coordinator/tests",
+        fromShortName: "tests",
+        to: "parent-1",
+        fromRole: "subsession",
+      },
+    },
+  });
+  expect(report).toEqual({
+    kind: "message",
+    message: { name: "tests", sessionId: "child-1", relation: "subsession", text: "Done.", raw: "Done." },
+  });
+});
+
+test("a family message without a name or a known relation still names and opens its sender", () => {
+  const bare = incomingPrompt("hi", {
+    _meta: { provenance: { kind: "subsession_message", from: "acp:child-2", fromShortName: " ", fromRole: "cousin" } },
+  });
+  expect(bare).toEqual({
+    kind: "message",
+    message: { name: "acp:child-2", sessionId: "child-2", text: "hi", raw: "hi" },
+  });
+  for (const role of ["ancestor", "descendant"] as const) {
+    const message = incomingPrompt("hi", { _meta: { provenance: { ...family, fromRole: role } } });
+    expect(message?.kind === "message" && message.message.relation).toBe(role);
+  }
+  // Without a sender it is the person's prompt.
+  expect(incomingPrompt("hi", { _meta: { provenance: { ...family, from: "" } } })).toBeUndefined();
+});

@@ -1,13 +1,22 @@
 // Another agent's message to this chat (incomingMessage.ts) as MessageCard draws one this agent
 // sent: sender to this agent, the message's first two lines, and the whole message once opened.
 // Opened, a Claude Code envelope also shows the prompt as the agent got it; a sender that is a
-// chat here opens beside this one.
+// chat here opens beside this one. A sub-session family's sender reads with who it is to this
+// chat: "Parent · coordinator → This agent".
 import { useId, useLayoutEffect, useRef, useState } from "react";
-import { useT } from "../i18n";
+import { useT, type StringKey } from "../i18n";
 import type { PromptImage } from "../model";
-import type { IncomingMessage } from "./incomingMessage";
+import type { IncomingMessage, IncomingRelation } from "./incomingMessage";
 import { SentImages } from "./UserBubble";
 import { ArrowRight, ChevronDown, ChevronRight, Envelope, TerminalSquare } from "./icons";
+
+/// A family sender's label, its relation before its name.
+const RELATION_LABEL: Record<IncomingRelation, StringKey> = {
+  parent: "message.from.parent",
+  subsession: "message.from.subsession",
+  ancestor: "message.from.ancestor",
+  descendant: "message.from.descendant",
+};
 
 export function IncomingMessageCard({
   message,
@@ -22,6 +31,8 @@ export function IncomingMessageCard({
   const t = useT();
   const [open, setOpen] = useState(false);
   const to = t("message.self");
+  // A sub-session family's sender says who it is to this chat: "Parent · coordinator".
+  const from = message.relation ? t(RELATION_LABEL[message.relation], { name: message.name }) : message.name;
   // As MessageCard: a first guess, then the clamped body measures itself.
   const [long, setLong] = useState(() => message.text.split("\n").length > 2 || message.text.length > 140);
   const body = useRef<HTMLDivElement>(null);
@@ -45,14 +56,14 @@ export function IncomingMessageCard({
         className="cv-message__head"
         aria-expanded={open}
         aria-controls={bodyId}
-        aria-label={t("message.label", { from: message.name, to })}
+        aria-label={t("message.label", { from, to })}
         onClick={() => setOpen((value) => !value)}
       >
         <span className="cv-message__route">
           <span className="cv-tool__icon">
             <Envelope />
           </span>
-          <span className="cv-message__party">{message.name}</span>
+          <span className="cv-message__party">{from}</span>
           <ArrowRight size={12} className="cv-message__arrow" />
           <span className="cv-message__party is-to">{to}</span>
           <ChevronRight
