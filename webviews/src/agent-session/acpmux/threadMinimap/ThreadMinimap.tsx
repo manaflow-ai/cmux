@@ -86,6 +86,7 @@ export function ThreadMinimap({
   scroller,
   scrollTop,
   viewportHeight,
+  scrolls,
   width,
   placed,
 }: {
@@ -95,6 +96,8 @@ export function ThreadMinimap({
   scroller: React.RefObject<HTMLElement | null>;
   scrollTop: number;
   viewportHeight: number;
+  /// Whether the transcript scrolls at all (its layout, dock space included, is taller than it).
+  scrolls: boolean;
   width: number;
   /// The transcript calls what the rail puts here once each commit's placement pass has set its
   /// offset (VirtualTranscript), so the band reads where the transcript put the reader.
@@ -479,6 +482,7 @@ export function ThreadMinimap({
         layout={layout}
         scroller={scroller}
         viewportHeight={viewportHeight}
+        scrolls={scrolls}
         width={width}
         marks={marks}
         jump={jump}
@@ -504,7 +508,8 @@ export function ThreadMinimap({
       event.currentTarget.releasePointerCapture(state.pointer);
   };
   const railTop = Math.round((viewportHeight - height) / 2);
-  const active = hovered ?? focused;
+  // The previewed prompt stays lit while the pointer is on its card, as ChatGPT's rail does.
+  const active = hovered ?? focused ?? (showCard ? cardRow : undefined);
   const cardMarked = cardTurn ? marks.has(cardTurn) : false;
   const cardTop =
     cardRow === undefined

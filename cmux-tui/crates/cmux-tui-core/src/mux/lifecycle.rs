@@ -63,6 +63,7 @@ impl Mux {
         self.agent_records.lock().unwrap().remove(terminal_id);
         self.agent_presence.lock().unwrap().remove(terminal_id);
         self.agent_prompts.lock().unwrap().forget(terminal_id);
+        self.output_store.forget(terminal_id);
         // Terminal lifecycle does not flow through `agent.*` journal events
         // yet, so a closed terminal retires its roster entry explicitly.
         // The snapshot persists so a restart does not resurrect the entry;
@@ -159,6 +160,7 @@ impl Mux {
     /// `screen_checkpoint`, checkpoint the terminal screens in between.
     pub(super) fn finalize_terminal_journal(&self, context: &str, screen_checkpoint: bool) {
         if self.journal_ingress.is_closed() {
+            self.output_store.shutdown(self);
             if let Err(error) = self.journal_ingress.close_and_join() {
                 eprintln!("cmux-tui: await session journal writer during {context}: {error:#}");
             }
@@ -190,18 +192,17 @@ impl Mux {
             }
             return;
         }
-        for gap in terminal_gaps {
-            if let Err(error) = self.journal_ingress.send_durable(
-                crate::journal_ingress::JournalIngressEvent::TerminalOutputGap {
-                    terminal_id: gap.terminal_id,
-                    generation: gap.generation,
-                    occurred_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
-                    reason: gap.reason,
-                },
-            ) {
-                eprintln!("cmux-tui: record terminal output gap during {context}: {error:#}");
-            }
+        // Output is not journaled (output_store.rs): a reader that missed
+        // the shutdown grace only costs the output store its last bytes.
+        for gap in &terminal_gaps {
+            eprintln!(
+                "cmux-tui: terminal {} ({}) reader did not drain during {context}: {}",
+                gap.terminal_id, gap.generation, gap.reason
+            );
         }
+        // Readers are stopped and every terminal is still alive: write the
+        // output store's last snapshots and segment frames.
+        self.output_store.shutdown(self);
         // Each terminal reader has drained or its journal capture gate has
         // closed. An update that exceeded the extra active-update grace has a
         // durable gap above. Fence the terminal ingress lane while this Mux

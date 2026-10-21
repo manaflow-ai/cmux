@@ -242,8 +242,9 @@ final class HomeFirstRunView: NSView {
 /// One first-run row: a glyph, a label and the action's shortcut on a raised
 /// small-radius rect with a hairline (never a capsule), taking the hover
 /// fill under the pointer. A bezel NSButton draws gray when the window is
-/// not key and reads as disabled. Clicks, VoiceOver's press, and Return or Space while it has
-/// keyboard focus run `onClick`; Tab reaches it and Up and Down move between the rows.
+/// not key and reads as disabled. Clicks, VoiceOver's press, and Return while it has keyboard
+/// focus run `onClick`; Space is printable input routed to the Home message box. Tab reaches it
+/// and Up and Down move between the rows.
 final class HomeFirstRunRow: NSView {
     let surface = NSView()
     let glyph = NSImageView()

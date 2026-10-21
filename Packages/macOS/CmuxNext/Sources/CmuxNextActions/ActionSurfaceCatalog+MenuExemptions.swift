@@ -22,10 +22,9 @@ nonisolated extension ActionSurfaceCatalog {
         ],
         .unimplemented: [
             "palette.browserToggleOmnibar",
-            "palette.openFindPane",
-            "palette.openFilesPane",
         ],
         .noObject: [
+            "palette.openFilesPane", "palette.openFindPane",
             "sidebar.profileMenu", "browser.downloads.showFolder",
             "home.show",
             "openSettings", "appearance.customize", "newWindow", "newIncognitoWindow", "closeWindow", "minimizeWindow", "toggleFullScreen",
@@ -65,7 +64,7 @@ nonisolated extension ActionSurfaceCatalog {
             "layout.toggleStripScrollbar", "recentlyFocused", "recentlyClosed", "history.commands", "history.show", "agentHistory.show",
             "music.open", "music.stop",
             "browserShowHistory", "history.search", "history.resumeAgentSession", "history.reopen", "history.open", "history.clear",
-            "layout.undo", "bookmark.add", "bookmark.import", "bookmark.importFromBrowser", "bookmark.export", "agentActivity.open",
+            "layout.undo", "agentActivity.open",
             "palette.openVaultPane",
         ],
         .noTargetSurface: [
@@ -78,7 +77,7 @@ nonisolated extension ActionSurfaceCatalog {
             "simulatorRotateLeft", "simulatorRotateRight", "simulatorToggleAppearance",
             "simulatorToggleSoftwareKeyboard", "agentPane.searchChats", "screenGroup.reopenSaved", "screenGroup.deleteSaved",
             "resumeCommandSet", "resumeCommandEdit", "resumeCommandClear", "saveFilePreview", "markdownSave",
-            "markdownLink", "markdownBack", "markdownForward", "markdownResetTableWidths",
+            "markdownLink", "markdownBack", "markdownForward", "markdownReload", "markdownResetTableWidths", "markdownGoToTop",
             "toggleFileEditorWordWrap", "filePreviewOpenWith", "filePreviewOpenExternally",
             "filePreviewRevealInFinder", "filePreviewRevealInFiles", "diffViewerNextLine", "diffViewerPreviousLine", "diffViewerHalfPageDown",
             "diffViewerHalfPageUp", "diffViewerNextHunk", "diffViewerPreviousHunk", "diffViewerGoToBottom",

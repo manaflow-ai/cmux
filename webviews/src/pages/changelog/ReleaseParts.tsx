@@ -6,7 +6,8 @@ import type { Strings } from "../shared/i18n";
 import { getColorScheme, subscribeColorScheme } from "./colorScheme";
 import { byArea } from "./areas";
 import { formatReleaseDate, type AreaChange, type MediaRef, type ReleaseItem, type ReleaseView } from "./model";
-import type { ChangeItem, WhatsNewCategory } from "./types";
+import type { ChangeItem, IndexEntry, WhatsNewCategory } from "./types";
+import { cardVersion } from "./UpdateSurfaces";
 
 export interface PartsContext {
   strings: Strings;
@@ -55,7 +56,36 @@ export function ItemActions({ item, ctx }: { item: ReleaseItem; ctx: PartsContex
         </button>
       )}
       {item.docs && (
-        <a className="cl-link" href={item.docs} rel="noreferrer">
+        <a
+          className="cl-link"
+          href={item.docs}
+          rel="noreferrer"
+          aria-label={`${ctx.strings.t("changelog.page.learnMore")}: ${item.title}`}
+        >
+          {ctx.strings.t("changelog.page.learnMore")}
+        </a>
+      )}
+    </div>
+  );
+}
+
+/** Try it and Learn more for one grouped change, kept with its title and summary. */
+export function RowActions({ item, ctx }: { item: ReleaseItem; ctx: PartsContext }) {
+  if (!item.action && !item.docs) return null;
+  return (
+    <div className="cl-row-actions">
+      {item.action && (
+        <button type="button" className="cl-row-action" onClick={() => ctx.onTry(item.action!.id)}>
+          {item.action.title || ctx.strings.t("changelog.page.tryIt")}
+        </button>
+      )}
+      {item.docs && (
+        <a
+          className="cl-row-link"
+          href={item.docs}
+          rel="noreferrer"
+          aria-label={`${ctx.strings.t("changelog.page.learnMore")}: ${item.title}`}
+        >
           {ctx.strings.t("changelog.page.learnMore")}
         </a>
       )}
@@ -126,11 +156,7 @@ function Group({ category, items, ctx }: { category: WhatsNewCategory; items: Re
               {item.summary && <span className="cl-row-summary"> {item.summary.split(/\n{2,}/)[0]}</span>}
               {ctx.rowMedia && item.media && <Media media={item.media} className="cl-row-media" />}
             </span>
-            {item.action && (
-              <button type="button" className="cl-row-action" onClick={() => ctx.onTry(item.action!.id)}>
-                {item.action.title || ctx.strings.t("changelog.page.tryIt")}
-              </button>
-            )}
+            <RowActions item={item} ctx={ctx} />
           </li>
         ))}
       </ul>
@@ -212,6 +238,30 @@ function ChangeList({ changes }: { changes: ChangeItem[] }) {
 }
 
 const CHANGES_PAGE = 20;
+
+/** The nightly reels of `builds` (in their order, newest first), one card each: a link to the
+    video, which opens as links do (the host's link setting). Only an https reel is shown. */
+export function ReelCards({
+  builds,
+  reels,
+  strings,
+}: {
+  builds: IndexEntry[];
+  reels: Record<string, string>;
+  strings: Strings;
+}) {
+  const shown = builds.filter((b) => reels[b.build]?.startsWith("https://"));
+  if (shown.length === 0) return null;
+  return (
+    <div className="cl-reels">
+      {shown.map((b) => (
+        <a key={b.build} className="cl-reel" href={reels[b.build]} rel="noreferrer">
+          {strings.format("changelog.page.watchReel", cardVersion(b.shortVersion))}
+        </a>
+      ))}
+    </div>
+  );
+}
 
 /** A run of builds with no change a person would notice: one quiet line, never a blank row. */
 export function Maintenance({ strings }: { strings: Strings }) {

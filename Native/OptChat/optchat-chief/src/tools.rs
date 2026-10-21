@@ -38,6 +38,12 @@ impl Memory for OptChat {
     }
 }
 
+/// The Chief tools a turn another person started may call only with
+/// some arguments (`approval::CHIEF_TOOLS`, by their socket names).
+const TURN_GATED: [&str; 9] = [
+    "send", "reply", "react", "stop", "sleep", "spawn", "tell", "control", "profile",
+];
+
 /// Section 9's subagent tools, answered by the host (subagents.rs).
 pub trait Orchestrator: Send + Sync {
     /// Starts one subagent per task, in `cwd` when it exists on this host;
@@ -86,6 +92,12 @@ pub trait Orchestrator: Send + Sync {
         let _ = queue;
         self.tell_keyed(id, message, key)
     }
+    /// Whether the running turn may call Chief tool `tool` with `input`
+    /// (`Brain::turn_gate`); a host with no turns allows it.
+    fn turn_gate(&self, _tool: &str, _input: &Value) -> Result<(), String> {
+        Ok(())
+    }
+
     /// `control(action, ...)`: see, interrupt, answer, pause, resume,
     /// cancel, restart, reorder subagents and set the live cap.
     fn control(&self, request: ControlCall) -> Result<String, String> {
@@ -890,7 +902,9 @@ impl Call {
             }
             Call::Reply { id, text } => json!({"tool": "reply", "id": id, "text": text}),
             Call::Send(c) => c.to_json(),
-            Call::Stop => json!({"tool": "stop"}),
+            // `end_turn` marks the model's tool: the owner's chief.stop
+            // reaches this socket as a bare `{"tool": "stop"}`.
+            Call::Stop => json!({"tool": "stop", "end_turn": true}),
             Call::Sleep(c) => c.to_json(),
             Call::Control(c) => c.to_json(),
             Call::EscalateAuth { request, agent } => {
@@ -949,6 +963,12 @@ pub enum ControlRequest {
     Stop,
     /// chief.stop {name}: stops that one subagent.
     StopSubagent(String),
+    /// chief.stop {all: true}: the turn and every subagent ("Stop all
+    /// agents").
+    StopAll,
+    /// chief.stop {restart: [ids]}: those subagents go on (Restart on the
+    /// stop-all toast).
+    Restart(Vec<String>),
 }
 
 /// What the tools socket serves: the memory, the subagent tools when the
@@ -1093,14 +1113,36 @@ fn connection(conn: UnixStream, served: &Served) {
                 }
                 // chief.engine.get / chief.engine.set / chief.stop: the
                 // brain's JSON value as the answer line (the daemon's
-                // owner-gated chief-control forwards these lines).
-                if tool == "engine" || tool == "stop" {
+                // owner-gated chief-control forwards these lines). The
+                // model's own `stop` tool (`end_turn`, or any call from a
+                // turn session) only ends its turn: taken for chief.stop, it
+                // stopped every subagent (2026-10-20).
+                let model_stop = tool == "stop"
+                    && (req.get("end_turn").and_then(Value::as_bool) == Some(true)
+                        || role() == crate::turn_caller::Role::Turn);
+                if tool == "engine" || (tool == "stop" && !model_stop) {
                     let field = |k: &str| req.get(k).and_then(Value::as_str).map(str::to_owned);
                     let ask = match (tool, field("action").as_deref()) {
-                        ("stop", _) => Some(match field("name").filter(|n| !n.trim().is_empty()) {
-                            Some(name) => ControlRequest::StopSubagent(name.trim().to_owned()),
-                            None => ControlRequest::Stop,
-                        }),
+                        ("stop", _) => {
+                            let restart = req.get("restart").and_then(Value::as_array).map(|ids| {
+                                ids.iter()
+                                    .filter_map(Value::as_str)
+                                    .map(str::to_owned)
+                                    .collect::<Vec<_>>()
+                            });
+                            let all = req.get("all").and_then(Value::as_bool) == Some(true);
+                            Some(
+                                match (restart, all, field("name").filter(|n| !n.trim().is_empty()))
+                                {
+                                    (Some(ids), _, _) => ControlRequest::Restart(ids),
+                                    (None, true, _) => ControlRequest::StopAll,
+                                    (None, false, Some(name)) => {
+                                        ControlRequest::StopSubagent(name.trim().to_owned())
+                                    }
+                                    (None, false, None) => ControlRequest::Stop,
+                                },
+                            )
+                        }
                         (_, Some("show") | None) => {
                             Some(ControlRequest::Engine(crate::brain::EngineRequest::Show))
                         }
@@ -1184,7 +1226,20 @@ fn connection(conn: UnixStream, served: &Served) {
                     || role() == crate::turn_caller::Role::Subagent;
                 let grant = served.chief.as_ref().map(|c| c.grant());
                 let grant = grant.as_ref();
-                let answer = match Call::parse(tool, &req) {
+                // The turn's settings allow the Chief's tools with no
+                // permission request; a turn another person started is
+                // held to its input rules here.
+                let gated = if subagent || !TURN_GATED.contains(&tool) {
+                    Ok(())
+                } else {
+                    let mut input = req.as_object().cloned().unwrap_or_default();
+                    input.remove("tool");
+                    input.remove("from");
+                    served.orchestrator.as_ref().map_or(Ok(()), |o| {
+                        o.turn_gate(&format!("mcp__optchat__{tool}"), &Value::Object(input))
+                    })
+                };
+                let answer = match gated.and_then(|()| Call::parse(tool, &req)) {
                     // A subagent tells another subagent (acp-chief-issues.md
                     // #11), as the one its session is; never as the Chief.
                     Ok(Call::Tell {

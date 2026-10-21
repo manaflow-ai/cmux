@@ -10,10 +10,13 @@ extension CloudHandlers {
         bind("newCloudMachine", registry, reason: reason) { invocation in
             // The new machine's progress shows in the window at once; its
             // first workspace opens there when its daemon is ready.
-            creationFlow(context, startedByPerson: invocation.origin == .user).start(in: invocation.allowsViewChange ? context.services.windows.active?.state : nil, existing: nil)
+            let creation = creationFlow(context, startedByPerson: invocation.origin == .user).start(in: invocation.allowsViewChange ? context.services.windows.active?.state : nil, existing: nil)
+            reportCreatedMachine(creation, context)
         }
         bind("newCloudWorkspace", registry, reason: reason) { invocation in
-            let target = try? machine(invocation, context)
+            // Keeps the active-window fallback for any caller: it only opens a workspace,
+            // and with no machine a CLI run would start a new one instead.
+            let target = try? machine(invocation, context, fallsBack: true)
             let window = invocation.allowsViewChange ? context.services.windows.active?.state : nil
             guard let session = target, session.daemon.connection != nil else {
                 // A new machine, or one still on its way: show its progress
@@ -66,15 +69,26 @@ extension CloudHandlers {
         bind("palette.auth.signOut", registry, reason: { cloud.isSignedIn ? nil : CloudStrings.signInFirst }) { _ in
             run("sign out", context) { await cloud.signOut() }
         }
-        bind("openTeamPicker", registry, reason: { cloud.isSignedIn ? nil : CloudStrings.signInFirst }) { _ in
+        // Team Picker lists the teams as a Cmd-Shift-P step, the current one marked (its `team`
+        // argument); the shortcut and the Settings row open that step too.
+        bind("openTeamPicker", registry, reason: { cloud.isSignedIn ? nil : CloudStrings.signInFirst }) { invocation in
             let teams = cloud.auth.teams
             guard !teams.isEmpty else { throw ActionFailure(message: CloudStrings.noTeams) }
-            CloudPresenter.choose(CloudStrings.teamPickerTitle, teams.map { ($0.displayName, $0.id) }, selected: cloud.auth.teamID,
-                                  in: window(context)) { id in
-                guard let id, id != cloud.auth.teamID else { return }
-                cloud.auth.selectTeam(id)
-                run("switch team", context) { await cloud.refresh() }
+            guard let id = invocation["team"]?.stringValue, let team = teams.first(where: { $0.id == id || $0.displayName == id }) else {
+                throw ActionFailure.invalidTarget(CloudStrings.noSuchTeam(invocation["team"]?.stringValue ?? ""))
             }
+            guard team.id != cloud.auth.teamID else { return }
+            cloud.auth.selectTeam(team.id)
+            run("switch team", context) { await cloud.refresh() }
+        }
+        let otherSuggestions = registry.argumentSuggestions
+        registry.argumentSuggestions = { source in
+            guard source == ActionSuggestions.cloudTeams else { return otherSuggestions?(source) ?? [] }
+            return cloud.auth.teams.map { ActionEnumCase(value: $0.id, title: $0.displayName) }
+        }
+        let otherState = registry.choiceState
+        registry.choiceState = { action, target in
+            action == "openTeamPicker" ? cloud.auth.teamID : otherState?(action, target)
         }
         bind("cloudDiagnostics", registry, reason: { nil }) { _ in
             run("cloud diagnostics", context) {

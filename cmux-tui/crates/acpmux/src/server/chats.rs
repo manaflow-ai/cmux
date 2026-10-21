@@ -81,7 +81,15 @@ pub(super) async fn route(
     if let Some(reply) = super::subsessions::dispatch(hub, conn, m, &params).await {
         return reply;
     }
+    // So do the forum methods (`forum.rs`): this daemon's own log.
+    if let Some(reply) = super::forum::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
     // So do the process methods (`processes.rs`).
+    // And the worktree cleanup methods (`worktrees.rs`).
+    if let Some(reply) = super::worktrees::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
     if let Some(reply) = super::processes::dispatch(hub, conn, m, &params).await {
         return reply;
     }
@@ -396,4 +404,13 @@ pub(super) fn push_activity(hub: &Hub, conn: &Conn, ev: &HubEvent) {
     {
         conn.send(&Message::notification("_acpmux/chat_changed", change));
     }
+}
+
+/// `_acpmux/watch_take_over {sessionId, ifLive?}`: the watched chat runs the conversation itself
+/// (`hub/watch.rs`).
+pub(super) async fn watch_take_over(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
+    let s = hub.resolve(super::session_key(params)?)?;
+    let if_live = crate::adopt::IfLive::parse(super::str_param(params, "ifLive"))
+        .map_err(RpcError::invalid_params)?;
+    hub.watch_take_over(&s, if_live).await
 }

@@ -33,11 +33,12 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
         return resolved.url
     }
 
-    /// cmux-next appcast items carry `sparkle:channel` cmux-next; only a build whose baked
-    /// feed is the cmux-next feed accepts them. Every other build allows no extra channel,
-    /// so it ignores those items even if a wrong feed URL served them.
+    /// cmux-next appcast items carry a `sparkle:channel` per release ring; only a build whose
+    /// baked feed is the cmux-next feed accepts them, and only the tags of its ring and the
+    /// slower ones. Every other build allows no extra channel, so it ignores those items even
+    /// if a wrong feed URL served them.
     func allowedChannels(for updater: SPUUpdater) -> Set<String> {
-        UpdateFeedResolver().resolve(infoFeedURL: infoFeedURLProvider()).channel.allowedSparkleChannels
+        UpdateFeedResolver().resolve(infoFeedURL: infoFeedURLProvider()).channel.allowedSparkleChannels(ring: ring)
     }
 
     func updater(_ updater: SPUUpdater, willInstallUpdate item: SUAppcastItem) {

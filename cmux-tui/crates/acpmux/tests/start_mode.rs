@@ -289,7 +289,9 @@ async fn a_web_chat_never_starts_in_full_access_and_an_unauthenticated_one_gets_
     let daemon = hub(&dir);
     let mut web = Client::new(&daemon, Origin::Web, ConnAuth::ListenerToken);
     let (_, mode) = web.chat(&dir, "codex").await;
-    assert_eq!(mode, "agent", "a Web chat keeps the harness's own mode");
+    // A phone starts Codex in its asking mode, never in the bridge's own
+    // default `agent` (61bdd4de942, `web_modes::BRIDGE_ASKING_MODES`).
+    assert_eq!(mode, "ask", "a Web chat starts Codex in its asking mode");
     let mut none = Client::new(&daemon, Origin::Web, ConnAuth::None);
     let r = none.new_chat(&dir, "codex").await;
     assert_eq!(r["error"]["code"], json!(acpmux::server::conn_auth::UNAUTHENTICATED), "{r}");
@@ -498,5 +500,124 @@ async fn start_mode_answer_for_folder_pinned_and_unknown_harnesses() {
     // After one, its full-access mode.
     assert_eq!(app.chat(&dir, "codex").await.1, "agent-full-access");
     assert_eq!(start_mode(&mut app, &dir, "codex").await["modeId"], "agent-full-access");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+impl Client {
+    /// A new chat on `harness` with acpmux permission policy `policy`: its id and its mode.
+    async fn chat_with_policy(
+        &mut self,
+        dir: &Path,
+        harness: &str,
+        policy: &str,
+    ) -> (String, String) {
+        let params = json!({"cwd": dir.join("work"), "mcpServers": [],
+            "_meta": {"acpmux": {"harness": harness, "policy": policy}}});
+        let r = self.call("session/new", params).await;
+        let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+        (id.clone(), self.mode(&id).await)
+    }
+
+    /// The `policy_unenforced` records of chat `id`.
+    async fn unenforced(&mut self, id: &str) -> Vec<Value> {
+        let r = self
+            .call("_acpmux/events", json!({"sessionId": id, "kinds": ["policy_unenforced"]}))
+            .await;
+        r["result"]["events"].as_array().cloned().unwrap_or_else(|| panic!("{r}"))
+    }
+}
+
+/// A chat started with a policy narrower than approve-all runs in its harness's mode that asks,
+/// whatever the start level: in full access (Codex approval never + danger-full-access, Claude
+/// Code bypassPermissions) the harness never asks, so the policy would answer nothing.
+#[tokio::test]
+async fn a_chat_with_a_narrower_policy_starts_in_the_mode_that_keeps_it() {
+    let dir = home("policy", json!({"defaultPermissionMode": "fullAccess"}));
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    for (policy, codex, claude) in [
+        ("ask", "ask", "default"),
+        ("approve-reads", "ask", "default"),
+        ("approve-edits", "ask", "default"),
+        ("deny-all", "read-only", "default"),
+        ("approve-all", "agent-full-access", "bypassPermissions"),
+    ] {
+        let (id, mode) = app.chat_with_policy(&dir, "codex", policy).await;
+        assert_eq!(mode, codex, "codex, {policy}");
+        assert!(app.unenforced(&id).await.is_empty(), "codex, {policy}");
+        let (id, mode) = app.chat_with_policy(&dir, "claude", policy).await;
+        assert_eq!(mode, claude, "claude, {policy}");
+        assert!(app.unenforced(&id).await.is_empty(), "claude, {policy}");
+    }
+    // A chat with no policy of its own still starts in the start level.
+    assert_eq!(app.chat(&dir, "codex").await.1, "agent-full-access");
+    // A harness with no mode that asks cannot keep the policy: the chat says so.
+    let (id, mode) = app.chat_with_policy(&dir, "plain", "approve-reads").await;
+    assert_eq!(mode, "normal");
+    let notes = app.unenforced(&id).await;
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    assert_eq!(notes[0]["msg"]["policy"], "approve-reads", "{notes:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A narrower policy set on a live chat moves a mode that does not ask to the policy's; a mode
+/// as narrow stays, and a wider policy changes no mode.
+#[tokio::test]
+async fn a_narrower_policy_on_a_live_chat_leaves_full_access() {
+    let dir = home("policy-live", json!({"defaultPermissionMode": "fullAccess"}));
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    let (codex, mode) = app.chat(&dir, "codex").await;
+    assert_eq!(mode, "agent-full-access");
+    let r = app
+        .call("_acpmux/set_policy", json!({"sessionId": codex, "policy": "approve-reads"}))
+        .await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(app.mode(&codex).await, "ask");
+    let r = app.call("_acpmux/set_policy", json!({"sessionId": codex, "policy": "deny-all"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(app.mode(&codex).await, "read-only");
+    let r =
+        app.call("_acpmux/set_policy", json!({"sessionId": codex, "policy": "approve-all"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(app.mode(&codex).await, "read-only");
+
+    let (claude, _) = app.chat(&dir, "claude").await;
+    let r = app.call("session/set_mode", json!({"sessionId": claude, "modeId": "plan"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let r = app.call("_acpmux/set_policy", json!({"sessionId": claude, "policy": "ask"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(app.mode(&claude).await, "plan");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A narrower policy set on a chat whose agent is not running starts no agent: the chat keeps it
+/// as its saved mode, which its next start restores.
+#[tokio::test]
+async fn a_narrower_policy_on_a_stopped_chat_starts_no_agent() {
+    let dir = home("policy-stopped", json!({"defaultPermissionMode": "fullAccess"}));
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    let (codex, mode) = app.chat(&dir, "codex").await;
+    assert_eq!(mode, "agent-full-access");
+    let r = app.call("_acpmux/kill", json!({"sessionId": codex})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let r = app
+        .call("_acpmux/set_policy", json!({"sessionId": codex, "policy": "approve-reads"}))
+        .await;
+    assert!(r.get("error").is_none(), "{r}");
+    let info = app.call("_acpmux/info", json!({"sessionId": codex})).await;
+    assert_eq!(info["result"]["status"], "closed", "{info}");
+    assert_eq!(app.mode(&codex).await, "ask");
+    // The next start keeps it: the bridge's `mode` config option, replayed after the mode,
+    // does not bring full access back.
+    let r = app
+        .call(
+            "session/prompt",
+            json!({"sessionId": codex, "prompt": [{"type": "text", "text": "hi"}]}),
+        )
+        .await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(app.mode(&codex).await, "ask");
     let _ = std::fs::remove_dir_all(&dir);
 }

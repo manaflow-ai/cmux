@@ -149,15 +149,7 @@ impl Hub {
         // A named route is checked before anything is created: it exists and
         // serves this chat's harness family.
         if let Some(route_id) = &route {
-            let (dir, _) = crate::routes::places(&*self.config.read().await);
-            let found = crate::routes::find(dir.as_deref(), route_id).map_err(|e| {
-                RpcError::invalid_params(format!("route {route_id}: {}", e.message()))
-            })?;
-            if !found.serves(&family) {
-                return Err(RpcError::invalid_params(format!(
-                    "route {route_id} does not serve the {family} harness"
-                )));
-            }
+            self.check_new_route(route_id, &family).await?;
         }
         // Pick or check the name and insert under one lock, so concurrent
         // creations can never publish the same name twice.
@@ -226,6 +218,10 @@ impl Hub {
             self.append(&session, "mux", "adopted", adopted);
         }
         self.note_preset_resolved(&session, preset_digest);
+        // A watch starts no harness: it shows and follows the transcript (`watch.rs`).
+        if let (Some(file), true) = (&adopted_file, adopt.as_ref().is_some_and(|a| a.watch)) {
+            return Ok(self.begin_watch(&session, &family, file.clone()));
+        }
         let spawned = match self.spawn_profile(&session, &profile, &defaults.env).await {
             Ok(spawn) => self.ensure_child(&session, &spawn).await,
             Err(e) => Err(e),
@@ -299,6 +295,9 @@ impl Hub {
                 tracing::warn!(harness = agent, mode = %mode, "start mode skipped: {}", err.message);
                 self.append(&session, "mux", "start_default_skipped", json!({"modeId": mode, "error": err.message}));
             }
+            if mode_eligible {
+                self.note_unenforced_policy(&session);
+            }
             Ok(())
         }
         .await;
@@ -363,7 +362,11 @@ impl Hub {
         // started or initialized a second time.
         if Self::host_record_live(&session.id) {
             match self.readopt(session).await {
-                Some(child) if child.is_alive().await => return Ok(child),
+                Some(child) if child.is_alive().await => {
+                    // Reached again, not started: no start below decides its Ctrl-B.
+                    self.note_host_kind(session, &child, Some(profile.kind)).await;
+                    return Ok(child);
+                }
                 // The host ended meanwhile: start a fresh agent below.
                 _ if !Self::host_record_live(&session.id) => {}
                 // Live but unreachable even after a reconnect: end it (nonce
@@ -381,6 +384,8 @@ impl Hub {
         }
 
         self.record_spawn_inputs(session, profile).await;
+        let moves = super::processes::backgrounds_work(profile.kind);
+        session.backgrounds_work.store(moves, Ordering::SeqCst);
         // A fresh agent: what acpmux set on the last one is replayed, not assumed.
         self.fresh_agent(session, profile.preset_digest.clone());
         // A pooled session claimed for this id (`pool/`): its host already
@@ -462,11 +467,8 @@ impl Hub {
         session: &Arc<Session>,
         profile: &HarnessProfile,
     ) -> Result<Arc<ChildAgent>, RpcError> {
-        // A stopped session reopens on demand. Only a purge is final.
-        if session.status() == SessionStatus::Closed {
-            self.append(session, "mux", "reopened", json!({}));
-            self.set_status(session, SessionStatus::Idle);
-        }
+        // Its worktree back if cleanup reclaimed it, and reopened if stopped.
+        self.ready_to_start(session).await;
         let meta = session.meta();
         let tap = self.session_tap(session);
         let is_claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
@@ -1043,6 +1045,10 @@ impl Hub {
         self: &Arc<Self>,
         session: &Arc<Session>,
     ) -> Result<Arc<ChildAgent>, RpcError> {
+        // A watched chat starts no agent until Take Over: every lazy start (warm, model, mode, fork).
+        if session.meta().watching.is_some() {
+            return Err(super::watch::read_only());
+        }
         // `ensure_child` publishes the child before `initialize` and
         // `session/load` answer (the inbound loop needs it to answer the
         // agent's own requests meanwhile). A live child is ready only while

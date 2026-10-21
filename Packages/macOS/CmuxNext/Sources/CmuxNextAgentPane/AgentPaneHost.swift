@@ -15,6 +15,10 @@ public nonisolated protocol AgentPaneHostProviding: Sendable {
     /// The folder of the daemon's session `sessionId`, nil when it has none.
     /// Never starts a daemon.
     func sessionFolder(sessionId: String) async throws -> AgentPaneSessionFolder?
+    /// Saves a file the person dropped into session `sessionId` on the machine that runs it (an
+    /// ssh peer's chat: on that peer) and answers its path there. Throws
+    /// ``AgentPaneFilePutFailure``. Never starts a daemon.
+    func putFile(sessionId: String, name: String, data: Data) async throws -> String
 }
 
 extension AgentPaneHostProviding {
@@ -27,6 +31,11 @@ extension AgentPaneHostProviding {
 
     /// Hosts without a daemon know no session folders.
     public func sessionFolder(sessionId: String) async throws -> AgentPaneSessionFolder? { nil }
+
+    /// Hosts without a daemon take no files.
+    public func putFile(sessionId: String, name: String, data: Data) async throws -> String {
+        throw AgentPaneFilePutFailure.unsupported
+    }
 }
 
 /// A host's own refusal of a handshake, already in the user's language (a chat on another
@@ -76,9 +85,9 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// The Computer Use socket and agent token now (`AcpmuxEnvironment.computerUse`),
     /// read at each daemon start, since Computer Use turns on and off while the app runs.
     private let computerUse: @Sendable () -> [String: String]
-    /// Whether the daemon gets the session offer tools now (`AcpmuxEnvironment.offersSessionTools`,
-    /// the `agent.suggestedTasks` Debug Settings toggle), read at each daemon start: a toggle applies to the next daemon
-    /// this app starts, never to the one already running.
+    /// Whether the daemon gets the session offer tools now (`AcpmuxEnvironment.offersSessionTools`:
+    /// `sessions.promptSuggestions` or the `agent.suggestedTasks` Debug Settings toggle), read at each
+    /// daemon start: a change applies to the next daemon this app starts, never to the one running.
     private let offersSessionTools: @Sendable () -> Bool
     /// Whether the daemon keeps the agent message runaway guard on now (`AcpmuxEnvironment.agentPairGuard`,
     /// the `agent.pairGuard` Debug Settings toggle), read at each daemon start like the offer tools.
@@ -120,7 +129,9 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// off the main thread, at the first handshake that needs it.
     public init(resolve: @escaping @Sendable () -> AcpmuxEnvironment?,
                 computerUse: @escaping @Sendable () -> [String: String] = { [:] },
-                offersSessionTools: @escaping @Sendable () -> Bool = { AgentPaneTunables.suggestedTasks.value },
+                offersSessionTools: @escaping @Sendable () -> Bool = {
+                    AgentPaneSuggestedTasks.forNextDaemon.isOn || AgentPaneTunables.suggestedTasks.value
+                },
                 agentPairGuard: @escaping @Sendable () -> Bool = { AgentPaneTunables.agentPairGuard.value },
                 agentPairCap: @escaping @Sendable () -> (messages: Int, windowSeconds: Int) = {
                     (Int(AgentPaneTunables.agentPairCap.value), Int(AgentPaneTunables.agentPairWindow.value))
@@ -159,6 +170,12 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         if environment == nil { environment = resolveEnvironment() }
         guard let environment else { throw AgentPaneHostError.acpmuxNotFound }
         return try await AcpmuxStatusClient.sessionFolder(socketPath: environment.socketPath, sessionId: sessionId)
+    }
+
+    public func putFile(sessionId: String, name: String, data: Data) async throws -> String {
+        if environment == nil { environment = resolveEnvironment() }
+        guard let environment else { throw AgentPaneFilePutFailure.unsupported }
+        return try await AcpmuxStatusClient.putFile(socketPath: environment.socketPath, sessionId: sessionId, name: name, data: data)
     }
 
     private func endpoint(startsDaemon asked: Bool) async throws -> AcpmuxWebEndpoint {

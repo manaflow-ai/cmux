@@ -4,9 +4,8 @@ import type { AccountsCmux, AccountsRow, AccountsState, HostLists } from "./ops"
 import { categories, homes } from "./categories";
 import { mockThemeColors } from "./mockThemes";
 import { schema } from "./schema";
-import GOYA_SATURN from "../../gallery/fixtures/art/goya-saturn.jpg?inline";
-import BOCKLIN_ISLE_OF_THE_DEAD from "../../gallery/fixtures/art/bocklin-isle-of-the-dead.jpg?inline";
-import FUSELI_NIGHTMARE from "../../gallery/fixtures/art/fuseli-nightmare.jpg?inline";
+import MARTIN_PANDEMONIUM from "../../gallery/fixtures/art/martin-pandemonium.jpg?inline";
+import FRIEDRICH_FOREST_MOONLIGHT from "../../gallery/fixtures/art/friedrich-forest-moonlight.jpg?inline";
 import VAN_GOGH_STARRY_NIGHT from "../../gallery/fixtures/art/van-gogh-starry-night.jpg?inline";
 import HOKUSAI_GREAT_WAVE from "../../gallery/fixtures/art/hokusai-great-wave.jpg?inline";
 import FRIEDRICH_WANDERER from "../../gallery/fixtures/art/friedrich-wanderer.jpg?inline";
@@ -102,6 +101,8 @@ const customValues: Record<string, unknown> = Object.fromEntries(
     else if (setting.kind === "font_family") value = "Menlo";
     else if (setting.kind === "sound") value = "Glass";
     else if (setting.kind === "choice_or_number") value = 45;
+    else if (setting.kind === "choice_or_url")
+      value = { [setting.url_key ?? "url"]: "http://mini.tail1234.ts.net:7320" };
     else if (setting.kind === "host_list") value = ["docs.example.test", "*.research.example.test"];
     else if (setting.kind === "folder_list")
       // Chat roots take absolute paths only (validate.ts); the other folder lists also take ~/.
@@ -212,6 +213,13 @@ Object.assign(variants, {
     ],
     note: "Appearance's floating bar at the bottom right after picking Shuffle Paintings: Undo names the step, Redo waits, Reset offers Restore How It Was or Reset to Defaults.",
   }),
+  // The terminal font list open: recent fonts first under a Recent tag, every family in its own face.
+  "font-picker-open": variant("appearance", {
+    focus: "terminal.fontFamily",
+    options: { values: { "terminal.fontFamily": "JetBrains Mono" } },
+    steps: [click(`${row("terminal.fontFamily")} [data-font-picker]`), wait("[data-font-option]")],
+    note: "Terminal Font Family's list: the default first, then the fonts picked lately with a Recent tag, then every installed family, each drawn in its own face. Arrow keys preview live; Return picks, Escape reverts.",
+  }),
   // Unset surface rows rest on the window's values, dimmed under an "Inherits window" badge.
   "surfaces-inherit-window": variant("appearance", {
     focus: "appearance.surfaces.sidebar.opacity",
@@ -261,8 +269,9 @@ Object.assign(variants, {
   "backdrops-empty": variant("appearance", {
     options: { values: { "appearance.background": "none" } },
     host: { ...host, backdrops: [] },
-    steps: [wait('[data-card="backdrop"]')],
-    note: "Background picker with no artwork returned yet: the real empty state keeps the setting usable while the host list loads or is unavailable.",
+    // With no artwork the picker hides (useBackdropsShown) and the setting draws as its plain row.
+    steps: [wait(row("appearance.background"))],
+    note: "No artwork returned yet: the picker stays hidden and Background is its plain row, so the setting stays usable while the host list loads or is unavailable.",
   }),
   // Add from a Link (backgrounds plan phase 3): the link form open under the picker, a link typed.
   "backdrops-link": variant("appearance", {
@@ -305,24 +314,17 @@ Object.assign(variants, {
       ...host,
       backdrops: [
         {
-          id: "goya-saturn",
-          title: "Saturn Devouring His Son — Francisco Goya",
+          id: "martin-pandemonium",
+          title: "Pandemonium — John Martin",
+          attribution: "Pandemonium · John Martin · 1841 · Musée du Louvre, Paris · Public domain",
+          collection: "darkArt",
+          collection_title: "Dark Art",
+        },
+        {
+          id: "friedrich-forest-moonlight",
+          title: "Forest Interior by Moonlight — Caspar David Friedrich",
           attribution:
-            "Saturn Devouring His Son · Francisco Goya · 1819–1823 · Museo del Prado, Madrid · Public domain",
-          collection: "darkArt",
-          collection_title: "Dark Art",
-        },
-        {
-          id: "bocklin-isle-of-the-dead",
-          title: "Isle of the Dead — Arnold Böcklin",
-          attribution: "Isle of the Dead · Arnold Böcklin · 1880 · Kunstmuseum Basel · Public domain",
-          collection: "darkArt",
-          collection_title: "Dark Art",
-        },
-        {
-          id: "fuseli-nightmare",
-          title: "The Nightmare — Henry Fuseli",
-          attribution: "The Nightmare · Henry Fuseli · 1781 · Detroit Institute of Arts · Public domain",
+            "Forest Interior by Moonlight · Caspar David Friedrich · c. 1823–1830 · Alte Nationalgalerie, Berlin · Public domain",
           collection: "darkArt",
           collection_title: "Dark Art",
         },
@@ -397,9 +399,8 @@ Object.assign(variants, {
       ],
     },
     backdropImages: {
-      "goya-saturn": GOYA_SATURN,
-      "bocklin-isle-of-the-dead": BOCKLIN_ISLE_OF_THE_DEAD,
-      "fuseli-nightmare": FUSELI_NIGHTMARE,
+      "martin-pandemonium": MARTIN_PANDEMONIUM,
+      "friedrich-forest-moonlight": FRIEDRICH_FOREST_MOONLIGHT,
       "van-gogh-starry-night": VAN_GOGH_STARRY_NIGHT,
       "hokusai-great-wave": HOKUSAI_GREAT_WAVE,
       "friedrich-wanderer": FRIEDRICH_WANDERER,
@@ -468,13 +469,6 @@ Object.assign(variants, {
       wait('[data-card="art-browser"] .backdrop-grid'),
     ],
     note: "Browse More Art: a search answered by three open collections, each work with its source.",
-  }),
-  "theme-level-selected": variant("appearance", { steps: [click('input[name="theme-level"][value="workspace"]')] }),
-  "theme-custom-spec": variant("appearance", {
-    steps: [
-      input('[data-card="theme"] input.field', "light:GitHub Light,dark:Dracula"),
-      wait("[data-theme-list] .theme-choice:nth-child(2)"),
-    ],
   }),
   "terminal-shell-unknown": variant("terminal", {
     host: { ...host, terminal: { ghostty_config: "~/.config/ghostty/config", shell_integration: null } },
@@ -645,10 +639,11 @@ Object.assign(variants, {
   }),
   "invalid-host": variant("browser", {
     focus: "browser.hibernationExclusions",
+    // Scoped to the row: the Browser page has other token fields above it (browser.siteEngines).
     steps: [
-      input(".token-input", "bad host / path"),
-      { selector: ".token-input", action: "enter" },
-      wait(".host-list [role=alert]"),
+      input(`${row("browser.hibernationExclusions")} .token-input`, "bad host / path"),
+      { selector: `${row("browser.hibernationExclusions")} .token-input`, action: "enter" },
+      wait(`${row("browser.hibernationExclusions")} .host-list [role=alert]`),
     ],
   }),
   "write-error": variant("privacy", {
@@ -722,12 +717,12 @@ Object.assign(variants, {
     steps: [wait("[data-agent-harness]")],
     note: "Every harness acpmux knows: kind, source, a probe problem; Check and Remove on user profiles.",
   }),
-  // Settings > Agents > Chiefs (u2586): every Chief; a row opens the same editor as Home.
-  "agents-chiefs": variant("agents", {
+  // Settings > Chief > Chiefs (u2586): every Chief; a row opens the same editor as Home.
+  "chief-chiefs": variant("chief", {
     steps: [wait('[data-card="chiefs"] [data-chief]')],
     note: "Chiefs: picture, name, role, backend and a Locked badge; New Chief opens the editor.",
   }),
-  "agents-chief-editor": variant("agents", {
+  "chief-editor": variant("chief", {
     steps: [click('[data-chief="agent_release"]'), wait('[data-card="chiefs"] section.chief-editor')],
     note: "A Chief row opens its editor in the card: backend, lock and history, never a dialog.",
   }),
@@ -847,10 +842,11 @@ variants["play-select-scroll"] = variant("appearance", {
     const content = ctx.find({ selector: ".content" });
     const control = `${row("sidebar.sectionLook")} .ui-select-button`;
     const bottom = ctx.find({ selector: control }).getBoundingClientRect().bottom;
-    await ctx.scroll(
-      { selector: ".content" },
-      content.scrollTop + bottom - (content.getBoundingClientRect().bottom - 40),
-    );
+    // Near the bottom of what shows: above the Appearance bar that sits over the content's foot.
+    const floor =
+      ctx.document.querySelector(".appearance-bar")?.getBoundingClientRect().top ??
+      content.getBoundingClientRect().bottom;
+    await ctx.scroll({ selector: ".content" }, content.scrollTop + bottom - (floor - 40));
     await ctx.click({ selector: control });
     await ctx.waitFor(() => ctx.document.querySelector(".ui-select-popup"));
     await ctx.scroll({ selector: ".content" }, content.scrollTop - 160);
@@ -890,6 +886,8 @@ export default settingsPageEntry({
     "pages/settings/components/ArtBrowser.tsx",
     "pages/settings/components/BackdropLink.tsx",
     "pages/settings/components/BackdropScope.tsx",
+    "pages/settings/components/ChiefPetCard.tsx",
+    "pages/settings/components/FontPicker.tsx",
     "pages/settings/components/GhosttyDiagnostics.tsx",
     "pages/settings/components/GroupList.tsx",
     "pages/settings/components/Highlight.tsx",
@@ -928,6 +926,7 @@ export default settingsPageEntry({
     "pages/settings/editors/SegmentedEditor.tsx",
     "pages/settings/editors/Select.tsx",
     "pages/settings/editors/SoundEditor.tsx",
+    "pages/settings/editors/StringMapEditor.tsx",
     "pages/settings/editors/TextEditor.tsx",
     "pages/settings/editors/TimeRangeEditor.tsx",
     "pages/settings/editors/ToggleEditor.tsx",

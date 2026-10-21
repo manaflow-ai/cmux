@@ -38,6 +38,8 @@ public struct CmuxNextApp {
         environment.layoutTemplatesFile = environment.sidebarSnapshotFile?.url.deletingLastPathComponent().appending(path: "layout-templates.json")
         // Where each agent chat rests, beside the snapshot, so a relaunch reopens it there (cx-6bgzj).
         AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
+        // Each chat's unsent chips, beside it, so reopening or restoring a chat brings them back.
+        AgentPaneDraftAttachments.shared = AgentPaneDraftAttachments(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
         // The daemon connect overlaps AppKit's start (off the main thread).
         let prestart = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
                                               terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
@@ -52,8 +54,6 @@ public struct CmuxNextApp {
         app.delegate = delegate
         app.setActivationPolicy(.regular)
         DebugTimings.markLaunch("main.nsapp")
-        // WebKit and the agent pages' first web content process start while the windows build.
-        AgentPaneView.startWarmup()
         DebugTimings.markLaunch("main.run")
         // NSApplication.delegate is weak; keep the delegate alive for the run.
         withExtendedLifetime(delegate) {

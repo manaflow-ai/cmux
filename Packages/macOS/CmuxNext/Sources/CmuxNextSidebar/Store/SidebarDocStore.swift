@@ -32,6 +32,9 @@ public final class SidebarDocStore {
     public private(set) var isActive = false
     /// What the sidebar draws from the document (`show(live:)`); nil while inactive.
     public internal(set) var shown: SidebarDocProjection?
+    /// The `version` `shown` was built at: behind `version` while an applied change (a Cmd-N move) waits for the next
+    /// `show`, a hop later.
+    @ObservationIgnored public internal(set) var shownVersion: UInt64 = 0
 
     @ObservationIgnored private let mirror: SidebarMirror?
     @ObservationIgnored private let remote: (any SidebarDocRemote)?

@@ -87,6 +87,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The diff page's files live in the app bundle (markdown-viewer/webviews-app).
         PageDescriptor.registerDiffRoot()
         PageDescriptor.registerFilePageRoots()
+        PageDescriptor.registerAgentActivityRoot()
         DebugTimings.markLaunch("dfl.theme")
         let services = AppServices(environment: environment)
         AppProcessRoot.shared.adopt(services)
@@ -202,6 +203,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // After two quick unexpected ends in a row, Chromium starts only
         // when the user reloads a browser tab.
         services.observeBorders()
+        services.updateFeedObservation = UpdateFeedPosting.follow(services)
         // The runtime pack check wires the engine reason at once; its download waits until asked.
         services.startChromiumRuntime()
         firstFrame.whenOpen { [weak services] in services?.startLaterTabWarmups() }
@@ -263,7 +265,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 bundleID: bundleID
             )
         )
-        settings.start()
+        settings.start(announcingDiagnostics: true)
         ChatSettingsPush.start(settings: settings, socketPath: QuitAgents.environment(services)?.socketPath)
         KeepAwakeService.shared.start(settings: settings, store: services.daemon.store)
         services.mobile.follow(settings, launch: services.environment.launch)

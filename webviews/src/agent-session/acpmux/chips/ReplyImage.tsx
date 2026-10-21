@@ -72,8 +72,9 @@ function useImageLoad(src: string, auto: boolean) {
   return { state, load: () => load(true) };
 }
 
-/// A shown image: a click opens it in the image viewer where the pane has one.
-export function OpenableImage({ src, alt }: { src: string; alt: string }) {
+/// A shown image: a click opens it in the image viewer where the pane has one. `path` is the file
+/// a reply named for it, so the viewer's Show in Finder selects that file.
+export function OpenableImage({ src, alt, path }: { src: string; alt: string; path?: string }) {
   const t = useT();
   const openImage = useContext(ImageViewerContext);
   // Use the shared compositor-only fade for a calm handoff from the placeholder.
@@ -86,7 +87,7 @@ export function OpenableImage({ src, alt }: { src: string; alt: string }) {
       className="cv-img-open"
       data-open-image
       title={alt || t("image.view")}
-      onClick={() => openImage(src, alt)}
+      onClick={() => openImage(src, alt, path)}
     >
       {image}
     </button>
@@ -115,7 +116,7 @@ function LocalImage({ src, path, alt, fallback }: { src: string; path: string; a
   // The host refuses a file outside the folders, so the page asks only for one it may show.
   const loadable = answered && !denied && place !== "outside" && place !== "missing";
   const { state } = useImageLoad(src, loadable);
-  if (state.kind === "shown") return <OpenableImage src={state.src} alt={alt} />;
+  if (state.kind === "shown") return <OpenableImage src={state.src} alt={alt} path={path} />;
   if (denied) return <span className="cv-chip-plain">{alt || pathName(path)}</span>;
   const outside = place === "outside";
   if (!outside && place !== "missing" && state.kind !== "failed") return <>{fallback}</>;
