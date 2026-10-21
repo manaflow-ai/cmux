@@ -448,6 +448,27 @@ class SettingsExportStampTests(unittest.TestCase):
         self.assertIn("Alpha.swift", problems)
         self.assertNotIn("Beta.swift", problems)
 
+    def test_check_stamp_with_a_base_fails_a_head_that_changed_the_stamp_itself(self):
+        """Taking the old side of the stamp in a base merge is the head's own staleness, not the base's."""
+        base = self.repo.git("rev-parse", "HEAD")
+        stamp = self.repo.root.joinpath(STAMP).read_text()
+        digest = stamp.split("  ", 1)[0]
+        self.repo.write(STAMP, stamp.replace(digest, "0" * len(digest), 1))
+        head = self.repo.commit("head takes an old stamp", snapshot=False)
+        result = self.repo.guard("check-stamp", "--ref", head, "--base", base)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertNotIn("stale on the base", result.stdout)
+
+    def test_check_stamp_with_a_base_passes_however_many_sources_the_base_left_stale(self):
+        for n in range(25):
+            self.repo.write(f"{SETTINGS_SOURCES}/Merged{n:02}.swift", f"// merged {n} without its exports\n")
+        base = self.repo.commit("many merges before the base autofix", snapshot=False)
+        self.repo.write("README.md", "an unrelated change\n")
+        head = self.repo.commit("head", snapshot=False)
+        result = self.repo.guard("check-stamp", "--ref", head, "--base", base)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("and 5 more", result.stdout)
+
     def test_a_stale_stamp_says_how_to_regenerate_the_exports(self):
         """The old text pointed at a REPAIR.md row that is not in this repository."""
         self.repo.write(f"{SETTINGS_SOURCES}/Alpha.swift", "// alpha, edited\n")
