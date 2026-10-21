@@ -1367,6 +1367,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "cmux-cloud-wire",
+ "cmux-link",
  "cmux-server-core",
  "flate2",
  "futures-util",

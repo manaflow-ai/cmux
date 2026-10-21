@@ -1,5 +1,5 @@
 //! Original VM credential only; no replay key or caller-selected machine.
-use std::time::Instant;
+use cmux_server::cloud_http::RequestDeadline;
 
 use cmux_cloud_wire::{
     CloudVmReceiverLifecycleError, CloudVmReceiverLifecycleOp, CloudVmReceiverLifecycleParams,
@@ -20,8 +20,8 @@ impl<H: Http> CloudClient<H> {
         attempt: Option<String>,
         wall_ms: u64,
     ) -> Result<CloudVmReceiverLifecycleResult, String> {
-        let deadline = Instant::now() + REQUEST_BUDGET;
-        let token = self.token_until(wall_ms, Some(deadline))?;
+        let deadline = RequestDeadline::after(REQUEST_BUDGET).ok_or(UNAVAILABLE)?;
+        let token = self.token_until(wall_ms, Some(&deadline))?;
         let request =
             OpRequest::new::<CloudVmReceiverLifecycleOp>(CloudVmReceiverLifecycleParams {
                 machine: self.bound().machine.clone(),
@@ -30,7 +30,8 @@ impl<H: Http> CloudClient<H> {
                 attempt,
             });
         let body = serde_json::to_value(request).map_err(|_| UNAVAILABLE)?;
-        let (status, bytes) = self.request_until("/v1/ops", Some(&body), Some(&token), deadline)?;
+        let (status, bytes) =
+            self.request_until("/v1/ops", Some(&body), Some(&token), &deadline)?;
         if status != 200 || bytes.len() > 8192 {
             self.clear_token();
             return Err(UNAVAILABLE.into());

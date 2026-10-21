@@ -101,3 +101,73 @@ fn vm_receiver_client_http_refuses_get_credentials_before_io() {
     );
     assert_eq!(listener.accept().unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
 }
+
+#[test]
+fn vm_receiver_client_http_errors_do_not_echo_rejected_urls() {
+    let url = "http://private-test-bearer@127.0.0.1/private-policy";
+    let error = JsonPoster::allowing_http()
+        .unwrap()
+        .request_until(url, None, None, Instant::now() + Duration::from_secs(1))
+        .unwrap_err();
+    assert!(!error.contains(url) && !error.contains("private-test-bearer"));
+}
+
+#[test]
+fn vm_receiver_client_http_can_retry_after_cancelling_a_body() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/test", listener.local_addr().unwrap());
+    let (release, held) = std::sync::mpsc::channel::<()>();
+    let stalled = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n{").unwrap();
+        let _ = held.recv_timeout(Duration::from_secs(2));
+    });
+    let http = JsonPoster::allowing_http().unwrap();
+    let answer = http.request_until(&url, None, None, Instant::now() + Duration::from_millis(200));
+    let _ = release.send(());
+    stalled.join().unwrap();
+    assert!(answer.is_err());
+    let (url, ready) = server(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}".to_vec());
+    let (status, bytes) =
+        http.request_until(&url, None, None, Instant::now() + Duration::from_secs(1)).unwrap();
+    ready.join().unwrap();
+    assert_eq!(status, 200);
+    assert_eq!(bytes, b"{}");
+}
+
+#[tokio::test]
+async fn vm_receiver_client_http_from_a_blocking_executor_thread() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let url = format!("http://{address}/test");
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(4))).unwrap();
+        let mut headers = Vec::new();
+        let mut byte = [0; 1];
+        while !headers.ends_with(b"\r\n\r\n") && headers.len() < 8192 {
+            if stream.read(&mut byte).ok() != Some(1) {
+                return;
+            }
+            headers.push(byte[0]);
+        }
+        let _ = stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}");
+    });
+    let answer = tokio::task::spawn_blocking(move || {
+        JsonPoster::allowing_http().unwrap().request_until(
+            &url,
+            None,
+            None,
+            Instant::now() + Duration::from_secs(3),
+        )
+    })
+    .await;
+    // Also unblock accept if the client refused before connecting. Both owned
+    // threads finish before the test reports the behavioral failure.
+    let _ = std::net::TcpStream::connect(address);
+    server.join().unwrap();
+    let (status, bytes) = answer.unwrap().expect("HTTP refused a blocking executor thread");
+    assert_eq!(status, 200);
+    assert_eq!(bytes, b"{}");
+}

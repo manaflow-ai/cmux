@@ -74,6 +74,26 @@ fn vm_receiver_client_request_budget_includes_suspend_before_the_next_http_call(
 }
 
 #[test]
+fn vm_receiver_client_auth_stops_when_total_elapsed_budget_expires() {
+    let (elapsed, clock) = elapsed_clock();
+    let after = Rc::new(move || *clock.lock().unwrap() = Some(Duration::from_secs(31)));
+    let (mut client, wg, calls) = setup_tweaked(
+        |_, _| {},
+        |_, _, _| {},
+        None,
+        |http| {
+            http.after_challenge = Some(after);
+        },
+    );
+    assert!(client.receiving_policy_with_elapsed(&wg, NOW, Instant::now(), elapsed).is_err());
+    assert_eq!(
+        calls.borrow().len(),
+        1,
+        "expired authentication sent a token request after its challenge"
+    );
+}
+
+#[test]
 fn vm_receiver_snapshot_clock_loss_cannot_reopen_when_elapsed_clock_recovers() {
     let (mut client, wg, _) = setup(|_, _| {});
     let (elapsed, clock) = elapsed_clock();
@@ -114,6 +134,7 @@ struct Server {
     status: u16,
     deadlines: Deadlines,
     after_policy: Option<Rc<dyn Fn()>>,
+    after_challenge: Option<Rc<dyn Fn()>>,
     lifecycle: Option<Rc<RefCell<Lifecycle>>>,
 }
 struct Lifecycle {
@@ -124,6 +145,15 @@ struct Lifecycle {
 impl Http for Server {
     fn post(&self, _: &str, _: &Value, _: Option<&str>) -> Result<(u16, Value), String> {
         panic!("receiving read used an unbounded transport")
+    }
+    fn request_with_deadline(
+        &self,
+        url: &str,
+        body: Option<&Value>,
+        bearer: Option<&str>,
+        deadline: &cmux_server::cloud_http::RequestDeadline,
+    ) -> Result<(u16, Vec<u8>), String> {
+        self.request_until(url, body, bearer, deadline.active())
     }
     fn request_until(
         &self,
@@ -136,6 +166,9 @@ impl Http for Server {
         self.deadlines.borrow_mut().push(deadline);
         let value = if url.ends_with("/v1/auth/challenge") {
             assert!(bearer.is_none());
+            if let Some(after) = &self.after_challenge {
+                after();
+            }
             json!({ "install":INSTALL, "nonce":"00000000000000000000000000000001",
                 "message_prefix":format!("cmux-auth-v1\ndevelopment\n{INSTALL}\n") })
         } else if url.ends_with("/v1/auth/token") {
@@ -268,6 +301,7 @@ fn setup_tweaked(
         status: 200,
         deadlines: deadlines.clone(),
         after_policy,
+        after_challenge: None,
         lifecycle: None,
     };
     tweak(&mut http);

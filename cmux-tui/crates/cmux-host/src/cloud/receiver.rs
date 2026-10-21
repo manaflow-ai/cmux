@@ -17,6 +17,7 @@ use cmux_link::dial::Service;
 use cmux_link::elapsed::{Deadline, Elapsed};
 use cmux_link::keyset::{Keyset, read_answer};
 use cmux_link::native_token::{NativeBinding, NativePeer, NativePolicy, ReceiverTime};
+use cmux_server::cloud_http::RequestDeadline;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -191,25 +192,15 @@ impl<H: Http> CloudClient<H> {
         started: Instant,
         elapsed: Elapsed,
     ) -> Result<ReceiverSnapshot, String> {
-        let deadline = started + REQUEST_BUDGET;
-        let check_budget = || -> Result<(), String> {
-            let active = Instant::now().checked_duration_since(started).ok_or(UNAVAILABLE)?;
-            let age = elapsed.elapsed().ok_or(UNAVAILABLE)?.max(active);
-            if age >= REQUEST_BUDGET {
-                return Err(UNAVAILABLE.into());
-            }
-            Ok(())
-        };
-        check_budget()?;
-        let token = self.token_until(now_wall_ms, Some(deadline))?;
-        check_budget()?;
+        let deadline = RequestDeadline::with_elapsed(started, elapsed.clone(), REQUEST_BUDGET)
+            .ok_or(UNAVAILABLE)?;
+        let token = self.token_until(now_wall_ms, Some(&deadline))?;
         let body = serde_json::to_value(OpRequest::new::<CloudVmNetworkPolicyOp>(
             CloudVmNetworkPolicyParams { machine: self.bound().machine.clone() },
         ))
         .map_err(|_| UNAVAILABLE)?;
         let (status, bytes) =
-            self.request_until("/v1/read", Some(&body), Some(&token), deadline)?;
-        check_budget()?;
+            self.request_until("/v1/read", Some(&body), Some(&token), &deadline)?;
         if status != 200 {
             self.clear_token();
             return Err(UNAVAILABLE.into());
@@ -229,8 +220,7 @@ impl<H: Http> CloudClient<H> {
         let binding =
             ReceiverBinding::from_original(self.bound(), wg_public, &self.install_public_jwk())?;
         validate(&read.value.0, &binding)?;
-        let (status, bytes) = self.request_until("/v1/cloud/keyset", None, None, deadline)?;
-        check_budget()?;
+        let (status, bytes) = self.request_until("/v1/cloud/keyset", None, None, &deadline)?;
         // Reject duplicate JSON object keys, including duplicate key ids, before
         // the shared keyset parser can normalize them into a map.
         let _: UniqueJson = serde_json::from_slice(&bytes).map_err(|_| UNAVAILABLE)?;
