@@ -101,7 +101,7 @@ nonisolated enum AcpmuxVersionHandoff {
     static func bundledBuild(_ environment: AcpmuxEnvironment) async -> String? {
         let stamp = fileStamp(environment.executable)
         if let stamp, let known = bundledBuilds.withLock({ $0[stamp] }) { return known }
-        let asked = await Task.detached {
+        let asked = await Task.detached { () -> String? in
             let process = Process()
             process.executableURL = environment.executable
             process.arguments = ["--version"]
