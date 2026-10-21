@@ -516,6 +516,10 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
             env["PATH"] = f"{temp}:{env['PATH']}"
             env["CMUX_SWIFT_TEST_CALLS"] = str(calls)
             env["CMUX_ENSURE_WEB_BUNDLES"] = str(ensure)
+            # A tree path given up front skips the runner's real pin-cmux-tui.sh lookup. Without
+            # it the runner fetched this checkout's cmux-tui tree from files.cmux.com, and on a
+            # head whose tree is not published yet that outlived the 180 s deadline (#23521).
+            env["CMUX_NEXT_TUI_TREE_PATH"] = str(temp / "cmux-tui")
 
             completed = run_runner(next_package, env)
             self.assertEqual(completed.returncode, 0, completed.stdout)
