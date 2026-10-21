@@ -69,11 +69,12 @@ export function ItemActions({ item, ctx }: { item: ReleaseItem; ctx: PartsContex
   );
 }
 
-/** Try it and Learn more for one grouped change, kept with its title and summary. */
+/** Try it and Learn more for one grouped change, kept with its title and summary. A span: the
+    Ledger puts it inside a paragraph, where a div is invalid. */
 export function RowActions({ item, ctx }: { item: ReleaseItem; ctx: PartsContext }) {
   if (!item.action && !item.docs) return null;
   return (
-    <div className="cl-row-actions">
+    <span className="cl-row-actions">
       {item.action && (
         <button type="button" className="cl-row-action" onClick={() => ctx.onTry(item.action!.id)}>
           {item.action.title || ctx.strings.t("changelog.page.tryIt")}
@@ -89,7 +90,7 @@ export function RowActions({ item, ctx }: { item: ReleaseItem; ctx: PartsContext
           {ctx.strings.t("changelog.page.learnMore")}
         </a>
       )}
-    </div>
+    </span>
   );
 }
 
