@@ -1562,6 +1562,10 @@ path = "tests/test_cmux_next_base_autofix_finishes.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_deferred_terminate.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_next_feed_rollback.py"
 lane = "linux-guard"
 

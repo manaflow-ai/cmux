@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -55,10 +56,7 @@ final class QuitCoordinator {
         // From a run-loop callout, not from inside the caller's main-queue
         // job (control socket, palette): terminateLater spins a nested run
         // loop, and the save Task could never get the main queue.
-        RunLoop.main.perform(inModes: [.common]) {
-            SheetDismissal.endAll()
-            NSApp.terminate(nil)
-        }
+        NSApplication.terminateFromRunLoop { SheetDismissal.endAll() }
     }
 
     /// SIGTERM, SIGINT, SIGHUP (`QuitSignal`): Quit, keep sessions, never an alert. Dev
