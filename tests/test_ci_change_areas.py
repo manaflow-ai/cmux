@@ -2913,7 +2913,9 @@ def test_ci_status_waits_for_platform_workflows() -> None:
         assert f"      - {job_name}" not in block
     # The verdict folded in from the retired `tests` job keeps its skip of
     # cmux NEXT pull requests, stacked ones included (next_line), inside the step.
-    assert 'get("next_line") == "true"' in block.split("name: Check platform workflow routing", 1)[1]
+    routing = block.split("name: Check platform workflow routing", 1)[1]
+    assert 'get("next_line") == "true"' in routing
+    assert 'os.environ.get("GITHUB_BASE_REF") == "feat-cmux-next"' in routing
     assert 'macos_route not in {"true", "false"}' in block
     assert 'macos_result != "success"' in block
     assert 'web_result not in {"success", "skipped"}' in block
