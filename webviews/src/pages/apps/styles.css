@@ -79,9 +79,11 @@
   min-height: 0;
 }
 
+/* No max-width: the chips and grid share the toolbar's edges at every width (a centered column sat
+   7px off the tabs at 1214 and 250px in at 1664). Container: the banner and chips below follow the
+   list's own width, which in the split view is the 340px column, not the window. */
 .apps-discover-list {
-  max-width: 1200px;
-  margin: 0 auto;
+  container: apps-discover / inline-size;
   padding: 0 var(--page-edge) 24px;
 }
 
@@ -399,7 +401,10 @@
 }
 
 code {
-  font: 11.5px ui-monospace, "SF Mono", monospace;
+  font:
+    11.5px ui-monospace,
+    "SF Mono",
+    monospace;
 }
 
 .apps-muted {
@@ -523,7 +528,10 @@ code {
   overflow: auto;
   border-radius: 6px;
   border: 1px solid var(--page-separator);
-  font: 11px ui-monospace, "SF Mono", monospace;
+  font:
+    11px ui-monospace,
+    "SF Mono",
+    monospace;
   white-space: pre-wrap;
 }
 
@@ -594,7 +602,7 @@ code {
   display: flex;
   align-items: center;
   gap: 16px;
-  margin-bottom: 14px;
+  margin-top: 12px;
   padding: 14px 16px;
   border: 1px solid var(--page-separator);
   border-radius: 12px;
@@ -650,5 +658,30 @@ code {
 
   .apps-cloud-feature-art {
     display: none;
+  }
+}
+
+/* A list column too narrow for the banner and chips in one row (the split view's list): the banner
+   puts its button under the text and drops the art, and the chips scroll sideways instead of
+   wrapping one chip onto a line of its own. */
+@container apps-discover (max-width: 480px) {
+  .apps-cloud-feature {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .apps-cloud-feature-text {
+    flex-basis: 100%;
+  }
+
+  .apps-cloud-feature-art {
+    display: none;
+  }
+
+  .apps-chips {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
   }
 }
