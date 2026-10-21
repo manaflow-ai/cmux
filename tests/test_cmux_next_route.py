@@ -158,8 +158,11 @@ class PullRequestTiers(unittest.TestCase):
         result = tiers([path])
         selected = result["swift_targets"].split()
         self.assertEqual(selected, sorted(graph_dependents({"CmuxNextSidebar"}) | graph_readers(path)))
-        self.assertIn("CmuxNextAppTests", selected)
-        self.assertNotIn("CmuxNextDaemonTests", selected)
+        # CmuxNextChiefViewsTests (#22683) reaches the sidebar through CmuxNextChiefViews.
+        for name in ("CmuxNextAppTests", "CmuxNextChiefViewsTests", "CmuxNextKeepAwakeTests", "CmuxNextWorkspaceNamingTests"):
+            self.assertIn(name, selected)
+        for name in ("CmuxNextDaemonTests", "CmuxNextDesignTests"):
+            self.assertNotIn(name, selected)
         self.assertEqual(result["daemon"], "false")
 
     def test_every_target_selects_the_tests_that_reach_it(self):
@@ -194,11 +197,16 @@ class PullRequestTiers(unittest.TestCase):
         path = "schemas/settings/settings-schema.json"
         result = tiers([path])
         selected = result["swift_targets"].split()
-        bundles = {name for name in route_module.BUNDLE_TARGETS if name in GRAPH["targets"]}
+        # The targets that ship a bundle are pinned here, so dropping one from the router
+        # fails this test instead of moving the expectation with it.
+        bundles = {"CmuxNextAgentPane", "CmuxNextPages", "CmuxNextAgentActivity", "CmuxNextPalette"}
+        self.assertEqual(set(route_module.BUNDLE_TARGETS), bundles)
+        self.assertLessEqual(bundles, set(GRAPH["targets"]))
         self.assertEqual(selected, sorted(graph_dependents(bundles) | graph_readers(path)))
-        for name in ("CmuxNextSettingsTests", "CmuxNextAppTests", "CmuxNextAgentPaneTests", "CmuxNextPagesTests"):
+        for name in ("CmuxNextSettingsTests", "CmuxNextAppTests", "CmuxNextAgentPaneTests", "CmuxNextPagesTests", "CmuxNextPaletteTests"):
             self.assertIn(name, selected)
-        self.assertNotIn("CmuxNextDaemonTests", selected)
+        for name in ("CmuxNextDaemonTests", "CmuxNextMobileTests"):
+            self.assertNotIn(name, selected)
 
     def test_a_local_package_selects_the_targets_that_use_it(self):
         result = tiers(["Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Thread.swift"])
