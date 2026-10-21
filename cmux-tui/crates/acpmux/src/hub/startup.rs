@@ -76,6 +76,11 @@ impl Hub {
         *self.startup_ready.borrow()
     }
 
+    /// Whether the chat logs are read (`load_logs`; always outside a deferred start).
+    pub fn logs_loaded(&self) -> bool {
+        *self.logs_ready.borrow()
+    }
+
     /// Wait until background startup has finished (immediate outside a daemon).
     pub(crate) async fn wait_startup(&self) {
         let mut rx = self.startup_ready.subscribe();
