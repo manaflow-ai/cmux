@@ -38,6 +38,8 @@ protocol FilePageHosting: AnyObject {
     /// The native omnibar shows the file's path above the page (the Markdown omnibar), so the
     /// page's toolbar drops its own file name (config `omnibar: true`).
     var showsOmnibar: Bool { get }
+    /// The page's link history moved (`cmux.markdown.history`): the omnibar's Back and Forward follow.
+    func historyChanged(canBack: Bool, canForward: Bool)
     /// A page's edit of `url` (the R96 quit hook): the document's unsaved state and its draft.
     func edited(_ url: URL, text: String, baseHash: String?, writable: Bool) -> RecoveryDraftAcceptance
     /// A normal save of `url` wrote `hash`.
@@ -46,6 +48,7 @@ protocol FilePageHosting: AnyObject {
 
 extension FilePageHosting {
     var showsOmnibar: Bool { false }
+    func historyChanged(canBack: Bool, canForward: Bool) {}
 }
 
 /// One file page tab's `cmux.markdown.*` or `cmux.editor.*` namespace (diff-host.md S6 "Markdown
@@ -86,6 +89,9 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     /// A recovered crash draft of the tab's file: the next config carries it once (the markdown and
     /// editor pages load it as an unsaved edit).
     var recoveredText: String?
+    /// Where the editor puts the cursor on the tab's file (a Find result's line and column): the
+    /// next config of that file carries it once as `reveal`. The markdown page ignores it.
+    var reveal: FilePosition?
     /// Whether the tab's file may be saved (the last config's answer).
     private var writable = false
     var isWritable: Bool { writable }
@@ -161,6 +167,9 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
             return try await config(for: file)
         case kind.op("open"):
             return try await open(path(params["path"]))
+        case kind.op("history") where kind == .markdown:
+            host.historyChanged(canBack: params["canBack"]?.boolValue ?? false, canForward: params["canForward"]?.boolValue ?? false)
+            return .object([:])
         case kind.op("edited"):
             return try edited(params, host: host)
         case kind.op("save"):
@@ -317,6 +326,10 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         if let recovered = recoveredText, file.url == self.file {
             recoveredText = nil
             config["recoveredText"] = .string(recovered)
+        }
+        if kind == .editor, let reveal, file.url == self.file {
+            self.reveal = nil
+            config["reveal"] = reveal.jsonValue
         }
         if let reason = file.readOnlyReason {
             config["readOnly"] = true

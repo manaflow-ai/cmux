@@ -171,21 +171,27 @@ await requireBrowserLane("agent-pane-peer-chat.test.ts", async () => {
           },
         }),
       );
-      // The line names the call in flight ("Run make") with its time beside it (WorkingFor.tsx).
+      // The call in flight ("Run make") is named once, on the turn's live line at the bottom
+      // (Thinking.tsx, the Codex-style turn), and the line over the turn reads its time
+      // (WorkingFor.tsx). The line already reads before the call comes in: wait for the call's name.
+      const row = page.locator(".cv-thinking", { hasText: "Run make" });
+      await row.first().waitFor();
       const working = page.locator(".cv-worked__label");
       await working.waitFor();
       const label = (await working.textContent()) ?? "";
-      const time = (await page.locator(".cv-worked__time").textContent()) ?? "";
-      const seconds = /^(\d+)s$/.exec(time)?.[1];
+      const seconds = /^Working for (\d+)s$/.exec(label)?.[1];
+      const named = await row.count();
       const strips = await page.locator(".acpmux-composer-strip").count();
       // A few seconds (page load included), never the peer's ten minutes of clock skew.
       expect({
         label,
         recent: seconds !== undefined && Number(seconds) >= 4 && Number(seconds) < 30,
+        named,
         strips,
       }).toEqual({
-        label: "Run make",
+        label: expect.stringMatching(/^Working for \d+s$/),
         recent: true,
+        named: 1,
         strips: 0,
       });
       await page.close();

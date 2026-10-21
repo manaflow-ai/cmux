@@ -47,10 +47,9 @@ final class GroupHeaderRowView: SidebarRowView {
     /// The group's color as a dot on its line (cx-25az, Leo 2026-10-10: no full
     /// pastel fill): the line starts under it and runs to the last member.
     let dot = CALayer()
-    /// The more button (the pack's three-dot action.more): the group editor, as a click on the
+    /// The more button (the shared ⋮, `OverflowButton`): the group editor, as a click on the
     /// name (cx-rcby, Lawrence 2026-10-08); a right-click shows the group's flat menu.
-    let moreButton = SidebarIconButton(icon: .actionMore, pointSize: { Metrics.smallIconSize - Metrics.space1 },
-                                       label: GroupEditorStrings.more)
+    let moreButton = OverflowButton(label: GroupEditorStrings.more)
     /// The add button (+): a new workspace at the end of the group (cmuxterm-hq#1829,
     /// the Edge group header). Shows with the more button.
     let addButton = SidebarIconButton(icon: .actionAdd, pointSize: { Metrics.smallIconSize - Metrics.space1 },

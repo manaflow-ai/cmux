@@ -1,14 +1,17 @@
 // cmux-web-test-timeout: 600
 // How the composer's menus open and close under the mouse (cg-composer item 2, click polish; Codex
-// desktop is the reference): the + menu, model, reasoning and permission chips in the bar, and the
-// folder chip on the location strip, in a chat's composer, a new chat's and the New Tab page's.
+// desktop is the reference): the + menu, the model button and the permission chip in the bar, and
+// the folder chip on the location strip, in a chat's composer, a new chat's and the New Tab page's.
+// The model button names the model and its effort, and its menu holds the levels under Effort ›
+// (Leo 2026-10-20: one button, no effort chip of its own).
 //
 // - Menus open on the press (pressRelease.ts). A second press on the same chip closes its menu.
 // - With one menu open, a press on another chip opens that one at once: no press to dismiss first.
 // - A press anywhere else only closes the menu: nothing under it is clicked (the mic does not start
 //   dictation, the field takes no click), as a macOS menu swallows the click that dismisses it.
 // - Escape closes the menu and puts the keyboard back on its chip, with the chip's focus ring.
-// - Picking a permission mode or a reasoning level hands the keyboard back to the prompt.
+// - Picking a permission mode, or a level in the model menu's Effort ›, hands the keyboard back to
+//   the prompt.
 //
 // Real Chromium and WebKit (the app's engine) with real pointer events, on the gallery stage at
 // 760 and 300 px. CI fails the file when it cannot launch them (requireBrowserLane). Locally:
@@ -16,8 +19,8 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -43,7 +46,7 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   const browsers = new Map<string, Browser>();
   const stageURL = (entry: string, variant: string, width: number) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=${entry}&variant=${variant}&frame=component&width=${width}&theme=Catppuccin+Mocha`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(entry, { variant, frame: "component", width, theme: "Catppuccin Mocha" })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -52,23 +55,11 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
-    for (const [name, engine] of engines) {
-      const browser = await engine.launch({ headless: true });
-      browsers.set(name, browser);
-      // The first load can run Vite's dependency optimizer and reload mid-compile.
-      const warm = await browser.newPage({ viewport: { width: 760, height: 600 } });
-      await warm.goto(stageURL("agent-pane.composer", "picker-toggle", 760));
-      for (;;) {
-        try {
-          await warm.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 0 });
-          break;
-        } catch (error) {
-          if (!/context was destroyed|navigat/i.test(String(error))) throw error;
-        }
-      }
-      await warm.close();
-    }
+    for (const [name, engine] of engines) browsers.set(name, await engine.launch({ headless: true }));
+    // The first load can run Vite's dependency optimizer and reload mid-compile.
+    const browser = browsers.get("chromium") ?? browsers.get("webkit");
+    await warmGalleryFrame(vite, "agent-pane.composer", { browser, params: { variant: "picker-toggle" } });
+    await warmGalleryFrame(vite, "agent-pane.new-tab", { browser });
   });
   afterAll(async () => {
     for (const browser of browsers.values()) await browser.close();
@@ -88,15 +79,15 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
       entry: "agent-pane.composer",
       variant: "new-chat-reasoning",
       field: ".acpmux-md",
-      chips: ["Folder", "Model", "Effort"],
-      picks: ["Effort"],
+      chips: ["Folder", "Model"],
+      picks: ["Model"],
     },
     {
       entry: "agent-pane.new-tab",
       variant: "reasoning-chip",
       field: ".nt-field",
-      chips: ["Folder", "Model", "Effort"],
-      picks: ["Effort"],
+      chips: ["Folder", "Model"],
+      picks: ["Model"],
     },
   ];
   const chip = (name: string) => `button[aria-haspopup][aria-label="${name}"]`;
@@ -247,7 +238,15 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
           for (const name of stage.picks) {
             const page = await open(engine, stage, width);
             await pressAt(page, chip(name));
-            await pressAt(page, '[role="menuitemradio"][aria-checked="false"]');
+            if (name === "Model") {
+              // The level rows sit in the model menu's Effort › submenu, the popup with no submenu row.
+              await pressAt(page, '.acpmux-quick-sub:has-text("Effort")');
+              await page.locator('[role="menu"]:not(:has(.acpmux-quick-sub)) [role="menuitemradio"]').first().waitFor();
+              await pressAt(
+                page,
+                '[role="menu"]:not(:has(.acpmux-quick-sub)) [role="menuitemradio"][aria-checked="false"]',
+              );
+            } else await pressAt(page, '[role="menuitemradio"][aria-checked="false"]');
             const focus = await page.evaluate(
               (field) => ({
                 open: document.querySelectorAll(".ui-popup").length,

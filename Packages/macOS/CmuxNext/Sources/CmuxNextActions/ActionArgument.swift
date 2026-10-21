@@ -40,6 +40,12 @@ public nonisolated struct ActionArgument: Sendable, Hashable {
     /// The target's new description: a prompt for it starts from the
     /// target's current description, selected.
     public var isTargetDescription = false
+    /// A target-kind argument that names the object the action acts on, so
+    /// a target of its kind is its value: right-clicking a Space and
+    /// choosing New Workspace in Space… uses that space. Without it, an
+    /// action that acts on the argument's kind asks for another object
+    /// (Swap with Session… asks for the other pane).
+    public var isSuppliedByTarget = false
 
     public init(name: String, title: String, kind: ActionArgumentKind, isRequired: Bool = true, suggestions: ActionSuggestions? = nil) {
         self.name = name
@@ -63,6 +69,13 @@ public nonisolated struct ActionArgument: Sendable, Hashable {
     public var renamingTarget: ActionArgument {
         var copy = self
         copy.isTargetName = true
+        return copy
+    }
+
+    /// A copy whose value a target of its kind supplies (`isSuppliedByTarget`).
+    public var suppliedByTarget: ActionArgument {
+        var copy = self
+        copy.isSuppliedByTarget = true
         return copy
     }
 
