@@ -128,6 +128,22 @@ import Testing
         #expect(!p.controller.voice.isActive)
     }
 
+    /// Esc after Return (the words are kept, the engine is still flushing) leaves the words.
+    @Test func escapeWhileFinishingKeepsTheWords() {
+        let p = pane()
+        p.type("Draft")
+        p.voice(.starting)
+        p.voice(.listening, "spoken words")
+        p.voice(.finalizing, "spoken words")
+
+        p.controller.escape()
+        #expect(p.engine.cancels == 0)
+        p.voice(.idle, "spoken words")
+
+        #expect(p.field.string == "Draft spoken words")
+        #expect(p.draft == "Draft spoken words")
+    }
+
     /// "Listening…" shows in the empty field until the first words arrive.
     @Test func listeningLineShowsUntilWordsArrive() {
         let p = pane()

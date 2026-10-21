@@ -93,9 +93,10 @@ final class ComposeVoice {
         return true
     }
 
-    /// Esc: stop and take the words out. True when a session ran.
+    /// Esc: stop and take the words out. True when a session ran. Once finishing (Return or the
+    /// finish button kept the words), Esc leaves them and goes on to its usual job (stopping an agent).
     @discardableResult func cancel() -> Bool {
-        guard isActive else { return false }
+        guard isActive, phase != .finalizing else { return false }
         input?.cancelVoice()
         return true
     }
