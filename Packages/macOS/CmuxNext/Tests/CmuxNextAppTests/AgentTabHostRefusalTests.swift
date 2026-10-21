@@ -10,8 +10,12 @@ import Testing
 @MainActor struct AgentTabHostRefusalTests {
     private let local = "install:3f2a", chief = "chief:2e448bc2"
 
-    @Test func anotherMachinesHostIsRefusedAsAnotherMachine() {
-        #expect(AgentTabStore.hostRefusal("cmux16", localHost: local, chiefHost: chief, daemonIsLocal: true) == RefusalStrings.agentTabMachineMismatch)
+    /// The same session opens without the host (through the peer), so the refusal names the machine
+    /// and says so (coord-deputy 2026-10-20).
+    @Test func anotherMachinesHostIsRefusedWithHowToOpenIt() throws {
+        let refusal = try #require(AgentTabStore.hostRefusal("cmux16", localHost: local, chiefHost: chief, daemonIsLocal: true))
+        #expect(refusal == RefusalStrings.agentTabRunsOnHost("cmux16"))
+        #expect(refusal.contains("cmux16"), "the refusal does not name the machine: \(refusal)")
     }
 
     @Test func noHostThisMacsHostAndTheChiefHomeOpen() {
