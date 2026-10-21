@@ -18,7 +18,8 @@ unless that compile is still waiting (queued, running, not created yet, or every
 gives no verdict) and the build fleet compiled the exact head, read from either record of it:
 
 - the build fleet's controller (`cmux-ci status`) holds a done `cmux-ci compile-check --ref <head> --app`
-  job from a verified submitter, and its receipts.json has an `app` receipt that is ok for that sha,
+  job from a verified submitter, with exactly the command and pool that client submits (the worker runs
+  the command with a shell, and `cmux-ci submit` takes any), and its receipts.json has an `app` receipt that is ok for that sha,
   which is what makes the client exit 0. A lane that ran it needs no workflow dispatch (#23606 at
   bf14aa7d: job edfa18ea31a796eac433019a passed, the guard refused, and the lane compiled the head
   again with run 39662744415). No client on this machine, or no answer from the controller, is no pass;
@@ -70,6 +71,8 @@ FLEET_RUNS_READ = 2  # newest first; each run read is one gh call
 # cmux-ci compile-check's job (HQ build-fleet/ci-client.py compile_check_body and compile_check_verdict).
 CMUX_CI_KIND = "cmux-next-swift-check"
 CMUX_CI_RECIPE = "/Users/Shared/cmux-build-fleet/recipes/cmux-next-swift-check.sh"
+CMUX_CI_LABEL = "cmux-next-linux"
+CMUX_CI_PACKAGE = re.compile(r"[A-Za-z][A-Za-z0-9_.-]{0,63}")
 CMUX_CI_JOBS_READ = 2  # newest first; each receipts read is one controller call
 SWIFT_SUFFIXES = (".swift", ".xcconfig", ".h", ".m", ".mm", ".c", ".modulemap")
 SWIFT_NAMES = ("Package.swift", "Package.resolved")
@@ -384,14 +387,20 @@ def cmux_ci_passed(head: str) -> bool:
         return False
 
     def app_check(job) -> bool:
-        if not isinstance(job, dict) or job.get("kind") != CMUX_CI_KIND or job.get("state") != "done":
+        # Only the job compile_check_body submits: the worker runs the command with /bin/sh -c, and
+        # `cmux-ci submit` takes any kind and command, so one more word could write its own receipts.
+        if (not isinstance(job, dict) or job.get("kind") != CMUX_CI_KIND or job.get("state") != "done"
+                or job.get("ref") != head or job.get("submitter_verified") is not True or job.get("repo")
+                or job.get("labels") != [CMUX_CI_LABEL] or not re.fullmatch(r"[0-9a-f]{6,64}", str(job.get("id", "")))):
             return False
         try:
             argv = shlex.split(job.get("command") or "")
         except ValueError:
             return False
-        return (job.get("ref") == head and job.get("submitter_verified") is True and argv[:2] == [CMUX_CI_RECIPE, head]
-                and "--app" in argv[2:] and re.fullmatch(r"[0-9a-f]{6,64}", str(job.get("id", ""))) is not None)
+        packages = argv[2:-1]
+        return (argv[:2] == [CMUX_CI_RECIPE, head] and argv[-1:] == ["--app"] and shlex.join(argv) == job["command"]
+                and packages[::2] == ["--package"] * (len(packages) // 2) and len(packages) % 2 == 0
+                and all(CMUX_CI_PACKAGE.fullmatch(name) for name in packages[1::2]))
 
     candidates = sorted(filter(app_check, jobs), key=lambda job: str(job.get("created_at") or ""), reverse=True)
     for job in candidates[:CMUX_CI_JOBS_READ]:
