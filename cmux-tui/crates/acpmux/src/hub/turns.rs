@@ -276,6 +276,7 @@ impl Hub {
         }
         // A prompt that took the turn lock first (a person's) supersedes the continuation.
         if let Err(e) = super::auto_resume::check_cut(session, after_turn.as_deref(), waiting) {
+            self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
             return Err(e);
         }
@@ -291,6 +292,7 @@ impl Hub {
         // A continuation Stop overtook since it fired is refused here (`auto_resume.rs`).
         let turn = TurnInfo::prompted(client, &text, &turn_id, &prompt_id, control);
         if let Err(e) = self.start_turn(session, after_turn.as_deref(), turn) {
+            self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
             return Err(e);
         }
@@ -650,6 +652,23 @@ impl Hub {
         self.fail_unstarted_turn(session, prompt_id, turn_id, e);
         if session.status() == SessionStatus::Disconnected {
             self.set_status(session, SessionStatus::Ready);
+        }
+    }
+
+    /// A prompt that left the queue (`dequeued`, `waiting`) refused before its turn: the log
+    /// settles it with `prompt_refused`, so a restart does not queue it again (`restore_queue`).
+    fn refuse_dequeued(
+        &self,
+        session: &Arc<Session>,
+        waiting: bool,
+        prompt_id: &str,
+        turn_id: &str,
+        client: &str,
+        e: &RpcError,
+    ) {
+        if waiting {
+            let msg = json!({"promptId": prompt_id, "turnId": turn_id, "client": client, "error": e.message, "data": e.data});
+            self.append(session, "mux", "prompt_refused", msg);
         }
     }
 
