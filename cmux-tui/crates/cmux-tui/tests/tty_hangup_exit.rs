@@ -12,15 +12,20 @@
 //! the terminal up, and require the process to exit within a deadline. One
 //! scenario sends no `SIGHUP`, as when the emulator exits without one; the
 //! other sends `SIGHUP` right after the hangup, as a session leader gets it.
+//!
+//! The client runs with `--ephemeral`, so it hosts its session in-process. A
+//! client attached to a separate session owner shares the same input reader,
+//! shutdown and terminal restore, but its owner's teardown is not covered here.
 
 #![cfg(unix)]
 
 use std::fs::File;
 use std::io::Read;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 use std::process::{Child, Command, ExitStatus, Stdio};
-use std::sync::mpsc;
+use std::sync::{Mutex, mpsc};
 use std::time::{Duration, Instant};
 
 /// How long the client gets to start and take over the terminal.
@@ -34,16 +39,26 @@ const EXIT_DEADLINE: Duration = Duration::from_secs(15);
 /// its host input reader, so seeing it means the reader is about to poll.
 const INPUT_MODES_ENABLED: &[u8] = b"\x1b[?2004h";
 
+/// Held from `openpty` until the client has started. `openpty` returns
+/// descriptors without close-on-exec, so a client the other test spawns in that
+/// window would inherit this test's master and keep the terminal from hanging up.
+static PTY_SPAWN: Mutex<()> = Mutex::new(());
+
 #[test]
 fn cmux_next_client_exits_when_its_terminal_closes_without_sighup() {
-    let verdict = run_client_then_hang_up(false);
-    assert!(verdict.is_ok(), "{}", verdict.unwrap_err());
+    assert_exited_cleanly(run_client_then_hang_up(false));
 }
 
 #[test]
 fn cmux_next_client_exits_on_sighup_after_its_terminal_hangs_up() {
-    let verdict = run_client_then_hang_up(true);
-    assert!(verdict.is_ok(), "{}", verdict.unwrap_err());
+    assert_exited_cleanly(run_client_then_hang_up(true));
+}
+
+/// The client must have exited on its own: a crash or a signal on the way out
+/// is not a clean end of the session.
+fn assert_exited_cleanly(verdict: Result<ExitStatus, String>) {
+    let status = verdict.unwrap_or_else(|reason| panic!("{reason}"));
+    assert!(status.signal().is_none(), "the client died from a signal: {status}");
 }
 
 /// Starts an isolated interactive client on a fresh pty, closes the pty master
@@ -56,6 +71,7 @@ fn run_client_then_hang_up(sighup: bool) -> Result<ExitStatus, String> {
     std::fs::write(root.path().join("config.json"), "{}").expect("config");
     let stderr_path = root.path().join("stderr.txt");
 
+    let spawn_guard = PTY_SPAWN.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let (mut master, slave) = open_pty();
     let stdin = slave.try_clone().expect("slave for stdin");
     let stdout = slave.try_clone().expect("slave for stdout");
@@ -80,6 +96,7 @@ fn run_client_then_hang_up(sighup: bool) -> Result<ExitStatus, String> {
         .spawn()
         .expect("cmux-tui client must start");
     drop(slave);
+    drop(spawn_guard);
 
     if let Err(reason) = await_output(&mut master, INPUT_MODES_ENABLED) {
         kill(&mut client);

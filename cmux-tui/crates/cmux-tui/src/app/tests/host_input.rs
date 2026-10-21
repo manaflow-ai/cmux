@@ -428,8 +428,7 @@ fn host_input_runtime_shutdown_joins_reader_before_returning() {
     let input = runtime.producer(events_tx);
     let (sent_tx, sent_rx) = std::sync::mpsc::sync_channel(1);
     let (finished_tx, finished_rx) = std::sync::mpsc::sync_channel(1);
-    runtime
-        .spawn_reader("input", move || {
+    let spawned = runtime.spawn_reader("input", move || {
             let key = Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
             assert!(input.send(key));
             sent_tx.send(()).unwrap();
@@ -455,8 +454,7 @@ fn host_input_runtime_shutdown_serializes_concurrent_callers() {
     let ingress = runtime.ingress.clone();
     let (closed_tx, closed_rx) = std::sync::mpsc::sync_channel(1);
     let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
-    runtime
-        .spawn_reader("input", move || {
+    let spawned = runtime.spawn_reader("input", move || {
             while !ingress.is_closed() {
                 std::thread::yield_now();
             }

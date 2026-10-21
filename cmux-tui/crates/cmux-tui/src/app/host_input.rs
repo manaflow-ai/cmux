@@ -394,6 +394,9 @@ impl HostInputShutdown {
         // re-reading, issue 23088) never reports it. Waiting for that report
         // up to HOST_INPUT_READER_EXIT_DEADLINE, and leaving such a reader
         // detached, keeps the client able to restore the terminal and exit.
+        // A detached reader keeps running until the process exits, which
+        // follows shutdown: the binary never starts a second TUI run in the
+        // same process.
         let current_thread = std::thread::current().id();
         let reader = {
             let mut state = self.reader.state.lock().unwrap();
@@ -462,9 +465,13 @@ impl HostInputReaderControl {
     /// Wait until the reader reports its exit or `deadline` passes. Returns
     /// whether it exited.
     fn wait_for_exit(&self, deadline: Duration) -> bool {
-        let state = self.state.lock().unwrap();
-        let (state, _) =
-            self.exited.wait_timeout_while(state, deadline, |state| !state.reader_exited).unwrap();
+        // Shutdown also runs from the panic hook, so a poisoned lock must not
+        // turn into a second panic here.
+        let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (state, _) = self
+            .exited
+            .wait_timeout_while(state, deadline, |state| !state.reader_exited)
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         state.reader_exited
     }
 }
