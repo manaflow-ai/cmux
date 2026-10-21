@@ -3,8 +3,8 @@ import CmuxNextDesign
 import GhosttyNextKit
 
 /// Ghostty's clipboard requests for one terminal view: clipboard reads,
-/// and the confirmations for an unsafe paste or an OSC 52 read or write
-/// (a cmux dialog that blocks only this terminal). Denial completes a read with an empty
+/// the confirmations for an unsafe paste or an OSC 52 read (a cmux dialog
+/// that blocks only this terminal), and program clipboard writes. Denial completes a read with an empty
 /// string, as Ghostty expects.
 @MainActor
 final class TerminalClipboardRequests {
@@ -16,11 +16,6 @@ final class TerminalClipboardRequests {
     /// True only during a synchronous Ghostty key/binding call initiated by
     /// the user. A copy callback inside that call is not program output.
     private var userClipboardWriteInProgress = false
-    /// At most one program-write dialog per surface; later writes are denied
-    /// instead of growing the global dialog queue.
-    private var writePromptPending = false
-    private var writeDialogID: Int?
-    private var writeRequestState: UncheckedPointer?
     nonisolated static let maxProgramWriteBytes = 1 << 20
 
     /// Runs `body` as a user paste (see `userPasteInProgress`).
@@ -80,7 +75,9 @@ final class TerminalClipboardRequests {
     /// terminal. Denial completes with an empty string, as Ghostty expects.
     func confirm(contents: String, contentBytes: Int, kind: TerminalClipboardRequestKind, state: UncheckedPointer) {
         if case .osc52Write = kind {
-            confirmProgramWrite(contents: contents, contentBytes: contentBytes, state: state)
+            // A terminal program may always set the clipboard; there is no
+            // prompt even for `clipboard-write = ask` (`deny` never gets here).
+            if contentBytes <= Self.maxProgramWriteBytes { complete(state: state, with: contents) } else { deny(state: state) }
             return
         }
         guard let view, view.window != nil, !view.isHiddenOrHasHiddenAncestor else {
@@ -105,76 +102,13 @@ final class TerminalClipboardRequests {
         }
     }
 
-    /// OSC 52 write when `clipboard-write = ask`.
-    func confirmWrite(items: [TerminalClipboardItem], location: TerminalPasteboardLocation) {
-        guard bounded(items), beginWritePrompt(state: nil), let scope = writePromptScope() else { return }
-        let text = items.first(where: { $0.mime.hasPrefix("text/plain") })?.text ?? items.first?.text ?? ""
-        writeDialogID = CmuxDialogCenter.shared.present(Self.writeSpec(preview: text), in: scope) { [self] answer in
-            finishWritePrompt()
-            guard answer.button == "allow" else { return }
-            TerminalPasteboard.write(items, to: location)
-        }
-    }
-
-    /// Ghostty asks for confirmation (`confirm`) only when
-    /// `clipboard-write = ask`; its default `allow` writes silently, as in
-    /// Ghostty.app. A program's write stays bounded; a user copy does not.
-    func write(items: [TerminalClipboardItem], location: TerminalPasteboardLocation, confirm: Bool) {
-        if confirm, !userClipboardWriteInProgress {
-            confirmWrite(items: items, location: location)
-            return
-        }
+    /// Writes a copy. A terminal program's OSC 52/Kitty write never prompts,
+    /// even when Ghostty asks for confirmation under `clipboard-write = ask`;
+    /// `deny` stops it inside Ghostty. A program's write stays bounded; a
+    /// user copy does not.
+    func write(items: [TerminalClipboardItem], location: TerminalPasteboardLocation) {
         guard userClipboardWriteInProgress || bounded(items) else { return }
         TerminalPasteboard.write(items, to: location)
-    }
-
-    private func confirmProgramWrite(contents: String, contentBytes: Int, state: UncheckedPointer) {
-        guard contentBytes <= Self.maxProgramWriteBytes,
-              beginWritePrompt(state: state), let scope = writePromptScope() else {
-            deny(state: state)
-            return
-        }
-        writeDialogID = CmuxDialogCenter.shared.present(Self.writeSpec(preview: contents), in: scope) { [self] answer in
-            finishWritePrompt()
-            guard answer.button == "allow" else {
-                deny(state: state)
-                return
-            }
-            complete(state: state, with: contents)
-        }
-    }
-
-    private func beginWritePrompt(state: UncheckedPointer?) -> Bool {
-        guard !writePromptPending else { return false }
-        writePromptPending = true
-        writeRequestState = state
-        return true
-    }
-
-    /// Ends a write request before this surface closes or is replaced. A
-    /// window/app-scoped dialog must not outlive the Ghostty state it answers.
-    func cancelPendingWrite() {
-        guard writePromptPending else { return }
-        if let id = writeDialogID, CmuxDialogCenter.shared.dismiss(id) { return }
-        let state = writeRequestState
-        finishWritePrompt()
-        if let state { deny(state: state) }
-    }
-
-    private func finishWritePrompt() {
-        writePromptPending = false
-        writeDialogID = nil
-        writeRequestState = nil
-    }
-
-    private func writePromptScope() -> CmuxDialogScope? {
-        guard let view else {
-            finishWritePrompt()
-            return nil
-        }
-        if view.window != nil, !view.isHiddenOrHasHiddenAncestor { return .tab(view) }
-        if let window = view.window { return .window(window) }
-        return .app
     }
 
     private func bounded(_ items: [TerminalClipboardItem]) -> Bool {
@@ -187,11 +121,6 @@ final class TerminalClipboardRequests {
         return true
     }
 
-    private static func writeSpec(preview: String) -> CmuxDialogSpec {
-        spec(String(localized: "terminal.clipboard.write.title", defaultValue: "Allow a program to change the clipboard?", bundle: .module),
-             String(localized: "terminal.clipboard.write.message", defaultValue: "A program running in this terminal wants to copy text to the clipboard.", bundle: .module),
-             preview: preview)
-    }
     /// Deny on Escape, with a preview of the text. Allow has no key: a
     /// Return typed into the terminal as the dialog opens must never paste
     /// or hand over the clipboard (as in the clipboard-read broker dialog).
