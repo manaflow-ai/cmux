@@ -207,6 +207,7 @@ impl Hub {
             chat_store: parent_meta.chat_store.clone(),
             adopted_cwd: None,
             harness_roots: vec![],
+            watching: None,
             composer_draft: None,
             // It runs the parent's mode: a spawn from other preset contents leaves it too.
             preset_mode_approval: parent_meta.preset_mode_approval.clone(),

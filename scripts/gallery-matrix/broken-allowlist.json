@@ -42,10 +42,10 @@
   "agent-pane.subagents#card-outside-click": "agent-pane, owned by chief-pet-default-off (fixing; its PR removes this line). Broken since before 2026-10-21: waitFor did not hold within 5000 ms.",
   "agent-pane.subagents#card-waiting": "agent-pane, owned by chief-pet-default-off (fixing; its PR removes this line). Broken since before 2026-10-21: waitFor did not hold within 5000 ms.",
   "agent-pane.subagents#summary": "agent-pane, owned by chief-pet-default-off (fixing; its PR removes this line). Broken since before 2026-10-21: waitFor did not hold within 5000 ms.",
+  "agent-pane.transcript#codex-turn-run-open": "agent-pane, owned by chief-pet-default-off (its fix PR removes this line). Broken since it was added in #23081 (2026-10-21): play: waitFor did not hold within 5000 ms, 3 of 3 runs on #23400 and #23433.",
   "agent-pane.transcript#fold-holds-clicked-line": "agent-pane, owned by chief-pet-default-off (fixing; its PR removes this line). Broken since before 2026-10-21: waitFor did not hold within 5000 ms.",
   "agent-pane.transcript#footer-actions-left": "agent-pane, owned by chief-pet-default-off (fixing; its PR removes this line). Broken since before 2026-10-21: waitFor did not hold within 5000 ms.",
   "agent-pane.transcript#footer-actions-right": "agent-pane, owned by chief-pet-default-off (fixing; its PR removes this line). Broken since before 2026-10-21: waitFor did not hold within 5000 ms.",
   "pages.markdown#showcase": "Headless Chromium's renderer crashes on the showcase's 193 highlighted code blocks; WebKit (the app's engine) renders it in 5-9 s.",
-  "pages.markdown#showcase-syntax-highlighting-gallery": "Headless Chromium's renderer crashes on the showcase's 193 highlighted code blocks; WebKit (the app's engine) renders it in 5-9 s.",
-  "pages.settings#font-picker": "The font list ignores a click in the first 400 ms after the page loads (DomainListEditor closedAt starts at 0), and the play clicks that early on CI: Gallery control missing: .domain-panel, 3 of 3 runs. Its fix PR (gallery-perf) removes this line. Broken since 2026-10-21."
+  "pages.markdown#showcase-syntax-highlighting-gallery": "Headless Chromium's renderer crashes on the showcase's 193 highlighted code blocks; WebKit (the app's engine) renders it in 5-9 s."
 }
