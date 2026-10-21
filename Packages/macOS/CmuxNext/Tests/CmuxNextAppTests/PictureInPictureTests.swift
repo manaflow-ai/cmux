@@ -3,7 +3,9 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextBridge
 @testable import CmuxNextBrowser
+import CmuxNextDesign
 @testable import CmuxNextNowPlaying
+import CmuxNextSidebar
 import Foundation
 import Testing
 
@@ -84,6 +86,37 @@ import Testing
         #expect(try #require(row(), "a page playing a video leaves Picture in Picture out").title == "Picture in Picture")
         tab.simulate(.mediaChanged(BrowserMediaState(title: "Clip", isPlaying: true, isVideo: true, isPictureInPicture: true)))
         #expect(row()?.title == PictureInPictureStrings.exit, "the row of a floating video does not read as Exit")
+    }
+
+    /// The card's menu floats the tab the card shows (no tab has focus here), offers it only for a
+    /// video and reads as Exit while it floats.
+    @Test func theCardsMenuFloatsTheTabTheCardShows() async throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        AppActions.bind(services)
+        let tab = Self.tab(), key = "video"
+        services.cache.install(tab, for: key)
+        defer { services.cache.browsers[key] = nil }
+        let tabs = services.cache.pageRequests.sidebarNowPlaying
+        func row() -> NSMenuItem? {
+            // The card shows the browser tabs' media, as the sidebar's feed offers it.
+            _ = services.cache.pageRequests.nowPlayingCard.card(for: tabs.nowPlaying, from: tabs)
+            func all(_ items: [NSMenuItem]) -> [NSMenuItem] { items.flatMap { [$0] + ($0.submenu.map { all($0.items) } ?? []) } }
+            let menu = SidebarContextMenus.menu(for: .nowPlaying, model: SidebarModel(), services: services, scope: ThemeScope(level: .room))
+            return all(menu?.items ?? []).first { ActionRegistry.menuRun(of: $0)?.id == PictureInPictureHandlers.actionID }
+        }
+        tab.simulate(.mediaChanged(BrowserMediaState(title: "Song", isPlaying: true)))
+        #expect(row() == nil, "the card of a song offers Picture in Picture")
+        tab.simulate(.mediaChanged(BrowserMediaState(title: "Clip", isPlaying: true, isVideo: true)))
+        let item = try #require(row(), "the card of a video leaves Picture in Picture out")
+        #expect(item.title == "Picture in Picture")
+        tab.evaluationResult = .string("entered")
+        let run = try #require(ActionRegistry.menuRun(of: item))
+        #expect(services.registry.perform(run.id, invocation: ActionInvocation(target: run.target, arguments: run.arguments)))
+        try await PasswordManagerRouteTests.until({ tab.commands.contains(.evaluate(BrowserMediaCommand.pictureInPictureScript)) },
+                                                  within: .seconds(5)) { "the card's row never reached the tab the card shows" }
+        tab.simulate(.mediaChanged(BrowserMediaState(title: "Clip", isPlaying: true, isVideo: true, isPictureInPicture: true)))
+        #expect(row()?.title == PictureInPictureStrings.exit, "the card's row of a floating video does not read as Exit")
     }
 
     @Test func oneActionBacksEveryEntrypoint() throws {
