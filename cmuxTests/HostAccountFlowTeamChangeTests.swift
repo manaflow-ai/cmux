@@ -65,9 +65,13 @@ struct HostAccountFlowTeamChangeTests {
         )
 
         let refresh = Task { await flow.refreshBillingPlan() }
-        await Task.detached {
-            BillingPlanCallbackURLProtocol.waitForRequest()
+        // Release on every exit so a failed switch cannot leave the request
+        // and its loading thread blocked.
+        defer { BillingPlanCallbackURLProtocol.releaseResponse() }
+        let started = await Task.detached {
+            BillingPlanCallbackURLProtocol.waitForRequest(timeout: .now() + 5)
         }.value
+        try #require(started, "The billing request never reached the stub.")
 
         try await flow.selectTeam(id: "team-b")
         BillingPlanCallbackURLProtocol.releaseResponse()
@@ -299,8 +303,8 @@ private final class BillingPlanCallbackURLProtocol: URLProtocol, @unchecked Send
         return URLSession(configuration: configuration)
     }
 
-    static func waitForRequest() {
-        requestStarted.wait()
+    static func waitForRequest(timeout: DispatchTime) -> Bool {
+        requestStarted.wait(timeout: timeout) == .success
     }
 
     static func releaseResponse() {
@@ -313,7 +317,7 @@ private final class BillingPlanCallbackURLProtocol: URLProtocol, @unchecked Send
     override func startLoading() {
         if Self.holdResponse {
             Self.requestStarted.signal()
-            Self.responseRelease.wait()
+            _ = Self.responseRelease.wait(timeout: .now() + 10)
         }
         let response = HTTPURLResponse(
             url: request.url!,
