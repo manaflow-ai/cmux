@@ -516,10 +516,10 @@ await requireBrowserLane("editor-page.test.ts", async () => {
         });
       });
 
-      test("opening a file does not show the scroller; scrolling the editor does", async () => {
+      test("resizing the editor does not show the scroller; scrolling it does", async () => {
         await fresh();
-        // Counts every time an editor is marked scrolling, from the first frame: the mark clears
-        // 800 ms later, so a check after the file loads could miss it.
+        // Counts every time an editor is marked scrolling (the mark clears 800 ms later, so a check
+        // of the attribute alone could miss it).
         await page.addInitScript(() => {
           const scope = window as unknown as { scrollMarks: number };
           scope.scrollMarks = 0;
@@ -531,10 +531,19 @@ await requireBrowserLane("editor-page.test.ts", async () => {
         const lines = Array.from({ length: 200 }, (_, index) => `const line${index} = ${index};`).join("\n");
         await openEditor(page, file("long.ts", `${lines}\n`), { highlighted: true });
         const marks = () => page.evaluate(() => (window as unknown as { scrollMarks: number }).scrollMarks);
-        // The file's height arriving is not a scroll: the overlay scroller stays hidden.
-        expect(await marks()).toBe(0);
+        const before = await marks();
+        // A pane or window resize changes the scroll size, not the scroll position.
+        await page.setViewportSize({ width: 700, height: 420 });
+        await page.waitForFunction(() => window.__cmuxEditor!.view()!.monacoEditor.getLayoutInfo().width < 720);
+        await page.evaluate(
+          () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+        );
+        expect(await marks()).toBe(before);
         await page.evaluate(() => window.__cmuxEditor!.view()!.monacoEditor.setScrollTop(400));
-        await page.waitForFunction(() => (window as unknown as { scrollMarks: number }).scrollMarks > 0);
+        await page.waitForFunction(
+          (count) => (window as unknown as { scrollMarks: number }).scrollMarks > count,
+          before,
+        );
       });
 
       test("a large file opens with highlighting and the minimap off, and takes typing", async () => {
