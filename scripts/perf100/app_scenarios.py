@@ -231,7 +231,7 @@ def s2(args, run, rng):
     for i in range(args.agents):
         made = acp("new", "--json", "-d", "-m", "perf100", f"perf100 session {i}")
         try:
-            sid = json.loads(made.stdout.strip().splitlines()[-1])["sessionId"]
+            sid = _session_id(made.stdout)
         except (ValueError, KeyError, IndexError):
             raise RuntimeError(f"acp new: {(made.stdout + made.stderr)[-300:]}")
         opened = app.act("agent.openSessionWorkspace", session=sid)
@@ -405,3 +405,13 @@ def s4(args, run, rng):
     run.unverified("S4 restart-to-update: quit with sessions kept and launch of the same build; the Sparkle "
                    "install and UpdateWindowHandoff path are not exercised")
     return app
+
+
+def _session_id(stdout: str) -> str:
+    """The sessionId of `acp new --json` (one JSON object, possibly pretty-printed)."""
+    text = stdout.strip()
+    try:
+        return json.loads(text)["sessionId"]
+    except (ValueError, KeyError, TypeError):
+        start = text.rfind("\n{")
+        return json.loads(text[start + 1:] if start >= 0 else text)["sessionId"]

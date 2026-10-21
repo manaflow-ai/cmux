@@ -44,7 +44,7 @@ bin="$NX_APP/Contents/Resources/bin"
 # A short scratch parent: the daemons' socket paths must stay under the macOS sun_path limit.
 scratch="$(mktemp -d /tmp/p100.XXXXXX)"
 if [ "$tui_scenarios" != "none" ]; then
-  "$py" scripts/perf100/perf100.py tui --tui "$bin/cmux-tui" --scenarios "$tui_scenarios" --root-dir "$scratch" "${common[@]}" --md "$out/tui.md" > "$out/tui.log" 2>&1 || status=$?
+  "$py" scripts/perf100/perf100.py tui --tui "$bin/cmux-tui" --scenarios "$tui_scenarios" --root-dir "$scratch" --pty-budget 300 --pty-reserve 150 "${common[@]}" --md "$out/tui.md" > "$out/tui.log" 2>&1 || status=$?
   tail -n 5 "$out/tui.log"
 fi
 if [ "$acpmux_sessions" != "none" ]; then

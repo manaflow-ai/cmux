@@ -320,7 +320,7 @@ def _tui_s1(run, daemon, conn, args):
 def _tui_s3(run, daemon, conn, args, restart: bool):
     """`--workspaces` workspaces with `--per-workspace` idle terminals each; then (S4) restart."""
     total = args.workspaces * args.per_workspace
-    cap = _pty_cap()
+    cap = _pty_cap(args)
     if cap is not None and total > cap:
         per = max(1, cap // args.workspaces)
         run.note(f"S3: {total} terminals exceed the free PTYs ({cap}); ran {args.workspaces} x {per}")
@@ -401,8 +401,9 @@ def _echo_latency(daemon, surfaces: list, samples: int) -> list[float]:
     return out
 
 
-def _pty_cap() -> int | None:
-    """macOS: PTYs this run may take (ptmx_max minus PTYs in use minus 64); None elsewhere."""
+def _pty_cap(args) -> int | None:
+    """macOS: PTYs this run may take (ptmx_max minus PTYs in use minus the reserve, at most the
+    budget); None elsewhere."""
     if not procstat.IS_MAC:
         return None
     try:
@@ -410,7 +411,7 @@ def _pty_cap() -> int | None:
     except ValueError:
         return None
     in_use = sum(1 for name in os.listdir("/dev") if name.startswith("ttys") and name[4:].isdigit())
-    return max(0, ptmx - in_use - 64)
+    return max(1, min(args.pty_budget, ptmx - in_use - args.pty_reserve))
 
 
 # ---------------------------------------------------------------- acpmux
@@ -536,7 +537,7 @@ def run_acpmux(args, build: dict, out_dir: str) -> list[str]:
             def make(i):
                 made = amx.cli("--json", "new", "-d", "-m", "perf100", f"perf100 session {i}")
                 try:
-                    sid = json.loads(made.stdout.strip().splitlines()[-1])["sessionId"]
+                    sid = _session_id(made.stdout)
                 except (ValueError, KeyError, IndexError):
                     raise RuntimeError(f"new: {made.stdout[-300:]} {made.stderr[-300:]}")
                 with lock:
@@ -636,3 +637,13 @@ def _pool(fn, items, workers: int):
         t.join()
     if errors:
         raise errors[0]
+
+
+def _session_id(stdout: str) -> str:
+    """The sessionId of `acp new --json` (one JSON object, possibly pretty-printed)."""
+    text = stdout.strip()
+    try:
+        return json.loads(text)["sessionId"]
+    except (ValueError, KeyError, TypeError):
+        start = text.rfind("\n{")
+        return json.loads(text[start + 1:] if start >= 0 else text)["sessionId"]

@@ -17,9 +17,9 @@ macOS (one call per process, no wakeup of the process read):
 Linux:
   /proc/<pid>/stat utime+stime, /proc/<pid>/status Threads/VmRSS/VmHWM, voluntary context switches
   summed over /proc/<pid>/task/* (wakeups), /proc/<pid>/smaps_rollup Pss (footprint),
-  /proc/<pid>/io write_bytes (disk_write_io: bytes this process caused to be sent to storage,
-  counted when the page is dirtied), wchar (disk_write_logical: every write syscall, sockets and
-  pipes included), syscr+syscw (I/O syscalls only).
+  /proc/<pid>/io write_bytes (disk_write_logical and disk_write_io: bytes this process caused to be
+  sent to storage, counted when the page is dirtied; wchar is not used, it counts PTY, pipe and
+  socket writes too), syscr+syscw (I/O syscalls only).
 
 `SOURCES` names the source of every field for the run JSON. A process that exits between two
 samples keeps its last sampled counters (at most one sample interval is lost).
@@ -195,7 +195,7 @@ def _read_linux(pid: int) -> dict | None:
         "footprint": pss if pss is not None else rss,
         "max_footprint": kb("VmHWM"),
         "threads": int(status["Threads"]) if status.get("Threads", "").isdigit() else None,
-        "disk_write_logical": io.get("wchar"),
+        "disk_write_logical": io.get("write_bytes"),
         "disk_write_io": io.get("write_bytes"),
         "disk_read_io": io.get("read_bytes"),
         "syscalls": (io["syscr"] + io["syscw"]) if "syscr" in io and "syscw" in io else None,

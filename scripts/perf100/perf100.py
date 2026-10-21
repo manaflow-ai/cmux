@@ -39,8 +39,10 @@ def _paths(items: list[str]) -> list[str]:
 
 
 def _build(args) -> dict:
-    return {"tag": args.tag or os.environ.get("NX_APP_TAG"), "sha": args.sha or runlib.git_sha(ROOT),
-            "app": getattr(args, "app", None), "harness_sha": runlib.git_sha(ROOT)}
+    # A synced tree (rbx) has no .git of its own: a parent repository's HEAD would be wrong.
+    own = runlib.git_sha(ROOT) if os.path.exists(os.path.join(ROOT, ".git")) else None
+    return {"tag": args.tag or os.environ.get("NX_APP_TAG"), "sha": args.sha or own,
+            "app": getattr(args, "app", None), "harness_sha": own}
 
 
 def _common(p: argparse.ArgumentParser):
@@ -93,6 +95,8 @@ def main(argv=None):
     p.add_argument("--workspaces", type=int, default=200)
     p.add_argument("--per-workspace", type=int, default=5)
     p.add_argument("--root-dir", default=None, help="scratch parent (default the temp dir; keep it short on macOS)")
+    p.add_argument("--pty-budget", type=int, default=2000, help="most PTYs S3 may take (macOS)")
+    p.add_argument("--pty-reserve", type=int, default=64, help="PTYs left free for others (macOS)")
 
     p = sub.add_parser("acpmux", help="headless acpmux S2 (agent streaming)")
     _common(p)

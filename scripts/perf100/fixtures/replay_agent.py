@@ -51,7 +51,7 @@ def parse(text: str) -> dict | None:
     for word in words[1:]:
         key, _, value = word.partition("=")
         opts[key] = value
-    return opts
+    return opts if "stream" in opts else None
 
 
 def stream(rid, sid: str, opts: dict):
