@@ -70,6 +70,8 @@ fn group_ops_named_by_the_personal_id_edit_the_groups_item() {
     assert_eq!(pinned.map(|group| group["pinned"].clone()), Some(json!(true)));
     apply(&mux, json!([{"op": "unpin", "items": [work]}]), "unpin-by-personal-id")
         .unwrap_or_else(|error| panic!("unpin by the personal id: {error:?}"));
+    let unpinned = groups(&mux).into_iter().find(|group| group["id"] == work.as_str());
+    assert_eq!(unpinned.map(|group| group["pinned"].clone()), Some(json!(false)));
 
     // Delete Group (`workspaceGroup.delete` sends `group.ungroup`): the group goes, its workspace stays.
     apply(&mux, json!([{"op": "group.ungroup", "id": work}]), "delete-by-personal-id")

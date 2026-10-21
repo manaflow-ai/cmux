@@ -100,7 +100,8 @@ pub(crate) fn closes_for_reset(
 /// instead (`itm_g_<id>`, the item a personal group lists as): the app's
 /// group actions, the CLI and MCP callers know a group by its own id, and
 /// the reducer refused that id as `unknown_item` (#22996). An id that is an
-/// item already is kept.
+/// item already is kept. Ids resolve against the document before the batch,
+/// so a group a `group.create` earlier in the same batch makes is not seen yet.
 pub(crate) fn resolve_group_ids(doc: &Doc, ops: &mut [Op]) {
     let resolve = |id: &mut ItemId| {
         if doc.item(id).is_some() {

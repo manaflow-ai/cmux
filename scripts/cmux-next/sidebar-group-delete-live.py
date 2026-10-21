@@ -186,18 +186,20 @@ def check_removed(label, member, action, verb):
     new_refusals = refusals()[before:]
     shot(f"{label}-after")
     describe(f"{label} after")
-    stays = by_title(member)
-    record(f"{label}: {verb} from the header menu", bool(gone) and not new_refusals and bool(stays) and not stays.get("group"),
-           f"group={group} performed={reply.get('performed')} gone={bool(gone)} refusals={new_refusals} "
-           f"member={stays and (stays.get('title'), stays.get('group'))} doc={doc_groups()}")
+    # The member stays open and ungrouped: a list row, or in Pinned a tile (no list row), still a workspace.
+    row = by_title(member)
+    stays = (row and not row.get("group")) or (not row and member in cli("workspace", "list"))
+    record(f"{label}: {verb} from the header menu", bool(gone) and not new_refusals and bool(stays),
+           f"group={group} performed={(reply or {}).get('performed')} gone={bool(gone)} refusals={new_refusals} "
+           f"member={row and (row.get('title'), row.get('group'))} open={bool(stays)} doc={doc_groups()}")
 
 
-launch()
-print("doc:", json.dumps(report().get("doc") or {})[:600], flush=True)
 try:
-    for name in (f"Alpha-{RUN}", f"Bravo-{RUN}", f"Charlie-{RUN}", f"Delta-{RUN}"):
+    launch()
+    print("doc:", json.dumps(report().get("doc") or {})[:600], flush=True)
+    for name in (f"Alpha-{RUN}", f"Bravo-{RUN}", f"Charlie-{RUN}", f"Delta-{RUN}", f"Echo-{RUN}"):
         cli("workspace", "create", "--name", name)
-    wait(lambda: by_title(f"Alpha-{RUN}") and by_title(f"Delta-{RUN}"), 20)
+    wait(lambda: by_title(f"Alpha-{RUN}") and by_title(f"Echo-{RUN}"), 20)
     shot("0-start")
 
     # 1. A CLI-made group (personal store first), deleted from the header menu.
@@ -225,7 +227,7 @@ try:
 
     # 4-6. A pinned group (Pinned lists it as a header and member rows): rename, ungroup and delete it there.
     for step, member, action, verb in (("4-pinned-group-ungroup", f"Delta-{RUN}", "workspaceGroup.ungroup", "Ungroup"),
-                                       ("5-pinned-group-delete", f"Alpha-{RUN}", "workspaceGroup.delete", "Delete Group")):
+                                       ("5-pinned-group-delete", f"Echo-{RUN}", "workspaceGroup.delete", "Delete Group")):
         name = f"Throwaway Pinned {step[0]} {RUN}"
         print(cli("workspace", "group", "create", "--name", name), flush=True)
         print(cli("workspace", "group", name, "add", "--workspace", member), flush=True)
