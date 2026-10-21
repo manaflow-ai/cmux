@@ -121,15 +121,15 @@ public struct SidebarMapping {
         let indicator = StatusMapping.shared.summary(tabs: tabs, status: workspace.status)
         let front = frontTab(workspace, selectedTab: selectedTab)
         let folder = folderTab(tabs)
-        // A page beside the work it was opened from (an agent's PR in its right column) lends the
-        // row nothing of its own: the row keeps the work's name, kind and icon, and the page's
+        // The row's face (name, icon, kind) is one tab's: the front tab, or the work a page beside
+        // it was opened from (an agent's PR in its right column), wherever focus is. The page's
         // favicon stays on the page's own tab (Leo, 2026-10-21: a chat row showed GitHub's mark).
-        let work = front?.kind == .browser ? workTab(workspace, selectedTab: selectedTab) : nil
-        let page = front.flatMap { pageFace(workspace, $0, work) }
+        let face = faceTab(workspace, selectedTab: selectedTab)
+        let page = face.flatMap { pageFace(workspace, $0, nil) }
         // Each browser tab's face once: its favicon in the tab list, its sound on the row.
         var browserFaces: [String: PageFace] = [:]
         for tab in tabs where tab.kind == .browser {
-            browserFaces[tab.id] = tab.id == front?.id ? page : pageFace(workspace, tab, nil)
+            browserFaces[tab.id] = tab.id == face?.id ? page : pageFace(workspace, tab, nil)
         }
         let entries = workspace.status?.entries ?? []
         // Another computer's folders shorten against that computer's home, never this Mac's (cx-gaq9).
@@ -152,9 +152,9 @@ public struct SidebarMapping {
             rowKind: rowKind(tabs),
             agentWorking: StatusMapping.shared.isWorking(tabs: tabs),
             icon: Self.icon(color: workspace.color, icon: workspace.icon, asset: iconAsset)
-                ?? (work == nil ? page?.favicon.map(WorkspaceIcon.favicon) : nil),
-            kind: kind(work ?? front),
-            kindBrand: (work ?? front)?.agentBrand,
+                ?? page?.favicon.map(WorkspaceIcon.favicon),
+            kind: kind(face),
+            kindBrand: face?.agentBrand,
             // A tab marked unread by hand (Mark Tab Unread) shows as the workspace's manual dot.
             unread: unread > 0 ? .count(unread)
                 : (showsUnread && (workspace.markedUnread || tabs.contains(where: \.markedUnread)) ? .dot : .none),
@@ -225,6 +225,15 @@ public struct SidebarMapping {
             }
         }
         return work?.tab
+    }
+
+    /// The one tab a workspace's row and window titlebar both read their name and icon from: the
+    /// front tab, or for a browser front tab the work it yields to (`workTab`), so focus moving to
+    /// a page beside a chat leaves both the chat's.
+    public func faceTab(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?) -> TabModel? {
+        let front = frontTab(workspace, selectedTab: selectedTab)
+        guard front?.kind == .browser else { return front }
+        return workTab(workspace, selectedTab: selectedTab) ?? front
     }
 
     /// The tab `pane` shows: the window's selection, else the daemon's default tab.

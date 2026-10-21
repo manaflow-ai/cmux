@@ -15,12 +15,15 @@ struct SidebarRowPageBesideChatTests {
         return SidebarFavicon(context.makeImage()!)
     }()
 
-    /// The pull request page's face: its favicon on every browser tab, as `AppServices.sidebarPageFace` gives it.
-    private static func pageFace(_: WorkspaceModel, _ tab: TabModel, _: TabModel?) -> SidebarMapping.PageFace? {
-        tab.kind == .browser ? .init(title: "Pull request", favicon: github) : nil
+    /// Each tab's face as `AppServices.sidebarPageFace` gives it: the name of the work a page
+    /// yields to (else the tab's own), and a favicon for a browser tab only.
+    private static func pageFace(_: WorkspaceModel, _ tab: TabModel, _ work: TabModel?) -> SidebarMapping.PageFace? {
+        .init(title: (work ?? tab).title, favicon: tab.kind == .browser ? github : nil)
     }
 
-    private static func workspace(chat: Bool) throws -> (WorkspaceModel, TabModel?) {
+    /// A GitHub page in its own pane, focused at 2, and with `chat` an agent chat on its left
+    /// focused at `chatFocusedAt`.
+    private static func workspace(chat: Bool, chatFocusedAt: UInt64 = 1) throws -> (WorkspaceModel, TabModel?) {
         let store = DaemonStore()
         let page = PaneSnapshot(id: 2, focusedAt: 2, tabs: [
             TabSnapshot(surface: 2, kind: .browser, title: "PR", url: "https://github.com/manaflow-ai/cmux/pull/23025"),
@@ -30,7 +33,7 @@ struct SidebarRowPageBesideChatTests {
         if chat {
             var tab = TabSnapshot(surface: 1, kind: .conversation, title: "GUI push · coordinator")
             tab.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "install:test", session: "s1", harness: "claude"))
-            panes.insert(PaneSnapshot(id: 1, focusedAt: 1, tabs: [tab]), at: 0)
+            panes.insert(PaneSnapshot(id: 1, focusedAt: chatFocusedAt, tabs: [tab]), at: 0)
             layout = .split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: .leaf(1), b: .leaf(2))
         }
         let screen = ScreenSnapshot(id: 1, layout: layout, panes: panes)
@@ -39,12 +42,17 @@ struct SidebarRowPageBesideChatTests {
         return (workspace, workspace.screens.flatMap(\.panes).flatMap(\.tabs).first { $0.kind == .conversation })
     }
 
-    @Test func aLinkOpenedFromAChatLeavesTheChatsIcon() throws {
-        let (workspace, chat) = try Self.workspace(chat: true)
+    /// The row's icon and title are one tab's, the chat's, whichever pane has focus: the chat, or
+    /// the page it opened on its right after focus moved there.
+    @Test(arguments: [UInt64(3), 1])
+    func theRowShowsTheChatWhereverFocusIs(chatFocusedAt: UInt64) throws {
+        let (workspace, chat) = try Self.workspace(chat: true, chatFocusedAt: chatFocusedAt)
         let chatTab = try #require(chat)
-        // The page took focus when it opened, so it is the row's front tab.
-        #expect(SidebarMapping.shared.frontTab(workspace, selectedTab: { _ in nil })?.kind == .browser)
+        let front = SidebarMapping.shared.frontTab(workspace, selectedTab: { _ in nil })
+        #expect(front?.kind == (chatFocusedAt > 2 ? .conversation : .browser))
+        #expect(SidebarMapping.shared.faceTab(workspace, selectedTab: { _ in nil })?.id == chatTab.id)
         let row = SidebarMapping.shared.row(workspace, machine: .local, pageFace: Self.pageFace)
+        #expect(row.title == "GUI push · coordinator")
         #expect(row.icon == nil, "the page's favicon is not the chat's icon")
         #expect(row.kind == .harness)
         #expect(row.kindBrand != nil && row.kindBrand == chatTab.agentBrand)
@@ -56,6 +64,7 @@ struct SidebarRowPageBesideChatTests {
     @Test func aPageWithNoWorkBesideItKeepsItsFavicon() throws {
         let (workspace, _) = try Self.workspace(chat: false)
         let row = SidebarMapping.shared.row(workspace, machine: .local, pageFace: Self.pageFace)
+        #expect(row.title == "PR")
         #expect(row.icon == .favicon(Self.github))
         #expect(row.kind == .browser)
     }
