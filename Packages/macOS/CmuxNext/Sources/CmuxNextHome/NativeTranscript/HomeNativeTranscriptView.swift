@@ -116,6 +116,8 @@ public final class HomeNativeTranscriptView: NSView {
     private var observers: [any NSObjectProtocol] = []
     /// The window's typing hold for the compose field's cursor rects (HomeCursorRectHold).
     private var cursorHold: HomeCursorRectHold?
+    /// Debug Settings > Home > Avatar and name over the chat, when this conversation opened (off: no header).
+    private let showsHeader = HomeTunables.chatHeader.value
 
     /// - Parameter diagrams: draws Mermaid fences as diagrams (the app's ``OndineMermaidRenderer``); nil keeps them as text.
     public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, diagrams: (any HomeDiagramRendering)? = nil) {
@@ -451,9 +453,9 @@ public final class HomeNativeTranscriptView: NSView {
         let active = performWithTheme { HomeThemePalette.resolveInScope(active: true, style: style, accentOverride: accent) }
         let measured = performWithTheme { HomeThemePalette.usesMessagesBlueInScope(style: style, accentOverride: accent) }
         transcript.applyTheme(active: active, measuredAccent: measured)
-        // The header: a thin glass band over the transcript and a glass name pill, as
-        // Messages on macOS 26 (HeaderGlass.swift).
-        transcript.setHeaderGlass()
+        // No header by default: the rows start at the top and fade out there. Debug Settings brings back
+        // the thin glass band and glass name pill, as Messages on macOS 26 (HeaderGlass.swift).
+        if showsHeader { transcript.setHeaderGlass() } else { transcript.setBareTop() }
         performWithTheme {
             firstRun.applyColors(primary: Palette.textPrimary, secondary: Palette.textSecondary, tertiary: Palette.textTertiary, fill: Palette.elevatedBackground,
                                  hover: Palette.hoverFill, border: Palette.separator, attention: Palette.attention,

@@ -69,7 +69,9 @@ final class PaneHeaderView: NSView {
     /// and the empty space drags the window (cmux: Messages' header is its
     /// toolbar, so a drag there moves the window; the scroll view starts
     /// below the header).
+    /// Hidden (Home with no header, `useBareTop`), it takes nothing: the rows under it keep their clicks.
     override func hitTest(_ point: NSPoint) -> NSView? {
+        guard !isHidden else { return nil }
         let p = convert(point, from: superview)
         if pill.frame.contains(p) && !pill.isHidden { return pill }
         return bounds.contains(p) ? self : nil

@@ -681,8 +681,9 @@ public final class MessagesLabHomeView: NSView {
     /// Returns when every bubble picture asked for so far is ready (tests).
     public func mediaSettled() async { await projection.media.settled() }
 
-    /// The top of the area under the header (the first-run panel's top).
-    public var headerHeight: CGFloat { Fixture.headerHeight }
+    /// The top of the area under the header (the first-run panel's top); with no header
+    /// (``setBareTop()``), the rows' top.
+    public var headerHeight: CGFloat { controller.host.bareTop ? HostView.bareTopInset : Fixture.headerHeight }
     /// The field's top in this view (the first-run panel's bottom).
     public var fieldTop: CGFloat { controller.demo?.fieldTop ?? bounds.height }
 
