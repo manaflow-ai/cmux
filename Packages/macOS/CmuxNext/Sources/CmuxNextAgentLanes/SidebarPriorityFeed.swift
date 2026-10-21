@@ -93,7 +93,7 @@ public final class SidebarPriorityFeed {
         guard settings.enabled() else { return nil }
         let shown = settings.shown(), state = marks.state
         _ = clock.ticks
-        let entries = ranking.entries(lanes, marks: state, now: Date())
+        let entries = ranking.entries(lanes, marks: state, now: Date(), failingChecks: failingChecks)
         return SidebarPriorityPanel(entries: shown ? entries : entries.filter(\.needsAttention), shown: shown,
                                     collapsed: state.collapsed, shortcut: hooks.shortcut())
     }
@@ -134,13 +134,22 @@ public final class SidebarPriorityFeed {
     /// again after it: a wake that leaves the rows as they were (the bell off) emits nothing.
     private func scheduleNextChange() {
         let now = Date()
-        guard let next = ranking.nextChange(lanes, marks: marks.state, now: now) else { return nextChange.cancel() }
+        guard let next = ranking.nextChange(lanes, marks: marks.state, now: now, failingChecks: failingChecks) else {
+            return nextChange.cancel()
+        }
         // Rounded up and a little late, so the wake never lands just before the change.
         let milliseconds = Int64((max(1, next.timeIntervalSince(now)) * 1000).rounded(.up)) + 50
         nextChange.schedule(after: .milliseconds(milliseconds)) { @MainActor [weak self] in
             self?.clock.ticks += 1
             self?.scheduleNextChange()
         }
+    }
+
+    /// The chats with a pull request whose checks fail (Red CI), as the session tree's badge last
+    /// read them (`SidebarSessionTreeFeed.checksFailing`): no GitHub read of its own.
+    private var failingChecks: Set<String> {
+        let tree = SidebarSessionTreeFeed.shared
+        return Set(lanes.filter { tree.checksFailing($0) }.map(\.id))
     }
 }
 

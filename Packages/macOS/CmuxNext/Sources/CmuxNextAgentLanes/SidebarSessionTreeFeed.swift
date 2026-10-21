@@ -20,7 +20,8 @@ public final class SidebarSessionTreeFeed {
     public static let shared = SidebarSessionTreeFeed()
 
     private var task: Task<Void, Never>?
-    private let pullRequests = SidebarPullRequestStore()
+    /// Also read by ``checksFailing(_:)``, the Priority view's Red CI.
+    let pullRequests = SidebarPullRequestStore()
 
     /// What one pass reads: the tree, and the folders and pull request URLs it shows.
     nonisolated struct Pass: Equatable, Sendable {

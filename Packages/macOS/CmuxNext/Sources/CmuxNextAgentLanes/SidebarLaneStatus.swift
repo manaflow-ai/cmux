@@ -56,9 +56,10 @@ enum SidebarLaneStatus {
     }
 
     /// The Priority view's chip for the most urgent of `lanes` (`AgentPriorityRanking`, with the
-    /// same read marks), nil when each one works or is idle: the working mark already says working.
+    /// same read marks and Red CI), nil when each one works or is idle: the working mark already says working.
     static func chip(_ lanes: [AgentActivityLane], marks: AgentPriorityMarks.State) -> SidebarPriorityEntry.State? {
-        lanes.map { AgentPriorityRanking.state($0, read: marks.read[$0.id] == AgentPriorityMarks.stamp($0)) }
+        lanes.map { AgentPriorityRanking.state($0, read: marks.read[$0.id] == AgentPriorityMarks.stamp($0),
+                                               failingChecks: SidebarSessionTreeFeed.shared.checksFailing($0)) }
             .filter { if case .working = $0 { false } else { $0 != .idle } }
             .min { AgentPriorityRanking.tier($0) < AgentPriorityRanking.tier($1) }
     }
