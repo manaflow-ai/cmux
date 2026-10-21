@@ -1264,6 +1264,7 @@ jobs:
           Unregister-ScheduledTask -TaskName 'acpmux-peer' -Confirm:$false -ErrorAction SilentlyContinue
           Get-CimInstance Win32_Process -Filter "ExecutablePath LIKE 'C:\\amx-peer\\%'" | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
           Remove-Item -Recurse -Force 'C:\amx-peer' -ErrorAction SilentlyContinue
+          Remove-Item -Recurse -Force 'C:\amx-peer-home' -ErrorAction SilentlyContinue
 
   cdp-browser-smoke:
     name: CDP browser smoke (${{ matrix.os }})
