@@ -174,8 +174,9 @@ PATH_OWNERS = {
     # tests/test_ci_pr_media.py imports the script and reads the workflow.
     "scripts/ci/pr_media.py": frozenset(("app-host-execution",)),
     ".github/workflows/pr-media.yml": frozenset(("app-host-execution",)),
-    # tests/test_ci_pr_media_privacy.py imports the gate and reads its workflow.
-    "scripts/ci/pr_media_privacy.py": frozenset(("ci",)),
+    # tests/test_ci_pr_media_privacy.py imports the gate and reads its workflow;
+    # scripts/pr-media.py (tests/test_pr_media.py) runs it before every upload.
+    "scripts/ci/pr_media_privacy.py": frozenset(("ci", "preflight")),
     ".github/workflows/pr-media-privacy.yml": frozenset(("ci",)),
     # detect_ci_change_areas.py imports this to decide the swift-package-tests
     # route, so the ci group's router tests observe an edit to it even though

@@ -2,10 +2,12 @@ name: PR media privacy
 
 # Every default clone fetches the public pr-media branch, and many tools write
 # captures to it (cmux-next-media.yml tours, nightly.yml reels,
-# scripts/pr-media.py, scripts/showcase-publish.py, HQ tools); most run no
-# privacy check. Captures from the fleet minis have shown terminal prompts
-# (`cmux@<host>`), the Inspector's machine name and the capture account's home
-# path. This gate sits on the branch itself, so it covers every writer.
+# scripts/pr-media.py, scripts/showcase-publish.py, the UI fuzzer, HQ tools).
+# Captures from the fleet minis have shown terminal prompts (`cmux@<host>`),
+# the Inspector's machine name and the capture account's home path.
+# scripts/pr-media.py and the fuzzer run the same check before they push; this
+# gate sits on the branch itself, so it also covers every other writer and the
+# media a Linux writer could not read.
 #
 # `check` costs one `git ls-remote` per tick: it compares the pr-media tip with
 # refs/pr-media-privacy/scanned, the last tip this workflow scanned, and starts
@@ -19,7 +21,7 @@ name: PR media privacy
 # pushed with a lease (history is never rewritten; pr-media-prune.yml's weekly
 # squash drops the blobs later). A numeric folder is that pull request's media,
 # removable only when its author is in the PR_MEDIA_AGENT_AUTHORS variable;
-# nightly-next/ is the nightly bot's own. A teammate's file, any other folder,
+# nightly-next/ and fuzz/ are bots' own. A teammate's file, any other folder,
 # or an author the one GraphQL lookup cannot name is reported and kept. The
 # marker then advances to the scanned tip, and the run fails whenever anything
 # was found, so the run page (annotations and the job summary) is the signal.
