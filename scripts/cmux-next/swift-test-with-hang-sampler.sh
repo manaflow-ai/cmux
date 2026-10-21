@@ -27,12 +27,10 @@ set -uo pipefail
 limit="${CMUX_NEXT_TEST_HANG_SECONDS:-1200}"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 started_at=$(date +%s)
-# The job's own temp dir, not /tmp: a /tmp log vanished
-# mid-run on #21185's CI, and the report then named no unfinished tests.
-# No log, no run: an empty $log would turn the trap below into rm -f "" .*.
+# The job's own temp dir when there is one. No log, no run: an empty $log
+# would turn the cleanup trap into rm -f "" .*.
 log="$(mktemp "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/swift-test-log.XXXXXX")" \
   || { echo "::error title=cmux-next swift test::cannot create the test log" >&2; exit 1; }
-trap 'rm -f "$log" "$log".*' EXIT
 exec 3> >(tee "$log")
 tee_pid=$!
 swift test "$@" >&3 2>&1 &
@@ -138,6 +136,11 @@ sample_and_kill() {
   done
 ) &
 watcher=$!
+# The cleanup trap comes after every fork: a child forked with it inherits it,
+# and the watcher, killed before its first line runs (the run ended at once,
+# a loaded host), ran it and deleted the log before the report read it
+# (swift-test-summary.test.sh, 1 in 10 runs at 32 checks at once).
+trap 'rm -f "$log" "$log".*' EXIT
 wait "$test_pid"
 status=$?
 # Stop the watcher before reporting: the tests a lost helper left open stay
