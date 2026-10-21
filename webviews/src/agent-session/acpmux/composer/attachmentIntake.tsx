@@ -9,7 +9,6 @@ import {
   filesFrom,
   pastedImageFiles,
   installFileDropLifecycle,
-  readAttachments,
   thumbnail,
   type AttachmentError,
   type ComposerAttachment,
@@ -19,6 +18,7 @@ import { ImageViewerContext } from "../conversation/imageViewerContext";
 import { Close, FileDoc, ImageIcon } from "../conversation/icons";
 import { type StringKey, type Translate, useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
+import { intakeFiles } from "./intakeFiles";
 
 const ATTACHMENT_LABELS = {
   attachments: "composer.attachments",
@@ -26,14 +26,12 @@ const ATTACHMENT_LABELS = {
   openAttachment: "composer.openAttachment",
   dropFiles: "composer.dropFiles",
   sentAsFileForCodex: "composer.sentAsFileForCodex",
+  sentAsPath: "composer.sentAsPath",
   tooLarge: "composer.tooLarge",
   unsupported: "composer.unsupported",
   imagesUnsupported: "composer.imagesUnsupported",
   tooMany: "composer.tooMany",
 } as const satisfies Record<string, StringKey>;
-
-/// The refusals a moved chat's upload can take instead (a file of another type, or past the size an attachment takes).
-const UPLOADABLE = new Set<AttachmentError["reason"]>(["unsupported", "tooLarge"]);
 
 export function attachmentErrorText(error: AttachmentError, t: Translate): string {
   return t(ATTACHMENT_LABELS[error.reason], { name: error.name });
@@ -45,10 +43,8 @@ export type AttachmentIntakeOptions = {
   /// Whether a paste on `target` is this composer's: undefined is not; `uploads` false keeps its
   /// files for the next prompt and uploads nothing (a chat's shell mode).
   pasteTarget(target: Node): { uploads: boolean } | undefined;
-  /// A moved chat sends what the composer can't attach to its machine (cloudUploads.ts).
+  /// The chat's host saves what the composer can't attach (cloudUploads.ts); its chip sends the path.
   upload?(files: File[]): Promise<UploadResult>;
-  /// Puts the uploaded files' machine paths in the prompt.
-  insertPaths?(paths: string[]): void;
 };
 
 /// The prompt's staged attachments: what a paste on the composer's field or a file drop anywhere on
@@ -63,22 +59,19 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   const live = useRef({ options, t, held: attachments.length });
   live.current = { options, t, held: attachments.length };
   /// `uploads`: the person dropped, pasted or chose these, so the chat's host may save what the
-  /// composer can't attach (a moved chat's machine, or this Mac for a local chat); never a capture.
+  /// composer can't attach (a moved chat's machine, or this Mac for a local chat) and its chip sends
+  /// the saved path (composer/intakeFiles.ts); never a capture.
   const [attach] = useState(() => async (files: File[], uploads = false) => {
     if (files.length === 0) return;
     const { options: current, t: translate, held } = live.current;
-    const { upload, insertPaths } = current;
-    const read = await readAttachments(files, held, current.allowImages);
-    setAttachments((staged) => [...staged, ...read.attachments]);
-    // A moved chat sends what the composer can't attach to its machine and names it in the prompt.
-    const refused = new Set(read.errors.filter((error) => UPLOADABLE.has(error.reason)).map((error) => error.name));
-    const sendable = files.filter((file) => refused.has(file.name || "file"));
-    const sent = uploads && upload && sendable.length > 0 ? await upload(sendable) : undefined;
-    if (sent && "paths" in sent) insertPaths?.(sent.paths);
-    const errors = sent ? read.errors.filter((error) => !refused.has(error.name)) : read.errors;
-    setAttachError(
-      sent && "error" in sent ? sent.error : errors[0] ? attachmentErrorText(errors[0], translate) : undefined,
-    );
+    const taken = await intakeFiles(files, {
+      held,
+      allowImages: current.allowImages,
+      ...(uploads && current.upload ? { upload: current.upload } : {}),
+    });
+    setAttachments((staged) => [...staged, ...taken.attachments]);
+    const error = taken.error;
+    setAttachError(error && ("text" in error ? error.text : attachmentErrorText(error, translate)));
   });
   useEffect(() => {
     const paste = (event: ClipboardEvent) => {
@@ -263,6 +256,21 @@ function AttachmentChip({
       />,
     );
   }
+  // A file that goes as its path (a saved copy, or a file or folder the panel chose) says so, with
+  // the path on hover: the agent reads it there instead of getting its bytes.
+  if (attachment.kind === "link")
+    return menu(
+      undefined,
+      <div
+        className="acpmux-attachment acpmux-attachment-file acpmux-attachment-link"
+        data-saved={attachment.saved || undefined}
+        /* tooltip-allow: the chip shows a file's name; its path is where the agent reads it */ title={attachment.path}
+      >
+        <span className="acpmux-attachment-link-name">{attachment.name}</span>
+        {attachment.saved && <span className="acpmux-attachment-link-note">{t(ATTACHMENT_LABELS.sentAsPath)}</span>}
+        {remove}
+      </div>,
+    );
   return menu(
     undefined,
     <div className="acpmux-attachment acpmux-attachment-file">

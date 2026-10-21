@@ -233,6 +233,12 @@ export interface MenuPopupProps {
   finalFocus?: boolean | RefObject<HTMLElement | null>;
   /** Keys the menu takes beyond Base UI's own (a mode menu's number keys). */
   onKeyDown?: (event: KeyboardEvent<HTMLDivElement>) => void;
+  /**
+   * A selector for the box the menu (and its submenus) stays inside, found from the menu button
+   * (the agent pane's chat column). Base UI sizes `--available-width` and `--available-height` to
+   * it; without one, or when the button has no such ancestor, the box is the window.
+   */
+  boundary?: string;
   children: ReactNode;
 }
 
@@ -241,6 +247,8 @@ export interface MenuPopupProps {
 const PopupSurface = createContext<string | undefined>(undefined);
 /// Inside a menu's popup: a submenu's popup leaves its focus return to Base UI (its own item).
 const InPopup = createContext(false);
+/// The box a menu's popups stay inside (`MenuPopupProps.boundary`), so its submenus keep to it too.
+const PopupBoundary = createContext<Element | undefined>(undefined);
 
 export function MenuPopup({
   id,
@@ -252,6 +260,7 @@ export function MenuPopup({
   anchor,
   finalFocus,
   onKeyDown,
+  boundary,
   children,
 }: MenuPopupProps) {
   const container = usePortalContainer();
@@ -259,6 +268,15 @@ export function MenuPopup({
   const host = usePopupHost();
   const menu = use(MenuContext);
   const nested = use(InPopup);
+  // The boundary box, found from the menu button as the menu opens; a submenu inherits it.
+  const inherited = use(PopupBoundary);
+  const [own, setOwn] = useState<Element | undefined>(undefined);
+  const triggerRef = menu?.trigger;
+  const menuOpen = menu?.isOpen ?? false;
+  useLayoutEffect(() => {
+    if (menuOpen) setOwn(boundary ? (triggerRef?.current?.closest(boundary) ?? undefined) : undefined);
+  }, [boundary, triggerRef, menuOpen]);
+  const collisionBoundary = boundary ? own : inherited;
   const [popup, setPopup] = useState<HTMLElement | null>(null);
   // The popup's last node: Base UI asks where focus goes after the close fade, as it unmounts.
   const popupNode = useRef<HTMLElement | null>(null);
@@ -283,6 +301,7 @@ export function MenuPopup({
         anchor={anchor}
         side={side}
         collisionAvoidance={flip ? undefined : { side: "none" }}
+        {...(collisionBoundary ? { collisionBoundary } : {})}
         align={align}
         sideOffset={UI_ANCHOR_GAP}
       >
@@ -313,7 +332,9 @@ export function MenuPopup({
           }}
         >
           <InPopup value>
-            <PopupSurface value={className}>{children}</PopupSurface>
+            <PopupBoundary value={collisionBoundary}>
+              <PopupSurface value={className}>{children}</PopupSurface>
+            </PopupBoundary>
           </InPopup>
         </BaseMenu.Popup>
       </BaseMenu.Positioner>

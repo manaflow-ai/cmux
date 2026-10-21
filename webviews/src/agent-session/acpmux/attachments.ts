@@ -1,7 +1,7 @@
 /// Files the composer attaches to a prompt. Images, PDFs and dictation's voice recordings go to
 /// the agent as ACP content blocks. A text file is written into the prompt's text because
 /// the web view never learns a dropped file's path; any other file (a binary, a large text file)
-/// goes to the chat's host (`chat.upload`), which saves it and puts its path in the prompt.
+/// goes to the chat's host (`chat.upload`), which saves it; its chip sends the saved path as a link.
 import { liftInlineImages } from "./inlineImages";
 
 export type ComposerAttachment = {
@@ -20,9 +20,13 @@ export type ComposerAttachment = {
   shellRun?: string;
   /** A link's file or folder on this computer (Attach files or folders): the agent reads it there. */
   path?: string;
+  /** A file the composer could not attach that the chat's host saved for the agent: its chip says it goes as a path. */
+  saved?: boolean;
 };
 
 export type AttachmentError = { name: string; reason: "tooLarge" | "unsupported" | "imagesUnsupported" | "tooMany" };
+/// A refusal with the file it refuses, so a caller can send that file another way (a chat's upload).
+export type RefusedFile = AttachmentError & { file: File; unreadable?: boolean };
 
 export type PromptBlock =
   | { type: "text"; text: string }
@@ -45,6 +49,10 @@ export const MAX_DOCUMENT_BYTES = 20 * 1024 * 1024;
 export const MAX_TEXT_BYTES = 256 * 1024;
 export const MAX_ATTACHMENTS = 10;
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+/// Pictures the models do not take as they are (an iPhone's HEIC, TIFF, BMP, AVIF) but the engine
+/// can decode: they go as PNG or JPEG. One it cannot decode goes as a file instead.
+const CONVERTIBLE_TYPES = new Set(["image/heic", "image/heif", "image/tiff", "image/bmp", "image/avif"]);
+const CONVERTIBLE_NAME = /\.(heic|heif|tiff?|bmp|avif)$/i;
 
 function isPdf(file: File): boolean {
   return file.type === "application/pdf" || /\.pdf$/i.test(file.name);
@@ -55,20 +63,22 @@ export async function readAttachments(
   files: File[],
   held: number,
   allowImages: boolean,
-): Promise<{ attachments: ComposerAttachment[]; errors: AttachmentError[] }> {
+): Promise<{ attachments: ComposerAttachment[]; errors: RefusedFile[] }> {
   const attachments: ComposerAttachment[] = [];
-  const errors: AttachmentError[] = [];
+  const errors: RefusedFile[] = [];
   for (const file of files) {
     if (held + attachments.length >= MAX_ATTACHMENTS) {
-      errors.push({ name: file.name, reason: "tooMany" });
+      errors.push({ name: file.name, reason: "tooMany", file });
       continue;
     }
     // A dropped folder arrives as a File whose bytes cannot be read.
-    const result = await readAttachment(file, allowImages).catch((): AttachmentError => ({
+    const result = await readAttachment(file, allowImages).catch((): RefusedFile => ({
       name: file.name,
       reason: "unsupported",
+      file,
+      unreadable: true,
     }));
-    if ("reason" in result) errors.push(result);
+    if ("reason" in result) errors.push({ ...result, file });
     else attachments.push(result);
   }
   return { attachments, errors };
@@ -113,6 +123,19 @@ export async function readAttachment(file: File, allowImages: boolean): Promise<
       data: base64(fitted.bytes),
     };
   }
+  if (CONVERTIBLE_TYPES.has(file.type) || (!file.type && CONVERTIBLE_NAME.test(name))) {
+    if (!allowImages) return { name, reason: "imagesUnsupported" };
+    const converted = await fitImage(file, true);
+    if (!converted || converted === "fits") return { name, reason: "unsupported" };
+    return {
+      id,
+      kind: "image",
+      name: name.replace(/(\.[^./]*)?$/, converted.mimeType === "image/jpeg" ? ".jpg" : ".png"),
+      mimeType: converted.mimeType,
+      size: converted.bytes.length,
+      data: base64(converted.bytes),
+    };
+  }
   if (file.size > MAX_TEXT_BYTES) return { name, reason: "tooLarge" };
   const text = decodeText(new Uint8Array(await file.arrayBuffer()));
   if (text === undefined) return { name, reason: "unsupported" };
@@ -134,16 +157,18 @@ const FIT_STEPS = [
 /// scaled and re-encoded by FIT_STEPS until it is under the budget: as PNG when that fits, else as
 /// JPEG (on white, which has no alpha). A JPEG source skips the PNG tries; an animated GIF or WebP
 /// keeps its first frame. "fits" for an image that is already within both bounds (an animated GIF
-/// stays animated); undefined when the engine cannot decode or scale it.
+/// stays animated), unless `convert` (a type the models do not take) re-encodes it anyway;
+/// undefined when the engine cannot decode or scale it.
 async function fitImage(
   file: Blob,
+  convert = false,
 ): Promise<{ mimeType: "image/png" | "image/jpeg"; bytes: Uint8Array } | "fits" | undefined> {
   if (typeof createImageBitmap !== "function" || typeof OffscreenCanvas !== "function") return undefined;
   let bitmap: ImageBitmap | undefined;
   try {
     bitmap = await createImageBitmap(file);
     const longest = Math.max(bitmap.width, bitmap.height, 1);
-    if (longest <= MAX_IMAGE_SIDE && file.size <= IMAGE_BUDGET_BYTES) return "fits";
+    if (!convert && longest <= MAX_IMAGE_SIDE && file.size <= IMAGE_BUDGET_BYTES) return "fits";
     let last: Blob | undefined;
     let triedPng = 0;
     for (const step of FIT_STEPS) {
@@ -290,6 +315,13 @@ export function linkAttachment(path: string, folder: boolean): ComposerAttachmen
     size: 0,
     path: trimmed,
   };
+}
+
+/// A link chip for a file the composer could not attach that the chat's host saved at `path` (`chat.upload`):
+/// named as the person's file was, it goes as a resource_link to where the agent can read it.
+export function savedAttachment(path: string, name: string): ComposerAttachment {
+  const link = linkAttachment(path, false);
+  return { ...link, name: name || link.name, saved: true };
 }
 
 /// `file://` and the path, each segment percent-encoded.
