@@ -40,6 +40,24 @@ struct HomeChiefHostedSettingsTests {
         #expect(control.engineSource() is HomeChiefRemoteEngine)
     }
 
+    /// A new Chief is in the directory's `chief.list` before the Chief tab lists it: its
+    /// `brain_place` there still decides hosted or placed.
+    @Test func theDirectoryListDecidesWhileTheChiefTabDoesNotKnowTheChief() {
+        let list: [String: Any] = ["chiefs": [
+            ["id": Self.agent, "display_name": "New", "rev": 1, "main_conversation": Self.main],
+            ["id": "agent_placed", "display_name": "Mini", "rev": 2, "main_conversation": "conv_placed",
+             "brain_place": ["host": "host_mini", "install": "install_1"]],
+            ["id": "agent_old", "rev": 3, "main_conversation": "conv_old", "archived_at": "2026-10-01T00:00:00Z"],
+        ]]
+        let records = HomeChiefRecord.list(from: list)
+        #expect(records.map(\.id) == [Self.agent, "agent_placed"])
+        #expect(HomeChiefRecord.archivedIDs(from: list) == ["agent_old"])
+        let none = HomeCloudChiefs()
+        #expect(none.placement(of: Self.main, records: records).map { [$0.id, "\($0.placed)"] } == [Self.agent, "false"])
+        #expect(none.placement(of: "conv_placed", records: records)?.placed == true)
+        #expect(none.placement(of: "conv_unknown", records: records) == nil)
+    }
+
     @Test func thisMacsChiefStaysLocal() {
         let services = Self.services()
         let control = HomeChiefControl(services: services, conversation: ConversationID("conv_local"), muxHome: Self.home())

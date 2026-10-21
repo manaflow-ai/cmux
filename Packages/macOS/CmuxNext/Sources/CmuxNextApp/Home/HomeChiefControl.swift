@@ -39,8 +39,7 @@ struct HomeChiefControl {
 
     /// The hosted Chief's agent id; nil while it is not listed (or a server runs it).
     var hostedChiefID: String? {
-        guard isCloud, let chief = services.home.cloudChiefPlacement(of: conversation.rawValue), !chief.placed else { return nil }
-        return chief.id
+        isCloud ? services.home.cloudChiefPlacement(of: conversation.rawValue).flatMap { $0.placed ? nil : $0.id } : nil
     }
 
     /// The paired server that runs this cloud Chief's brain (`brain_place`).
