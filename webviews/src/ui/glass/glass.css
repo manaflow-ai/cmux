@@ -34,6 +34,25 @@
   --glass-dispersion: 0;
   /* The lines of the rim. --cmux-card-rim is the host's card rim (transparent with borders off). */
   --glass-edge: var(--cmux-card-rim, color-mix(in srgb, var(--cmux-text, CanvasText) 14%, transparent));
+  --glass-fringe-red: transparent;
+  --glass-fringe-cyan: transparent;
+  /* A surface's own drop shadow goes here (the shared elevation scale), never a heavy dark one. */
+  --glass-elevation: 0 0 transparent;
+  /* With no still (no art, a moving wallpaper, no host yet) the glass frosts like plain glass. */
+  --glass-backdrop: var(--surface-blur);
+  /* The surface's opaque fill under Reduce Transparency (below): the theme surface unless the
+     surface names its own (a user bubble's grey, the popup surface). */
+  /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
+  --glass-opaque: var(--glass-surface);
+  /* Which edges continue into a neighbouring glass (top, bottom, both or none): the lens bends no
+     rim there, so a stack of glass (queued prompts on the composer) reads as one surface. */
+  --glass-join: none;
+}
+
+/* The rim, declared again on each glass: a custom property's var() resolves where it is declared,
+   so a surface's own --glass-rim or --glass-edge reaches its rim only through these. */
+:root,
+.ui-glass {
   --glass-specular: light-dark(
     color-mix(in srgb, var(--cmux-tone-light, #fff) calc(90% * var(--glass-rim)), transparent),
     color-mix(in srgb, var(--cmux-tone-light, #fff) calc(62% * var(--glass-rim)), transparent)
@@ -42,24 +61,21 @@
     color-mix(in srgb, black calc(6% * var(--glass-rim)), transparent),
     color-mix(in srgb, black calc(22% * var(--glass-rim)), transparent)
   );
-  --glass-fringe-red: transparent;
-  --glass-fringe-cyan: transparent;
-  /* The rim: a one-device-pixel top highlight that thins away round the corners, the faint edge
-     all round, a faint lower inner shade, and (Spectrum) a red and a cyan fringe on the sides. */
+  /* A one-device-pixel top highlight that thins away round the corners, the faint edge all round,
+     a faint lower inner shade, and (Spectrum) a red and a cyan fringe on the sides. */
   --glass-rim-shadow:
     inset 0 var(--cmux-hairline, 0.5px) 0 0 var(--glass-specular),
     inset 0 calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--glass-shade),
     inset var(--cmux-hairline, 0.5px) 0 0 0 var(--glass-fringe-red),
     inset calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 0 var(--glass-fringe-cyan),
     inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge);
-  /* A surface's own drop shadow goes here (the shared elevation scale), never a heavy dark one. */
-  --glass-elevation: 0 0 transparent;
-  /* With no still (no art, a moving wallpaper, no host yet) the glass frosts like plain glass. */
-  --glass-backdrop: var(--surface-blur);
 }
 
 :root[data-glass="spectrum"] {
   --glass-dispersion: 0.35;
+}
+:root[data-glass="spectrum"],
+:root[data-glass="spectrum"] .ui-glass {
   --glass-fringe-red: light-dark(
     color-mix(in srgb, rgb(255 70 90) calc(30% * var(--glass-rim)), transparent),
     color-mix(in srgb, rgb(255 90 110) calc(34% * var(--glass-rim)), transparent)
@@ -74,12 +90,26 @@
 :root:not([data-glass="lens"], [data-glass="spectrum"]) {
   --glass-tint: color-mix(in srgb, var(--glass-surface) 60%, transparent);
   --glass-backdrop: var(--surface-blur);
+}
+:root:not([data-glass="lens"], [data-glass="spectrum"]),
+:root:not([data-glass="lens"], [data-glass="spectrum"]) .ui-glass {
   --glass-rim-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge);
 }
 
 /* The lens draws the bend and its frost behind the glass; the surface keeps only a light frost
    for the page content between the canvas and the glass. */
 :root[data-glass-lens]:is([data-glass="lens"], [data-glass="spectrum"]) {
+  --glass-tint: color-mix(in srgb, var(--glass-surface) 40%, transparent);
+  --glass-backdrop: blur(var(--glass-frost)) saturate(1.3);
+}
+
+/* A popup is glass of its own: it never inherits the tint of the surface it opens from (the
+   composer's solid card on an opaque window would make a slash or mention menu opaque). */
+.ui-popup.ui-glass {
+  --glass-tint: color-mix(in srgb, var(--glass-surface) 60%, transparent);
+  --glass-backdrop: var(--surface-blur);
+}
+:root[data-glass-lens]:is([data-glass="lens"], [data-glass="spectrum"]) .ui-popup.ui-glass {
   --glass-tint: color-mix(in srgb, var(--glass-surface) 40%, transparent);
   --glass-backdrop: blur(var(--glass-frost)) saturate(1.3);
 }
@@ -95,8 +125,15 @@
   backdrop-filter: var(--glass-backdrop);
   box-shadow: var(--glass-rim-shadow), var(--glass-elevation);
 }
+/* A popup's own sheet often paints the solid popup surface on its class (`background:
+   var(--surface-popup)`); as glass that hides the blur, so the glass tint wins over one class. */
+.ui-popup.ui-glass {
+  background: var(--glass-tint);
+}
 
-/* Reduce Transparency: the opaque surface, no blur, the rim only (desktop.css's pattern). */
+/* Reduce Transparency: the opaque surface, no blur, the rim only (desktop.css's pattern). The
+   surface itself is held too, with !important, so a token a surface sets on itself (a tint, a
+   plain look) can never leave it translucent: its opaque fill is --glass-opaque. */
 @media (prefers-reduced-transparency: reduce) {
   /* [data-glass] so the mode's own tokens above never outrank it. */
   :root,
@@ -106,10 +143,20 @@
     --glass-rim-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge);
     --glass-dispersion: 0;
   }
+  .ui-glass {
+    --glass-tint: var(--glass-opaque) !important;
+    --glass-backdrop: none !important;
+    --glass-rim-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge) !important;
+  }
 }
 :root[data-reduce-transparency] {
   --glass-tint: var(--glass-surface);
   --glass-backdrop: none;
   --glass-rim-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge);
   --glass-dispersion: 0;
+}
+:root[data-reduce-transparency] .ui-glass {
+  --glass-tint: var(--glass-opaque) !important;
+  --glass-backdrop: none !important;
+  --glass-rim-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge) !important;
 }
