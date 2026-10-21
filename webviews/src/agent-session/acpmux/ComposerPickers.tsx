@@ -16,6 +16,8 @@ import { EffortLabel, EffortPicker, type SpeedSection } from "./EffortPicker";
 import { type SpeedTiers, useSpeedToggle } from "./FastToggle";
 import { type StringKey, useT } from "./i18n";
 import { ModelPicker } from "./ModelPicker";
+import { AgentOptionsMenu } from "./AgentOptionsMenu";
+import { extraConfigOptions } from "./agentOptions";
 import type { CatalogRefreshState, ModelCombo, ModelPickerProps } from "./modelPickerLayout";
 import { topModelsFor } from "./topModels";
 import { rememberPick } from "./lastPick";
@@ -814,6 +816,9 @@ export function ComposerPickers({
           </button>
         </ContextMenu>
       )}
+      {/* The harness's other settings (Codex's collaboration mode, a custom harness's own
+          options): each config option no chip above owns, picked like the effort level. */}
+      <AgentOptionsMenu options={extraConfigOptions(summary)} onPick={(configId, value) => onEffort(configId, value)} />
     </div>
   );
   return chips;

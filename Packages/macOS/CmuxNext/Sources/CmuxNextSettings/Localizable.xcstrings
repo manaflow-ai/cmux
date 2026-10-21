@@ -148817,19 +148817,19 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los chats de agentes que te necesitan, arriba en la barra lateral"
+            "value": "Chats de agentes que te esperan, arriba en la barra lateral"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les conversations d’agents qui vous attendent, en haut de la barre latérale"
+            "value": "Chats d’agents à traiter, en haut de la barre latérale"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le chat degli agenti che ti aspettano, in cima alla barra laterale"
+            "value": "Chat degli agenti in attesa, in cima alla barra laterale"
           }
         },
         "ja": {
@@ -148859,13 +148859,13 @@
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Czaty agentów, które na ciebie czekają, u góry paska bocznego"
+            "value": "Czaty agentów czekające na ciebie, u góry paska bocznego"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chats de agentes que precisam de você, no topo da barra lateral"
+            "value": "Chats de agentes à sua espera, no topo da barra lateral"
           }
         },
         "ru": {
