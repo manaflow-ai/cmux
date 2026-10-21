@@ -167,3 +167,14 @@ test("Tab steps the suggestions, and Shift-Tab is not consumed", async () => {
   await act(async () => void field.dispatchEvent(event));
   expect(event.defaultPrevented).toBe(false);
 });
+
+// Review (PR 22816): Tab never wraps the rows, so it can always leave the field: from the last row
+// it is the browser's again.
+test("Tab on the last row moves focus on instead of wrapping", async () => {
+  const field = await render([]);
+  await type(field, "ff");
+  await key(field, "ArrowUp");
+  const event = new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+  await act(async () => void field.dispatchEvent(event));
+  expect(event.defaultPrevented).toBe(false);
+});

@@ -37,10 +37,6 @@ const LEADS = new Set([
   "wouldn't",
   "shouldn't",
   "couldn't",
-  "can",
-  "could",
-  "should",
-  "would",
   "analyze",
   "analyse",
   "compare",
@@ -65,9 +61,13 @@ const LEADS = new Set([
   "lets",
 ]);
 
-/// Lead words that are as often a search's first noun or name ("test cricket", "will smith",
-/// "my little pony"): a request only with at least two more words.
+/// Lead words that are as often a search's first noun or name ("can opener", "find my iphone",
+/// "my little pony"): a request only with at least three more words.
 const WEAK_LEADS = new Set([
+  "can",
+  "could",
+  "should",
+  "would",
   "is",
   "are",
   "am",
@@ -173,9 +173,9 @@ export function readsAsRequest(text: string): boolean {
       .replace(/[^\p{L}']/gu, ""),
   );
   if (lead && LEADS.has(lead) && words.length >= 2) return true;
-  if (lead && WEAK_LEADS.has(lead) && words.length >= 3) return true;
+  if (lead && WEAK_LEADS.has(lead) && words.length >= 4) return true;
   // An imperative: a verb, then its object ("open the voice settings").
-  if (second && OBJECTS.has(second) && words.length >= 3) return true;
+  if (second && OBJECTS.has(second) && words.length >= 4) return true;
   // "It broke. Fix it": a word's sentence end, then a new sentence ("St. Louis" stays a name).
   if (/\p{L}{3,}[.!]\s+\p{Lu}/u.test(text)) return true;
   if (words.length >= CLAUSE_WORDS && /[,;:]\s/.test(text)) return true;

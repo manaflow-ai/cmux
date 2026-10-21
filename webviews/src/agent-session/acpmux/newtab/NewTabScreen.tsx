@@ -662,9 +662,10 @@ export function NewTabScreen(props: Props) {
       edit(completion);
       return;
     }
-    if (event.key === "Tab" && plain && rows.length) {
+    if (event.key === "Tab" && plain && rows.length && current < rows.length - 1) {
       // Tab steps the open suggestions, as in Chrome's omnibox; Enter still performs the action.
-      // With none open, and Shift-Tab always, focus moves, so the keyboard can leave the field.
+      // From the last row, with none open, and Shift-Tab always, focus moves on, so the keyboard
+      // can leave the field.
       event.preventDefault();
       pick(stepSelection(current, 1, rows.length));
       return;
