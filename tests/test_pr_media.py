@@ -629,18 +629,20 @@ class PrivacyTests(unittest.TestCase):
                     "PR_MEDIA_AGENT_AUTHORS": "bot-a"}
         self.authors = {7: "bot-a", 8: "teammate"}
         self.ocr_calls = []
+        self.lookups = []
 
         def ocr(local):
             self.ocr_calls.append(local.name)
             return ["cmux@cmux7s-Mac-mini ~ %"] if b"LEAK" in local.read_bytes() else ["ok"]
 
         def lookup(numbers):
+            self.lookups.append(numbers)
             if self.authors is None:
                 raise RuntimeError("GraphQL unavailable")
             return self.authors
 
         def check(items, repo, **options):
-            REAL_CHECK_PRIVACY(items, repo, env=self.env, ocr=ocr, lookup=lookup, **options)
+            REAL_CHECK_PRIVACY(items, repo, **{"env": self.env, "ocr": ocr, "lookup": lookup, **options})
 
         original = MODULE.check_privacy
         MODULE.check_privacy = check
@@ -714,6 +716,29 @@ class PrivacyTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("privacy check", out)
         self.assertIn("7/shot.png", err)
+
+    def test_a_dry_run_looks_no_pull_request_author_up(self):
+        leak = written(self.scratch, "shot.png", PNG + b"LEAK")
+        code, out, err = self.run_main(["--pr", "8", "--dry-run", str(leak)])
+        self.assertEqual(self.lookups, [])
+        self.assertEqual(code, 1)
+        self.assertIn("not looked up", out)
+        self.assertIn("8/shot.png", err)
+
+    def test_without_an_agent_list_a_hit_is_refused_off_ci_too(self):
+        self.env = {"HOME": self.scratch, "PR_MEDIA_PRIVATE_TERMS": '["glow-box"]'}
+        leak = written(self.scratch, "shot.png", PNG + b"LEAK")
+        gh = FakeGh()
+        code, _, err = self.run_main(["--pr", "8", str(leak)], runner=gh)
+        self.assertEqual(code, 1)
+        self.assertFalse(gh.puts)
+        self.assertIn("PR_MEDIA_AGENT_AUTHORS is empty", err)
+
+    def test_a_refusal_is_a_privacy_error_so_callers_never_retry_it(self):
+        leak = written(self.scratch, "shot.png", PNG + b"LEAK")
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(MODULE.PrivacyError):
+            MODULE.check_privacy([("7/shot.png", leak)], "o/r")
+        self.assertTrue(issubclass(MODULE.PrivacyError, MODULE.MediaError))
 
     def test_put_file_checks_for_library_callers_unless_already_checked(self):
         leak = written(self.scratch, "shot.png", PNG + b"LEAK")
