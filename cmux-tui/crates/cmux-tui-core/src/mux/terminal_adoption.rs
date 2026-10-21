@@ -87,6 +87,8 @@ impl Mux {
             None => Vec::new(),
         };
         let mut handled_terminals = HashSet::new();
+        // Live hosts this pass hands to their adoption threads.
+        let mut deferred = Vec::new();
         // At most one warm snapshot host becomes the first terminal of a
         // fresh registry (SurfaceOptions::adopt_template_terminal).
         let mut template_claimed = false;
@@ -228,6 +230,13 @@ impl Mux {
             // dead, until then (R41).
             handled_terminals.insert(terminal_id.clone());
             self.set_pending_terminal(&terminal_id, PendingTerminal::Adopting);
+            deferred.push((record, record_path));
+        }
+
+        self.mark_unadoptable_terminal_hosts(&options, &mut handled_terminals)?;
+        // The threads start after this pass: their registry commits would
+        // otherwise queue each read above behind them (745 ms for 60 hosts).
+        for (record, record_path) in deferred {
             self.schedule_terminal_adoption_after(
                 options.clone(),
                 record,
@@ -235,8 +244,6 @@ impl Mux {
                 Duration::ZERO,
             );
         }
-
-        self.mark_unadoptable_terminal_hosts(&options, &mut handled_terminals)?;
 
         // No launcher survives a daemon restart. A durable lifecycle row
         // without a host-owned record therefore represents a closed crash
