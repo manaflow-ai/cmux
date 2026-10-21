@@ -268,6 +268,7 @@ import { PendingSteer } from "./conversation/PendingSteer";
 import { SteerMark } from "./conversation/SteerMark";
 import { Thinking } from "./conversation/Thinking";
 import { type WorkingCounts, WorkingCountsContext, WorkingFor } from "./conversation/WorkingFor";
+import { TranscriptDisclosureProvider } from "./conversation/transcriptDisclosure";
 import { type HarnessHealth, HarnessHealthNotice, type UpdateOffer, UpdateOfferContext } from "./HarnessHealthNotice";
 import { Notice, NoticeSlot } from "./NoticeSlot";
 import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./signIn";
@@ -794,8 +795,13 @@ const ThinkingRow = memo(
     a.row.queued === b.row.queued,
 );
 const WorkingRow = memo(
-  function WorkingRow({ row }: RowProps) {
-    return <WorkingFor row={row} />;
+  function WorkingRow({ row, sessionId }: RowProps) {
+    // The session's disclosures say whether the running call's group shows its row (WorkingFor.tsx).
+    return (
+      <TranscriptDisclosureProvider sessionId={sessionId}>
+        <WorkingFor row={row} />
+      </TranscriptDisclosureProvider>
+    );
   },
   (a, b) =>
     a.row.id === b.row.id &&
@@ -803,7 +809,10 @@ const WorkingRow = memo(
     a.row.at === b.row.at &&
     a.row.durationMs === b.row.durationMs &&
     a.row.doing === b.row.doing &&
-    a.row.doingCommand === b.row.doingCommand,
+    a.row.doingCommand === b.row.doingCommand &&
+    a.row.doingGroup === b.row.doingGroup &&
+    a.row.doingGroupOpen === b.row.doingGroupOpen &&
+    a.sessionId === b.sessionId,
 );
 /// The running turn's activity line under its todo list (agent.sessionStatus, cx-ncc.102).
 const ActivityLineRow = memo(
