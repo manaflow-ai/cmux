@@ -4671,6 +4671,8 @@ export function execVm(input: {
     const vm = yield* requireAccessibleUserVm(input);
     // Lookup and resume are never cut short: interrupting a resume midway
     // would strand its bookkeeping. The deadline governs only the command.
+    // Stamped before the preflight, so the idle cron's re-read sees this call before it can pause.
+    yield* noteVmApiActivity(vm);
     yield* preflightResumeIfSuspended(
       repo,
       providers,
@@ -4679,7 +4681,6 @@ export function execVm(input: {
       "exec",
       { maxActiveVms: input.maxActiveVms, callerPlanId: input.callerPlanId, modelPlane: input.modelPlane },
     );
-    yield* noteVmApiActivity(vm);
     const execStartedAtMs = yield* Clock.currentTimeMillis;
     // A dispatched command always gets its own timeout window, so a slow
     // resume can never turn into a 124 for a command that had no time to run;
@@ -4917,10 +4918,11 @@ function fileVm<A>(input: VmFileInput, run: (provider: VmProviderGatewayShape, v
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireAccessibleUserVm(input);
+    // Stamped before the preflight, so the idle cron's re-read sees this call before it can pause.
+    yield* noteVmApiActivity(vm);
     yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "user", {
       maxActiveVms: input.maxActiveVms,
     });
-    yield* noteVmApiActivity(vm);
     return yield* run(providers, vm);
   });
 }
@@ -5574,6 +5576,8 @@ export function openVmCmuxRemote(input: {
         }),
       );
     }
+    // Stamped before the preflight, so the idle cron's re-read sees this call before it can pause.
+    yield* noteVmApiActivity(vm);
     yield* preflightResumeIfSuspended(
       repo,
       providers,
@@ -5582,7 +5586,6 @@ export function openVmCmuxRemote(input: {
       "attach",
       { forceProviderProbe: true, maxActiveVms: input.maxActiveVms, callerPlanId: input.callerPlanId, modelPlane: input.modelPlane },
     );
-    yield* noteVmApiActivity(vm);
     const endpoint = yield* withResumeOnSuspendedAfterFailure(
       repo,
       providers,
@@ -5895,6 +5898,8 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
         }),
       );
     }
+    // Stamped before the preflight, so the idle cron's re-read sees this call before it can pause.
+    yield* noteVmApiActivity(vm);
     yield* preflightResumeIfSuspended(
       repo,
       providers,
@@ -5903,7 +5908,6 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
       "attach",
       { forceProviderProbe: true, maxActiveVms: input.maxActiveVms, callerPlanId: input.callerPlanId, modelPlane: input.modelPlane },
     );
-    yield* noteVmApiActivity(vm);
     // Once preflight records the VM as running, that state is externally
     // visible to concurrent attach/SSH requests. Later cleanup failures must
     // fail closed without pausing a VM another request may have attached to.

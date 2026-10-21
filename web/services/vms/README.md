@@ -628,7 +628,9 @@ a machine whose agent is mid-turn and quiet). The server pauses idle machines in
   and `/proc` (each pseudo-terminal's foreground process group, sshd session processes,
   established TCP connections into the machine's private address or into sshd, and the busy CPU
   time in `/proc/stat`). A run checks at most 500 machines, least recently checked first
-  (`cmuxIdleProbedAt`), so a large fleet rotates.
+  (`cmuxIdleProbedAt`), so a large fleet rotates. With more running machines than about two
+  runs can check, a machine is checked less often than every 12 minutes, its idle stretch never
+  carries and it never pauses; the cron logs a warning when a run hits the 500 cap or runs long.
 - A machine whose row has no private address (`networkIpv4`/`networkIpv6`) is not probed: the
   app's link into it would be invisible, so it is unknown.
 - A machine is idle only when there is no attached client, no live agent or acpmux session with
@@ -639,6 +641,10 @@ a machine whose agent is mid-turn and quiet). The server pauses idle machines in
   is over it). A CPU counter that went back (a reboot) restarts the idle stretch; a probe or a
   stored observation without a CPU sample gives no CPU verdict. Anything the probe cannot read
   is unknown, and unknown never pauses.
+- Work that is quiet on CPU, has no terminal and only talks outbound counts as idle and gets
+  paused: a `nohup` bot holding a websocket open, a long `curl` download, or `claude -p` started
+  through exec outside acpmux. Run such work in a terminal (a foreground command keeps the
+  machine awake) or set the machine's idle pause to Off.
 - A person's exec, files or attach call (`execVm`, the file workflows, `openAttachEndpoint`,
   `openVmCmuxRemote`) records its time on the row (`cmuxLastApiActivityAt`, at most once a minute,
   without touching `updated_at`). The cron's own probe and the resource sampler call the provider

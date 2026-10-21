@@ -19,6 +19,8 @@ import { pauseVmRow } from "./workflows";
 /** Machines one run probes; the rest wait for the next run (least recently checked first). */
 export const VM_IDLE_PAUSE_BATCH_LIMIT = 500;
 const PROBE_CONCURRENCY = 8;
+/** A run longer than this is close to the cron route's maxDuration (300 s). */
+const VM_IDLE_PAUSE_SLOW_RUN_MS = 240_000;
 /** The exec's own budget: the guest timeout plus the provider round trip. */
 const PROBE_EXEC_BUDGET_MS = VM_IDLE_PROBE_TIMEOUT_MS + 10_000;
 
@@ -48,7 +50,9 @@ export function enforceVmIdlePause(input: { readonly now?: () => number; readonl
     if (!candidates || !repo.recordIdleObservation || !providers.pause) {
       return yield* Effect.fail(new VmDatabaseError({ operation: "idle_pause_candidates", cause: new Error("idle pause is unavailable") }));
     }
-    const rows = yield* candidates({ limit: input.limit ?? VM_IDLE_PAUSE_BATCH_LIMIT });
+    const limit = input.limit ?? VM_IDLE_PAUSE_BATCH_LIMIT;
+    const startedAt = Date.now();
+    const rows = yield* candidates({ limit });
     const outcomes = yield* Effect.forEach(
       rows,
       (vm) => checkMachine(vm, input.now ?? Date.now).pipe(
@@ -59,6 +63,7 @@ export function enforceVmIdlePause(input: { readonly now?: () => number; readonl
       ),
       { concurrency: PROBE_CONCURRENCY },
     );
+    warnIfSaturated(rows.length, limit, Date.now() - startedAt);
     const tally = (outcome: Outcome) => outcomes.filter((o) => o === outcome).length;
     return {
       checked: rows.length,
@@ -70,6 +75,17 @@ export function enforceVmIdlePause(input: { readonly now?: () => number; readonl
       errors: tally("error"),
     } satisfies VmIdlePauseSummary;
   });
+}
+
+/**
+ * A run that hit the cap or ran long: with more running machines than about
+ * two runs check, a machine is checked less often than every
+ * VM_IDLE_OBSERVATION_MAX_GAP_MS, its idle stretch never carries, and nothing
+ * pauses. Logged so the cap gets raised before that goes unnoticed.
+ */
+function warnIfSaturated(checked: number, limit: number, elapsedMs: number) {
+  if (checked < limit && elapsedMs < VM_IDLE_PAUSE_SLOW_RUN_MS) return;
+  console.warn("[VM] idle pause run saturated", JSON.stringify({ checked, limit, elapsedMs }));
 }
 
 function checkMachine(vm: CloudVmRow, now: () => number) {

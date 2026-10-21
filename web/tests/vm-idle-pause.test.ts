@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -29,6 +28,7 @@ import { parseIdlePauseBody } from "../services/vms/idlePauseRoute";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import { VmRepository, vmRepositoryLiveShape, type CloudVmRow, type VmRepositoryShape } from "../services/vms/repository";
 import { execVm, pauseVm, setVmIdlePause } from "../services/vms/workflows";
+import { runChild } from "./helpers/run-child";
 
 // Idle auto-pause (pilot blocker 1a). The decision is pure and pinned here: a
 // machine running an agent turn, a foreground command, an attached client, an
@@ -222,27 +222,28 @@ const tcpRow = (local: string, remote: string, state: string) => `   0: ${local}
 // 10.192.0.5 little-endian, ports 1337 (0539), 3000 (0BB8), 22 (0016).
 const VPC = "0500C00A";
 
-function runProbeScript(files: Record<string, string>, acpmux: string): Record<string, unknown> {
+async function runProbeScript(files: Record<string, string>, acpmux: string): Promise<Record<string, unknown>> {
   const root = fakeProc(files);
   writeFileSync(path.join(root, "acpmux.json"), acpmux);
   writeFileSync(path.join(root, "daemon-socket"), path.join(root, "no-such.sock"));
-  const result = spawnSync("python3", ["-I", "-c", VM_IDLE_PROBE_SCRIPT], {
+  const result = await runChild("python3", ["-I", "-c", VM_IDLE_PROBE_SCRIPT], {
     env: {
       PATH: process.env.PATH ?? "/usr/bin:/bin",
       CMUX_IDLE_PROC_ROOT: root,
       CMUX_IDLE_ACPMUX: path.join(root, "acpmux.json"),
       CMUX_IDLE_DAEMON_SOCKET_FILE: path.join(root, "daemon-socket"),
       CMUX_IDLE_PRIVATE_ADDRESSES: "10.192.0.5,fd00:7::5",
-    } as unknown as NodeJS.ProcessEnv,
-    encoding: "utf8",
+    },
+    timeout: 30_000,
   });
+  expect(result.error).toBeUndefined();
   expect(result.status).toBe(0);
   return JSON.parse(result.stdout.trim().split("\n").at(-1) ?? "{}");
 }
 
 describe("idle probe guest script", () => {
-  test("counts a terminal running a command, never a shell at its prompt or a serial console", () => {
-    const out = runProbeScript({
+  test("counts a terminal running a command, never a shell at its prompt or a serial console", async () => {
+    const out = await runProbeScript({
       // pts/0: zsh at its prompt (the foreground group is the shell's own).
       "100/stat": stat(100, "zsh", 100, 100, PTS0, 100),
       "100/cmdline": "-zsh\0",
@@ -284,26 +285,26 @@ describe("idle probe guest script", () => {
     });
   });
 
-  test("an idle machine reads all zeros; a stopped acpmux is none; an unreadable one is unknown", () => {
+  test("an idle machine reads all zeros; a stopped acpmux is none; an unreadable one is unknown", async () => {
     const idle = {
       "100/stat": stat(100, "bash", 100, 100, PTS0, 100),
       "net/tcp": TCP_HEADER + tcpRow(`00000000:0539`, "00000000:0000", "0A"),
       "net/tcp6": TCP_HEADER,
     };
-    expect(runProbeScript(idle, "NONE")).toMatchObject({
+    expect(await runProbeScript(idle, "NONE")).toMatchObject({
       acpmux: { busy_sessions: 0, last_updated_at_ms: null }, busy_terminals: 0, ssh_sessions: 0, inbound_connections: 0,
     });
-    expect(runProbeScript(idle, "ERR").acpmux).toBeNull();
-    expect(runProbeScript(idle, JSON.stringify({ sessions: [{ name: "a", status: "ready", turn: null }] })).acpmux)
+    expect((await runProbeScript(idle, "ERR")).acpmux).toBeNull();
+    expect((await runProbeScript(idle, JSON.stringify({ sessions: [{ name: "a", status: "ready", turn: null }] }))).acpmux)
       .toEqual({ busy_sessions: 0, last_updated_at_ms: null });
   });
 
-  test("counts an IPv6 connection to the private address, a v4-mapped one, and any connection into sshd", () => {
+  test("counts an IPv6 connection to the private address, a v4-mapped one, and any connection into sshd", async () => {
     // fd00:7::5 in /proc/net/tcp6 word order; a remote fd00:7::9.
     const local6 = "070000FD000000000000000005000000";
     const remote6 = "070000FD000000000000000009000000";
     const mapped = "0000000000000000FFFF00000500C00A";
-    const out = runProbeScript({
+    const out = await runProbeScript({
       "net/tcp": TCP_HEADER
         + tcpRow(`00000000:0016`, "00000000:0000", "0A")
         // ssh through the link arrives on loopback: counted because it is sshd.
@@ -623,16 +624,16 @@ describe("CPU work with no terminal", () => {
     }
   });
 
-  test("the guest script reports busy CPU time from /proc/stat, without idle, iowait or steal", () => {
-    const out = runProbeScript({
+  test("the guest script reports busy CPU time from /proc/stat, without idle, iowait or steal", async () => {
+    const out = await runProbeScript({
       stat: "cpu  1000 50 200 90000 300 5 15 70 0 0\ncpu0 1000 50 200 90000 300 5 15 70 0 0\nintr 12345\n",
       "net/tcp": TCP_HEADER,
       "net/tcp6": TCP_HEADER,
     }, "NONE");
     // (user 1000 + nice 50 + system 200 + irq 5 + softirq 15) ticks at 100 Hz.
     expect(out.cpu_busy_ms).toBe(12_700);
-    expect(runProbeScript({ "net/tcp": TCP_HEADER, "net/tcp6": TCP_HEADER }, "NONE").cpu_busy_ms).toBeNull();
-    expect(runProbeScript({ stat: "intr 1\n", "net/tcp": TCP_HEADER }, "NONE").cpu_busy_ms).toBeNull();
+    expect((await runProbeScript({ "net/tcp": TCP_HEADER, "net/tcp6": TCP_HEADER }, "NONE")).cpu_busy_ms).toBeNull();
+    expect((await runProbeScript({ stat: "intr 1\n", "net/tcp": TCP_HEADER }, "NONE")).cpu_busy_ms).toBeNull();
   });
 });
 
@@ -819,7 +820,7 @@ describe("idle pause SQL", () => {
     expect(row.metadata.cmuxPauseReason).toBe("idle");
 
     // An observation written behind the pause's back is dropped by the resume.
-    await sql`update cloud_vms set provider_metadata = provider_metadata || ${JSON.stringify({ cmuxIdleObservation: observation })}::jsonb where id = ${rowId}`;
+    await sql`update cloud_vms set provider_metadata = provider_metadata || ${JSON.stringify({ cmuxIdleObservation: observation })}::text::jsonb where id = ${rowId}`;
     const resumed = await run(repo.reservePausedResume({ id: rowId, userId: owner, billingTeamId: owner, providerVmId, maxActiveVms: null }));
     expect(resumed?.status).toBe("running");
     row = await read();
