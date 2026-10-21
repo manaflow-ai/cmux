@@ -20,8 +20,11 @@ public final class MessagesLabHomeView: NSView {
     ///     JavaScriptCore Ondine renderer); nil keeps them as text.
     ///   - replies: how an agent's running reply shows: ``HomeReplyDisplay/wholeMessages`` (default:
     ///     typing dots, then each message whole) or the older token-by-token stream bubble.
+    ///   - approvals: answers the Chief's approval cards (Allow, Deny) as the person (CmuxNext: the
+    ///     Chief's acpmux); nil leaves only Deny answering.
     public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, wake: any ChatWakeScheduler,
-                diagrams: (any HomeDiagramRendering)? = nil, replies: HomeReplyDisplay = .wholeMessages) {
+                diagrams: (any HomeDiagramRendering)? = nil, replies: HomeReplyDisplay = .wholeMessages,
+                approvals: (any HomeApprovalDeciding)? = nil) {
         MessagesLabHomeView.liveFormatting()
         HomeMarkdownPolicy.install()
         // Before the projection maps its first messages, so a diagram never shows as text first.
@@ -30,6 +33,9 @@ public final class MessagesLabHomeView: NSView {
         // Link cards fetch their preview (title, image) for links the user or an agent sent (README).
         projection = HomeProjection(store: store, conversation: conversation, me: me, controller: controller,
                                     linkPreviews: HomeLinkPreviews(), replies: replies)
+        projection.approvals = approvals
+        // Before the projection maps its first messages, so an approval never shows as text first.
+        HomeApprovalRowProvider.install(for: projection)
         super.init(frame: .zero)
         wantsLayer = true
         addSubview(controller.host)

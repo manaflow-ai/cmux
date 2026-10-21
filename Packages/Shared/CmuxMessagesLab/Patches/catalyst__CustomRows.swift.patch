@@ -1,0 +1,20 @@
+--- a/Sources/MessagesLabHome/Vendor/catalyst/CustomRows.swift
++++ b/Sources/MessagesLabHome/Vendor/catalyst/CustomRows.swift
+@@ -120,6 +120,9 @@
+     /// A click on the row (`MessagesWindowView.hostControl`; main thread). true: taken (the host
+     /// does nothing more with the click, e.g. it opens a sheet). Default false.
+     func tapped(_ part: CustomPart, ref: PartRef) -> Bool
++    /// cmux: a click at `point` in the row's body (y down, the `drawRow` rect's own coordinates,
++    /// origin at its corner) of `size`: a drawn row with buttons hit-tests them. Default: `tapped(_:ref:)`.
++    func tapped(_ part: CustomPart, ref: PartRef, at point: CGPoint, size: CGSize) -> Bool
+ }
+ 
+ /// What `drawRow` gets besides the part.
+@@ -141,6 +144,7 @@
+     var drawsRow: Bool { false }
+     func drawRow(_ part: CustomPart, in ctx: CGContext, rect: CGRect, context: CustomRowDrawContext) {}
+     func tapped(_ part: CustomPart, ref: PartRef) -> Bool { false }
++    func tapped(_ part: CustomPart, ref: PartRef, at point: CGPoint, size: CGSize) -> Bool { tapped(part, ref: ref) } // cmux
+ }
+ 
+ /// A drawn custom row from closures (ask 7: cmux's agent run card). The host gives the kind, the

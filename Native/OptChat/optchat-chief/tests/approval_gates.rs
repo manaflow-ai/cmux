@@ -675,3 +675,80 @@ fn a_card_in_a_side_conversation_is_answered_there() {
     assert_eq!(answered(&h, "p1"), Some(Some("allow".into())));
     finish(&mut h);
 }
+
+/// Runs the outbox's paced sends due within a few seconds, so posts queued
+/// behind the agent gap are sent.
+fn flush_paced(h: &mut Harness, sends: usize) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while approvals(h).len() < sends && Instant::now() < deadline {
+        let Some(at) = h.brain.next_timer() else {
+            break;
+        };
+        std::thread::sleep(at.saturating_duration_since(Instant::now()));
+        h.brain.on_timer();
+    }
+}
+
+// (e) An answer acpmux refuses never leaves the turn waiting with nobody
+// asked: acpmux takes an allow only with the person's proof, which the
+// Chief's own connection never has (2026-10-20: a refused Home "allow" was
+// dropped and the turn waited until someone denied it by hand).
+
+#[test]
+fn an_allow_acpmux_refuses_keeps_the_approval_with_a_fresh_card() {
+    let mut h = gated(started());
+    h.agents.inner.lock().unwrap().refuse_allows = true;
+    running(&mut h, true, "clean up");
+    h.brain.step(permission(
+        "p1",
+        "Bash",
+        json!({"command": "rm -rf target"}),
+    ));
+    let first = card(&h, 0);
+    // The card answered on the phone, without the person's proof.
+    answer(&mut h, CONV, &first, "allow", "user_local");
+    assert_eq!(answered(&h, "p1"), None, "acpmux refused the allow");
+    flush_paced(&mut h, 2);
+    assert_eq!(approvals(&h).len(), 2, "a fresh card for the kept approval");
+    let again = card(&h, 1);
+    assert_eq!(again.permission.as_deref(), Some("p1"));
+    // The kept approval still takes a deny.
+    answer(&mut h, CONV, &again, "deny", "user_local");
+    assert_eq!(answered(&h, "p1"), Some(Some("reject".into())));
+    finish(&mut h);
+}
+
+#[test]
+fn an_approval_the_app_already_answered_is_settled() {
+    let mut h = gated(started());
+    running(&mut h, true, "clean up");
+    h.brain.step(permission(
+        "p1",
+        "Bash",
+        json!({"command": "rm -rf target"}),
+    ));
+    let first = card(&h, 0);
+    // The Mac app answered acpmux as the person before it answered the card.
+    h.agents.inner.lock().unwrap().settled.push("p1".into());
+    answer(&mut h, CONV, &first, "allow", "user_local");
+    flush_paced(&mut h, 2);
+    assert_eq!(approvals(&h).len(), 1, "no fresh card: it is settled");
+    // Nothing is left to answer: a chat deny answers nothing.
+    deliver(&mut h, false, "deny");
+    assert_eq!(answered(&h, "p1"), None);
+    assert_eq!(approvals(&h).len(), 1);
+    finish(&mut h);
+}
+
+#[test]
+fn a_refused_allow_of_the_chiefs_own_tool_asks_the_person() {
+    let mut h = gated(started());
+    h.agents.inner.lock().unwrap().refuse_allows = true;
+    running(&mut h, true, "clean up");
+    h.brain
+        .step(permission("p1", "mcp__optchat__stop", json!({})));
+    assert_eq!(answered(&h, "p1"), None);
+    assert_eq!(approvals(&h).len(), 1, "asked as a card, not left waiting");
+    assert_eq!(card(&h, 0).permission.as_deref(), Some("p1"));
+    finish(&mut h);
+}

@@ -467,6 +467,13 @@ public actor MockHomeSource: HomeSource {
         return conversations[conversation]?.lastSeq
     }
 
+    /// Posts `parts` as `author` under `key` (an agent's question, a Chief approval) and returns its seq.
+    @discardableResult
+    public func post(parts: [MessagePart], from author: ParticipantID, in conversation: ConversationID, key: IdempotencyKey) -> Seq? {
+        guard (try? commitMessage(in: conversation, author: author, parts: parts, key: key)) != nil else { return nil }
+        return conversations[conversation]?.lastSeq
+    }
+
     /// Posts a message as someone else (incoming traffic for demos).
     public func receive(_ text: String, from author: ParticipantID, in conversation: ConversationID) {
         _ = try? commitMessage(in: conversation, author: author, parts: [.text(text)], key: .make())

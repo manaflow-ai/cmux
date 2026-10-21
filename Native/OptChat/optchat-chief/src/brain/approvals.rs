@@ -35,13 +35,19 @@ impl Brain {
             // Reading the memory has no local effect; the Chief's own tools
             // are Chief talking to the person and its subagents.
             let option = option_for(&request, Answer::Allow);
-            if let Err(e) =
+            let Err(e) =
                 self.agents
                     .respond_permission(&session_id, &permission_id, option.as_deref())
-            {
-                (self.log)(&format!("allowing {tool}: {e}"));
+            else {
+                return;
+            };
+            // acpmux takes an allow only with the person's proof: left
+            // alone, the request would hold the turn with nobody asked. In
+            // an ask turn it goes to the person as a card instead.
+            (self.log)(&format!("allowing {tool}: {e}; asking the person instead"));
+            if !self.turn_ask {
+                return;
             }
-            return;
         }
         if !self.turn_ask {
             (self.log)(&format!(
@@ -60,11 +66,11 @@ impl Brain {
         };
         // Stop means stop: a stopped turn asks nobody, it is denied at once.
         if self.owner_stopped {
-            self.respond(&pending, Answer::Deny, "the owner stopped the turn", None);
+            let _ = self.respond(&pending, Answer::Deny, "the owner stopped the turn", None);
             return;
         }
         if self.denial_stopped.is_some() {
-            self.respond(&pending, Answer::Deny, "the turn was stopped", None);
+            let _ = self.respond(&pending, Answer::Deny, "the turn was stopped", None);
             return;
         }
         // A request denied once in this turn is not asked again.
@@ -72,7 +78,7 @@ impl Brain {
             .turn_denied
             .contains(&crate::approval::signature(&pending))
         {
-            self.respond(&pending, Answer::Deny, "denied earlier in this turn", None);
+            let _ = self.respond(&pending, Answer::Deny, "denied earlier in this turn", None);
             self.repeat_denials += 1;
             if self.repeat_denials >= REPEATS_BEFORE_STOP {
                 // The model keeps asking for what was refused: end the turn.
@@ -287,7 +293,10 @@ impl Brain {
                 .remote
                 .then(|| respondent.device.clone())
                 .flatten();
-            self.respond(&pending, decision, &approver, install.as_deref());
+            if let Err(e) = self.respond(&pending, decision, &approver, install.as_deref()) {
+                let key = format!("approval:refused:{}:{}", message.id, pending.permission_id);
+                self.after_refused(pending, decision, &e, &key);
+            }
         }
     }
 
@@ -341,21 +350,33 @@ impl Brain {
         message: &Message,
         conversation: Option<&str>,
     ) {
-        let Some(k) = self
-            .approvals
-            .iter()
-            .position(|p| p.conversation.as_deref() == conversation)
-        else {
-            return;
-        };
-        let Some(pending) = self.approvals.remove(k) else {
-            return;
-        };
         let install = message
             .origin
             .as_ref()
             .map(|Origin::Remote { install }| install.clone());
-        self.respond(&pending, answer, &message.author, install.as_deref());
+        // An approval acpmux already settled is dropped and the answer goes
+        // to the next one, so a stale entry never swallows a reply.
+        loop {
+            let Some(k) = self
+                .approvals
+                .iter()
+                .position(|p| p.conversation.as_deref() == conversation)
+            else {
+                return;
+            };
+            let Some(pending) = self.approvals.remove(k) else {
+                return;
+            };
+            match self.respond(&pending, answer, &message.author, install.as_deref()) {
+                Ok(()) => return,
+                Err(e) => {
+                    let key = format!("approval:refused:{}:{}", message.id, pending.permission_id);
+                    if !self.after_refused(pending, answer, &e, &key) {
+                        return;
+                    }
+                }
+            }
+        }
     }
 
     /// Denies the running turn's pending approvals (`why` is the trace's
@@ -365,7 +386,7 @@ impl Brain {
             self.approvals.drain(..).partition(|p| p.child.is_none());
         self.approvals.extend(children);
         for pending in turn {
-            self.respond(&pending, Answer::Deny, why, None);
+            let _ = self.respond(&pending, Answer::Deny, why, None);
         }
     }
 
@@ -375,7 +396,7 @@ impl Brain {
         answer: Answer,
         approver: &str,
         install: Option<&str>,
-    ) {
+    ) -> Result<(), String> {
         if answer == Answer::Deny && pending.child.is_none() {
             let signature = crate::approval::signature(pending);
             if !self.turn_denied.contains(&signature) {
@@ -415,5 +436,46 @@ impl Brain {
                 (self.log)(&format!("recording an approval in the trace: {e}"));
             }
         }
+        result
     }
+
+    /// After a person's answer to `pending` did not land: acpmux no longer
+    /// holding the request means it is settled (the Mac app answered it
+    /// itself, or it ended), so it is dropped. Any other refusal (an allow
+    /// without the person's proof: a chat reply, or a card answered on
+    /// another device) keeps the approval with a fresh card and says why,
+    /// so the turn never waits on a request nobody can answer.
+    fn after_refused(&mut self, pending: Pending, answer: Answer, error: &str, key: &str) -> bool {
+        if settled(error) {
+            (self.log)(&format!(
+                "approval {}: acpmux no longer holds it; settled",
+                pending.permission_id
+            ));
+            return true;
+        }
+        let conversation = pending
+            .conversation
+            .clone()
+            .or_else(|| self.state.conversation.clone());
+        if let Some(conversation) = conversation {
+            let text = format!(
+                "That {} was not accepted, so {} is still waiting: {error}. Use Allow once on the card in the cmux app on this Mac, or reply deny.",
+                answer.as_str(),
+                pending.tool
+            );
+            self.state
+                .outbox
+                .push(reply_entry(conversation, &format!("note:{key}"), &text));
+        }
+        self.ask_person(pending, &format!("{key}:card"));
+        false
+    }
+}
+
+/// Whether acpmux's refusal says it no longer holds the request (answered
+/// elsewhere, or its session ended).
+fn settled(error: &str) -> bool {
+    error.contains("no pending permission")
+        || error.contains("no session matches")
+        || error.contains("not_found")
 }

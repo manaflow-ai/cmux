@@ -2328,7 +2328,9 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             return .handled
         }
         // A hosted row that takes clicks (TranscriptCustomRowProvider.tapped: cmux's run card).
-        if let h = hit(p), case let .custom(c) = h.row.part, let prov = CustomRows.provider(c.kind), prov.tapped(c, ref: h.row.ref) {
+        // cmux: the click's place in the body, so a drawn row's buttons hit-test (the Chief's approval card).
+        if let h = hit(p), case let .custom(c) = h.row.part, let prov = CustomRows.provider(c.kind),
+           prov.tapped(c, ref: h.row.ref, at: CGPoint(x: p.x - h.body.minX, y: p.y - h.body.minY), size: h.body.size) {
             return .handled
         }
         let s = store.state
