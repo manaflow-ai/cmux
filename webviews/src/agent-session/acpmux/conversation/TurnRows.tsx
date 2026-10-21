@@ -173,7 +173,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
               type="button"
               className="cv-iconbtn cv-iconbtn--compact"
               aria-label={copied ? t("turn.copied") : t("turn.copy")}
-              title={copied ? t("turn.copied") : t("turn.copy")}
               onClick={() =>
                 void copyText(text).then(
                   () => setCopied(true),

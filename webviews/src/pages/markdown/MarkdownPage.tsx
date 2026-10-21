@@ -99,12 +99,19 @@ export function MarkdownPage({
         <Toolbar className="md-toolbar" label={t(L.toolbarLabel)}>
           {state.canBack || state.canForward ? (
             <ToolbarGroup>
-              <ToolbarButton className="md-history-button" label={t(L.back)} disabled={!state.canBack} onPress={onBack}>
+              <ToolbarButton
+                className="md-history-button"
+                label={t(L.back)}
+                tooltip={false}
+                disabled={!state.canBack}
+                onPress={onBack}
+              >
                 ‹
               </ToolbarButton>
               <ToolbarButton
                 className="md-history-button"
                 label={t(L.forward)}
+                tooltip={false}
                 disabled={!state.canForward}
                 onPress={onForward}
               >

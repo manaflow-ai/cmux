@@ -77,6 +77,9 @@ export type AcpmuxSessionEntry = {
   worked?: boolean;
   /** Explicit lifecycle evidence; absent until the protocol producer supplies a validated receipt. */
   lifecycleReceipt?: LifecycleReceipt;
+  /** The folder of a sub-session this chat's agent wants to start but cannot until the person trusts
+   *  it (acpmux tag `trust.pending:<name>`, hub/trust_wait.rs): the row says "Needs trust". */
+  trustPending?: string;
 };
 
 export type LifecycleReceipt = {
@@ -138,6 +141,18 @@ export const folded = (entry: AcpmuxSessionEntry, parents: ReadonlySet<string>) 
 function tagged(tags: unknown, tag: string): boolean {
   if (Array.isArray(tags)) return tags.includes(tag);
   return typeof tags === "object" && tags !== null && tag in tags;
+}
+
+/** The tag acpmux sets on a chat while a sub-session of it waits for a folder's trust (hub/trust_wait.rs). */
+const TRUST_PENDING_TAG = "trust.pending:";
+
+/** The folder a chat's waiting sub-session needs trusted, from its tags (an object of key to value). */
+function trustPending(tags: unknown): string | undefined {
+  if (typeof tags !== "object" || tags === null || Array.isArray(tags)) return undefined;
+  for (const [key, value] of Object.entries(tags)) {
+    if (key.startsWith(TRUST_PENDING_TAG) && typeof value === "string" && value) return value;
+  }
+  return undefined;
 }
 
 /** acpmux's status dots (`SessionSummary.indicator`). */
@@ -229,6 +244,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
       session.status !== "waiting",
     worked: session.lastTurn?.status === "completed",
     lifecycleReceipt: lifecycleReceipt(session.lifecycleReceipt),
+    trustPending: trustPending(session.tags),
   };
 }
 

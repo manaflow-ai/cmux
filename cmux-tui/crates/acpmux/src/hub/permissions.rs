@@ -125,6 +125,9 @@ impl Hub {
                     m.preview = Some(preview);
                 }
             }
+            "tool_call" | "tool_call_update" => {
+                super::pull_requests::absorb(session, update, &mut m)
+            }
             "usage_update" => m.usage = Some(update.clone()),
             "current_mode_update" => {
                 mode_write = update.get("currentModeId").cloned().map(ModeWrite::CurrentMode);
@@ -536,16 +539,17 @@ impl Hub {
                 None
             };
             let decision_nonce = super::person::new_nonce();
+            let prev = session.status();
             state.pending.insert(
                 permission_id.clone(),
                 PendingPermission {
                     request: request.clone(),
                     reply: tx,
                     decision_nonce: decision_nonce.clone(),
+                    prev_status: prev,
                 },
             );
             self.append(session,"mux","permission_request",json!({"permissionId":permission_id,"decisionNonce":decision_nonce,"personInstance":self.person.instance(),"request":request,"groupId":grouping.as_ref().map(|(id,_)|id),"turnId":turn_id,"agentRequestId":agent_request_id,"remoteFloor":floored}));
-            let prev = session.status();
             self.set_status(session, SessionStatus::Waiting);
             (rx, prev, grouping, permission_id)
         };
@@ -558,20 +562,7 @@ impl Hub {
         // Who answered for the person (`hub/person.rs` answered_by): audit
         // only, never sent to the agent.
         let answered_by = outcome.as_object_mut().and_then(|o| o.remove(ANSWERED_BY_SLOT));
-        let mut decision = json!({"permissionId":permission_id,"outcome":outcome});
-        if let Some(by) = answered_by {
-            decision["answeredBy"] = by;
-        }
-        self.append(session, "mux", "permission_decision", decision);
-        {
-            let state = session.permissions.lock().unwrap();
-            if state.pending.is_empty()
-                && session.status() == SessionStatus::Waiting
-                && !self.secrets.waiting_in(&session.id)
-            {
-                self.set_status(session, status_after_ask(session, prev));
-            }
-        }
+        self.settle_permission(session, &permission_id, outcome.clone(), answered_by, prev);
         let mut out = json!({"outcome": outcome});
         if let Some(m) = out["outcome"].get("_meta").cloned() {
             out["_meta"] = m;
@@ -580,6 +571,32 @@ impl Hub {
             }
         }
         out
+    }
+
+    /// Logs the answer `outcome` to the prompt `permission_id` (the record the chat drops its
+    /// card on) and, once the session asks nothing else, takes back its Waiting status
+    /// (`status_after_ask` from `prev`, the status before the prompt). Every prompt this process
+    /// raised ends here, also a trust card withdrawn without its task (`trust_wait.rs`).
+    pub(super) fn settle_permission(
+        &self,
+        session: &Session,
+        permission_id: &str,
+        outcome: Value,
+        answered_by: Option<Value>,
+        prev: SessionStatus,
+    ) {
+        let mut decision = json!({"permissionId": permission_id, "outcome": outcome});
+        if let Some(by) = answered_by {
+            decision["answeredBy"] = by;
+        }
+        self.append(session, "mux", "permission_decision", decision);
+        let state = session.permissions.lock().unwrap();
+        if state.pending.is_empty()
+            && session.status() == SessionStatus::Waiting
+            && !self.secrets.waiting_in(&session.id)
+        {
+            self.set_status(session, status_after_ask(session, prev));
+        }
     }
 
     /// Answer a pending permission. `option_id = None` cancels. `answers`
@@ -624,6 +641,17 @@ impl Hub {
                     return Err(super::web_control::lasting_grant_refused(kind.unwrap_or("?")));
                 }
                 let is_reject = matches!(kind, Some("reject_once" | "reject_always"));
+                // A remote browser cannot trust a folder on this machine
+                // (`acp.trust.set` is refused for it too, `remote_guard.rs`).
+                if control == Control::Web
+                    && !is_reject
+                    && super::questions::trust_cwd(&p.request).is_some()
+                {
+                    return Err(RpcError::invalid_params(
+                        "trust.web_cannot_answer: trust the folder in the app or the CLI",
+                    )
+                    .with_data(json!({"reason": "trust.web_cannot_answer"})));
+                }
                 let denied = self.policy_for(session, cfg.permission_policy)
                     == PermissionPolicy::DenyAll
                     || session
