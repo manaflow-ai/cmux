@@ -36,8 +36,14 @@ import Testing
                               styleMask: [.titled, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = root
-        root.layoutSubtreeIfNeeded()
+        settle(root)
         return (window, root)
+    }
+
+    /// The window's chrome settles over its first passes (the titlebar band, the sidebar, then the
+    /// main pane under them): a workspace parked before then keeps a size the pane no longer has.
+    static func settle(_ root: WindowRootView) {
+        for _ in 0..<4 { root.layoutSubtreeIfNeeded() }
     }
 
     /// A workspace whose layout is one page filling it.
@@ -52,9 +58,7 @@ import Testing
     /// Shows `view` and lets the window lay it out, its page filling it.
     static func show(_ view: WorkspaceContentView, in root: WindowRootView) {
         root.show(view)
-        // The window's chrome settles in its first passes (the titlebar band, the sidebar).
-        root.layoutSubtreeIfNeeded()
-        root.layoutSubtreeIfNeeded()
+        settle(root)
         view.layoutView.subviews.first?.frame = view.layoutView.bounds
     }
 
