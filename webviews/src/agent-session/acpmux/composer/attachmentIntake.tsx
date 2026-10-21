@@ -52,6 +52,31 @@ export type AttachmentIntakeOptions = {
   localPaths?(kind: DroppedKind, files: File[]): Promise<LinkItem[] | undefined>;
 };
 
+/** Append a batch while collapsing repeated local path links (for example, dropping the same
+ * folder twice). Other attachments keep their ids and remain independent. */
+export function appendAttachments(
+  current: readonly ComposerAttachment[],
+  added: readonly ComposerAttachment[],
+): ComposerAttachment[] {
+  const result = [...current];
+  const links = new Map<string, number>();
+  result.forEach((attachment, index) => {
+    if (attachment.kind === "link" && attachment.path) links.set(attachment.path, index);
+  });
+  for (const attachment of added) {
+    if (attachment.kind === "link" && attachment.path) {
+      const previous = links.get(attachment.path);
+      if (previous !== undefined) {
+        result[previous] = attachment;
+        continue;
+      }
+      links.set(attachment.path, result.length);
+    }
+    result.push(attachment);
+  }
+  return result;
+}
+
 /// The prompt's staged attachments: what a paste on the composer's field or a file drop anywhere on
 /// the page adds (the document-level drop contract, attachments.ts), with the note a refusal leaves.
 /// `attach(files, uploads, kind)` adds files another way (the + menu's chooser, which uploads like a
@@ -77,7 +102,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       ...(kind && paths ? { localPaths: (batch: File[]) => paths(kind, batch) } : {}),
       ...(uploads && current.upload ? { upload: current.upload } : {}),
     });
-    setAttachments((staged) => [...staged, ...taken.attachments]);
+    setAttachments((staged) => appendAttachments(staged, taken.attachments));
     const error = taken.error;
     setAttachError(error && ("text" in error ? error.text : attachmentErrorText(error, translate)));
   });
