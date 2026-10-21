@@ -160,6 +160,7 @@ describe("Hexclave webhook inbox store", () => {
     expect((await store.claimDue(now, 5, leaseUntil)).map((entry) => entry.svixId)).toEqual(["m-remove"]);
 
     await store.enqueue({ svixId: "m-readd", eventType: "team_membership.created", target: user("u-one") });
+    await sql!`update hexclave_webhook_inbox set next_attempt_at = ${new Date(now.getTime() - 1_000)} where svix_id = 'm-readd'`;
     expect(await store.claimDue(now, 5, leaseUntil)).toEqual([]);
     const afterLease = new Date(leaseUntil.getTime() + 1);
     expect((await store.claimDue(afterLease, 5, new Date(afterLease.getTime() + 60_000)))
