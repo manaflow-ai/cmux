@@ -106,6 +106,9 @@ public final class LiveCoordinator {
     @ObservationIgnored private var teamTask: Task<Void, Never>?
     @ObservationIgnored var bannerTask: Task<Void, Never>?
     @ObservationIgnored var everConnected = false
+    /// Macs a link was connected to: a failed redial to one says
+    /// "Reconnecting", not "Can't reach" (the link keeps retrying).
+    @ObservationIgnored var connectedMacIDs: Set<String> = []
     /// The acpmux session (and Mac) each cached chat store was built for (nil: unbound).
     @ObservationIgnored var sourcedSessions: [String: (tabID: String, macID: String, session: String?)] = [:]
     /// The account was deleted: sign-out keeps nothing of it.
