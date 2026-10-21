@@ -182,15 +182,23 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
             Math.round(el.getBoundingClientRect().left - queue.getBoundingClientRect().left),
           )
         : [],
-      // The queue's last row keeps room above what is under it: its descenders never touch it.
-      queueRoom: queue && last ? Math.round(queue.getBoundingClientRect().bottom - last.bottom) : null,
-      // The "Queued" header is one 18px line under its 2px top, whatever the font: its height
-      // followed the font's metrics, taller on CI than on a laptop, and there the steering frame's
-      // rows passed the queue's cap and its last prompt was cut (queue room -26px).
-      header: (() => {
-        const header = queue?.querySelector(".acpmux-queue-header");
-        return header ? Math.round(header.getBoundingClientRect().height * 100) / 100 : null;
-      })(),
+      // The queue's last row keeps room above what is under it: its descenders never touch it. A
+      // queue past its cap scrolls and rests on a whole row (ComposerQueue fitList): the rows under
+      // it are out of sight, so its last shown row ends at the list's edge. A font that wraps a
+      // prompt to two lines (CI's, at 420px) takes the steering frame past its cap.
+      scrolls: queue ? queue.scrollHeight - queue.clientHeight > 0.5 : false,
+      queueRoom:
+        queue && last
+          ? Math.round(
+              queue.getBoundingClientRect().bottom -
+                (queue.scrollHeight - queue.clientHeight > 0.5
+                  ? (rows
+                      .map((row) => row.getBoundingClientRect().bottom)
+                      .filter((bottom) => bottom <= queue.getBoundingClientRect().bottom + 0.5)
+                      .at(-1) ?? last.bottom)
+                  : last.bottom),
+            )
+          : null,
     };
   }
 
@@ -230,9 +238,8 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
         if (join.stripRim !== "none") offenders.push(`${label} strip draws its own rim (${join.stripRim})`);
         if (join.textStarts.some((x) => x > 36 || x !== join.textStarts[0]))
           offenders.push(`${label} queued text starts at ${join.textStarts.join("/")}px`);
-        if (join.queueRoom !== null && join.queueRoom < 4) offenders.push(`${label} queue room ${join.queueRoom}px`);
-        if (join.header !== null && Math.abs(join.header - 20) > 0.5)
-          offenders.push(`${label} queue header ${join.header}px`);
+        if (join.queueRoom !== null && (join.scrolls ? Math.abs(join.queueRoom) > 1 : join.queueRoom < 4))
+          offenders.push(`${label} queue room ${join.queueRoom}px${join.scrolls ? " (scrolls)" : ""}`);
       }
     }
     expect(offenders).toEqual([]);
