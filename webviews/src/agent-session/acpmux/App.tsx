@@ -2717,6 +2717,7 @@ export function VirtualTranscript({
           scroller={ref}
           scrollTop={renderScroll.top}
           viewportHeight={height - dockSpace}
+          scrolls={layout.totalHeight - height > 0.5}
           width={width}
           placed={minimapPlaced}
         />
