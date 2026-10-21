@@ -57,7 +57,10 @@ extension RemoteTmuxSessionMirror {
         notificationFilters[paneId] = liveNotificationFilter
 
         guard let target = authoritativeGrid(forPane: paneId) else {
-            if seed.kind == .fullHistory { deferredFullPaneReseeds.remove(paneId) }
+            if seed.kind == .fullHistory {
+                deferredFullPaneReseeds.remove(paneId)
+                deferredFullPaneReseedAttemptsBeforeGrid.remove(paneId)
+            }
             discardPendingPaneSeedDelivery(paneId: paneId)
             routeCleanedOutput(paneId: paneId, data: renderedBytes)
             return
@@ -100,7 +103,10 @@ extension RemoteTmuxSessionMirror {
         }
 
         guard !terminalGridIsReady(paneId: paneId, target: target) else {
-            if seed.kind == .fullHistory { deferredFullPaneReseeds.remove(paneId) }
+            if seed.kind == .fullHistory {
+                deferredFullPaneReseeds.remove(paneId)
+                deferredFullPaneReseedAttemptsBeforeGrid.remove(paneId)
+            }
             discardPendingPaneSeedDelivery(paneId: paneId)
             routeCleanedOutput(paneId: paneId, data: renderedBytes)
             return
@@ -142,6 +148,7 @@ extension RemoteTmuxSessionMirror {
             discardPendingPaneSeedDelivery(paneId: paneId)
         }
         deferredFullPaneReseeds.formIntersection(livePaneIDs)
+        deferredFullPaneReseedAttemptsBeforeGrid.formIntersection(livePaneIDs)
         for paneId in Array(paneSeedFrameDemandReleases.keys)
         where !livePaneIDs.contains(paneId) {
             releasePaneSeedFrameDemand(paneId: paneId)
@@ -172,6 +179,7 @@ extension RemoteTmuxSessionMirror {
         pendingPaneSeedDeadlineTasks.removeAll(keepingCapacity: false)
         pendingPaneSeedDeadlineIDs.removeAll(keepingCapacity: false)
         deferredFullPaneReseeds.removeAll(keepingCapacity: false)
+        deferredFullPaneReseedAttemptsBeforeGrid.removeAll(keepingCapacity: false)
         for paneId in Array(paneSeedFrameDemandReleases.keys) {
             releasePaneSeedFrameDemand(paneId: paneId)
         }
@@ -274,7 +282,11 @@ extension RemoteTmuxSessionMirror {
               terminalGridIsReady(paneId: paneId, target: target),
               let seed = pendingPaneSeedBytes[paneId] else { return }
         let liveOutput = pendingPaneSeedLiveOutput[paneId] ?? []
+        let seedKind = pendingPaneSeedKinds[paneId]
         discardPendingPaneSeedDelivery(paneId: paneId)
+        if seedKind == .fullHistory {
+            deferredFullPaneReseedAttemptsBeforeGrid.remove(paneId)
+        }
         routeCleanedOutput(paneId: paneId, data: seed)
         for data in liveOutput {
             routeCleanedOutput(paneId: paneId, data: data)
@@ -364,11 +376,23 @@ extension RemoteTmuxSessionMirror {
     }
 
     @discardableResult
-    private func startDeferredFullPaneReseedIfReady(paneId: Int) -> Bool {
+    private func startDeferredFullPaneReseedIfReady(
+        paneId: Int,
+        allowBeforeGridReady: Bool = false
+    ) -> Bool {
         guard deferredFullPaneReseeds.contains(paneId),
               pendingPaneSeedBytes[paneId] == nil,
-              let target = authoritativeGrid(forPane: paneId),
-              terminalGridIsReady(paneId: paneId, target: target) else { return false }
+              let target = authoritativeGrid(forPane: paneId) else { return false }
+        let gridReady = terminalGridIsReady(paneId: paneId, target: target)
+        if !gridReady {
+            guard allowBeforeGridReady,
+                  !deferredFullPaneReseedAttemptsBeforeGrid.contains(paneId) else {
+                return false
+            }
+            deferredFullPaneReseedAttemptsBeforeGrid.insert(paneId)
+        } else {
+            deferredFullPaneReseedAttemptsBeforeGrid.remove(paneId)
+        }
         deferredFullPaneReseeds.remove(paneId)
         guard connection.seedPane(paneId: paneId, clearScrollback: true) != nil else {
             if connection.connectionState == .connected {
@@ -384,6 +408,14 @@ extension RemoteTmuxSessionMirror {
                 || pendingPaneSeedBytes[paneId] != nil else { return }
         retainPaneSeedReadinessSignalsIfNeeded()
         retainPaneSeedFrameDemandIfNeeded(paneId: paneId)
+        // Surface progress means the pane is visible and has a materialized
+        // target, even when the first rendered frame is still missing. Reissue
+        // a deferred reconnect capture now so an idle TUI cannot remain on the
+        // pre-disconnect grid until a later scroll or resize.
+        _ = startDeferredFullPaneReseedIfReady(
+            paneId: paneId,
+            allowBeforeGridReady: true
+        )
         handlePaneSeedReadiness(paneId: paneId)
     }
 

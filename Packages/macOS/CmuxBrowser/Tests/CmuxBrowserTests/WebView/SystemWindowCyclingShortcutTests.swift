@@ -79,22 +79,22 @@ struct SystemWindowCyclingShortcutTests {
         let shortcut = SystemWindowCyclingShortcut(keyCode: 10, modifierFlags: [.command])
         let forward = try Self.keyDown(keyCode: 10, characters: "§", modifierFlags: [.command])
         let backward = try Self.keyDown(keyCode: 10, characters: "±", modifierFlags: [.command, .shift])
-        #expect(!forward.cmuxRoutesDirectlyToMainMenu(windowCyclingShortcut: shortcut))
-        #expect(!backward.cmuxRoutesDirectlyToMainMenu(windowCyclingShortcut: shortcut))
+        #expect(!forward.cmuxRoutesDirectlyToMainMenu(windowCyclingShortcut: shortcut, helpMenuShortcut: nil))
+        #expect(!backward.cmuxRoutesDirectlyToMainMenu(windowCyclingShortcut: shortcut, helpMenuShortcut: nil))
     }
 
     @Test func otherCommandKeysStillRouteToMainMenu() throws {
         let shortcut = SystemWindowCyclingShortcut(keyCode: 10, modifierFlags: [.command])
         let commandT = try Self.keyDown(keyCode: 17, characters: "t", modifierFlags: [.command])
         let optionSection = try Self.keyDown(keyCode: 10, characters: "§", modifierFlags: [.command, .option])
-        #expect(commandT.cmuxRoutesDirectlyToMainMenu(windowCyclingShortcut: shortcut))
-        #expect(optionSection.cmuxRoutesDirectlyToMainMenu(windowCyclingShortcut: shortcut))
+        #expect(commandT.cmuxRoutesDirectlyToMainMenu(windowCyclingShortcut: shortcut, helpMenuShortcut: nil))
+        #expect(optionSection.cmuxRoutesDirectlyToMainMenu(windowCyclingShortcut: shortcut, helpMenuShortcut: nil))
     }
 
     // The US backtick keeps its existing exemption whatever the system reports.
     @Test func usBacktickStaysWithAppKit() throws {
         let backtick = try Self.keyDown(keyCode: 50, characters: "`", modifierFlags: [.command])
-        #expect(!backtick.cmuxRoutesDirectlyToMainMenu(windowCyclingShortcut: nil))
-        #expect(!backtick.cmuxRoutesDirectlyToMainMenu(windowCyclingShortcut: .appKitDefault))
+        #expect(!backtick.cmuxRoutesDirectlyToMainMenu(windowCyclingShortcut: nil, helpMenuShortcut: nil))
+        #expect(!backtick.cmuxRoutesDirectlyToMainMenu(windowCyclingShortcut: .appKitDefault, helpMenuShortcut: nil))
     }
 }

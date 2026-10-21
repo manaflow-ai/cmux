@@ -652,7 +652,8 @@ enum TitlebarControlsLayoutMetrics {
         guard let range = TitlebarControlsHitRegions.buttonXRange(for: actionSlot, config: config) else {
             return config.groupPadding.leading + (config.buttonSize / 2.0)
         }
-        return (range.lowerBound + range.upperBound) / 2.0
+        // Hit regions are accessory-relative; hints are inside the padded controls group.
+        return (range.lowerBound + range.upperBound) / 2.0 - outerLeadingPadding
     }
 
     static func hintInterval(
@@ -1994,7 +1995,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             _ = appDelegate.performNewWorkspaceAction(
                 tabManager: context.tabManager,
                 debugSource: "titlebar.accessoryNewWorkspace",
-                skipConfiguredAction: true
+                localOnly: true
             )
         }
         let focusHistoryBack = {

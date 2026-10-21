@@ -132,6 +132,11 @@ PATH_OWNERS = {
 
     "scripts/ci/ios_upload_batch_decision.py": frozenset(("release-ios",)),
     "scripts/ci/peer_product_source.py": frozenset(("preflight",)),
+    # test_nightly_sign_admit.py runs the admit tool; the shadow test reads
+    # the workflow and nightly.yml's producer step. test_ci_workflow_run_sources.py
+    # (ci) reads every workflow_run trigger and the tool's job-name match.
+    ".github/workflows/nightly-sign.yml": frozenset(("ci", "release-notary")),
+    "scripts/ci/nightly_sign_admit.py": frozenset(("ci", "release-notary")),
     "scripts/ci/drop-previous-nightlies-with-other-sparkle-key.sh": frozenset(("release-notary",)),
     "scripts/ci/nightly-sparkle-key.sh": frozenset(("release-notary",)),
     "scripts/ci/product_input_identity.py": frozenset(("preflight",)),

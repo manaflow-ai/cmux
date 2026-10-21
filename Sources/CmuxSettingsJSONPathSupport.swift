@@ -223,6 +223,10 @@ enum AppSettingsFileMapping {
             defaultsKey: app.warnBeforeClosingWorkspace.userDefaultsKey
         ),
         .init(
+            jsonKey: "alwaysConfirmWorkspaceClose",
+            defaultsKey: app.alwaysConfirmWorkspaceClose.userDefaultsKey
+        ),
+        .init(
             jsonKey: "warnBeforeClosingWindow",
             defaultsKey: app.warnBeforeClosingWindow.userDefaultsKey
         ),
@@ -485,6 +489,18 @@ enum AutomationSettingsFileMapping {
         .init(jsonKey: "claudeBinaryPath", defaultsKey: automation.claudeBinaryPath.userDefaultsKey),
         .init(jsonKey: "ripgrepBinaryPath", defaultsKey: automation.ripgrepBinaryPath.userDefaultsKey),
         .init(jsonKey: "autoNamingAgent", defaultsKey: automation.autoNamingAgent.userDefaultsKey),
+    ]
+}
+
+/// Boolean values persisted in the top-level `chief` cmux.json section.
+enum ChiefSettingsFileMapping {
+    private static let chief = ChiefCatalogSection()
+
+    static let booleanSettings: [SettingsFileBooleanMapping] = [
+        .init(
+            jsonKey: "dangerouslySkipPermissions",
+            defaultsKey: chief.dangerouslySkipPermissions.userDefaultsKey
+        ),
     ]
 }
 

@@ -219,7 +219,7 @@ extension RemoteSessionCoordinator {
 
     func probeRemoteBootstrapStateLocked(version: String) throws -> RemoteBootstrapState {
         let script = Self.remotePlatformProbeScript(version: version)
-        let command = "sh -c \(script.shellSingleQuoted)"
+        let command = RemotePOSIXShellCommand(script: script).commandLine
         let result = try sshExec(arguments: daemonBootstrapSSHArguments() + ["--", configuration.destination, command], timeout: 20)
 
         let lines = result.stdout
@@ -377,7 +377,7 @@ extension RemoteSessionCoordinator {
     func helloRemoteDaemonLocked(remotePath: String) throws -> DaemonHello {
         let request = #"{"id":1,"method":"hello","params":{}}"#
         let script = "printf '%s\\n' \(request.shellSingleQuoted) | \(remotePath.shellSingleQuoted) serve --stdio"
-        let command = "sh -c \(script.shellSingleQuoted)"
+        let command = RemotePOSIXShellCommand(script: script).commandLine
         let result = try sshExec(arguments: daemonBootstrapSSHArguments() + ["--", configuration.destination, command], timeout: 12)
         guard result.status == 0 else {
             let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ?? "ssh exited \(result.status)"

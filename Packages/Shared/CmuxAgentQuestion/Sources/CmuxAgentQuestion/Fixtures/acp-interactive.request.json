@@ -1,0 +1,35 @@
+{
+  "permissionId": "perm_acp_1",
+  "session": "sess_acp_1",
+  "request": {
+    "sessionId": "sess_acp_1",
+    "toolCall": {
+      "toolCallId": "tc_acp_1",
+      "title": "Continue with the migration on the staging branch?",
+      "kind": "other",
+      "status": "pending",
+      "_meta": {
+        "acpmux": {
+          "interactive": true
+        }
+      }
+    },
+    "options": [
+      {
+        "optionId": "proceed",
+        "name": "Proceed",
+        "kind": "allow_once"
+      },
+      {
+        "optionId": "dry_run",
+        "name": "Dry run first",
+        "kind": "allow_once"
+      },
+      {
+        "optionId": "stop",
+        "name": "Stop",
+        "kind": "reject_once"
+      }
+    ]
+  }
+}

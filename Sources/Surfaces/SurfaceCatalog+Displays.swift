@@ -92,7 +92,7 @@ extension SurfaceCatalog {
         let pane: (workspaceID: UUID, panelID: UUID)
         do {
             pane = try await SurfacePaneFactory.openPreferringSplit(at: destination) { target in
-                try SurfacePaneFactory.makeBrowserPane(url: nil, at: target, focus: true)
+                try SurfacePaneFactory.makeCloudResourceBrowserPane(at: target, focus: true)
             }
         } catch {
             // Opening is best effort for the sidebar: still create the display,

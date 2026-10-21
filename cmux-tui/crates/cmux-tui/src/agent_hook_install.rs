@@ -1645,9 +1645,16 @@ fn rewrite_json_hooks(
 ) -> anyhow::Result<()> {
     let hooks = root.entry("hooks").or_insert_with(|| json!({}));
     let hooks = hooks.as_object_mut().context("agent hooks field must be a JSON object")?;
-    for entries in hooks.values_mut() {
+    // Where each event's first fully-owned group was, so a reinstall puts our
+    // group back in that slot instead of behind every other producer's: codex
+    // keys hook trust by position, and moving ours shifts theirs off their
+    // trusted keys.
+    let mut owned_slots = BTreeMap::new();
+    for (event, entries) in hooks.iter_mut() {
         if nested {
-            rewrite_nested_entries(entries)?;
+            if let Some(slot) = rewrite_nested_entries(entries)? {
+                owned_slots.insert(event.clone(), slot);
+            }
         } else {
             rewrite_flat_entries(entries)?;
         }
@@ -1670,20 +1677,27 @@ fn rewrite_json_hooks(
             json!({"command":command,"timeout":timeout})
         };
         hooks.entry(*event).or_insert_with(|| json!([]));
-        hooks
+        let entries = hooks
             .get_mut(*event)
             .and_then(Value::as_array_mut)
-            .with_context(|| format!("hook event {event:?} must be an array"))?
-            .push(entry);
+            .with_context(|| format!("hook event {event:?} must be an array"))?;
+        match owned_slots.get(*event) {
+            Some(slot) if *slot <= entries.len() => entries.insert(*slot, entry),
+            _ => entries.push(entry),
+        }
     }
     Ok(())
 }
 
-fn rewrite_nested_entries(value: &mut Value) -> anyhow::Result<()> {
+/// Removes the owned commands from every group, dropping groups left empty.
+/// Returns the position, among the kept groups, of the first group that held
+/// only owned commands.
+fn rewrite_nested_entries(value: &mut Value) -> anyhow::Result<Option<usize>> {
     let Some(groups) = value.as_array_mut() else {
-        return Ok(());
+        return Ok(None);
     };
     let mut rewritten = Vec::with_capacity(groups.len());
+    let mut owned_slot = None;
     for mut group in std::mem::take(groups) {
         let Some(group_object) = group.as_object_mut() else {
             rewritten.push(group);
@@ -1693,13 +1707,16 @@ fn rewrite_nested_entries(value: &mut Value) -> anyhow::Result<()> {
             rewritten.push(group);
             continue;
         };
+        let was_empty = commands.is_empty();
         rewrite_command_entries(commands);
         if !commands.is_empty() {
             rewritten.push(group);
+        } else if !was_empty && owned_slot.is_none() {
+            owned_slot = Some(rewritten.len());
         }
     }
     *groups = rewritten;
-    Ok(())
+    Ok(owned_slot)
 }
 
 fn rewrite_flat_entries(value: &mut Value) -> anyhow::Result<()> {
@@ -1942,6 +1959,12 @@ fn codex_contextual_hook_command(
 /// commands generated here, leaving all other hooks' trust decisions intact.
 /// Codex appends hooks from lower layers, so disable the installed cmux copies
 /// for this invocation instead of sending each event twice.
+///
+/// Codex splits a `-c` key on every `.`, even inside TOML quotes
+/// (codex-rs/config/src/overrides.rs `apply_toml_override`), and every state
+/// key contains one (`config.toml`, `hooks.json`). The whole state therefore
+/// goes in one inline-table value at `hooks.state`, which Codex merges with
+/// the persistent config's trust instead of replacing it.
 #[cfg(unix)]
 pub(crate) fn codex_session_hook_settings(
     socket: &Path,
@@ -1965,8 +1988,11 @@ fn codex_session_hook_settings_with_context(
     let root = read_json_object(&path)?;
     let key_path =
         codex_state_key_hooks_path(&path, context.provider_path_from_env_override(provider));
+    let mut state = toml_edit::InlineTable::new();
     for key in codex_owned_entry_keys(&key_path, &root) {
-        settings.push(format!("hooks.state.{}.enabled=false", toml_edit::Key::new(key)));
+        let mut entry = toml_edit::InlineTable::new();
+        entry.insert("enabled", false.into());
+        state.insert(&key, entry.into());
     }
     for event in CODEX_EVENTS {
         let command = codex_contextual_hook_command(event, socket, terminal, launcher);
@@ -1977,9 +2003,11 @@ fn codex_session_hook_settings_with_context(
             "hooks.{event}=[{{hooks=[{{type=\"command\",command={},timeout={timeout}}}]}}]",
             toml_edit::Value::from(command),
         ));
-        let key = toml_edit::Key::new(format!("/<session-flags>/config.toml:{label}:0:0"));
-        settings.push(format!("hooks.state.{key}.trusted_hash={}", toml_edit::Value::from(hash)));
+        let mut entry = toml_edit::InlineTable::new();
+        entry.insert("trusted_hash", hash.into());
+        state.insert(format!("/<session-flags>/config.toml:{label}:0:0"), entry.into());
     }
+    settings.push(format!("hooks.state={state}"));
     Ok(settings)
 }
 
@@ -3121,6 +3149,50 @@ mod tests {
         assert!(!state.contains_key(&format!("{}:stop:0:0", hooks_path.display())));
         let result = run_with_context(&status, &context);
         assert_eq!(result.value["providers"][0]["state"], "installed", "{}", result.value);
+    }
+
+    #[test]
+    fn codex_reinstall_keeps_a_later_producers_hook_and_trust_in_place() {
+        // The cmux app writes its own Codex hooks into the same hooks.json
+        // after ours, trusting them at their positions. Reinstalling must not
+        // move our group behind theirs: that shifts their hook to a key with
+        // no trust and overwrites their key with our hash, so Codex asks the
+        // user to review one cmux hook per event.
+        let tmp = tempfile::tempdir().unwrap();
+        let context = context(tmp.path());
+        let install = Plan { action: Action::Install, providers: vec!["codex".into()] };
+        assert!(!run_with_context(&install, &context).failed);
+        let hooks_path = context.home.join(".codex/hooks.json");
+        let app_command = "/Users/me/.cmux/hooks/cmux-codex-hook-persistent-stop-0123.sh";
+        let mut hooks: Value = serde_json::from_slice(&fs::read(&hooks_path).unwrap()).unwrap();
+        hooks["hooks"]["Stop"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"hooks": [{"type": "command", "command": app_command, "timeout": 10}]}));
+        atomic_write(&hooks_path, &serde_json::to_vec_pretty(&hooks).unwrap(), Some(0o600))
+            .unwrap();
+        let app_key = format!("{}:stop:1:0", hooks_path.display());
+        let app_hash = codex_trust_hash("stop", app_command, 10);
+        let config_path = context.home.join(".codex/config.toml");
+        let mut config = fs::read_to_string(&config_path).unwrap();
+        config.push_str(&format!("\n[hooks.state.\"{app_key}\"]\ntrusted_hash = \"{app_hash}\"\n"));
+        fs::write(&config_path, config).unwrap();
+
+        assert!(!run_with_context(&install, &context).failed);
+
+        let hooks: Value = serde_json::from_slice(&fs::read(&hooks_path).unwrap()).unwrap();
+        assert_eq!(hooks["hooks"]["Stop"][1]["hooks"][0]["command"], app_command, "{hooks}");
+        assert_eq!(codex_owned_hook_position(hooks.as_object().unwrap(), "Stop"), Some((0, 0)));
+        let state = codex_state_table(&context);
+        let trusted = |key: &str| {
+            state.get(key).and_then(|entry| entry.get("trusted_hash")).and_then(toml::Value::as_str)
+        };
+        assert_eq!(trusted(&app_key), Some(app_hash.as_str()), "{state:?}");
+        assert_eq!(
+            trusted(&format!("{}:stop:0:0", hooks_path.display())),
+            Some(codex_trust_hash("stop", &hook_command("codex", "Stop"), 5).as_str()),
+            "{state:?}"
+        );
     }
 
     #[test]

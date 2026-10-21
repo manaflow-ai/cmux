@@ -695,21 +695,20 @@ def check_guide_contract(cli_path: str) -> list[str]:
     return failures
 
 
-# The welcome screen lists cmux's default shortcuts. Each row is the shared
-# display name and the default key from the CmuxSettings table, rendered the
-# way Settings > Keyboard Shortcuts renders it (Control, Option, Shift, Command).
+# The welcome screen restores the v0.64.25 shortcut list. These labels and
+# keys are intentionally static, even when the user has rebound shortcuts.
 WELCOME_DEFAULT_ROWS = [
-    ("⌘N", "New Workspace"),
-    ("⌘T", "New Surface"),
+    ("⌘N", "New workspace"),
+    ("⌘T", "New tab"),
     ("⌘P", "Go to Workspace…"),
     ("⌘B", "Toggle Left Sidebar"),
-    ("⌥⌘B", "Toggle Right Sidebar"),
+    ("⌘⌥B", "Toggle Right Sidebar"),
     ("⌘D", "Split Right"),
-    ("⇧⌘D", "Split Down"),
-    ("⇧⌘P", "Command Palette…"),
-    ("⇧⌘R", "Rename Workspace"),
-    ("⇧⌘L", "Open Browser"),
-    ("⇧⌘U", "Jump to Latest Unread"),
+    ("⌘⇧D", "Split Down"),
+    ("⌘⇧P", "Command Palette…"),
+    ("⌘⇧R", "Rename Workspace"),
+    ("⌘⇧L", "New browser"),
+    ("⌘⇧U", "Jump to Latest Unread"),
     ("⌥⌘U", "Toggle Unread"),
 ]
 
@@ -726,11 +725,11 @@ def welcome_rows(stdout: str) -> list[tuple[str, str]]:
 
 
 def check_welcome_contract(cli_path: str) -> list[str]:
-    """`cmux welcome` lists the default shortcuts, whatever the user rebound.
+    """`cmux welcome` restores the v0.64.25 shortcut list, whatever the user rebound.
 
     The second run points HOME at a cmux.json that rebinds and unbinds rows
-    from the list. The output must stay the defaults: welcome documents what a
-    fresh install does, and `cmux shortcuts` is where current bindings live.
+    from the list. The output must stay the restored list, and `cmux shortcuts`
+    is where current bindings live.
     """
     failures: list[str] = []
     with tempfile.TemporaryDirectory(prefix="cmux-welcome-") as home:
@@ -765,9 +764,12 @@ def check_welcome_contract(cli_path: str) -> list[str]:
                     f"got {rows!r}\nstdout={result.stdout!r}"
                 )
             plain = ANSI_ESCAPE_RE.sub("", result.stdout)
-            for needle in ("cmux shortcuts", "Settings > Keyboard Shortcuts", "Command Palette"):
+            for needle in ("Run cmux shortcuts to edit shortcuts.", "Command Palette…"):
                 if needle not in plain:
                     failures.append(f"cmux welcome ({label}): missing {needle!r}\nstdout={result.stdout!r}")
+            for stale in ("Default shortcuts", "Settings > Keyboard Shortcuts"):
+                if stale in plain:
+                    failures.append(f"cmux welcome ({label}): shows stale text {stale!r}\nstdout={result.stdout!r}")
             for rebound in ("⇧⌘K", "⌃⌥P"):
                 if rebound in plain:
                     failures.append(f"cmux welcome ({label}): shows the user's binding {rebound!r}")

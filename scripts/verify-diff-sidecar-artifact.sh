@@ -2,15 +2,21 @@
 set -euo pipefail
 
 usage() {
-  echo "usage: $0 <cmux-diff-sidecar> [--archs \"arm64 x86_64\"] [--require-signed]" >&2
+  echo "usage: $0 <cmux-diff-sidecar> [--archs \"arm64 x86_64\"] [--require-signed] [--static-only]" >&2
   exit 2
 }
+
+# --static-only skips the one check that runs the sidecar (its handshake).
+# Signing uses it while the CI signing keychain exists; the signing job runs
+# the full check again after the keychain is deleted.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 [[ $# -ge 1 ]] || usage
 BINARY="$1"
 shift
 ARCHS="arm64 x86_64"
 REQUIRE_SIGNED=0
+STATIC_ONLY=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --archs)
@@ -20,6 +26,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --require-signed)
       REQUIRE_SIGNED=1
+      shift
+      ;;
+    --static-only)
+      STATIC_ONLY=1
       shift
       ;;
     *) usage ;;
@@ -76,6 +86,14 @@ else
   SIGNING_STATE="unsigned"
 fi
 
+if (( STATIC_ONLY )); then
+  echo "diff sidecar: ${SIZE_BYTES} bytes, architectures: ${ARCHS}, minimum macOS: 14.0, ${SIGNING_STATE}; handshake deferred (static checks only)"
+  exit 0
+fi
+
+# shellcheck source=ci/lib/signing-runtime-guard.sh
+source "$SCRIPT_DIR/ci/lib/signing-runtime-guard.sh"
+cmux_signing_runtime_guard
 HANDSHAKE="$("$BINARY" handshake)"
 python3 - "$HANDSHAKE" <<'PY'
 import json
