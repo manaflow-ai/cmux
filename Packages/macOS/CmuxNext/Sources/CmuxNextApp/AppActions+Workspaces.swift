@@ -117,6 +117,7 @@ extension AppActions {
     private static func newWorkspace(_ services: AppServices, _ invocation: ActionInvocation) {
         SidebarNewRowTimer.shared.pressed() // debug.new_workspace times the row from here
         var spawn = WorkspaceSpawn(invocation)
+        spawn.followClassicMode(services) // before the key hold below, which waits only for a page
         let focus = NewWorkspaceFocus(invocation)
         let show = focus.shows
 
