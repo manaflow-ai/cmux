@@ -15,6 +15,21 @@
     "benefitSuperpowers": "规划、TDD、子代理和审查"
   },
   "vmErrors": {
+    "allocationUnavailable": {
+      "title": "Cloud VM 请求已延迟",
+      "message": "Cloud VM 分配暂时不可用。",
+      "action": "请等待一分钟，然后使用相同的幂等键重试。"
+    },
+    "snapshotIdempotencyRequired": {
+      "title": "快照请求需要重试键",
+      "message": "Cloud VM 快照需要幂等键。",
+      "action": "请使用不超过 128 个字符的固定 Idempotency-Key 重试。"
+    },
+    "snapshotQuota": {
+      "title": "已达到快照上限",
+      "message": "此 Cloud VM 已达到快照上限。",
+      "action": "请删除一个现有快照，然后使用相同的幂等键重试。"
+    },
     "guestInstall": {
       "title": "云端虚拟机设置未完成",
       "reason": "云端虚拟机的来宾设置未完成。",

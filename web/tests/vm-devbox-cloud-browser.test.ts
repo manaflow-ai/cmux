@@ -2,14 +2,15 @@ import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 // The cloud browser role of the devbox image (plans/cmux-next/cloud-browser-DESIGN.md
 // CB-2, section 4a): the launcher runs `cmux-rd host --browser` on the desktop display
 // with CDP on loopback for an agent on the VM. Off by default. These tests run the
 // shipped launcher against a fake `cmux-rd` and check what it actually starts.
 
-const LAUNCHER = join(import.meta.dir, "../services/vms/images/devbox/desktop/cmux-cloud-browser");
+const LAUNCHER = join(dirname(fileURLToPath(import.meta.url)), "../services/vms/images/devbox/desktop/cmux-cloud-browser");
 
 type Run = { code: number; stderr: string; argv: string[] | null; token: string | null; tokenFileMode: number | null };
 
@@ -30,7 +31,7 @@ exit 0
     );
     chmodSync(fake, 0o755);
     const r = spawnSync("bash", [LAUNCHER], {
-      env: { PATH: `${dir}:/usr/bin:/bin`, HOME: dir, CMUX_CLOUD_BROWSER_STATE_DIR: dir, ...env },
+      env: { NODE_ENV: "test", PATH: `${dir}:/usr/bin:/bin`, HOME: dir, CMUX_CLOUD_BROWSER_STATE_DIR: dir, ...env },
       encoding: "utf8",
     });
     const read = (f: string) => {
@@ -89,7 +90,7 @@ describe("devbox cloud browser launcher", () => {
     const dir = mkdtempSync(join(tmpdir(), "cmux-cloud-browser-none-"));
     try {
       const r = spawnSync("bash", [LAUNCHER], {
-        env: { PATH: "/usr/bin:/bin", HOME: dir, CMUX_CLOUD_BROWSER_STATE_DIR: dir, CMUX_CLOUD_BROWSER: "1" },
+        env: { NODE_ENV: "test", PATH: "/usr/bin:/bin", HOME: dir, CMUX_CLOUD_BROWSER_STATE_DIR: dir, CMUX_CLOUD_BROWSER: "1" },
         encoding: "utf8",
       });
       expect(r.status).not.toBe(0);

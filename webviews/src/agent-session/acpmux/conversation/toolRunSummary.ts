@@ -36,9 +36,8 @@ function callCategory(tool: NonNullable<AcpmuxActivity["tool"]>): ToolRunCategor
   return mcpCall(tool) ? "used" : toolRunCategory(tool.kind);
 }
 
-/// A run in an ended turn (inside an open "Worked for") folds under one summary line once it
-/// holds two or more calls. A live turn lists every call, so its height and the user's place
-/// don't change as each call starts and ends.
+/// A run the Codex-style runs (Debug toggle) settle folds under one summary line once it holds two
+/// or more calls. Otherwise every run lists its calls (TurnRows.tsx `shouldFoldToolRun`).
 export function isFoldedRun(items: readonly AcpmuxActivity[]): boolean {
   return items.filter((item) => item.tool).length >= 2;
 }
