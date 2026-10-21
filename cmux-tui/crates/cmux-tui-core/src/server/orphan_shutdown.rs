@@ -130,7 +130,7 @@ pub(super) fn mark_owner_plugin(mux: &Mux, client: u64, peer_key: Option<&str>) 
 
 #[cfg(unix)]
 fn is_owner_plugin_peer(mux: &Mux, peer_key: Option<&str>) -> bool {
-    let Some(pid) = peer_key.and_then(super::origin_gate::peer_pid) else { return false };
+    let Some(pid) = peer_key.and_then(origin_gate::peer_pid) else { return false };
     let Some(group) = mux.journal_plugin_process_group() else { return false };
     let Ok(pid) = libc::pid_t::try_from(pid) else { return false };
     // SAFETY: getpgid only reads kernel metadata for a positive pid; the
