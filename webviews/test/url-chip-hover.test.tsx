@@ -83,7 +83,8 @@ test("URL chips expose a safe hover card with a browser Open action", async () =
   // A pull request link's card also asked gh about it (chips/PullRequestCard.tsx).
   expect(calls).toEqual([
     { method: "pr.inspect", params: { url: "https://github.com/manaflow-ai/cmux/pull/21180" } },
-    { method: "browser.open", params: { url: "https://github.com/manaflow-ai/cmux/pull/21180" } },
+    // Not `browser.open`, which the host takes only for a turn's local preview page.
+    { method: "browser.openIn", params: { url: "https://github.com/manaflow-ai/cmux/pull/21180", browserId: "cmux" } },
   ]);
   await act(async () => {
     card.querySelector<HTMLButtonElement>("button")!.blur();
