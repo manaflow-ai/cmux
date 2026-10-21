@@ -12,14 +12,13 @@
   "expect": {
    "acpmux": 10,
    "chatmux-relay": 81,
-   "cmux-api-compat": 10,
    "cmux-app-host": 2,
    "cmux-browser-host": 1,
    "cmux-mux2": 42,
    "cmux-remote": 57,
    "cmux-terminal-client": 1,
    "cmux-tui": 76,
-   "cmux-tui-core": 286,
+   "cmux-tui-core": 283,
    "cmux-tui-hooks": 11,
    "cmux-tui-platform": 1,
    "cmux-tui-remote-access": 1,
@@ -29,18 +28,17 @@
   "panic_macro": {
    "acpmux": 2,
    "chatmux-relay": 1,
-   "cmux-api-compat": 1,
    "cmux-remote": 11,
    "cmux-tui": 33,
    "cmux-tui-core": 36
   },
   "unwrap": {
-   "acpmux": 186,
+   "acpmux": 182,
    "chatmux-relay": 7,
    "cmux-remote": 25,
    "cmux-terminal-client": 30,
    "cmux-tui": 435,
-   "cmux-tui-core": 1604,
+   "cmux-tui-core": 1587,
    "cmux-tui-image-paste": 22,
    "cmux-tui-platform": 17,
    "cmux-tui-remote-access": 5,
@@ -68,11 +66,11 @@
    "CmuxNextDesign": 14,
    "CmuxNextPages": 4,
    "CmuxNextSidebar": 3,
-   "MessagesLabHome": 21
+   "MessagesLabHome": 20
   },
   "render_font": {
    "CmuxHomeRender": 4,
-   "MessagesLabHome": 8
+   "MessagesLabHome": 4
   },
   "unchecked": {
    "CMUXAuthCore": 3,
@@ -105,7 +103,7 @@
    "CmuxNextTabs": 5,
    "CmuxNextTerminal": 7,
    "CmuxUpdater": 1,
-   "MessagesLabHome": 15,
+   "MessagesLabHome": 14,
    "MessagesLabSidebar": 2
   }
  }
