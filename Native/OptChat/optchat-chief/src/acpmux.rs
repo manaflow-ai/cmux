@@ -45,6 +45,8 @@ pub struct SessionSpec {
 pub const CHIEF_TAG: &str = "cmux.chief";
 /// `turn` or `compactor`, next to `cmux.chief`.
 pub const CHIEF_ROLE_TAG: &str = "cmux.chief.role";
+/// The compactor's `cmux.chief.role`.
+pub const COMPACTOR_ROLE: &str = "compactor";
 
 /// The tags of a Chief session of `role` for home `home_id`.
 pub fn chief_tags(home_id: &str, role: &str) -> BTreeMap<String, String> {

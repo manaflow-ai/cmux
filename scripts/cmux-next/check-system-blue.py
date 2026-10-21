@@ -23,6 +23,10 @@ Documented exception: Messages' blue in the Chief chat's iMessage bubble style
 measured blue (Packages/Shared/CmuxMessagesLab, skipped as vendored Messages data). The `theme`
 style takes the theme's accent and surface; nothing outside the iMessage style may borrow that blue.
 
+Documented exception: agent chat links (`--agent-link-base` in
+webviews/src/agent-session/shared/styles.css) are blue in every theme (Leo 2026-10-19, "links are
+blue, period", #22345); its two literals are its baseline row.
+
   python3 scripts/cmux-next/check-system-blue.py [--root DIR] [--baseline FILE] [--update-baseline]
 """
 import argparse

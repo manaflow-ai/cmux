@@ -194,6 +194,28 @@ async fn queue_ops_steer_with_interrupt_stops_a_turn_its_agent_cannot_steer() {
     assert_eq!(echoes_until(&mut c, "echo: a").await, ["echo: now", "echo: a"]);
 }
 
+/// Messages between sessions steer by default (2026-10-20). To an agent that does not steer
+/// (or whose steering is unknown, as after a daemon restart re-adopts it), a steer without
+/// `interrupt` queues behind the running turn and never stops it.
+#[tokio::test]
+async fn a_steer_without_interrupt_queues_behind_a_turn_its_agent_cannot_steer() {
+    let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = busy_with_queue(&mut c, &[]).await;
+    let mut message = text_prompt(&id, "p-msg", "msg");
+    message["_meta"]["acpmux"]["steer"] = json!(true);
+    c.send(method::SESSION_PROMPT, message).await;
+    let accepted = c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-msg").await;
+    assert_eq!(accepted["queued"], true, "{accepted}");
+    assert_ne!(accepted["steer"], true, "{accepted}");
+    let attached =
+        c.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await.unwrap();
+    assert_eq!(attached["session"]["steering"], false, "{attached}");
+    assert_eq!(attached["session"]["turn"]["promptId"], "p-turn", "the turn runs on: {attached}");
+    assert_eq!(queue_order(&mut c, &id).await, ["p-msg"]);
+    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+    assert_eq!(echoes_until(&mut c, "echo: msg").await, ["echo: msg"]);
+}
+
 #[tokio::test]
 async fn queue_ops_send_now_steers_into_a_turn_its_agent_can_steer() {
     let env = BTreeMap::from([("FAKE_CODEX_STEER".to_owned(), "1".to_owned())]);

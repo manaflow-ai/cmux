@@ -136,7 +136,7 @@ extension SidebarDocProjection {
         // The confirmed fold (a fold's echo rebuilds no projection, `SidebarDocStore.groupFolds`).
         var made = SidebarGroup(id: GroupID(group.id), name: group.name, isCollapsed: SidebarDocStore.current?.groupFolds[group.id] ?? group.collapsed,
                                 icon: group.icon.flatMap { WorkspaceIcon.parse($0) }, workspaces: [])
-        if let color = group.color, let tint = GroupTint(wire: color) { made.tint = tint }
+        made.tint = group.color.flatMap { GroupTint(wire: $0) } ?? .palette(.unset(id: group.id))
         return made
     }
 }

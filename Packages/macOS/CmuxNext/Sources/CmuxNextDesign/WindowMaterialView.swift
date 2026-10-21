@@ -27,6 +27,11 @@ public final class WindowMaterialView: NSView {
     private let tintView = NSView()
     private let glassTint = GlassTintBlend()
     private let inactiveTintView = NSView()
+    /// The inactive wash's alpha once its fade ends (`updateInactiveTint`).
+    private var inactiveTintTarget: CGFloat = 0
+    /// Bumped by each wash fade: only the latest fade-out's completion hides the view (a
+    /// replaced animation completes too).
+    private var inactiveTintFade = 0
     private var keyObservers: [NSObjectProtocol] = []
     /// The window gave up the keyboard. Only then does glass go grey; a window
     /// that was never key (opening, tests, snapshots) shows the glass alone.
@@ -93,6 +98,7 @@ public final class WindowMaterialView: NSView {
         inactiveTintView.frame = bounds
         inactiveTintView.autoresizingMask = [.width, .height]
         inactiveTintView.isHidden = true
+        inactiveTintView.layer?.opacity = 0
         addSubview(inactiveTintView)
         setAccessibilityElement(false)
     }
@@ -118,7 +124,8 @@ public final class WindowMaterialView: NSView {
     /// The theme tint laid over glass while the window is not key: Liquid
     /// Glass drops its `tintColor` then and draws the system's grey, so the
     /// tint comes back over it, as cmux classic does (dogfood 2026-10-08, C3).
-    var inactiveTintAlpha: CGFloat { inactiveTintView.isHidden ? 0 : inactiveTintView.alphaValue }
+    /// Its resting alpha: where its fade ends.
+    var inactiveTintAlpha: CGFloat { inactiveTintTarget }
 
     /// Classic's wash over inactive glass: strong over a dark theme, light
     /// over a light one, none while the window is key or for other materials.
@@ -158,17 +165,50 @@ public final class WindowMaterialView: NSView {
         let glass = materialView as? GlassPanelView
         let alpha = glass?.tintColor.map { Self.inactiveTintAlpha(isGlass: true, isKeyWindow: !resignedKey, tint: $0) } ?? 0
         let wash = alpha > 0 ? glass?.tintColor?.cgColor : nil
-        // A tint change blends the wash like the glass under it; showing or hiding it applies at once.
-        if let layer = inactiveTintView.layer, layer.backgroundColor != wash {
-            if wash != nil, layer.backgroundColor != nil, !inactiveTintView.isHidden, window?.isVisible == true {
+        guard let layer = inactiveTintView.layer else { return }
+        let previous = inactiveTintTarget
+        inactiveTintTarget = alpha
+        // Visible now, mid-fade included (the model opacity of a fading-out wash is already 0).
+        let showing = !inactiveTintView.isHidden
+        // The wash's color: a tint change while it shows blends like the glass under it. A wash
+        // fading out keeps its color until it is gone.
+        if let wash, layer.backgroundColor != wash {
+            if layer.backgroundColor != nil, showing, window?.isVisible == true {
                 ColorTransition.current.animate(layer, to: wash)
             } else {
                 layer.removeAnimation(forKey: ColorTransition.layerKey)
                 layer.backgroundColor = wash
             }
         }
-        inactiveTintView.alphaValue = alpha
-        inactiveTintView.isHidden = alpha == 0
+        // Showing or hiding the wash eases (`scrim`): the palette taking the keys darkened the
+        // whole window in one frame (Leo 2026-10-20). A window not on screen applies at once.
+        guard window?.isVisible == true else {
+            inactiveTintFade += 1
+            layer.removeAnimation(forKey: "opacity")
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layer.opacity = Float(alpha)
+            CATransaction.commit()
+            inactiveTintView.isHidden = alpha == 0
+            return
+        }
+        // Same target: a fade under way runs on (a theme apply mid-fade does not cut it short).
+        guard alpha != previous || (alpha > 0 && !showing) else { return }
+        guard alpha > 0 || showing else { return }
+        inactiveTintFade += 1
+        let fade = inactiveTintFade
+        inactiveTintView.isHidden = false
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { [weak self] in
+            // main-proof: CATransaction.h: the completion block is called on the main thread
+            MainActor.assumeIsolated {
+                guard let self, self.inactiveTintFade == fade, self.inactiveTintTarget == 0 else { return }
+                self.inactiveTintView.isHidden = true
+            }
+        }
+        // From what shows now (a reversal mid-fade continues from there), or from 0 when hidden.
+        Motion.overlays.set(layer, "opacity", to: Float(alpha), fade: .scrim, from: showing ? nil : Float(0))
+        CATransaction.commit()
     }
 
     /// Decoration only: clicks reach the views above or the window.
