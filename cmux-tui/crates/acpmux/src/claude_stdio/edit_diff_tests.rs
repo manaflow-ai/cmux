@@ -82,6 +82,9 @@ async fn claude_edit_multiedit_is_one_diff_per_edit() {
     );
 }
 
+// A Write goes out as the whole file, marked a fragment until its result says
+// whether it created the file: a call whose result never comes (a crash, a
+// dropped line) must not read as a new file Undo could trash.
 #[tokio::test]
 async fn claude_edit_write_is_a_whole_file_diff() {
     let t = Translator::new("acp-1".into(), "default", "haiku", "default");
@@ -89,8 +92,38 @@ async fn claude_edit_write_is_a_whole_file_diff() {
     let out = updates(&t.inbound(&tool_use("toolu_1", "Write", input)).await);
     assert_eq!(
         out[0]["content"],
-        json!([{"type": "diff", "path": "/repo/new.md", "oldText": null, "newText": "# New\n"}])
+        json!([{"type": "diff", "path": "/repo/new.md", "oldText": null, "newText": "# New\n",
+            "_meta": {"acpmux": {"fragment": true}}}])
     );
+}
+
+#[tokio::test]
+async fn claude_edit_write_with_no_result_stays_a_fragment() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let input = json!({"file_path": "/repo/notes.md", "content": "new\n"});
+    let out = updates(&t.inbound(&tool_use("toolu_1", "Write", input)).await);
+    assert_eq!(out[0]["status"], "in_progress");
+    assert_eq!(out[0]["content"][0]["oldText"], Value::Null);
+    assert_eq!(out[0]["content"][0]["_meta"]["acpmux"]["fragment"], true);
+    // Its permission request shows the same fragment.
+    let ask = json!({"type": "control_request", "request_id": "r1", "request": {
+        "subtype": "can_use_tool", "tool_name": "Write", "tool_use_id": "toolu_2",
+        "input": {"file_path": "/repo/notes.md", "content": "new\n"}
+    }});
+    let call = t
+        .inbound(&ask)
+        .await
+        .into_iter()
+        .find_map(|m| match m {
+            Message::Request { method: m, params: Some(p), .. }
+                if m == method::SESSION_REQUEST_PERMISSION =>
+            {
+                Some(p["toolCall"].clone())
+            }
+            _ => None,
+        })
+        .expect("a permission request");
+    assert_eq!(call["content"][0]["_meta"]["acpmux"]["fragment"], true);
 }
 
 #[tokio::test]
@@ -184,6 +217,35 @@ async fn claude_edit_write_ignores_another_files_result() {
         "toolu_1",
         "The file /repo/notes.md has been updated.",
         Some(other),
+    ))
+    .await;
+    assert_eq!(content[0]["oldText"], Value::Null);
+    assert_eq!(content[0]["_meta"]["acpmux"]["fragment"], true);
+}
+
+#[tokio::test]
+async fn claude_edit_write_update_with_no_old_text_stays_a_fragment() {
+    let update = json!({"type": "update", "filePath": "/repo/notes.md", "originalFile": null});
+    let content = finished_write(write_result(
+        "toolu_1",
+        "The file /repo/notes.md has been updated.",
+        Some(update),
+    ))
+    .await;
+    assert_eq!(content[0]["oldText"], Value::Null);
+    assert_eq!(content[0]["_meta"]["acpmux"]["fragment"], true);
+}
+
+// A file too big to carry twice stays a fragment rather than doubling a
+// multi-megabyte update.
+#[tokio::test]
+async fn claude_edit_write_over_a_huge_file_stays_a_fragment() {
+    let original = "x".repeat(64_001);
+    let update = json!({"type": "update", "filePath": "/repo/notes.md", "originalFile": original});
+    let content = finished_write(write_result(
+        "toolu_1",
+        "The file /repo/notes.md has been updated.",
+        Some(update),
     ))
     .await;
     assert_eq!(content[0]["oldText"], Value::Null);
