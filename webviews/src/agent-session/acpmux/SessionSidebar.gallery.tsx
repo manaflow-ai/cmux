@@ -208,7 +208,7 @@ const entry = componentEntry<Props>({
   pane: true,
   height: 620,
   widths: { narrow: 300, normal: 380, wide: 520 },
-  anchors: [{ selector: ".acpmux-sidebar" }, { selector: ".acpmux-rail" }],
+  anchors: [{ selector: ".acpmux-sidebar" }, { selector: ".acpmux-sidebar-rail" }],
   checks: {
     anchorMovePx: {
       value: 0,

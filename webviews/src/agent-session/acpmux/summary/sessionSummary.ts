@@ -8,7 +8,15 @@ import { isSubagentGroup } from "../subagents/subagentRows";
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
 export type PullRequestState = "open" | "merged" | "closed";
-export type SummaryPullRequest = { url: string; repo: string; number: number; title?: string; state: PullRequestState };
+export type SummaryPullRequest = {
+  url: string;
+  repo: string;
+  number: number;
+  title?: string;
+  state: PullRequestState;
+  /// When the chat closed it (epoch ms), if the call says.
+  closedAt?: number;
+};
 export type SummarySubagent = { id: string; title: string; state: "running" | "done" | "failed" };
 export type SummaryWakeup = { id: string; text: string; cron?: string };
 export type SummarySource = { url?: string; label: string };
@@ -16,6 +24,8 @@ export type SummaryBackgroundTask = {
   id: string;
   command: string;
   state: "running" | "completed" | "failed" | "stopped";
+  /// When its call started (epoch ms), for its elapsed time; absent for one known from its end only.
+  startedAt?: number;
 };
 export type SessionSummary = {
   scheduled: SummaryWakeup[];
@@ -66,7 +76,11 @@ function pullRequests(all: readonly Tool[]): SummaryPullRequest[] {
     const repo = match[1] ?? match[3];
     const number = Number(match[2] ?? match[4]);
     for (const pr of found.values())
-      if (pr.number === number && (!repo || repo === pr.repo)) pr.state = merged ? "merged" : "closed";
+      if (pr.number === number && (!repo || repo === pr.repo)) {
+        pr.state = merged ? "merged" : "closed";
+        const at = tool.endedAt ?? tool.startedAt;
+        if (!merged && at !== undefined) pr.closedAt = at;
+      }
   }
   return [...found.values()];
 }
@@ -149,6 +163,7 @@ function backgroundTasks(rows: readonly AcpmuxRow[], all: readonly Tool[]): Summ
       id: tool.id,
       command: field(input(tool).command) ?? tool.title,
       state: ended.get(tool.id) ?? (tool.status === "failed" ? "failed" : "running"),
+      ...(tool.startedAt !== undefined ? { startedAt: tool.startedAt } : {}),
     }));
   // A shell whose Bash row is not loaded (an older page, or one Claude moved to the background
   // itself) is known from its end.

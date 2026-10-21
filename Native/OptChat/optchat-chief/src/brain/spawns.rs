@@ -1684,7 +1684,7 @@ impl Brain {
             .values()
             .flat_map(|r| r.subs.iter())
             .filter(|s| s.peer.is_none())
-            .filter(|s| matches!(s.status, SubStatus::Starting | SubStatus::Running))
+            .filter(|s| s.at_work())
             .count()
     }
 
@@ -1772,7 +1772,96 @@ impl Brain {
             return json!({"stopped": false, "error": format!("{name} is still starting; stop it again in a moment")});
         }
         (self.log)(&format!("the owner stopped subagent {name}"));
+        self.save();
+        self.start_queued();
         json!({"stopped": true, "subagents": stopped, "note": format!("Stopped by the user: {}.", stopped.join(", "))})
+    }
+
+    /// chief.stop {all: true} ("Stop all agents", never a plain Stop): the
+    /// running turn and every subagent at work or queued stop; the answer
+    /// names them for the undo toast's list and its Restart.
+    pub(super) fn stop_all(&mut self) -> Value {
+        let turn = self.owner_stop()["stopped"].as_bool().unwrap_or(false);
+        let stopped = self.stop_subagents_where(|_| true);
+        if !stopped.is_empty() {
+            (self.log)(&format!(
+                "the owner stopped all agents: {}",
+                stopped.join(", ")
+            ));
+            self.save();
+        }
+        json!({"stopped": turn, "subagents": stopped})
+    }
+
+    /// chief.stop {restart: [ids]}: Restart on the stop-all toast. A started
+    /// one goes on in its own session (control restart: told to continue);
+    /// one stopped before it started is queued again with its task.
+    pub(super) fn restart_subagents(&mut self, names: &[String]) -> Value {
+        let mut restarted = Vec::new();
+        let mut errors = Vec::new();
+        for name in names {
+            let Some(sub) = self.state.sub(name).map(|(_, s)| s.clone()) else {
+                errors.push(format!("no subagent {name}"));
+                continue;
+            };
+            // Only one the user stopped: a second Restart, or one already
+            // back at work, is left as it is.
+            if !sub.cancelled {
+                errors.push(format!("{name} is not stopped"));
+                continue;
+            }
+            let result = match (sub.status, sub.session_id.is_some()) {
+                // Its cancelled turn has not ended yet: the message waits
+                // for that end (after_stop), never steered into a turn
+                // that is ending.
+                (SubStatus::Starting | SubStatus::Running, true) => {
+                    if let Some(s) = self.state.sub_mut(name) {
+                        s.cancelled = false;
+                        s.paused = false;
+                        s.resume_attempts = 0;
+                    }
+                    self.control_interrupt(&sub, Some(super::control::RESTART_PROMPT))
+                }
+                (_, true) => self.control_restart(&sub, None),
+                (_, false) => self.queue_again(&sub),
+            };
+            match result {
+                Ok(text) if !text.starts_with("outcome: refused") => restarted.push(name.clone()),
+                Ok(text) | Err(text) => errors.push(format!("{name}: {text}")),
+            }
+        }
+        if !restarted.is_empty() {
+            (self.log)(&format!("the owner restarted {}", restarted.join(", ")));
+        }
+        self.save();
+        self.start_queued();
+        json!({"restarted": restarted, "errors": errors})
+    }
+
+    /// Subagent `sub`, stopped before it started, queued again with its
+    /// task.
+    fn queue_again(&mut self, sub: &SubRecord) -> Result<String, String> {
+        let launch = sub
+            .queued_launch
+            .clone()
+            .unwrap_or_else(|| crate::state::QueuedLaunch {
+                task: sub.task.clone(),
+                cwd: None,
+                effort: None,
+                floor: sub.policy.clone(),
+                harness: None,
+            });
+        let s = self
+            .state
+            .sub_mut(&sub.id)
+            .ok_or_else(|| format!("no subagent {}", sub.id))?;
+        s.status = SubStatus::Queued;
+        s.queued_launch = Some(launch);
+        s.cancelled = false;
+        s.paused = false;
+        s.stopped = false;
+        s.report = None;
+        Ok(format!("outcome: done. {} is queued again", sub.id))
     }
 
     /// A background shell (Claude Code's run_in_background) outlives the
@@ -1785,13 +1874,6 @@ impl Brain {
                 "subagent {id}: ending its background processes: {e}"
             )),
         }
-    }
-
-    /// chief.stop: every subagent at work stops (`session/cancel`; its
-    /// report comes quiet), with the background processes its runs left
-    /// running, and every queued one is dropped. Their ids.
-    pub(super) fn stop_subagents(&mut self) -> Vec<String> {
-        self.stop_subagents_where(|_| true)
     }
 
     /// Stops the subagents at work (or queued) whose id `pick` takes.
@@ -1810,6 +1892,18 @@ impl Brain {
             })
             .map(|s| (s.id.clone(), s.status, s.session_id.clone()))
             .collect();
+        // Nothing a picked one was told is sent after the stop, and each
+        // picked queued one is cancelled before any stops: a slot one frees
+        // never starts another picked one.
+        for (id, status, _) in &subs {
+            if let Some(s) = self.state.sub_mut(id) {
+                s.after_stop = None;
+                s.inbox.clear();
+                if *status == SubStatus::Queued {
+                    s.cancelled = true;
+                }
+            }
+        }
         let mut stopped = Vec::new();
         for (id, status, session) in subs {
             match (status, session) {
@@ -1828,6 +1922,11 @@ impl Brain {
                         continue;
                     }
                     self.end_background_processes(&id, &session);
+                    // Stopped for good: no longer at work, even when its
+                    // session never ends the turn (#7).
+                    if let Some(s) = self.state.sub_mut(&id) {
+                        s.cancelled = true;
+                    }
                 }
                 // Its session is not made yet: nothing to stop.
                 (_, None) => continue,
@@ -1866,7 +1965,7 @@ impl Brain {
             .spawns
             .values()
             .flat_map(|r| r.subs.iter())
-            .filter(|s| matches!(s.status, SubStatus::Starting | SubStatus::Running))
+            .filter(|s| s.at_work())
             .map(|s| s.id.as_str())
             .collect();
         (!ids.is_empty()).then(|| format!("Subagents at work now: {}.", ids.join(", ")))
