@@ -63,6 +63,8 @@ extension IconName {
     nonisolated public static let brandGithub = IconName("brand.github")
     nonisolated public static let browser = IconName("browser")
     nonisolated public static let browserExtensionsManage = IconName("browser.extensions.manage")
+    nonisolated public static let browserExtensionsSidepanel = IconName("browser.extensions.sidepanel")
+    nonisolated public static let browserExtensionsWebstore = IconName("browser.extensions.webstore")
     nonisolated public static let browserFindNext = IconName("browser.find.next")
     nonisolated public static let browserFindPrevious = IconName("browser.find.previous")
     nonisolated public static let browserIncognito = IconName("browser.incognito")
