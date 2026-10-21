@@ -65714,127 +65714,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "اطلب أي شيء"
+            "value": "اكتب / للأوامر"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Uradi bilo šta"
+            "value": "Upiši / za komande"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Gør hvad som helst"
+            "value": "Skriv / for kommandoer"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Was möchtest du tun?"
+            "value": "/ für Befehle eingeben"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Do anything"
+            "value": "Type / for commands"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pide lo que quieras"
+            "value": "Escribe / para ver comandos"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Demandez n’importe quoi"
+            "value": "Tapez / pour les commandes"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chiedi qualsiasi cosa"
+            "value": "Digita / per i comandi"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "何でも頼んでください"
+            "value": "/ でコマンド"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ធ្វើអ្វីក៏បាន"
+            "value": "វាយ / សម្រាប់ពាក្យបញ្ជា"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "무엇이든 해 보세요"
+            "value": "/를 입력해 명령 보기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Gjør hva som helst"
+            "value": "Skriv / for kommandoer"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Poproś o cokolwiek"
+            "value": "Wpisz /, aby wyświetlić polecenia"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Peça qualquer coisa"
+            "value": "Digite / para comandos"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Попросите о чём угодно"
+            "value": "Введите / для команд"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "สั่งงานได้เลย"
+            "value": "พิมพ์ / เพื่อดูคำสั่ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Her şeyi isteyin"
+            "value": "Komutlar için / yazın"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Попросіть про що завгодно"
+            "value": "Введіть / для команд"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Làm bất cứ điều gì"
+            "value": "Gõ / để xem lệnh"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "想做什么都可以"
+            "value": "输入 / 查看命令"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "想做什麼都可以"
+            "value": "輸入 / 檢視指令"
           }
         }
       }

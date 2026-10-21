@@ -1077,10 +1077,10 @@
 }
 .acpmux-composer-foot .acpmux-chips > .acpmux-mode:not(:first-child) { padding-inline-start: 0; }
 /* As Claude desktop's footer: the mode's name, the model and the effort as text alone (the plain
-   look already drops the shield and the chevrons). The mode and the model in the soft tone, the
-   effort a step quieter. */
-.acpmux-composer-foot :is(.acpmux-model, .acpmux-access) .acpmux-picker-button { color: var(--agent-soft); }
-.acpmux-composer-foot .acpmux-effort .acpmux-picker-button { color: var(--agent-muted); }
+   look already drops the shield and the chevrons). The mode in the soft tone; the model and the
+   effort one muted label, as every composer's model chip is. */
+.acpmux-composer-foot .acpmux-access .acpmux-picker-button { color: var(--agent-soft); }
+.acpmux-composer-foot :is(.acpmux-model, .acpmux-effort) .acpmux-picker-button { color: var(--agent-muted); }
 .acpmux-composer-foot .acpmux-effort { margin-inline-start: 1px; }
 /* The box with the chips gone, as the Claude desktop composer lays it (Leo 2026-10-20): no row of
    its own under the prompt. + sits left of the prompt and the mic and Send or Stop right of it, all
@@ -1090,7 +1090,8 @@
    (Leo 2026-10-20, "faithfully"): a 44 px box for one line (the 22 px line between 11 px insets,
    the 28 px controls 8 px off the bottom edge), an 11 px radius, + drawn 16 px in from the left
    edge, the text 45 px in, the mic 16 px in from the right. Menus over the box are absolute and
-   keep its padding box. */
+   keep its padding box. The strip's or the queue's first mark stands over the + glyph and its last
+   over Send's, the box's content columns here. */
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;

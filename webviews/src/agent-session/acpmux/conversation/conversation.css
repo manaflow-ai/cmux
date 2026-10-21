@@ -810,9 +810,6 @@ pre.cv-math-source {
    changes. Focus and Find scroll a row into view above it. */
 .acpmux-scroll {
   scroll-padding-bottom: var(--acpmux-dock-space, 0px);
-  /* Over the floating stack's height (App.tsx dockLift): the view, its last row and its scrollbar
-     end above the composer instead of under it. */
-  margin-bottom: var(--acpmux-dock-lift, 0px);
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   letter-spacing: var(--cv-tracking, 0.045px);
@@ -820,6 +817,9 @@ pre.cv-math-source {
   /* VirtualTranscript owns bottom-following. Letting WebKit also anchor the growing row makes
      each streamed token compete with that correction and produces the one-pixel shake at rest. */
   overflow-anchor: none;
+}
+.acpmux-main:has(.acpmux-asks-stack) .acpmux-scroll {
+  margin-bottom: 0;
 }
 /* The spacer is the scroller's extent, which a followed view's offset is set against in the same
    frame: under Reduce Motion's 0.01ms transitions (shared/desktop.css) it kept its old height for
@@ -2469,8 +2469,8 @@ pre.cv-math-source {
    full ink. Reduce Transparency keeps plain edges.
    Under the bottom stack (data-docked, --acpmux-dock-space) rows are out of sight: they never show
    through the composer's tinted card or the gutters around it. The scrollbar is not: a second
-   layer keeps the scroller's right edge, where rows never reach (they sit --cv-inset in). A
-   floating stack (App.tsx dockLift) ends the view above it instead, so there it covers no rows. */
+   layer keeps the scroller's right edge, where rows never reach (they sit --cv-inset in), so its
+   track runs to the pane's bottom corner (Leo 2026-10-19). */
 .acpmux-scroll[data-fade-top] {
   --acpmux-fade-top: 18px;
 }

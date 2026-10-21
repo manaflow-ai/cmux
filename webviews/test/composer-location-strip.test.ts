@@ -332,6 +332,12 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       prompt: rect(
         document.querySelector(".acpmux-composer-box .acpmux-input, .acpmux-composer-box [contenteditable]"),
       ),
+      // The Claude desktop box (composerLocation.css): + and Send sit beside the prompt, so the
+      // box's columns are the + glyph's 16 px box and Send's glyph.
+      plusGlyph: rect(document.querySelector(".acpmux-composer-inner .acpmux-composer-plus .acpmux-icon")),
+      sendGlyph: rect(
+        [...document.querySelectorAll(".acpmux-composer-inner .acpmux-composer-actions .acpmux-icon")].at(-1),
+      ),
       strip: rect(strip),
       folderIcon: rect(pickers[0]?.querySelector(".acpmux-location-icon")),
       branchChevron: rect(branch.querySelector(".ui-ghost-icon:last-child")),
@@ -371,9 +377,13 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       const prompt = marks.prompt!;
       const folderIcon = marks.folderIcon!;
       const branchChevron = marks.branchChevron!;
-      // A 14 px stroke icon's ink starts ~1.5 px inside its box; the chevron's ink ends 4 px inside.
-      expect(Math.abs(folderIcon.left + 1.5 - prompt.left)).toBeLessThanOrEqual(2);
-      expect(Math.abs(branchChevron.right - 4 - prompt.right)).toBeLessThanOrEqual(2);
+      // The marks sit over the box's content edges: the prompt's, or + and Send's where they
+      // stand beside it. A 14 px stroke icon's ink starts ~1.5 px inside its box; the chevron's
+      // ink ends 4 px inside.
+      const lead = marks.plusGlyph?.left ?? prompt.left;
+      const trail = marks.sendGlyph?.right ?? prompt.right;
+      expect(Math.abs(folderIcon.left + 1.5 - lead)).toBeLessThanOrEqual(2);
+      expect(Math.abs(branchChevron.right - 4 - trail)).toBeLessThanOrEqual(2);
       expect(marks.text).not.toContain("·");
       // At or under 460 px the computer is its icon (the strip's first step).
       expect(marks.computerLabelShown).toBe(width > 460);

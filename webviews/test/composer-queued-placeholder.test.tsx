@@ -146,15 +146,15 @@ test("with only an attachment staged, ⌘Return has nothing to steer, so it only
 
 test("an idle chat keeps the usual placeholder", async () => {
   await render(started({ rows: [user("Add retries", 1), summary(1, { status: "completed" })] }));
-  expect(shown()).toBe("Do anything");
+  expect(shown()).toBe("Type / for commands");
   await render(started({ isWorking: true }));
   expect(shown()).toBe("↵ to queue, ⌘↵ to interrupt");
   // The turn ended: back to the idle placeholder.
   await render(started({ rows: [user("Add retries", 1), summary(1, { status: "completed" })] }));
-  expect(shown()).toBe("Do anything");
+  expect(shown()).toBe("Type / for commands");
 });
 
 test("a running turn whose composer cannot send keeps the usual placeholder", async () => {
   await render(started({ isWorking: true }), {});
-  expect(shown()).toBe("Do anything");
+  expect(shown()).toBe("Type / for commands");
 });

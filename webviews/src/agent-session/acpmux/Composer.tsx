@@ -956,6 +956,7 @@ export function Composer({
   const stop = !shell && snapshot.isWorking && !text.trim();
   // Stop shows for the whole turn, a typed prompt or not; Esc stops only from an empty prompt.
   const running = !shell && snapshot.isWorking;
+  const hasDraft = Boolean(text.trim() || attachments.length);
   // Esc stops the turn on a double press (escapeStop.ts). The Quick Composer's page-level Esc hides
   // its panel, so only the pane counts an Esc that reaches the page.
   const escapeStop = useEscapeStop({
@@ -1445,13 +1446,15 @@ export function Composer({
                     <StopIcon />
                   )}
                 </button>
-              ) : remote.canSend ? (
+              ) : remote.canSend && (shell || !plainFooter || hasDraft) ? (
+                // Claude desktop's box (Leo 2026-10-20): no Send until there is a draft, the mic
+                // alone on the right; Send comes in after it with the first letter.
                 <button
                   key="send"
                   ref={sendButton}
                   type="submit"
                   disabled={Boolean(blocked) && !shell}
-                  className={`acpmux-send${(shell ? shellText.trim() : !blocked && (text.trim() || attachments.length)) ? " acpmux-send-ready" : ""}`}
+                  className={`acpmux-send${(shell ? shellText.trim() : !blocked && hasDraft) ? " acpmux-send-ready" : ""}`}
                   aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
                   title={
                     shell

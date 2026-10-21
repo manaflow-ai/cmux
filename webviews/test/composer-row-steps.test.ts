@@ -73,7 +73,10 @@ await requireBrowserLane("composer-row-steps.test.ts", async () => {
     for (const bar of bars) {
       if (bar.scrollWidth > bar.clientWidth + 0.5)
         overflow.push(`the bar scrolls ${bar.scrollWidth - bar.clientWidth} px`);
-      const right = bar.getBoundingClientRect().right - parseFloat(getComputedStyle(bar).paddingRight);
+      // A bar that draws no box (display: contents, the Claude desktop box) lays its controls in
+      // the box's own grid: Send keeps inside the box's padding box then.
+      const frame = getComputedStyle(bar).display === "contents" ? bar.closest(".acpmux-composer-box")! : bar;
+      const right = frame.getBoundingClientRect().right - parseFloat(getComputedStyle(frame).paddingRight);
       const send = bar.querySelector(".acpmux-send")?.getBoundingClientRect();
       if (send && send.right > right + 0.5) overflow.push("Send runs past the bar");
     }
