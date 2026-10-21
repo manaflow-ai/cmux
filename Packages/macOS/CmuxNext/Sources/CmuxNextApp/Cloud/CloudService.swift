@@ -46,8 +46,8 @@ final class CloudService {
     private(set) var hasLoadedMachines = false
     /// The Cloud app server's ops on the local daemon (contract 2.1).
     var appOps: CloudAppOp { CloudAppLinks.ops(local: machines.local) }
-    /// The person's confirmation of a create (set by AppServices: a sheet in the active window, or
-    /// the sidebar card for an agent's or a script's request); none answers false.
+    /// The person's confirmation of a create (set by AppServices: a sheet in the active window, or the
+    /// sidebar card for an agent's or a script's request while that sidebar shows); none answers false.
     @ObservationIgnored var confirmCreate: (@MainActor (CloudMachineCreateFlow.Prompt) async -> Bool)?
     /// Machine creations in flight (sidebar can show a placeholder).
     private(set) var creating = 0
