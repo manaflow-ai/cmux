@@ -243,6 +243,40 @@ class ChecksJobStructure(unittest.TestCase):
         self.assertEqual(sum("--only rust" in run for run in godfile_runs), 1, godfile_runs)
 
 
+class WebviewsWarnSplitCoversCheck(unittest.TestCase):
+    """Under CMUX_NEXT_STYLE_GUARDS=warn, ci-web runs `bun run check` as separate commands.
+
+    A check added to package.json's `check` script but not to that list would stop
+    running on feat-cmux-next without a warning or a failure (#22492's
+    check:switch-fetches did).
+    """
+
+    def test_every_part_of_bun_run_check_runs_in_the_warn_branch(self) -> None:
+        package = json.loads((ROOT / "webviews/package.json").read_text(encoding="utf-8"))
+        parts = [part.strip() for part in package["scripts"]["check"].split("&&")]
+        jobs = yaml.safe_load((ROOT / ".github/workflows/ci-web.yml").read_text(encoding="utf-8"))["jobs"]
+        runs = [
+            step["run"]
+            for job in jobs.values()
+            for step in job.get("steps", [])
+            if step.get("id") == "webviews-check"
+        ]
+        self.assertEqual(len(runs), 1, "one webviews-check step")
+        warn_branch = runs[0].split("fi\n", 1)[1]
+        loop = re.search(r"for check in ([^;]+); do", warn_branch)
+        self.assertIsNotNone(loop, "the warn branch loops over the style checks")
+        looped = set(loop.group(1).split())
+        for part in parts:
+            if part == "vp check":
+                self.assertIn("vp check", warn_branch)
+                continue
+            name = part.removeprefix("bun run ").strip()
+            self.assertTrue(
+                name in looped or f"bun run {name} || status=1" in warn_branch,
+                f"`{part}` from webviews/package.json check does not run when CMUX_NEXT_STYLE_GUARDS=warn",
+            )
+
+
 class ReferencedFilesExist(unittest.TestCase):
     """Every test a checks step runs, and every test or workflow a path filter names, exists.
     The bundle removal (ce0b9e76a9b) deleted tests/test_cmux_next_regenerate_bundles_workflow.py
