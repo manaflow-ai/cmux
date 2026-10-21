@@ -25,29 +25,29 @@ final class HomeMarkdownRenderer {
         let n = kept.utf8.count
         if n > 0, source.utf8.count >= n, Self.hasPrefix(source, kept) {
             pass = keptPass
-            rest = source[source.utf8.index(source.startIndex, offsetBy: n)...]
+            rest = Substring(source.utf8.dropFirst(n))
             resumes += 1
         } else {
             pass = HomeMarkdown.Pass(chips: lines.chips)
-            rest = source[...]
+            rest = Substring(source)
         }
         // Every line but the last ends at a newline: those are kept for the next text. A CR LF
         // pair is one Character and no line break to `split(separator: "\n")`: it stays in its line.
         var lineStart = rest.startIndex
         var sawNewline = false
         var i = rest.utf8.startIndex
-        while let nl = rest.utf8[i...].firstIndex(of: 10) {
+        while let nl = rest.utf8.slice(from: i).firstIndex(of: 10) {
             i = rest.utf8.index(after: nl)
-            if nl > rest.utf8.startIndex, rest.utf8[rest.utf8.index(before: nl)] == 13 { continue }
-            pass.line(rest[lineStart..<nl], lines: lines)
+            if nl > rest.utf8.startIndex, rest.utf8[checked: rest.utf8.index(before: nl)] == 13 { continue }
+            pass.line(rest.slice(lineStart, nl), lines: lines)
             lineStart = i
             sawNewline = true
         }
         if sawNewline {
-            kept = String(source[..<lineStart])
+            kept = String(source.slice(source.startIndex, lineStart))
             keptPass = pass
         }
-        pass.line(rest[lineStart...], lines: lines)
+        pass.line(rest.slice(from: lineStart), lines: lines)
         return (pass.out.text, pass.out.runs)
     }
 
