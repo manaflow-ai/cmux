@@ -140,6 +140,7 @@ final class NotificationCenterService {
             }
         })
         tasks.append(followViewedProgramStatus(store))
+        tasks.append(followStatusRuns(store))
         tasks.append(followNotificationLedger(services.daemon))
         tasks.append(Task { [weak self] in
             for await count in ObservationStream({ [weak self] in self?.currentUnreadCount() ?? 0 }) {
@@ -264,13 +265,21 @@ final class NotificationCenterService {
         if agentFinished[tab.id] != nil, NotificationPolicy(prefs: preferences).clears(trigger, for: .agent) {
             note("\(trigger.rawValue) read agent turn \(tab.id)")
             agentFinished[tab.id] = nil
-            if [.click, .keystroke, .open].contains(trigger) { entryReads.insert(tab.id) }
+            if Self.flashesOnEntry(trigger, DesignSettings.shared.attention) { entryReads.insert(tab.id) }
         }
         guard tab.hasUnread else { return }
         guard NotificationPolicy(prefs: preferences).clears(trigger, for: source(of: tab)) else { return }
         note("\(trigger.rawValue) read \(tab.id)")
-        if [.click, .keystroke, .open].contains(trigger) { entryReads.insert(tab.id) }
+        if Self.flashesOnEntry(trigger, DesignSettings.shared.attention) { entryReads.insert(tab.id) }
         acknowledge(tab)
+    }
+
+    /// Whether reading a pane by `trigger` flashes its ring as it goes: going
+    /// into it (a click, a key, an open), as in classic, unless
+    /// `notifications.attention.flash` is off, or the key under `flashOnTyping` off.
+    nonisolated static func flashesOnEntry(_ trigger: NotificationTrigger, _ attention: AttentionSettings) -> Bool {
+        guard attention.flashesOnRead, [.click, .keystroke, .open].contains(trigger) else { return false }
+        return trigger != .keystroke || attention.flashesOnTyping
     }
 
     /// Typing into a terminal clears its workspace's manual unread mark, as
