@@ -68,6 +68,9 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// only these besides. nil is Settings' defaults (the greeting). The other layouts ignore it.
     /// The page validates it.
     public var pageWidgets: [String]?
+    /// The weather widget's last reading (`tabs.newTabWidgets.weather`, ``AgentPaneNewTabWeather``);
+    /// nil while it is off or before the first reading. The page dims one older than its refresh.
+    public var weather: AgentPaneNewTabWeather?
 
     public init(kind: AgentPaneTabKind, hotkeys: [AgentPaneTabKind: String] = [:], cwd: String? = nil,
                 location: String? = nil, omnibar: AgentPaneOmnibar = AgentPaneOmnibar(), projects: [String] = [],

@@ -27,6 +27,7 @@ import {
 } from "./sessionList";
 import { type StringKey, type Translate, translate, useT } from "./i18n";
 import { parsePageWidgets, type PageWidget } from "./newtab/pageWidgets";
+import { parseWeather, type NewTabWeather } from "./newtab/ambient";
 import { parseNewTabTemplate, type NewTabTemplate } from "./newtab/templates";
 import { seedWarmNewTab } from "./newtab/warmSnapshot";
 
@@ -102,6 +103,8 @@ export type NewTabHost = {
   /// The Minimal layout's widgets the user turned on (`tabs.newTabWidgets.*`, newtab/pageWidgets.ts);
   /// unset is Settings' defaults (the greeting).
   pageWidgets?: PageWidget[];
+  /// The weather widget's last reading (`tabs.newTabWidgets.weather`, newtab/ambient.ts).
+  weather?: NewTabWeather;
 };
 
 /// Reads `newTab` from the handshake: `true`, or `{hotkeys, kind, cwd, host}`. Nil for a plain chat.
@@ -126,6 +129,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
   const openTabs = Array.isArray(object.openTabs) ? omnibarContext({ tabs: object.openTabs })?.tabs : undefined;
   const template = parseNewTabTemplate(object.template);
   const pageWidgets = parsePageWidgets(object.pageWidgets);
+  const weather = parseWeather(object.weather);
   return {
     hotkeys,
     initialKind,
@@ -150,6 +154,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     ...(object.history === true ? { history: true } : {}),
     ...(object.widgets === true ? { widgets: true } : {}),
     ...(pageWidgets ? { pageWidgets } : {}),
+    ...(weather ? { weather } : {}),
   };
 }
 

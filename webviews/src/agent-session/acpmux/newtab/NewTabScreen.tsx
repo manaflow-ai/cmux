@@ -39,6 +39,8 @@ import {
 import { RowGlyph } from "./RowGlyph";
 import { WidgetCards } from "./WidgetCards";
 import { greetingKey, shownPageWidgets, type PageWidgets } from "./pageWidgets";
+import { AmbientWidgets } from "./AmbientWidgets";
+import type { NewTabWeather } from "./ambient";
 import { EnvironmentCard, SuggestionsCard } from "./StageCards";
 import { Icon } from "../icons/Icon";
 import { type NewTabTranslate, useNt } from "./strings";
@@ -149,6 +151,9 @@ type Props = NewTabScreenActions & {
   /// The page's widgets (`tabs.newTabWidgets.*`, pageWidgets.ts): on Minimal, without them the page
   /// is the greeting and the composer. Unset shows the template's own (shownPageWidgets).
   pageWidgets?: PageWidgets;
+  /// The weather widget's last reading (the handshake's `weather`, ambient.ts); drawn while the
+  /// `weather` widget is on.
+  weather?: NewTabWeather;
   /// Buttons before Send, such as the dictation mic (DictationMic).
   accessory?: React.ReactNode;
   /// Why dictation did not run (DictationNotice), under the field.
@@ -1032,6 +1037,16 @@ export function NewTabScreen(props: Props) {
       </div>
     </>
   );
+  // The ambient widgets (weather, machines): their own row under the field, so they never move it.
+  const ambient = (
+    <AmbientWidgets
+      {...(widgets.has("weather") && props.weather ? { weather: props.weather } : {})}
+      machines={widgets.has("machines")}
+      snapshot={snapshot}
+      localName={props.machineName ?? t("composer.thisMac")}
+      now={at}
+    />
+  );
   return (
     <div
       ref={screen}
@@ -1077,6 +1092,7 @@ export function NewTabScreen(props: Props) {
             {lists}
           </div>
           {composerCard}
+          {ambient}
           {props.notice}
         </>
       ) : (
@@ -1084,6 +1100,7 @@ export function NewTabScreen(props: Props) {
           {/* A quiet greeting over the composer (a widget, on by default), by the hour. */}
           {widgets.has("greeting") && <p className="nt-greeting">{nt(greetingKey(new Date(at).getHours()))}</p>}
           {composerCard}
+          {ambient}
           {props.notice}
           {/* The create actions (cx-ag5.7, dogfood call K2): a blank terminal in the tab's folder, a
               browser tab on the new tab page, or this page as an empty chat with the agent Return asks.

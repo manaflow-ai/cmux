@@ -193,6 +193,7 @@ enum NewTabPage {
             home: machine.home,
             template: services.settings?.snapshot.newTabTemplate?.rawValue, pageWidgets: services.settings?.snapshot.newTabWidgets.ids
         ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).warmedOnThisMac(machine.remoteFolders == nil)
+            .withWeather(services)
     }
 
     /// What a prewarmed spare page loads with before Cmd-T adopts it
@@ -203,7 +204,7 @@ enum NewTabPage {
             layout: NewTabTunables.layout.value.pageLayout, lastAgent: services.newTabChoices.agent,
             lastPicks: services.newTabChoices.picks, home: NSHomeDirectory(),
             template: services.settings?.snapshot.newTabTemplate?.rawValue, pageWidgets: services.settings?.snapshot.newTabWidgets.ids
-        ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).warmedOnThisMac()
+        ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).warmedOnThisMac().withWeather(services)
     }
 
     /// Startup folders only without `project-list-v1`; else the page asks `project.list` (removals win, cx-m0p7).
