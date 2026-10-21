@@ -32,6 +32,42 @@ const variant = (question: unknown, note: string) => ({
   props: { question: question as AgentQuestion, onReply: () => undefined },
 });
 
+/// The card the daemon raises when an agent wants a sub-session in a folder nobody answered the trust
+/// question for (hub/trust_wait.rs): a choice question from cmux, answered by the picked option.
+const folderTrust: AgentQuestion = {
+  id: "perm_trust_1",
+  source: {
+    harness: "acp",
+    session: "sess_claude_1",
+    permission: "perm_trust_1",
+    agentName: "cmux",
+    answerOption: "trust",
+    rejectOption: "not_now",
+  },
+  items: [
+    {
+      id: "q0",
+      header: "Folder trust",
+      prompt: "split-importer wants to work in /Users/you/src/vendor-sdk. Do you trust this folder?",
+      options: [
+        {
+          id: "trust",
+          label: "Trust folder",
+          detail: "cmux stops asking about this folder. Your permission rules still apply.",
+        },
+        {
+          id: "not_now",
+          label: "Not now",
+          detail: "The sub-session does not start, and the agent is told you declined.",
+        },
+      ],
+      multiSelect: false,
+      allowsOther: false,
+    },
+  ],
+  state: { kind: "pending" },
+};
+
 export default componentEntry({
   id: "agent-pane.question-card",
   title: "Agent question card",
@@ -47,6 +83,10 @@ export default componentEntry({
     "pending-single": variant(
       pendingSingle,
       "A Claude Code AskUserQuestion: the Needs your input pill, the question as the header, radio rows, Skip and Submit.",
+    ),
+    "folder-trust": variant(
+      folderTrust,
+      "An agent's sub-session waits in an untrusted folder: Trust folder or Not now. Trust lets the start go on by itself.",
     ),
     "pending-multi": variant(pendingMulti, "A multi-select ask: checkbox rows."),
     "pending-other-typing": variant(pendingOther, "Other turned into an inline text field."),

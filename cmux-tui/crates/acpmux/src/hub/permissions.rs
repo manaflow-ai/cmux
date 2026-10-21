@@ -623,6 +623,17 @@ impl Hub {
                     return Err(super::web_control::lasting_grant_refused(kind.unwrap_or("?")));
                 }
                 let is_reject = matches!(kind, Some("reject_once" | "reject_always"));
+                // A remote browser cannot trust a folder on this machine
+                // (`acp.trust.set` is refused for it too, `remote_guard.rs`).
+                if control == Control::Web
+                    && !is_reject
+                    && super::questions::trust_cwd(&p.request).is_some()
+                {
+                    return Err(RpcError::invalid_params(
+                        "trust.web_cannot_answer: trust the folder in the app or the CLI",
+                    )
+                    .with_data(json!({"reason": "trust.web_cannot_answer"})));
+                }
                 let denied = self.policy_for(session, cfg.permission_policy)
                     == PermissionPolicy::DenyAll
                     || session
