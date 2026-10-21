@@ -299,7 +299,10 @@
 /* Every badge sits on the same quiet neutral tile, so a dark or a white favicon reads in either theme
    and the rows line up. A framework's or language's mark (ProjectBadge.tsx) takes its brand color; a
    project with neither shows a muted folder. Only a remote or home project wears a corner mark. */
-.acpmux-project-badge{position:relative;display:inline-flex;align-items:center;justify-content:center;flex:none;width:20px;height:20px;border-radius:6px;background:color-mix(in srgb,var(--agent-text) 7%,transparent);color:var(--acpmux-project-badge,var(--agent-muted));line-height:1}
+.acpmux-project-badge{position:relative;display:inline-flex;align-items:center;justify-content:center;flex:none;width:20px;height:20px;border-radius:6px;background:color-mix(in srgb,var(--agent-text) 7%,transparent);color:var(--agent-muted);line-height:1}
+/* A brand color is pulled a quarter toward the text color: darker on a light tile, lighter on a dark
+   one, so a pale mark (React's cyan) and a deep one (Flutter's blue) both read in either theme. */
+.acpmux-project-badge[data-project-glyph]{color:color-mix(in srgb,var(--acpmux-project-badge) 72%,var(--agent-text))}
 .acpmux-project-badge[data-project-kind="remote"]::after,.acpmux-project-badge[data-project-kind="home"]::after{content:"";position:absolute;right:-1px;bottom:-1px;width:5px;height:5px;border:1px solid var(--acpmux-composer-base,var(--agent-base))}
 .acpmux-project-badge[data-project-kind="remote"]::after{border-radius:1px;background:var(--agent-accent);transform:rotate(45deg)}
 .acpmux-project-badge[data-project-kind="home"]::after{border-radius:2px;background:var(--agent-text)}

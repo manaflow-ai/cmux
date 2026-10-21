@@ -176,6 +176,15 @@ const frameworkGlyphs = {
   notes: undefined,
 } as const;
 const frameworkProjects = Object.keys(frameworkGlyphs).map((label) => ({ cwd: `/Users/you/src/${label}`, label }));
+// A remote and a home project keep their corner mark on the neutral tile; a local one has none.
+const kindProps = {
+  ...baseProps,
+  projectChoices: [
+    { cwd: "/home/you/api", label: "api", peer: "devbox", host: "devbox" },
+    { cwd: "~", label: "Home" },
+    { cwd: "/Users/you/src/notes", label: "notes" },
+  ],
+};
 const frameworkProps = {
   ...baseProps,
   projectChoices: frameworkProjects,
@@ -242,6 +251,12 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       note: "With no favicon, each project shows its framework or language (from package.json dependencies, Package.swift, Cargo.toml…) in its brand color; a folder with no manifest shows a folder.",
       props: frameworkProps,
       chipHost: frameworkHost,
+      play: openFolder,
+    },
+    "remote-home-marks": {
+      note: "A remote project (on devbox) and the home folder keep their corner mark on the neutral tile; a local folder has none.",
+      props: kindProps,
+      chipHost: { projectIcons: {} },
       play: openFolder,
     },
     "duplicate-worktrees": {
