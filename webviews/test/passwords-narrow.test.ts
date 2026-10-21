@@ -77,16 +77,17 @@ await requireBrowserLane("passwords-narrow.test.ts", async () => {
           .filter((row) => !row.closest(".pw-site"))
           .map((row) => {
             row.querySelector(".pw-site-name")!.textContent = "accounts.login.very-long-subdomain.example-bank.co.uk";
-            const middle = (selector: string) => {
+            const middles = [".pw-site-badge", ".pw-site-name", ".pw-actions"].map((selector) => {
               const box = row.querySelector(selector)!.getBoundingClientRect();
-              return Math.round(box.top + box.height / 2);
-            };
-            return new Set([middle(".pw-site-badge"), middle(".pw-site-name"), middle(".pw-actions")]).size;
+              return box.top + box.height / 2;
+            });
+            // The spread of their middles: under 8 px is one line (a wrapped item sits a row lower).
+            return Math.max(...middles) - Math.min(...middles);
           }),
       );
       await page.close();
       expect(oneLine.length).toBeGreaterThan(0);
-      for (const lines of oneLine) expect(lines).toBe(1);
+      for (const spread of oneLine) expect(spread).toBeLessThan(8);
       expect(m.title.shown).toBeGreaterThanOrEqual(m.title.wants);
       expect(m.titleRow.right).toBeLessThanOrEqual(360);
       for (const row of m.rows) expect(row.name).toBeGreaterThanOrEqual(Math.min(row.wants, 96));
