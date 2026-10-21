@@ -67,11 +67,11 @@ enum AgentSessionWorkspace {
         if let group {
             join = { id, sidebar in AgentSessionWorkspace.join(id, group: group, sidebar: sidebar) }
         }
-        NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: NewWorkspacePlacements.rule(for: nil, in: windows),
-                                      then: join, windows: windows)
+        let rule = NewWorkspacePlacements.rule(for: nil, in: windows)
+        NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: rule, then: join, windows: windows)
         return Task { @MainActor in
             do {
-                _ = try await WorkspaceCreation.create(key, name: name, on: connection, repair: repair) { workspace in
+                _ = try await WorkspaceCreation.create(key, name: name, placedBy: rule, on: connection, repair: repair) { workspace in
                     try await connection.createTerminal(in: workspace, cwd: cwd)
                 }
                 // The workspace's first pane once the store mirrors it, found
