@@ -21,15 +21,17 @@ final class FileExplorerOpenWithMenu: NSObject {
     func attach(to menu: NSMenu, for row: FileExplorerRow, apps: any FileAppsProviding) {
         guard let index = menu.items.firstIndex(where: { ActionRegistry.menuRun(of: $0)?.id == "fileExplorerOpenWith" }) else { return }
         let image = menu.items[index].image
+        // The menu's arguments (the tree it was opened in) go to every app row's run.
+        let arguments = ActionRegistry.menuRun(of: menu.items[index])?.arguments ?? [:]
         menu.removeItem(at: index)
-        let item = item(for: row, apps: apps)
+        let item = item(for: row, apps: apps, arguments: arguments)
         item.image = image
         menu.insertItem(item, at: index)
     }
 
     /// The Open With row for `row`'s item; its submenu fills when LaunchServices answers
     /// (off the main thread, usually before the pointer reaches it).
-    func item(for row: FileExplorerRow, apps: any FileAppsProviding) -> NSMenuItem {
+    func item(for row: FileExplorerRow, apps: any FileAppsProviding, arguments: [String: ActionValue] = [:]) -> NSMenuItem {
         let item = NSMenuItem(title: FileExplorerStrings.openWithSubmenu, action: nil, keyEquivalent: "")
         let submenu = NSMenu(title: FileExplorerStrings.openWithSubmenu)
         let loading = NSMenuItem(title: FileExplorerStrings.loadingApps, action: nil, keyEquivalent: "")
@@ -41,18 +43,18 @@ final class FileExplorerOpenWithMenu: NSObject {
         Task { [weak self, weak submenu] in
             let list = await apps.openWithList(forFileNamed: name, isDirectory: isFolder)
             guard let self, let submenu else { return }
-            self.fill(submenu, with: list)
+            self.fill(submenu, with: list, arguments: arguments)
         }
         return item
     }
 
     /// Puts `list`'s rows into `submenu`: the default app, a separator, the others, a separator, Other….
-    func fill(_ submenu: NSMenu, with list: OpenWithList) {
+    func fill(_ submenu: NSMenu, with list: OpenWithList, arguments: [String: ActionValue] = [:]) {
         submenu.removeAllItems()
         for (index, app) in list.apps.enumerated() {
             let title = app.isDefault ? FileExplorerStrings.defaultApp(app.name) : app.name
             guard let row = registry.makeContextMenuItem(for: "fileExplorerOpenWith", in: .fileExplorerRow,
-                                                         arguments: ["app": .string(app.url.path)], title: title) else { continue }
+                                                         arguments: arguments.merging(["app": .string(app.url.path)]) { $1 }, title: title) else { continue }
             if FileManager.default.fileExists(atPath: app.url.path) {
                 let icon = NSWorkspace.shared.icon(forFile: app.url.path)
                 icon.size = NSSize(width: 16, height: 16)
@@ -62,7 +64,8 @@ final class FileExplorerOpenWithMenu: NSObject {
             if index == 0, app.isDefault, list.apps.count > 1 { submenu.addItem(.separator()) }
         }
         if !list.apps.isEmpty { submenu.addItem(.separator()) }
-        if let other = registry.makeContextMenuItem(for: "fileExplorerOpenWith", in: .fileExplorerRow, title: FileExplorerStrings.openWithOther) {
+        if let other = registry.makeContextMenuItem(for: "fileExplorerOpenWith", in: .fileExplorerRow, arguments: arguments,
+                                                   title: FileExplorerStrings.openWithOther) {
             submenu.addItem(other)
         }
     }

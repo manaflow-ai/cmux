@@ -8,9 +8,8 @@ import CmuxNextActions
 enum SidebarHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
-        FileExplorerHandlers.bind(into: registry, explorer: { [weak services] in services?.fileExplorers.activeExplorer },
-                                  effects: services.fileExplorers.effects,
-                                  rename: { [weak services] in services?.fileExplorers.beginRename($0) })
+        FileExplorerHandlers.bind(into: registry, explorer: { [weak services] in services?.fileExplorers.runTarget(for: $0) },
+                                  effects: services.fileExplorers.effects)
         // Open Find as Pane: the Find section in a tab, on the focused terminal's folder
         // (or the CLI's `--pane` or `--path`).
         let findPanes = services.fileExplorers.findPanes

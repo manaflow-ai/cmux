@@ -107,7 +107,7 @@ struct FileExplorerTests {
         let services = AppServices(environment: AppEnvironment.current([:]))
         let model = await Self.model(try Self.folder())
         let effects = Recorder()
-        FileExplorerHandlers.bind(into: services.registry, explorer: { model }, effects: effects)
+        FileExplorerHandlers.bind(into: services.registry, explorer: { _ in FileExplorerRunTarget(model: model) }, effects: effects)
         let file = try #require(model.rows.first { $0.name == "b.txt" }).url
         model.selection = file
         var invocation = ActionInvocation(origin: .cli)
@@ -136,7 +136,7 @@ struct FileExplorerTests {
         AppActions.bind(services)
         let model = await Self.model(try Self.folder())
         let effects = Recorder()
-        FileExplorerHandlers.bind(into: services.registry, explorer: { model }, effects: effects)
+        FileExplorerHandlers.bind(into: services.registry, explorer: { _ in FileExplorerRunTarget(model: model) }, effects: effects)
         let section = FileExplorerSectionView(model: model, rootFolder: { nil }, perform: { _ in },
                                               rowMenu: { services.fileExplorers.rowMenu(hasSelection: $0) },
                                               openWith: FileExplorerOpenWithMenu(registry: services.registry))

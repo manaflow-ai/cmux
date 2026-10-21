@@ -170,6 +170,11 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
         }
     }
 
+    /// What an explorer action run on this tree needs: its model, its window's undo stack, its rename field.
+    var runTarget: FileExplorerRunTarget {
+        FileExplorerRunTarget(model: model, undoManager: window?.undoManager, rename: { [weak self] in self?.beginRename($0) })
+    }
+
     /// Edits `item`'s name in its row (Rename, and a new item's first name, as Finder does).
     func beginRename(_ item: URL) {
         let item = item.standardizedFileURL
