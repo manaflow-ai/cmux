@@ -99,6 +99,8 @@ async function click(label: string, done = (before: number) => posted.length > b
   for (let tries = 0; tries < 200 && !done(before); tries += 1)
     await act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
   expect(done(before)).toBe(true);
+  // One more task, so a duplicate request posted right after shows up in the asserts.
+  await act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
 }
 
 test("Show in Finder sends the image and the file it was read from, in one request", async () => {

@@ -151,6 +151,8 @@ describe("markdown link bubble", () => {
     } finally {
       jest.useRealTimers();
     }
+    // A bubble opened from a promise or a later task would show by now.
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(md.bubble()).toBe(null);
   });
 
