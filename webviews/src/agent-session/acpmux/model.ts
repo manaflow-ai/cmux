@@ -24,6 +24,10 @@ export type AcpmuxBackgroundTask = {
   command: string;
   state: "completed" | "failed" | "stopped";
   reason?: string;
+  /// Claude Code's own words on how it ended (its task notification's summary).
+  summary?: string;
+  /// The exit code, when the harness reports one (Codex does; Claude Code does not).
+  exitCode?: number;
 };
 
 /// A shell call's life in the background, on the call that started it (direct.ts

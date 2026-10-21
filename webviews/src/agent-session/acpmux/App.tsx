@@ -188,6 +188,7 @@ import { loadEditDiffHunks } from "./conversation/EditDiff";
 import { PlanList } from "./conversation/PlanList";
 import { ActivityLine } from "./conversation/ActivityLine";
 import { BackgroundTaskNote } from "./conversation/BackgroundTaskNote";
+import { BackgroundTaskOutputContext, type BackgroundTaskOutputReader } from "./conversation/backgroundTaskOutput";
 import { IncomingMessageLine, IncomingNotice } from "./conversation/IncomingMessageCard";
 import type { IncomingMessage } from "./conversation/incomingMessage";
 import { CompactionNote, FailoverNote } from "./conversation/CompactionNote";
@@ -4145,6 +4146,22 @@ function AcpmuxPane() {
     (id: string) => directClient.current?.killProcess(id) ?? Promise.reject(new Error()),
     [],
   );
+  // An opened background task note reads the end of the task's output from the same registry
+  // (conversation/backgroundTaskOutput.ts), once, when it opens.
+  const backgroundTaskOutput = useMemo<BackgroundTaskOutputReader | undefined>(
+    () =>
+      shownSessionId
+        ? {
+            sessionId: shownSessionId,
+            source: {
+              listProcesses: processSource.listProcesses,
+              tailProcess: (processId, maxBytes) =>
+                directClient.current?.tailProcess(processId, maxBytes) ?? Promise.reject(new Error()),
+            },
+          }
+        : undefined,
+    [processSource, shownSessionId],
+  );
   // The chat's background commands (inspector/processes.ts `backgroundCommands`): the transcript's
   // still running, and the registry's, read while the Inspector or the summary card shows, a turn
   // runs or a command is known to run (the hook stays on while one it knows runs, so its end
@@ -7682,7 +7699,11 @@ function AcpmuxPane() {
                 ) : freshView ? (
                   <EmptyState project={projectName(composerSnapshot.summary?.cwd)} picker={heroPicker} />
                 ) : (
-                  <AgentTonesContext.Provider value={chatTones}>{transcript}</AgentTonesContext.Provider>
+                  <AgentTonesContext.Provider value={chatTones}>
+                    <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
+                      {transcript}
+                    </BackgroundTaskOutputContext.Provider>
+                  </AgentTonesContext.Provider>
                 )}
                 {displayAnchor && (
                   <ChatDisplaySettings
