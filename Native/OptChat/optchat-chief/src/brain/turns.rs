@@ -430,50 +430,20 @@ impl Brain {
         );
         let items_sources: Vec<&'static str> =
             items.iter().map(|i| source_name(&i.source)).collect();
-        // Per-turn ambient state is read before choosing the policy. The whole
-        // Home view is untrusted: terminal/browser titles and URLs are just as
-        // attacker-controlled as terminal screen text. Asking whenever Home is
-        // available also covers a later `chief workspace` refresh in this turn.
         let home = self
             .settings
             .home_view
             .as_ref()
             .and_then(crate::home_view::HomeView::read);
-        // The whole Home view is untrusted text; it gates the turn only when
-        // the owner turned on `home.ask` (the host reads Home on every turn,
-        // so an always-on gate asked for every effect of every turn).
-        let ambient_requires_approval = self.settings.home_view.is_some() && self.chief.home_ask;
-        // The strictest origin wins. Another participant always asks; the
-        // owner's paired devices and the Home view ask only when the owner
-        // turned that gate on (`remote.ask`, `home.ask`).
-        self.turn_remote = std::mem::take(&mut self.remote_taint)
-            || items.iter().any(|i| {
-                matches!(
-                    i.source,
-                    Source::Message {
-                        remote: Some(_),
-                        ..
-                    } | Source::Resume { remote: true, .. }
-                )
-            });
-        let participant_requires_approval = items.iter().any(Queued::requires_approval);
-        let remote_requires_approval = self.turn_remote && self.chief.remote_gate();
-        self.turn_why = if participant_requires_approval {
-            Some(crate::approval::Why::Participant)
-        } else if remote_requires_approval {
-            Some(crate::approval::Why::Device(self.device_name(&items)))
-        } else if ambient_requires_approval {
-            Some(crate::approval::Why::Home)
-        } else {
-            None
-        };
-        self.turn_ask = self.turn_why.is_some();
+        // The Chief never asks (Lawrence, 2026-10-20). The owner's turns, from
+        // this Mac, a paired device or Home, run with the configured policy;
+        // a turn that carries another person's text runs with policy `ask`
+        // and every local effect it asks for is refused at once
+        // (`turn_permission`), with no question to anyone.
+        self.turn_ask = items.iter().any(Queued::requires_approval);
         self.turn_denied.clear();
         self.repeat_denials = 0;
-        self.clear_turn_approvals();
         self.interrupt.set_gate(self.turn_ask);
-        // The shared rule (cmux_chief::policy::turn_policy, the corpus's
-        // `policy` cases).
         let policy = if self.turn_ask {
             crate::approval::ASK.to_owned()
         } else {
@@ -1247,7 +1217,9 @@ impl Brain {
         let text = match &denial_stopped {
             Some(what) if !quiet => {
                 (self.log)(&format!("turn {key} stopped: it asked again for {what}"));
-                format!("I stopped: I kept asking to {what} after you denied it.")
+                format!(
+                    "I stopped: I kept trying to {what}, and a turn another person started may not do that."
+                )
             }
             _ => text,
         };
@@ -1258,15 +1230,10 @@ impl Brain {
         }
         if superseded {
             (self.log)(&format!("turn {key} stopped for a newer message"));
-            // The turn that answers both keeps this one's remote origin.
-            self.remote_taint |= self.turn_remote;
         }
-        self.turn_remote = false;
         self.turn_ask = false;
-        self.turn_why = None;
         self.turn_denied.clear();
         self.repeat_denials = 0;
-        self.clear_turn_approvals();
         self.interrupt.set_gate(false);
         if let Some(orphan) = outcome.orphan {
             self.state.orphans.push(orphan);
@@ -1577,13 +1544,10 @@ impl Brain {
                 logged: false,
             });
         }
-        self.turn_remote = false;
         self.turn_ask = false;
-        self.turn_why = None;
         self.turn_denied.clear();
         self.repeat_denials = 0;
         self.denial_stopped = None;
-        self.clear_turn_approvals();
         self.interrupt.set_gate(false);
         self.stop_wanted = false;
         self.save_with(extra);

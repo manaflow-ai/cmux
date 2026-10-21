@@ -31,10 +31,13 @@ fn now_ms() -> u64 {
     super::now_ms()
 }
 
-/// Only an explicitly persisted approve-all policy authorizes effects from a
-/// completed report. Missing/legacy/unknown policy provenance fails closed.
+/// A report carries another person's influence only when its subagent was
+/// spawned under the spawn floor (policy `ask`, a turn another person
+/// started): the turn that reads it refuses local effects. Any other report
+/// is the owner's work and never holds the owner's next turn (the Chief
+/// never asks, Lawrence 2026-10-20).
 fn report_requires_approval(policy: Option<&str>) -> bool {
-    policy != Some("approve-all")
+    policy == Some(crate::approval::ASK)
 }
 
 impl Brain {
@@ -334,10 +337,6 @@ impl Brain {
         };
         sub.status = SubStatus::Done;
         sub.awaiting_task = false;
-        // Startup failures may contain harness/repository-controlled text.
-        // They never enter an approve-all Chief turn, regardless of the
-        // policy the session would have used had it started successfully.
-        sub.policy = Some(crate::approval::ASK.to_owned());
         sub.report = Some(format!("(did not start: {error})"));
         sub.stopped = false;
         let spawn = self.state.sub(id).map(|(s, _)| s.clone());
@@ -1565,10 +1564,10 @@ mod security_tests {
     use super::report_requires_approval;
 
     #[test]
-    fn unknown_subagent_policy_fails_closed() {
-        assert!(report_requires_approval(None));
+    fn only_a_spawn_floor_report_holds_the_next_turn() {
         assert!(report_requires_approval(Some("ask")));
-        assert!(report_requires_approval(Some("unknown")));
+        assert!(!report_requires_approval(None));
+        assert!(!report_requires_approval(Some("unknown")));
         assert!(!report_requires_approval(Some("approve-all")));
     }
 }

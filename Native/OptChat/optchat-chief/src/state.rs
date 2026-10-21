@@ -325,8 +325,9 @@ pub struct SubRecord {
     /// The task's first characters (the workspace title).
     #[serde(default)]
     pub title: String,
-    /// `ask` when it was spawned under the spawn floor (a remote-origin turn
-    /// or a live ask child): a person answers its permission requests.
+    /// `ask` when it was spawned under the spawn floor (a turn another
+    /// person started, or a live ask child): the host refuses its local
+    /// effects.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy: Option<String>,
     /// A queued subagent's launch, saved so a restarted host still starts it.
