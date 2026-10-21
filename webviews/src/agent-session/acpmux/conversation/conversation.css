@@ -1549,24 +1549,84 @@ pre.cv-math-source {
   outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
   outline-offset: 1px;
 }
-/* Another agent's message (IncomingMessageCard.tsx): Show more and Open on one line, and the
-   prompt as the agent got it once opened. */
-.cv-message__foot {
+/* Another agent's message (IncomingMessageCard.tsx): one quiet line, "Received message from
+   <sender> ›", as Claude desktop draws it. The sender is a link to its chat; › opens the message
+   under the line. No box on hover: the name's underline and the chevron brighten. */
+.cv-received {
   display: flex;
-  gap: 12px;
-  margin: -6px 0 7px 32.5px;
+  flex-direction: column;
+  min-width: 0;
+  margin: 2px 0;
 }
-.cv-message__foot .cv-message__more {
-  margin: 0;
+.cv-received__line {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 26px;
+  color: var(--cv-text-dim);
+  font-size: var(--text-control);
+  white-space: pre;
+  user-select: none;
 }
-/* Another agent's images, under its message and in line with it (IncomingMessageCard.tsx). */
-.cv-message.is-incoming > .cv-message__images {
+.cv-received__name,
+.cv-received__toggle {
+  all: unset;
+  cursor: pointer;
+}
+.cv-received__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--cv-text);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--cv-text) 35%, transparent);
+  text-underline-offset: 3px;
+}
+.cv-received__name.is-plain {
+  text-decoration: none;
+}
+button.cv-received__name:hover,
+button.cv-received__name:focus-visible {
+  text-decoration-color: currentColor;
+}
+.cv-received__toggle {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 26px;
+  margin-left: 2px;
+}
+.cv-received__toggle:hover,
+.cv-received__toggle:focus-visible,
+.cv-received__text:hover ~ .cv-received__toggle {
+  color: var(--cv-text);
+}
+.cv-received__text {
+  cursor: pointer;
+}
+/* The message, opened: under the line, set off by a hairline rather than a card. */
+.cv-received__body {
+  margin: 2px 0 6px 1px;
+  padding-left: 12px;
+  box-shadow: inset 1px 0 0 color-mix(in srgb, var(--cv-text) 16%, transparent);
+  color: var(--cv-text-muted);
+  font-size: var(--text-control);
+  line-height: 19px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
+}
+/* Another agent's images and its raw prompt, under its line. */
+.cv-received > .cv-message__images {
   justify-content: flex-start;
   max-width: none;
-  margin: 0 10px 6px 32.5px;
+  margin: 2px 0 6px;
 }
-.cv-message.is-incoming > .cv-tool-output {
-  margin: 0 10px 8px 32.5px;
+.cv-received > .cv-tool-output {
+  margin: 0 0 8px 13px;
 }
 .cv-rotor.is-flipped {
   transform: rotate(180deg);
