@@ -873,11 +873,10 @@ async fn a_peer_sessions_bookmarks_are_kept_by_the_daemon_that_owns_it() {
     let seq_of = |kind: &str| events.iter().find(|e| e["kind"] == kind).unwrap()["seq"].clone();
     let prompt_seq = seq_of("user_message");
     // Neither a prompt nor an answer (a turn's `turn_result`), which a Pin also marks.
-    let other_seq = events
-        .iter()
-        .find(|e| e["kind"] != "user_message" && e["kind"] != "turn_result")
-        .unwrap()["seq"]
-        .clone();
+    let other_seq =
+        events.iter().find(|e| e["kind"] != "user_message" && e["kind"] != "turn_result").unwrap()
+            ["seq"]
+            .clone();
 
     let a = hub(config(PermissionPolicy::ApproveAll)).await;
     a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)

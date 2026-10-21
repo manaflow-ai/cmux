@@ -21,7 +21,11 @@ export function MessageTime({ at, className }: { at: number; className: string }
   const language = usePaneLanguage();
   const exact = new Intl.DateTimeFormat(language, { dateStyle: "medium", timeStyle: "short" }).format(at);
   return (
-    <time className={className} dateTime={new Date(at).toISOString()} title={exact}>
+    <time
+      className={className}
+      dateTime={new Date(at).toISOString()}
+      /* tooltip-allow: the row shows the age; the tooltip gives the exact date and time, as Claude's */ title={exact}
+    >
       {relativeTime(at, now, language)}
     </time>
   );
@@ -117,15 +121,11 @@ export function ReadReceipt({ row }: { row: AcpmuxRow }) {
   if (row.pending) return null;
   const read = row.steer !== "waiting";
   const agent = route?.name;
-  const label = read
-    ? agent
-      ? t("message.readBy", { agent })
-      : t("message.readByAgent")
-    : t("message.delivered");
+  const label = read ? (agent ? t("message.readBy", { agent }) : t("message.readByAgent")) : t("message.delivered");
   return (
-    // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- an icon with a spoken state, not an image file.
     <span
       className={`cv-user__read${read ? "" : " is-unread"}`}
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- an icon with a spoken state, not an image file.
       role="img"
       aria-label={label}
       title={label}

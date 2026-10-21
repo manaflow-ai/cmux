@@ -31,6 +31,9 @@ export default agentPaneEntry({
   covers: [
     "agent-session/acpmux/conversation/UserBubble.tsx",
     "agent-session/acpmux/conversation/MessageActions.tsx",
+    "agent-session/acpmux/conversation/icons.tsx#DoubleCheck",
+    "agent-session/acpmux/conversation/icons.tsx#Pin",
+    "agent-session/acpmux/conversation/icons.tsx#Speaker",
   ],
   anchors: [{ selector: ".acpmux-composer" }, { selector: ".acpmux-header" }],
   variants: {
