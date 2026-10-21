@@ -5,9 +5,10 @@
 // 39612287631, 2026-10-21; a fleet probe saw the reload 0.2 s after the warm-up returned).
 // The browser and the server here are stand-ins: no engine, no Vite.
 import { expect, test } from "bun:test";
-import type { Browser } from "playwright";
 import type { ViteDevServer } from "vite";
 import { warmGalleryFrame } from "./support/galleryFrame";
+
+type Browser = NonNullable<NonNullable<Parameters<typeof warmGalleryFrame>[2]>["browser"]>;
 
 type Payload = { type: string };
 
@@ -36,27 +37,34 @@ function optimizingServer() {
   return { server, settle };
 }
 
-/** A browser whose pages report ready as soon as they navigate. */
+/** A browser whose pages report ready as soon as they navigate; `reported` once one has. */
 function readyBrowser() {
   const loads: number[] = [];
+  let report = () => {};
+  const reported = new Promise<void>((resolve) => (report = resolve));
   const browser = {
     newPage: async () => ({
       on: () => {},
       goto: async () => void loads.push(loads.length + 1),
       waitForFunction: async () => {},
-      evaluate: async () => ["1", ""],
+      evaluate: async () => {
+        report();
+        return ["1", ""];
+      },
       close: async () => {},
     }),
   } as unknown as Browser;
-  return { browser, loads };
+  return { browser, loads, reported };
 }
 
 test("a warm-up waits for the optimizer's bundle and loads again after the reload it sends", async () => {
   const { server, settle } = optimizingServer();
-  const { browser, loads } = readyBrowser();
+  const { browser, loads, reported } = readyBrowser();
   let returned = false;
   const warm = warmGalleryFrame(server, "agent-pane.new-tab", { browser }).then(() => (returned = true));
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  // The page has reported ready; a warm-up that stops there has returned by the next macrotask.
+  await reported;
+  await new Promise((resolve) => setImmediate(resolve));
   expect(returned).toBe(false);
   await settle();
   await warm;
