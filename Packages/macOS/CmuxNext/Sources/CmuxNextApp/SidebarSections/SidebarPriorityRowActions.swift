@@ -32,6 +32,15 @@ struct SidebarPriorityRowActions {
     /// Why the row actions cannot run now (the view is off); nil while they can.
     var unavailable: @MainActor () -> String? = { nil }
 
+    /// Why the row actions cannot run in the app: the Priority view is off (`SidebarPriorityFeed`
+    /// binds the other three with the same check).
+    static func viewOff(_ context: AppActionContext) -> @MainActor () -> String? {
+        {
+            let preferences = context.services.settings?.snapshot.sidebarSections ?? .defaults
+            return preferences.priorityViewEnabled ? nil : SidebarPriorityPanel.unavailableReason
+        }
+    }
+
     /// The target a hover button and the row's menu pass.
     static func target(_ chat: String) -> ActionTargetRef { ActionTargetRef(kind: .agentChat, id: chat) }
 
