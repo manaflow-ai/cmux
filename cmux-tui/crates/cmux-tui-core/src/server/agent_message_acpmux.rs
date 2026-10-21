@@ -191,11 +191,13 @@ impl crate::mux::Mux {
 /// `data`.
 fn withdraw_refusal(message: &str, data: &Value) -> Result<Withdrawn, WithdrawError> {
     // acpmux names a refusal in `data.reason`, or before the first colon of
-    // its message (`transfer.moving: …`).
-    let reason = data.get("reason").and_then(Value::as_str).map_or_else(
-        || message.split(':').next().unwrap_or_default().trim().to_owned(),
-        str::to_owned,
-    );
+    // its message (`transfer.moving: …`); a blank one names none.
+    let reason = data
+        .get("reason")
+        .and_then(Value::as_str)
+        .unwrap_or_else(|| message.split(':').next().unwrap_or_default())
+        .trim()
+        .to_owned();
     if reason == "withdraw.not_found" {
         Ok(Withdrawn::NotFound)
     } else if message.starts_with("no session matches") {
