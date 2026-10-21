@@ -71,6 +71,7 @@ class MergeCommitFixture(unittest.TestCase):
         write(src, "docs/same.md", "changed\n")
         git(src, "add", "-A")
         git(src, "commit", "-qm", "pr")
+        self.head = git(src, "rev-parse", "HEAD")
         git(src, "checkout", "-q", "feat")
         write(src, "docs/kept.md", "base moved\n")
         git(src, "commit", "-qam", "base moves on")
@@ -111,7 +112,7 @@ class MergeCommitFixture(unittest.TestCase):
 
 class CapturePathsTests(MergeCommitFixture):
     def test_the_merge_commit_lists_the_files_api_set(self):
-        result, outputs = self.run_step("List the changed paths", MERGE_SHA=self.merge)
+        result, outputs = self.run_step("List the changed paths", MERGE_SHA=self.merge, HEAD_SHA=self.head)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(outputs.get("listed"), "true")
         listed = (self.temp / "paths.txt").read_text(encoding="utf-8").splitlines()
@@ -119,7 +120,7 @@ class CapturePathsTests(MergeCommitFixture):
         self.assertEqual(self.gh_calls(), [])
 
     def test_the_check_reads_no_api_once_git_listed_the_paths(self):
-        self.run_step("List the changed paths", MERGE_SHA=self.merge)
+        self.run_step("List the changed paths", MERGE_SHA=self.merge, HEAD_SHA=self.head)
         # The base checkout has no pr_capture_check.py; give the step this repository's.
         (self.clone / "scripts/ci").mkdir(parents=True)
         (self.clone / "scripts/cmux-next/media").mkdir(parents=True)
@@ -132,8 +133,14 @@ class CapturePathsTests(MergeCommitFixture):
         self.assertIn("Native UI change", result.stdout)
         self.assertEqual(self.gh_calls(), [])
 
+    def test_a_merge_of_another_head_is_not_trusted(self):
+        # A stale merge commit (of an earlier head) must not stand in for this head's changes.
+        result, outputs = self.run_step("List the changed paths", MERGE_SHA=self.merge, HEAD_SHA="b" * 40)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("listed", outputs)
+
     def test_a_failed_listing_falls_back_to_the_files_api(self):
-        result, outputs = self.run_step("List the changed paths", MERGE_SHA="0" * 40)
+        result, outputs = self.run_step("List the changed paths", MERGE_SHA="0" * 40, HEAD_SHA=self.head)
         self.assertNotEqual(result.returncode, 0)
         self.assertNotIn("listed", outputs)
         self.assertTrue(step("List the changed paths").get("continue-on-error"))
