@@ -33,7 +33,11 @@ impl Hub {
         // A message waits for the receiver's turn to end unless the sender
         // asks for its next step: a steered prompt can cancel the tool call
         // the agent is running (coordinator lane, 2026-10-20).
-        let deliver = deliver.unwrap_or(Delivery::AfterTurn);
+        let mut deliver = deliver.unwrap_or(Delivery::AfterTurn);
+        // Nor does it steer into the parent's turn, which could cancel the parent's tool call.
+        if deliver == Delivery::NextStep && to_parent {
+            deliver = Delivery::AfterTurn;
+        }
         if deliver == Delivery::Interrupt && to_parent {
             return Err(RpcError::invalid_params(
                 "a sub-session never interrupts its parent: send without interrupt, and the message waits for the parent's turn to end",

@@ -299,7 +299,6 @@ pub struct StartRequest {
 /// A sub-session's new worktree (and the folder it was made from) until its
 /// start succeeds: dropped before [`KeptWorktree::keep`] (a later refusal,
 /// failure, or the parent closing meanwhile), it is removed, off the async
-
 /// runtime.
 struct KeptWorktree {
     folder: PathBuf,

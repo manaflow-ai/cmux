@@ -96,7 +96,7 @@ fn tools() -> Value {
         },
         {
             "name": "send_message",
-            "description": "Send a message to one of your sub-sessions (or to your parent session, to report or to ask for a higher limit). To a working session it queues behind the running turn by default, and the result says where it waits. deliver: next_step puts it into the running turn instead, read at the agent's next tool step (an agent that cannot take a message mid-turn gets it when the turn ends; the result's delivery says which); interrupt stops the turn first. A sub-session never interrupts its parent. The receiver's chat shows it came from you.",
+            "description": "Send a message to one of your sub-sessions (or to your parent session, to report or to ask for a higher limit). To a working session it queues behind the running turn by default, and the result says where it waits. deliver: next_step puts it into the running turn instead, read at the agent's next tool step (an agent that cannot take a message mid-turn gets it when the turn ends; the result's delivery says which); interrupt stops the turn first. A message to your parent always waits for its turn to end. The receiver's chat shows it came from you.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
