@@ -133,6 +133,8 @@ final class SettingsPaletteSource: PaletteSettingsSource {
             PaletteSettingCustomInput(placeholder: "\(number.range.lowerBound.formatted())–\(number.range.upperBound.formatted())") {
                 descriptor.value(typed: $0) != nil
             }
+        case .choiceOrURL:
+            PaletteSettingCustomInput(placeholder: "http://mini.tail1234.ts.net:7320") { descriptor.value(typed: $0) != nil }
         case .sound, .url, .theme, .fontFamily, .text:
             PaletteSettingCustomInput(placeholder: descriptor.title) { descriptor.value(typed: $0) != nil }
         }

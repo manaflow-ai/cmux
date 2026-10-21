@@ -102,6 +102,8 @@ const customValues: Record<string, unknown> = Object.fromEntries(
     else if (setting.kind === "font_family") value = "Menlo";
     else if (setting.kind === "sound") value = "Glass";
     else if (setting.kind === "choice_or_number") value = 45;
+    else if (setting.kind === "choice_or_url")
+      value = { [setting.url_key ?? "url"]: "http://mini.tail1234.ts.net:7320" };
     else if (setting.kind === "host_list") value = ["docs.example.test", "*.research.example.test"];
     else if (setting.kind === "folder_list")
       // Chat roots take absolute paths only (validate.ts); the other folder lists also take ~/.
