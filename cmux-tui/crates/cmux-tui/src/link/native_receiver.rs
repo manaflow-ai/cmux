@@ -11,7 +11,8 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, bail};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use cmux_host::cloud::receiver::ReceiverBinding;
-use cmux_link::native_token::{NativePolicy, NativeTokenVerifier};
+use cmux_link::elapsed::Deadline;
+use cmux_link::native_token::{NativePolicy, NativeTokenVerifier, PolicyDeadline};
 use cmux_link::overlay_addr::overlay_address;
 use cmux_wg::{
     InterfaceAddress, IpNetwork, WgMesh, WgMeshConfig, WgMeshListener, WgPeer, WgStream,
@@ -44,7 +45,7 @@ pub(super) struct NativeReceiver {
     services: HashMap<u64, Service>,
     inflight: FuturesUnordered<ServiceTask>,
     serial: u64,
-    expires: Option<Instant>,
+    expires: Option<(Instant, Option<Deadline>)>,
 }
 
 impl NativeReceiver {
@@ -96,7 +97,7 @@ impl NativeReceiver {
     ) -> anyhow::Result<()> {
         tokio::pin!(stop);
         let result = loop {
-            let expires = self.expires;
+            let expires = self.expires.clone();
             tokio::select! {
                 biased;
                 () = &mut stop => break Ok(()),
@@ -175,7 +176,14 @@ impl NativeReceiver {
                 .request_started
                 .checked_add(Duration::from_millis(lifetime))
                 .ok_or_else(|| anyhow!("cloud.receiver.policy_lease_refused"))?;
-            expires = (deadline > Instant::now()).then_some(deadline);
+            match self.verifier.policy_deadline(policy) {
+                PolicyDeadline::Superseded => return Ok(()),
+                PolicyDeadline::Closed => {}
+                PolicyDeadline::Live(elapsed) if deadline > Instant::now() => {
+                    expires = Some((deadline, elapsed));
+                }
+                PolicyDeadline::Live(_) => {}
+            }
             for peer in policy.peers.iter().filter(|_| expires.is_some()) {
                 let key: [u8; 32] = STANDARD
                     .decode(&peer.binding.wg_public_key)?
@@ -218,6 +226,20 @@ impl NativeReceiver {
         }
         self.peers = desired;
         self.expires = expires;
+        // Mesh updates may await a worker. Expiry during that work must remove
+        // the installed peers before this actor can poll any service again.
+        if self.expires.as_ref().is_some_and(|(active, elapsed)| {
+            *active <= Instant::now()
+                || elapsed.as_ref().is_some_and(|budget| budget.remaining().is_none())
+        }) {
+            let all = self.peers.keys().copied().collect();
+            self.drain(&all).await;
+            for key in all {
+                self.mesh.remove_peer(key).await?;
+            }
+            self.peers.clear();
+            self.expires = None;
+        }
         Ok(())
     }
 
@@ -239,9 +261,9 @@ impl NativeReceiver {
     }
 }
 
-async fn expired(deadline: Option<Instant>) {
+async fn expired(deadline: Option<(Instant, Option<Deadline>)>) {
     match deadline {
-        Some(deadline) => tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)).await,
+        Some((active, elapsed)) => super::receiver_deadline::expired(active, elapsed).await,
         None => std::future::pending().await,
     }
 }

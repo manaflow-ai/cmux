@@ -60,7 +60,7 @@ pub struct NativeBinding {
 }
 
 /// One unique live peer and its currently granted services, supplied by the owner.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativePeer {
     pub install: String,
     pub binding: NativeBinding,
@@ -69,7 +69,7 @@ pub struct NativePeer {
 
 /// A bounded authenticated policy snapshot. No deserializer is provided: the
 /// owner must authenticate, pin and validate its control-plane response first.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativePolicy {
     pub issuer: String,
     pub host: String,
@@ -94,6 +94,12 @@ pub struct ReceiverTime {
 }
 
 type Clock = dyn Fn() -> Option<ReceiverTime> + Send + Sync;
+
+pub enum PolicyDeadline {
+    Superseded,
+    Closed,
+    Live(Option<crate::elapsed::Deadline>),
+}
 
 struct State {
     keys: Keyset,
@@ -207,6 +213,23 @@ impl NativeTokenVerifier {
             },
             MAX_REPLAY,
         )
+    }
+
+    /// A queued topology update may use only its exact current publication's
+    /// clock budget. A stale update cannot adopt a newer owner's deadline.
+    pub fn policy_deadline(&self, expected: &NativePolicy) -> PolicyDeadline {
+        let Ok((state, now)) = self.current() else { return PolicyDeadline::Closed };
+        let Some(policy) = state.policy.as_ref() else { return PolicyDeadline::Closed };
+        if policy != expected {
+            return PolicyDeadline::Superseded;
+        }
+        if !policy.valid(now) {
+            return PolicyDeadline::Closed;
+        }
+        match elapsed_deadline(&state, policy) {
+            Some(budget) => PolicyDeadline::Live(budget),
+            None => PolicyDeadline::Closed,
+        }
     }
 
     /// Atomically replace current authority without resetting replay history.

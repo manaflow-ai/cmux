@@ -16,6 +16,7 @@ mod enrollment;
 mod ensure;
 mod native_broker;
 mod native_route;
+mod receiver_deadline;
 // Private root/child composition attaches this receiving runtime.
 #[cfg(target_os = "linux")]
 mod native_process;

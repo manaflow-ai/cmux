@@ -17,6 +17,7 @@ pub struct Elapsed {
     source: Arc<Source>,
     started: Duration,
     state: Arc<Mutex<State>>,
+    system_boottime: bool,
 }
 
 /// An expiry on a captured elapsed clock. Renewals replace the expiry while
@@ -41,6 +42,22 @@ impl Deadline {
         self.at.checked_sub(self.source.elapsed()?).filter(|left| !left.is_zero())
     }
 
+    /// Only a Linux system-clock observation can arm a BOOTTIME descriptor.
+    /// An injected clock or another platform never supplies an OS clock value.
+    pub fn boottime(&self) -> Option<Duration> {
+        if !self.source.system_boottime {
+            return None;
+        }
+        self.remaining()?;
+        self.source.started.checked_add(self.at)
+    }
+
+    pub fn shortened_by(&self, debit: Duration) -> Option<Self> {
+        // A shortened wake may already be due. It must complete immediately,
+        // rather than losing that wake while the original budget is still live.
+        Some(Self { source: self.source.clone(), at: self.at.checked_sub(debit)? })
+    }
+
     pub(crate) fn bounded_by(mut self, other: Self) -> Option<Self> {
         if self.source.started != other.source.started
             || !Arc::ptr_eq(&self.source.state, &other.source.state)
@@ -55,7 +72,9 @@ impl Deadline {
 
 impl Elapsed {
     pub fn system() -> Option<Self> {
-        Self::capture(system_time)
+        let mut source = Self::capture(system_time)?;
+        source.system_boottime = cfg!(target_os = "linux");
+        Some(source)
     }
 
     /// An explicit source permits tests to advance elapsed time while keeping
@@ -66,6 +85,7 @@ impl Elapsed {
             source: Arc::new(source),
             started,
             state: Arc::new(Mutex::new(State { last: started, valid: true })),
+            system_boottime: false,
         })
     }
 
@@ -79,6 +99,7 @@ impl Elapsed {
             source: self.source.clone(),
             started: self.sample()?,
             state: self.state.clone(),
+            system_boottime: self.system_boottime,
         })
     }
 
@@ -89,6 +110,7 @@ impl Elapsed {
             source: self.source.clone(),
             started: self.started.checked_sub(debit)?,
             state: self.state.clone(),
+            system_boottime: self.system_boottime,
         })
     }
 

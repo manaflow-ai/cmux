@@ -86,6 +86,12 @@ pub enum Clock {
 
 pub struct TimerFd(OwnedFd);
 
+impl AsRawFd for TimerFd {
+    fn as_raw_fd(&self) -> RawFd {
+        self.raw()
+    }
+}
+
 impl TimerFd {
     pub fn new(clock: Clock) -> io::Result<Self> {
         let id = match clock {
@@ -138,6 +144,28 @@ impl TimerFd {
             tv_nsec: delay.subsec_nanos() as libc::c_long,
         };
         self.settime(0, value)
+    }
+
+    /// Absolute time on this descriptor's clock. Zero would disarm the timer,
+    /// so it is refused rather than silently removing an expiry boundary.
+    pub fn arm_at(&self, deadline: Duration) -> io::Result<()> {
+        if deadline.is_zero() {
+            return Err(io::ErrorKind::InvalidInput.into());
+        }
+        let value = libc::timespec {
+            tv_sec: deadline.as_secs().try_into().map_err(|_| io::ErrorKind::InvalidInput)?,
+            tv_nsec: deadline.subsec_nanos().into(),
+        };
+        self.settime(libc::TFD_TIMER_ABSTIME, value)
+    }
+
+    pub fn read_expirations(&self) -> io::Result<u64> {
+        let mut bytes = [0; 8];
+        match read_fd(self.raw(), &mut bytes)? {
+            Some(8) => Ok(u64::from_ne_bytes(bytes)),
+            None => Err(io::ErrorKind::WouldBlock.into()),
+            Some(_) => Err(io::ErrorKind::UnexpectedEof.into()),
+        }
     }
 
     pub fn disarm(&self) -> io::Result<()> {

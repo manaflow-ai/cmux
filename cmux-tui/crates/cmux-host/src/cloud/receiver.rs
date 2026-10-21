@@ -14,7 +14,7 @@ use cmux_cloud_wire::{
     CloudVmReceiverPeerServicesItem, Op, OpRequest, ReadResponse,
 };
 use cmux_link::dial::Service;
-use cmux_link::elapsed::Elapsed;
+use cmux_link::elapsed::{Deadline, Elapsed};
 use cmux_link::keyset::{Keyset, read_answer};
 use cmux_link::native_token::{NativeBinding, NativePeer, NativePolicy, ReceiverTime};
 use serde::Deserialize;
@@ -78,6 +78,12 @@ impl ReceiverSnapshot {
             Some(source) => active.max(source.elapsed()?),
             None => active,
         })
+    }
+
+    pub fn elapsed_deadline(&self) -> Option<Deadline> {
+        self.elapsed.as_ref()?.deadline_at(Duration::from_millis(
+            (self.policy.expires_at - self.policy.checked_at) as u64,
+        ))
     }
 
     /// Conservative issuer time: debit the whole request, including auth and

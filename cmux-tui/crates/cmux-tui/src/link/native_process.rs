@@ -10,6 +10,7 @@ use anyhow::{anyhow, bail};
 use cmux_host::cloud::private_bootstrap::NativeBootstrap;
 use cmux_host::cloud::receiver::{REQUEST_BUDGET, ReceiverSnapshot};
 use cmux_host::cloud::receiver_agent::AgentReceiver;
+use cmux_link::elapsed::{Deadline, Elapsed};
 use cmux_link::native_token::NativePolicy;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::{UdpSocket, UnixStream};
@@ -72,10 +73,20 @@ async fn refresh(source: &Arc<AgentReceiver>) -> anyhow::Result<ReceiverSnapshot
     // Intent creation belongs to the live actor, not to the blocking executor.
     // A delayed executor must never create fresh authority after role stop.
     let prepared = source.prepare_refresh().map_err(|error| anyhow!(error))?;
+    let active = prepared.started() + REQUEST_BUDGET;
+    let elapsed = prepared
+        .elapsed_source()
+        .and_then(|source| source.deadline_at(REQUEST_BUDGET))
+        .ok_or_else(|| anyhow!("cloud.receiver.policy_unavailable"))?;
     let reader = source.clone();
-    let task = tokio::task::spawn_blocking(move || reader.refresh_prepared(prepared));
-    match tokio::time::timeout(REQUEST_BUDGET, task).await {
-        Ok(Ok(Ok(snapshot))) => Ok(snapshot),
+    let mut task = tokio::task::spawn_blocking(move || reader.refresh_prepared(prepared));
+    let result = tokio::select! {
+        biased;
+        () = super::receiver_deadline::expired(active, Some(elapsed)) => None,
+        result = &mut task => Some(result),
+    };
+    match result {
+        Some(Ok(Ok(snapshot))) => Ok(snapshot),
         _ => {
             source.invalidate();
             bail!("cloud.receiver.policy_unavailable")
@@ -112,24 +123,30 @@ async fn initialize(
     Ok((authority, receiver, snapshot))
 }
 
-fn renewal_at(expires: Instant) -> Instant {
-    let now = Instant::now();
-    now + (expires.saturating_duration_since(now) / 2).max(Duration::from_secs(1))
+fn renewal_at(snapshot: &ReceiverSnapshot) -> anyhow::Result<(Instant, Deadline)> {
+    let expiry =
+        snapshot.elapsed_deadline().ok_or_else(|| anyhow!("cloud.receiver.policy_expired"))?;
+    let left = expiry.remaining().ok_or_else(|| anyhow!("cloud.receiver.policy_expired"))?;
+    let delay = (left / 2).max(Duration::from_secs(1)).min(left);
+    let wake = expiry
+        .shortened_by(left - delay)
+        .ok_or_else(|| anyhow!("cloud.receiver.policy_expired"))?;
+    Ok((Instant::now() + delay, wake))
 }
 
 async fn renew(
     source: Arc<AgentReceiver>,
     send: mpsc::Sender<Option<NativePolicy>>,
-    mut next: Instant,
+    mut next: (Instant, Deadline),
 ) -> anyhow::Result<()> {
     let mut retry = Duration::from_secs(1);
     loop {
         // A snapshot's own renewal deadline or a failed request's backoff,
         // never a timer that polls unrelated state.
-        tokio::time::sleep_until(tokio::time::Instant::from_std(next)).await;
+        super::receiver_deadline::expired(next.0, Some(next.1)).await;
         match refresh(&source).await {
             Ok(snapshot) => {
-                next = renewal_at(snapshot.expires());
+                next = renewal_at(&snapshot)?;
                 retry = Duration::from_secs(1);
                 send.send(Some(snapshot.native_policy()))
                     .await
@@ -141,7 +158,10 @@ async fn renew(
                 }
                 source.invalidate();
                 send.send(None).await.map_err(|_| anyhow!("cloud.receiver.stopped"))?;
-                next = Instant::now() + retry;
+                let elapsed = Elapsed::system()
+                    .and_then(|source| source.deadline_at(retry))
+                    .ok_or_else(|| anyhow!("cloud.receiver.clock_unavailable"))?;
+                next = (Instant::now() + retry, elapsed);
                 retry = (retry * 2).min(Duration::from_secs(30));
             }
         }
@@ -153,11 +173,16 @@ async fn run_child(parent: StdStream, control: StdStream, session: PathBuf) -> a
     let mut control = UnixStream::from_std(control)?;
     let shutdown = super::shutdown_signal();
     tokio::pin!(shutdown);
+    let elapsed = Elapsed::system()
+        .and_then(|source| source.deadline_at(REQUEST_BUDGET))
+        .ok_or_else(|| anyhow!("cloud.receiver.clock_unavailable"))?;
+    let active = Instant::now() + REQUEST_BUDGET;
     let bootstrap = tokio::select! {
         biased;
         result = closed(&mut parent) => return result,
         result = &mut shutdown => return result,
-        result = tokio::time::timeout(REQUEST_BUDGET, read_bootstrap(&mut control)) => result??,
+        () = super::receiver_deadline::expired(active, Some(elapsed)) => bail!("cloud.receiver.bootstrap_expired"),
+        result = read_bootstrap(&mut control) => result?,
     };
     // No service futures exist during startup; dropping this future still
     // invalidates a prepared source read and releases the private key.
@@ -169,7 +194,7 @@ async fn run_child(parent: StdStream, control: StdStream, session: PathBuf) -> a
         result = initialize(bootstrap, session) => result?,
     };
     let (send, updates) = mpsc::channel(1);
-    let next = renewal_at(snapshot.expires());
+    let next = renewal_at(&snapshot)?;
     let (stop, stopped) = oneshot::channel();
     let serving = receiver.serve(updates, async {
         let _ = stopped.await;
