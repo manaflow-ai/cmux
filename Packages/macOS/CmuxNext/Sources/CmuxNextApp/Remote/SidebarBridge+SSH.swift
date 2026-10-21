@@ -1,3 +1,4 @@
+import CmuxNextAgentPane
 import CmuxNextDaemon
 import CmuxNextRemote
 import CmuxNextSidebar
@@ -13,7 +14,8 @@ extension SidebarBridge {
             detail = CloudStrings.compatibility(compat)
         }
         let tooltip = [session.host.destination.description + (session.host.session == RemoteSessionName.defaultName ? "" : " · " + session.host.session),
-                       detail].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
+                       detail, DaemonUpdateBoard.shared.detail(sshHost: session.host.destination.host)]
+            .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
         return SidebarMachine(id: MachineID(session.machineID), name: session.host.label, kind: .ssh, status: status, detail: tooltip)
     }
 

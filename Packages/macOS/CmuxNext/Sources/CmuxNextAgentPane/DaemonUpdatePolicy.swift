@@ -1,0 +1,278 @@
+import CmuxNextCompat
+public import CmuxNextDesign
+public import CmuxNextWakeups
+public import Foundation
+import os
+
+/// After the app updates, brings other machines' daemons to the app's own build, in the
+/// background. One policy for every kind of machine (``DaemonUpdateTarget``), and one instance per
+/// app (``shared``) that every source feeds with ``offer(_:)``:
+///
+/// - the trigger: a target whose build is another commit than the app's bundled build (a dirty
+///   bundled build never pushes); an ``DaemonUpdateTarget/urgent`` target also with no known build;
+/// - only while idle: a busy target is asked again with backoff (2 minutes, doubling, at most 30),
+///   never forced, and left for the next launch after 6 hours;
+/// - one target at a time across every source, urgent targets first;
+/// - one attempt per target and build: a final outcome is kept in ``DaemonUpdateLedger`` across
+///   launches, so a target that rolled back or failed is not tried again until the next build; one
+///   left for the next launch (no binary, busy for 6 hours) is not tried again in this run;
+/// - each target's state on ``DaemonUpdateBoard``, and one notice per failed target and build;
+/// - off with the Debug Settings toggle `agent.updatePeers`, read before every step.
+public actor DaemonUpdatePolicy {
+    nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon-update")
+
+    public nonisolated struct Dependencies: Sendable {
+        /// The app's bundled build (the bundled acpmux's `--version` build), read when the queue
+        /// starts to drain.
+        public var bundledBuild: @Sendable () async -> String?
+        /// The machines ``run()`` offers.
+        public var targets: @Sendable () async -> [any DaemonUpdateTarget]
+        /// `agent.updatePeers`.
+        public var enabled: @Sendable () -> Bool
+        /// Each target's state as it changes (``DaemonUpdateBoard``).
+        public var report: @Sendable (DaemonUpdateEvent) async -> Void
+        /// Where ``DaemonUpdateLedger`` lives.
+        public var directory: URL
+        public var clock: any Clock<Duration>
+        public var busyBackoff = Backoff(initial: .seconds(120), maximum: .seconds(1800), multiplier: 2, jitter: 0)
+        /// A target busy for this long is left for the next launch.
+        public var giveUpAfter: Duration = .seconds(6 * 3600)
+
+        public init(bundledBuild: @escaping @Sendable () async -> String?,
+                    targets: @escaping @Sendable () async -> [any DaemonUpdateTarget] = DaemonUpdatePolicy.noTargets,
+                    enabled: @escaping @Sendable () -> Bool = { AgentPaneTunables.updatePeersAutomatically.value },
+                    report: @escaping @Sendable (DaemonUpdateEvent) async -> Void = DaemonUpdatePolicy.showOnBoard,
+                    directory: URL = DaemonUpdatePolicy.defaultDirectory, clock: any Clock<Duration> = ContinuousClock()) {
+            self.bundledBuild = bundledBuild
+            self.targets = targets
+            self.enabled = enabled
+            self.report = report
+            self.directory = directory
+            self.clock = clock
+        }
+    }
+
+    // Named functions, not async closure literals, as default arguments (crash ratchet, cx-bsue).
+    @Sendable nonisolated static func noTargets() async -> [any DaemonUpdateTarget] { [] }
+
+    @Sendable nonisolated static func showOnBoard(_ event: DaemonUpdateEvent) async {
+        await MainActor.run { DaemonUpdateBoard.shared.apply(event) }
+    }
+
+    /// `daemon-update` in this build's own Application Support directory (``BuildIdentity``).
+    public nonisolated static let defaultDirectory: URL = {
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support", isDirectory: true)
+        return BuildIdentity(bundle: .main).appSupport(support.appendingPathComponent("cmux", isDirectory: true))
+            .appendingPathComponent("daemon-update", isDirectory: true)
+    }()
+
+    // lint:allow one policy per app process: every machine's update goes through its one queue, one at a time
+    public nonisolated static let shared = DaemonUpdatePolicy(Dependencies(bundledBuild: { await DaemonUpdatePolicy.bundledAcpmuxBuild() }))
+
+    /// The bundled acpmux's build (the binary `acpmux host update` pushes); nil when the app has none.
+    nonisolated static func bundledAcpmuxBuild() async -> String? {
+        let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
+        guard let acpmux = AcpmuxEnvironment.resolve(build: nil, bundledBinDirectory: bin) else { return nil }
+        return await AcpmuxVersionHandoff.bundledBuild(acpmux)
+    }
+
+    private let dependencies: Dependencies
+    /// Time since the policy was made, on its clock.
+    private let elapsed: @Sendable () -> Duration
+    /// The targets offered and not yet done, the one updating now excluded.
+    private var queue: [Pending] = []
+    /// The id of the target whose update runs now.
+    private var running: String?
+    /// The loop that drains ``queue``; nil while it is empty.
+    private var drain: Task<Void, Never>?
+    /// The drain's backoff wait; ``offer(_:)`` cuts it short.
+    private var sleeper: Task<Void, Never>?
+    /// Targets left for the next launch in this run (no binary, busy for 6 hours): id to bundled hash.
+    private var settled: [String: String] = [:]
+
+    public init(_ dependencies: Dependencies) {
+        self.dependencies = dependencies
+        elapsed = Self.stopwatch(dependencies.clock)
+    }
+
+    private nonisolated static func stopwatch<C: Clock>(_ clock: C) -> @Sendable () -> Duration where C.Duration == Duration {
+        let start = clock.now
+        return { start.duration(to: clock.now) }
+    }
+
+    /// One target waiting for its update; `due` and `firstBusy` count on ``elapsed``.
+    private nonisolated struct Pending {
+        var target: any DaemonUpdateTarget
+        var urgent: Bool
+        var due: Duration
+        var backoff: Backoff
+        var firstBusy: Duration?
+    }
+
+    /// Queues `target` and returns at once; the queue drains in the background, one target at a
+    /// time. A target already queued or updating (same ``DaemonUpdateTarget/id``) is not queued
+    /// twice: a queued one takes this value and keeps its backoff, and an urgent offer moves it to
+    /// the front. Whether it needs the update is read when its turn comes. Nothing while
+    /// `agent.updatePeers` is off.
+    public func offer(_ target: any DaemonUpdateTarget) async {
+        enqueue(target, urgent: await target.urgent)
+    }
+
+    /// Offers every target of ``Dependencies/targets`` and returns when the queue is empty: each
+    /// target done, left for the next launch, or the toggle turned off.
+    public func run() async {
+        let deps = dependencies
+        guard deps.enabled() else { return Self.logger.info("daemon update off (agent.updatePeers)") }
+        var offered: [(target: any DaemonUpdateTarget, urgent: Bool)] = []
+        for target in await deps.targets() {
+            offered.append((target, await target.urgent))
+        }
+        for each in offered {
+            enqueue(each.target, urgent: each.urgent)
+        }
+        await drained()
+    }
+
+    /// Returns when no target is queued or updating.
+    public func drained() async {
+        while let drain {
+            await drain.value
+        }
+    }
+
+    private func enqueue(_ target: any DaemonUpdateTarget, urgent: Bool) {
+        guard dependencies.enabled(), running != target.id else { return }
+        let now = elapsed()
+        if let index = queue.firstIndex(where: { $0.target.id == target.id }) {
+            queue[index].target = target
+            guard urgent, !queue[index].urgent else { return }
+            queue[index].urgent = true
+            queue[index].due = min(queue[index].due, now)
+        } else {
+            queue.append(Pending(target: target, urgent: urgent, due: now, backoff: dependencies.busyBackoff))
+        }
+        sleeper?.cancel()
+        guard drain == nil else { return }
+        // task-owner: this policy; drains the queue one target at a time and ends when it is empty
+        drain = Task { await self.drainQueue() }
+    }
+
+    private func drainQueue() async {
+        let deps = dependencies
+        guard deps.enabled(), let local = DaemonBuildCommit(await deps.bundledBuild()), !local.dirty else {
+            Self.logger.info("daemon update skipped: off, or the bundled build is unknown or has local changes")
+            queue.removeAll()
+            drain = nil
+            return
+        }
+        var ledger = DaemonUpdateLedger.read(deps.directory, build: local.hash)
+        while let index = nextIndex() {
+            let wait = queue[index].due - elapsed()
+            if wait > .zero {
+                await nap(wait)
+                continue
+            }
+            guard deps.enabled() else {
+                Self.logger.info("daemon update stopped: agent.updatePeers turned off")
+                queue.removeAll()
+                break
+            }
+            let pending = queue.remove(at: index)
+            running = pending.target.id
+            if let again = await attempt(pending, local: local, ledger: &ledger) {
+                queue.append(again)
+            }
+            running = nil
+        }
+        drain = nil
+    }
+
+    /// The next target: an urgent one that is due, else the one due first.
+    private func nextIndex() -> Int? {
+        let now = elapsed()
+        let due = queue.indices.filter { queue[$0].due <= now }
+        if let urgent = due.first(where: { queue[$0].urgent }) { return urgent }
+        return due.min { queue[$0].due < queue[$1].due } ?? queue.indices.min { queue[$0].due < queue[$1].due }
+    }
+
+    /// Waits `wait`, or less when ``offer(_:)`` brings a new target.
+    private func nap(_ wait: Duration) async {
+        let clock = dependencies.clock
+        // task-owner: drainQueue awaits it; enqueue cancels it so a new target need not wait out a busy one's backoff
+        let sleep = Task {
+            // wakeup-allow: the backoff of a busy machine, at most 30 minutes apart and only for 6 hours
+            _ = try? await clock.sleep(for: wait)
+        }
+        sleeper = sleep
+        await sleep.value
+        sleeper = nil
+    }
+
+    /// One update of `pending` if it still needs one; returns it when it was busy and waits again.
+    private func attempt(_ pending: Pending, local: DaemonBuildCommit, ledger: inout DaemonUpdateLedger) async -> Pending? {
+        let deps = dependencies
+        let target = pending.target
+        guard ledger.targets[target.id] == nil, settled[target.id] != local.hash else { return nil }
+        // Read at its turn: the machine may have gone, or reached this build meanwhile.
+        let urgent = await target.urgent
+        let current = DaemonBuildCommit(await target.currentBuild())
+        if let current, local.sameCommit(current.hash) { return nil }
+        guard current != nil || urgent else { return nil }
+        await deps.report(DaemonUpdateEvent(target, .updating))
+        let outcome = await target.update(to: local)
+        Self.logger.info("\(target.displayName, privacy: .public) to \(local.hash, privacy: .public): \(String(describing: outcome), privacy: .public)")
+        if outcome == .busy {
+            await deps.report(DaemonUpdateEvent(target, .waitingForIdle))
+            var again = pending
+            let now = elapsed()
+            let since = again.firstBusy ?? now
+            again.firstBusy = since
+            let delay = again.backoff.next()
+            guard now + delay - since <= deps.giveUpAfter else {
+                Self.logger.info("\(target.displayName, privacy: .public) stayed busy; left for the next launch")
+                settled[target.id] = local.hash
+                return nil
+            }
+            again.due = now + delay
+            return again
+        }
+        if let recorded = Self.recorded(outcome) {
+            ledger.targets[target.id] = recorded
+            do { try ledger.write(deps.directory) } catch {
+                Self.logger.error("daemon update ledger not written: \(String(describing: error), privacy: .public)")
+            }
+        } else {
+            settled[target.id] = local.hash
+        }
+        await deps.report(Self.event(target, outcome, local: local))
+        return nil
+    }
+
+    /// What the ledger keeps for `outcome`: every final outcome. `busy`, `needsBinary` and
+    /// `handledElsewhere` are not final: the next launch asks again.
+    nonisolated static func recorded(_ outcome: DaemonUpdateOutcome) -> String? {
+        switch outcome {
+        case .updated: "updated"
+        case .current: "current"
+        case .rolledBack: "rolledBack"
+        case .failed: "failed"
+        case .busy, .needsBinary, .handledElsewhere: nil
+        }
+    }
+
+    /// The board's state after a final outcome. Only a recorded failure notifies: it is recorded
+    /// once per target and build, so its notice shows once.
+    nonisolated static func event(_ target: any DaemonUpdateTarget, _ outcome: DaemonUpdateOutcome,
+                                  local: DaemonBuildCommit) -> DaemonUpdateEvent {
+        switch outcome {
+        case .updated(let build): DaemonUpdateEvent(target, .updated(build: build ?? local.hash))
+        case .current: DaemonUpdateEvent(target, .updated(build: local.hash))
+        case .busy: DaemonUpdateEvent(target, .waitingForIdle)
+        case .needsBinary(let triple): DaemonUpdateEvent(target, .failed(reason: "no build for \(triple)", rolledBack: false))
+        case .rolledBack(let reason): DaemonUpdateEvent(target, .failed(reason: reason, rolledBack: true), notify: true)
+        case .handledElsewhere: DaemonUpdateEvent(target, .cleared)
+        case .failed(let reason): DaemonUpdateEvent(target, .failed(reason: reason, rolledBack: false), notify: true)
+        }
+    }
+}

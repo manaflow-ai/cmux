@@ -1,3 +1,4 @@
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextSidebar
@@ -48,7 +49,22 @@ enum CloudCreationRows {
             header.status = .failed
             header.detail = failure
         }
+        header.detail = withUpdate(header.detail, DaemonUpdateBoard.shared.targets[CloudMachineUpdateTarget.id(session.machineID)],
+                                   compatibility: compatibility)
         return header.redialing(session.link?.redial.isRedialing == true)
+    }
+
+    /// The automatic update's state (``CloudMachineUpdates``) in a machine header's detail: while it
+    /// runs or waits it replaces "Update it to turn on every feature"; a result follows the rest.
+    /// A failure goes once the machine runs a current build (Update Machine fixed it).
+    static func withUpdate(_ detail: String?, _ event: DaemonUpdateEvent?, compatibility: DaemonCompatibility?) -> String? {
+        guard let event else { return detail }
+        let line = DaemonUpdateBoard.line(event.state)
+        switch event.state {
+        case .updating, .waitingForIdle: return line
+        case .failed where compatibility?.level == .current: return detail
+        case .updated, .failed: return [detail, line].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
+        }
     }
 
     /// A Cloud creation's row (cx-lu8f): no workspace yet, so no daemon command and no context menu.
