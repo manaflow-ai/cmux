@@ -29,6 +29,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/view": (["sessionId", "visible"], []),
         "_acpmux/warm": (["sessionIds", "limit"], []),
         "_acpmux/kill": (["sessionId", "purge"], []),
+        // `ifLive`: `fork` or `open` once the person chose, for a chat still live in its own app.
+        "_acpmux/watch_take_over": (["sessionId", "ifLive"], []),
         "_acpmux/prewarm": (["harness", "cwd"], []),
         "_acpmux/start_mode": (["harness", "cwd"], []),
         // `cwd`: the chat folder whose folder harness profiles to list (checked like every cwd).
@@ -42,7 +44,9 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/bookmark_get": (["sessionId"], []),
         "_acpmux/bookmark_set": (["sessionId", "seq", "bookmarked"], []),
         "_acpmux/queue_remove": (["sessionId", "promptId"], []),
-        "_acpmux/queue_edit": (["sessionId", "promptId", "op", "text", "index"], []),
+        // `images`: an edit's kept image ids (acpmux attachment ids the queue lists); it names only
+        // the prompt's own images, so it reaches nothing the chat does not already hold.
+        "_acpmux/queue_edit": (["sessionId", "promptId", "op", "text", "images", "index"], []),
         // `_meta`: only the gesture ticket of the person's pick (cx-0q7o), never anything else.
         "_acpmux/permission_respond": (["sessionId", "permissionId", "optionId", "answers", "_meta"], []),
         "_acpmux/handoff_prepare": (["sessionId", "harness", "handoffKey"], []),

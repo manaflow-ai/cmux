@@ -16,6 +16,8 @@ nonisolated enum AppsStrings {
     static var featureNotChanged: String { t("store.feature.notChanged", "Not changed") }
     static var featureManaged: String { t("store.feature.managed", "Managed by your organization") }
     static func featureSetting(_ key: String) -> String { String(format: t("store.feature.setting", "Setting: %@"), key) }
+    static var featureSettingsLink: String { t("store.feature.settingsLink", "Settings…") }
+    static func featureSettingsHelp(_ name: String) -> String { String(format: t("store.feature.settingsLink.help", "Open %@ in Settings"), name) }
 
     /// A Features tab category chip.
     static func featureCategory(_ category: AppFeature.Category) -> String {

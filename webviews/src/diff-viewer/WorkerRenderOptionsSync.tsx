@@ -1,7 +1,61 @@
 // Owns syncing the highlight worker pool's render options with the viewer's theme and options.
+import { getThemes, resolveThemes } from "@pierre/diffs";
 import { type CodeViewHandle, useWorkerPool } from "@pierre/diffs/react";
 import { useEffect, useRef } from "react";
+import { createHighlighter, createJavaScriptRegexEngine } from "shiki";
 import { workerHighlighterOptions } from "../pierre-options";
+
+type WorkerPool = NonNullable<ReturnType<typeof useWorkerPool>>;
+type PlainDrawingPool = { highlighter?: unknown; isInitialized(): boolean };
+
+/**
+ * Lets the highlight pool draw a file's rows as plain text before its workers are up.
+ *
+ * The pool draws plain rows (`getPlainDiffAST`) with the page's Shiki instance, which it keeps
+ * only once every worker has started and the page has compiled Shiki's WASM engine too; until
+ * then a file draws its header and no rows. On a big diff that was 300 to 450 ms after the first
+ * files were parsed. Plain rows need only the two themes' colors and Shiki's "text" language,
+ * which tokenizes nothing, so this hands the pool a small instance on the JavaScript engine
+ * (already in the bundle; no WASM, no grammar) right away. The pool replaces it with its own when
+ * its start-up finishes, and the colors arrive as the workers answer. `@pierre/diffs` is pinned
+ * (package.json); diff-paint-perf.test.ts fails if a new version stops drawing rows before the
+ * workers start. Resolves `drawn` when it handed the instance over, `ready` when the pool was up
+ * first, and `unsupported` when the pool no longer keeps its instance where this reads it.
+ */
+export async function drawPlainBeforeWorkers(
+  pool: WorkerPool,
+  options: ReturnType<typeof workerHighlighterOptions>,
+): Promise<PlainBeforeWorkers> {
+  const target = pool as unknown as PlainDrawingPool;
+  if (!("highlighter" in target)) {
+    return "unsupported";
+  }
+  if (pool.isInitialized() || target.highlighter != null) {
+    return "ready";
+  }
+  const themes = await resolveThemes(getThemes(options.theme as Parameters<typeof getThemes>[0]));
+  const highlighter = await createHighlighter({ themes, langs: [], engine: createJavaScriptRegexEngine() });
+  if (target.isInitialized() || target.highlighter != null) {
+    highlighter.dispose();
+    return "ready";
+  }
+  target.highlighter = highlighter;
+  // The pool replaces it with its own once the workers are up (or clears it when terminated)
+  // without disposing it; the pool broadcasts its stats after either, so it is disposed then.
+  let unsubscribe: (() => void) | null = null;
+  let disposed = false;
+  const releaseWhenReplaced = () => {
+    if (disposed || target.highlighter === highlighter) return;
+    disposed = true;
+    unsubscribe?.();
+    highlighter.dispose();
+  };
+  unsubscribe = pool.subscribeToStatChanges(releaseWhenReplaced);
+  if (disposed) unsubscribe();
+  return "drawn";
+}
+
+export type PlainBeforeWorkers = "drawn" | "ready" | "unsupported";
 
 export function WorkerRenderOptionsSync({
   codeViewRef,
@@ -11,7 +65,33 @@ export function WorkerRenderOptionsSync({
   highlighterOptions: ReturnType<typeof workerHighlighterOptions>;
 }) {
   useWorkerRenderOptionsSync(highlighterOptions, codeViewRef);
+  useDrawPlainBeforeWorkers(highlighterOptions, codeViewRef);
   return null;
+}
+
+function useDrawPlainBeforeWorkers(
+  highlighterOptions: ReturnType<typeof workerHighlighterOptions>,
+  codeViewRef: React.MutableRefObject<CodeViewHandle<any> | null>,
+): void {
+  const workerPool = useWorkerPool();
+  const options = useRef(highlighterOptions);
+  useEffect(() => {
+    if (!workerPool) {
+      return;
+    }
+    let active = true;
+    drawPlainBeforeWorkers(workerPool, options.current)
+      .then((outcome) => {
+        // Read by diff-paint-perf.test.ts, as the pool's counters are (worker-pool.ts).
+        document.documentElement.dataset.cmuxDiffPlainBeforeWorkers = outcome;
+        // Files that drew before the instance arrived (no rows) draw again, as plain text.
+        if (active && outcome === "drawn") codeViewRef.current?.getInstance()?.render(true);
+      })
+      .catch((error: unknown) => console.warn("cmux diff plain rows before the highlight workers failed", error));
+    return () => {
+      active = false;
+    };
+  }, [codeViewRef, workerPool]);
 }
 
 function useWorkerRenderOptionsSync(

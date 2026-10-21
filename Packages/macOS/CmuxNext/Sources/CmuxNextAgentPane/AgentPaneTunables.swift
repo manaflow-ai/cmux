@@ -126,15 +126,15 @@ public nonisolated struct AgentPaneTunables {
         "agent.pageHost", PageTunables.section, "Agent pane on the page host",
         help: "New agent tabs load cmux-page://cmux.agent/ on the shared page host.",
         default: false, code: "AgentPaneTunables.pageHost")
-    /// The agent chat engine spike (Leo 2026-10-20: should cmux's own pages use the Chromium we ship
-    /// for browser tabs?): new agent tabs go on the page host and its page leaves the
+    /// The agent chat in Chromium (Leo 2026-10-20 spike; on by default since Lawrence asked for every
+    /// cmux page in Chromium, 2026-10-21): new agent tabs go on the page host and its page leaves the
     /// ``PageWebKitReason/agentChat`` hold, so it shows in Chromium when `browser.defaultEngine` is
-    /// Chromium. Measuring only: a Chromium page is an opaque child window, so window glass does not
-    /// show through it. The warmed spare stays WebKit.
+    /// Chromium. A Chromium page is an opaque child window, so window glass does not show through
+    /// it. Off keeps the agent chat on WebKit.
     public static let chromium = Tunable<Bool>.toggle(
         "agent.chromium", PageTunables.section, "Agent chat in Chromium (spike)",
         help: "New agent tabs show in Chromium instead of WebKit, on the page host, when the browser engine is Chromium.",
-        default: false, code: "AgentPaneTunables.chromium")
+        default: true, code: "AgentPaneTunables.chromium")
     /// The Inspector at the right of every agent chat, Chief included (cx-ncc.101; Leo 2026-10-20):
     /// Environment, Context, Connectors, Changes, Servers, Subagents, Background tasks and Outputs,
     /// with a header toggle that shows and hides it. On by default; off brings back the summary card.
@@ -205,6 +205,14 @@ public nonisolated struct AgentPaneTunables {
         "agentPane.debug.foldLongThoughts", PageTunables.section, "Fold long thoughts in the agent pane",
         help: "A finished long thought folds to one line that opens to its text. New agent tabs.",
         default: true, code: "AgentPaneTunables.foldLongThoughts")
+
+    /// A streaming reply grows a whole word at a time, each word fading in (webviews
+    /// conversation/RevealedMarkdown.tsx). On by default; off, it grows a character at a time as
+    /// before. New agent tabs read it.
+    public static let streamWords = Tunable<Bool>.toggle(
+        "agentPane.debug.streamWords", PageTunables.section, "Stream replies a word at a time",
+        help: "A streaming reply grows by whole words, each fading in. Off: a character at a time. New agent tabs.",
+        default: true, code: "AgentPaneTunables.streamWords")
 
     /// How tall a thought must be to fold (``foldLongThoughts``) while ``liveThoughtViewport`` is
     /// off. With the live viewport on, a thought it clipped always folds once done (140px), so
@@ -296,21 +304,28 @@ public nonisolated struct AgentPaneTunables {
     static var documentAttributes: [String: String] {
         attributes(foldLongThoughts: foldLongThoughts.value, topStripStyle: topStripStyle.value,
                    thoughtHeader: thoughtHeader.value, liveThoughtViewport: liveThoughtViewport.value,
-                   thoughtFoldThreshold: thoughtFoldThreshold.value, turnPreviewCards: turnPreviewCards.value)
+                   thoughtFoldThreshold: thoughtFoldThreshold.value, needsYou: needsYou.value,
+                   needsYouPill: needsYouPill.value, turnPreviewCards: turnPreviewCards.value,
+                   streamWords: streamWords.value)
     }
 
     static func attributes(foldLongThoughts: Bool, topStripStyle: AgentPaneTopStripStyle,
                            thoughtHeader: AgentPaneThoughtHeader = .duration,
                            liveThoughtViewport: Bool = true,
                            thoughtFoldThreshold: AgentPaneThoughtFoldThreshold = .viewport,
-                           turnPreviewCards: Bool = false) -> [String: String] {
+                           needsYou: AgentPaneNeedsYouStyle = .pinned, needsYouPill: Bool = true,
+                           turnPreviewCards: Bool = false,
+                           streamWords: Bool = true) -> [String: String] {
         var attributes: [String: String] = [:]
+        if needsYou != .pinned { attributes["needs-you"] = needsYou.rawValue }
+        if !needsYouPill { attributes["needs-you-pill"] = "off" }
         if foldLongThoughts { attributes["fold-long-thoughts"] = "on" }
         if thoughtFoldThreshold != .viewport { attributes["thought-fold-threshold"] = thoughtFoldThreshold.rawValue }
         if thoughtHeader != .duration { attributes["thought-header"] = thoughtHeader.rawValue }
         if !liveThoughtViewport { attributes["live-thought-viewport"] = "off" }
         if topStripStyle != .default { attributes["top-strip"] = topStripStyle.rawValue }
         if turnPreviewCards { attributes["turn-preview-cards"] = "on" }
+        if !streamWords { attributes["stream-words"] = "off" }
         return attributes
     }
 
@@ -388,15 +403,19 @@ public nonisolated struct AgentPaneTunables {
             liveLineBelow.descriptor,
             liveThoughtViewport.descriptor,
             modelMenu.descriptor,
+            needsYou.descriptor,
+            needsYouPill.descriptor,
             pagesFollowLinkPlacement.descriptor,
             newTabPrivateChatLists.descriptor,
             newTabWidgets.descriptor,
+            openOutsideChatsViewOnly.descriptor,
             pageHost.descriptor,
             reasoningSlider.descriptor,
             reasoningSliderStyle.descriptor,
             sessionStatus.descriptor,
             sidebarPreviewVariant.descriptor,
             sideSessions.descriptor,
+            streamWords.descriptor,
             suggestedTasks.descriptor,
             systemDictation.descriptor,
             terminalButtonAdds.descriptor,
