@@ -105,6 +105,9 @@ PATH_OWNERS = {
     # test_pr_capture_check.py runs the check, which imports the path map.
     "scripts/ci/pr_capture_check.py": frozenset(("ci",)),
     "scripts/cmux-next/media/path_map.py": frozenset(("ci",)),
+    # tests/test_ci_pr_media_privacy.py (ci) imports the check, and every
+    # upload in tests/test_pr_media.py (preflight) runs it.
+    "scripts/ci/pr_media_privacy.py": frozenset(("ci", "preflight")),
     # test_ci_package_bisect.py loads it by path.
     "scripts/ci/package_bisect.py": frozenset(("ci",)),
     # test_ci_merge_receipt.py loads it by path and also reads its workflow
