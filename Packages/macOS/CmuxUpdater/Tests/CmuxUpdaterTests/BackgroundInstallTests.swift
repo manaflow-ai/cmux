@@ -30,6 +30,17 @@ import Testing
         })
     }
 
+    /// Pumps the cooperative pool until `condition` holds (the controller's reactions run as
+    /// main-actor tasks).
+    private func waitUntil(_ what: String,
+                           sourceLocation: SourceLocation = #_sourceLocation,
+                           _ condition: () -> Bool) async {
+        for _ in 0..<20_000 where !condition() {
+            await Task.yield()
+        }
+        #expect(condition(), "timed out waiting for \(what)", sourceLocation: sourceLocation)
+    }
+
     private func persisted(_ harness: Harness) -> NSDictionary {
         (harness.defaults.persistentDomain(forName: harness.suiteName) ?? [:]) as NSDictionary
     }
@@ -218,6 +229,35 @@ import Testing
         ready(harness, into: readyBox)
         #expect(readyBox.choice == nil)
         #expect(harness.controller.stagedUpdate?.displayVersionString == "0.64.17")
+    }
+
+    /// `updates.downloadAutomatically` off (or a metered network) and the user
+    /// clicks Install Update: the controller runs a fresh check and answers
+    /// Sparkle's update-found prompt itself. The build that download stages is
+    /// the one the user asked for, so it must be known; a staged update of
+    /// unknown version is one the host hides and (before #22874's review fix)
+    /// cancelled, dropping a newer build the user had just asked for.
+    @Test func anInstallClickWithDownloadsOffStagesTheBuildItFound() async {
+        let harness = Harness()
+        harness.controller.installsUpdatesInBackground = true
+        harness.controller.downloadsUpdatesInBackground = false
+
+        harness.controller.attemptUpdate()
+        await waitUntil("the fresh check") { harness.updater.checkForUpdatesCallCount == 1 }
+        harness.controller.driver.showUserInitiatedUpdateCheck(cancellation: {})
+        let found = ChoiceBox()
+        find(harness, into: found)
+        await waitUntil("the install reply") { found.choice == .install }
+        harness.controller.driver.showDownloadInitiated(cancellation: {})
+
+        let readyBox = ChoiceBox()
+        ready(harness, into: readyBox)
+        #expect(readyBox.choice == nil, "the staged update was answered before the user installed it")
+        #expect(harness.controller.stagedUpdate?.versionString == "0.64.17",
+                "the build the Install click downloaded staged with no item: the host cannot tell it is newer")
+
+        harness.controller.installStagedUpdate()
+        #expect(readyBox.choice == .install)
     }
 
     /// A test feed (cmux-next NIGHTLY/DEV, "Use Test Update Feed") replaces the baked feed for

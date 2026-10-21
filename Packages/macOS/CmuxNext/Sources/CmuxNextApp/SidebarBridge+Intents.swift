@@ -61,9 +61,8 @@ extension SidebarBridge {
             // transaction path of its own.
             resync()
         case .reorder(let ids, let position):
-            let before = model.sections
-            model.apply(intent)
-            SidebarDaemonReorder.reorder(ids, to: position, in: before, bridge: self)
+            // A pending edit, as on the personal path: each command's echo shows no step between.
+            SidebarDaemonReorder.reorder(ids, to: position, in: model.sections, edit: rows.add(intent), bridge: self)
         case .rename(let id, let name):
             model.apply(intent)
             guard let (workspace, daemon) = services.machines.workspace(id: id.rawValue), let key = workspace.key else { return }

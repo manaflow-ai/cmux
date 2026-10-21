@@ -136,7 +136,7 @@ public final class PageInfoController {
         anchorRect = window.convertToScreen(anchor.convert(anchor.bounds, to: nil)).offsetBy(dx: -PageInfoStyle.rowInset, dy: 0)
         // The bubble takes the omnibar's theme scope (its room or workspace).
         panel.adoptThemeScope(of: anchor)
-        guard let placed = popup.show(size: cardSize, anchor: anchorRect, in: window, preferred: .below, makeKey: true) else { return }
+        guard let placed = popup.show(size: cardSize, anchor: anchorRect, in: window, preferred: anchor.toolbarPopupSide, makeKey: true) else { return }
         side = placed.side
         panel.makeFirstResponder(card)
     }

@@ -15,8 +15,8 @@ import { CheckIcon, ChevronIcon, PICKER_LABELS, SearchIcon } from "./ComposerPic
 import { Icon } from "./icons/Icon";
 import { currentLanguage, useT } from "./i18n";
 import { useUpdateOffer } from "./HarnessHealthNotice";
-import { MODEL_PICKER_MIN_HEIGHT, pickerHeightBounds, type ModelPickerProps } from "./modelPickerLayout";
-import { modelSections } from "./modelSections";
+import { CHAT_COLUMN, MODEL_PICKER_MIN_HEIGHT, pickerHeightBounds, type ModelPickerProps } from "./modelPickerLayout";
+import { curatedSections, modelSections } from "./modelSections";
 import { effortWords, fitsQuery, modelEffort, parseQuery } from "./modelQuery";
 import { registerPicker } from "./pickerOpeners";
 import { QuickModelMenu, type QuickFamily, type QuickModel } from "./QuickModelMenu";
@@ -98,28 +98,6 @@ function sectionsFor(entry: HarnessChoice | undefined): { latest: ModelChoice[];
   const sections = curatedSections(modelSections(choices, entry.name), entry.top);
   choiceCache.set(entry, sections);
   return sections;
-}
-
-/// With a curated list: its models first, in its order, each followed by its variants ("Fable 5.1 ·
-/// 1M context"), and every other model under More models, newest family first, then older ones. Without one, or when
-/// the harness offers none of it, the catalog's newest family stays first.
-function curatedSections(
-  sections: { latest: ModelChoice[]; older: ModelChoice[] },
-  top: readonly string[] | undefined,
-): { latest: ModelChoice[]; older: ModelChoice[] } {
-  if (!top) return sections;
-  const all = [...sections.latest, ...sections.older];
-  const latest: ModelChoice[] = [];
-  for (const id of top) {
-    const model = all.find((choice) => choice.id === id || choice.release === id);
-    if (!model) continue;
-    const variants = all.filter(
-      (choice) => choice !== model && (choice.id.startsWith(`${id}[`) || choice.name.startsWith(`${model.name} · `)),
-    );
-    for (const choice of [model, ...variants]) if (!latest.includes(choice)) latest.push(choice);
-  }
-  if (latest.length === 0) return sections;
-  return { latest, older: all.filter((choice) => !latest.includes(choice)) };
 }
 
 /// `sectionsFor`, with the model the chat runs listed after the top ones when it is a folded one
@@ -392,6 +370,8 @@ export function ModelPicker(props: ModelPickerProps) {
     side: "above",
     align: "start",
     minHeight: MODEL_PICKER_MIN_HEIGHT,
+    // Inside the chat column, never over the session rail or sidebar beside it.
+    boundary: CHAT_COLUMN,
   });
   useLayoutEffect(() => {
     if (!open) {
@@ -894,7 +874,7 @@ export function ModelPicker(props: ModelPickerProps) {
         <PickerDialog
           ref={menu}
           id={menuId}
-          className="ui-popup ui-picker-popup acpmux-mp z-(--layer-dropdown) flex w-[min(310px,calc(100vw-24px))] overflow-hidden rounded-[var(--ui-popup-radius,8px)] text-control text-fg"
+          className="ui-popup ui-picker-popup acpmux-mp z-(--layer-dropdown) flex w-[min(310px,var(--available-width,calc(100vw-24px)))] overflow-hidden rounded-[var(--ui-popup-radius,8px)] text-control text-fg"
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the popover is positioned by the shared anchor helper.
           aria-label={modelText}
           // The anchor's room above or below the chip, between the picker's minimum and maximum
@@ -1122,6 +1102,7 @@ export function ModelPicker(props: ModelPickerProps) {
                           className={`acpmux-mp-favorite pointer-events-auto grid size-6 cursor-pointer place-items-center rounded-md border-0 bg-transparent p-0 text-muted hover:text-fg ${favorites.has(model.id) ? "" : "invisible group-hover:visible focus-visible:visible"}`}
                           aria-label={`${starredText}: ${model.name}`}
                           aria-pressed={favorites.has(model.id)}
+                          title={t(favorites.has(model.id) ? "picker.unstar" : "picker.star")}
                           onClick={() => toggleFavorite(model.id)}
                         >
                           <StarGlyph filled={favorites.has(model.id)} size={13} />

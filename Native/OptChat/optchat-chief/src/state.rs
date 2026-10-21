@@ -255,6 +255,14 @@ pub struct SpawnRecord {
     pub answers: Vec<String>,
 }
 
+impl SubRecord {
+    /// Starting or running and not cancelled: a cancelled one whose session
+    /// never ends its turn is not at work (#7).
+    pub fn at_work(&self) -> bool {
+        matches!(self.status, SubStatus::Starting | SubStatus::Running) && !self.cancelled
+    }
+}
+
 impl SpawnRecord {
     /// A subagent still works or has a report waiting that starts a turn.
     pub fn working(&self) -> bool {
@@ -337,6 +345,14 @@ pub struct SubRecord {
     /// 0 again after a run that ends with a real report.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub resume_attempts: u32,
+    /// The harness it moves to (its account hit a usage limit) once the
+    /// brain takes the move; saved, so a restart still moves it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moving: Option<String>,
+    /// It was moved off a harness whose account hit a usage limit, and has
+    /// not ended a run with a real report since: it is not moved again.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub moved: bool,
     /// Messages the Chief sent it that it has not got yet (queued or
     /// starting, or held while paused), oldest first. Saved, so a restart
     /// never drops one.
@@ -430,6 +446,10 @@ pub struct QueuedLaunch {
     pub effort: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub floor: Option<String>,
+    /// The harness it starts on (a subagent moved off a harness whose
+    /// account hit a usage limit); None: the engine of now.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub harness: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

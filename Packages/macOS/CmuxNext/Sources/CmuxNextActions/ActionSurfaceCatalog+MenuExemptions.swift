@@ -78,7 +78,7 @@ nonisolated extension ActionSurfaceCatalog {
             "simulatorRotateLeft", "simulatorRotateRight", "simulatorToggleAppearance",
             "simulatorToggleSoftwareKeyboard", "agentPane.searchChats", "screenGroup.reopenSaved", "screenGroup.deleteSaved",
             "resumeCommandSet", "resumeCommandEdit", "resumeCommandClear", "saveFilePreview", "markdownSave",
-            "markdownLink", "markdownBack", "markdownForward", "markdownResetTableWidths", "markdownGoToTop",
+            "markdownLink", "markdownBack", "markdownForward", "markdownReload", "markdownResetTableWidths", "markdownGoToTop",
             "toggleFileEditorWordWrap", "filePreviewOpenWith", "filePreviewOpenExternally",
             "filePreviewRevealInFinder", "filePreviewRevealInFiles", "diffViewerNextLine", "diffViewerPreviousLine", "diffViewerHalfPageDown",
             "diffViewerHalfPageUp", "diffViewerNextHunk", "diffViewerPreviousHunk", "diffViewerGoToBottom",

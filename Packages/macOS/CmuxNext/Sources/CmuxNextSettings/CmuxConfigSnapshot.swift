@@ -178,12 +178,16 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var paneBackgrounds: PaneBackgroundMode = .shared
     /// `tabs.barOrder` (R109).
     public var tabBarOrder: TabBarOrder = .aboveToolbar
+    /// `browser.toolbarPosition`: the omnibar row of browser and Markdown panes.
+    public var browserToolbarPosition: ToolbarPosition = .top
     /// `app.quitBehavior`; "ask" when unset or invalid.
     public var quitBehavior: QuitBehavior = QuitBehaviorSetting.fallback
     /// `newTerminal.opensWorkspace`; off when unset or invalid.
     public var newTerminalOpensWorkspace: Bool = NewTerminalWorkspaceSetting.fallback
     /// `tabs.cmdWClosesPinnedTabs`; on when unset or invalid.
     public var cmdWClosesPinnedTabs: Bool = CmdWClosesPinnedTabsSetting.fallback
+    /// `tabs.terminalFirst`; off when unset or invalid.
+    public var terminalFirst: Bool = TerminalFirstSetting.fallback
     /// `tabs.overflow`; shrink when unset or invalid.
     public var tabOverflow: TabOverflow = TabOverflowSetting.fallback
     /// `tabs.swapCmdTAndCmdN`; off when unset or invalid.
@@ -230,6 +234,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var sessions = SessionSettings()
     /// `agents.subsessions.*`: sub-session limits; the acpmux daemon enforces them.
     public var subsessions = SubsessionSettings()
+    /// `agents.trust.*`: which folders start an agent without the trust question; the acpmux daemon reads the same file.
+    public var trust = TrustSettings()
     /// `mobile.*`: whether the app runs its iPhone host.
     public var mobile = MobileSettings()
     /// `announcements.*`: the cmux announcement cards (R114).
@@ -359,6 +365,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (cmdWClosesPinnedTabs, cmdWClosesPinnedTabsDiagnostic) = CmdWClosesPinnedTabsSetting.parse(root)
         snapshot.cmdWClosesPinnedTabs = cmdWClosesPinnedTabs
         if let cmdWClosesPinnedTabsDiagnostic { snapshot.diagnostics.append(cmdWClosesPinnedTabsDiagnostic) }
+        let (terminalFirst, terminalFirstDiagnostic) = TerminalFirstSetting.parse(root)
+        snapshot.terminalFirst = terminalFirst
+        if let terminalFirstDiagnostic { snapshot.diagnostics.append(terminalFirstDiagnostic) }
         snapshot.take(TabOverflowSetting.parse(root), \.tabOverflow)
         let (swapCmdTAndCmdN, swapCmdTAndCmdNDiagnostic) = SwapCmdTAndCmdNSetting.parse(root)
         snapshot.swapCmdTAndCmdN = swapCmdTAndCmdN
@@ -383,6 +392,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.freeModel = FreeModelSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.sessions = SessionSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.subsessions = SubsessionSettings.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.trust = TrustSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.mobile = MobileSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.take(AppThemeSetting().parse(root), \.appTheme)
         snapshot.take(ChromeThemeSetting().parse(root), \.chromeTheme)

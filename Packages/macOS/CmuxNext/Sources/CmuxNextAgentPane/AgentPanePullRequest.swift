@@ -7,7 +7,7 @@ public import Foundation
 /// (`pr.inspect`) also shows its author.
 public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
     /// The `gh pr view --json` fields read.
-    public static let fields = "url,number,title,state,isDraft,reviewDecision,mergeable,statusCheckRollup,createdAt,mergedAt,author"
+    public static let fields = "url,number,title,state,isDraft,reviewDecision,mergeable,statusCheckRollup,createdAt,mergedAt,additions,deletions,author"
     /// The most checks the popover lists.
     static let maximumChecks = 50
 
@@ -55,11 +55,15 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
     /// merged. Agent PR cycle time runs between the two (hq#1920).
     public var createdAt: String
     public var mergedAt: String
+    /// Lines added and removed; 0 when gh did not say.
+    public var additions: Int
+    public var deletions: Int
     /// Its author's GitHub login; empty when gh does not say.
     public var author: String
 
     public init(url: String, number: Int, title: String = "", state: String, review: String = "", mergeable: String = "",
-                checks: Checks, checkList: [Check] = [], createdAt: String = "", mergedAt: String = "", author: String = "") {
+                checks: Checks, checkList: [Check] = [], createdAt: String = "", mergedAt: String = "",
+                additions: Int = 0, deletions: Int = 0, author: String = "") {
         self.url = url
         self.number = number
         self.title = title
@@ -70,6 +74,8 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
         self.checkList = checkList
         self.createdAt = createdAt
         self.mergedAt = mergedAt
+        self.additions = additions
+        self.deletions = deletions
         self.author = author
     }
 
@@ -87,6 +93,7 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
                   mergeable: mergeable == "unknown" ? "" : mergeable,
                   checks: Self.checks(rollup), checkList: Self.checkList(rollup),
                   createdAt: object["createdAt"] as? String ?? "", mergedAt: object["mergedAt"] as? String ?? "",
+                  additions: object["additions"] as? Int ?? 0, deletions: object["deletions"] as? Int ?? 0,
                   author: ((object["author"] as? [String: Any])?["login"] as? String).map { String($0.prefix(100)) } ?? "")
     }
 
