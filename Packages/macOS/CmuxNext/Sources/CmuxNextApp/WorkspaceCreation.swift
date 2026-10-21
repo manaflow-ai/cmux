@@ -62,11 +62,10 @@ enum WorkspaceCreation {
         repair: EmptyWorkspaceRepair,
         terminal: (WorkspaceKey) async throws -> T
     ) async throws -> T {
-        // The daemon places it by the rule in its create (`NewWorkspacePlacements.placedByDaemon`).
-        if rule != nil { NewWorkspacePlacements.placedByDaemon.insert(key.rawValue) }
+        let sent = NewWorkspacePlacements.sending(rule, key: key, on: connection)
         return try await repair.populating(key) {
             try await withTerminal(
-                key, createWorkspace: { _ = try await connection.createWorkspaceRetryingLateReplies(name: name, key: key, placesBySetting: rule != nil, current: rule?.current.map { WorkspaceKey(rawValue: $0) }, placement: rule?.placement.rawValue) },
+                key, createWorkspace: { _ = try await connection.createWorkspaceRetryingLateReplies(name: name, key: key, placesBySetting: sent != nil, current: sent?.current.map { WorkspaceKey(rawValue: $0) }, placement: sent?.placement.rawValue) },
                 createTerminal: terminal,
                 closeWorkspace: { try await closeHalfCreated($0, on: connection, repair: repair) }
             )
@@ -86,11 +85,11 @@ enum WorkspaceCreation {
         repair: EmptyWorkspaceRepair,
         firstTab: (WorkspaceMutationResult) async throws -> T
     ) async throws -> T {
-        if rule != nil { NewWorkspacePlacements.placedByDaemon.insert(key.rawValue) }
+        let sent = NewWorkspacePlacements.sending(rule, key: key, on: connection)
         return try await repair.populating(key) {
             var created: WorkspaceMutationResult?
             return try await withTerminal(
-                key, createWorkspace: { created = try await connection.createWorkspaceRetryingLateReplies(name: name, key: key, placesBySetting: rule != nil, current: rule?.current.map { WorkspaceKey(rawValue: $0) }, placement: rule?.placement.rawValue) },
+                key, createWorkspace: { created = try await connection.createWorkspaceRetryingLateReplies(name: name, key: key, placesBySetting: sent != nil, current: sent?.current.map { WorkspaceKey(rawValue: $0) }, placement: sent?.placement.rawValue) },
                 createTerminal: { _ in
                     guard let created else { throw DaemonError.notConnected }
                     return try await firstTab(created)

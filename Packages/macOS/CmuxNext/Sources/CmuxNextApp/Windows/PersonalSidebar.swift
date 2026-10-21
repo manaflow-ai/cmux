@@ -105,7 +105,8 @@ enum PersonalSidebar {
             if sections.count == 1, sections[0].group == nil, sections[0].workspaces.isEmpty { sections = [] }
             SidebarDocSections.insertFirst(Array(fresh.reversed()), into: &sections, machineSections: sections.count)
         }
-        for case let (workspace, beside?) in besides where !SidebarDocSections.insert(workspace, beside: beside, into: &sections) {
+        for case let (workspace, beside?) in besides where !SidebarDocSections.insert(workspace, beside: beside, into: &sections,
+                                                                                         within: sections.count) {
             // Its neighbour is not listed here: where the others go.
             if newRowsFirst { SidebarDocSections.insertFirst([workspace], into: &sections, machineSections: sections.count) } else {
                 let last = sections.lastIndex { $0.group == nil }

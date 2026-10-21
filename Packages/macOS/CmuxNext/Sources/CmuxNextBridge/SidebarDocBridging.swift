@@ -169,7 +169,7 @@ public final class SidebarDocSections {
         // In creation order, so a new workspace beside another new one finds it listed.
         let unanchored = unplaced.filter { workspace in
             guard let anchor = unplacedAnchor(workspace) else { return true }
-            return !Self.insert(workspace, beside: anchor, into: &sections)
+            return !Self.insert(workspace, beside: anchor, into: &sections, within: machineSections)
         }
         if !unanchored.isEmpty {
             if placesNewRowsFirst() {
@@ -186,13 +186,15 @@ public final class SidebarDocSections {
     }
 
     /// Lists `workspace` right before or after the workspace `anchor` names, in that one's section (its
-    /// group, or its loose run). False when `sections` does not list that workspace.
-    public static func insert(_ workspace: WorkspaceModel, beside anchor: UnplacedAnchor, into sections: inout [CmuxNextDaemon.SidebarSection]) -> Bool {
+    /// group, or its loose run), among the machine's own first `within` sections (not Pinned or a
+    /// custom section's group). False when they do not list that workspace.
+    public static func insert(_ workspace: WorkspaceModel, beside anchor: UnplacedAnchor, into sections: inout [CmuxNextDaemon.SidebarSection],
+                              within: Int) -> Bool {
         let (id, after) = switch anchor {
         case .before(let id): (id, false)
         case .after(let id): (id, true)
         }
-        for (index, section) in sections.enumerated() {
+        for (index, section) in sections.enumerated().prefix(within) {
             guard let at = section.workspaces.firstIndex(where: { $0.id == id }) else { continue }
             var workspaces = section.workspaces
             workspaces.insert(workspace, at: after ? at + 1 : at)

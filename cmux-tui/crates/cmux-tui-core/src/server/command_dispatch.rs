@@ -316,16 +316,8 @@ pub(super) fn handle_command_with_cancellation(
             cmd_workspaces::new_workspace(mux, actor, name, cols, rows)
         }
         Command::CreateWorkspace { name, key, places_by_setting, current, placement, mutation } => {
-            cmd_workspaces::create_workspace(
-                mux,
-                client,
-                name,
-                key,
-                places_by_setting,
-                current,
-                placement,
-                mutation,
-            )
+            let placed_by = cmd_workspaces::client_placement(places_by_setting, current, placement);
+            cmd_workspaces::create_workspace(mux, client, name, key, placed_by, mutation)
         }
         Command::CreateTerminal {
             workspace,

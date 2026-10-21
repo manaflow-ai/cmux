@@ -25,6 +25,11 @@ use crate::workspace_registry::{ResourceChange, ResourcePatch, WorkspaceRegistry
 /// snapshots, `workspace.list {order}` and the create-time personal row.
 pub(crate) const PERSONAL_MIXED_ORDER_CAPABILITY: &str = "personal-mixed-order-v1";
 
+/// Advertises `create-workspace {places_by_setting, current, placement}`: the
+/// daemon places a client's new workspace against the client's current
+/// workspace by the client's `workspaces.newPlacement` ([`ClientCurrent`]).
+pub(crate) const CLIENT_CURRENT_CAPABILITY: &str = "workspace-create-current-v1";
+
 /// The live public ids of this session's workspaces in the personal sidebar
 /// order. Workspaces without a personal row are not listed.
 pub(crate) fn sidebar_workspace_ids(connection: &Connection) -> anyhow::Result<Vec<String>> {

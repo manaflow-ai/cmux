@@ -168,6 +168,7 @@ struct WorkspaceSpawner {
                     }
                 }, settle: { await Self.settled(on: daemon) }) { try await named.create(key, rule: rule) }
             } catch {
+                NewWorkspacePlacements.forget(key.rawValue, windows: windows)
                 PendingWorkspaceRows.shared.remove(key.rawValue)
                 throw error
             }
@@ -211,7 +212,7 @@ struct WorkspaceSpawner {
                 }
             } catch {
                 shown.abandon()
-                windows.pendingPlacements[key.rawValue] = nil
+                NewWorkspacePlacements.forget(key.rawValue, windows: windows)
                 PendingWorkspaceRows.shared.remove(key.rawValue)
                 throw error
             }

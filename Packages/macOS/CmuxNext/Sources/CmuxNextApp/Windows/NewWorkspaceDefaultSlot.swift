@@ -113,6 +113,22 @@ enum NewWorkspacePlacements {
     /// `applyPendingPlacements` sends no second write for them (a second state change and render).
     static var placedByDaemon: Set<String> = []
 
+    /// `rule` when `connection`'s daemon places a create by it (`workspace-create-current-v1`), recording
+    /// `key` in ``placedByDaemon``; nil for an older daemon, which ignores the fields, so the app still
+    /// sends its own placement afterwards.
+    static func sending(_ rule: NewWorkspaceDefaultSlot?, key: WorkspaceKey, on connection: DaemonConnection) -> NewWorkspaceDefaultSlot? {
+        guard let rule, connection.identity?.supports(DaemonCapabilities.shared.workspaceCreateCurrent) == true else { return nil }
+        placedByDaemon.insert(key.rawValue)
+        return rule
+    }
+
+    /// Drops what a create that ended without its workspace left for it.
+    static func forget(_ id: String, windows: WindowManager) {
+        windows.pendingPlacements[id] = nil
+        placedByDaemon.remove(id)
+        anchors[id] = nil
+    }
+
     /// The neighbour each new workspace lists beside until the sidebar document places it
     /// (`SidebarDocSections.unplacedAnchor`), where the daemon's create puts it. Dropped once the
     /// document places the workspace or it is gone (`unplacedAnchor(of:)`).
