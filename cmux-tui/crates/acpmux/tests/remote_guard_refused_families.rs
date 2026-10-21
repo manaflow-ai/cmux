@@ -35,12 +35,20 @@ fn dir(tag: &str) -> PathBuf {
 /// config tries to open every one of them to the Web, and makes Codex the
 /// default harness.
 fn hub(d: &Path) -> Arc<Hub> {
+    let spawned = d.join("work/spawned").to_string_lossy().into_owned();
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
             "fcodex": {"argv": ["python3", FAKE], "family": "codex"},
             "fopencode": {"argv": ["python3", FAKE], "family": "opencode"},
             "falias": {"argv": ["python3", FAKE, "codex-acp"], "family": "alias"},
             "flater": {"argv": ["python3", FAKE], "family": "later"},
+            "ftemplate": {"argv": ["${cwd}/spawned"], "family": "later"},
+            "fmodel": {"argv": ["${model}"], "family": "later"},
+            "frelative": {"argv": ["./spawned"], "family": "later"},
+            "fargcwd": {"argv": ["python3", "${cwd}/spawned"], "family": "later"},
+            "fargmodel": {"argv": ["/bin/sh", "-c", "${model}"], "family": "later"},
+            "fenvcwd": {"argv": ["python3", FAKE], "family": "later", "env": {"PYTHONPATH": "${cwd}"}},
+            "funknown": {"argv": [spawned], "family": "unknown"},
         },
         "defaultHarness": "fcodex",
         "permissionPolicy": "ask",
@@ -56,6 +64,19 @@ fn hub(d: &Path) -> Arc<Hub> {
     cfg.store.mode = StoreMode::Memory;
     let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
     Hub::new(cfg, store)
+}
+
+fn write_executable(path: &Path, text: &str) {
+    use std::io::Write as _;
+    use std::process::{Command, Stdio};
+    let mut child = Command::new("/bin/sh")
+        .args(["-c", "cat >\"$1\" && chmod 755 \"$1\"", "sh"])
+        .arg(path)
+        .stdin(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(text.as_bytes()).unwrap();
+    assert!(child.wait().unwrap().success());
 }
 
 struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
@@ -192,6 +213,96 @@ async fn a_web_session_new_on_codex_or_opencode_is_refused_and_ended() {
     let r = web.new_on(&d, None).await;
     assert!(err(&r).contains("no reviewed asking mode"), "default: {r}");
     assert_eq!(local.count().await, before, "every refused session was ended");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[tokio::test]
+async fn a_web_session_is_admitted_and_its_executable_fixed_before_any_spawn() {
+    let d = dir("preflight");
+    let marker = d.join("spawned-marker");
+    let script = d.join("work/spawned");
+    write_executable(
+        &script,
+        &format!("#!/bin/sh\nprintf ran >{}\nexec python3 {} \"$@\"\n", marker.display(), FAKE),
+    );
+    let hub = hub(&d);
+    let mut web = Client::new(&hub, Origin::Web);
+
+    for (harness, extra) in
+        [("ftemplate", json!({})), ("fmodel", json!({"model": script})), ("frelative", json!({}))]
+    {
+        let _ = std::fs::remove_file(&marker);
+        let mut p = json!({"cwd": d.join("work"), "mcpServers": [], "_meta": {"acpmux": {"harness": harness}}});
+        for (key, value) in extra.as_object().unwrap() {
+            p[key] = value.clone();
+        }
+        let reply = web.call("session/new", p).await;
+        assert_eq!(reason(&reply), "remote.executable_refused", "{harness}: {reply}");
+        assert!(!marker.exists(), "{harness} ran before its executable was refused");
+    }
+
+    let _ = std::fs::remove_file(&marker);
+    let reply = web.new_on(&d, Some("funknown")).await;
+    assert_eq!(reason(&reply), "remote.mode_not_asking", "{reply}");
+    assert!(!marker.exists(), "the unknown family ran before mode admission");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[tokio::test]
+async fn the_session_owner_refuses_remote_family_and_launch_shape_before_spawn() {
+    let d = dir("owner-admission");
+    let marker = d.join("spawned-marker");
+    let script = d.join("work/spawned");
+    write_executable(
+        &script,
+        &format!("#!/bin/sh\nprintf ran >{}\nexec python3 {} \"$@\"\n", marker.display(), FAKE),
+    );
+    let hub = hub(&d);
+
+    let refused = match hub
+        .new_session(acpmux::hub::NewRequest {
+            harness: Some("funknown".into()),
+            cwd: Some(d.join("work")),
+            remote: true,
+            ..Default::default()
+        })
+        .await
+    {
+        Err(error) => error,
+        Ok(_) => panic!("the owner admitted an unreviewed remote family"),
+    };
+    assert_eq!(
+        refused.data.as_ref().and_then(|v| v.get("reason")).and_then(Value::as_str),
+        Some("remote.mode_not_asking")
+    );
+    assert!(!marker.exists(), "the unreviewed family spawned before owner admission");
+
+    for (harness, model) in [
+        ("fargcwd", None),
+        ("fargmodel", Some(format!("printf model-ran >{}", marker.display()))),
+        ("fenvcwd", None),
+    ] {
+        let _ = std::fs::remove_file(&marker);
+        let refused = match hub
+            .new_session(acpmux::hub::NewRequest {
+                harness: Some(harness.into()),
+                cwd: Some(d.join("work")),
+                model,
+                remote: true,
+                ..Default::default()
+            })
+            .await
+        {
+            Err(error) => error,
+            Ok(_) => panic!("the owner admitted a remote-controlled launch shape"),
+        };
+        assert_eq!(
+            refused.data.as_ref().and_then(|v| v.get("reason")).and_then(Value::as_str),
+            Some("remote.executable_refused"),
+            "{harness}: {refused:?}"
+        );
+        assert!(!marker.exists(), "{harness} ran before its launch shape was refused");
+    }
     let _ = std::fs::remove_dir_all(&d);
 }
 
