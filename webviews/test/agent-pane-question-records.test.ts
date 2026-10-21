@@ -268,7 +268,9 @@ await requireBrowserLane("agent-pane-question-records.test.ts", async () => {
         rawInput: { file_path: "src/auth.ts" },
       }),
     ]);
-    const after = page.getByText("Read src/auth.ts").first();
+    // The read's own row: the running turn's status line names the call in flight too (#21631),
+    // and that line heads the turn, above the question.
+    const after = page.locator(".cv-tool__text", { hasText: "Read src/auth.ts" }).first();
     await after.waitFor({ timeout: 5_000 });
     const [record, read] = await Promise.all([
       page.locator(".acpmux-question-answered").first().boundingBox(),

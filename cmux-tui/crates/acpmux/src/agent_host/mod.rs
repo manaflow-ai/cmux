@@ -161,7 +161,8 @@ impl Entry {
 }
 
 /// What the controller asks the host to run. Sent once on the private
-/// bootstrap pipe; never written to disk (it carries the environment).
+/// bootstrap pipe; never written to disk (it carries the environment), but
+/// for the caller token the host keeps in its record (`HostRecord::caller_token`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpawnSpec {
     pub session_id: String,
@@ -201,6 +202,14 @@ pub struct TranslatorSpec {
     pub claude_session_id: Option<String>,
 }
 
+impl SpawnSpec {
+    /// The session's caller token in the harness env, which the host keeps in its record.
+    pub fn caller_token(&self) -> Option<String> {
+        let key = crate::hub::person::CALLER_TOKEN_ENV;
+        self.env.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone())
+    }
+}
+
 /// The host's answer on the bootstrap pipe.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "t", rename_all = "snake_case")]
@@ -220,6 +229,12 @@ pub struct HostRecord {
     pub start_nonce: String,
     pub harness_pid: Option<u32>,
     pub owner_token: String,
+    /// The session's caller token its harness started with (`hub/person.rs`
+    /// (a)): the next daemon run that adopts this host knows the agent and
+    /// its MCP servers by it. Owner-only like `owner_token`, which grants
+    /// more (the harness's own stdio). None: a host of an older build.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caller_token: Option<String>,
     pub protocol_min: u16,
     pub protocol_max: u16,
     pub host_build: String,

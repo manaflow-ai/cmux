@@ -212,6 +212,7 @@ let package = Package(
                 "CmuxNextDiff",
                 "CmuxNextHome",
                 "CmuxNextHomeEngine",
+                "CmuxNextChiefPetWiring",
                 "CmuxNextHostedChief",
                 "CmuxNextDaemonService",
                 "CmuxNextAgentUpdates",
@@ -299,6 +300,13 @@ let package = Package(
             resources: [
                 .process("Resources"),
             ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // The Chief pet's glue outside the App (code-quality SW14): its rows in the Chief Settings
+        // popover (Show Chief Pet, Pet Character) and the notice it makes from a daemon notification.
+        .target(
+            name: "CmuxNextChiefPetWiring",
+            dependencies: ["CmuxNextActions", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextFloating", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
@@ -823,7 +831,7 @@ let package = Package(
         // and the App Store window. The App supplies the operation sink.
         .target(
             name: "CmuxNextApps",
-            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextSettings", "CmuxNextWakeups"],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
                 .copy("Resources/AppPlatform"),
@@ -1350,8 +1358,8 @@ let package = Package(
             swiftSettings: daemonSwiftSettings
         ),
         // The cmux iPhone host (Settings > Mobile): follows the account and
-        // mobile.allowIPhoneConnections, runs the bundled cnx-hostd through
-        // CmuxNextMobile's CnxHostSupervisor, lists and removes the account's
+        // mobile.allowIPhoneConnections, runs the bundled cmux-mobile-host through
+        // CmuxNextMobile's MobileHostSupervisor, lists and removes the account's
         // phones, and projects the Settings page's card.
         .target(
             name: "CmuxNextMobileHost",
