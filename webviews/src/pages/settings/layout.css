@@ -307,7 +307,8 @@
   white-space: normal;
 }
 
-.link-button {
+.link-button,
+.channel-link {
   color: var(--accent-text);
 }
 
