@@ -10,11 +10,11 @@ import Foundation
 @MainActor
 final class AgentReplyNames {
     /// The most entries one folder's walk reads (the index then misses the rest).
-    static let entryLimit = 200_000
+    nonisolated static let entryLimit = 200_000
     /// How long a folder's index answers before the next search walks it again.
     static let freshFor: Duration = .seconds(30)
     /// Matches kept per name, best ranked by the pane.
-    static let hitsPerName = 20
+    nonisolated static let hitsPerName = 20
 
     private var indexes: [String: (index: FolderNameIndex, built: ContinuousClock.Instant)] = [:]
 
