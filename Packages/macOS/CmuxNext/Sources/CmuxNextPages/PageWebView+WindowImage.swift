@@ -20,14 +20,21 @@ extension PageWebView {
 }
 
 extension PageRegistry {
-    /// The Chromium pages `window` shows (in it, not hidden, not the pool's parked spare), each
-    /// with its area in window coordinates, oldest first.
+    /// The Chromium pages `window` shows (in it, not hidden, not transparent, not the pool's
+    /// parked spare), each with its area in window coordinates, oldest first. A page under
+    /// an alpha-0 view (the New Tab spare's off-screen parking, a pane holding its paint) or
+    /// outside the window's content is not shown.
     public static func shownChromiumPages(in window: NSWindow) -> [(page: PageWebView, rect: NSRect)] {
-        pages().compactMap { page in
+        let content = window.contentView.map { $0.convert($0.bounds, to: nil) } ?? .zero
+        return pages().compactMap { page in
             guard page.chromiumSession != nil, page.window === window, !page.isParkedSpare,
-                  !page.isHiddenOrHasHiddenAncestor else { return nil }
+                  !page.isHiddenOrHasHiddenAncestor, !isTransparent(page) else { return nil }
             let rect = page.convert(page.bounds, to: nil)
-            return rect.width > 0 && rect.height > 0 ? (page, rect) : nil
+            return rect.width > 0 && rect.height > 0 && rect.intersects(content) ? (page, rect) : nil
         }
+    }
+
+    private static func isTransparent(_ view: NSView) -> Bool {
+        sequence(first: view, next: \.superview).contains { $0.alphaValue == 0 }
     }
 }
