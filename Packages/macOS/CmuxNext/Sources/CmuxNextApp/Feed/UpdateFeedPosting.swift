@@ -15,26 +15,47 @@ enum UpdateFeedPosting {
     static let postedKey = "cmux.feed.updateCard.postedVersion"
 
     /// The card for `highlights`, or nil when it has no changes to list yet (its notes are still
-    /// loading) or names no update (the version it came from is this one).
+    /// loading) or names no update (the version it came from is this one). A record saved before
+    /// `rest` existed counts the changes it left out (`moreCount`).
     static func card(for highlights: UpdateHighlights, at: Date) -> UpdateFeedCard? {
-        let changes = (highlights.items + (highlights.rest ?? [])).map(\.title).filter { !$0.isEmpty }
+        let listed = highlights.items + (highlights.rest ?? [])
+        let changes = listed.map(\.title).filter { !$0.isEmpty }
         guard !changes.isEmpty, highlights.fromVersion != highlights.version else { return nil }
         return UpdateFeedCard(subject: .app, from: highlights.fromVersion.isEmpty ? nil : highlights.fromVersion,
-                              to: highlights.version, changes: changes, at: at)
+                              to: highlights.version, changes: changes, unlisted: highlights.rest == nil ? highlights.moreCount : 0, at: at)
     }
 
-    /// Follows the Updated card's highlights and posts the card once they list changes.
+    /// What one look at the highlights does: post this card, stop (this version's card was
+    /// posted already), or wait for the highlights to list changes.
+    enum Step: Equatable {
+        case post(UpdateFeedCard)
+        case done
+        case wait
+    }
+
+    static func step(_ highlights: UpdateHighlights?, posted: String?, at: Date) -> Step {
+        guard let highlights else { return .wait }
+        guard posted != highlights.version else { return .done }
+        return card(for: highlights, at: at).map(Step.post) ?? .wait
+    }
+
+    /// Follows the Updated card's highlights and posts the card once they list changes. On a
+    /// launch with no update it waits with the services (an update record only appears at launch,
+    /// so it never posts then).
     static func follow(_ services: AppServices, defaults: UserDefaults = .standard) -> Task<Void, Never> {
         let updater = services.updater
         // task-owner: AppServices.updateFeedObservation: ends after the one post, or with the services.
         return Task { [weak services] in
             for await highlights in ObservationStream({ updater.lastUpdateHighlights ?? updater.updatedWithoutRecordHighlights }) {
-                guard let services, let highlights else { continue }
-                guard defaults.string(forKey: postedKey) != highlights.version else { return }
-                guard let card = card(for: highlights, at: Date()) else { continue }
-                services.feed.post(update: card)
-                defaults.set(highlights.version, forKey: postedKey)
-                return
+                guard let services else { return }
+                switch step(highlights, posted: defaults.string(forKey: postedKey), at: Date()) {
+                case .wait: continue
+                case .done: return
+                case let .post(card):
+                    services.feed.post(update: card)
+                    defaults.set(card.to, forKey: postedKey)
+                    return
+                }
             }
         }
     }
@@ -54,7 +75,7 @@ enum UpdateFeedPosting {
             subject: .harness(id: "claude", name: "Claude Code"), from: "2.1.303", to: "2.1.305",
             changes: ["Faster startup when many MCP servers are configured", "Fixed a hang when a hook printed a large output",
                       "`/model` lists the models your plan includes"],
-            notes: URL(string: "https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md"), at: Date()))
+            unlisted: 4, notes: URL(string: "https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md"), at: Date()))
         return posted + 1
     }
 }

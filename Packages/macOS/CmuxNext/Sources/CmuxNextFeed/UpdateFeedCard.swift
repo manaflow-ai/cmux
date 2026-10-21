@@ -22,18 +22,24 @@ public nonisolated struct UpdateFeedCard: Sendable, Equatable {
     public var to: String
     /// The changes, most important first; the card lists ``maxChanges`` and counts the rest.
     public var changes: [String]
-    /// The full notes (a harness's published changelog), when there is a page for them.
+    /// The full notes (a harness's published changelog), when there is a page for them: the item's
+    /// context link (the Feed shows the body as plain text, so it holds no Markdown link).
     public var notes: URL?
+
+    /// Changes not in ``changes`` that the card counts with the rest (a record that kept only the
+    /// top items and their total).
+    public var unlisted: Int
     public var at: Date
 
     /// How many changes the card lists.
     public static let maxChanges = 5
 
-    public init(subject: Subject, from: String?, to: String, changes: [String], notes: URL? = nil, at: Date) {
+    public init(subject: Subject, from: String?, to: String, changes: [String], unlisted: Int = 0, notes: URL? = nil, at: Date) {
         self.subject = subject
         self.from = from
         self.to = to
         self.changes = changes
+        self.unlisted = max(0, unlisted)
         self.notes = notes
         self.at = at
     }
@@ -61,8 +67,7 @@ public nonisolated struct UpdateFeedCard: Sendable, Equatable {
         return "nightly " + String(version[range.upperBound...].prefix(7))
     }
 
-    /// The card's Markdown: where it came from, the top changes as bullets, how many more, and
-    /// the full notes' link.
+    /// The card's text: where it came from, the top changes as bullets and how many more.
     public var body: String {
         var lines: [String] = []
         if let from, from != to { lines.append(FeedStrings.updatedFrom(Self.readable(from))) }
@@ -71,11 +76,8 @@ public nonisolated struct UpdateFeedCard: Sendable, Equatable {
             if !lines.isEmpty { lines.append("") }
             lines += shown.map { "- " + Self.oneLine($0) }
         }
-        if changes.count > shown.count { lines.append(FeedStrings.moreChanges(changes.count - shown.count)) }
-        if let notes, notes.scheme == "https" {
-            lines.append("")
-            lines.append("[\(FeedStrings.fullNotes)](\(notes.absoluteString))")
-        }
+        let more = changes.count - shown.count + unlisted
+        if more > 0 { lines.append(FeedStrings.moreChanges(more)) }
         return String(lines.joined(separator: "\n").prefix(4096))
     }
 
@@ -88,15 +90,19 @@ public nonisolated struct UpdateFeedCard: Sendable, Equatable {
         return FeedItem(
             id: Self.stableID(dedupeKey), home: .local(install: "updates"),
             title: FeedStrings.updatedTo(name, Self.readable(to)), body: body, prompt: .notice, priority: .normal,
-            dedupeKey: dedupeKey, thread: thread, context: FeedContext(url: notes),
+            dedupeKey: dedupeKey, thread: thread, context: FeedContext(url: notes?.scheme == "https" ? notes : nil),
             poster: FeedPoster(kind: subject == .app ? .app : .harness, label: name), createdAt: at)
     }
 
-    /// A change on one line, Markdown list syntax and all (a changelog line can hold a nested list).
+    /// A change on its first line without a list marker (a changelog line can hold a nested list);
+    /// emphasis such as `**Bold**` stays.
     static func oneLine(_ text: String) -> String {
-        var line = text.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
-        while let first = line.first, first == "-" || first == "*" || first == " " { line.removeFirst() }
-        return line
+        var line = (text.split(whereSeparator: \.isNewline).first ?? "").drop { $0 == " " }
+        // Each pass drops one marker and the line gets shorter, so it ends.
+        while line.count >= 2, line.first == "-" || line.first == "*", line.dropFirst().first == " " {
+            line = line.dropFirst(2).drop { $0 == " " }
+        }
+        return String(line)
     }
 
     static func stableID(_ key: String) -> String {

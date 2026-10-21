@@ -62,7 +62,6 @@ nonisolated enum FeedStrings {
     static func updatedTo(_ name: String, _ version: String) -> String { t("update.updatedTo", "\(name) updated to \(version)") }
     static func updatedFrom(_ version: String) -> String { t("update.from", "From \(version)") }
     static func moreChanges(_ count: Int) -> String { t("update.moreChanges", "\(count) more changes") }
-    static var fullNotes: String { t("update.fullNotes", "Full release notes") }
 
     static var disconnected: String { t("owner.disconnected", "Feed is unreachable") }
     static var moving: String { t("owner.moving", "Moving to the cloud. Try again.") }
