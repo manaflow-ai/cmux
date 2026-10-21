@@ -41,6 +41,9 @@ final class AppsService {
         let model = AppStoreModel(client: client)
         model.recovery = { recovery.appsRecovery }
         model.onNavigate = { self?.services.locationTrail.pageHistoryDidChange() }
+        model.onOpenApp = { app in
+            _ = self?.services.registry.perform("app.open", invocation: ActionInvocation(arguments: ["app": .string(app)], origin: .user))
+        }
         return model
     }
 

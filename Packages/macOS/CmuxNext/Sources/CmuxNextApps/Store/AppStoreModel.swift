@@ -53,6 +53,8 @@ public final class AppStoreModel {
     /// Called after every page navigation (the titlebar arrows re-read
     /// ``canGoBack`` and ``canGoForward``).
     @ObservationIgnored public var onNavigate: (() -> Void)?
+    /// Opens an app's page (the App's `app.open`); Discover's featured Cloud banner shows only while set.
+    @ObservationIgnored public var onOpenApp: (@MainActor (String) -> Void)?
     /// The App's recovery controls for the disconnected banner while
     /// cmux-tui is not connected (Retry Now, Restart cmux-tui); read in the
     /// banner's body, so it follows what they observe. Nil offers none.
