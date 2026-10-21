@@ -4363,6 +4363,7 @@ mod tests {
         }
     }
 
+    mod argv_tail_tests;
     mod name_source_tests;
     mod split_focus_tests;
     mod transport_path_coverage_tests;
