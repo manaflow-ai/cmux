@@ -163,7 +163,17 @@ impl Upstream {
                 }
                 let mut tool = tool.clone();
                 let description = tool["description"].as_str().unwrap_or_default();
-                tool["description"] = json!(format!("[{server}] {description}"));
+                // The server's own instructions (the computer use consent
+                // rules) no longer reach the model through its `initialize`:
+                // they go with each of its tools, which a harness with tool
+                // search loads only when a turn needs them.
+                let rules = self
+                    .instructions
+                    .as_deref()
+                    .filter(|r| !r.trim().is_empty())
+                    .map(|r| format!("\n\n{server} rules: {r}"))
+                    .unwrap_or_default();
+                tool["description"] = json!(format!("[{server}] {description}{rules}"));
                 tool["name"] = json!(name);
                 Some(tool)
             })

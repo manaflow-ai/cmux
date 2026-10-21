@@ -328,7 +328,16 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
     std::fs::write(&cmux_json, r#"{"agents": {"memory": {"enabled": true}}}"#).unwrap();
     let id = local.new_session("fake").await;
     let servers: Value = serde_json::from_str(&local.ask(&id, "mcp").await).unwrap();
-    let memory = servers
+    // It runs behind the cmux server, like the other agent tool servers.
+    let cmux = servers.as_array().unwrap().iter().find(|s| s["name"] == "cmux").unwrap();
+    let folded = cmux["env"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["name"] == "CMUX_MCP_UPSTREAMS")
+        .map(|e| serde_json::from_str::<Value>(e["value"].as_str().unwrap()).unwrap())
+        .unwrap_or_else(|| panic!("{servers}"));
+    let memory = folded
         .as_array()
         .unwrap()
         .iter()
@@ -336,7 +345,7 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
         .unwrap_or_else(|| panic!("{servers}"));
     assert_eq!(memory["command"], json!(chief), "{servers}");
     assert_eq!(memory["args"], json!(["agent-memory", "mcp"]), "{servers}");
-    assert!(memory["env"].to_string().contains(&id), "{servers}");
+    assert_eq!(memory["env"]["CMUX_AGENT_SESSION"], json!(id), "{servers}");
 
     // The switch turns it off for the next session.
     // SAFETY: as above; no session is starting concurrently.

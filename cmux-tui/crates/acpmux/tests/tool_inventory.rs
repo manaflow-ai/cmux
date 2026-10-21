@@ -335,7 +335,7 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
         let list: Value = serde_json::from_str(list).unwrap();
         list.as_array().unwrap().iter().map(|s| s["name"].as_str().unwrap().to_owned()).collect()
     };
-    assert_eq!(upstreams(&args), ["cmux-cua"], "{args:?}");
+    assert!(upstreams(&args).contains(&"cmux-cua".to_owned()), "{args:?}");
     for enabled in [false, true] {
         let set = local
             .call(
@@ -349,8 +349,8 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
             != enabled
         {}
         let args = argv(&local.ask(&claude, "hi").await);
-        let want: &[&str] = if enabled { &["cmux-cua"] } else { &[] };
-        assert_eq!(upstreams(&args), want, "{args:?}");
+        let has = upstreams(&args).contains(&"cmux-cua".to_owned());
+        assert_eq!(has, enabled, "{args:?}");
     }
 
     // A skill, or a server the user's own config turned off, cannot be

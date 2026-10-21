@@ -52,6 +52,10 @@ fn code_mode_runs_the_chats_other_servers_behind_it() {
     let listed =
         server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
     assert!(listed["result"]["tools"][0]["description"].as_str().unwrap().contains("cua (2)"));
+    // Listed directly (every tool), each carries its server's rules.
+    let all = server.list();
+    let look = all.iter().find(|t| t["name"] == "cua_look").expect("cua_look is listed");
+    assert!(look["description"].as_str().unwrap().contains("Ask before you click."), "{look}");
     let index = call(&mut server, "cmux_docs", json!({}));
     assert_eq!(index["structuredContent"]["families"]["cua"], json!(["cua_look", "cua_fail"]));
     assert_eq!(index["structuredContent"]["servers"]["cmux-cua"], "Ask before you click.");
