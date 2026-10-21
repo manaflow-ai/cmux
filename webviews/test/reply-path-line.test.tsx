@@ -293,11 +293,94 @@ test("a bare file name in code is a chip only when the host finds the file", asy
   }
 });
 
-test("a code span path the host reports missing keeps its code styling", () => {
-  // No host answer yet for a bare name: code, never an unstyled span.
-  const html = renderToStaticMarkup(<>{renderInline("`test.py`")}</>);
-  expect(html).toContain('<code class="cv-code">test.py</code>');
-  expect(html).not.toContain("cv-chip");
+async function withChipDom(
+  host: (method: string, params: unknown) => Promise<unknown>,
+  body: (
+    root: import("react-dom/client").Root,
+    container: HTMLElement,
+    act: typeof import("react").act,
+  ) => Promise<void>,
+) {
+  const { JSDOM } = await import("jsdom");
+  const { act } = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
+  const { resetLinkStore } = await import("../src/agent-session/acpmux/chips/linkStore");
+  const dom = new JSDOM("<!doctype html><div id=root></div>");
+  const scope = globalThis as Record<string, unknown>;
+  const globals = { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true };
+  const saved = Object.keys(globals).map((key) => [key, key in scope, scope[key]] as const);
+  Object.assign(scope, globals);
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  resetLinkStore();
+  setChipHost(host as never);
+  try {
+    await body(root, container, act);
+  } finally {
+    await act(async () => root.unmount());
+    setChipHost(undefined);
+    resetLinkStore();
+    for (const [key, had, value] of saved) {
+      if (had) scope[key] = value;
+      else delete scope[key];
+    }
+    dom.window.close();
+  }
+}
+
+const POLICY = { outsideRoots: "confirm", remoteImages: "click" };
+
+test("a code span path the host reports missing keeps its code styling", async () => {
+  await withChipDom(
+    async (method, params) => {
+      if (method !== "link.inspect") return undefined;
+      const places: Record<string, unknown> = {};
+      for (const path of (params as { paths: string[] }).paths) places[path] = { place: "missing", folder: false };
+      return { paths: places, sites: {}, policy: POLICY };
+    },
+    async (root, container, act) => {
+      await act(async () => root.render(<>{renderInline("see `src/gone.ts:4` and `/repo/gone.ts`")}</>));
+      await act(async () => {});
+      await act(async () => {});
+      const code = Array.from(container.querySelectorAll("code.cv-code")).map((node) => node.textContent);
+      expect(code).toEqual(["src/gone.ts:4", "/repo/gone.ts"]);
+      expect(container.querySelector(".cv-chip-plain")).toBeNull();
+      expect(container.querySelector("button")).toBeNull();
+    },
+  );
+});
+
+test("bare names are asked in their own call, so other chips never wait for the search", async () => {
+  const calls: string[][] = [];
+  let finishNames: (() => void) | undefined;
+  await withChipDom(
+    async (method, params) => {
+      if (method !== "link.inspect") return undefined;
+      const paths = (params as { paths: string[] }).paths;
+      calls.push(paths);
+      const places: Record<string, unknown> = {};
+      for (const path of paths) places[path] = { place: "root", folder: false };
+      const answer = { paths: places, sites: {}, policy: POLICY };
+      // The name search is slow: hold its answer until the test lets it go.
+      if (paths.includes("next-sync.py")) return new Promise((resolve) => (finishNames = () => resolve(answer)));
+      return answer;
+    },
+    async (root, container, act) => {
+      await act(async () => root.render(<>{renderInline("`src/app.ts:3` and `next-sync.py`")}</>));
+      await act(async () => {});
+      await act(async () => {});
+      expect(calls).toContainEqual(["src/app.ts"]);
+      expect(calls).toContainEqual(["next-sync.py"]);
+      // The folder path is a chip while the name search is still out; the bare name is code.
+      expect(
+        Array.from(container.querySelectorAll("button.cv-chip")).map((node) => (node as HTMLElement).dataset.path),
+      ).toEqual(["src/app.ts"]);
+      await act(async () => finishNames?.());
+      await act(async () => {});
+      expect(container.querySelectorAll("button.cv-chip")).toHaveLength(2);
+    },
+  );
 });
 
 for (const link of [

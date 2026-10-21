@@ -3,8 +3,13 @@ import Testing
 @testable import CmuxNextAgentPane
 
 /// Bare file names in replies (`next-sync.py` for `scripts/next-sync.py`): which text counts as
-/// one, which found file wins, and that a found file still passes the deny list and the roots.
+/// one, that a found file still passes the deny list and the roots, and what a failed open says.
+@MainActor
 struct AgentPaneReplyNamesTests {
+    private actor NoHost: AgentPaneHostProviding {
+        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
+    }
+
     @Test(arguments: ["next-sync.py", "foo.test.ts", "README.md", "package.json", "console.log", ".gitignore.bak"])
     func bareNames(_ text: String) {
         #expect(AgentPaneReplyPaths.isBareName(text))
@@ -15,34 +20,46 @@ struct AgentPaneReplyNamesTests {
         #expect(!AgentPaneReplyPaths.isBareName(text))
     }
 
-    @Test func rankingPrefersTheFewestFoldersThenTheShorterPathThenTheName() {
-        let ranked = AgentPaneReplyPaths.ranked([
-            "/repo/outputs/2026-10-21/deep/build.py",
-            "/repo/scripts/build.py",
-            "/repo/a/build.py",
-            "/repo/outputs/build.py",
-        ])
-        #expect(ranked == ["/repo/a/build.py", "/repo/scripts/build.py", "/repo/outputs/build.py", "/repo/outputs/2026-10-21/deep/build.py"])
-    }
-
-    /// A found file goes through the same checks as a written path: inside a root, not a secret.
-    @Test func aFoundFileStillPassesTheDenyListAndTheRoots() throws {
+    /// The search's candidates are checked like written paths: the first inside a root that is
+    /// not a secret wins, in the order the search gave; only bare names are searched for.
+    @Test func aFoundFileStillPassesTheDenyListAndTheRoots() async throws {
         let base = FileManager.default.temporaryDirectory.appendingPathComponent("reply-names-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: base) }
         let root = base.appendingPathComponent("repo"), outside = base.appendingPathComponent("elsewhere")
-        for folder in [root.appendingPathComponent("scripts"), outside] {
+        for folder in [root.appendingPathComponent("scripts"), root.appendingPathComponent("keys"), outside] {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         }
-        for file in [root.appendingPathComponent("scripts/next-sync.py"), root.appendingPathComponent("scripts/.env.local"),
-                     outside.appendingPathComponent("next-sync.py")] {
-            try Data("x".utf8).write(to: file)
-        }
+        let good = root.appendingPathComponent("scripts/next-sync.py"), elsewhere = outside.appendingPathComponent("next-sync.py")
+        let secret = root.appendingPathComponent("keys/server.pem")
+        for file in [good, elsewhere, secret] { try Data("x".utf8).write(to: file) }
         let paths = AgentPaneReplyPaths(roots: [root.path], home: base.path, base: root.path)
-        // Written as a bare name, the file is not in the root itself.
-        #expect(paths.resolve("next-sync.py")?.place == .missing)
-        #expect(paths.resolve(root.appendingPathComponent("scripts/next-sync.py").path)?.place == .root)
-        #expect(paths.resolve(root.appendingPathComponent("scripts/.env.local").path)?.place == .denied)
-        #expect(paths.resolve(outside.appendingPathComponent("next-sync.py").path)?.place == .outside)
+        let model = AgentPaneModel(host: NoHost())
+        var asked: [String] = []
+        model.replyLinks.findByName = { names, _ in
+            asked = names.sorted()
+            return ["next-sync.py": [elsewhere.path, good.path], "server.pem": [secret.path]]
+        }
+        let found = await model.resolveNames(["next-sync.py", "server.pem", "src/next-sync.py", "1.5"], resolver: paths)
+        #expect(asked == ["next-sync.py", "server.pem"])
+        #expect(found["next-sync.py"]?.place == .root)
+        #expect(found["next-sync.py"]?.path == AcpmuxPathPolicy.canonical(good.path))
+        #expect(found["server.pem"] == nil)
+    }
+
+    /// A person's click on a chip that does not open is told why; a call without a click is not.
+    @Test(arguments: [true, false])
+    func aFailedOpenSaysWhyOnlyForAClick(clicked: Bool) async {
+        let model = AgentPaneModel(host: NoHost())
+        var notices: [String] = []
+        model.replyLinks.notice = { notices.append($0) }
+        if clicked { model.transport.gestures.record(click: true) }
+        _ = await model.respond(to: .openPath("build_compare.py", line: nil))
+        if clicked {
+            #expect(notices.count == 1)
+            #expect(notices.first?.contains("build_compare.py") == true)
+        } else {
+            #expect(notices.isEmpty)
+        }
     }
 
     @Test func aMissingFileSaysWhichNameWasNotFound() throws {

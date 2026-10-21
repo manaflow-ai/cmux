@@ -49,7 +49,7 @@ struct ChatColumnPlacementTests {
         ])))
         let generation = focus.beginIntent()
         var events: [String] = []
-        await ChatColumnPlacement.followNewTabPages(["new-1", "new-2"], isCurrentIntent: { focus.currentState().generation == generation }, isDockCurrent: { true }, seed: {},
+        await ChatColumnPlacement.followNewTabPages(["new-1", "new-2"], start: generation, generation: { focus.currentState().generation }, isDockCurrent: { true }, seed: {},
                                                      prepare: {
             focus.expect(.tab("terminal"), generation: generation)
             events.append("focus-respawn")
@@ -67,7 +67,7 @@ struct ChatColumnPlacementTests {
         let generation = focus.beginIntent()
         var current = true
         var moved: [String] = []
-        await ChatColumnPlacement.followNewTabPages(["new-1", "new-2"], isCurrentIntent: { focus.currentState().generation == generation }, isDockCurrent: { current }, seed: {}, prepare: {}, isChosen: { _ in false }) { page, _ in
+        await ChatColumnPlacement.followNewTabPages(["new-1", "new-2"], start: generation, generation: { focus.currentState().generation }, isDockCurrent: { current }, seed: {}, prepare: {}, isChosen: { _ in false }) { page, _ in
             moved.append(page)
             current = false
             return true
@@ -80,7 +80,7 @@ struct ChatColumnPlacementTests {
         focus.closeFocus = { .previousNeighbor }
         let generation = focus.beginIntent()
         var events: [String] = []
-        await ChatColumnPlacement.followNewTabPages(["new-1"], isCurrentIntent: { focus.currentState().generation == generation }, isDockCurrent: { false }, seed: { events.append("seed") },
+        await ChatColumnPlacement.followNewTabPages(["new-1"], start: generation, generation: { focus.currentState().generation }, isDockCurrent: { false }, seed: { events.append("seed") },
                                                      prepare: { events.append("focus") }, isChosen: { _ in false }) { page, _ in
             events.append(page)
             return true
@@ -93,7 +93,7 @@ struct ChatColumnPlacementTests {
         focus.closeFocus = { .previousNeighbor }
         let generation = focus.beginIntent()
         var moves: [String] = []
-        await ChatColumnPlacement.followNewTabPages(["new-1", "new-2", "new-3"], isCurrentIntent: { focus.currentState().generation == generation }, isDockCurrent: { true }, seed: {}, prepare: {}, isChosen: { _ in false }) { page, index in
+        await ChatColumnPlacement.followNewTabPages(["new-1", "new-2", "new-3"], start: generation, generation: { focus.currentState().generation }, isDockCurrent: { true }, seed: {}, prepare: {}, isChosen: { _ in false }) { page, index in
             moves.append("\(page):\(index)")
             return page != "new-1"
         }
@@ -118,7 +118,7 @@ struct ChatColumnPlacementTests {
         }
         var seeded = false, prepared = false
         var moved: [String] = []
-        await ChatColumnPlacement.followNewTabPages(["page"], isCurrentIntent: { focus.currentState().generation == generation },
+        await ChatColumnPlacement.followNewTabPages(["page"], start: generation, generation: { focus.currentState().generation },
                                                      isDockCurrent: { true }, seed: { seeded = true }, prepare: { prepared = true },
                                                      isChosen: { focus.currentState().topology.pane("source")?.selected == $0 }) { page, _ in
             moved.append(page)
@@ -135,8 +135,28 @@ struct ChatColumnPlacementTests {
         focus.closeFocus = { .previousNeighbor }
         let generation = focus.beginIntent()
         var moved: [String] = []
-        await ChatColumnPlacement.followNewTabPages(["page-1", "page-2"], isCurrentIntent: { focus.currentState().generation == generation },
+        await ChatColumnPlacement.followNewTabPages(["page-1", "page-2"], start: generation, generation: { focus.currentState().generation },
                                                      isDockCurrent: { true }, seed: {}, prepare: {}, isChosen: { _ in true }) { page, _ in
+            moved.append(page)
+            return true
+        }
+        #expect(moved == ["page-1", "page-2"])
+    }
+
+    /// The run's own focus change in `prepare` is not the person's: the pages still follow.
+    @MainActor @Test func theRunsOwnFocusChangeDoesNotKeepPagesBehind() async {
+        let focus = FocusCoordinator()
+        focus.closeFocus = { .previousNeighbor }
+        focus.send(.topology(FocusTopology(workspace: "workspace", panes: [
+            FocusTopology.Pane(id: "dock", tabs: [.init(id: "chat", kind: .agent)], selected: "chat"),
+            FocusTopology.Pane(id: "other", tabs: [.init(id: "terminal", kind: .terminal)], selected: "terminal"),
+        ])))
+        let generation = focus.beginIntent()
+        var moved: [String] = []
+        await ChatColumnPlacement.followNewTabPages(["page-1", "page-2"], start: generation, generation: { focus.currentState().generation },
+                                                     isDockCurrent: { true }, seed: {}, prepare: {
+            focus.send(.focusPane("dock", source: .keyboard))
+        }, isChosen: { _ in true }) { page, _ in
             moved.append(page)
             return true
         }
@@ -163,7 +183,7 @@ struct ChatColumnPlacementTests {
         ])))
         let generation = focus.beginIntent()
         var preparations = 0
-        await ChatColumnPlacement.followNewTabPages(["page-1", "page-2"], isCurrentIntent: { focus.currentState().generation == generation },
+        await ChatColumnPlacement.followNewTabPages(["page-1", "page-2"], start: generation, generation: { focus.currentState().generation },
                                                      isDockCurrent: { true }, seed: {}, prepare: {
             preparations += 1
             focus.expect(.tab("terminal"), generation: generation)
@@ -189,7 +209,7 @@ struct ChatColumnPlacementTests {
         focus.closeFocus = { .previousNeighbor }
         let generation = focus.beginIntent()
         var moved: [String] = []
-        await ChatColumnPlacement.followNewTabPages(["page-1", "page-2"], isCurrentIntent: { focus.currentState().generation == generation },
+        await ChatColumnPlacement.followNewTabPages(["page-1", "page-2"], start: generation, generation: { focus.currentState().generation },
                                                      isDockCurrent: { ChatDockRules.isChatDock(dock, in: store) }, seed: {}, prepare: {},
                                                      isChosen: { _ in false }) { page, _ in
             moved.append(page)
