@@ -2,7 +2,8 @@ import CmuxFoundation
 import CoreGraphics
 
 /// Font sizes, icon/control frames, and badge padding for
-/// ``SidebarWorkspaceGroupHeaderView``, derived from the sidebar font scale.
+/// ``SidebarWorkspaceGroupHeaderView``, derived from the sidebar font scale,
+/// plus the configured member indent that the group-scoped drop indicator follows.
 ///
 /// The collapsible workspace group/folder header must grow proportionally with
 /// the configurable sidebar font size, just like the workspace rows below it.
@@ -27,11 +28,17 @@ struct SidebarWorkspaceGroupHeaderMetrics: Equatable {
     /// proportionally larger as the configured `sidebar-font-size` grows.
     let fontScale: CGFloat
 
+    /// The configured `sidebar.groupMemberIndent` of the rows below this header.
+    let memberIndent: CGFloat
+
     /// Creates header metrics for the given sidebar font scale.
-    /// - Parameter fontScale: The scale from ``SidebarTabItemFontScale/scale(for:)``;
-    ///   `1.0` at the default sidebar font size.
-    init(fontScale: CGFloat) {
+    /// - Parameters:
+    ///   - fontScale: The scale from ``SidebarTabItemFontScale/scale(for:)``;
+    ///     `1.0` at the default sidebar font size.
+    ///   - memberIndent: The leading inset of the group's member rows.
+    init(fontScale: CGFloat, memberIndent: CGFloat = SidebarWorkspaceGroupingMetrics.memberIndent) {
         self.fontScale = fontScale
+        self.memberIndent = memberIndent
     }
 
     /// Chevron glyph point size at the default sidebar font size.
@@ -57,9 +64,6 @@ struct SidebarWorkspaceGroupHeaderMetrics: Equatable {
     /// Plus-button frame edge at the default sidebar font size. This matches the
     /// normal workspace close-button frame so their centers share the same x-position.
     static let basePlusFrame: CGFloat = 16
-    /// Leading inset for a header-bottom drop indicator whose resolved scope is
-    /// the group's member list rather than the root hierarchy.
-    static let memberScopedDropIndicatorLeadingInset: CGFloat = SidebarWorkspaceGroupingMetrics.memberIndent
 
     /// Scaled chevron glyph point size.
     var chevronFontSize: CGFloat { Self.baseChevronFontSize * fontScale }
@@ -83,8 +87,9 @@ struct SidebarWorkspaceGroupHeaderMetrics: Equatable {
     var plusFontSize: CGFloat { Self.basePlusFontSize * fontScale }
     /// Scaled plus-button frame edge.
     var plusFrame: CGFloat { max(Self.basePlusFrame, Self.basePlusFrame * fontScale) }
-    /// Leading inset for a group-scoped append indicator rendered by the header.
-    var groupScopedBottomDropIndicatorLeadingInset: CGFloat { Self.memberScopedDropIndicatorLeadingInset }
+    /// Leading inset for a group-scoped append indicator rendered by the header,
+    /// matching the member rows it appends to.
+    var groupScopedBottomDropIndicatorLeadingInset: CGFloat { memberIndent }
     /// Stable drop-hit height for the group header, without reading SwiftUI layout.
     var dropTargetHeight: CGFloat {
         let contentHeight = max(chevronFrame, iconFrame, plusFrame, nameFontSize + 4)

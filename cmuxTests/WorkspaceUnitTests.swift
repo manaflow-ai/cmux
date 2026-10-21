@@ -1526,6 +1526,53 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(defaults.object(forKey: SidebarWorkspaceTitleWrapSettings.key) as? Bool, true)
     }
 
+    func testSettingsFileStoreParsesSidebarGroupMemberIndentWithinRange() throws {
+        let defaults = UserDefaults.standard
+        let managedKey = SettingCatalog().sidebar.groupMemberIndent.userDefaultsKey
+        let previousValue = defaults.object(forKey: managedKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousValue {
+                defaults.set(previousValue, forKey: managedKey)
+            } else {
+                defaults.removeObject(forKey: managedKey)
+            }
+
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+
+        for (raw, expected) in [("28", 28), ("0", 0), ("49", nil), ("-1", nil)] as [(String, Int?)] {
+            defaults.removeObject(forKey: managedKey)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            try writeSettingsFile(
+                """
+                {
+                  "sidebar": {
+                    "groupMemberIndent": \(raw)
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.object(forKey: managedKey) as? Int, expected, "groupMemberIndent: \(raw)")
+        }
+    }
+
     func testSettingsFileStoreParsesSidebarWorkspaceDescriptionColor() throws {
         let defaults = UserDefaults.standard
         let managedKey = SettingCatalog().sidebar.workspaceDescriptionColorHex.userDefaultsKey
