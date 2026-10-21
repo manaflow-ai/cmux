@@ -1,5 +1,5 @@
 import CmuxNextCompat
-import Foundation
+public import Foundation
 
 /// The agent chats of other machines that run in a mode that does not ask before acting, by
 /// session id, for observers: each workspace row that shows one carries the bypass warning

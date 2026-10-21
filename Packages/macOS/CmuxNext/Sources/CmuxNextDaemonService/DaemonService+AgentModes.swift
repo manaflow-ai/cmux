@@ -1,5 +1,5 @@
 import CmuxNextCompat
-public import CmuxNextDaemon
+import CmuxNextDaemon
 import os
 
 /// The bypass warning for chats of another machine that this app does not show (cx-k21v): at each
