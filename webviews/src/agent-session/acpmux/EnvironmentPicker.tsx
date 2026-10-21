@@ -4,6 +4,7 @@ import { Popover } from "../../ui/Popover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { translate as t } from "./i18n";
 import {
+  type ConnectKind,
   type Environment,
   type EnvironmentKind,
   environmentDigit,
@@ -43,7 +44,7 @@ export function EnvironmentPicker({
   environments: Environment[];
   current: string;
   onPick(id: string): void;
-  onConnect?(kind: "ssh" | "cloud"): void;
+  onConnect?(kind: ConnectKind): void;
 }) {
   const [query, setQuery] = useState("");
   const trigger = useRef<HTMLButtonElement>(null);
@@ -80,8 +81,8 @@ export function EnvironmentPicker({
       ),
     [shown],
   );
-  // New Cloud Machine closes the Cloud section (it heads the section when there is no cloud machine);
-  // New environment, last, holds the SSH connect flow.
+  // New Cloud Machine and Choose Machine Size… close the Cloud section (New Cloud Machine heads the
+  // section when there is no cloud machine); New environment, last, holds the SSH connect flow.
   const actions: { value: string; text: string; detail?: string; kind: "ssh" | "cloud"; run(): void }[] = onConnect
     ? [
         {
@@ -91,6 +92,7 @@ export function EnvironmentPicker({
           kind: "cloud",
           run: () => onConnect("cloud"),
         },
+        { value: ACTION + "cloudSize", text: t("composer.chooseCloudSize"), kind: "cloud", run: () => onConnect("cloudSize") },
         { value: ACTION + "ssh", text: t("composer.connectSSH"), kind: "ssh", run: () => onConnect("ssh") },
       ]
     : [];
@@ -153,7 +155,11 @@ export function EnvironmentPicker({
     const action = actions.find((candidate) => candidate.value === value);
     if (action) {
       const section =
-        action.kind === "cloud" ? (cloudShown ? undefined : t(SECTION_LABELS.cloud)) : t("composer.newEnvironment");
+        action.kind === "ssh"
+          ? t("composer.newEnvironment")
+          : action === actions[0] && !cloudShown
+            ? t(SECTION_LABELS.cloud)
+            : undefined;
       return (
         <span
           className="acpmux-location-row acpmux-env-row acpmux-env-new"

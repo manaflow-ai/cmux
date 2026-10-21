@@ -5,6 +5,13 @@
 export type EnvironmentKind = "local" | "ssh" | "cloud";
 export type Environment = { id: string; label: string; kind: EnvironmentKind };
 
+/// The location row's connect choices and the app action each runs (the agent pane allows exactly
+/// these; AgentPaneModel.connectActions): SSH… connects a machine, New Cloud Machine creates one on
+/// the plan's default size, and Choose Machine Size… opens the Cloud page, whose storefront lists
+/// the plan's sizes (the pane knows no plan).
+export const CONNECT_ACTIONS = { ssh: "remote.connect", cloud: "newCloudMachine", cloudSize: "palette.openCloudPane" } as const;
+export type ConnectKind = keyof typeof CONNECT_ACTIONS;
+
 const SECTION_ORDER: readonly EnvironmentKind[] = ["local", "ssh", "cloud"];
 
 /// Each peer's transport from `_acpmux/status`: `ssh` for an `ssh://` peer, `cloud` for a
