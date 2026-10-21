@@ -4312,6 +4312,11 @@ function AcpmuxPane() {
     else setImageView({ images: images.map((image, i) => (i === index && path ? { ...image, path } : image)), index });
   }, []);
   useEffect(() => setImageView(undefined), [snapshot.sessionId]);
+  // A queued prompt's image, read from acpmux by its id (ComposerQueue's thumbnails).
+  const readQueuedImage = useCallback(
+    (id: string) => directClient.current?.promptImage(id) ?? Promise.resolve(undefined),
+    [],
+  );
   const readTurn = useCallback(
     ({ rowId }: { rowId: string }) => readTurnFromRows(turnRowsRef.current, rowId, checkpointDiff),
     [],
@@ -5406,13 +5411,16 @@ function AcpmuxPane() {
         };
         /// `placement`: where the app opens it (AgentForkDestination: right, left, up, down, tab,
         /// workspace, window); none is a tab after this chat's.
-        const openOwnTab = (sessionId: string, placement?: string) =>
-          mock
-            ? Promise.resolve(false)
-            : callNative("chat.openTab", placement ? { sessionId, placement } : { sessionId }).then(
-                () => true,
-                () => false,
-              );
+        const openOwnTab = (sessionId: string, placement?: string) => {
+          if (mock) return Promise.resolve(false);
+          // The new tab draws this chat from the host's tail, and this page keeps it selected, so
+          // nothing else hands it over (tailCache.ts).
+          client.handOverCurrentTail();
+          return callNative("chat.openTab", placement ? { sessionId, placement } : { sessionId }).then(
+            () => true,
+            () => false,
+          );
+        };
         /// Settles when the turn ends. `accepted` runs once acpmux took the prompt; a sender that
         /// passes it (the composer) still holds the prompt until then, so a refusal loses nothing.
         /// Without it a refused prompt goes back into the composer.
@@ -7017,6 +7025,7 @@ function AcpmuxPane() {
             onQueueChange={editQueued}
             // A prompt that started while it was edited comes back to the prompt, so the edit is kept.
             onQueueLost={(text) => composerHandle.current?.restore(text, [])}
+            queueImage={readQueuedImage}
             onProject={chooseProject}
             onNewWorktree={freshChat && !quick && !remoteChat ? startInWorktree : undefined}
             onConnect={connectMachine}
@@ -7162,7 +7171,12 @@ function AcpmuxPane() {
             : undefined,
         onSelect: selectSession,
         onNewChat: () => void callNative("chat.new", {}).catch(() => undefined),
-        onMoveToTab: (sessionId: string) => void callNative("chat.openTab", { sessionId }).catch(() => undefined),
+        onMoveToTab: (sessionId: string) => {
+          // Warm for the new tab: this chat if it is the one on screen, and otherwise whatever this
+          // page already read of it, which rememberTail handed over when it was left.
+          directClient.current?.handOverCurrentTail();
+          void callNative("chat.openTab", { sessionId }).catch(() => undefined);
+        },
       }
     : undefined;
   if (quick)
