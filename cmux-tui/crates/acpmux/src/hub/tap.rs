@@ -11,6 +11,31 @@ use super::*;
 /// headers_ms and ttft_ms): every `message_start`, and the first `content_block_delta` after it.
 const RAW_STREAM_EVENT: &str = "claude.stream_event";
 
+/// The `session/update` kinds that carry what the model says or does: a message, a thought, a
+/// tool call and its progress, a plan.
+const MODEL_UPDATES: [&str; 5] =
+    ["agent_message_chunk", "agent_thought_chunk", "tool_call", "tool_call_update", "plan"];
+
+/// Whether an agent's message is the model answering (`silent_turn.rs`): what it says or does, or
+/// a request it makes (a permission, a file, a terminal). The agent's own bookkeeping is not: usage,
+/// commands, modes, its raw harness lines (Codex reports its turn and usage as soon as the prompt
+/// goes out), answers to acpmux's requests, its host's stderr and exit.
+fn from_the_model(msg: &Message) -> bool {
+    match msg {
+        Message::Request { .. } => true,
+        Message::Notification { method, params }
+            if method == crate::rpc::method::SESSION_UPDATE =>
+        {
+            params
+                .as_ref()
+                .and_then(|p| p.pointer("/update/sessionUpdate"))
+                .and_then(Value::as_str)
+                .is_some_and(|kind| MODEL_UPDATES.contains(&kind))
+        }
+        _ => false,
+    }
+}
+
 impl Hub {
     /// Make sure a live child process exists for the session. Spawns, runs
     /// `initialize`, and either creates or loads the agent session.
@@ -22,11 +47,7 @@ impl Hub {
         // A `message_start` was logged and its first delta was not yet.
         let awaiting_first_delta = AtomicBool::new(false);
         Arc::new(move |dir: Direction, msg: &Message, host_seq: Option<u64>| -> bool {
-            if matches!(dir, Direction::In)
-                && !msg
-                    .method()
-                    .is_some_and(|m| m == crate::agent::HOST_STDERR || m == crate::agent::HOST_EXIT)
-            {
+            if matches!(dir, Direction::In) && from_the_model(msg) {
                 tap_session.heard.fetch_add(1, Ordering::SeqCst);
             }
             let (d, kind) = match (dir, msg) {
