@@ -64,6 +64,13 @@ beforeAll(() => {
     cancelAnimationFrame: (id: number) => clearTimeout(id),
     localStorage: window.localStorage,
   });
+  // jsdom lays nothing out and its Range has no rects: ProseMirror measures one to scroll a paste
+  // into view (a chip's text going back into the prompt goes in as a paste). An empty box will do.
+  const box = () => ({ left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({}) });
+  Object.assign(window.Range.prototype, {
+    getClientRects: () => Object.assign([box()], { item: () => box() }),
+    getBoundingClientRect: box,
+  });
   host = window.document.getElementById("root")!;
 });
 
@@ -71,6 +78,9 @@ afterEach(() => {
   act(() => root?.unmount());
   root = undefined;
   host.replaceChildren();
+  // Every test opens chat "chat-a": its saved draft (composerDraft.ts, the page's localStorage
+  // remount cache) would come back in the next test's prompt.
+  dom.window.localStorage.clear();
 });
 
 afterAll(() => {
