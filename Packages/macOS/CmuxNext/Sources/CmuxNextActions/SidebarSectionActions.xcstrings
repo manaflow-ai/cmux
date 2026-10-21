@@ -1841,7 +1841,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Collapse or Expand Section"
+            "value": "Collapse/Expand Section"
           }
         },
         "ja": {
@@ -4461,7 +4461,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show or Hide Section Title"
+            "value": "Show/Hide Section Title"
           }
         },
         "ja": {
@@ -5378,7 +5378,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show or Hide Label"
+            "value": "Show/Hide Label"
           }
         },
         "ja": {
@@ -6819,127 +6819,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hide"
+            "value": "Hide App"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "非表示"
+            "state": "translated",
+            "value": "Appを非表示"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "إخفاء"
+            "state": "translated",
+            "value": "إخفاء التطبيق"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Sakrij"
+            "state": "translated",
+            "value": "Sakrij aplikaciju"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Skjul"
+            "state": "translated",
+            "value": "Skjul app"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ausblenden"
+            "state": "translated",
+            "value": "App ausblenden"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ocultar"
+            "state": "translated",
+            "value": "Ocultar app"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Masquer"
+            "state": "translated",
+            "value": "Masquer l’app"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Nascondi"
+            "state": "translated",
+            "value": "Nascondi app"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "លាក់"
+            "state": "translated",
+            "value": "លាក់កម្មវិធី"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "숨기기"
+            "state": "translated",
+            "value": "앱 숨기기"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Skjul"
+            "state": "translated",
+            "value": "Skjul app"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ukryj"
+            "state": "translated",
+            "value": "Ukryj aplikację"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ocultar"
+            "state": "translated",
+            "value": "Ocultar app"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Скрыть"
+            "state": "translated",
+            "value": "Скрыть приложение"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ซ่อน"
+            "state": "translated",
+            "value": "ซ่อนแอป"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Gizle"
+            "state": "translated",
+            "value": "Uygulamayı Gizle"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Сховати"
+            "state": "translated",
+            "value": "Сховати застосунок"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ẩn"
+            "state": "translated",
+            "value": "Ẩn ứng dụng"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "隐藏"
+            "state": "translated",
+            "value": "隐藏 App"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "隱藏"
+            "state": "translated",
+            "value": "隱藏 App"
           }
         }
       }
@@ -8905,6 +8905,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "顯示個人檔案按鈕"
+          }
+        }
+      }
+    },
+    "action.sidebar.priorityView.toggle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبديل عرض الأولوية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uključi/isključi prikaz prioriteta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slå prioritetsvisning til/fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prioritätsansicht ein-/ausblenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle Priority View"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alternar vista de prioridad"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher/masquer la vue Priorité"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attiva/disattiva vista Priorità"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "優先ビューの切り替え"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បិទ/បើកទិដ្ឋភាពអាទិភាព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "우선순위 보기 전환"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slå prioritetsvisning av/på"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przełącz widok priorytetów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alternar visualização de prioridade"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать/скрыть вид «Приоритет»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สลับมุมมองลำดับความสำคัญ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öncelik görünümünü aç/kapat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перемкнути вигляд «Пріоритет»"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bật/tắt chế độ xem ưu tiên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换优先视图"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換優先檢視"
           }
         }
       }
