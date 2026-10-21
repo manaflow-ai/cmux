@@ -886,6 +886,13 @@ pre.cv-math-source {
   right: 0;
   opacity: 0;
 }
+/* A prompt's bubble sits at the right, at most 70% wide: its floating Copy (a selected range's,
+   or keyboard focus's) goes in the empty left corner, never over the bubble's text (layout pass,
+   2026-10-20). */
+.acpmux-row.acpmux-user .acpmux-row__copy {
+  right: auto;
+  left: 0;
+}
 /* Not on hover: a prompt has Copy under its bubble and an answer in its turn's footer, so a hover
    showed two or three Copy buttons per turn. Keyboard focus and a selected range still show it. */
 .acpmux-row:focus-within .acpmux-row__copy,
