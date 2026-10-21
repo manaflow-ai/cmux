@@ -954,7 +954,7 @@ export class AcpmuxDirectClient {
   }
 
   private pageWentAway = (): void => {
-    this.rememberCurrentTail();
+    this.rememberCurrentTail(false);
   };
 
   /// Hands the chat on screen to the host now, for a tab about to open it (`chat.openTab`). The
@@ -1273,21 +1273,28 @@ export class AcpmuxDirectClient {
   /// Keeps the chat on screen as this page last read it, for its next open (``KeptTail``). Only a
   /// chat whose own events are drawn: a chat still attaching, or one shown through a replay
   /// (`replayThrough`, a fork's preview), would be kept half-read.
-  private rememberCurrentTail(): void {
+  ///
+  /// `forThisPage` is false when this client is the one going away, so the tail goes to the app
+  /// host alone and not into this page's map (tailCache.ts `rememberTail`).
+  private rememberCurrentTail(forThisPage = true): void {
     const sessionId = this.selectedSessionId;
     if (!sessionId || this.events.length === 0 || this.replayThrough !== undefined) return;
     if (this.attachedGeneration !== this.selectionGeneration) return;
     const events = this.events.slice(-KEPT_EVENTS);
-    rememberTail(sessionId, {
-      events,
-      summary: this.summary,
-      turnOpener: this.turnOpener,
-      // Only a whole transcript is exhausted: a tail cut at KEPT_EVENTS has older events to read.
-      historyExhausted: this.historyExhausted && events.length === this.events.length,
-      queue: this.queue,
-      configSeq: this.configSeq,
-      usageFromSeq: this.usageFromSeq,
-    });
+    rememberTail(
+      sessionId,
+      {
+        events,
+        summary: this.summary,
+        turnOpener: this.turnOpener,
+        // Only a whole transcript is exhausted: a tail cut at KEPT_EVENTS has older events to read.
+        historyExhausted: this.historyExhausted && events.length === this.events.length,
+        queue: this.queue,
+        configSeq: this.configSeq,
+        usageFromSeq: this.usageFromSeq,
+      },
+      forThisPage,
+    );
   }
 
   /// Draws `sessionId` from what its last visit left, for the frame a switch to it lands on, and
@@ -4419,8 +4426,9 @@ export class AcpmuxDirectClient {
   /// The socket's own onclose ignores a socket close() already let go of, so settle requests here.
   close(): void {
     // Before anything is torn down: the chat on screen is still readable here, and a tab closing on
-    // it should leave it warm for the next one.
-    this.rememberCurrentTail();
+    // it should leave it warm for the next one. The host alone keeps it: this client is going away,
+    // and a tail left in this page's map would be drawn by whatever client comes after it.
+    this.rememberCurrentTail(false);
     this.closed = true;
     const hold = this.snapshotHold;
     if (hold) clearTimeout(hold.timer);

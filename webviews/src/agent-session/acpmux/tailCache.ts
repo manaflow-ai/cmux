@@ -53,10 +53,19 @@ export function keptTail(sessionId: string): KeptTail | undefined {
 }
 
 /// Keeps `tail` for this chat's next open, here and in the app host.
-export function rememberTail(sessionId: string, tail: KeptTail): void {
-  keptTails.delete(sessionId);
-  keptTails.set(sessionId, tail);
-  while (keptTails.size > KEPT_TAILS) keptTails.delete(keptTails.keys().next().value!);
+///
+/// `forThisPage` is false when the client that read the chat is going away (its `close`, the
+/// page's `pagehide`): the next open of that chat is in another page, which reads the host's copy,
+/// so there is nothing for this page's own map to serve. Keeping it there would leave a tail
+/// behind a client that no longer exists, and a later client in this page would draw a chat it
+/// never read as though it had — the chat's rows, its queue and its usage, under a session id that
+/// now means something else.
+export function rememberTail(sessionId: string, tail: KeptTail, forThisPage = true): void {
+  if (forThisPage) {
+    keptTails.delete(sessionId);
+    keptTails.set(sessionId, tail);
+    while (keptTails.size > KEPT_TAILS) keptTails.delete(keptTails.keys().next().value!);
+  }
   writeHostTail(sessionId, tail);
 }
 

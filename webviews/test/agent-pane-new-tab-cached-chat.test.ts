@@ -228,8 +228,11 @@ class Fixture {
 
   /// A new tab on `sessionId`. The connect is not awaited: what the page draws *before* its attach
   /// answers is the point. `hold` keeps that attach unanswered; `fail` refuses it.
-  tab(sessionId: string, options: { hold?: boolean; fail?: boolean } = {}) {
-    resetKeptTailsForTests();
+  ///
+  /// A new tab is a new page, so the page's own tails start empty — which is what makes these
+  /// tests about the host. `samePage` keeps them, for the one test that is about the page's map.
+  tab(sessionId: string, options: { hold?: boolean; fail?: boolean; samePage?: boolean } = {}) {
+    if (!options.samePage) resetKeptTailsForTests();
     const daemon = new Daemon(this.a, this.b, this.pages);
     if (options.hold) daemon.hold = sessionId;
     if (options.fail) daemon.fail = sessionId;
@@ -348,6 +351,38 @@ test("a tab closed on a chat hands that chat over", async () => {
   client.close();
   await flush();
   expect(chat.host.tails.has(chat.a)).toBe(true);
+});
+
+/// The hand-over on `close` goes to the app host ALONE, and not into this page's own map. The page
+/// is the one going away: a tail left behind it would be drawn by whatever client comes next in
+/// this page, which never read that chat — its rows, its queued prompts and its turn's usage, under
+/// a chat id that by then may mean another chat entirely.
+///
+/// This is not hypothetical. Writing the page's map on `close` turned
+/// `test/agent-pane-turn-tokens.test.tsx` and `src/.../failedPromptRetry.test.ts` red: a chat that
+/// reports no tokens showed 225,000 of them, and one failed prompt drew two bubbles, both from a
+/// tail a closed client left behind. Those suites catch it by accident, so this holds it on purpose.
+test("a closed client leaves its tail with the host alone, not in its own page", async () => {
+  const chat = new Fixture("page-map");
+  chat.pages.set(chat.a, { events: [prompt("Look at the retry path"), reply(chat.a, "Retry added.")] });
+  const read = chat.tab(chat.a);
+  const client = await read.client;
+  await flush();
+  client.close();
+  await flush();
+  // The host has it, which is the whole point of handing it over on close.
+  expect(chat.host.tails.has(chat.a)).toBe(true);
+
+  // With the host taken away (a page outside the app, the gallery, an older app), the only thing
+  // that could still draw this chat is the page's own map — and it must hold nothing.
+  delete (dom.window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions;
+  const tab = chat.tab(chat.a, { hold: true, samePage: true });
+  await tab.daemon.asked;
+  expect(text(tab.last())).not.toContain("Retry added.");
+  tab.daemon.release();
+  live.push(await tab.client);
+  // acpmux's own page is what the chat shows, as it would on any cold open.
+  expect(text(tab.last())).toContain("Retry added.");
 });
 
 test("a new tab the host kept nothing for waits for acpmux, and draws what it answers", async () => {
