@@ -969,6 +969,10 @@ path = "tests/test_base_merge_warning.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_job_input_fingerprint.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_merge_compile_guard.py"
 lane = "linux-guard"
 

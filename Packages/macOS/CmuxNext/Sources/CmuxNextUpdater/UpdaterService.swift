@@ -125,7 +125,8 @@ public final class UpdaterService {
     public var preferences = UpdatePreferences.defaults
     /// Sparkle's staged install and its cancel (replaced by tests).
     @ObservationIgnored var installStaged: () -> Void = {}
-    @ObservationIgnored var cancelStaged: () -> Void = {}
+    /// The cancel returns whether an installer was held and is now cancelled.
+    @ObservationIgnored var cancelStaged: () -> Bool = { false }
     @ObservationIgnored var acceptAvailable: () -> Void = {}
     @ObservationIgnored var phaseObservation: Task<Void, Never>?
     @ObservationIgnored var pathMonitor: NWPathMonitor?
@@ -198,6 +199,10 @@ public final class UpdaterService {
             // Set on this updater only; no defaults change, so the legacy app
             // sharing the domain keeps its own behavior.
             controller.installsUpdatesInBackground = true
+            // The nightly feed lists each build's deltas minutes after its DMG
+            // (nightly.yml generate-nightly-deltas); a scheduled check in that gap
+            // waits once instead of downloading the full DMG.
+            if identity.track == .nightly { controller.pendingDeltaWindow = 45 * 60 }
             self.controller = controller
         } else {
             #if DEBUG
@@ -208,7 +213,7 @@ public final class UpdaterService {
         }
         if let controller {
             installStaged = { [weak controller] in controller?.installStagedUpdate() }
-            cancelStaged = { [weak controller] in controller?.cancelStagedUpdate() }
+            cancelStaged = { [weak controller] in controller?.cancelStagedUpdate() ?? false }
             acceptAvailable = { [weak controller] in controller?.acceptAvailableUpdate() }
             stagedBuild = { [weak controller] in controller?.stagedUpdate?.versionString }
         }

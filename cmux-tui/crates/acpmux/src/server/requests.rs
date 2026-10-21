@@ -428,9 +428,10 @@ async fn dispatch_request(
             let s = resolved_session(hub, resolved.as_ref(), &params)?;
             attach(hub, conn, &s.id);
             // Replay history as ACP updates, then answer.
-            let events =
-                hub.events(&s.id, 0, 100_000).map_err(|e| RpcError::internal(e.to_string()))?;
-            for rec in events {
+            // One record at a time, the first 100,000 as before: the log is never held whole.
+            let mut left = 100_000usize;
+            hub.scan_events(&s.id, 0, &mut |rec| {
+                left -= 1;
                 if rec.dir == "mux" && rec.kind == "user_message" {
                     let text = rec.msg.get("text").and_then(Value::as_str).unwrap_or("");
                     conn.send(&Message::notification(
@@ -449,7 +450,9 @@ async fn dispatch_request(
                     );
                     conn.send(&Message::notification(method::SESSION_UPDATE, p));
                 }
-            }
+                left > 0
+            })
+            .map_err(|e| RpcError::internal(e.to_string()))?;
             let meta = s.meta();
             Ok(
                 json!({"modes": meta.modes, "configOptions": meta.config_options, "_meta": {"acpmux": hub.session_summary(&s)}}),
@@ -600,7 +603,8 @@ async fn dispatch_request(
                 .collect();
             let limit =
                 params.get("limit").and_then(Value::as_u64).unwrap_or(3).clamp(1, 8) as usize;
-            let warmed = hub.warm_sessions(&requested, limit).await;
+            let web = super::trust_gate::for_web(conn.origin, &params);
+            let warmed = hub.warm_sessions(&requested, limit, web).await;
             Ok(json!({"warmed": warmed}))
         }
         method::MUX_PREWARM => {
@@ -613,6 +617,7 @@ async fn dispatch_request(
                 // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
                 remote: conn.origin.web_class(),
                 trust_gate: super::trust_gate::gated(conn.origin, &params),
+                trust_web: super::trust_gate::for_web(conn.origin, &params),
             })
             .await
         }
@@ -669,24 +674,7 @@ async fn dispatch_request(
                 hub.refresh_models().await;
             }
             let mut cat = hub.models_catalog().await;
-            // Remote harnesses, labelled peer/agent, from each connected peer.
-            for peer in hub.connected_peers() {
-                if let Ok(remote) = peer.request("_acpmux/models", json!({})).await
-                    && let Some(hs) = remote.get("harnesses").and_then(Value::as_array)
-                {
-                    for h in hs {
-                        let mut h = h.clone();
-                        let agent =
-                            h.get("harness").and_then(Value::as_str).unwrap_or("").to_owned();
-                        h["harness"] = Value::String(format!("{}/{}", peer.name, agent));
-                        h["peer"] = Value::String(peer.name.clone());
-                        h["isDefault"] = Value::Bool(false);
-                        if let Some(arr) = cat.get_mut("harnesses").and_then(Value::as_array_mut) {
-                            arr.push(h);
-                        }
-                    }
-                }
-            }
+            super::models_fanout::add_peer_harnesses(hub, conn.origin, &params, &mut cat).await;
             Ok(cat)
         }
         crate::catalog::RPC_GET => Ok(hub.catalog.get()),
