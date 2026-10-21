@@ -122,8 +122,15 @@ open "$HOME/Library/Developer/Xcode/DerivedData/cmux-lawmux/Build/Products/Debug
 `LawmuxGlobalHotkey`）に差し替えています。権限は不要です。
 
 - lawmux 以外が前面：そのアプリを記憶して lawmux を呼び出し、**マウスカーソルがある画面**で
-  ウィンドウを画面いっぱいにします（2 画面でも、カーソル側に出ます）。
+  ウィンドウを画面いっぱいにします（2 画面でも、カーソル側に出ます）。ウィンドウは
+  **今いる仮想デスクトップ**に出てきます（`.moveToActiveSpace`）。デスクトップは切り替わりません。
 - lawmux が前面：記憶しておいたアプリに戻ります。記憶がなければ lawmux を隠します。
+
+押したときの判断はログに残るので、挙動がおかしいときは次で確認できます。
+
+```sh
+log show --predicate 'subsystem == "com.lawrenceturnerw.lawmux"' --last 10m --style compact
+```
 
 本家は Command / Option / Control のいずれかを必須にしていて Shift+Space を受け付けないため、
 lawmux ではその検証を Shift だけでも通るよう緩めています（`// lawmux:` の 2 か所）。
