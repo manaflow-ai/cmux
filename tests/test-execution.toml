@@ -1646,6 +1646,10 @@ path = "tests/test_cmux_next_fast_gates.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_check_paths.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_perf_source_guard.py"
 lane = "linux-guard"
 
