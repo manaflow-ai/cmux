@@ -145,6 +145,8 @@ public final class HomeNativeTranscriptView: NSView {
         firstRun.switchCard.onOpenSettings = { [weak self] in self?.onOpenKeyboardShortcutSettings() }
         transcript.onSummaryChange = { [weak self] _ in self?.updateFirstRun() }
         transcript.onRowsChange = { [weak self] in self?.updateFirstRun() }
+        // A long draft grows the field with no size change: refit the panel and the notice above it.
+        transcript.onFieldTopChange = { [weak self] in self?.needsLayout = true }
         followTextSize()
         followBubbleStyle()
         followHeroTunable()
@@ -323,7 +325,8 @@ public final class HomeNativeTranscriptView: NSView {
             if resized { transcript.layoutSubtreeIfNeeded() }
         }
         // Every pass: the field can grow (a multi-line draft) without a size
-        // change, and the first-run panel fits its agent rows above it.
+        // change (`onFieldTopChange` asks for this pass), and the first-run
+        // panel fits what it shows above it.
         let top = transcript.headerHeight
         let panel = CGRect(x: 0, y: top, width: bounds.width, height: max(0, transcript.fieldTop - top))
         if firstRun.frame != panel { firstRun.frame = panel }
