@@ -40,6 +40,12 @@ NESTED = """final class Box<Value> {
     }
 }
 """
+# A brace in a string literal doesn't end the class before its deinit.
+STRING_BRACE = """final class Box<Value> {
+    let closer = "}"
+    nonisolated deinit {}
+}
+"""
 ALLOWED = """// concurrency-allow: never released off the main thread; the compile is checked by the Release job.
 final class Box<Value> {
 }
@@ -76,6 +82,10 @@ class GenericDeinitRule(unittest.TestCase):
         result = run({"FixtureUI/Box.swift": NESTED})
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("FixtureUI/Box.swift:1:", result.stdout)
+
+    def test_a_brace_in_a_string_does_not_end_the_class(self):
+        result = run({"FixtureUI/Box.swift": STRING_BRACE})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_a_reviewed_escape_is_green(self):
         result = run({"FixtureUI/Box.swift": ALLOWED})
