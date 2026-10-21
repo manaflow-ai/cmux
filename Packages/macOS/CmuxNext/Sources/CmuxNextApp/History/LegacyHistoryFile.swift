@@ -79,21 +79,21 @@ final class LegacyHistoryFile: Sendable, Equatable {
     ) -> Bool {
         guard !files.isEmpty, files.allSatisfy(\.isUnchanged),
               missing.allSatisfy({ !pathEntryExists($0) }) else { return false }
-        var quarantined: [(LegacyHistoryFile, String)] = []
+        var quarantined: [(LegacyHistoryFile, Quarantine)] = []
         for file in files {
-            guard let name = file.quarantineIfUnchanged() else {
-                for (moved, quarantine) in quarantined.reversed() { moved.restore(quarantine) }
+            guard let quarantine = file.quarantineIfUnchanged() else {
+                for (moved, quarantine) in quarantined.reversed() { moved.restore(quarantine.name) }
                 return false
             }
-            quarantined.append((file, name))
+            quarantined.append((file, quarantine))
         }
         guard quarantined.allSatisfy({ $0.0.quarantinedIsUnchanged($0.1) }) else {
-            for (file, quarantine) in quarantined.reversed() { file.restore(quarantine) }
+            for (file, quarantine) in quarantined.reversed() { file.restore(quarantine.name) }
             return false
         }
         var removed = true
         for (file, quarantine) in quarantined {
-            if unlinkat(file.parentDescriptor, quarantine, 0) != 0 { removed = false }
+            if unlinkat(file.parentDescriptor, quarantine.name, 0) != 0 { removed = false }
         }
         return removed
     }
@@ -103,20 +103,28 @@ final class LegacyHistoryFile: Sendable, Equatable {
         Self.removeGenerationIfUnchanged([self], missing: [])
     }
 
-    private func quarantineIfUnchanged() -> String? {
+    /// A file moved aside for removal, with its identity as of the move.
+    private struct Quarantine {
+        let name: String
+        let identity: Identity
+    }
+
+    private func quarantineIfUnchanged() -> Quarantine? {
         guard Self.directoryIdentity(at: parentURL)?.isSameObject(as: parentIdentity) == true,
               Self.identity(at: parentDescriptor, name: name) == identity else { return nil }
         let quarantine = ".cmux-history-cleanup-\(UUID().uuidString.lowercased())"
         guard renameat(parentDescriptor, name, parentDescriptor, quarantine) == 0 else { return nil }
-        guard Self.identity(at: parentDescriptor, name: quarantine) == identity else {
+        // The rename itself moves the change time (APFS), so the moved file matches
+        // the captured one in everything else; it must then stay as it is after the move.
+        guard let moved = Self.identity(at: parentDescriptor, name: quarantine), moved.isRenamed(identity) else {
             restore(quarantine)
             return nil
         }
-        return quarantine
+        return Quarantine(name: quarantine, identity: moved)
     }
 
-    private func quarantinedIsUnchanged(_ quarantine: String) -> Bool {
-        Self.identity(at: parentDescriptor, name: quarantine) == identity
+    private func quarantinedIsUnchanged(_ quarantine: Quarantine) -> Bool {
+        Self.identity(at: parentDescriptor, name: quarantine.name) == quarantine.identity
     }
 
     private func restore(_ quarantine: String) {
@@ -151,6 +159,12 @@ final class LegacyHistoryFile: Sendable, Equatable {
 
         func isSameObject(as other: Identity) -> Bool {
             device == other.device && inode == other.inode && kind == other.kind
+        }
+
+        /// `other` after a rename: the same file and contents; only the change time may differ.
+        func isRenamed(_ other: Identity) -> Bool {
+            isSameObject(as: other) && size == other.size
+                && modifiedSeconds == other.modifiedSeconds && modifiedNanoseconds == other.modifiedNanoseconds
         }
     }
 
