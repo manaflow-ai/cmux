@@ -342,6 +342,8 @@ pub enum Command {
     Info { session: String },
     #[command(hide = true)]
     Cancel { session: String },
+    #[command(hide = true)]
+    ResumeQueue { session: String },
     #[command(hide = true, alias = "kill-session")]
     Kill {
         session: String,
@@ -597,6 +599,8 @@ pub enum SessionCmd {
     Info { session: String },
     /// Cancel the running turn.
     Cancel { session: String },
+    /// Run the prompts a failed turn holds. The next turn that completes runs them too.
+    ResumeQueue { session: String },
     /// Stop the agent process. The session stays resumable.
     #[command(alias = "kill")]
     Stop {
@@ -949,6 +953,7 @@ pub fn flatten(c: Command) -> Command {
         Command::Session(sc) => match sc {
             SessionCmd::Info { session } => Command::Info { session },
             SessionCmd::Cancel { session } => Command::Cancel { session },
+            SessionCmd::ResumeQueue { session } => Command::ResumeQueue { session },
             SessionCmd::Stop { session, purge } => Command::Kill { session, purge },
             SessionCmd::Restart { session } => Command::RestartAgent { session },
             SessionCmd::Rename { session, new_name } => Command::Rename { session, new_name },

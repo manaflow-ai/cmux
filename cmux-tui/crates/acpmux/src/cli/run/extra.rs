@@ -16,6 +16,21 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        Command::ResumeQueue { session } => {
+            let client = connect(true).await?;
+            let id = resolve_id(&client, &session).await?;
+            let v = client
+                .request(method::MUX_QUEUE_EDIT, json!({"sessionId": id, "op": "resume"}))
+                .await?;
+            if json_out {
+                print_json(&v);
+            } else if v["ok"] == json!(true) {
+                println!("resumed");
+            } else {
+                println!("nothing was held");
+            }
+            Ok(())
+        }
         Command::Kill { session, purge } => {
             let client = connect(true).await?;
             let id = resolve_id(&client, &session).await?;

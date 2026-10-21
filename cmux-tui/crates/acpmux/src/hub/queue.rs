@@ -376,8 +376,8 @@ impl Hub {
     }
 
     /// A failed turn holds the prompts that waited behind it: they were written for a turn that
-    /// went well. They wait until a client resumes them (`resume_queue`) or sends one now
-    /// (`put_next`); a prompt sent meanwhile runs ahead of them.
+    /// went well. They wait until the next turn completes, a client resumes them (`resume_queue`)
+    /// or sends one now (`put_next`); a prompt sent meanwhile runs ahead of them.
     pub(super) fn pause_queue(&self, session: &Arc<Session>, turn_id: &str) {
         let held: Vec<String> = {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);

@@ -631,9 +631,11 @@ impl Hub {
                     o.extend(super::turn_usage::turn_usage(session, v));
                 }
                 self.write_turn_result(session, msg, git);
-                // The chat works again: agent messages a failed turn held go in (`digest.rs`).
+                // The chat works again: agent messages a failed turn held go in (`digest.rs`),
+                // and so do the prompts it held (`queue.rs` `pause_queue`).
                 if status == "completed" {
                     self.release_held_agent_messages(session);
+                    self.resume_queue(session);
                 }
             }
             Err(e) => {
@@ -719,7 +721,8 @@ impl Hub {
     }
 
     /// A recorded prompt whose agent could not start: the turn ends failed, so every client
-    /// sees the prompt settle instead of a turn that never starts.
+    /// sees the prompt settle instead of a turn that never starts. It fails alone: the prompts
+    /// behind it are not held, each gets its own try.
     fn fail_unstarted_turn(
         &self,
         session: &Arc<Session>,
@@ -734,7 +737,6 @@ impl Hub {
             "turn_error",
             json!({"error": e.message, "code": e.code, "turnId": turn_id, "turnSeq": 0}),
         );
-        self.pause_queue(session, turn_id);
         let msg = json!({"status": "failed", "error": e.message, "code": e.code, "turnSeq": 0, "turnId": turn_id, "promptId": prompt_id});
         self.record_last_turn(session, &msg);
         self.append(session, "mux", "turn_result", msg);
