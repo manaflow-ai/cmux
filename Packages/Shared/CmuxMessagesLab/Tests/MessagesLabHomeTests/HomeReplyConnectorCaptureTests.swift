@@ -19,7 +19,7 @@ import UniformTypeIdentifiers
         let conversation = HomeChatRig.conversation
         let block = (1...14).map { "Context line \($0) from the Chief." }.joined(separator: "\n")
         let models = ["Claude Fable 5.1", "Claude Opus 5.5", "Claude Sonnet 5.5", "Claude Haiku 5.5"].joined(separator: "\n")
-        func post(_ id: MessageID, author: ParticipantID, parts: [MessagePart], replyTo: PartRef? = nil, root: MessageID? = nil) throws {
+        func post(_ id: MessageID, author: ParticipantID, parts: [CmuxHomeCore.MessagePart], replyTo: CmuxHomeCore.PartRef? = nil, root: MessageID? = nil) throws {
             let summary = try #require(rig.store.summary(conversation))
             let rev = rig.store.mirror.revision(of: .conversation(conversation)) + 1
             rig.store.handle(.message(CmuxHomeCore.Message(id: id, conversation: conversation, seq: summary.lastSeq + 1,
@@ -30,7 +30,7 @@ import UniformTypeIdentifiers
                                                      .text("optimize downloading update sizes, is that possible?")])
         try post(MessageID("msg_capture_reply"), author: rig.chief,
                  parts: [.text("Yes, it's possible. Sparkle can ship binary deltas, so an update downloads only what changed.")],
-                 replyTo: PartRef(message: Self.root), root: Self.root)
+                 replyTo: CmuxHomeCore.PartRef(message: Self.root), root: Self.root)
         // Row bitmaps draw off main: give them a few frames.
         for _ in 0..<12 {
             rig.frame()
