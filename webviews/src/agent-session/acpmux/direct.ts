@@ -195,6 +195,33 @@ function rememberCommands(sessionId: string, commands: SlashCommand[]) {
   knownCommands.set(sessionId, commands);
   while (knownCommands.size > 32) knownCommands.delete(knownCommands.keys().next().value!);
 }
+/// What a chat's last visit on this page left, so opening it again draws it on the frame the
+/// switch lands instead of after acpmux's attach round trip (Leo 2026-10-20: a chat "should be
+/// instant if cached"). The attach still goes out and lays what acpmux holds now over it; an
+/// unchanged chat replays to the same rows, so nothing moves (test/chat-open-perf.test.ts).
+type KeptTail = {
+  events: EventRecord[];
+  summary: Record<string, any> | undefined;
+  turnOpener: EventRecord | undefined;
+  historyExhausted: boolean;
+  queue: QueuedPrompt[];
+  configSeq: number;
+  usageFromSeq: number;
+};
+/// Chats whose tail is kept: each is one open page acpmux answered (OPEN_PAGE_BYTES), so this
+/// holds a couple of megabytes of events at most.
+const KEPT_TAILS = 8;
+const keptTails = new Map<string, KeptTail>();
+function rememberTail(sessionId: string, tail: KeptTail) {
+  keptTails.delete(sessionId);
+  keptTails.set(sessionId, tail);
+  while (keptTails.size > KEPT_TAILS) keptTails.delete(keptTails.keys().next().value!);
+}
+/// A chat whose transcript this page no longer stands behind (it was purged, forked away, or its
+/// events were refused): its next open reads acpmux again.
+function forgetTail(sessionId: string) {
+  keptTails.delete(sessionId);
+}
 /// The longest a chat switch keeps the chat before on screen while the new one attaches.
 const SWITCH_HOLD_MS = 400;
 /// The longest a connect keeps the pane's last snapshot on screen while it reads the chat.
@@ -1187,6 +1214,43 @@ export class AcpmuxDirectClient {
     this.permissions.select(this.selectedSessionId);
   }
 
+  /// Keeps the chat on screen as this page last read it, for its next open (``KeptTail``). Only a
+  /// chat whose own events are drawn: a chat still attaching, or one shown through a replay
+  /// (`replayThrough`, a fork's preview), would be kept half-read.
+  private rememberCurrentTail(): void {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId || this.events.length === 0 || this.replayThrough !== undefined) return;
+    if (this.attachedGeneration !== this.selectionGeneration) return;
+    rememberTail(sessionId, {
+      events: [...this.events],
+      summary: this.summary,
+      turnOpener: this.turnOpener,
+      historyExhausted: this.historyExhausted,
+      queue: this.queue,
+      configSeq: this.configSeq,
+      usageFromSeq: this.usageFromSeq,
+    });
+  }
+
+  /// Draws `sessionId` from what its last visit left, for the frame a switch to it lands on, and
+  /// answers whether there was anything to draw. The session list is live (`session_changed` keeps
+  /// it current), so the chat draws running or idle as it is now; the rest of its summary is what
+  /// the last visit saw until the attach answers.
+  private drawKeptTail(sessionId: string): boolean {
+    const kept = keptTails.get(sessionId);
+    if (!kept) return false;
+    const listed = this.sessions.find((session) => session.sessionId === sessionId);
+    this.events = [...kept.events];
+    this.summary = { ...kept.summary, ...listed };
+    this.turnOpener = kept.turnOpener;
+    this.historyExhausted = kept.historyExhausted;
+    this.configSeq = kept.configSeq;
+    this.usageFromSeq = kept.usageFromSeq;
+    this.rebuild();
+    this.queue = mergeQueue([], listed?.queue ?? kept.queue);
+    return true;
+  }
+
   private scheduleReconnect(): void {
     if (this.reconnectTimer !== undefined || this.closed) return;
     const delay = this.reconnectDelay;
@@ -1744,6 +1808,8 @@ export class AcpmuxDirectClient {
     // Only a purge carries the id alone; every other change carries the whole summary.
     const session = params?.session as SessionSummary | undefined;
     if (params?.kind === "purged" && session?.sessionId) {
+      // Nothing of a chat acpmux dropped is drawn again from this page.
+      forgetTail(session.sessionId);
       this.sessionPages.purgedSession(session.sessionId);
       this.sessions = this.sessions.filter((item) => item.sessionId !== session.sessionId);
       if (session.sessionId === this.selectedSessionId && this.handoff.state.busy !== "discarding")
@@ -3410,6 +3476,8 @@ export class AcpmuxDirectClient {
   }
   async select(sessionId: string): Promise<string | undefined> {
     const previousSessionId = this.selectedSessionId;
+    // The chat being left is kept for its own next open, while it is still the selected one.
+    this.rememberCurrentTail();
     const generation = ++this.selectionGeneration;
     // What the pane shows (the chat before, a new chat's hero) stays drawn until this chat's attach page is in.
     const hold = this.holdSnapshots(SWITCH_HOLD_MS);
@@ -3417,6 +3485,12 @@ export class AcpmuxDirectClient {
     this.missingSession = undefined;
     this.markSeen(sessionId);
     this.resetSessionState();
+    // A chat this page read already draws from what that visit left, on the frame the switch lands;
+    // its attach lays what acpmux holds now over that (Leo: "instant if cached").
+    if (this.drawKeptTail(sessionId)) {
+      this.emit("selected");
+      this.releaseSnapshots(hold);
+    }
     try {
       if (previousSessionId) await this.request("_acpmux/detach", { sessionId: previousSessionId });
       await this.attach(sessionId, generation);
