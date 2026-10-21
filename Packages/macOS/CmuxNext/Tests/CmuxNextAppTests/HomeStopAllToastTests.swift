@@ -19,7 +19,8 @@ struct HomeStopAllToastTests {
          "note":"a1 is still starting; it stops as soon as it starts."}
         """#.utf8))
         #expect(toast.message == [HomeStopAllStrings.stopped(["a1", "a3"]), "1 could not be stopped", starting].joined(separator: "\n"))
-        #expect(toast.detail == refused)
+        // The tooltip has the refusal, then the note (readable even when the toast cuts it off).
+        #expect(toast.detail == [refused, starting].joined(separator: "\n"))
         // Restart is for the ones that stopped: a refused one is not in `subagents`.
         #expect(toast.action?.title == HomeStopAllStrings.restart)
     }
@@ -55,11 +56,11 @@ struct HomeStopAllToastTests {
         #expect(none.message == HomeStopAllStrings.stoppedNone)
     }
 
-    /// The note alone (no refusal) is its own line under what stopped.
+    /// The note alone (no refusal) is its own line under what stopped, and the tooltip repeats it.
     @Test func aStartingSubagentAloneAddsOnlyTheNote() {
         let answer = ChiefStopAll(stopped: false, subagents: ["a1"], note: starting)
         #expect(HomeStopAllStrings.message(for: answer) == [HomeStopAllStrings.stopped(["a1"]), starting].joined(separator: "\n"))
-        #expect(HomeStopAllStrings.detail(for: answer) == nil)
+        #expect(HomeStopAllStrings.detail(for: answer) == starting)
     }
 
     /// The detail is the message's tooltip and the toast's VoiceOver help; the toast stays short.

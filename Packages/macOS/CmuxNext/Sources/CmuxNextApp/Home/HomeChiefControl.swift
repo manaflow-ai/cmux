@@ -164,7 +164,8 @@ enum HomeStopAllStrings {
     }
     /// The toast after Stop all agents: the subagents it stopped (else whether the Chief's
     /// turn stopped), how many could not be stopped, and the daemon's note about any still
-    /// starting. One short line each; the count goes before the note so it is never cut.
+    /// starting. One short line each; the count goes before the note, which is cut first when
+    /// the list of stopped subagents wraps (the tooltip repeats it).
     static func message(for answer: ChiefStopAll) -> String {
         var lines: [String] = []
         if !answer.subagents.isEmpty {
@@ -179,9 +180,11 @@ enum HomeStopAllStrings {
         return lines.joined(separator: "\n")
     }
     /// The toast's tooltip: one line per subagent that could not be stopped, as the daemon
-    /// wrote it (the subagent and acpmux's error); nil when every one stopped.
+    /// wrote it (the subagent and acpmux's error), then the note, so a note the toast's three
+    /// lines cut off (a long list of stopped subagents) can still be read; nil with neither.
     static func detail(for answer: ChiefStopAll) -> String? {
-        let lines = answer.errors.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        let lines = (answer.errors + [answer.note].compactMap { $0 })
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
         return lines.isEmpty ? nil : lines.joined(separator: "\n")
     }
     static func stopped(_ names: [String]) -> String {
