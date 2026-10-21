@@ -145,7 +145,6 @@ extension PaneHandlers {
     }
 
     private static func bindUnported(_ registry: ActionRegistry) {
-        registry.bindUnavailable("palette.openFilesPane", reason: RefusalStrings.filesPaneUnported)
         registry.bindUnavailable("palette.openFindPane", reason: RefusalStrings.findPaneUnported)
     }
 }

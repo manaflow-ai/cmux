@@ -23,9 +23,9 @@ nonisolated extension ActionSurfaceCatalog {
         .unimplemented: [
             "palette.browserToggleOmnibar",
             "palette.openFindPane",
-            "palette.openFilesPane",
         ],
         .noObject: [
+            "palette.openFilesPane",
             "sidebar.profileMenu", "browser.downloads.showFolder",
             "home.show",
             "openSettings", "appearance.customize", "newWindow", "newIncognitoWindow", "closeWindow", "minimizeWindow", "toggleFullScreen",

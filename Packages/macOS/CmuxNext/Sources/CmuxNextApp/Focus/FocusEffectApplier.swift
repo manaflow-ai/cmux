@@ -409,6 +409,8 @@ final class FocusEffectApplier: FocusEffectApplying {
         if controller.window?.firstResponder is TextBoxTextView { next.insert(.textBoxFocused) }
         // The same rule as `KeyRouter.keyContext`: a phone tab has the keyboard (the Simulator shortcuts).
         if services.keyRouter.focusesPhone(in: controller) { next.insert(.simulatorFocused) }
+        // The same rule as `KeyRouter.keyContext`: the right sidebar's file explorer has the keyboard.
+        if FileExplorerService.hasKeyboard(controller.window) { next.insert(.fileExplorerFocused) }
         if registry.context != next { registry.context = next }
     }
 

@@ -41,6 +41,7 @@ extension KeyRouter {
         if facts.pageID == Self.codeEditorPageID { bits.insert(.codeEditorFocused) }
         if facts.textBoxFocused { bits.insert(.textBoxFocused) }
         if isPhone(focus.resolved, internalPage: facts.internalPage) { bits.insert(.simulatorFocused) }
+        if facts.fileExplorerFocused { bits.insert(.fileExplorerFocused) }
         var context = KeyContext(bits: bits)
         if let page = facts.pageID { context[KeyContext.pageID] = .string(page) }
         context[KeyContext.windowKind] = .string(KeyContext.WindowKindValue.main)
@@ -128,7 +129,8 @@ extension KeyRouter {
                      topPage: controller.shownTopPage == .home ? "home" : nil,
                      pageKeySequencePending: editor.map { services?.viewers.editorPages.keySequencePending(on: $0) ?? false } ?? false,
                      textBoxFocused: window.firstResponder is TextBoxTextView,
-                     sidebarMultiSelection: controller.sidebar.model.selection.count > 1)
+                     sidebarMultiSelection: controller.sidebar.model.selection.count > 1,
+                     fileExplorerFocused: FileExplorerService.hasKeyboard(window))
     }
 
     /// The page id of the focused internal page tab.

@@ -156,9 +156,10 @@ nonisolated extension ActionSurfaceCatalog {
         .ownerVerb: ownerVerbActions,
         .unimplemented: [
             "palette.openFindPane",
-            "palette.openFilesPane",
         ],
         .guiOnly: [
+            // Opens a pane on the focused terminal's folder; scripts use `files.open`.
+            "palette.openFilesPane",
             "agentHistory.show", "music.open", "music.stop",
             "notifications.dismissHighlight", "openSettings", "minimizeWindow", "toggleFullScreen", "globalSearch", "commandPalette", "appearance.customize",
             "zoomWindow", "selectNextWindow", "selectPreviousWindow",
