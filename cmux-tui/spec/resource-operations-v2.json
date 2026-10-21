@@ -22481,6 +22481,27 @@
               "name": "string"
             }
           },
+          "argv": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string"
+              },
+              "min_items": 1
+            },
+            "description": "Exact executable and arguments the new pane's terminal runs instead of a shell. Use [executable, \"-lc\", script] to choose a shell executable."
+          },
+          "shell": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "Script the new pane's terminal runs with the server platform default shell and -lc. Clients never expand $SHELL."
+          },
           "cols": {
             "required": false,
             "type": {
@@ -22508,7 +22529,8 @@
         },
         "extra": false,
         "constraints": [
-          "cols and rows are paired."
+          "cols and rows are paired.",
+          "At most one of argv or shell is present; argv[0] is non-empty."
         ]
       },
       "result": {
@@ -24818,6 +24840,27 @@
             },
             "description": "When present, exact name bytes are preserved, including empty, whitespace, and Unicode."
           },
+          "argv": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string"
+              },
+              "min_items": 1
+            },
+            "description": "Exact executable and arguments the new screen's first terminal runs instead of a shell. Use [executable, \"-lc\", script] to choose a shell executable."
+          },
+          "shell": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "Script the new screen's first terminal runs with the server platform default shell and -lc. Clients never expand $SHELL."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -24827,7 +24870,10 @@
             "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
           }
         },
-        "extra": false
+        "extra": false,
+        "constraints": [
+          "At most one of argv or shell is present; argv[0] is non-empty."
+        ]
       },
       "result": {
         "kind": "apply",
@@ -29059,6 +29105,27 @@
               "name": "string"
             }
           },
+          "argv": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string"
+              },
+              "min_items": 1
+            },
+            "description": "Exact executable and arguments the new tab's terminal runs instead of a shell. Use [executable, \"-lc\", script] to choose a shell executable."
+          },
+          "shell": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "Script the new tab's terminal runs with the server platform default shell and -lc. Clients never expand $SHELL."
+          },
           "name": {
             "required": false,
             "type": {
@@ -29094,7 +29161,8 @@
         },
         "extra": false,
         "constraints": [
-          "cols and rows are paired."
+          "cols and rows are paired.",
+          "At most one of argv or shell is present; argv[0] is non-empty."
         ]
       },
       "result": {
