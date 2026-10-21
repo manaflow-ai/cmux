@@ -301,8 +301,10 @@ struct CoderouterAppCredentialSourceTests {
         var failure: AuthError?
         var accountID = "user-1"
         var current = true
+        var cancelled = false
 
-        func configure(failure: AuthError? = nil, accountID: String = "user-1", current: Bool = true) {
+        func configure(failure: AuthError? = nil, accountID: String = "user-1", current: Bool = true, cancelled: Bool = false) {
+            self.cancelled = cancelled
             self.failure = failure
             self.accountID = accountID
             self.current = current
@@ -316,7 +318,9 @@ struct CoderouterAppCredentialSourceTests {
         func isAuthenticatedSessionCurrent(_ snapshot: AuthenticatedSessionSnapshot) async -> Bool { current }
         /// The app's resolver refreshes a stale stored token before handing it over.
         func coherentTokenPair() async throws -> (accessToken: String, refreshToken: String) {
-            ("fresh-access", "refresh")
+            // A team switch cancels the read while the token is resolving.
+            if cancelled { throw CancellationError() }
+            return ("fresh-access", "refresh")
         }
     }
 
@@ -336,6 +340,10 @@ struct CoderouterAppCredentialSourceTests {
         }
         await auth.configure(current: false)
         await #expect(throws: CoderouterCLIFailure.sessionChanging) {
+            _ = try await source.credentials(expectedAccountID: "user-1")
+        }
+        await auth.configure(cancelled: true)
+        await #expect(throws: CancellationError.self) {
             _ = try await source.credentials(expectedAccountID: "user-1")
         }
         await auth.configure(failure: .unauthorized)
