@@ -1,4 +1,4 @@
-import CmuxNextAgentPane
+public import CmuxNextAgentPane
 import Darwin
 public import Foundation
 
@@ -54,8 +54,19 @@ public nonisolated enum ChiefHostStop {
     /// What End Sessions keeps running in the Chief home's acpmux.
     static let endSessionsKeep: AcpmuxQuit.Keep = .nothing
 
+    /// What End Sessions keeps running in the app's acpmux: nothing when the Chief runs there
+    /// (``ChiefHome/usesAppAcpmux``), so its turn, compactor and subagents end with the person's
+    /// agents; else the Home Chief's sessions, which its own daemon's end covers.
+    public nonisolated static func appAcpmuxEndKeep(chiefUsesAppAcpmux: Bool) -> AcpmuxQuit.Keep {
+        chiefUsesAppAcpmux ? .nothing : .chief
+    }
+
     @concurrent public static func endChiefSessions(home: ChiefHome, bundledBin: URL?) async {
         _ = await stop(home: home)
+        // On the app's own acpmux the Chief's sessions end with the app's (QuitAgents, keeping
+        // nothing: ``appAcpmuxEndKeep(chiefUsesAppAcpmux:)``): ending
+        // that daemon here would end the person's chats too.
+        guard !home.usesAppAcpmux else { return }
         let environment = AcpmuxEnvironment.resolve(build: nil, bundledBinDirectory: bundledBin,
                                                     environment: ["ACPMUX_HOME": home.acpmuxHome.path])
         // The daemon exits (Quit Everything's own end); the Chief's sessions stay on disk.
@@ -64,9 +75,15 @@ public nonisolated enum ChiefHostStop {
 
     /// Whether `pid` runs an `optchat-chief` executable.
     public static func isChiefHost(_ pid: pid_t) -> Bool {
-        var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
-        let path = proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 ? String(cString: buffer) : nil
+        let path = executablePath(pid)
         return isChiefHost(path: path, processName: path == nil ? processName(pid) : nil)
+    }
+
+    /// The executable path of `pid` (`proc_pidpath`), nil when it fails: no such process, or
+    /// its executable's file is gone.
+    static func executablePath(_ pid: pid_t) -> String? {
+        var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
+        return proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 ? String(cString: buffer) : nil
     }
 
     /// Whether a process with executable `path` (nil: `proc_pidpath` failed) and kernel process

@@ -1,58 +1,87 @@
 // The Inspector's Background tasks (Claude Code desktop's; Codex has none): the chat's running
-// background commands, newest first, each with how long it has run and a Stop button, then the
-// wakeups and cron jobs it scheduled, then "N finished", folded, which opens into the ended
-// commands with how each ended. Dev servers are listed under Servers instead (ServersSection.tsx).
-// The list scrolls inside the section; nothing is cut to a few rows.
+// background commands, newest first, each with how long it has run, then the wakeups and cron jobs
+// it scheduled, then "N finished", folded, which opens into the ended commands with how each ended.
+// The commands are the registry's and the ones only the transcript knows (processes.ts
+// `backgroundCommands`: Claude's background Bash, Ctrl-B's included). A row opens the command's
+// terminal beside the chat (processTerminal.ts); a command the registry lists also has Stop.
+// Dev servers are listed under Servers instead (ServersSection.tsx). The list scrolls inside the
+// section; nothing is cut to a few rows.
 import { useState } from "react";
 import { formatDuration } from "../conversation/turns";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
+import { openProcessTerminal } from "../processTerminal";
 import { useNow } from "../subagents/SubagentGroup";
 import type { SummaryWakeup } from "../summary/sessionSummary";
-import type { InspectorProcess } from "./processes";
+import { splitCommands, type BackgroundCommand } from "./processes";
 
 const ROW_ICON = rowIconSize(12);
 
-export const isRunning = (process: InspectorProcess) => process.state === "running";
-
-const ENDED: Record<string, StringKey> = {
-  exited: "bgTask.state.completed",
+/// What a command's state says (the summary card's rows say the same, summary/SummaryTasks.tsx).
+export const COMMAND_STATE: Record<BackgroundCommand["state"], StringKey> = {
+  running: "bgTask.state.running",
+  completed: "bgTask.state.completed",
   failed: "bgTask.state.failed",
-  killed: "bgTask.state.stopped",
+  stopped: "bgTask.state.stopped",
   lost: "chatInspector.tasks.lost",
 };
 
 export function TasksSection({
-  processes,
+  commands,
   scheduled = [],
   onStop,
 }: {
-  processes: readonly InspectorProcess[];
+  commands: readonly BackgroundCommand[];
   /// Wakeups and cron jobs the agent scheduled for itself (sessionSummary `scheduled`).
   scheduled?: readonly SummaryWakeup[];
-  /// `_acpmux/process/kill`; without it there is no Stop.
+  /// `_acpmux/process/kill`; without it, or for a command the registry does not list, no Stop.
   onStop?: (id: string) => Promise<unknown>;
 }) {
   const t = useT();
   const [showFinished, setShowFinished] = useState(false);
-  const running = processes.filter(isRunning).sort((a, b) => b.startedAt - a.startedAt);
-  const finished = processes.filter((process) => !isRunning(process)).sort((a, b) => b.startedAt - a.startedAt);
+  const { running, finished } = splitCommands(commands);
   const now = useNow(running.length > 0);
+  const row = (command: BackgroundCommand, time: string | undefined, state?: string) => {
+    const toolCallId = command.toolCallId;
+    return (
+      <li
+        key={command.id}
+        className="acpmux-chat-inspector-task acpmux-chat-inspector-task--command"
+        data-state={command.state}
+      >
+        <button
+          type="button"
+          className="acpmux-chat-inspector-task__open"
+          disabled={!toolCallId}
+          onClick={() => {
+            if (toolCallId) void openProcessTerminal(toolCallId);
+          }}
+        >
+          <Icon name="terminal" size={ROW_ICON} row />
+          <span className="acpmux-chat-inspector-task__command">{command.command}</span>
+          {time !== undefined && <span className="acpmux-chat-inspector-task__time">{time}</span>}
+          {state !== undefined && <span className="acpmux-chat-inspector-task__state">{state}</span>}
+        </button>
+        {command.state === "running" && command.processId && onStop && (
+          <StopButton id={command.processId} name={command.command} stop={onStop} />
+        )}
+      </li>
+    );
+  };
   return (
     <div className="acpmux-chat-inspector-scroll" data-section="tasks">
       {(running.length > 0 || scheduled.length > 0) && (
         <ul className="acpmux-chat-inspector-list">
-          {running.map((process) => (
-            <li key={process.id} className="acpmux-chat-inspector-task">
-              <Icon name="terminal" size={ROW_ICON} row />
-              <span className="acpmux-chat-inspector-task__command">{process.command}</span>
-              <span className="acpmux-chat-inspector-task__time">
-                {formatDuration(Math.max(0, now - process.startedAt))}
-              </span>
-              {onStop && <StopButton id={process.id} name={process.command} stop={onStop} />}
-            </li>
-          ))}
+          {running.map((command) =>
+            row(
+              command,
+              // A task only the transcript knows may not say when it started.
+              command.startedAt !== undefined
+                ? formatDuration(Math.max(0, now - command.startedAt))
+                : t(COMMAND_STATE.running),
+            ),
+          )}
           {scheduled.map((wakeup) => (
             <li key={wakeup.id} className="acpmux-chat-inspector-task">
               <Icon name="task.status.started" size={ROW_ICON} row />
@@ -75,18 +104,15 @@ export function TasksSection({
           </button>
           {showFinished && (
             <ul className="acpmux-chat-inspector-list" data-finished="">
-              {finished.map((process) => (
-                <li key={process.id} className="acpmux-chat-inspector-task" data-state={process.state}>
-                  <Icon name="terminal" size={ROW_ICON} row />
-                  <span className="acpmux-chat-inspector-task__command">{process.command}</span>
-                  <span className="acpmux-chat-inspector-task__time">
-                    {process.endedAt !== undefined && formatDuration(Math.max(0, process.endedAt - process.startedAt))}
-                  </span>
-                  <span className="acpmux-chat-inspector-task__state">
-                    {t(ENDED[process.state] ?? "bgTask.state.completed")}
-                  </span>
-                </li>
-              ))}
+              {finished.map((command) =>
+                row(
+                  command,
+                  command.endedAt !== undefined && command.startedAt !== undefined
+                    ? formatDuration(Math.max(0, command.endedAt - command.startedAt))
+                    : undefined,
+                  t(COMMAND_STATE[command.state]),
+                ),
+              )}
             </ul>
           )}
         </>

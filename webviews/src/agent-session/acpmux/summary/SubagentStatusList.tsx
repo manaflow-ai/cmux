@@ -5,7 +5,7 @@
 // agent started with its `start_session` tool (subagents/subsessions.ts) follow, theirs indented under
 // each, with their live state, an unread dot, how many messages wait for them and what a working
 // one does now; a click opens its chat beside this one (`onOpenSession`). After them, the other
-// chats the agent started (`sessions`, ChildSessionRows.tsx), each opening its chat.
+// chats the agent started (`sessions`, inspector/ChildSessionRows.tsx), each opening its chat.
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import { formatDuration } from "../conversation/turns";
 import { useT, type StringKey } from "../i18n";
@@ -20,7 +20,7 @@ import {
   waitingLine,
 } from "../subagents/subsessions";
 import type { StartedSession } from "../started/startedSessions";
-import { ChildSessionRows } from "./ChildSessionRows";
+import { ChildSessionRows } from "../inspector/ChildSessionRows";
 import type { SummarySubagent } from "./sessionSummary";
 import { SubagentStack } from "./SubagentStack";
 

@@ -15,7 +15,7 @@ import { SUBSESSION_STATUS, SubagentStatusList, subagentStatus, waitingSubagents
 import { SubagentsTab } from "./SubagentsTab";
 import { SummaryBody, type SummaryChanges } from "./SummaryBody";
 import type { SummaryCardControl } from "./cardState";
-import { backgroundCommands } from "./backgroundWork";
+import { backgroundCommands } from "../inspector/processes";
 import type { SummaryBackgroundTask } from "./sessionSummary";
 import type { ProcessRegistry } from "../inspector/processes";
 

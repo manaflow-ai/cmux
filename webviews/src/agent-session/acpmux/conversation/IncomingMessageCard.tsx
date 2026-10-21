@@ -8,7 +8,7 @@
 // answer goes to the sending chat in the message's thread (AcpmuxDirectClient.reply), from an
 // editor under the opened message. An open reply and its draft last while the page does too;
 // closing the message closes the reply and keeps the draft.
-import { useContext, useId, useLayoutEffect, useRef, useState } from "react";
+import { useContext, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useT, type StringKey } from "../i18n";
 import type { PromptImage } from "../model";
 import type { IncomingMessage, IncomingRelation } from "./incomingMessage";
@@ -37,6 +37,7 @@ export function IncomingMessageLine({
   images,
   onOpen,
   onReply,
+  actions,
 }: {
   /// The row's id, which keeps the line open across remounts.
   id: string;
@@ -46,6 +47,8 @@ export function IncomingMessageLine({
   onOpen(sessionId: string): void;
   /// Sends a reply to the message's sender; rejects when it was not sent.
   onReply?(message: IncomingMessage, text: string): Promise<void>;
+  /// The message's hover row (MessageActions.tsx ReceivedActions), at the line's end.
+  actions?: ReactNode;
 }) {
   const t = useT();
   const key = `${useContext(PromptMarksSession) ?? ""}\u0000${id}`;
@@ -157,6 +160,7 @@ export function IncomingMessageLine({
             {t("message.reply")}
           </button>
         )}
+        {actions}
       </div>
       {open && (
         <div id={bodyId} className="cv-received__body selectable">

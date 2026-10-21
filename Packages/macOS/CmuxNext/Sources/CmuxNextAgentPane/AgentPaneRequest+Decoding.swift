@@ -199,6 +199,14 @@ extension AgentPaneRequest {
         case "workspace.chooseFolder": self = .chooseFolder
         case "chat.folder.choose": self = .chooseChatFolder
         case "chat.attach.choose": self = .chooseAttachments
+        case "chat.attach.dropped":
+            if let kind = (params?["kind"] as? String).flatMap(AgentPaneDroppedPaths.Kind.init(rawValue:)),
+               let names = params?["names"] as? [String], (1...AgentPaneDroppedPaths.maximumNames).contains(names.count),
+               names.allSatisfy(AgentPaneDroppedPaths.isAskedName) {
+                self = .attachDropped(kind, names: names)
+            } else {
+                self = .unsupported(method)
+            }
         case "workspace.useFolder":
             // Any text: a path that is not an existing absolute folder is refused by the host
             // (`transport.path_invalid`), so the page never takes it for an older host.
