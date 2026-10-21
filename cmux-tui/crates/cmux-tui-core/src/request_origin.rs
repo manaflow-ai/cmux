@@ -180,7 +180,7 @@ impl ConnectionOrigin {
             }
             RequestOrigin::Agent => match &self.local_peer {
                 LocalPeer::Terminal(id) => Actor::Terminal { id: id.clone() },
-                LocalPeer::Unknown | LocalPeer::Acpmux | LocalPeer::Other => Actor::local_user(),
+                LocalPeer::Unknown | LocalPeer::Other => Actor::local_user(),
             },
             RequestOrigin::Page => Actor::local_user(),
         }
@@ -371,8 +371,6 @@ pub(crate) enum LocalPeer {
     Unknown,
     /// A process in one live cmux terminal session.
     Terminal(String),
-    /// The detached acpmux daemon executable, which may mint ACP-session credentials.
-    Acpmux,
     /// A resolved same-user process outside cmux terminals.
     Other,
 }

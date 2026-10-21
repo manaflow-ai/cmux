@@ -42,12 +42,7 @@ fn a_terminal_peer_that_omits_its_credential_cannot_become_the_owner() {
     let process = surface.process_id().expect("the terminal child pid");
     let terminal = surface.terminal_public_id().expect("the terminal id").as_str().to_string();
 
-    let peer = super::classify_local_peer(
-        &mux,
-        Some("token:4242.1"),
-        |_| Some(process),
-        |_| Some("/bin/zsh".into()),
-    );
+    let peer = super::classify_local_peer(&mux, Some("token:4242.1"), |_| Some(process));
     assert_eq!(peer, crate::request_origin::LocalPeer::Terminal(terminal.clone()));
 
     let conn = connect(&mux);
@@ -67,7 +62,7 @@ fn a_terminal_peer_that_omits_its_credential_cannot_become_the_owner() {
 }
 
 #[test]
-fn only_acpmux_mints_and_only_the_verified_app_rotates() {
+fn only_the_verified_app_mints_and_rotates() {
     let mux = mux("credential-owner");
     let plain = connect(&mux);
     let mint_request = v2(
@@ -78,18 +73,14 @@ fn only_acpmux_mints_and_only_the_verified_app_rotates() {
     );
     assert_forbidden(&send(&mux, &plain, &mint_request));
 
-    let acpmux = connect(&mux);
-    set_local_peer_for_test(&mux, acpmux.client, crate::request_origin::LocalPeer::Acpmux);
-    assert_eq!(send(&mux, &acpmux, &mint_request)["ok"], true);
     let rotate = v2(
         "credential.rotate",
         json!({"machine": "current", "session": "current"}),
         Some("credential-owner-rotate"),
         None,
     );
-    assert_forbidden(&send(&mux, &acpmux, &rotate));
-
     let app = verified_app(&mux, "token:20.1");
+    assert_eq!(send(&mux, &app, &mint_request)["ok"], true);
     assert_eq!(send(&mux, &app, &rotate)["ok"], true);
     mux.shutdown();
 }

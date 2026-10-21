@@ -97,7 +97,6 @@ fn classify_local_peer(
     mux: &Mux,
     peer_key: Option<&str>,
     session_for_pid: impl FnOnce(u32) -> Option<u32>,
-    executable_for_pid: impl FnOnce(u32) -> Option<std::path::PathBuf>,
 ) -> LocalPeer {
     let Some(process) = peer_key.and_then(peer_pid) else { return LocalPeer::Unknown };
     let Some(session) = session_for_pid(process) else { return LocalPeer::Unknown };
@@ -113,12 +112,7 @@ fn classify_local_peer(
     if let Some(terminal) = terminal {
         return LocalPeer::Terminal(terminal);
     }
-    let Some(executable) = executable_for_pid(process) else { return LocalPeer::Unknown };
-    match executable.file_name().and_then(std::ffi::OsStr::to_str) {
-        Some("acpmux") => LocalPeer::Acpmux,
-        Some(_) => LocalPeer::Other,
-        None => LocalPeer::Unknown,
-    }
+    LocalPeer::Other
 }
 
 fn peer_pid(key: &str) -> Option<u32> {
@@ -140,9 +134,9 @@ fn peer_session_id(_pid: u32) -> Option<u32> {
     None
 }
 
-/// `credential.mint` and `credential.rotate` are the owner's: a registered
-/// local connection proved as the frontend; acpmux may mint (never rotate).
-/// Unknown, terminal-bound and other local peers fail closed.
+/// `credential.mint` and `credential.rotate` require the verified frontend.
+/// Unknown, terminal-bound and other local peers fail closed. Acpmux treats a
+/// mint refusal as non-fatal until the frontend can delegate mint authority.
 fn check_credential_owner(
     mux: &Mux,
     client: u64,
@@ -154,13 +148,7 @@ fn check_credential_owner(
     {
         return Ok(());
     }
-    let peer = {
-        let state =
-            mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        state.clients.get(&client).map(|record| record.origin.local_peer.clone())
-    };
-    let owner = matches!(actor, Actor::Frontend { .. })
-        || operation == ResourceOperation::CredentialMint && peer == Some(LocalPeer::Acpmux);
+    let owner = matches!(actor, Actor::Frontend { .. });
     let local = mux.control_clients.is_unix(client) && !mux.is_remote_client(client);
     let principal = mux.conversation_principal(client) == crate::conversation_store::LOCAL_USER;
     if owner && local && principal && !presents_credential {
@@ -380,12 +368,7 @@ pub(super) fn set_hello(
 
 /// Records kernel peer identity at accept, before a legacy client can skip hello.
 pub(super) fn set_peer_identity_at_accept(mux: &Mux, client: u64, peer_key: Option<String>) {
-    let local_peer = classify_local_peer(
-        mux,
-        peer_key.as_deref(),
-        peer_session_id,
-        crate::platform::process_executable_path,
-    );
+    let local_peer = classify_local_peer(mux, peer_key.as_deref(), peer_session_id);
     let mut state =
         mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     if let Some(record) = state.clients.get_mut(&client) {

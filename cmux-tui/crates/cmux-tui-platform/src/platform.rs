@@ -958,35 +958,6 @@ pub fn foreground_job_name(pid: u32) -> Option<String> {
     (!base.is_empty()).then_some(base)
 }
 
-/// Kernel-reported executable path for `pid`, never argv or a mutable process title.
-pub fn process_executable_path(pid: u32) -> Option<PathBuf> {
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    {
-        std::fs::read_link(format!("/proc/{pid}/exe")).ok()
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let pid = libc::c_int::try_from(pid).ok()?;
-        let mut path = [0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
-        // SAFETY: proc_pidpath writes at most path.len() bytes and returns the byte count.
-        let written =
-            unsafe { libc::proc_pidpath(pid, path.as_mut_ptr().cast(), path.len() as u32) };
-        if written <= 0 {
-            return None;
-        }
-        Some(PathBuf::from(std::str::from_utf8(&path[..written as usize]).ok()?))
-    }
-    #[cfg(windows)]
-    {
-        crate::windows_processes::image_path(pid).map(PathBuf::from)
-    }
-    #[cfg(not(any(target_os = "linux", target_os = "android", target_os = "macos", windows)))]
-    {
-        let _ = pid;
-        None
-    }
-}
-
 #[cfg(target_os = "linux")]
 fn process_name(pid: u32) -> Option<String> {
     // argv[0]'s basename beats /proc/<pid>/comm: comm truncates to 15
