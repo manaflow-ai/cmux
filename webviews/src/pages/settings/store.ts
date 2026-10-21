@@ -482,10 +482,17 @@ export class SettingsStore {
     call: <R>(op: string, params: unknown): Promise<R> => this.client.call<R>(op, params),
   };
 
-  /** Settings > Updates' channels; null when the host has no updater. */
-  async channelsState(): Promise<ChannelsState | null> {
-    const reply = await this.request("cmux.settings.channels.state", {});
+  /** Settings > Updates' channels, with the way back to `ring` (the Channel row's value); null
+   * when the host has no updater. */
+  async channelsState(ring?: string): Promise<ChannelsState | null> {
+    const reply = await this.request("cmux.settings.channels.state", ring ? { ring } : {});
     return reply.ok ? reply.value : null;
+  }
+
+  /** Settings > Updates' Go Back: the app restarts into the kept build; else the host's reason. */
+  async channelsGoBack(ring: string, build: string): Promise<string | null> {
+    const reply = await this.request("cmux.settings.channels.go_back", { ring, build });
+    return reply.ok ? null : reply.error.message;
   }
 
   /** Settings > Agents' state; null when the host has no Agents part. */

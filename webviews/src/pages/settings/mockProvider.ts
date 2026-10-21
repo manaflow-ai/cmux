@@ -20,6 +20,7 @@ import {
   type AccountsRun,
   type AgentsRun,
   type AgentsState,
+  type ChannelSwitch,
   type ChannelsState,
   type AccountsState,
   type HarnessesRun,
@@ -212,9 +213,13 @@ export class MockSettingsProvider {
           });
         return {};
       },
-      "cmux.settings.channels.state": () => {
+      "cmux.settings.channels.state": (params) => {
         if (!this.channels) throw new ProtocolError("cmux.page.unavailable", "no updater");
-        return this.channels;
+        return { ...this.channels, switch: params.ring === "nightly" ? this.channelSwitch : null };
+      },
+      "cmux.settings.channels.go_back": (params) => {
+        this.wentBack = params.build as string;
+        return {};
       },
       "cmux.settings.agents.state": () => this.agents.state,
       "cmux.settings.agents.run": (params) => this.agents.run(params as unknown as AgentsRun),
@@ -421,6 +426,7 @@ export class MockSettingsProvider {
       "cmux.settings.accounts.state",
       "cmux.settings.accounts.run",
       "cmux.settings.channels.state",
+      "cmux.settings.channels.go_back",
       "cmux.settings.agents.state",
       "cmux.settings.agents.run",
       "cmux.chief.profile.list",
@@ -486,6 +492,10 @@ export class MockSettingsProvider {
 
   /** Settings > Updates' channels; null: the host has no updater. */
   channels: ChannelsState | null = mockChannels;
+  /** The way back the host offers when the card shows Nightly (the fixture runs a Dev build). */
+  channelSwitch: ChannelSwitch | null = null;
+  /** The build the card's Go Back asked for. */
+  wentBack: string | null = null;
   /** Custom Chief pictures by Chief id (`chief.profile.avatar.get`); a Chief without one reads null. */
   chiefAvatars = new Map<string, Params>();
 
