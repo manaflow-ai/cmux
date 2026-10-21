@@ -83,6 +83,10 @@ nonisolated enum AcpmuxPaneMethods {
         // `peerSessionId` only picks one of that chat's paused pairs; acpmux resumes no pair the
         // chat is not in, and only for a connection that proved the person key (hub/person.rs).
         "_acpmux/agent_pair_resume",
+        // The forum's current rules for the rules card above the composer (direct.ts forumRules,
+        // RulesNotice.tsx; acpmux server/forum.rs, hq#2570). Read only and without params: the
+        // rules every agent on this Mac is told already. Posting, acking and retiring stay off the pane.
+        "_acpmux/forum/rules",
     ]
 
     /// Notifications (no `id`).
