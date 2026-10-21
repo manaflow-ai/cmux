@@ -29,11 +29,17 @@ extension MainPaneLayout {
     /// The lone chat in `controller`'s pane docks left with the agent chat role; the tab on
     /// `surface`, just opened there unselected, stays and is selected, so its pane becomes the
     /// column on the chat's right. With `focus` (a person's click) the tab takes keyboard focus;
-    /// else focus follows the chat into its dock when the chat had it (an agent's open stays in
-    /// the background). A failed dock selects the tab where it is, so it never stays hidden.
-    @MainActor static func dockChat(of controller: PaneController, keeping surface: SurfaceID, focus: Bool, services: AppServices) {
+    /// else no focus moves to it, and focus follows the chat into its dock when the chat had it
+    /// (an agent's open stays in the background). A failed dock selects the tab where it is, so it
+    /// never stays hidden. `then` hears whether the chat docked, once the store lists it in its
+    /// dock, so a later open sees the column on its right.
+    @MainActor static func dockChat(of controller: PaneController, keeping surface: SurfaceID, focus: Bool, services: AppServices,
+                                    then: (@MainActor (Bool) -> Void)? = nil) {
         let store = controller.daemon.store, anchor = controller.pane
         let chatHadFocus = controller.workspace?.focusedPane === controller
+        let reveal: @MainActor (PaneController, TabModel) -> Void = { pane, tab in
+            if focus { pane.select(StripTabID(tab.id)) } else { pane.selectWhenReportedKeepingFocus(surface: surface) }
+        }
         services.registry.track(Task { @MainActor [weak controller] () -> ActionWorkFailure? in
             let listed = Task { @MainActor () -> TabModel? in
                 if let tab = store.tab(surface: surface) { return tab }
@@ -47,17 +53,22 @@ extension MainPaneLayout {
             bound.schedule(after: listLimit) { @MainActor in listed.cancel() }
             let found = await listed.value
             bound.cancel()
-            guard let tab = found, let controller else { return "main pane: the new tab did not open" }
+            guard let tab = found, let controller else {
+                then?(false)
+                return "main pane: the new tab did not open"
+            }
             guard let chat = anchor.tabs.first(where: { $0.id != tab.id && ChatColumnPlacement.isChat($0, services: services) }) else {
-                controller.select(StripTabID(tab.id))
+                reveal(controller, tab)
+                then?(false)
                 return nil
             }
             let docked = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
                 TabMoves.toNewDockColumn(chat, anchor: anchor, edge: .left, role: .agentChat, services: services) { done.resume(returning: $0) }
             }
-            controller.select(StripTabID(tab.id))
+            reveal(controller, tab)
             guard docked else {
                 if focus { controller.focusContent() }
+                then?(false)
                 return "main pane: the chat did not dock (see the app log)"
             }
             // A hidden tab bar was the chat's choice: the pane it left shows its tab bar again.
@@ -65,12 +76,19 @@ extension MainPaneLayout {
                 services.paneTabBars.set(nil, for: controller.paneKey)
                 controller.apply(controller.snapshot())
             }
-            guard let content = controller.workspace else { return nil }
-            if focus {
-                PaneHandlers.focus(controller.layoutPaneID, in: content)
-            } else if chatHadFocus {
-                await followChat(chat.id, from: anchor, in: content, services: services)
+            let dock = await movedPane(of: chat.id, from: anchor, services: services)
+            if let content = controller.workspace {
+                if focus {
+                    PaneHandlers.focus(controller.layoutPaneID, in: content)
+                } else if chatHadFocus, let dock {
+                    // Not a view change of the open: the chat moved out of the focused pane, and focus follows
+                    // it back to where the person had it (FocusCoordinator.followMovedTab does so for a move).
+                    ActionRunScope.carrying(ActionRunScope(origin: .script, allowsViewChange: true)) {
+                        PaneHandlers.focus(LayoutPaneID(dock.id), in: content)
+                    }
+                }
             }
+            then?(true)
             return nil
         })
     }
@@ -106,20 +124,25 @@ extension MainPaneLayout {
             }
             created?(tab.key)
             if target === controller {
-                dockChat(of: target, keeping: tab.surface, focus: focus, services: services)
-            } else if let model = services.locateTab(tab.key)?.0 {
+                // `finished` once the chat is in its dock: a queued open then sees the column on its right.
+                dockChat(of: target, keeping: tab.surface, focus: focus, services: services) { _ in finished?(true) }
+                return
+            }
+            if focus, let model = services.locateTab(tab.key)?.0 {
                 target.select(StripTabID(model.id))
-                if focus, let content = target.workspace { PaneHandlers.focus(target.layoutPaneID, in: content) }
+                if let content = target.workspace { PaneHandlers.focus(target.layoutPaneID, in: content) }
+            } else {
+                // An agent's open: selected in the column, keyboard focus stays where it is.
+                target.selectWhenReportedKeepingFocus(surface: tab.surface)
             }
             finished?(true)
         }
         return true
     }
 
-    /// Focuses the pane chat tab `id` moved into from `anchor` once the store lists it there, as
-    /// ``AgentBesidePlacement`` does when a lone chat docks for an agent's tab.
-    @MainActor private static func followChat(_ id: String, from anchor: PaneModel, in content: WorkspaceContentController,
-                                              services: AppServices) async {
+    /// The pane chat tab `id` moved into from `anchor`, once the store lists it there (nil after
+    /// ``listLimit``).
+    @MainActor private static func movedPane(of id: String, from anchor: PaneModel, services: AppServices) async -> PaneModel? {
         let moved = Task { @MainActor () -> Bool in
             for await moved in ObservationStream({ services.locateTab(id).map { $0.1 !== anchor } ?? false }) where moved {
                 return true
@@ -130,11 +153,6 @@ extension MainPaneLayout {
         bound.schedule(after: listLimit) { @MainActor in moved.cancel() }
         let found = await moved.value
         bound.cancel()
-        guard found, let pane = services.locateTab(id)?.1 else { return }
-        // Not a view change of the open: the chat moved out of the focused pane, and focus follows
-        // it back to where the person had it (FocusCoordinator.followMovedTab does so for a move).
-        ActionRunScope.carrying(ActionRunScope(origin: .script, allowsViewChange: true)) {
-            PaneHandlers.focus(LayoutPaneID(pane.id), in: content)
-        }
+        return found ? services.locateTab(id)?.1 : nil
     }
 }

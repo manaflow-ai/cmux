@@ -64,8 +64,8 @@ final class LinkOpener {
     /// A source that takes no tabs (Home's pinned dock) finds the pane on its right by the layout's
     /// column order (``LinkOpenPlacement/paneRight(of:columns:takesTabs:recency:)``), not by drawn
     /// frames, which miss a strip column that is scrolled or not laid out yet.
-    func target(from source: PaneController, cmdClick: Bool = false) -> LinkOpenPlacement<LayoutPaneID>.Target {
-        if let services, let side = MainPaneLayout.side(from: source, services: services) {
+    func target(from source: PaneController, cmdClick: Bool = false, mainPane: Bool = true) -> LinkOpenPlacement<LayoutPaneID>.Target {
+        if mainPane, let services, let side = MainPaneLayout.side(from: source, services: services) {
             switch side {
             case .tab(let pane): return .pane(pane)
             case .dockChat: return .dockChat(source.layoutPaneID)
@@ -88,11 +88,12 @@ final class LinkOpener {
     }
 
     /// Opens through `make` where the rule puts it. `background`: the opened tab takes no focus.
-    /// False with no source pane (no window) or when `make` refused.
+    /// `mainPane` false: main pane layout does not apply (a chat, which belongs in the dock, not
+    /// the column on its right). False with no source pane (no window) or when `make` refused.
     @discardableResult
-    func open(from source: PaneController?, background: Bool = false, cmdClick: Bool = false, _ make: Make) -> Bool {
+    func open(from source: PaneController?, background: Bool = false, cmdClick: Bool = false, mainPane: Bool = true, _ make: Make) -> Bool {
         guard let source = source ?? services?.windows.active?.focusedPane else { return false }
-        switch target(from: source, cmdClick: cmdClick) {
+        switch target(from: source, cmdClick: cmdClick, mainPane: mainPane) {
         case .pane(let id):
             return make(id == source.layoutPaneID ? source : source.workspace?.panes[id] ?? source, nil)
         case .splitRight:
