@@ -110,8 +110,8 @@ struct AgentPaneSendPickedFolderPromptTests {
         #expect(await prompt(pane, id: 2) == .gestureRequired)
     }
 
-    /// A pick passes its gesture only to a chat that starts: with no start, a prompt into the
-    /// pane's chat gets nothing from it.
+    /// A pick passes its gesture only to a chat that starts: with no start after it, a prompt into
+    /// the pane's chat gets nothing from it.
     @Test func aPickWithoutAStartGivesAPromptNothing() async throws {
         let pane = try await pane()
         defer { pane.server.stop(); try? FileManager.default.removeItem(at: pane.base) }
@@ -119,6 +119,7 @@ struct AgentPaneSendPickedFolderPromptTests {
         #expect(await start(pane, id: 1, in: pane.root) == nil) // a chat the page started by itself
         pane.model.transport.gestures.record(click: true) // a folder picked in the menu, no Send
         #expect(status(await pane.model.respond(to: .useFolder(pane.folder, confirm: false))) == "ok")
+        #expect(pane.model.transport.addedRoots == [pane.folder]) // the pick took the click
         #expect(await prompt(pane, id: 2) == .gestureRequired)
     }
 
