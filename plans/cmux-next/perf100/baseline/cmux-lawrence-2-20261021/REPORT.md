@@ -398,62 +398,63 @@ per terminal: cmux_footprint_mb 5.22, cmux_rss_mb 14.71, cmux_threads 13.18, tui
 
 ### S4 app (seed 1)
 
-host `cmuxs-MacBook-Pro-2` (class `cmux-lawrence-2`, Apple M5 Pro, 15 cores, 48 GB, 27.0.1), load [5.83, 4.69, 6.04] -> [22.81, 8.0, 6.87]; build tag `p100base4` sha `5e67ec46d167`; wall 207.3 s
+host `cmuxs-MacBook-Pro-2` (class `cmux-lawrence-2`, Apple M5 Pro, 15 cores, 48 GB, 27.0.1), load [8.61, 6.12, 6.29] -> [7.67, 9.64, 7.99]; build tag `p100base5` sha `db68ce4fa021`; wall 202.9 s
 
-create (44.17 s window)
-
-| group | CPU s | CPU % | wakeups/s | RSS MB | footprint MB | peak MB | threads | written MB | written MB/min | procs |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| **cmux** | 55.8 | 126 | 242 | 4,324 | 2,178 | 2,178 | 2931 | 1,933 | 2,626 | 213 |
-| app | 38.26 | 86.61 | 210 | 658 | 679 | 679 | 82 | 0.305 | 0.414 | 1 |
-| tui | 17.15 | 38.82 | 18.81 | 3,176 | 1,202 | 1,202 | 2760 | 1,933 | 2,625 | 201 |
-| acpmux | 0.134 | 0.302 | 0.02 | 52.9 | 23.8 | 23.8 | 40 | 0 | 0 | 2 |
-| browser | 0.037 | 0.084 | 4.14 | 410 | 255 | 353 | 40 | 0 | 0 | 6 |
-| helpers | 0.222 | 0.502 | 9.15 | 27 | 18.7 | 18.8 | 9 | 0 | 0 | 3 |
-| workload | 1.96 | 4.43 | 14.92 | 738 | 486 | 486 | 199 | 0 | 0 | 199 |
-
-idle (60.14 s window)
+create (46.55 s window)
 
 | group | CPU s | CPU % | wakeups/s | RSS MB | footprint MB | peak MB | threads | written MB | written MB/min | procs |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| **cmux** | 0.024 | 0.039 | 2.99 | 4,324 | 1,977 | 1,977 | 2926 | 0 | 0 | 213 |
-| app | 0.012 | 0.019 | 1.21 | 657 | 477 | 477 | 79 | 0 | 0 | 1 |
-| tui | 0.004 | 0.007 | 0.13 | 3,176 | 1,202 | 1,202 | 2760 | 0 | 0 | 201 |
-| acpmux | 0 | 0 | 0 | 52.9 | 23.8 | 23.8 | 40 | 0 | 0 | 2 |
-| browser | 0.008 | 0.013 | 1.65 | 410 | 255 | 255 | 38 | 0 | 0 | 6 |
-| helpers | 0 | 0 | 0 | 27 | 18.7 | 18.7 | 9 | 0 | 0 | 3 |
-| workload | 0 | 0 | 0 | 738 | 486 | 486 | 199 | 0 | 0 | 199 |
+| **cmux** | 59.16 | 127 | 239 | 4,288 | 2,172 | 2,172 | 2931 | 1,931 | 2,489 | 213 |
+| app | 40.5 | 87 | 207 | 623 | 679 | 679 | 83 | 0 | 0 | 1 |
+| tui | 18.26 | 39.22 | 16.65 | 3,176 | 1,200 | 1,200 | 2759 | 1,931 | 2,489 | 201 |
+| acpmux | 0.134 | 0.288 | 0 | 52.8 | 19.9 | 19.9 | 40 | 0 | 0 | 2 |
+| browser | 0.045 | 0.097 | 6.06 | 409 | 257 | 354 | 40 | 0 | 0 | 6 |
+| helpers | 0.23 | 0.495 | 8.77 | 27.3 | 16.7 | 17.3 | 9 | 0 | 0 | 3 |
+| workload | 2.07 | 4.45 | 15.19 | 735 | 484 | 484 | 199 | 0 | 0 | 199 |
 
-per terminal: cmux_footprint_mb 9.88, cmux_rss_mb 21.62, cmux_threads 14.63, tui_footprint_mb 6.01, tui_rss_mb 15.88, tui_threads 13.8, app_footprint_mb 2.39, app_rss_mb 3.29, app_threads 0.4
-
-per workspace: cmux_footprint_mb 9.88, cmux_rss_mb 21.62, cmux_threads 14.63, app_footprint_mb 2.39, app_rss_mb 3.29, app_threads 0.4
-
-restart (2.99 s window)
+idle (60.15 s window)
 
 | group | CPU s | CPU % | wakeups/s | RSS MB | footprint MB | peak MB | threads | written MB | written MB/min | procs |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| **cmux** | 2.65 | 88.37 | 204 | 4,001 | 2,074 | 2,075 | 2851 | 1.07 | 21.4 | 213 |
-| app | 1.67 | 55.7 | 156 | 342 | 280 | 477 | 33 | 0.32 | 6.42 | 1 |
-| tui | 0.102 | 3.41 | 0.67 | 3,158 | 1,201 | 1,202 | 2685 | 0.2 | 4.02 | 201 |
-| acpmux | 0.048 | 1.6 | 3.34 | 52.7 | 23.4 | 23.8 | 45 | 0.496 | 9.95 | 2 |
-| browser | 0.826 | 27.59 | 44.1 | 420 | 550 | 551 | 79 | 0.051 | 1.02 | 6 |
-| helpers | 0.002 | 0.082 | 0 | 28.4 | 20 | 20 | 9 | 0 | 0 | 3 |
-| workload | 0 | 0.004 | 0 | 735 | 489 | 489 | 199 | 0 | 0 | 199 |
+| **cmux** | 0.024 | 0.04 | 3.32 | 4,288 | 1,971 | 1,972 | 2923 | 0 | 0 | 213 |
+| app | 0.01 | 0.017 | 1.43 | 623 | 478 | 478 | 79 | 0 | 0 | 1 |
+| tui | 0.004 | 0.006 | 0.13 | 3,176 | 1,200 | 1,200 | 2759 | 0 | 0 | 201 |
+| acpmux | 0 | 0 | 0 | 52.8 | 19.9 | 19.9 | 40 | 0 | 0 | 2 |
+| browser | 0.01 | 0.017 | 1.76 | 409 | 257 | 257 | 36 | 0 | 0 | 6 |
+| helpers | 0 | 0 | 0 | 27.3 | 16.7 | 16.7 | 9 | 0 | 0 | 3 |
+| workload | 0 | 0 | 0 | 735 | 484 | 484 | 199 | 0 | 0 | 199 |
+
+per terminal: cmux_footprint_mb 9.86, cmux_rss_mb 21.44, cmux_threads 14.62, tui_footprint_mb 6, tui_rss_mb 15.88, tui_threads 13.79, app_footprint_mb 2.39, app_rss_mb 3.11, app_threads 0.4
+
+per workspace: cmux_footprint_mb 9.86, cmux_rss_mb 21.44, cmux_threads 14.62, app_footprint_mb 2.39, app_rss_mb 3.11, app_threads 0.4
+
+restart (2.93 s window)
+
+| group | CPU s | CPU % | wakeups/s | RSS MB | footprint MB | peak MB | threads | written MB | written MB/min | procs |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| **cmux** | 2.8 | 95.55 | 218 | 4,015 | 2,036 | 2,055 | 2852 | 1.46 | 29.83 | 213 |
+| app | 1.66 | 56.73 | 165 | 342 | 276 | 478 | 33 | 0.328 | 6.71 | 1 |
+| tui | 0.105 | 3.57 | 0.68 | 3,163 | 1,205 | 1,205 | 2684 | 0.212 | 4.34 | 201 |
+| acpmux | 0.049 | 1.65 | 2.73 | 52.7 | 23.4 | 23.4 | 45 | 0.5 | 10.23 | 2 |
+| browser | 0.984 | 33.54 | 49.78 | 429 | 514 | 536 | 81 | 0.418 | 8.55 | 6 |
+| helpers | 0.002 | 0.052 | 0 | 28.3 | 17.7 | 17.7 | 9 | 0 | 0 | 3 |
+| workload | 0 | 0.005 | 0 | 733 | 487 | 487 | 199 | 0 | 0 | 199 |
 
 | metric | value |
 |---|---:|
-| cold.launch_to_interactive_ms | 11,478 |
-| cold.quit_end_sessions_ms | 181 |
-| cold.socket_ms | 1,259 |
-| create.seconds | 44.04 |
+| cold.first_window_frame_committed_ms | 2,746 |
+| cold.launch_to_interactive_ms | 4,233 |
+| cold.quit_end_sessions_ms | 190 |
+| cold.socket_ms | 3,802 |
+| create.seconds | 46.44 |
 | create.terminals | 200 |
 | create.workspaces | 200 |
 | disk.stop.home_mb | 237 |
-| latency.launch_to_interactive.cold_ms | 11,478 |
-| latency.launch_to_interactive.restart_ms | 2,330 |
-| restart.launch_to_all_workspaces_ms | 2,340 |
-| restart.launch_to_interactive_ms | 2,330 |
-| restart.quit_keep_sessions_ms | 506 |
+| latency.launch_to_interactive.cold_ms | 4,233 |
+| latency.launch_to_interactive.restart_ms | 2,286 |
+| restart.launch_to_all_workspaces_ms | 2,297 |
+| restart.launch_to_interactive_ms | 2,286 |
+| restart.quit_keep_sessions_ms | 485 |
 | restart.terminals | 200 |
 | stop.quit_ms | 0.2 |
 
@@ -461,7 +462,6 @@ restart (2.99 s window)
 - note: S3: 200 x 5 terminals exceed the PTYs this job may take (300); ran 200 x 1
 - UNVERIFIED: S3 at 1000 terminals in the app: PTY cap 300 on this host
 - UNVERIFIED: S4 restart-to-update: quit with sessions kept and launch of the same build; the Sparkle install and UpdateWindowHandoff path are not exercised
-- UNVERIFIED: cold.launch_to_interactive_ms 11478.5 includes a 10 s harness wait for a terminal the launch window never showed (fixed in db68ce4fa021); the true cold value is not in this baseline
 
 ### S4 headless-tui (seed 1)
 

@@ -6,7 +6,7 @@ Runs: cmux-lawrence-2 nx-remote jobs 1021-001934-588d18 (S0, S1, S3, S2 headless
 
 Caveats (also in each JSON's notes and unverified):
 - S3 and S4 ran 200 workspaces x 1 terminal on cmux-lawrence-2, not 200 x 5: the shared GUI host allows a job 300 PTYs. The 1000-terminal case ran headless on rbx only.
-- S4 app cold launch-to-interactive (11.5 s) includes a 10 s harness wait (fixed in db68ce4fa021); use restart launch-to-interactive (2.33 s) until the rerun lands.
+- S4 app comes from the rerun 1021-025606-bbfb7f (runner db68ce4fa021): cold launch-to-interactive 4,233 ms, restart 2,286 ms. The tables below were made before that rerun and still show the earlier S4 app run (job 1021-022447-c5ea87, whose cold value 11.5 s included a 10 s harness wait); REPORT.md and the JSON hold the rerun.
 - S2 app measures token-to-page (the agent pane's chat state), not pixels.
 - rbx disk-written values are 0: that run kept state on tmpfs (fixed).
 - wakeups/s on macOS is ri_interrupt_wkups; ri_pkg_idle_wkups is 0 on Apple silicon.
