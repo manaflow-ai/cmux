@@ -1,8 +1,2 @@
 # Fixed waits per test file from before the rule (scripts/check-fixed-waits.ts). Only moves down.
-test/agent-pane-scrollbar-full-height.test.ts	19
-test/agent-pane-wheel-pass-through.test.ts	16
-test/browser/ui-a11y.harness.tsx	4
-test/latency/actions.ts	23
-test/latency/mock-host.ts	3
-test/latency/picker.harness.tsx	7
-test/transcript-switch-back.test.tsx	3
+

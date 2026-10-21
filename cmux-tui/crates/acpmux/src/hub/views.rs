@@ -309,8 +309,8 @@ impl Hub {
                 turn_id: t.turn_id,
                 prompt_id: t.prompt_id,
                 turn_seq: t.turn_seq,
-                activity: t.activity,
-                plan_step: t.plan_step,
+                activity: t.doing.activity,
+                plan_step: t.doing.plan_step,
             }),
             queue: session
                 .queue()

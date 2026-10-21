@@ -53130,6 +53130,138 @@
         }
       }
     },
+    "queue.promptRefused": {
+      "comment": "Agent pane: a prompt that waited in the queue (a chat moved here, a restart) and that acpmux refused when its turn came; {reason} is acpmux's own words",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يُرسَل الطلب المنتظر: {reason}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prompt na čekanju nije poslan: {reason}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prompten i køen blev ikke sendt: {reason}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der wartende Prompt wurde nicht gesendet: {reason}"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A queued prompt was not sent: {reason}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se envió un prompt en cola: {reason}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un prompt en attente n’a pas été envoyé : {reason}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un prompt in coda non è stato inviato: {reason}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "キュー内のプロンプトは送信されませんでした：{reason}"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រអប់បញ្ចូលដែលកំពុងរង់ចាំមិនត្រូវបានផ្ញើទេ៖ {reason}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "대기 중인 프롬프트가 전송되지 않았습니다: {reason}"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En prompt i køen ble ikke sendt: {reason}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prompt z kolejki nie został wysłany: {reason}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um prompt na fila não foi enviado: {reason}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Промпт из очереди не отправлен: {reason}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พรอมต์ที่รอในคิวไม่ได้ถูกส่ง: {reason}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sıradaki istem gönderilmedi: {reason}"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Промпт із черги не надіслано: {reason}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một lời nhắc trong hàng đợi chưa được gửi: {reason}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一个排队的提示未发送：{reason}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一個排隊的提示未傳送：{reason}"
+          }
+        }
+      }
+    },
     "notice.resumeFailedReason": {
       "comment": "Agent pane",
       "extractionState": "manual",
@@ -178134,402 +178266,6 @@
         }
       }
     },
-    "sessionStart.compaction.managed": {
-      "comment": "Agent pane: note under a Claude Code chat's session start line when sr2 manages its compaction. Compaction shrinks the conversation context; 400k is a token count.",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يدير cmux ضغط السياق في هذه المحادثة. يضغط Claude السياق عند نحو 400 ألف رمز بدل انتظار حدّه. عندما يقترب الحساب من حدّ استخدامه، يضغط cmux السياق بين الأدوار وتتابع المحادثة بحساب آخر. يظهر كل ضغط كملاحظة في المحادثة."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux upravlja sažimanjem u ovom chatu. Claude sažima do oko 400k tokena umjesto da čeka svoje ograničenje. Kada se račun približi ograničenju korištenja, cmux sažima između potezâ i chat se nastavlja s drugim računom. Svako sažimanje se prikazuje kao bilješka u chatu."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux styrer komprimering i denne chat. Claude komprimerer ved omkring 400k tokens i stedet for at vente på sin grænse. Når kontoen nærmer sig sin forbrugsgrænse, komprimerer cmux mellem turene, og chatten fortsætter med en anden konto. Hver komprimering vises som en note i chatten."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux steuert die Komprimierung in diesem Chat. Claude komprimiert bei etwa 400k Tokens, statt auf sein Limit zu warten. Wenn das Konto sein Nutzungslimit fast erreicht, komprimiert cmux zwischen zwei Runden, und der Chat geht mit einem anderen Konto weiter. Jede Komprimierung erscheint als Hinweis im Chat."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux manages compaction in this chat. Claude compacts by about 400k tokens instead of waiting for its limit. When the account nears its usage limit, cmux compacts between turns and the chat goes on with another account. Each compaction shows as a note in the chat."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux gestiona la compactación en este chat. Claude compacta hacia los 400k tokens en lugar de esperar a su límite. Cuando la cuenta se acerca a su límite de uso, cmux compacta entre turnos y el chat sigue con otra cuenta. Cada compactación aparece como una nota en el chat."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux gère la compaction dans cette discussion. Claude compacte vers 400k tokens au lieu d’attendre sa limite. Quand le compte approche de sa limite d’utilisation, cmux compacte entre deux tours et la discussion continue avec un autre compte. Chaque compaction apparaît comme une note dans la discussion."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux gestisce la compattazione in questa chat. Claude compatta intorno ai 400k token invece di aspettare il suo limite. Quando l’account si avvicina al limite di utilizzo, cmux compatta tra un turno e l’altro e la chat continua con un altro account. Ogni compattazione appare come una nota nella chat."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "このチャットのコンパクトは cmux が管理します。Claude は上限を待たず、約 40 万トークンでコンパクトします。アカウントが利用上限に近づくと、cmux がターンの合間にコンパクトし、チャットは別のアカウントで続きます。コンパクトのたびにチャット内にメモが表示されます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux គ្រប់គ្រងការបង្រួមក្នុងការជជែកនេះ។ Claude បង្រួមនៅប្រហែល 400k tokens ជំនួសឱ្យការរង់ចាំដល់ដែនកំណត់របស់វា។ ពេលគណនីជិតដល់ដែនកំណត់ប្រើប្រាស់ cmux បង្រួមនៅចន្លោះវេន ហើយការជជែកបន្តជាមួយគណនីផ្សេង។ ការបង្រួមនីមួយៗបង្ហាញជាកំណត់ចំណាំក្នុងការជជែក។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "이 채팅의 압축은 cmux가 관리합니다. Claude는 한도를 기다리지 않고 약 40만 토큰에서 압축합니다. 계정이 사용 한도에 가까워지면 cmux가 턴 사이에 압축하고 채팅은 다른 계정으로 이어집니다. 압축할 때마다 채팅에 메모로 표시됩니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux styrer komprimering i denne chatten. Claude komprimerer ved rundt 400k tokens i stedet for å vente på grensen sin. Når kontoen nærmer seg bruksgrensen, komprimerer cmux mellom turene, og chatten fortsetter med en annen konto. Hver komprimering vises som et notat i chatten."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux zarządza kompaktowaniem w tym czacie. Claude kompaktuje przy około 400 tys. tokenów, zamiast czekać na swój limit. Gdy konto zbliża się do limitu użycia, cmux kompaktuje między turami, a czat toczy się dalej na innym koncie. Każde kompaktowanie pojawia się w czacie jako notatka."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "O cmux gerencia a compactação neste chat. O Claude compacta por volta de 400 mil tokens em vez de esperar o limite. Quando a conta se aproxima do limite de uso, o cmux compacta entre os turnos e o chat continua com outra conta. Cada compactação aparece como uma nota no chat."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Сжатием контекста в этом чате управляет cmux. Claude сжимает контекст примерно на 400 тыс. токенов, не дожидаясь своего лимита. Когда аккаунт приближается к лимиту использования, cmux сжимает контекст между ходами, и чат продолжается с другим аккаунтом. Каждое сжатие отмечается в чате."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux จัดการการบีบอัดในแชตนี้ Claude บีบอัดที่ประมาณ 400k โทเค็นแทนที่จะรอถึงขีดจำกัด เมื่อบัญชีใกล้ถึงขีดจำกัดการใช้งาน cmux จะบีบอัดระหว่างรอบและแชตจะดำเนินต่อด้วยบัญชีอื่น การบีบอัดแต่ละครั้งจะแสดงเป็นบันทึกในแชต"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bu sohbetteki sıkıştırmayı cmux yönetir. Claude sınırını beklemek yerine yaklaşık 400 bin tokende sıkıştırır. Hesap kullanım sınırına yaklaştığında cmux turlar arasında sıkıştırır ve sohbet başka bir hesapla devam eder. Her sıkıştırma sohbette bir not olarak görünür."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Стисненням контексту в цьому чаті керує cmux. Claude стискає контекст приблизно на 400 тис. токенів, не чекаючи свого ліміту. Коли обліковий запис наближається до ліміту використання, cmux стискає контекст між ходами, і чат продовжується з іншим обліковим записом. Кожне стиснення позначається в чаті."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux quản lý việc nén trong cuộc trò chuyện này. Claude nén ở khoảng 400k token thay vì chờ đến giới hạn. Khi tài khoản gần hết hạn mức sử dụng, cmux nén giữa các lượt và cuộc trò chuyện tiếp tục với một tài khoản khác. Mỗi lần nén hiện thành một ghi chú trong cuộc trò chuyện."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "此对话的压缩由 cmux 管理。Claude 在约 40 万 token 时压缩，而不是等到上限。账户接近用量上限时，cmux 会在两轮之间压缩，对话改用另一个账户继续。每次压缩都会在对话中显示一条备注。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "此對話的壓縮由 cmux 管理。Claude 在約 40 萬 token 時壓縮，而不是等到上限。帳戶接近用量上限時，cmux 會在兩輪之間壓縮，對話改用另一個帳戶繼續。每次壓縮都會在對話中顯示一則備註。"
-          }
-        }
-      }
-    },
-    "sessionStart.compaction.stock": {
-      "comment": "Agent pane: note under a Claude Code chat's session start line when the chat compacts the way Claude Code itself does (cmux's managed compaction is off)",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ضغط السياق المُدار من cmux متوقف في هذه المحادثة: يضغط Claude Code السياق بنفسه قرب حدّ السياق. يظهر كل ضغط كملاحظة في المحادثة."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Upravljano sažimanje u cmuxu je isključeno u ovom chatu: Claude Code sažima sam, blizu ograničenja konteksta. Svako sažimanje se prikazuje kao bilješka u chatu."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux’ styrede komprimering er slået fra i denne chat: Claude Code komprimerer selv, tæt på sin kontekstgrænse. Hver komprimering vises som en note i chatten."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Die von cmux gesteuerte Komprimierung ist in diesem Chat aus: Claude Code komprimiert selbst, nahe seinem Kontextlimit. Jede Komprimierung erscheint als Hinweis im Chat."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux's managed compaction is off in this chat: Claude Code compacts on its own, near its context limit. Each compaction shows as a note in the chat."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "La compactación gestionada por cmux está desactivada en este chat: Claude Code compacta por su cuenta, cerca de su límite de contexto. Cada compactación aparece como una nota en el chat."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "La compaction gérée par cmux est désactivée dans cette discussion : Claude Code compacte de lui-même, près de sa limite de contexte. Chaque compaction apparaît comme une note dans la discussion."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "La compattazione gestita da cmux è disattivata in questa chat: Claude Code compatta da solo, vicino al suo limite di contesto. Ogni compattazione appare come una nota nella chat."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "このチャットでは cmux 管理のコンパクトはオフです。Claude Code がコンテキスト上限の近くで自分でコンパクトします。コンパクトのたびにチャット内にメモが表示されます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការបង្រួមដែល cmux គ្រប់គ្រងត្រូវបានបិទក្នុងការជជែកនេះ៖ Claude Code បង្រួមដោយខ្លួនឯង នៅជិតដែនកំណត់បរិបទរបស់វា។ ការបង្រួមនីមួយៗបង្ហាញជាកំណត់ចំណាំក្នុងការជជែក។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "이 채팅에서는 cmux가 관리하는 압축이 꺼져 있습니다. Claude Code가 컨텍스트 한도 근처에서 직접 압축합니다. 압축할 때마다 채팅에 메모로 표시됩니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux’ styrte komprimering er av i denne chatten: Claude Code komprimerer selv, nær kontekstgrensen sin. Hver komprimering vises som et notat i chatten."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kompaktowanie zarządzane przez cmux jest w tym czacie wyłączone: Claude Code kompaktuje sam, blisko swojego limitu kontekstu. Każde kompaktowanie pojawia się w czacie jako notatka."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "A compactação gerenciada pelo cmux está desativada neste chat: o Claude Code compacta por conta própria, perto do limite de contexto. Cada compactação aparece como uma nota no chat."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Сжатие под управлением cmux в этом чате выключено: Claude Code сжимает контекст сам, около своего лимита контекста. Каждое сжатие отмечается в чате."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "การบีบอัดที่ cmux จัดการปิดอยู่ในแชตนี้: Claude Code บีบอัดเองเมื่อใกล้ถึงขีดจำกัดบริบท การบีบอัดแต่ละครั้งจะแสดงเป็นบันทึกในแชต"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux’un yönettiği sıkıştırma bu sohbette kapalı: Claude Code bağlam sınırına yakın kendisi sıkıştırır. Her sıkıştırma sohbette bir not olarak görünür."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Стиснення під керуванням cmux у цьому чаті вимкнено: Claude Code стискає контекст сам, біля свого ліміту контексту. Кожне стиснення позначається в чаті."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tính năng nén do cmux quản lý đang tắt trong cuộc trò chuyện này: Claude Code tự nén khi gần đến giới hạn ngữ cảnh. Mỗi lần nén hiện thành một ghi chú trong cuộc trò chuyện."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "此对话未启用 cmux 管理的压缩：Claude Code 会在接近上下文上限时自行压缩。每次压缩都会在对话中显示一条备注。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "此對話未啟用 cmux 管理的壓縮：Claude Code 會在接近上下文上限時自行壓縮。每次壓縮都會在對話中顯示一則備註。"
-          }
-        }
-      }
-    },
-    "sessionStart.compaction.dismiss": {
-      "comment": "Agent pane: button that hides the compaction note under a chat's session start line (in every chat after this)",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "إخفاء"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Odbaci"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Afvis"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ausblenden"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dismiss"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Descartar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Masquer"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ignora"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "閉じる"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បិទ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "닫기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lukk"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Odrzuć"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dispensar"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Скрыть"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ปิด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kapat"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Приховати"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bỏ qua"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "关闭"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "關閉"
-          }
-        }
-      }
-    },
     "picker.modeHelp": {
       "comment": "Agent pane: tooltip line of the composer's permission mode chip, saying what the control is",
       "extractionState": "manual",
@@ -197993,402 +197729,6 @@
         }
       }
     },
-    "sessionStart.compaction.managedShort": {
-      "comment": "Agent pane: one-line note under a Claude Code chat's session start line when sr2 manages its compaction (compaction shrinks the conversation context); Learn more follows it",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يدير cmux ضغط السياق"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux upravlja sažimanjem"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux styrer komprimering"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux steuert die Komprimierung"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux manages compaction"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux gestiona la compactación"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux gère la compaction"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux gestisce la compattazione"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "コンパクトは cmux が管理"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux គ្រប់គ្រងការបង្រួម"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "압축은 cmux가 관리"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux styrer komprimering"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux zarządza kompaktowaniem"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "O cmux gerencia a compactação"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Сжатием управляет cmux"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux จัดการการบีบอัด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sıkıştırmayı cmux yönetir"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Стисненням керує cmux"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux quản lý việc nén"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "压缩由 cmux 管理"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "壓縮由 cmux 管理"
-          }
-        }
-      }
-    },
-    "sessionStart.compaction.stockShort": {
-      "comment": "Agent pane: one-line note under a Claude Code chat's session start line when the chat compacts the way Claude Code itself does (cmux's managed compaction is off); Learn more follows it",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يضغط Claude Code السياق بنفسه"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Claude Code sažima sam"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Claude Code komprimerer selv"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Claude Code komprimiert selbst"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude Code compacts on its own"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Claude Code compacta por su cuenta"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Claude Code compacte de lui-même"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Claude Code compatta da solo"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Claude Code が自分でコンパクト"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Claude Code បង្រួមដោយខ្លួនឯង"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Claude Code가 직접 압축"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Claude Code komprimerer selv"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Claude Code kompaktuje sam"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "O Claude Code compacta por conta própria"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Claude Code сжимает контекст сам"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Claude Code บีบอัดเอง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Claude Code kendisi sıkıştırır"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Claude Code стискає контекст сам"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Claude Code tự nén"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Claude Code 自行压缩"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Claude Code 自行壓縮"
-          }
-        }
-      }
-    },
-    "sessionStart.compaction.learnMore": {
-      "comment": "Agent pane: button after the one-line compaction note under a chat's session start line; opens the note's full explanation",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "اعرف المزيد"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Saznajte više"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Læs mere"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mehr erfahren"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Learn more"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Más información"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "En savoir plus"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Scopri di più"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "詳細"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ស្វែងយល់បន្ថែម"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "자세히 알아보기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Les mer"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Więcej informacji"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Saiba mais"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Подробнее"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ดูเพิ่มเติม"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Daha fazla bilgi"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Докладніше"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tìm hiểu thêm"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "了解详情"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "了解詳情"
-          }
-        }
-      }
-    },
     "subagents.paneReadOnly": {
       "comment": "Agent pane: where a subagent's own pane would show the chat's composer; {name} is the chat that takes messages",
       "extractionState": "manual",
@@ -203797,6 +203137,270 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "已傳送"
+          }
+        }
+      }
+    },
+    "message.sendingTo": {
+      "comment": "Agent pane: a message this agent is still sending to another agent; {to} is the recipient's name, drawn as a chip",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ الإرسال إلى {to}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Šalje se {to}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sender til {to}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird an {to} gesendet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sending to {to}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviando a {to}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoi à {to}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invio a {to}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{to} に送信中"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងផ្ញើទៅ {to}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{to}에게 보내는 중"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sender til {to}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wysyłanie do {to}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviando para {to}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправка {to}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังส่งถึง {to}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{to} hedefine gönderiliyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Надсилання {to}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đang gửi tới {to}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在发送给 {to}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在傳送給 {to}"
+          }
+        }
+      }
+    },
+    "message.sentTo": {
+      "comment": "Agent pane: a message this agent sent to another agent, collapsed to one line; {to} is the recipient's name, drawn as a chip",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم الإرسال إلى {to}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poslano {to}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sendt til {to}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An {to} gesendet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sent to {to}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviado a {to}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoyé à {to}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inviato a {to}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{to} に送信"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានផ្ញើទៅ {to}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{to}에게 보냄"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sendt til {to}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wysłano do {to}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviado para {to}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправлено {to}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่งถึง {to} แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{to} hedefine gönderildi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Надіслано {to}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã gửi tới {to}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已发送给 {to}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已傳送給 {to}"
           }
         }
       }
@@ -215485,6 +215089,270 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "模型尚未回應"
+          }
+        }
+      }
+    },
+    "header.prCheckOnBase": {
+      "comment": "Agent pane chat header: a failing check of the pull request fails the same way at the base branch's tip, so the pull request did not break it",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فاشل في الفرع الأساسي أيضًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ne prolazi ni na osnovnoj grani"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fejler også på basisgrenen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "schlägt auch auf dem Basis-Branch fehl"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "also red on base"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "también falla en la rama base"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "en échec aussi sur la branche de base"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "non riuscito anche sul branch di base"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ベースでも失敗"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បរាជ័យនៅសាខាមូលដ្ឋានផងដែរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "베이스에서도 실패"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "feiler også på basisgrenen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nie przechodzi też na gałęzi bazowej"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "também falha na branch base"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "падает и в базовой ветке"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ล้มเหลวบนเบรนช์ฐานด้วย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "temel dalda da başarısız"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "падає і в базовій гілці"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cũng lỗi trên nhánh gốc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在基础分支上同样失败"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在基礎分支上同樣失敗"
+          }
+        }
+      }
+    },
+    "prCard.checksFailingOnBase": {
+      "comment": "Agent pane: a pull request's hover card, its checks when some failed and {onBase} of those failures also fail at the base branch's tip",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نجح {passed} من {total} من الفحوصات، وفشل {failed}، و{onBase} منها فاشلة في الفرع الأساسي أيضًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "prošlo {passed} od {total} provjera, {failed} ne prolazi, {onBase} ne prolazi ni na osnovnoj grani"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{passed} af {total} tjek bestået, {failed} fejler, {onBase} fejler også på basisgrenen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{passed} von {total} Checks bestanden, {failed} fehlgeschlagen, {onBase} schlagen auch auf dem Basis-Branch fehl"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{passed} of {total} checks passed, {failed} failing, {onBase} also red on base"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{passed} de {total} comprobaciones superadas, {failed} con errores, {onBase} también fallan en la rama base"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{passed} vérifications réussies sur {total}, {failed} en échec, dont {onBase} en échec aussi sur la branche de base"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{passed} controlli superati su {total}, {failed} non riusciti, {onBase} non riusciti anche sul branch di base"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{total} 件中 {passed} 件のチェックに合格、{failed} 件が失敗、うち {onBase} 件はベースでも失敗"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការពិនិត្យ {passed} ក្នុងចំណោម {total} បានឆ្លងកាត់, {failed} បរាជ័យ, {onBase} បរាជ័យនៅសាខាមូលដ្ឋានផងដែរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "검사 {total}개 중 {passed}개 통과, {failed}개 실패, 그중 {onBase}개는 베이스에서도 실패"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{passed} av {total} sjekker bestått, {failed} feiler, {onBase} feiler også på basisgrenen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaliczono {passed} z {total} testów, {failed} nie przechodzi, {onBase} nie przechodzi też na gałęzi bazowej"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{passed} de {total} verificações aprovadas, {failed} com falha, {onBase} também falham na branch base"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пройдено проверок: {passed} из {total}, с ошибкой: {failed}, из них {onBase} падают и в базовой ветке"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ผ่านการตรวจสอบ {passed} จาก {total} รายการ ล้มเหลว {failed} รายการ โดย {onBase} รายการล้มเหลวบนเบรนช์ฐานด้วย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{total} denetimden {passed} tanesi geçti, {failed} tanesi başarısız, {onBase} tanesi temel dalda da başarısız"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пройдено перевірок: {passed} з {total}, з помилкою: {failed}, з них {onBase} падають і в базовій гілці"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã đạt {passed}/{total} lượt kiểm tra, {failed} lượt lỗi, {onBase} lượt cũng lỗi trên nhánh gốc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{total} 项检查中通过 {passed} 项，{failed} 项失败，其中 {onBase} 项在基础分支上同样失败"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{total} 項檢查中通過 {passed} 項，{failed} 項失敗，其中 {onBase} 項在基礎分支上同樣失敗"
           }
         }
       }

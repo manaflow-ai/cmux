@@ -40,10 +40,18 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
 
     /// The pull request at `url`, a link ``AgentPaneReplyRequest/pullRequestURL(_:)`` rebuilt, so
     /// gh's argument is never anything but that URL. Runs in the home folder: no repository needed.
+    ///
+    /// Kept for the shape of that one read, which ``read(urls:)`` falls back to for a link on
+    /// another host, and for the test of it. No card takes this path: a card's link is read
+    /// through ``read(urls:)`` even when it is the only one, because that read is the only one of
+    /// the two that can see the base branch's checks.
     public func read(url: URL) async -> AgentPanePullRequest? {
         await read(arguments: ["pr", "view", url.absoluteString, "--json", AgentPanePullRequest.fields],
-                   in: environment["HOME"] ?? NSHomeDirectory())
+                   in: home)
     }
+
+    /// Where a read with no repository runs: gh needs none when the pull request is named by URL.
+    private var home: String { environment["HOME"] ?? NSHomeDirectory() }
 
     /// The pull requests at `urls`, wherever their branches are checked out, by URL. github.com
     /// ones take one `gh api graphql` read per ``batchSize``, never one call per pull request;
@@ -65,8 +73,10 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
             guard let data = await run(arguments, in: nil, anyExit: true) else { continue }
             answers.merge(Self.pullRequests(fromGraphQL: data, batch)) { $1 }
         }
+        // In the home folder, like ``read(url:)``: a link on another host names its pull request,
+        // so this needs no repository, and the App's own working folder is nobody's repository.
         for url in others {
-            if let pullRequest = await read(arguments: ["pr", "view", url, "--json", AgentPanePullRequest.fields], in: nil) {
+            if let pullRequest = await read(arguments: ["pr", "view", url, "--json", AgentPanePullRequest.fields], in: home) {
                 answers[url] = pullRequest
             }
         }
@@ -102,12 +112,25 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
         // Every field ``AgentPanePullRequest/fields`` reads, so a pull request from here is the
         // same pull request a `gh pr view` of it would be: a card drawn from a batched read must
         // not be missing its branches, labels or files.
+        // A rollup's contexts carry the run they came from, and both halves of that are read:
+        // ``AgentPanePullRequest/identity(_:)`` matches a head check against a base one by its
+        // workflow as well as its name, on both sides, and
+        // ``AgentPanePullRequest/latestRuns(_:)`` uses the run id on the base side, because a
+        // cancelled run a newer run of the same workflow replaced still sits in this list and
+        // reads as a failure. Trimming either field degrades the match to the name alone, which
+        // would excuse a red of one workflow with a same-named red of another.
+        let contexts = """
+            contexts(first: 100) { nodes { __typename \
+            ... on CheckRun { name status conclusion detailsUrl \
+            checkSuite { workflowRun { databaseId workflow { databaseId name } } } } \
+            ... on StatusContext { context state targetUrl } } }
+            """
         let fields = """
             url number title state isDraft reviewDecision mergeable createdAt updatedAt mergedAt additions deletions \
             changedFiles baseRefName headRefName author { login } labels(first: \(AgentPanePullRequest.maximumLabels)) \
             { nodes { name } } files(first: 100) { nodes { path additions deletions } } \
-            commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { __typename \
-            ... on CheckRun { name status conclusion detailsUrl } ... on StatusContext { context state targetUrl } } } } } } }
+            commits(last: 1) { nodes { commit { statusCheckRollup { \(contexts) } } } } \
+            baseRef { target { ... on Commit { statusCheckRollup { \(contexts) } } } }
             """
         let aliases = targets.enumerated().map { index, target in
             "p\(index): repository(owner: \"\(target.owner)\", name: \"\(target.name)\") { pullRequest(number: \(target.number)) { ...f } }"
@@ -138,6 +161,13 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
             let contexts = (commit?["statusCheckRollup"] as? [String: Any])?["contexts"] as? [String: Any]
             view["statusCheckRollup"] = contexts?["nodes"] as? [[String: Any]] ?? []
             view["commits"] = nil
+            // The base branch's tip, under the name `AgentPanePullRequest` reads it by. The tip is
+            // what "also red on base" means: the merge rules measure a base red there, not at this
+            // pull request's merge base.
+            let baseTarget = (view["baseRef"] as? [String: Any])?["target"] as? [String: Any]
+            let baseContexts = (baseTarget?["statusCheckRollup"] as? [String: Any])?["contexts"] as? [String: Any]
+            view["baseStatusCheckRollup"] = baseContexts?["nodes"] as? [[String: Any]] ?? []
+            view["baseRef"] = nil
             // GraphQL wraps a connection's rows in `nodes`; gh prints them as a plain array.
             for key in ["labels", "files"] {
                 view[key] = (view[key] as? [String: Any])?["nodes"] as? [[String: Any]] ?? []
@@ -220,8 +250,9 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
 /// minute and two readers of one link share one read.
 ///
 /// A card reads the cache (``answer(_:)``) and never waits for gh, so hovering a link is never a
-/// call to GitHub; the links a reply shows are registered when the page inspects them
-/// (``register(_:)``), which is once per reply, not once per hover. A read that fails — no gh, no
+/// call to GitHub; the links a page shows are registered when it inspects them
+/// (``register(_:)``), which is once per host request — the page gathers every reply's links
+/// into one — not once per reply and never once per hover. A read that fails — no gh, no
 /// network, a rate limit — leaves the last good answer and its age in place, and is not tried
 /// again for `retry`, so a rate-limited GitHub never replaces the pull request with an error.
 @MainActor
@@ -242,13 +273,16 @@ public final class AgentReplyPullRequests {
     /// The most links kept; the stalest goes first.
     static let maximumKept = 200
     /// The most links one ``register(_:)`` prefetches, so a transcript full of pull requests cannot
-    /// start a hundred reads at once. The page batches its `link.inspect` calls (up to
-    /// `AgentPaneReplyRequest.maximumInspect` links, gathered across every reply on the page), so
-    /// this is a bound per host request, not per reply: in a chat with more pull request links than
-    /// this, the ones past the bound are read when a card opens them, one `gh pr view` each.
-    /// Raising it to cover a whole request would cost one more batched read instead
-    /// (``AgentChatPullRequestReader/batchSize``).
-    static let maximumRegistered = 16
+    /// start a hundred reads at once.
+    ///
+    /// It is a whole host request, because that is what the page sends: it gathers its chips' links
+    /// across every reply and asks for them in one `link.inspect`
+    /// (``AgentPaneReplyRequest/maximumInspect``). A smaller number was a bound on the page rather
+    /// than on the reply — the links past it were read when a card opened them, one read each,
+    /// which is the per-card call this cache exists to avoid. Covering the request instead costs
+    /// one more batched read (64 links at ``AgentChatPullRequestReader/batchSize`` 50 is two): two
+    /// calls to GitHub for a page full of pull requests, against up to forty-eight.
+    static let maximumRegistered = AgentPaneReplyRequest.maximumInspect
 
     private let reader: AgentChatPullRequestReader
     private let freshness: Duration
@@ -273,10 +307,10 @@ public final class AgentReplyPullRequests {
     }
 
     /// Keeps the pull requests a reply links fresh, so a card has them before the pointer arrives:
-    /// one batched read for the whole reply (``AgentChatPullRequestReader/read(urls:)``, one
-    /// `gh api graphql`), never one `gh pr view` per link. A reply that mentions sixteen pull
-    /// requests is one call to GitHub, which is the point: the card Leo saw said "GitHub rate
-    /// limit" because every link cost its own.
+    /// batched reads for the whole request (``AgentChatPullRequestReader/read(urls:)``, one
+    /// `gh api graphql` per ``AgentChatPullRequestReader/batchSize``), never one read per link. A
+    /// page that mentions fifty pull requests is one call to GitHub, which is the point: the card
+    /// Leo saw said "GitHub rate limit" because every link cost its own.
     public func register(_ urls: [URL]) {
         var wanted: [URL] = []
         for url in urls.prefix(Self.maximumRegistered) where inflight[url] == nil && stale(url) && !wanted.contains(url) {
@@ -319,10 +353,14 @@ public final class AgentReplyPullRequests {
         return task
     }
 
+    /// Reads one link the same way ``register(_:)`` reads a reply's: the batched GraphQL read with
+    /// a batch of one, not `gh pr view <url>`. It is the same single call to GitHub, and it is the
+    /// only one of the two that reads the base branch's checks — a card refreshed through
+    /// `gh pr view` would quietly lose "also red on base" sixty seconds after it gained it. A link
+    /// on another host (GitHub Enterprise) still falls back to `gh pr view` inside that read.
     private func perform(_ url: URL) async {
-        let pullRequest = await reader.read(url: url)
-        record(pullRequest, for: url)
-        trim()
+        let answers = await reader.read(urls: [url.absoluteString])
+        absorb(answers, for: [url])
     }
 
     /// What a batched read answered. A URL GitHub did not answer for (offline, timed out, rate
@@ -352,7 +390,7 @@ public final class AgentReplyPullRequests {
 
     /// Drops the stalest links until at most ``maximumKept`` are kept; one being read stays. Every
     /// one over the bound, not one per call: a batched read records up to ``maximumRegistered`` at
-    /// once, so dropping a single link left the cache fifteen longer with every such reply.
+    /// once, so dropping a single link left the cache longer with every such request.
     private func trim() {
         while entries.count > Self.maximumKept,
               let stalest = entries.filter({ inflight[$0.key] == nil }).min(by: { $0.value.touched < $1.value.touched })?.key {
