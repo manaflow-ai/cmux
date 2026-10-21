@@ -461,14 +461,20 @@ export function NewTabScreen(props: Props) {
   // resizing calculation is slow and wack"; new-tab-live-resize). Only an engine without
   // field-sizing fits it here, when the draft changes and when the pane's width changes. Its scroll
   // offset is kept, except that a caret at the draft's end (typing, a paste, dictation) is scrolled
-  // into view: the engine revealed it before this fit changed the field's height.
+  // into view: the engine revealed it before this fit changed the field's height. WebKit sizes the
+  // field itself but leaves a draft past the cap scrolled where it was, so a draft that changes with
+  // the caret at its end scrolls to it there too (on the draft only, never on a resize).
   const fitField = useCallback(() => {
     const node = field.current;
-    if (!node || sizesItself(node)) return;
+    if (!node) return;
+    const typingAtEnd = node.ownerDocument.activeElement === node && node.selectionEnd === node.value.length;
+    if (sizesItself(node)) {
+      if (typingAtEnd && node.scrollHeight > node.clientHeight) node.scrollTop = node.scrollHeight;
+      return;
+    }
     const top = node.scrollTop;
     node.style.height = "0px";
     node.style.height = `${node.scrollHeight}px`;
-    const typingAtEnd = node.ownerDocument.activeElement === node && node.selectionEnd === node.value.length;
     node.scrollTop = typingAtEnd ? node.scrollHeight : top;
   }, []);
   useLayoutEffect(fitField, [fitField, text, shell, template]);
