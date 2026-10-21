@@ -297,7 +297,7 @@ async fn a_correction_refused_while_the_chat_moves_replaces_nothing() {
 
 #[tokio::test]
 async fn a_steered_correction_replaces_the_queued_order() {
-    let hub = hub_env(json!({"FAKE_CODEX_STEER": "1"}));
+    let hub = hub_env(json!({"FAKE_CLAUDE_STEER": "1"}));
     let mut c = Client::open(&hub);
     let session = c.new_session().await;
     let running = c.busy(&session, None).await;
