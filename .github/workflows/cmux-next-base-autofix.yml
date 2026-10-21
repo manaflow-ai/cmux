@@ -179,7 +179,7 @@ jobs:
     # fleet carries glaeda#1530's session label (vars.CI_SESSION_LABEL is 1) this
     # takes it and runs beside a console GUI job; until then the gui label.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6') || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
-    # Up to three action and three settings regenerations on a moving tip
+    # One action regeneration and up to three settings regenerations on a moving tip
     # (base-autofix-action-exports.sh, base-autofix-settings-exports.sh).
     timeout-minutes: 90
     permissions:
@@ -256,8 +256,8 @@ jobs:
 
       # Made at the newest tip: the job queues for up to half an hour and the actions area moves every
       # few minutes, so exports made at the run's commit were held on every push (2026-10-21). It
-      # starts on the tip when the area moved meanwhile, regenerates again there while it keeps
-      # moving (three times in all), and leaves the checkout at the run's commit.
+      # starts on the tip when the area moved meanwhile, regenerates once, and leaves the checkout at
+      # the run's commit; base-autofix-push.sh lands the exports as progress when the area moved again.
       - name: Regenerate the action exports
         id: actions
         if: needs.action-areas.outputs.actions == 'true'

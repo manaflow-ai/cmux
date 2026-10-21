@@ -13,10 +13,11 @@
 #
 # The Mac exports (the action and settings exports) are never made here: a held one waits for the
 # next run's Mac job, and the run fails, so the next run's "since" still covers it. What is built
-# from the action exports (the docs shortcuts, the app-host files) is made again on the tip only when
-# the tip's action exports are known current: none was held, and nothing after ACTIONS_MADE_AT moved
-# their inputs, so the tip holds the exports made there. The defaults snapshot, which reads both
-# exports, also needs the tip's settings stamp current: the tip has one, and the tip's own
+# from the action exports (the docs shortcuts, the app-host files) is made again on the tip from the
+# exports there when none of them was held: the tip then holds this run's exports, or a newer commit's
+# own copy (base-autofix-push.sh lands them as progress past a move of their inputs), and the checks
+# compare the built files with the exports committed beside them. The defaults snapshot, which reads
+# both exports, also needs the tip's settings stamp current: the tip has one, and the tip's own
 # defaults_guard.py check-stamp passes in the checkout of the tip (the guard finds the repository
 # from its own path, so a copy elsewhere reads nothing and passes). Otherwise,
 # and for the webviews formatting, a held file waits for the next run and the run fails.
@@ -39,8 +40,6 @@ main() {
   actions_made_at="${5:-}"
   actions_current=0 settings_current=0
   action_exports='^plans/cmux-next/(action-surfaces\.json|actions\.md|links\.json)$'
-  # The run's own repair commit: the action exports as made at ACTIONS_MADE_AT.
-  first_repair="$(git rev-parse HEAD)"
   here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   rounds="${CMUX_BASE_AUTOFIX_ROUNDS:-3}"
   token="${TOKEN:-}"
@@ -77,20 +76,9 @@ main() {
     esac
   }
 
-  # The tip's action exports are the ones made at ACTIONS_MADE_AT: none was held, and nothing after
-  # it moved their inputs. The exports are themselves in that area: one the tip holds as this run
-  # made it (first_repair) is no move. A read that fails says no.
-  exports_current_on() { # <tip> <held so far>
-    local changed areas path
-    [[ -n "$actions_made_at" ]] || return 1
-    ! grep -qE "$action_exports" <<<"$2" || return 1
-    changed="$(git diff --name-only --no-renames "$actions_made_at" "$1" 2>/dev/null)" || return 1
-    changed="$(while IFS= read -r path; do
-      if [[ "$path" =~ $action_exports ]] && git diff --quiet "$first_repair" "$1" -- "$path" 2>/dev/null; then continue; fi
-      printf '%s\n' "$path"
-    done <<<"$changed")"
-    areas="$("$areas_script" <<<"$changed")" || return 1
-    ! grep -qx 'actions=true' <<<"$areas"
+  # The tip's action exports are this run's or a newer commit's own: none of them was held.
+  exports_landed() { # <held so far>
+    ! grep -qE "$action_exports" <<<"$1"
   }
 
   push() { # <base> [<settings made at>] [<action exports made at>] -> the push's status; its held files in $work/held
@@ -124,7 +112,7 @@ main() {
     git checkout --quiet --force --detach "$tip"
     git clean --quiet -fd
     actions_current=0 settings_current=0
-    if exports_current_on "$tip" "$held"$'\n'"$waits"; then
+    if exports_landed "$held"$'\n'"$waits"; then
       actions_current=1
       if git cat-file -e "$tip:schemas/settings-export/settings-schema.sources.sha256" 2>/dev/null \
         && [[ -f "$root/scripts/ci/defaults_guard.py" ]] \
