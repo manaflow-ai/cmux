@@ -107,12 +107,25 @@ describe("explicit team checkout", () => {
     const params = sessionParams();
     expect(params.client_reference_id).toBe("team-b");
     expect(params.line_items).toEqual([
-      { price: "price_team_month", quantity: 5, adjustable_quantity: { enabled: true, minimum: 5 } },
+      { price: "price_team_month", quantity: 5, adjustable_quantity: { enabled: true, minimum: 5, maximum: 99 } },
     ]);
     expect(params.metadata).toMatchObject({ stackTeamId: "team-b", stackUserId: USER_ID, plan: "team" });
     expect((params.subscription_data as { metadata: unknown }).metadata).toMatchObject({ stackTeamId: "team-b", stackUserId: USER_ID });
     expect(currentUser?.hasPermission).toHaveBeenCalledWith(teamB, "team_admin");
     expect(createCustomer).toHaveBeenCalledWith({ name: "Team B", metadata: { stackTeamId: "team-b", app: "cmux" } });
+  });
+
+  test("allows checkout for a Team whose member count exceeds Stripe's default adjustable maximum", async () => {
+    const largeTeam = fixtureTeam("team-large", { displayName: "Large Team", members: 105 });
+    currentUser = fixtureStackUser({ id: USER_ID, teams: [largeTeam], adminTeamIds: [largeTeam.id], selectedTeam: largeTeam });
+
+    expect((await checkoutGet("plan=team&teamId=team-large")).headers.get("location"))
+      .toBe("https://checkout.stripe.com/c/team");
+    expect(sessionParams().line_items).toEqual([{
+      price: "price_team_month",
+      quantity: 105,
+      adjustable_quantity: { enabled: true, minimum: 105, maximum: 105 },
+    }]);
   });
 
   test("refuses a member who is not an admin with 403 JSON and creates no Stripe state", async () => {
