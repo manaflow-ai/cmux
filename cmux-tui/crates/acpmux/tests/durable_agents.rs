@@ -576,6 +576,27 @@ async fn an_adopted_claude_chat_still_moves_its_work_after_an_update_restart() {
     daemon.wait_event(&session, "turn_result", |e| e["kind"] == "turn_result");
 }
 
+/// A fresh folder holding the fifo `gate` that fake_claude's backlog waits on (`flood`).
+fn flood_gate_dir(tag: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("amd-{tag}-gate-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    make_fifo(&dir.join("gate"));
+    dir
+}
+
+/// Opens `gate` and waits (test polling) until the agent streamed its backlog: with the daemon
+/// down, the agent's host holds every entry for the next one.
+fn flood_while_down(gate: &Path) {
+    std::fs::write(gate, b"go").unwrap();
+    let done = gate.with_extension("done");
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !done.exists() {
+        assert!(Instant::now() < deadline, "the agent never streamed its backlog");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
 /// The chat's `backgroundsWork` (`session/list`).
 async fn backgrounds_work(daemon: &Daemon, session: &str) -> Value {
     let listed = daemon.rpc().await.call("session/list", json!({})).await;
@@ -593,11 +614,8 @@ async fn backgrounds_work(daemon: &Daemon, session: &str) -> Value {
 /// drained: adoption waited the query's 5 s budget, and the chat read `backgroundsWork` false.
 #[tokio::test]
 async fn a_claude_host_with_a_long_backlog_is_adopted_at_once_and_still_moves_its_work() {
-    let gate_dir = std::env::temp_dir().join(format!("amd-flood-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&gate_dir);
-    std::fs::create_dir_all(&gate_dir).unwrap();
+    let gate_dir = flood_gate_dir("bg-flood");
     let gate = gate_dir.join("gate");
-    make_fifo(&gate);
     let gate_env = gate.to_string_lossy().into_owned();
     let mut daemon = Daemon::claude_router("bg-flood", &[("FAKE_CLAUDE_FLOOD_GATE", &gate_env)]);
     let session = new_session(&daemon).await;
@@ -614,14 +632,7 @@ async fn a_claude_host_with_a_long_backlog_is_adopted_at_once_and_still_moves_it
 
     daemon.sigterm();
     drop(client);
-    // The backlog, streamed while no daemon runs.
-    std::fs::write(&gate, b"go").unwrap();
-    let done = gate_dir.join("gate.done");
-    let deadline = Instant::now() + Duration::from_secs(30);
-    while !done.exists() {
-        assert!(Instant::now() < deadline, "the agent never streamed its backlog");
-        std::thread::sleep(Duration::from_millis(50));
-    }
+    flood_while_down(&gate);
     let started = Instant::now();
     daemon.start();
     daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
@@ -632,6 +643,65 @@ async fn a_claude_host_with_a_long_backlog_is_adopted_at_once_and_still_moves_it
     let moved = rpc.call("_acpmux/process/background", json!({"sessionId": session})).await;
     assert_eq!(moved, json!({"backgrounded": true}));
     daemon.wait_event(&session, "turn_result", |e| e["kind"] == "turn_result");
+    let _ = std::fs::remove_dir_all(&gate_dir);
+}
+
+/// A prompt that finds an adopted Claude Code chat's link lost reaches its host again
+/// (`ensure_child` -> `readopt`, which returns the reattached agent before any start) and the chat
+/// still moves its work. The host was adopted behind a long backlog, whose state query waited out
+/// its budget, so the chat read `backgroundsWork` false from adoption on, and the reattach kept it.
+#[tokio::test]
+async fn a_reattached_claude_host_still_moves_its_work() {
+    let gate_dir = flood_gate_dir("bg-reattach");
+    let gate = gate_dir.join("gate");
+    let gate_env = gate.to_string_lossy().into_owned();
+    let mut daemon = Daemon::claude_router("bg-reattach", &[("FAKE_CLAUDE_FLOOD_GATE", &gate_env)]);
+    let session = new_session(&daemon).await;
+    let mut client = daemon.rpc().await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "flood"}]}),
+        )
+        .await;
+    daemon.wait_event(&session, "before-flood chunk", |e| chunk(e, "before-flood"));
+    daemon.sigterm();
+    drop(client);
+    flood_while_down(&gate);
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+    daemon.wait_event(&session, "the backlog's turn_result", |e| e["kind"] == "turn_result");
+
+    // Another owner takes the host over, which closes the daemon's link.
+    let record: acpmux::agent_host::HostRecord =
+        serde_json::from_value(daemon.host_record(&session)).unwrap();
+    let harness_pid = record.harness_pid;
+    match acpmux::agent_host::link::connect(record, 0).await.expect("take over") {
+        acpmux::agent_host::link::Connect::Ready(link, _) => drop(link),
+        _ => panic!("the host refused a same-build owner"),
+    }
+    // Let the daemon's reader see the closed link (a test-only fixed wait).
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let mut client = daemon.rpc().await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "fg-shell"}]}),
+        )
+        .await;
+    daemon.wait_event(&session, "the foreground shell", |e| {
+        e["msg"]["params"]["update"]["toolCallId"] == "toolu_fg"
+    });
+    // The same agent, reached again: no second host started.
+    let starts = daemon.events(&session).iter().filter(|e| e["kind"] == "host_started").count();
+    assert_eq!(starts, 1, "the prompt started a new agent instead of reattaching");
+    let now: acpmux::agent_host::HostRecord =
+        serde_json::from_value(daemon.host_record(&session)).unwrap();
+    assert_eq!(now.harness_pid, harness_pid, "a second agent replaced the live one");
+    assert_eq!(backgrounds_work(&daemon, &session).await, true, "the reattached chat hides Ctrl-B");
+    let mut rpc = daemon.rpc().await;
+    let moved = rpc.call("_acpmux/process/background", json!({"sessionId": session})).await;
+    assert_eq!(moved, json!({"backgrounded": true}));
     let _ = std::fs::remove_dir_all(&gate_dir);
 }
 
