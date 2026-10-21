@@ -13,12 +13,22 @@ import Testing
 @MainActor @Suite(.serialized) struct StagedUpdateFreshnessTests {
     struct StaticFeed: AppcastFetching {
         let builds: [String]
+        /// Every item's `pubDate`; nil lists none.
+        var published: Date?
         func fetch(_ url: URL) async throws -> Data {
-            let items = builds.map { "<item><title>\($0)</title><sparkle:version>\($0)</sparkle:version></item>" }.joined()
+            let date = published.map { "<pubDate>\(StagedUpdateFreshnessTests.rfc822($0))</pubDate>" } ?? ""
+            let items = builds.map { "<item><title>\($0)</title><sparkle:version>\($0)</sparkle:version>\(date)</item>" }.joined()
             return Data("""
             <rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"><channel><title>cmux NEXT</title>\(items)</channel></rss>
             """.utf8)
         }
+    }
+
+    static func rfc822(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss Z"
+        return formatter.string(from: date)
     }
 
     struct FailingFeed: AppcastFetching {
@@ -116,5 +126,36 @@ import Testing
         await updater.installDecision?.value
         #expect(calls.installs == 1, "a feed that did not answer blocked the install")
         #expect(calls.cancels == 0)
+    }
+
+    /// cmux became active while the person clicked Restart: the click, not the background
+    /// re-read, replaces the staged build (the re-read went first, and the click then installed
+    /// nothing while the windows hid for the install).
+    @Test func aReReadAndAClickAtOnceInstallTheNewestOnce() async {
+        let calls = Calls()
+        let updater = Self.updater(feed: StaticFeed(builds: ["101", "102"]), staged: "101", calls: calls)
+        let reRead = updater.recheckStagedUpdate()
+        updater.installClicked()
+        await reRead.value
+        await updater.installDecision?.value
+        #expect(calls.installs == 0, "the click installed after the staged build was cancelled")
+        #expect(calls.cancels == 1)
+        #expect(calls.rechecks == [true], "the newest build's download is not the person's check")
+        #expect(updater.flow.installRequested, "the newest build will not install once it is staged")
+    }
+
+    /// Sparkle can hand back the installer a supersede just cancelled (its helper still runs):
+    /// the click installs it instead of cancelling and downloading again and again.
+    @Test func theClickDoesNotChaseTheSameBuildTwice() async {
+        let calls = Calls()
+        let updater = Self.updater(feed: StaticFeed(builds: ["101", "102"]), staged: "101", calls: calls)
+        updater.installClicked()
+        await updater.installDecision?.value
+        #expect(calls.cancels == 1)
+        calls.staged = "101"
+        updater.debugIndicatorPhase = .ready(version: "1.0.1")
+        await updater.installDecision?.value
+        #expect(calls.cancels == 1, "the click cancelled the resumed installer again to chase 102")
+        #expect(calls.installs == 1, "the resumed installer did not install")
     }
 }

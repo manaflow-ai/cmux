@@ -88,4 +88,16 @@ import Testing
         #expect(card.detail?.contains("1.0.1") == true, "the next update is not named: \(card.detail ?? "nil")")
         #expect(card.buttonTitle == UpdaterStrings.restartToUpdate)
     }
+
+    /// A rollback to the build an update replaced is no failed install: the update's own
+    /// launch keeps the record for its card, without the install start.
+    @Test func aRollbackAfterAWorkingUpdateShowsNoFailure() throws {
+        let (_, store) = try Self.updater(record: nil)
+        #expect(store.write(Self.record(from: "100", to: "101", started: true)))
+        guard case .installed? = store.take(running: "101") else {
+            Issue.record("the update's own launch did not read it as installed")
+            return
+        }
+        #expect(store.take(running: "100") == nil, "rolling back to 1.0.0 read as a failed install of 1.0.1")
+    }
 }
