@@ -109,7 +109,10 @@ function verify(image: string, client: string) {
     yield* Effect.try(() => writeFileSync(configPath, config, { mode: 0o600 }));
     const hub = yield* startPrivateLinkClient(client, ["wg", "hub", "--config", configPath, "--socket", hubSocket], { event: "hub-ready", socket: hubSocket });
     yield* hub.ready;
-    const endpoint = yield* attempt("Read image attach bundle failed", () => provider.openCmuxRemote(vm.providerVmId, { clientCapabilities: probe.capabilities }));
+    const endpoint = yield* attempt("Read image attach bundle failed", () => provider.openCmuxRemote(vm.providerVmId, {
+      clientCapabilities: probe.capabilities,
+      providerMetadata: vm.providerMetadata,
+    }));
     const inviteFile = endpoint.invitation ? path.join(root, "invite") : undefined;
     if (endpoint.invitation && inviteFile) {
       yield* Effect.try(() => writeFileSync(inviteFile, `${endpoint.invitation!.uri}\n`, { mode: 0o600 }));
@@ -139,6 +142,7 @@ function verify(image: string, client: string) {
     const reconnectEndpoint = yield* attempt("Read enrolled attach bundle failed", () =>
       provider.openCmuxRemote(vm.providerVmId, {
         clientCapabilities: probe.capabilities,
+        providerMetadata: vm.providerMetadata,
         ...(deviceFingerprint ? { deviceFingerprint } : {}),
       }));
     const socket = path.join(root, "reconnect.sock");
