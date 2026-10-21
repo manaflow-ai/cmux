@@ -56,9 +56,9 @@ public struct PopupAnchor: Sendable, Equatable {
     ///
     /// The card lines up with ``edge``; with no room under the control it opens above it. When
     /// the card's side leaves no room, it lines up with the control's other edge, and it slides
-    /// sideways to stay inside the area it keeps to: the window on each axis the card fits in
-    /// (sidebar sweep 2026-10-21: an editor wider than the sidebar hung past the window's edge),
-    /// else the screen.
+    /// sideways, then up or down, to stay inside the area it keeps to: the window on each axis
+    /// the card fits in (sidebar sweep 2026-10-21: an editor wider than the sidebar hung past
+    /// the window's edge), else the screen.
     /// - Parameters:
     ///   - size: The card's size.
     ///   - visible: The screen's visible frame; nil places the card without clamping.
@@ -70,6 +70,7 @@ public struct PopupAnchor: Sendable, Equatable {
         if origin.y < area.minY + margin, rect.maxY + gap + size.height <= area.maxY - margin {
             origin.y = rect.maxY + gap
         }
+        origin.y = min(max(origin.y, area.minY + margin), area.maxY - size.height - margin)
         let lowest = area.minX + margin, highest = area.maxX - size.width - margin
         let other = edge == .leading ? rect.maxX - size.width : rect.minX
         if !(lowest...max(lowest, highest)).contains(origin.x), (lowest...max(lowest, highest)).contains(other) {
