@@ -49,7 +49,7 @@ final class ComponentUpdates {
         var bundledTUI: String?
         if let bin = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux") { bundledTUI = await BundledCmuxTUI.commit(binary: bin) }
         let identity = services.daemon.identity
-        let cmuxTUI = ComponentStatus.Server(running: identity?.buildCommit, bundled: bundledTUI, keepsWork: true)
+        let cmuxTUI = ComponentStatus.Server(isRunning: identity != nil, running: identity?.buildCommit, bundled: bundledTUI, keepsWork: true)
         let environment = QuitAgents.environment(services)
         let acpmux = await environment?.buildCheck()
         let inventory = try? await environment?.harnessInventory()
@@ -58,9 +58,10 @@ final class ComponentUpdates {
                                outdatedAgentCLIs: inventory.map { $0.harnesses.filter(\.outdated).map(\.id) })
     }
 
-    /// No daemon answering is a server that does not run (its next start is the bundled build).
+    /// No daemon of this app answering (none, or another home's) is a server that does not run.
     private static func server(_ check: AcpmuxBuildCheck?) -> ComponentStatus.Server {
-        ComponentStatus.Server(running: check?.running, bundled: check?.bundled, keepsWork: check?.agentHosts ?? false)
+        ComponentStatus.Server(isRunning: check != nil, running: check?.running, bundled: check?.bundled,
+                               keepsWork: check?.agentHosts ?? false)
     }
 
     private static func app(_ phase: UpdateIndicatorPhase) -> ComponentStatus.App {
@@ -92,11 +93,11 @@ final class ComponentUpdates {
                 let check = await QuitAgents.environment(services)?.buildCheck()
                 results.append(ComponentStatus.acpmuxUpdated(check.map { Self.server($0) }))
             } catch {
-                results.append(ComponentStatus.acpmuxFailed(String(describing: error)))
+                results.append(ComponentStatus.acpmuxFailed)
             }
         }
-        if status.restartsCmuxTUI {
-            results.append(await services.serverUpdates.restartLocalCmuxTUI())
+        if status.restartsCmuxTUI, let line = await services.serverUpdates.restartLocalCmuxTUI() {
+            results.append(line)
         }
         guard !results.isEmpty, let window = services.windows.active?.window else { return }
         let toast = CmuxToast(id: "components.update.result", message: results.joined(separator: " "), duration: .seconds(12))

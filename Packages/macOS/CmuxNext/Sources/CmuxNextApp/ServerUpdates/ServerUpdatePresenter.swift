@@ -70,9 +70,10 @@ final class ServerUpdatePresenter {
     }
 
     /// Update cmux Components…'s Update All, which the person already confirmed: the same restart
-    /// as the confirm's, and its result line.
-    func restartLocalCmuxTUI() async -> String {
+    /// as the confirm's, and its result line. Nil while the toast's own confirm or restart runs.
+    func restartLocalCmuxTUI() async -> String? {
         let notice = localCmuxTUINotice
+        guard !busy.contains(notice.id) else { return nil }
         busy.insert(notice.id)
         shown[notice.id]?.dismiss()
         let outcome = await servers.restart(notice)

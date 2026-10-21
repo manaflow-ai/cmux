@@ -19,13 +19,13 @@
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux: pokreće %1$@, ova aplikacija ima %2$@. „Ažuriraj sve“ ga ponovo pokreće; svi agenti nastavljaju raditi."
+            "value" : "acpmux: pokreće %1$@, ova aplikacija ima %2$@. „Ažuriraj sve“ ga ponovo pokreće; svi tác tửi nastavljaju raditi."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux: kører %1$@, denne app har %2$@. “Opdater alle” genstarter den; alle agenter kører videre."
+            "value" : "acpmux: kører %1$@, denne app har %2$@. “Opdater alle” genstarter den; alle tác tửer kører videre."
           }
         },
         "de" : {
@@ -37,19 +37,19 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux: ejecuta %1$@ y esta app incluye %2$@. «Actualizar todo» lo reinicia; todos los agentes siguen funcionando."
+            "value" : "acpmux: ejecuta %1$@ y esta app incluye %2$@. «Actualizar todo» lo reinicia; todos los tác tửes siguen funcionando."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux : exécute %1$@, cette app contient %2$@. « Tout mettre à jour » le redémarre ; tous les agents continuent de fonctionner."
+            "value" : "acpmux : exécute %1$@, cette app contient %2$@. « Tout mettre à jour » le redémarre ; tous les tác tửs continuent de fonctionner."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux: esegue %1$@, questa app include %2$@. “Aggiorna tutto” lo riavvia; tutti gli agenti restano attivi."
+            "value" : "acpmux: esegue %1$@, questa app include %2$@. “Aggiorna tutto” lo riavvia; tutti gli tác tửi restano attivi."
           }
         },
         "ja" : {
@@ -73,7 +73,7 @@
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux: kjører %1$@, denne appen har %2$@. «Oppdater alle» starter den på nytt; alle agenter fortsetter å kjøre."
+            "value" : "acpmux: kjører %1$@, denne appen har %2$@. «Oppdater alle» starter den på nytt; alle tác tửer fortsetter å kjøre."
           }
         },
         "pl" : {
@@ -85,7 +85,7 @@
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux: executa %1$@, este app tem %2$@. “Atualizar tudo” o reinicia; todos os agentes continuam em execução."
+            "value" : "acpmux: executa %1$@, este app tem %2$@. “Atualizar tudo” o reinicia; todos os tác tửes continuam em execução."
           }
         },
         "ru" : {
@@ -281,13 +281,13 @@
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux: pokreće %1$@, ova aplikacija ima %2$@. Ponovno pokretanje bi zaustavilo njegove agente, pa nastavlja raditi i ažurira se pri sljedećem pokretanju."
+            "value" : "acpmux: pokreće %1$@, ova aplikacija ima %2$@. Ponovno pokretanje bi zaustavilo njegove tác tửe, pa nastavlja raditi i ažurira se pri sljedećem pokretanju."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux: kører %1$@, denne app har %2$@. En genstart ville afslutte dens agenter, så den kører videre og opdateres, næste gang den starter."
+            "value" : "acpmux: kører %1$@, denne app har %2$@. En genstart ville afslutte dens tác tửer, så den kører videre og opdateres, næste gang den starter."
           }
         },
         "de" : {
@@ -299,19 +299,19 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux: ejecuta %1$@ y esta app incluye %2$@. Reiniciarlo cerraría sus agentes, así que sigue funcionando y se actualizará la próxima vez que se inicie."
+            "value" : "acpmux: ejecuta %1$@ y esta app incluye %2$@. Reiniciarlo cerraría sus tác tửes, así que sigue funcionando y se actualizará la próxima vez que se inicie."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux : exécute %1$@, cette app contient %2$@. Le redémarrer arrêterait ses agents ; il continue donc de tourner et sera mis à jour à son prochain démarrage."
+            "value" : "acpmux : exécute %1$@, cette app contient %2$@. Le redémarrer arrêterait ses tác tửs ; il continue donc de tourner et sera mis à jour à son prochain démarrage."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux: esegue %1$@, questa app include %2$@. Riavviarlo chiuderebbe i suoi agenti, quindi resta attivo e si aggiornerà al prossimo avvio."
+            "value" : "acpmux: esegue %1$@, questa app include %2$@. Riavviarlo chiuderebbe i suoi tác tửi, quindi resta attivo e si aggiornerà al prossimo avvio."
           }
         },
         "ja" : {
@@ -335,19 +335,19 @@
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux: kjører %1$@, denne appen har %2$@. En omstart ville avslutte agentene, så den fortsetter å kjøre og oppdateres neste gang den starter."
+            "value" : "acpmux: kjører %1$@, denne appen har %2$@. En omstart ville avslutte tác tửene, så den fortsetter å kjøre og oppdateres neste gang den starter."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux: działa w wersji %1$@, ta aplikacja ma %2$@. Ponowne uruchomienie zakończyłoby jego agentów, więc działa dalej i zaktualizuje się przy następnym uruchomieniu."
+            "value" : "acpmux: działa w wersji %1$@, ta aplikacja ma %2$@. Ponowne uruchomienie zakończyłoby jego tác tửów, więc działa dalej i zaktualizuje się przy następnym uruchomieniu."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux: executa %1$@, este app tem %2$@. Reiniciá-lo encerraria seus agentes, então ele continua em execução e será atualizado na próxima inicialização."
+            "value" : "acpmux: executa %1$@, este app tem %2$@. Reiniciá-lo encerraria seus tác tửes, então ele continua em execução e será atualizado na próxima inicialização."
           }
         },
         "ru" : {
@@ -400,127 +400,258 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux: not running. It starts on the bundled build."
+            "value" : "acpmux: no daemon of this app is running. It starts on the bundled build."
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux: لا يعمل. سيبدأ بالإصدار المضمّن."
+            "value" : "acpmux: لا يعمل أي خادم خلفي لهذا التطبيق. سيبدأ بالإصدار المضمّن."
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux: nije pokrenut. Pokreće se s ugrađenom verzijom."
+            "value" : "acpmux: nijedan daemon ove aplikacije nije pokrenut. Pokreće se s ugrađenom verzijom."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux: kører ikke. Den starter med det medfølgende build."
+            "value" : "acpmux: ingen daemon fra denne app kører. Den starter med det medfølgende build."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux: läuft nicht. Beim Start wird der mitgelieferte Build verwendet."
+            "value" : "acpmux: Kein Daemon dieser App läuft. Beim Start wird der mitgelieferte Build verwendet."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux: no se está ejecutando. Se iniciará con la compilación incluida."
+            "value" : "acpmux: no hay ningún daemon de esta app en ejecución. Se iniciará con la compilación incluida."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux : inactif. Il démarrera avec le build intégré."
+            "value" : "acpmux : aucun daemon de cette app n’est actif. Il démarrera avec le build intégré."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux: non in esecuzione. Si avvierà con la build inclusa."
+            "value" : "acpmux: nessun daemon di questa app è in esecuzione. Si avvierà con la build inclusa."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux：実行されていません。同梱のビルドで起動します。"
+            "value" : "acpmux：このアプリのデーモンは実行されていません。同梱のビルドで起動します。"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux៖ មិនកំពុងដំណើរការ។ វានឹងចាប់ផ្ដើមដោយកំណែដែលភ្ជាប់មកជាមួយ។"
+            "value" : "acpmux៖ គ្មាន daemon របស់កម្មវិធីនេះកំពុងដំណើរការទេ។ វានឹងចាប់ផ្ដើមដោយកំណែដែលភ្ជាប់មកជាមួយ។"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux: 실행 중이 아닙니다. 번들 빌드로 시작됩니다."
+            "value" : "acpmux: 이 앱의 데몬이 실행 중이 아닙니다. 번들 빌드로 시작됩니다."
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux: kjører ikke. Den starter med det medfølgende bygget."
+            "value" : "acpmux: ingen daemon fra denne appen kjører. Den starter med det medfølgende bygget."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux: nie działa. Uruchomi się z dołączoną kompilacją."
+            "value" : "acpmux: nie działa żaden demon tej aplikacji. Uruchomi się z dołączoną kompilacją."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux: não está em execução. Ele inicia com o build incluído."
+            "value" : "acpmux: nenhum daemon deste app está em execução. Ele inicia com o build incluído."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux: не запущен. Он запустится со встроенной сборкой."
+            "value" : "acpmux: ни один демон этого приложения не запущен. Он запустится со встроенной сборкой."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux: ไม่ได้ทำงาน จะเริ่มด้วยบิลด์ที่มาพร้อมแอป"
+            "value" : "acpmux: ไม่มีเดมอนของแอปนี้ทำงานอยู่ จะเริ่มด้วยบิลด์ที่มาพร้อมแอป"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux: çalışmıyor. Paketteki derlemeyle başlar."
+            "value" : "acpmux: bu uygulamanın hiçbir daemon’u çalışmıyor. Paketteki derlemeyle başlar."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux: не запущено. Він запуститься з вбудованою збіркою."
+            "value" : "acpmux: жоден демон цього застосунку не запущено. Він запуститься з вбудованою збіркою."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux: không chạy. Nó sẽ khởi động bằng bản dựng đi kèm."
+            "value" : "acpmux: không có daemon nào của ứng dụng này đang chạy. Nó sẽ khởi động bằng bản dựng đi kèm."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux：未运行。它将使用内置版本启动。"
+            "value" : "acpmux：此应用没有正在运行的守护进程。它将使用内置版本启动。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux：未執行。它會以內建版本啟動。"
+            "value" : "acpmux：此 App 沒有正在執行的背景程式。它會以內建版本啟動。"
+          }
+        }
+      }
+    },
+    "components.acpmux.unknownBuild" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "acpmux: running; it does not report its build."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "acpmux: يعمل، لكنه لا يُبلغ عن إصداره."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "acpmux: pokrenut; ne prijavljuje svoju verziju."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "acpmux: kører, men oplyser ikke sit build."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "acpmux: läuft, meldet aber seinen Build nicht."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "acpmux: en ejecución; no informa de su compilación."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "acpmux : actif, mais il n’indique pas son build."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "acpmux: in esecuzione; non comunica la sua build."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "acpmux：実行中ですが、ビルドを報告していません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "acpmux៖ កំពុងដំណើរការ ប៉ុន្តែវាមិនរាយការណ៍កំណែរបស់វាទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "acpmux: 실행 중이지만 빌드를 알려 주지 않습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "acpmux: kjører, men oppgir ikke bygget sitt."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "acpmux: działa, ale nie podaje swojej kompilacji."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "acpmux: em execução; ele não informa seu build."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "acpmux: запущен, но не сообщает свою сборку."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "acpmux: กำลังทำงาน แต่ไม่ได้รายงานบิลด์ของตน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "acpmux: çalışıyor; derlemesini bildirmiyor."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "acpmux: запущено, але він не повідомляє свою збірку."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "acpmux: đang chạy; nó không báo bản dựng của mình."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "acpmux：正在运行，但未报告其版本。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "acpmux：正在執行，但未回報其版本。"
           }
         }
       }
@@ -561,19 +692,19 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "CLI de agentes: actualizadas."
+            "value" : "CLI de tác tửes: actualizadas."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "CLI d’agents : à jour."
+            "value" : "CLI d’tác tửs : à jour."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "CLI degli agenti: aggiornate."
+            "value" : "CLI degli tác tửi: aggiornate."
           }
         },
         "ja" : {
@@ -603,13 +734,13 @@
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "CLI agentów: aktualne."
+            "value" : "CLI tác tửów: aktualne."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "CLIs de agentes: atualizadas."
+            "value" : "CLIs de tác tửes: atualizadas."
           }
         },
         "ru" : {
@@ -692,19 +823,19 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "CLI de agentes: se puede actualizar %@. «Actualizar todo» las actualiza."
+            "value" : "CLI de tác tửes: se puede actualizar %@. «Actualizar todo» las actualiza."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "CLI d’agents : %@ peut être mis à jour. « Tout mettre à jour » s’en charge."
+            "value" : "CLI d’tác tửs : %@ peut être mis à jour. « Tout mettre à jour » s’en charge."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "CLI degli agenti: %@ può essere aggiornato. “Aggiorna tutto” le aggiorna."
+            "value" : "CLI degli tác tửi: %@ può essere aggiornato. “Aggiorna tutto” le aggiorna."
           }
         },
         "ja" : {
@@ -734,13 +865,13 @@
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "CLI agentów: można zaktualizować %@. „Zaktualizuj wszystko” je aktualizuje."
+            "value" : "CLI tác tửów: można zaktualizować %@. „Zaktualizuj wszystko” je aktualizuje."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "CLIs de agentes: %@ pode ser atualizado. “Atualizar tudo” as atualiza."
+            "value" : "CLIs de tác tửes: %@ pode ser atualizado. “Atualizar tudo” as atualiza."
           }
         },
         "ru" : {
@@ -823,19 +954,19 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "CLI de agentes: sin comprobar. acpmux no respondió."
+            "value" : "CLI de tác tửes: sin comprobar. acpmux no respondió."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "CLI d’agents : non vérifiées. acpmux n’a pas répondu."
+            "value" : "CLI d’tác tửs : non vérifiées. acpmux n’a pas répondu."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "CLI degli agenti: non verificate. acpmux non ha risposto."
+            "value" : "CLI degli tác tửi: non verificate. acpmux non ha risposto."
           }
         },
         "ja" : {
@@ -865,13 +996,13 @@
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "CLI agentów: niesprawdzone. acpmux nie odpowiedział."
+            "value" : "CLI tác tửów: niesprawdzone. acpmux nie odpowiedział."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "CLIs de agentes: não verificadas. O acpmux não respondeu."
+            "value" : "CLIs de tác tửes: não verificadas. O acpmux não respondeu."
           }
         },
         "ru" : {
@@ -936,13 +1067,13 @@
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux %1$@: dostupna je verzija %2$@. „Ažuriraj sve“ je instalira i ponovo pokreće cmux kada nijedan agent nije zauzet."
+            "value" : "cmux %1$@: dostupna je verzija %2$@. „Ažuriraj sve“ je instalira i ponovo pokreće cmux kada nijedan tác tử nije zauzet."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux %1$@: version %2$@ er tilgængelig. “Opdater alle” installerer den og genstarter cmux, når ingen agent er optaget."
+            "value" : "cmux %1$@: version %2$@ er tilgængelig. “Opdater alle” installerer den og genstarter cmux, når ingen tác tử er optaget."
           }
         },
         "de" : {
@@ -954,19 +1085,19 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux %1$@: la versión %2$@ está disponible. «Actualizar todo» la instala y reinicia cmux cuando ningún agente esté ocupado."
+            "value" : "cmux %1$@: la versión %2$@ está disponible. «Actualizar todo» la instala y reinicia cmux cuando ningún tác tửe esté ocupado."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux %1$@ : la version %2$@ est disponible. « Tout mettre à jour » l’installe et redémarre cmux dès qu’aucun agent n’est occupé."
+            "value" : "cmux %1$@ : la version %2$@ est disponible. « Tout mettre à jour » l’installe et redémarre cmux dès qu’aucun tác tử n’est occupé."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux %1$@: è disponibile la versione %2$@. “Aggiorna tutto” la installa e riavvia cmux quando nessun agente è occupato."
+            "value" : "cmux %1$@: è disponibile la versione %2$@. “Aggiorna tutto” la installa e riavvia cmux quando nessun tác tửe è occupato."
           }
         },
         "ja" : {
@@ -990,19 +1121,19 @@
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux %1$@: versjon %2$@ er tilgjengelig. «Oppdater alle» installerer den og starter cmux på nytt når ingen agent er opptatt."
+            "value" : "cmux %1$@: versjon %2$@ er tilgjengelig. «Oppdater alle» installerer den og starter cmux på nytt når ingen tác tử er opptatt."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux %1$@: dostępna jest wersja %2$@. „Zaktualizuj wszystko” instaluje ją i uruchamia ponownie cmux, gdy żaden agent nie jest zajęty."
+            "value" : "cmux %1$@: dostępna jest wersja %2$@. „Zaktualizuj wszystko” instaluje ją i uruchamia ponownie cmux, gdy żaden tác tử nie jest zajęty."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux %1$@: a versão %2$@ está disponível. “Atualizar tudo” a instala e reinicia o cmux quando nenhum agente estiver ocupado."
+            "value" : "cmux %1$@: a versão %2$@ está disponível. “Atualizar tudo” a instala e reinicia o cmux quando nenhum tác tửe estiver ocupado."
           }
         },
         "ru" : {
@@ -1198,13 +1329,13 @@
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux %1$@: verzija %2$@ je preuzeta. „Ažuriraj sve“ je instalira i ponovo pokreće cmux kada nijedan agent nije zauzet."
+            "value" : "cmux %1$@: verzija %2$@ je preuzeta. „Ažuriraj sve“ je instalira i ponovo pokreće cmux kada nijedan tác tử nije zauzet."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux %1$@: version %2$@ er hentet. “Opdater alle” installerer den og genstarter cmux, når ingen agent er optaget."
+            "value" : "cmux %1$@: version %2$@ er hentet. “Opdater alle” installerer den og genstarter cmux, når ingen tác tử er optaget."
           }
         },
         "de" : {
@@ -1216,19 +1347,19 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux %1$@: la versión %2$@ está descargada. «Actualizar todo» la instala y reinicia cmux cuando ningún agente esté ocupado."
+            "value" : "cmux %1$@: la versión %2$@ está descargada. «Actualizar todo» la instala y reinicia cmux cuando ningún tác tửe esté ocupado."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux %1$@ : la version %2$@ est téléchargée. « Tout mettre à jour » l’installe et redémarre cmux dès qu’aucun agent n’est occupé."
+            "value" : "cmux %1$@ : la version %2$@ est téléchargée. « Tout mettre à jour » l’installe et redémarre cmux dès qu’aucun tác tử n’est occupé."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux %1$@: la versione %2$@ è stata scaricata. “Aggiorna tutto” la installa e riavvia cmux quando nessun agente è occupato."
+            "value" : "cmux %1$@: la versione %2$@ è stata scaricata. “Aggiorna tutto” la installa e riavvia cmux quando nessun tác tửe è occupato."
           }
         },
         "ja" : {
@@ -1252,19 +1383,19 @@
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux %1$@: versjon %2$@ er lastet ned. «Oppdater alle» installerer den og starter cmux på nytt når ingen agent er opptatt."
+            "value" : "cmux %1$@: versjon %2$@ er lastet ned. «Oppdater alle» installerer den og starter cmux på nytt når ingen tác tử er opptatt."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux %1$@: wersja %2$@ została pobrana. „Zaktualizuj wszystko” instaluje ją i uruchamia ponownie cmux, gdy żaden agent nie jest zajęty."
+            "value" : "cmux %1$@: wersja %2$@ została pobrana. „Zaktualizuj wszystko” instaluje ją i uruchamia ponownie cmux, gdy żaden tác tử nie jest zajęty."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux %1$@: a versão %2$@ foi baixada. “Atualizar tudo” a instala e reinicia o cmux quando nenhum agente estiver ocupado."
+            "value" : "cmux %1$@: a versão %2$@ foi baixada. “Atualizar tudo” a instala e reinicia o cmux quando nenhum tác tửe estiver ocupado."
           }
         },
         "ru" : {
@@ -2097,6 +2228,137 @@
         }
       }
     },
+    "components.cmuxTUI.unknownBuild" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux-tui: running; it does not report its build."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux-tui: يعمل، لكنه لا يُبلغ عن إصداره."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux-tui: pokrenut; ne prijavljuje svoju verziju."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux-tui: kører, men oplyser ikke sit build."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux-tui: läuft, meldet aber seinen Build nicht."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux-tui: en ejecución; no informa de su compilación."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux-tui : actif, mais il n’indique pas son build."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux-tui: in esecuzione; non comunica la sua build."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux-tui：実行中ですが、ビルドを報告していません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux-tui៖ កំពុងដំណើរការ ប៉ុន្តែវាមិនរាយការណ៍កំណែរបស់វាទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux-tui: 실행 중이지만 빌드를 알려 주지 않습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux-tui: kjører, men oppgir ikke bygget sitt."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux-tui: działa, ale nie podaje swojej kompilacji."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux-tui: em execução; ele não informa seu build."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux-tui: запущен, но не сообщает свою сборку."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux-tui: กำลังทำงาน แต่ไม่ได้รายงานบิลด์ของตน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux-tui: çalışıyor; derlemesini bildirmiyor."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux-tui: запущено, але він не повідомляє свою збірку."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux-tui: đang chạy; nó không báo bản dựng của mình."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux-tui：正在运行，但未报告其版本。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux-tui：正在執行，但未回報其版本。"
+          }
+        }
+      }
+    },
     "components.result.acpmux" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2234,127 +2496,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux didn't restart: %@"
+            "value" : "acpmux didn't restart. An agent chat shows why."
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "لم تتم إعادة تشغيل acpmux: %@"
+            "value" : "لم تتم إعادة تشغيل acpmux. تعرض محادثة أحد الوكلاء السبب."
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux nije ponovo pokrenut: %@"
+            "value" : "acpmux nije ponovo pokrenut. Razlog je prikazan u chatu agenta."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux blev ikke genstartet: %@"
+            "value" : "acpmux blev ikke genstartet. En agentchat viser hvorfor."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux wurde nicht neu gestartet: %@"
+            "value" : "acpmux wurde nicht neu gestartet. Ein Agent-Chat zeigt den Grund."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux no se reinició: %@"
+            "value" : "acpmux no se reinició. Un chat de agente muestra el motivo."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux n’a pas redémarré : %@"
+            "value" : "acpmux n’a pas redémarré. Un chat d’agent en indique la raison."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux non si è riavviato: %@"
+            "value" : "acpmux non si è riavviato. Una chat dell’agente ne mostra il motivo."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmuxを再起動できませんでした：%@"
+            "value" : "acpmuxを再起動できませんでした。理由はエージェントのチャットに表示されます。"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux មិនបានចាប់ផ្ដើមឡើងវិញ៖ %@"
+            "value" : "acpmux មិនបានចាប់ផ្ដើមឡើងវិញ។ ការជជែករបស់ភ្នាក់ងារបង្ហាញមូលហេតុ។"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux를 재시작하지 못했습니다: %@"
+            "value" : "acpmux를 재시작하지 못했습니다. 에이전트 채팅에서 이유를 확인할 수 있습니다."
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux ble ikke startet på nytt: %@"
+            "value" : "acpmux ble ikke startet på nytt. En agentchat viser hvorfor."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux nie uruchomił się ponownie: %@"
+            "value" : "acpmux nie uruchomił się ponownie. Przyczynę pokazuje czat agenta."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "O acpmux não reiniciou: %@"
+            "value" : "O acpmux não reiniciou. Um chat de agente mostra o motivo."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux не перезапустился: %@"
+            "value" : "acpmux не перезапустился. Причина показана в чате агента."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux ไม่ได้รีสตาร์ท: %@"
+            "value" : "acpmux ไม่ได้รีสตาร์ท แชทของเอเจนต์จะแสดงสาเหตุ"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux yeniden başlatılamadı: %@"
+            "value" : "acpmux yeniden başlatılamadı. Nedeni bir ajan sohbetinde görünür."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux не перезапустився: %@"
+            "value" : "acpmux не перезапустився. Причину показано в чаті агента."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux không khởi động lại được: %@"
+            "value" : "acpmux không khởi động lại được. Cuộc trò chuyện với tác tử sẽ cho biết lý do."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux 未能重启：%@"
+            "value" : "acpmux 未能重启。原因显示在智能体聊天中。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux 無法重新啟動：%@"
+            "value" : "acpmux 無法重新啟動。原因會顯示在代理程式聊天中。"
           }
         }
       }
@@ -2514,7 +2776,7 @@
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Opdateringer af agent-CLI’er kører i en terminalfane."
+            "value" : "Opdateringer af tác tử-CLI’er kører i en terminalfane."
           }
         },
         "de" : {
@@ -2526,19 +2788,19 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Las actualizaciones de las CLI de agentes se ejecutan en una pestaña de terminal."
+            "value" : "Las actualizaciones de las CLI de tác tửes se ejecutan en una pestaña de terminal."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Les mises à jour des CLI d’agents s’exécutent dans un onglet de terminal."
+            "value" : "Les mises à jour des CLI d’tác tửs s’exécutent dans un onglet de terminal."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Gli aggiornamenti delle CLI degli agenti vengono eseguiti in una scheda del terminale."
+            "value" : "Gli aggiornamenti delle CLI degli tác tửi vengono eseguiti in una scheda del terminale."
           }
         },
         "ja" : {
@@ -2562,19 +2824,19 @@
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Oppdateringer av agent-CLI-er kjøres i en terminalfane."
+            "value" : "Oppdateringer av tác tử-CLI-er kjøres i en terminalfane."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Aktualizacje CLI agentów działają w karcie terminala."
+            "value" : "Aktualizacje CLI tác tửów działają w karcie terminala."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "As atualizações das CLIs de agentes são executadas em uma aba do terminal."
+            "value" : "As atualizações das CLIs de tác tửes são executadas em uma aba do terminal."
           }
         },
         "ru" : {
@@ -2639,13 +2901,13 @@
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux instalira svoje ažuriranje i ponovo se pokreće kada nijedan agent nije zauzet."
+            "value" : "cmux instalira svoje ažuriranje i ponovo se pokreće kada nijedan tác tử nije zauzet."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux installerer sin opdatering og genstarter, når ingen agent er optaget."
+            "value" : "cmux installerer sin opdatering og genstarter, når ingen tác tử er optaget."
           }
         },
         "de" : {
@@ -2657,19 +2919,19 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux instala su actualización y se reinicia cuando ningún agente esté ocupado."
+            "value" : "cmux instala su actualización y se reinicia cuando ningún tác tửe esté ocupado."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux installe sa mise à jour et redémarre dès qu’aucun agent n’est occupé."
+            "value" : "cmux installe sa mise à jour et redémarre dès qu’aucun tác tử n’est occupé."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux installa l’aggiornamento e si riavvia quando nessun agente è occupato."
+            "value" : "cmux installa l’aggiornamento e si riavvia quando nessun tác tửe è occupato."
           }
         },
         "ja" : {
@@ -2693,19 +2955,19 @@
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux installerer oppdateringen og starter på nytt når ingen agent er opptatt."
+            "value" : "cmux installerer oppdateringen og starter på nytt når ingen tác tử er opptatt."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux instaluje aktualizację i uruchamia się ponownie, gdy żaden agent nie jest zajęty."
+            "value" : "cmux instaluje aktualizację i uruchamia się ponownie, gdy żaden tác tử nie jest zajęty."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "O cmux instala a atualização e reinicia quando nenhum agente estiver ocupado."
+            "value" : "O cmux instala a atualização e reinicia quando nenhum tác tửe estiver ocupado."
           }
         },
         "ru" : {

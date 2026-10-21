@@ -15,14 +15,17 @@ nonisolated struct ComponentStatus: Sendable, Equatable {
         case ready(String?)
     }
 
-    /// A daemon's build against the bundled one; nil `running` means no daemon of this app runs.
+    /// A daemon's build against the bundled one.
     struct Server: Sendable, Equatable {
+        /// A daemon of this app answers (it may not report its build).
+        var isRunning: Bool
         var running: String?
         var bundled: String?
         /// A restart keeps its work (terminals for cmux-tui; agents under agent hosts for acpmux).
         var keepsWork: Bool
 
-        init(running: String?, bundled: String?, keepsWork: Bool) {
+        init(isRunning: Bool, running: String?, bundled: String?, keepsWork: Bool) {
+            self.isRunning = isRunning
             self.running = running
             self.bundled = bundled
             self.keepsWork = keepsWork
@@ -90,8 +93,11 @@ nonisolated struct ComponentStatus: Sendable, Equatable {
         let title = hasUpdates
             ? ComponentStrings.text("components.title.updates", "Updates for cmux Components")
             : ComponentStrings.text("components.title.current", "cmux Components Are Up to Date")
-        return CmuxDialogSpec(title: title, lines: lines, buttons: buttons, identifier: "cmux.components.update")
+        return CmuxDialogSpec(title: title, lines: lines, buttons: buttons, identifier: Self.dialogIdentifier)
     }
+
+    /// The dialog's id: only the person answers it (`DebugDialog.userOnly`).
+    static let dialogIdentifier = "cmux.components.update"
 
     private var appLine: String {
         switch app {
@@ -109,8 +115,11 @@ nonisolated struct ComponentStatus: Sendable, Equatable {
     }
 
     private func cmuxTUILine(_ server: Server) -> String {
-        guard server.running != nil else {
+        guard server.isRunning else {
             return ComponentStrings.text("components.cmuxTUI.notRunning", "cmux-tui: not running. It starts on the bundled build.")
+        }
+        guard server.running != nil else {
+            return ComponentStrings.text("components.cmuxTUI.unknownBuild", "cmux-tui: running; it does not report its build.")
         }
         guard server.isBehind else {
             return ComponentStrings.format("components.cmuxTUI.current", "cmux-tui: up to date (%@).", Server.short(server.running))
@@ -121,8 +130,11 @@ nonisolated struct ComponentStatus: Sendable, Equatable {
     }
 
     private func acpmuxLine(_ server: Server) -> String {
+        guard server.isRunning else {
+            return ComponentStrings.text("components.acpmux.notRunning", "acpmux: no daemon of this app is running. It starts on the bundled build.")
+        }
         guard server.running != nil else {
-            return ComponentStrings.text("components.acpmux.notRunning", "acpmux: not running. It starts on the bundled build.")
+            return ComponentStrings.text("components.acpmux.unknownBuild", "acpmux: running; it does not report its build.")
         }
         guard server.isBehind else {
             return ComponentStrings.format("components.acpmux.current", "acpmux: up to date (%@).", Server.short(server.running))
@@ -150,14 +162,14 @@ nonisolated struct ComponentStatus: Sendable, Equatable {
 /// Update All's result lines, one per part it ran.
 extension ComponentStatus {
     static func acpmuxUpdated(_ check: Server?) -> String {
-        guard let check, check.running != nil, !check.isBehind else {
+        guard let check, check.isRunning, check.running != nil, !check.isBehind else {
             return ComponentStrings.format("components.result.acpmuxStill", "acpmux still runs %@.", Server.short(check?.running))
         }
         return ComponentStrings.format("components.result.acpmux", "acpmux now runs %@.", Server.short(check.running))
     }
 
-    static func acpmuxFailed(_ reason: String) -> String {
-        ComponentStrings.format("components.result.acpmuxFailed", "acpmux didn't restart: %@", reason)
+    static var acpmuxFailed: String {
+        ComponentStrings.text("components.result.acpmuxFailed", "acpmux didn't restart. An agent chat shows why.")
     }
 
     static var agentCLIsStarted: String {
@@ -175,7 +187,7 @@ extension ComponentStatus {
 
 /// Update cmux Components… strings (Resources/ComponentUpdates.xcstrings). Builds and versions
 /// are format arguments.
-enum ComponentStrings {
+nonisolated enum ComponentStrings {
     static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: value, table: "ComponentUpdates", bundle: .module)
     }
