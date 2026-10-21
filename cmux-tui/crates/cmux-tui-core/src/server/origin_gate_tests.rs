@@ -43,7 +43,7 @@ fn a_terminal_peer_that_omits_its_credential_cannot_become_the_owner() {
     let terminal = surface.terminal_public_id().expect("the terminal id").as_str().to_string();
 
     let peer = super::classify_local_peer(&mux, Some("token:4242.1"), |_| Some(process));
-    assert_eq!(peer, crate::request_origin::LocalPeer::Terminal(terminal.clone()));
+    assert_eq!(peer, crate::request_origin::LocalPeer::Terminal(terminal));
 
     let conn = connect(&mux);
     set_local_peer_for_test(&mux, conn.client, peer);

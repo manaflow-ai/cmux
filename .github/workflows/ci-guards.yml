@@ -1262,6 +1262,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_fix_forward.py
 
+      - name: Validate the nightly-next release train, verdicts and G1' tree check
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_next_train.py
+
       - name: Validate the nightly-next arm64-only track
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_arm64_only.py
