@@ -30,6 +30,58 @@ struct AgentLaunchEnvironmentPolicyTests {
         )
     }
 
+    @Test("Removes an inherited stale TMPDIR restore preload from a process environment")
+    func removesInheritedStaleTemporaryRestorePreload() {
+        let repair = AgentLaunchEnvironmentPolicy().inheritedNodeOptionsRepair(from: [
+            "NODE_OPTIONS": "--require=/var/folders/xy/T/cmux-claude-node-options/restore-node-options.cjs --max-old-space-size=4096",
+            "CMUX_ORIGINAL_NODE_OPTIONS_PRESENT": "0",
+            "PATH": "/usr/bin",
+        ])
+
+        #expect(repair == [
+            "NODE_OPTIONS": nil,
+            "CMUX_ORIGINAL_NODE_OPTIONS_PRESENT": nil,
+        ])
+    }
+
+    @Test("Restores the user's original NODE_OPTIONS behind an inherited restore preload")
+    func restoresOriginalNodeOptionsBehindInheritedRestorePreload() {
+        let repair = AgentLaunchEnvironmentPolicy().inheritedNodeOptionsRepair(from: [
+            "NODE_OPTIONS": "--require=/tmp/cmux-claude-node-options/restore-node-options.cjs --max-old-space-size=4096 --trace-warnings",
+            "CMUX_ORIGINAL_NODE_OPTIONS_PRESENT": "1",
+            "CMUX_ORIGINAL_NODE_OPTIONS": "--trace-warnings --max-old-space-size=8192",
+        ])
+
+        #expect(repair == [
+            "NODE_OPTIONS": .some("--trace-warnings --max-old-space-size=8192"),
+            "CMUX_ORIGINAL_NODE_OPTIONS_PRESENT": nil,
+            "CMUX_ORIGINAL_NODE_OPTIONS": nil,
+        ])
+    }
+
+    @Test("Keeps the remaining options when no original NODE_OPTIONS was recorded")
+    func keepsRemainingOptionsWithoutRecordedOriginal() {
+        let repair = AgentLaunchEnvironmentPolicy().inheritedNodeOptionsRepair(from: [
+            "NODE_OPTIONS": #"--require="/Users/a b/.cmuxterm/cmux-claude-node-options/restore-node-options.cjs" --max-old-space-size=4096 --inspect"#,
+        ])
+
+        #expect(repair == ["NODE_OPTIONS": .some("--inspect")])
+    }
+
+    @Test("Leaves a process environment without a cmux restore preload unchanged")
+    func leavesUnrelatedNodeOptionsUnchanged() {
+        let policy = AgentLaunchEnvironmentPolicy()
+
+        #expect(policy.inheritedNodeOptionsRepair(from: [:]).isEmpty)
+        #expect(policy.inheritedNodeOptionsRepair(from: [
+            "NODE_OPTIONS": "--require=/Users/me/lib/restore-node-options.cjs --max-old-space-size=4096",
+        ]).isEmpty)
+        #expect(policy.inheritedNodeOptionsRepair(from: [
+            "NODE_OPTIONS": "--trace-warnings",
+            "CMUX_ORIGINAL_NODE_OPTIONS_PRESENT": "0",
+        ]) == ["CMUX_ORIGINAL_NODE_OPTIONS_PRESENT": nil])
+    }
+
     @Test("Custom Codex executable remains scoped to Codex restores")
     func customCodexExecutableRemainsScopedToCodexRestores() {
         let policy = AgentLaunchEnvironmentPolicy()
@@ -64,7 +116,14 @@ struct AgentLaunchEnvironmentPolicyTests {
         )
 
         #expect(selected.isEmpty)
-        #expect(!AgentLaunchEnvironmentPolicy().inputEnvironmentKeys.contains("XDG_CONFIG_HOME"))
+        // XDG_CONFIG_HOME is captured for OpenCode restores (#21346); capture
+        // alone must not make it replay for Cursor.
+        #expect(
+            AgentLaunchEnvironmentPolicy().selectedEnvironment(
+                from: ["XDG_CONFIG_HOME": "/tmp/custom-config"],
+                kind: "cursor"
+            ).isEmpty
+        )
     }
 
     @Test("Cursor config override stays scoped to Cursor restores")
