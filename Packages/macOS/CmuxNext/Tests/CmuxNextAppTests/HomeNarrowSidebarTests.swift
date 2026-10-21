@@ -88,6 +88,11 @@ struct HomeNarrowSidebarTests {
         p.home.onNewMessage = { opened += 1 }
         button.performClick(nil)
         #expect(opened == 1)
+        // The New Message page is on screen: compose would sit over To:, and the person composes already.
+        p.split.composing = true
+        #expect(button.isHidden)
+        p.split.composing = false
+        #expect(!button.isHidden)
     }
 
     @Test(arguments: [180, 320] as [CGFloat])
