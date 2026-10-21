@@ -123,11 +123,14 @@ export class SubsessionStore {
   private readonly listeners = new Set<() => void>();
 
   private entries = new Map<string, AcpmuxSessionEntry>();
-  /// Every listed chat's id by its names (its name, its short name, its title), and its harness by
-  /// id: another agent's message names its sender, which a card opens and marks with its harness.
+  /// Every listed chat's id by its names (its name, its short name; not its title, which can be
+  /// "New chat"), and its harness by id: another agent's message names its sender, which a card
+  /// opens and marks with its harness. Their readers have their own listeners, so a chat's name
+  /// changing never tells a sub-session card.
   private named = new Map<string, string>();
   private harnesses = new Map<string, string>();
   private namedKey = "";
+  private readonly nameListeners = new Set<() => void>();
 
   /// Replaces the views with those of the sub-sessions among `sessions`; one whose content did not
   /// change keeps its object. The pane sends the list with every snapshot, reusing the entry of a
@@ -142,17 +145,18 @@ export class SubsessionStore {
     // A name a later chat shares never takes an earlier chat's place; a live chat's name comes
     // before an archived one's.
     const live = [...sessions].sort((a, b) => Number(Boolean(a.archived)) - Number(Boolean(b.archived)));
-    for (const field of ["name", "shortName", "displayTitle"] as const)
+    for (const field of ["name", "shortName"] as const)
       for (const entry of live) {
         const name = entry[field]?.trim();
         if (name && !named.has(name)) named.set(name, entry.sessionId);
       }
     for (const entry of sessions) if (entry.harness) harnesses.set(entry.sessionId, entry.harness);
     const namedKey = JSON.stringify([[...named], [...harnesses]]);
-    if (namedKey !== this.namedKey) changed = true;
+    const renamed = namedKey !== this.namedKey;
     this.named = named;
     this.harnesses = harnesses;
     this.namedKey = namedKey;
+    if (renamed) for (const listener of this.nameListeners) listener();
     for (const entry of sessions) {
       if (!entry.startedBy) continue;
       const id = entry.sessionId;
@@ -192,6 +196,11 @@ export class SubsessionStore {
     return this.harnesses.get(sessionId);
   }
 
+  subscribeNames = (listener: () => void): (() => void) => {
+    this.nameListeners.add(listener);
+    return () => this.nameListeners.delete(listener);
+  };
+
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -219,8 +228,8 @@ export function useSubsessionInfo(sessionId: string | undefined): SubsessionInfo
 export function useSenderChat(name: string, sessionId: string | undefined): { sessionId?: string; harness?: string } {
   const store = useContext(SubsessionContext)?.store ?? EMPTY;
   const readId = () => sessionId ?? store.find(name);
-  const id = useSyncExternalStore(store.subscribe, readId, readId);
+  const id = useSyncExternalStore(store.subscribeNames, readId, readId);
   const readHarness = () => (id ? store.harness(id) : undefined);
-  const harness = useSyncExternalStore(store.subscribe, readHarness, readHarness);
+  const harness = useSyncExternalStore(store.subscribeNames, readHarness, readHarness);
   return { ...(id && { sessionId: id }), ...(harness && { harness }) };
 }

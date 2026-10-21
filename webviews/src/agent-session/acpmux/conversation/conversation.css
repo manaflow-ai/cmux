@@ -2050,6 +2050,11 @@ button.cv-received__name:focus-visible {
   outline-offset: 1px;
   border-radius: 4px;
 }
+/* The line's gap spaces Reply and the hover row already. */
+.cv-received__line > .cv-received__reply,
+.cv-received__line > .cv-received-actions {
+  margin-inline-start: 0;
+}
 /* The message, opened: a compact glass card under the line, in from the icon column, its text
    as Markdown. */
 .cv-received__body {
@@ -3533,6 +3538,9 @@ button.cv-received__name:focus-visible {
   flex-direction: column;
   gap: 4px;
   margin: 0 0 8px 13px;
+}
+.cv-received > .cv-message__reply {
+  margin-left: 22px;
 }
 .cv-message__reply > .cv-user__edit {
   width: 100%;
