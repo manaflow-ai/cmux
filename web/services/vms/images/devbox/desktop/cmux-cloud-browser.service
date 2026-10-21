@@ -1,0 +1,19 @@
+[Unit]
+# The cloud browser role (plans/cmux-next/cloud-browser-DESIGN.md CB-2). Shipped, not
+# enabled: an operator or the VM service turns it on with
+#   systemctl set-environment CMUX_CLOUD_BROWSER=1 && systemctl start cmux-cloud-browser
+# It draws on the desktop's display, so it needs cmux-desktop.
+Description=cmux cloud browser (Chrome streamed by cmux-rd, CDP on loopback)
+After=cmux-desktop.service
+Requires=cmux-desktop.service
+
+[Service]
+Type=simple
+User=cmux
+Environment=HOME=/home/cmux
+Environment=USER=cmux
+Environment=DISPLAY=:1
+WorkingDirectory=/home/cmux
+ExecStart=/usr/local/bin/cmux-cloud-browser
+Restart=on-failure
+RestartSec=5

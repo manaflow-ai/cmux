@@ -67,6 +67,15 @@ impl CliError {
         self.code
     }
 
+    /// Keep the original intent key visible after a resize error, including a partial provider failure.
+    pub fn with_retry_key(mut self, key: &str) -> Self {
+        self.message = format!(
+            "{}; retry the same intent with --idempotency-key {key}",
+            self.message
+        );
+        self
+    }
+
     /// For a create or fork whose outcome is unknown (the request may have
     /// reached the server before the connection failed), says how to retry
     /// without creating a second VM.

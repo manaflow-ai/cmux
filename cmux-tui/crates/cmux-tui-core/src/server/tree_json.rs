@@ -97,7 +97,9 @@ pub(super) fn pane_json(
                 .get(sid)
                 .filter(|_| surface.is_none_or(|surface| surface.is_dead()))
                 .and_then(|tab| notifications.presentation.kept_tabs.get(tab.as_str()));
-            let relaunch = kept.map(|kept| json!({"cwd": kept.cwd}));
+            let relaunch = kept.map(|kept| {
+                crate::state::kept_tab_store::relaunch_json(kept.cwd.as_deref(), kept.on_show)
+            });
             // R41: a terminal tab with no runtime surface is dead only when
             // its terminal really ended; a host still being adopted, or one
             // this build cannot adopt, keeps running its shell.

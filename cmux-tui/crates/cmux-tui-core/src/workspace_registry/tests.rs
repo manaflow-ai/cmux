@@ -6183,3 +6183,4 @@ mod integrity_check_scope;
 mod ledger_retention;
 mod terminal_journal_append;
 mod terminal_keep_tests;
+mod terminal_resume_tests;

@@ -76,6 +76,10 @@ pub struct Transcript {
     pub user_at: std::collections::HashMap<usize, u64>,
     /// (user item index, turn start ms, turn end ms) per turn seen.
     pub turn_times: Vec<(usize, u64, Option<u64>)>,
+    /// Steers the agent has not read yet: (promptId, user item index). A steer that
+    /// lands as its turn ends is run as the next prompt and logged again with the
+    /// same promptId and no `steer` (`hub/steer_end.rs`); that record replaces its row.
+    waiting_steers: Vec<(String, usize)>,
 }
 
 /// Line diff of two texts: `+`, `-` and ` ` prefixed lines, in order. LCS
@@ -185,6 +189,34 @@ fn text_of(content: &Value) -> String {
 impl Transcript {
     pub(crate) fn invalidate_layout(&mut self, from: usize) {
         self.layout_dirty_from = self.layout_dirty_from.min(from);
+    }
+
+    /// Removes user item `pos`, keeping the per-item indices after it in step.
+    fn remove_user_item(&mut self, pos: usize) -> Item {
+        self.invalidate_layout(pos);
+        let item = self.items.remove(pos);
+        let moved: std::collections::HashMap<usize, u64> = self
+            .user_at
+            .drain()
+            .filter_map(|(k, v)| match k.cmp(&pos) {
+                std::cmp::Ordering::Equal => None,
+                std::cmp::Ordering::Greater => Some((k - 1, v)),
+                std::cmp::Ordering::Less => Some((k, v)),
+            })
+            .collect();
+        self.user_at = moved;
+        for tt in self.turn_times.iter_mut() {
+            if tt.0 > pos {
+                tt.0 -= 1;
+            }
+        }
+        self.waiting_steers.retain(|(_, i)| *i != pos);
+        for (_, i) in self.waiting_steers.iter_mut() {
+            if *i > pos {
+                *i -= 1;
+            }
+        }
+        item
     }
 
     /// Apply a `session/update` params object (live or replayed).
@@ -498,6 +530,20 @@ impl Transcript {
             "user_message" => {
                 let text = msg.get("text").and_then(Value::as_str).unwrap_or("").to_owned();
                 let steer = msg.get("steer").and_then(Value::as_bool).unwrap_or(false);
+                let prompt_id = msg.get("promptId").and_then(Value::as_str).unwrap_or("");
+                if !steer {
+                    // A steer the turn ended before reading, now run as this prompt: its row
+                    // gives way. A newer prompt means every steer before it was read.
+                    if let Some(pos) = self
+                        .waiting_steers
+                        .iter()
+                        .find(|(id, _)| !prompt_id.is_empty() && id == prompt_id)
+                        .map(|(_, pos)| *pos)
+                    {
+                        self.remove_user_item(pos);
+                    }
+                    self.waiting_steers.clear();
+                }
                 // A queued message becomes the live one when its turn starts:
                 // it moves to the end so it sits after the turn that ran before it.
                 let promoted = self.items.iter().position(
@@ -505,26 +551,7 @@ impl Transcript {
                 );
                 match promoted {
                     Some(pos) => {
-                        let item = self.items.remove(pos);
-                        let moved: std::collections::HashMap<usize, u64> = self
-                            .user_at
-                            .drain()
-                            .filter_map(|(k, v)| {
-                                if k == pos {
-                                    None
-                                } else if k > pos {
-                                    Some((k - 1, v))
-                                } else {
-                                    Some((k, v))
-                                }
-                            })
-                            .collect();
-                        self.user_at = moved;
-                        for tt in self.turn_times.iter_mut() {
-                            if tt.0 > pos {
-                                tt.0 -= 1;
-                            }
-                        }
+                        let item = self.remove_user_item(pos);
                         if let Item::User { text, steer, .. } = item {
                             self.items.push(Item::User { text, steer, queued: false });
                         }
@@ -537,6 +564,13 @@ impl Transcript {
                             self.items.push(Item::User { text, steer, queued: false });
                         }
                     }
+                }
+                if steer
+                    && !prompt_id.is_empty()
+                    && let Some(idx) =
+                        self.items.iter().rposition(|i| matches!(i, Item::User { steer: true, .. }))
+                {
+                    self.waiting_steers.push((prompt_id.to_owned(), idx));
                 }
                 if let Some(idx) = self.items.iter().rposition(|i| matches!(i, Item::User { .. }))
                     && at > 0
@@ -754,3 +788,7 @@ pub fn item_text(item: &Item) -> String {
         Item::TurnEnd { stop } => stop.clone(),
     }
 }
+
+#[cfg(test)]
+#[path = "transcript_tests.rs"]
+mod tests;

@@ -1,8 +1,10 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextTabs
 import CmuxNextFocus
@@ -28,6 +30,10 @@ extension PaneController {
         case .rename(let id): rename(id)
         case .renameCommitted(let id, let name): commitRename(id, name: name)
         case .duplicate(let id): newTerminalTab(cwd: tab(id)?.cwd)
+        // The speaker click runs Mute Tab, the menu's, palette's and CLI's one path.
+        case .toggleAudioMute(let id):
+            _ = services.registry.perform(BrowserTabAudio.toggleActionID,
+                                          invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: id.rawValue), origin: .user))
         case .moveToNewSplit(let id, let direction):
             guard let tab = tab(id) else { return }
             TabMoves.toNewSplit(tab, pane: pane, edge: direction == .right ? .right : .bottom, services: services)
@@ -62,13 +68,15 @@ extension PaneController {
     func applySelection(_ id: StripTabID) {
         guard stripModel.selectedID != id || currentTabKey != id.rawValue, let state else { return }
         DebugTabSwitch.mark(self, "focus")
-        state.selection.select(id.rawValue, in: paneKey)
-        setStripSelection(id)
+        BenchSpans.measure("switch.select") {
+            state.selection.select(id.rawValue, in: paneKey)
+            setStripSelection(id)
+        }
         DebugTabSwitch.mark(self, "strip")
-        presentSelection()
+        BenchSpans.measure("switch.showSelected") { presentSelection() }
         DebugTabSwitch.mark(self, "present")
-        remapViewedTab()
-        services.windows.recordSaver.stateDidChange(state)
+        BenchSpans.measure("switch.remap") { remapViewedTab() }
+        BenchSpans.measure("switch.record") { services.windows.recordSaver.stateDidChange(state) }
         DebugTabSwitch.mark(self, "record")
         DebugTabSwitch.shown(self, in: view.window)
     }
@@ -112,6 +120,10 @@ extension PaneController {
         let keys = services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent)
         // The PTY starts at the grid this pane's view will fit, so the first frame is final (NewTerminalGrid).
         let size = newTerminalSize
+        let command = NewTerminalTabCommand(pane: handle, options: SpawnOptions(cwd: cwd, size: size, workspace: workspace, keep: keep))
+        if text == nil, page == nil, command.isOptimistic(on: daemon) {
+            return newTerminalTabNow(command, agent: agent, intent: intent, keys: keys, window: window, then: then)
+        }
         services.registry.track(Task { [services] in
             var landed = false
             defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
@@ -135,6 +147,42 @@ extension PaneController {
         })
     }
 
+    /// ``newTerminalTab(cwd:typing:typingAhead:keep:fromSelectedTab:daemonResolvesCwd:then:)`` that
+    /// waits for nothing (Ctrl-`, ctrl-backtick-instant): the stand-in tab is in the store, selected
+    /// and shown in this turn, so it draws in the key's frame; `new-tab` runs behind it, and the
+    /// daemon's tab takes its place (``NewTerminalTabCommand``). The keys typed meanwhile wait for
+    /// the daemon's terminal, as before.
+    private func newTerminalTabNow(_ command: NewTerminalTabCommand, agent: AgentPaneView?, intent: UInt64?,
+                                   keys: CreationInputBuffer.Ticket?, window: NSWindow?, then: (@MainActor (SurfaceID) -> Void)?) {
+        // task-owner: the selected agent's cwd, read while the stand-in shows (#16620)
+        let agentCwd = agent.map { agent in
+            Task { @MainActor () -> String? in
+                guard let cwd = await agent.workingContext()?.cwd, WorkingURL.isDirectory(cwd) else { return nil }
+                return cwd
+            }
+        }
+        let pending = BenchSpans.measure("newTerminal.intend") { command.intendNow(on: daemon, cwd: agentCwd) }
+        selectWhenReported(surface: pending.surface)
+        services.registry.track(Task { [services] in
+            var landed = false
+            defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
+            do {
+                let created = try await pending.send(); BenchSpans.mark("daemon.newTab.returned")
+                // The swap moved the selection already (NewTabSuccession); a pane still on the stand-in follows it.
+                if stripModel.selectedID?.rawValue == pending.tab { selectWhenReported(surface: created.surface) }
+                self.workspace?.expectFocus(on: created.surface, generation: intent)
+                landed = true
+                then?(created.surface)
+                return nil
+            } catch is NewTerminalTabCancelled {
+                return nil // the person closed the stand-in first
+            } catch {
+                daemon.logger.error("new-tab failed: \(String(describing: error), privacy: .public)")
+                return ActionWorkFailure("new-tab", error)
+            }
+        })
+    }
+
     /// New browser tab in this pane (`PaneBrowserTabOpener`), selected and
     /// focused when it lands unless `background`. False when refused.
     @discardableResult
@@ -150,10 +198,15 @@ extension PaneController {
     /// close (`closeCommand`), it only detaches their terminals, so the daemon
     /// reaps them after its grace period and Reopen Closed Tab can show them
     /// again meanwhile. One tab, or an older daemon, takes one command per tab.
+    /// The tabs leave the visible state now through one close intent on the
+    /// store (`DaemonStore.intendClose`), the same log as the creates: they stay
+    /// out until the daemon's records drop them, and come back only when the
+    /// daemon refused the close (tab-spam-race).
     func close(_ ids: [StripTabID]) {
         guard !ids.isEmpty else { return }
         var commands: [(label: String, run: DaemonCommandBody)] = []
         var surfaces: [SurfaceID] = []
+        var keys: [String] = []
         for id in ids {
             if id.rawValue.hasPrefix(LocalBrowserTab.prefix) {
                 state?.localBrowserTabs[paneKey].removeAll { $0.id == id.rawValue }
@@ -163,25 +216,44 @@ extension PaneController {
             if BenchSpans.measure("closeLocalTab", { services.closeLocalTab(id.rawValue) }) { continue }
             if daemon.cancelCreation(tab: id.rawValue) { services.keyRouter.creationInputCoordinator.drop(tab: id.rawValue, in: view.window); services.keyRouter.newTabInputCoordinator.drop(tab: id.rawValue, in: view.window); continue }
             guard let tab = tab(id) else { continue }
-            pendingClosed.insert(tab.id)
             surfaces.append(tab.surface)
+            keys.append(tab.id)
             commands.append(daemon.closeCommand(for: tab))
             // Its terminal's only view closes: that session may end it.
             if tab.kind == .remoteTerminal { services.remoteTerminals.viewClosed(tab) }
         }
+        // The runs are built from the records before the intent takes the tabs out of them.
+        let runs = commands.isEmpty ? [] : daemon.closeRuns(surfaces: surfaces, commands: commands.map { ($0.label, $0.run) })
+        let store = daemon.store
+        let transaction = store.intendClose(surfaces)
         BenchSpans.measure("pane.apply") { apply(snapshot()) }
-        guard !commands.isEmpty else { return }
-        let keys = Set(ids.map(\.rawValue))
-        let runs = daemon.closeRuns(surfaces: surfaces, commands: commands.map { ($0.label, $0.run) })
+        guard !runs.isEmpty else { return }
+        // Its last tab closes: the whole pane leaves now, its neighbours springing into its space
+        // (close-animation DESIGN.md); the strip has nothing left to animate.
+        let paneClose = stripModel.tabs.isEmpty ? showPaneClose() : nil
         let userClose = CloseUndoToasts.isUserClose // a refused user close shows RefusedCloseNotice
         services.registry.track(Task { [services] in
             let (failed, unknown, codes) = await daemon.runReportingOutcomes(runs)
             if failed, userClose { RefusedCloseNotice(services: services).show(codes: codes, in: view.window) }
-            // A close that missed its deadline under daemon load usually still
-            // lands: keep the tabs hidden until a snapshot ordered after the
-            // closes says which ones remain, instead of flashing them back.
-            if unknown { await daemon.store.refresh() }
-            pendingClosed.subtract(keys)
+            if let transaction {
+                if failed {
+                    // The daemon kept some: the records show what it has.
+                    store.rejectIntent(transaction)
+                } else if unknown {
+                    // A close that missed its deadline under daemon load usually still
+                    // lands: the tabs stay out until a snapshot ordered after the closes
+                    // says which ones remain, instead of flashing them back.
+                    store.noteSettledAtNextSnapshot(transaction)
+                    await store.refresh()
+                } else if let sequence = await daemon.connection?.eventSequence() {
+                    // Read-your-writes: the tabs stay out until the store applied the
+                    // `tab-closed` events the daemon sent before its reply.
+                    store.noteSettled(transaction, at: sequence)
+                } else {
+                    store.noteSettledAtNextSnapshot(transaction)
+                }
+            }
+            finishPaneClose(paneClose, failed: failed)
             for key in keys { services.cache.release(key) }
             if failed || unknown { resyncStrip() }
             return failed ? "close failed (see the app log)" : nil
@@ -244,8 +316,8 @@ extension PaneController {
     /// the sidebar): a browser tab drops what does not apply to a page.
     /// New <Kind> Tab reads as the kind `sameKind` names ("New Browser Tab").
     /// `selectionPins`: the menu is on one of several selected tabs, its rows act on all of them, and Pin pins them (true) or unpins.
-    static func tabMenu(_ id: String, tab: TabModel?, workspaceKind: String?, sameKind: NewTabKind, registry: ActionRegistry, selectionPins: Bool? = nil) -> NSMenu {
-        let menu = tabMenuEntries(id, tab: tab, workspaceKind: workspaceKind, registry: registry, arguments: selectionPins == nil ? [:] : ActionInvocation.tabSelectionArguments)
+    static func tabMenu(_ id: String, tab: TabModel?, keepsTab: Bool, sameKind: NewTabKind, registry: ActionRegistry, selectionPins: Bool? = nil) -> NSMenu {
+        let menu = tabMenuEntries(id, tab: tab, keepsTab: keepsTab, registry: registry, arguments: selectionPins == nil ? [:] : ActionInvocation.tabSelectionArguments)
         // It sits in a submenu (More > New).
         func all(_ menu: NSMenu) -> [NSMenuItem] { menu.items + menu.items.compactMap(\.submenu).flatMap(all) }
         if let item = all(menu).first(where: { ActionRegistry.menuRun(of: $0)?.id == "newTab.ofKind" }),
@@ -255,10 +327,10 @@ extension PaneController {
         return selectionPins.map { menu.namingTabSelection(pins: $0) } ?? menu
     }
 
-    private static func tabMenuEntries(_ id: String, tab: TabModel?, workspaceKind: String?, registry: ActionRegistry, arguments: [String: ActionValue]) -> NSMenu {
+    private static func tabMenuEntries(_ id: String, tab: TabModel?, keepsTab: Bool, registry: ActionRegistry, arguments: [String: ActionValue]) -> NSMenu {
         let target = ActionTargetRef(kind: .tab, id: id)
-        // Home keeps its tabs: no promote entries.
-        let kept = Set(TabPromotion.menuRemovals(kind: workspaceKind))
+        // Home keeps its own tab: no promote entries (TabPromotion).
+        let kept = Set(TabPromotion.menuRemovals(keepsTab: keepsTab))
         guard let tab, tab.kind == .browser else {
             // Hibernation discards a page; a terminal has none (Restart only once its shell ended).
             // Reload and Mute are a page's rows (Chrome's Reload, Mute Site).
@@ -277,7 +349,8 @@ extension PaneController {
         switch target {
         case .tab(let id, let selection):
             select(id) // one of the selected tabs keeps the selection (TabMultiSelection)
-            return Self.tabMenu(id.rawValue, tab: tab(id), workspaceKind: workspace?.workspace.kind, sameKind: NewTabKind.of(id.rawValue, tab: tab(id), services: services),
+            return Self.tabMenu(id.rawValue, tab: tab(id), keepsTab: TabPromotion.staysPut(tab: id.rawValue, in: workspace?.workspace),
+                                sameKind: NewTabKind.of(id.rawValue, tab: tab(id), services: services),
                                 registry: registry, selectionPins: selection.count > 1 ? stripModel.pinsAll(selection) : nil).themeRows(in: view.themeScope.fullStrength)
         case .group(let group), .savedGroup(let group):
             let saved = daemon.store.savedTabGroups.contains { $0.openGroup?.rawValue == group.rawValue }

@@ -5,6 +5,7 @@
 import "./desktop.css";
 import { parseComputedColor } from "../../backdrop";
 import { installScrollers } from "../../scrollers";
+import { installSpinnerClock } from "../../ui/spinnerClock";
 import { installTooltips } from "../../ui/titleTooltips";
 import { installImeKeyLayer } from "./imeKeys";
 
@@ -47,6 +48,8 @@ export function installDesktopLayer(doc: Document = document): void {
   // All first-party pages get the same native-feeling title tooltip. It replaces the browser's
   // delayed, clipping title bubble while preserving the title as the source of truth.
   installTooltips(doc);
+  // SYNCED-SPINNERS: every `cmux-spin` spinner keeps the shared phase (ui/spinnerClock.ts).
+  installSpinnerClock(doc);
   const view = doc.defaultView;
   if (!view) return;
   // IME-KEYS: keys an input method is using never reach page handlers (imeKeys.ts).

@@ -924,127 +924,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لا توجد هواتف. أضف محاكي iOS في Xcode."
+            "value": "لا توجد هواتف. أضف محاكي iOS في Xcode أو محاكي Android في Android Studio."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nema telefona. Dodajte iOS Simulator u Xcodeu."
+            "value": "Nema telefona. Dodajte iOS simulator u Xcodeu ili Android emulator u Android Studiju."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen telefoner. Tilføj en iOS-simulator i Xcode."
+            "value": "Ingen telefoner. Tilføj en iOS-simulator i Xcode eller en Android-emulator i Android Studio."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Keine Telefone. Füge in Xcode einen iOS-Simulator hinzu."
+            "value": "Keine Telefone. Füge in Xcode einen iOS-Simulator oder in Android Studio einen Android-Emulator hinzu."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No phones. Add an iOS Simulator in Xcode."
+            "value": "No phones. Add an iOS simulator in Xcode or an Android emulator in Android Studio."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "No hay teléfonos. Añade un simulador de iOS en Xcode."
+            "value": "No hay teléfonos. Añade un simulador de iOS en Xcode o un emulador de Android en Android Studio."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aucun téléphone. Ajoutez un simulateur iOS dans Xcode."
+            "value": "Aucun téléphone. Ajoutez un simulateur iOS dans Xcode ou un émulateur Android dans Android Studio."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nessun telefono. Aggiungi un simulatore iOS in Xcode."
+            "value": "Nessun telefono. Aggiungi un simulatore iOS in Xcode o un emulatore Android in Android Studio."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "スマートフォンがありません。Xcode で iOS シミュレータを追加してください。"
+            "value": "電話がありません。XcodeでiOSシミュレータを、Android StudioでAndroidエミュレータを追加してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "គ្មានទូរសព្ទ។ បន្ថែម iOS Simulator ក្នុង Xcode។"
+            "value": "គ្មានទូរស័ព្ទទេ។ បន្ថែម iOS simulator ក្នុង Xcode ឬ Android emulator ក្នុង Android Studio។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "휴대폰이 없습니다. Xcode에서 iOS 시뮬레이터를 추가하세요."
+            "value": "전화가 없습니다. Xcode에서 iOS 시뮬레이터를, Android Studio에서 Android 에뮬레이터를 추가하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen telefoner. Legg til en iOS-simulator i Xcode."
+            "value": "Ingen telefoner. Legg til en iOS-simulator i Xcode eller en Android-emulator i Android Studio."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Brak telefonów. Dodaj symulator iOS w Xcode."
+            "value": "Brak telefonów. Dodaj symulator iOS w Xcode lub emulator Androida w Android Studio."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nenhum telefone. Adicione um simulador iOS no Xcode."
+            "value": "Nenhum telefone. Adicione um simulador iOS no Xcode ou um emulador Android no Android Studio."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Нет телефонов. Добавьте симулятор iOS в Xcode."
+            "value": "Нет телефонов. Добавьте симулятор iOS в Xcode или эмулятор Android в Android Studio."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ไม่มีโทรศัพท์ เพิ่ม iOS Simulator ใน Xcode"
+            "value": "ไม่มีโทรศัพท์ เพิ่มเครื่องจำลอง iOS ใน Xcode หรือเครื่องจำลอง Android ใน Android Studio"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Telefon yok. Xcode'da bir iOS Simülatörü ekleyin."
+            "value": "Telefon yok. Xcode’da bir iOS simülatörü veya Android Studio’da bir Android emülatörü ekleyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Немає телефонів. Додайте симулятор iOS у Xcode."
+            "value": "Немає телефонів. Додайте симулятор iOS у Xcode або емулятор Android в Android Studio."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Không có điện thoại. Hãy thêm iOS Simulator trong Xcode."
+            "value": "Không có điện thoại. Thêm trình mô phỏng iOS trong Xcode hoặc trình giả lập Android trong Android Studio."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "没有手机。请在 Xcode 中添加 iOS 模拟器。"
+            "value": "没有手机。请在 Xcode 中添加 iOS 模拟器，或在 Android Studio 中添加 Android 模拟器。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "沒有手機。請在 Xcode 中加入 iOS 模擬器。"
+            "value": "沒有手機。請在 Xcode 中加入 iOS 模擬器，或在 Android Studio 中加入 Android 模擬器。"
           }
         }
       }
@@ -2359,133 +2359,133 @@
         }
       }
     },
-    "phone.stillFrameHint": {
+    "phone.stillFrame": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تتحدث الشاشة بعد كل إجراء. اللمس والكتابة من هذه العلامة قادمان لاحقًا."
+            "value": "تتحدّث الشاشة بعد كل إجراء."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ekran se osvježava nakon svake radnje. Dodir i kucanje iz ove kartice dolaze uskoro."
+            "value": "Ekran se ažurira nakon svake radnje."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Skærmen opdateres efter hver handling. Berøring og skrivning fra denne fane kommer snart."
+            "value": "Skærmen opdateres efter hver handling."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Der Bildschirm wird nach jeder Aktion aktualisiert. Tippen und Schreiben aus diesem Tab folgen bald."
+            "value": "Der Bildschirm wird nach jeder Aktion aktualisiert."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The screen updates after each action. Touch and typing from this tab come next."
+            "value": "The screen updates after each action."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La pantalla se actualiza tras cada acción. Tocar y escribir desde esta pestaña llegará pronto."
+            "value": "La pantalla se actualiza tras cada acción."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "L’écran se met à jour après chaque action. Le toucher et la saisie depuis cet onglet arrivent bientôt."
+            "value": "L’écran se met à jour après chaque action."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Lo schermo si aggiorna dopo ogni azione. Tocco e digitazione da questa scheda arriveranno presto."
+            "value": "Lo schermo si aggiorna dopo ogni azione."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "画面は操作ごとに更新されます。このタブからのタッチと入力は今後対応します。"
+            "value": "画面は操作のたびに更新されます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "អេក្រង់ធ្វើបច្ចុប្បន្នភាពក្រោយសកម្មភាពនីមួយៗ។ ការប៉ះ និងការវាយពីផ្ទាំងនេះនឹងមកដល់ឆាប់ៗ។"
+            "value": "អេក្រង់ធ្វើបច្ចុប្បន្នភាពក្រោយសកម្មភាពនីមួយៗ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "화면은 작업할 때마다 갱신됩니다. 이 탭에서의 터치와 입력은 곧 지원됩니다."
+            "value": "화면은 동작할 때마다 업데이트됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Skjermen oppdateres etter hver handling. Berøring og skriving fra denne fanen kommer snart."
+            "value": "Skjermen oppdateres etter hver handling."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ekran odświeża się po każdej czynności. Dotyk i pisanie z tej karty pojawią się wkrótce."
+            "value": "Ekran odświeża się po każdej czynności."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "A tela é atualizada após cada ação. Toque e digitação nesta aba chegam em breve."
+            "value": "A tela é atualizada após cada ação."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Экран обновляется после каждого действия. Касания и ввод из этой вкладки появятся позже."
+            "value": "Экран обновляется после каждого действия."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "หน้าจออัปเดตหลังทุกการกระทำ การแตะและพิมพ์จากแท็บนี้จะตามมา"
+            "value": "หน้าจออัปเดตหลังการทำงานแต่ละครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ekran her işlemden sonra güncellenir. Bu sekmeden dokunma ve yazma yakında geliyor."
+            "value": "Ekran her işlemden sonra güncellenir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Екран оновлюється після кожної дії. Дотики й введення з цієї вкладки з’являться згодом."
+            "value": "Екран оновлюється після кожної дії."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Màn hình cập nhật sau mỗi thao tác. Chạm và gõ từ tab này sẽ có sau."
+            "value": "Màn hình cập nhật sau mỗi thao tác."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "屏幕会在每次操作后更新。即将支持从此标签页轻点和输入。"
+            "value": "每次操作后屏幕都会更新。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "螢幕會在每次操作後更新。即將支援從此分頁點按和輸入。"
+            "value": "每次操作後螢幕都會更新。"
           }
         }
       }

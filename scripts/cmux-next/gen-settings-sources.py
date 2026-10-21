@@ -92,7 +92,8 @@ SECTIONS = [
         "type": "UpdateSettingsSchema",
         "lists": {"updates": ("descriptors", "UpdatesSettings"),
                   "announcements": ("announcements", "AnnouncementsSettings")},
-        "enums": {"updates.meteredNetwork": "UpdatesMeteredSetting", "updates.notify": "UpdatesNotifySetting"},
+        "enums": {"updates.channel": "UpdatesChannelSetting", "updates.meteredNetwork": "UpdatesMeteredSetting",
+                  "updates.notify": "UpdatesNotifySetting"},
     },
     {
         "source": "schemas/settings/source/labs.json",
@@ -141,13 +142,13 @@ SECTIONS = [
         "swift": SCHEMA_DIR + "/SettingsSchema+HoverCards.generated.swift",
         "type": "HoverCardSettingsSchema",
         "lists": {"hoverCards": ("descriptors", "HoverCardSettings")},
-        "enums": {},
+        "enums": {"sidebar.hoverCards.layout": "HoverCardLayoutSetting", "sidebar.hoverCards.groups.order": "GroupHoverCardOrderSetting"},
     },
     {
         "source": "schemas/settings/source/now-playing.json",
         "swift": SCHEMA_DIR + "/SettingsSchema+NowPlaying.generated.swift",
         "type": "NowPlayingSettingsSchema",
-        "lists": {"nowPlaying": ("descriptors", "NowPlayingSettings")},
+        "lists": {"nowPlaying": ("descriptors", "NowPlayingSettings"), "newTab": ("newTabDescriptors", "NowPlayingSettings")},
         "enums": {},
     },
     {

@@ -19,6 +19,9 @@ USAGE
   cmux browser <selector> attach|close [OPTIONS]
   cmux browser page|<tab_…> <verb> [ARGS]   Drive a page the cmux app hosts
     (`cmux browser page --help`)
+  cmux browser right <verb> [ARGS] [--agent NAME]   The same verbs on the
+    browser right of the Home chat (an agent's own tab there, opened when
+    needed; `cmux browser right release` gives it back)
 
 browser open adds a browser tab, like
 `cmux tab create browser --url <url> [--workspace <selector>]`: in the named

@@ -232,6 +232,48 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
     expect(between).toEqual([]);
   });
 
+  // Leo 2026-10-20 ("the rendering is just not great on the first frame"): a chat shown for the
+  // first time (a workspace not opened yet, a page rebuilt after hibernation) reported its first
+  // paint as soon as the host answered the handshake, before acpmux attached it. The app faded in
+  // an empty transcript, then the rows, title and the access chip's mode popped in. From the
+  // report on, every frame draws the chat whole.
+  test("a chat's first open reports its first paint once it draws whole", async () => {
+    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    const CHIP = ".acpmux-access-trigger .acpmux-mode-text";
+    await page.addInitScript((selector) => {
+      const frames: { at: number; painted: boolean; whole: boolean; text: string }[] = [];
+      (window as unknown as { openFrames: typeof frames }).openFrames = frames;
+      const sample = () => {
+        const text = document.body?.innerText ?? "";
+        frames.push({
+          at: performance.now(),
+          painted: (window as { cmuxDevPaintedAt?: number }).cmuxDevPaintedAt !== undefined,
+          whole: text.includes("Retry added.") && document.querySelector(selector)?.textContent === "Full access",
+          text: text.slice(0, 160).replace(/\s+/g, " "),
+        });
+        if (performance.now() < 20_000) requestAnimationFrame(sample);
+      };
+      requestAnimationFrame(sample);
+    }, CHIP);
+    await page.goto(url(A.listed.sessionId));
+    await page.getByText("Retry added.").waitFor();
+    await page.waitForFunction(() => (window as { cmuxDevPaintedAt?: number }).cmuxDevPaintedAt !== undefined);
+    const frames = await page.evaluate(
+      () =>
+        (window as unknown as { openFrames: { at: number; painted: boolean; whole: boolean; text: string }[] })
+          .openFrames,
+    );
+    await page.close();
+    const shown = frames.filter((frame) => frame.painted);
+    const broken = shown.filter((frame) => !frame.whole);
+    console.log(
+      `open-frames: ${shown.length} frames after the first paint report, ${broken.length} not whole` +
+        (broken.length ? ` (first: ${JSON.stringify(broken[0])})` : ""),
+    );
+    expect(shown.length).toBeGreaterThan(0);
+    expect(broken).toEqual([]);
+  });
+
   test("a reconnect keeps the chat on screen until the chat is read again", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url(A.listed.sessionId));
