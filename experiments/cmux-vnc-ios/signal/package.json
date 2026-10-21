@@ -1,0 +1,14 @@
+{
+  "name": "cmux-vnc-signal",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "4.20251001.0",
+    "typescript": "5.9.3",
+    "wrangler": "4.42.0"
+  }
+}
