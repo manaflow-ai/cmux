@@ -178,12 +178,16 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var paneBackgrounds: PaneBackgroundMode = .shared
     /// `tabs.barOrder` (R109).
     public var tabBarOrder: TabBarOrder = .aboveToolbar
+    /// `browser.toolbarPosition`: the omnibar row of browser and Markdown panes.
+    public var browserToolbarPosition: ToolbarPosition = .top
     /// `app.quitBehavior`; "ask" when unset or invalid.
     public var quitBehavior: QuitBehavior = QuitBehaviorSetting.fallback
     /// `newTerminal.opensWorkspace`; off when unset or invalid.
     public var newTerminalOpensWorkspace: Bool = NewTerminalWorkspaceSetting.fallback
     /// `tabs.cmdWClosesPinnedTabs`; on when unset or invalid.
     public var cmdWClosesPinnedTabs: Bool = CmdWClosesPinnedTabsSetting.fallback
+    /// `tabs.terminalFirst`; off when unset or invalid.
+    public var terminalFirst: Bool = TerminalFirstSetting.fallback
     /// `tabs.overflow`; shrink when unset or invalid.
     public var tabOverflow: TabOverflow = TabOverflowSetting.fallback
     /// `tabs.verticalTabs`; off when unset or invalid.
@@ -361,6 +365,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.diagnostics += [NewTabTemplate.parse(root).1, NewTabPosition.parse(root).1].compactMap(\.self)
         snapshot.take(NewTerminalWorkspaceSetting.parse(root), \.newTerminalOpensWorkspace)
         snapshot.take(CmdWClosesPinnedTabsSetting.parse(root), \.cmdWClosesPinnedTabs)
+        snapshot.take(TerminalFirstSetting.parse(root), \.terminalFirst)
         snapshot.take(TabOverflowSetting.parse(root), \.tabOverflow)
         snapshot.take(VerticalTabsSetting.parse(root), \.verticalTabs)
         snapshot.take(VerticalTabsSetting.parseExpandOnHover(root), \.verticalTabsExpandOnHover)

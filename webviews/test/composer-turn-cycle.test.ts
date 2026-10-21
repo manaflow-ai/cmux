@@ -71,7 +71,8 @@ await requireBrowserLane("composer-turn-cycle.test.ts", async () => {
     footer: ".acpmux-composer-context",
     plus: ".acpmux-composer-plus .acpmux-picker-button",
     model: ".acpmux-model .acpmux-picker-button",
-    effort: ".acpmux-effort .acpmux-picker-button",
+    // The model button's own effort label (Leo 2026-10-20: one button, no effort chip).
+    effort: ".acpmux-model .acpmux-model-detail",
     access: ".acpmux-access-trigger",
     mic: ".acpmux-mic",
     // Stop while the turn runs; an idle row with an empty draft has none (no Send until there is a draft).
@@ -131,7 +132,7 @@ await requireBrowserLane("composer-turn-cycle.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width, height: 520 } });
     await page.goto(stageURL(variant));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-    await page.locator(".acpmux-effort .acpmux-picker-button").waitFor();
+    await page.locator(".acpmux-model .acpmux-model-detail:visible").first().waitFor();
     await page.evaluate(() => document.fonts.ready);
     return page;
   };
