@@ -152,12 +152,17 @@ impl Hub {
             agent_info: parent_meta.agent_info.clone(),
             agent_capabilities: parent_meta.agent_capabilities.clone(),
             steering: parent_meta.steering,
-            modes: res.get("modes").cloned().filter(|v| !v.is_null()).or(parent_meta.modes.clone()),
-            config_options: res
-                .get("configOptions")
-                .cloned()
-                .filter(|v| !v.is_null())
-                .or(parent_meta.config_options.clone()),
+            // The chat's own mode, model and effort, which the fork's agent is told again when it
+            // loads (`replay_config`): an agent may answer session/fork with its defaults
+            // instead (Codex), and the fork would then run another model than the chat.
+            modes: parent_meta
+                .modes
+                .clone()
+                .or_else(|| res.get("modes").cloned().filter(|v| !v.is_null())),
+            config_options: parent_meta
+                .config_options
+                .clone()
+                .or_else(|| res.get("configOptions").cloned().filter(|v| !v.is_null())),
             models: parent_meta.models.clone(),
             permission_policy: parent_meta.permission_policy.clone(),
             title: None,
