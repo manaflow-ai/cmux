@@ -265,19 +265,26 @@ function NeedsYouRow({
       )}
       {!compact && (
         <div className="acpmux-needs-you-actions">
-          {item.answers.map((choice) => (
-            <button
-              key={choice.id}
-              type="button"
-              className="acpmux-needs-you-answer"
-              data-tone={choice.tone}
-              disabled={sending !== undefined}
-              aria-busy={sending === choice.id}
-              onClick={() => answer(choice)}
-            >
-              {choice.id === "resume" && item.kind === "held" ? t("needsYou.resume") : choice.label}
-            </button>
-          ))}
+          {item.answers.length > 0 && (
+            // Claude's permission card: the answers as numbered rows, the first one ready.
+            <fieldset className="acpmux-needs-you-options" aria-label={askText(item, t)}>
+              {item.answers.map((choice) => (
+                <button
+                  key={choice.id}
+                  type="button"
+                  className="acpmux-needs-you-answer"
+                  data-tone={choice.tone}
+                  disabled={sending !== undefined}
+                  aria-busy={sending === choice.id}
+                  onClick={() => answer(choice)}
+                >
+                  <span className="acpmux-needs-you-answer-label">
+                    {choice.id === "resume" && item.kind === "held" ? t("needsYou.resume") : choice.label}
+                  </span>
+                </button>
+              ))}
+            </fieldset>
+          )}
           <button
             type="button"
             className="acpmux-needs-you-ask-about"
