@@ -87,7 +87,13 @@ public final class CloudAuth {
         )
         let client = StackAuthClient(config: config, tokenStore: .custom(tokenStore),
                                      baseURL: configuration.stackBaseURL.absoluteString, noAutomaticPrefetch: true)
-        let devAuth = configuration.isDebugBuild && !configuration.isProductionAuth
+        // A debug build signs in from its dogfood credentials against the development project.
+        // Pointed at production (`CMUX_AUTH_ENVIRONMENT=production`), it does so only from an
+        // explicit `CMUX_AUTH_CREDENTIALS_FILE`, never from the ambient secrets files: that is how
+        // a hidden rig build signs a production test account in for end-to-end checks
+        // (cmux-next-ios/verify). A release build never reads either.
+        let explicitCredentialsFile = environment["CMUX_AUTH_CREDENTIALS_FILE"].map { !$0.isEmpty } ?? false
+        let devAuth = configuration.isDebugBuild && (!configuration.isProductionAuth || explicitCredentialsFile)
         var launchEnvironment = environment
         var replaceSession = false
         let decision: (credentials: DogfoodCredentials?, refusal: DogfoodCredentials.Refusal?) =
