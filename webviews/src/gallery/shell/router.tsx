@@ -15,6 +15,7 @@ import { readCompare, writeCompare, type CompareState } from "../compare";
 import { readEnv, writeEnv, type GalleryEnv } from "../env";
 import { readTunes, writeTunes } from "../../experiments/tunable";
 import { readOptions, writeOptions } from "../options";
+import { readyEntries } from "../entryStore";
 import { getEntryStore } from "../registry";
 import { DEFAULT_BROWSE, readBrowse, writeBrowse, type BrowseState } from "./browseModel";
 
@@ -99,11 +100,20 @@ export function createGalleryRouter(Layout: () => React.ReactNode, history?: Rou
     // The bare URL is the link people paste into browsers and chat. Redirect it to a real,
     // source-backed composer state after only that entry is ready; leaving the index as an empty
     // Outlet made a cold tab look like a broken white page until a deep link or reload arrived.
+    // If the Composer entry failed to load or was renamed, fall back to the first ready entry.
     beforeLoad: async ({ search }) => {
-      const variant = await firstVariant(DEFAULT_ENTRY);
+      let entryId = DEFAULT_ENTRY;
+      let variant = await firstVariant(DEFAULT_ENTRY);
+      if (!variant) {
+        const entry = readyEntries(await getEntryStore().settled())[0];
+        if (entry) {
+          entryId = entry.id;
+          variant = Object.keys(entry.variants)[0];
+        }
+      }
       if (variant)
         throw redirect({
-          href: `/${encodeURIComponent(DEFAULT_ENTRY)}/${encodeURIComponent(variant)}${stringifySearch(search)}`,
+          href: `/${encodeURIComponent(entryId)}/${encodeURIComponent(variant)}${stringifySearch(search)}`,
         });
     },
     component: Outlet,
