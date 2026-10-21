@@ -93,6 +93,14 @@ function reveal(list: HTMLElement, row: HTMLElement) {
   if (Math.abs(to - list.scrollTop) > 0.5) list.scrollTop = to;
 }
 
+/** Longest error the paused note quotes; the whole one is its tooltip. */
+const PAUSED_ERROR_CHARS = 160;
+
+function shortError(error: string) {
+  const line = error.trim().replace(/\s+/g, " ");
+  return line.length > PAUSED_ERROR_CHARS ? `${line.slice(0, PAUSED_ERROR_CHARS - 1)}…` : line;
+}
+
 /** Shows the full prompt as a tooltip only when its two lines (the button's inner text) cut it off. */
 function titleWhenTruncated(event: React.PointerEvent<HTMLElement>, prompt: string) {
   const button = event.currentTarget;
@@ -105,6 +113,7 @@ export function ComposerQueue({
   queue,
   chat,
   paused,
+  pausedError,
   t,
   onRemove,
   onChange,
@@ -117,6 +126,8 @@ export function ComposerQueue({
   chat?: string;
   /// A turn failed and the queue waits for Resume (acpmux `queuePaused`).
   paused?: boolean;
+  /// The error that paused it, named on the paused row.
+  pausedError?: string;
   t: Translate;
   /// Withdraws a waiting prompt; false when it already started (it then leaves with the turn).
   onRemove?(id: string): Promise<boolean>;
@@ -502,7 +513,11 @@ export function ComposerQueue({
       >
         {paused && (
           <li className="acpmux-queue-paused">
-            <span>{t("composer.queuePaused")}</span>
+            <span title={pausedError}>
+              {pausedError
+                ? t("composer.queuePausedError", { error: shortError(pausedError) })
+                : t("composer.queuePaused")}
+            </span>
             {onChange && (
               <button
                 type="button"
@@ -516,8 +531,9 @@ export function ComposerQueue({
         )}
         {/* One flat keyed list: a row keeps its element (and focus) when a row before it leaves. */}
         {visible.flatMap((entry, index) => [
-          // "Queued" heads the prompts that wait for the turn, under any sent now.
-          index === steering && (
+          // "Queued" heads the prompts that wait for the turn, under any sent now. A paused queue
+          // waits for Resume, not the turn: its note heads it instead.
+          index === steering && !paused && (
             <li key="queued" className="acpmux-queue-header" aria-hidden="true">
               <span className="acpmux-queued-kind">{t("composer.queued")}</span>
               <span>{t("composer.queueAfterTurn")}</span>

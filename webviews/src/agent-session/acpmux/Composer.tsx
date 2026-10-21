@@ -1406,6 +1406,7 @@ export function Composer({
         chat={snapshot.summary?.sessionId || sessionId}
         queue={snapshot.queue}
         paused={snapshot.summary?.queuePaused === true}
+        pausedError={snapshot.summary?.queuePausedError}
         t={t}
         onRemove={onQueueRemove}
         onChange={onQueueChange}

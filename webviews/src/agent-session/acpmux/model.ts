@@ -452,6 +452,8 @@ export type AcpmuxSnapshot = {
     backgroundsWork?: boolean;
     /// A turn failed: the queued prompts wait until the user resumes the queue (acpmux `queuePaused`).
     queuePaused?: boolean;
+    /// The error of the failed turn that paused the queue, when the pane saw it.
+    queuePausedError?: string;
     /// The family (`claude`, `codex`) of a conversation another app runs that this chat only shows
     /// (acpmux `watching`): no prompt goes until the user takes it over.
     watching?: string;

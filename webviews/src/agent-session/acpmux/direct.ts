@@ -937,6 +937,8 @@ export class AcpmuxDirectClient {
   /// The prompt sent now whose turn ended (`continued`) and that has not run yet. It may never run:
   /// removed, withdrawn or refused, the turn it ended reads as ended again (``dropContinuation``).
   private awaiting?: string;
+  /// The error of the newest failed turn: what paused the queue (`queuePausedError`).
+  private failedTurnError?: string;
   /// Each steer's row by its promptId. A steer that reaches the agent as its turn ends runs as the
   /// next prompt with the same promptId, recorded again: that prompt's row replaces the steer's.
   private steerRows = new Map<string, string>();
@@ -1401,6 +1403,7 @@ export class AcpmuxDirectClient {
     this.waitingSteers = [];
     this.interrupting = undefined;
     this.awaiting = undefined;
+    this.failedTurnError = undefined;
     this.continuations.clear();
     this.steerRows.clear();
     this.promptsShown.clear();
@@ -2252,6 +2255,7 @@ export class AcpmuxDirectClient {
     this.waitingSteers = [];
     this.interrupting = undefined;
     this.awaiting = undefined;
+    this.failedTurnError = undefined;
     this.steerRows.clear();
     this.promptsShown.clear();
     this.firstSeq = undefined;
@@ -2727,6 +2731,10 @@ export class AcpmuxDirectClient {
           this.awaiting = this.interrupting;
         }
         if (event.kind === "turn_result") this.interrupting = undefined;
+        if (event.kind === "turn_result" && status === "failed")
+          this.failedTurnError =
+            [msg.errorText, msg.error].find((value): value is string => typeof value === "string" && value !== "") ??
+            undefined;
         if (event.kind === "turn_result")
           this.rows.set(`summary-${event.seq}`, {
             id: `summary-${event.seq}`,
@@ -3144,6 +3152,7 @@ export class AcpmuxDirectClient {
             steering: summary.steering === true,
             backgroundsWork: summary.backgroundsWork === true,
             queuePaused: summary.queuePaused === true,
+            ...(summary.queuePaused === true && this.failedTurnError ? { queuePausedError: this.failedTurnError } : {}),
             ...(text(summary.watching) ? { watching: text(summary.watching) } : {}),
             ...(Array.isArray(summary.mcpServers) ? { mcpServers: summary.mcpServers } : {}),
             status: summary.status,
@@ -3160,7 +3169,11 @@ export class AcpmuxDirectClient {
       sessionId: this.selectedSessionId,
       // A replayed turn is history: no live "Working for" clock.
       isWorking:
-        this.replayThrough === undefined && !this.stopGaveUp && (this.turnOpen || summary?.status === "running"),
+        this.replayThrough === undefined &&
+        !this.stopGaveUp &&
+        // A paused queue runs nothing: acpmux may still list the session as running from before
+        // the failure, so only a turn that started since says it works.
+        (this.turnOpen || (summary?.status === "running" && summary.queuePaused !== true)),
       ...(this.replayThrough === undefined && this.turnTokens ? { turnTokens: this.turnTokens } : {}),
       ...(this.replayThrough === undefined && this.turnOpen && this.silentTurn ? { silentTurn: true as const } : {}),
       // Only a peer runs on another clock; this computer's own sessions need no correction.
@@ -4668,6 +4681,8 @@ export class AcpmuxDirectClient {
       // A Send now still waiting for the cancel it causes is the live turn's, never the page's.
       interrupting: this.interrupting,
       awaiting: this.awaiting,
+      // The live queue pause names the newest failure, never an older one the page holds.
+      failedTurnError: this.failedTurnError,
     };
     const held = new Map(this.rows);
     this.turnOpen = false;
