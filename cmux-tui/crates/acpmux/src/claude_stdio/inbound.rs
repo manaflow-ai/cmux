@@ -160,9 +160,16 @@ impl Translator {
                                 self.context_used.store(used, Ordering::SeqCst);
                             }
                             let size = self.context_window.load(Ordering::SeqCst);
-                            out.push(upd(
-                                json!({"sessionUpdate": "usage_update", "used": used, "size": size}),
-                            ));
+                            // One model call's own usage, marked so a client can add a turn's
+                            // calls up (the pane's running line). The result's resend below is
+                            // the context ring's and is not marked. A subagent's calls are
+                            // marked too: they are the turn's spend.
+                            out.push(upd(json!({
+                                "sessionUpdate": "usage_update",
+                                "used": used,
+                                "size": size,
+                                "_meta": {"acpmux": {"call": true}},
+                            })));
                         }
                     }
                     _ => {}
@@ -483,6 +490,10 @@ impl Translator {
                     let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
                     self.pending.lock().await.remove(&id.to_string());
                     out.push(super::workflows::stop_reply(acp, ok, &resp));
+                } else if let Some(acp) = rid.strip_prefix("now-") {
+                    // A step stopped for a steer sent now (`MUX_STEP_NOW`).
+                    let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
+                    out.push(Message::ok(id, json!({"interrupted": ok})));
                 }
                 // "int-*" acks need no reply; the result message ends the turn.
             }
