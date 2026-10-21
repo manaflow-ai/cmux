@@ -223,14 +223,18 @@ impl Hub {
     /// A host of session `session_id` was adopted (`hosts.rs`): its harness
     /// and the MCP servers it started keep the caller token from the host's
     /// record, so this run knows the session by that token too. A token of
-    /// this run, a malformed one or none (a host of an older build) records nothing.
-    pub(super) fn adopt_caller_token(&self, session_id: &str, token: Option<String>) {
+    /// this run, a malformed one or none (a host of an older build) records
+    /// nothing. Answers whether the agent holds a token this run knows: false
+    /// asks for a restart between turns (`Hub::restart_unproven`).
+    pub(super) fn adopt_caller_token(&self, session_id: &str, token: Option<String>) -> bool {
+        let known = token.as_deref().is_some_and(valid_key);
         let mut adopted =
             adopted_callers().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         match token.filter(|t| valid_key(t) && !caller_proves(session_id, t)) {
             Some(token) => adopted.insert(session_id.to_owned(), token),
             None => adopted.remove(session_id),
         };
+        known
     }
 
     /// A new host of session `session_id` started: its harness has this
