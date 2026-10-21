@@ -5,13 +5,20 @@ dark theme flashed white. Chromium repaints the page area with the browser's bac
 color as soon as a document commits, long before its first contentful paint, and that color
 was Chromium's white from a tab's first real page on (`CEFTab+LoadingBackground`).
 
-The scenario puts the app in a dark theme (`settings.set appearance.theme`), opens a
-Chromium tab on a dark page, records the window at rest for its brightness baseline
-(`debug.window_record` writes per-frame `luminance` and `peak` into `frames.json`), then
-records while the tab navigates to a dark page whose head holds the parser busy for over a
-second: the whole commit-to-paint gap is on camera. No frame may be brighter than the
-window at rest by more than `TOLERANCE`, and the theme has to be dark for the check to
-mean anything.
+The scenario puts the app in a dark theme (`settings.set appearance.theme`), reads that
+theme's window background (`debug.themes`) and paints its two test pages in exactly that
+color. A fixed build therefore shows one unchanging color across the whole gap: the page's
+own paint and the base cmux stands in for it are the same. It opens a Chromium tab on the
+first page, records the window at rest for its brightness baseline (`debug.window_record`
+writes per-frame `luminance` and `peak` into `frames.json`), then records while the tab
+navigates to the second page, whose head holds the parser busy for over a second: the
+whole commit-to-paint gap is on camera. No frame may be brighter than the window at rest
+by more than `TOLERANCE`, and the theme has to be dark for the check to mean anything.
+
+Matching the pages to the theme is what makes the check read the right thing. Against
+pages of some other dark color, a *correct* build still changes the page area's brightness
+over the gap (from the page's color to the theme's), and the check would fail the build it
+is meant to pass.
 """
 
 from __future__ import annotations
@@ -20,21 +27,26 @@ import json
 import time
 from pathlib import Path
 
-# Rec. 709 luminance (0...1) a frame may gain over the window at rest. A white page area
-# fills over half the window, which raises the mean by about 0.45 and the peak to 1.
-TOLERANCE = {"luminance": 0.06, "peak": 0.15}
+# Rec. 709 luminance (0...1) a frame may gain over the window at rest. The pages are the
+# theme's own color, so a fixed build gains nothing at all over the gap and only the tab
+# throbber and the address text move; a white page area fills over half the window, which
+# raises the mean by about 0.45 and the peak to 1.
+TOLERANCE = {"luminance": 0.04, "peak": 0.15}
 # The check only means something below this: a light theme loads pages on a light color.
 # Nord's window background sits near 0.20, well under a white page's 1.
 DARK_THEME_LUMINANCE = 0.35
 # A dark Ghostty theme every build ships.
 THEME = "Nord"
 
-PAGE = """<!doctype html><meta charset="utf-8"><title>%s</title>
-<style>html,body{margin:0;height:100%%;background:#0d0d12;color:#8a8a99;font:600 16px -apple-system,sans-serif}
+PAGE = """<!doctype html><meta charset="utf-8"><title>%(title)s</title>
+<style>html,body{margin:0;height:100%%;background:%(background)s;color:#8a8a99;font:600 16px -apple-system,sans-serif}
 main{padding:24px}</style>
-%s
-<main>%s</main>
+%(head)s
+<main>%(title)s</main>
 """
+# The theme background the pages fall back to when `debug.themes` gave no `#rrggbb`. The
+# judge reports "not measured" in that case, so this only keeps the pages readable.
+FALLBACK_BACKGROUND = "#1b1d23"
 # A parser-blocking script in the head: the document commits, then nothing paints until it
 # returns, so the page area shows whatever cmux put under it for well over a second.
 STALL = """<script>
@@ -81,19 +93,22 @@ def _record(driver, folder: Path, seconds: float, act=None) -> dict:
 
 def drive(driver, out: Path) -> None:
     """Dark theme, a Chromium tab on a dark page, then a navigation that stalls before paint."""
-    pages = out / "dark-load-flash"
-    pages.mkdir(parents=True, exist_ok=True)
-    first = pages / "first.html"
-    first.write_text(PAGE % ("First page", "", "First page"))
-    slow = pages / "slow.html"
-    slow.write_text(PAGE % ("Slow page", STALL, "Slow page"))
-
     theme = driver.call("settings.set", {"path": "appearance.theme", "value": THEME})
     time.sleep(1.0)
     themes = driver.call("debug.themes", {})
     window = (themes.get("windows") or [{}])[0]
     content = str(window.get("window_background") or "")
     theme_luminance = luminance(content)
+
+    # The pages are the theme's own color, so a page that paints and the base that stands
+    # in for it look the same and only a flash changes the window's brightness.
+    background = content if theme_luminance < 1.0 else FALLBACK_BACKGROUND
+    pages = out / "dark-load-flash"
+    pages.mkdir(parents=True, exist_ok=True)
+    first = pages / "first.html"
+    first.write_text(PAGE % {"title": "First page", "head": "", "background": background})
+    slow = pages / "slow.html"
+    slow.write_text(PAGE % {"title": "Slow page", "head": STALL, "background": background})
 
     opened = driver.call("action.run", {"action": "openBrowser.chromium", "args": {"url": first.as_uri()}, "focus": True},
                          timeout=90)
@@ -121,7 +136,8 @@ def drive(driver, out: Path) -> None:
                        lambda: evaluate(f"location.href = {json.dumps(slow.as_uri())}, true"))
     driver.save("dark_load_flash", {
         "theme": theme, "theme_background": content, "theme_luminance": round(theme_luminance, 4),
-        "theme_is_dark": window.get("is_dark"), "opened": opened, "rest": rest, "navigate": navigate,
+        "theme_is_dark": window.get("is_dark"), "page_background": background,
+        "opened": opened, "rest": rest, "navigate": navigate,
     })
 
 
@@ -131,7 +147,7 @@ def judge(data: dict, refresh: float) -> dict:
     problems: list[str] = []
     if "error" in data:
         return {"ok": False, "problems": [f"not measured: {data['error']}"]}
-    theme_luminance = float(data.get("theme_luminance") or 1)
+    theme_luminance = float(data.get("theme_luminance", 1))
     if theme_luminance > DARK_THEME_LUMINANCE or data.get("theme_is_dark") is not True:
         problems.append(f"not measured: the theme is not dark (background {data.get('theme_background')}, "
                         f"luminance {theme_luminance:.3f}, is_dark {data.get('theme_is_dark')})")

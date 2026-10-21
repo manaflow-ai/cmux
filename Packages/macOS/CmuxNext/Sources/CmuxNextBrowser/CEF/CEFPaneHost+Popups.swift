@@ -30,8 +30,9 @@ extension CEFPaneHost {
         tab.popupOpenerHost = self
         host.add(tab)
         runtime.register(tab, browser: browser)
-        // Opened by a page: past a new tab's first paint (PageBackground).
-        tab.reachedFirstRealPage()
+        // Opened by a page: past a new tab's first paint (PageBackground), and
+        // Chromium, not us, drives its document, so its page area is its own.
+        tab.reachedFirstRealPage(settled: true)
         tab.inheritDelegates(from: opener)
         // Chromium made the popup this window's active tab. Show the opener
         // again on the next turn (this may run inside Chromium's tab

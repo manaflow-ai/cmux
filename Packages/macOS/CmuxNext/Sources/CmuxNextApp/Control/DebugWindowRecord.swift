@@ -107,7 +107,7 @@ enum DebugWindowRecord {
         /// The client goes idle when `tick` returns false.
         private func finish() {
             let index = dir.appendingPathComponent("frames.json")
-            let frames: [String: Any] = ["times": times, "luminance": luminances, "peak": peaks]
+            let frames: [String: [Double]] = ["times": times, "luminance": luminances, "peak": peaks]
             encoder.async {
                 if let data = try? JSONSerialization.data(withJSONObject: frames) { try? data.write(to: index) }
             }

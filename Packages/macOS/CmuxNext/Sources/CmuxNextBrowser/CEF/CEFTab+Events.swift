@@ -74,11 +74,11 @@ extension CEFTab {
                 committedURL = failing
                 // Chromium's interstitial commits with no OnLoadStart: it ends
                 // the New Tab page's hole, as a committed page does (cx-2nfi).
-                if error.engineShowsPage {
-                    reachedFirstRealPage()
-                    // Chromium's error page is the document now: it paints the page area.
-                    documentDidSettle()
-                }
+                // The interstitial has not committed yet, so the page area
+                // keeps the theme base until `.loadingState` ends the load:
+                // handing it back here would show white until the error page
+                // paints, the very flash this stands in for.
+                if error.engineShowsPage { reachedFirstRealPage() }
             }
         case .address(_, let url):
             machine.apply(.urlChanged(URL(string: url)))

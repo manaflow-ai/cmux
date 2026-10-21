@@ -118,12 +118,16 @@ extension WebKitTab: WKNavigationDelegate {
     }
 
     public func webView(_ webView: WKWebView, didFail navigation: WKNavigation?, withError error: any Error) {
+        let failure = BrowserLoadError(error)
         // The committed document stopped loading: it keeps the page area, so
-        // WebKit draws its background again (`pageDidCommit`).
-        pageDidFinish()
+        // WebKit draws its background again (`pageDidCommit`). A cancellation
+        // is a newer navigation taking this one's place, and that one's commit
+        // decides: handing the page area back here would draw white over a
+        // document that has not painted yet. `stop()` settles its own case.
+        if !failure.isBenignInterruption { pageDidFinish() }
         guard let id = navigationID(for: navigation, creating: false) else { return }
         forgetNavigation(navigation)
-        apply(.failed(id, BrowserLoadError(error)))
+        apply(.failed(id, failure))
     }
 
     public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation?, withError error: any Error) {

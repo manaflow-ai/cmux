@@ -23,8 +23,15 @@ extension CEFTab: BrowserColorSchemeApplying {
 enum CEFColorScheme {
     static func apply(_ scheme: BrowserColorScheme, to tab: CEFTab) {
         // One call carries the color scheme and Developer Tools' reduced motion, so neither clears the other.
-        tab.devToolsModes.colorScheme = value(for: scheme, in: tab.container)
-        guard let browserID = tab.browserID, !tab.isClosed else { return }
+        let wanted = value(for: scheme, in: tab.container)
+        tab.devToolsModes.colorScheme = wanted
+        guard let browserID = tab.browserID, !tab.isClosed else {
+            tab.sentColorScheme = nil
+            return
+        }
+        // Every tab switch moves the view and asks again; only a change is worth a round trip.
+        guard tab.sentColorScheme != wanted else { return }
+        tab.sentColorScheme = wanted
         let runtime = tab.runtime
         let media = tab.devToolsModes.emulatedMedia
         Task {

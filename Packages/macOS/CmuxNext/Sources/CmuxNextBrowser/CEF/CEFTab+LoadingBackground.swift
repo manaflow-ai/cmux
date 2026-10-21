@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 /// The color a Chromium page shows between a navigation committing and the
 /// document painting.

@@ -144,6 +144,9 @@ public final class WebKitTab: NSObject, BrowserTab {
 
     public func stop() {
         webView.stopLoading()
+        // Whatever committed keeps the page area from now on, so WebKit draws
+        // its background again even if no `didFail` follows the stop.
+        pageDidFinish()
         apply(.stopped)
     }
 

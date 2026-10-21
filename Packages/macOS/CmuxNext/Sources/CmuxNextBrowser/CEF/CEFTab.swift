@@ -91,6 +91,11 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// Until then the page base is the theme color, not the engine's white
     /// (`CEFTab+LoadingBackground`).
     @ObservationIgnored var documentSettled = false
+    /// The `prefers-color-scheme` the attached browser was last told, so a
+    /// tab switch (every one calls `pageThemeDidChange`) costs no DevTools
+    /// round trip when nothing changed. Nil until the browser attaches, and
+    /// again when it goes away (`CEFTab+ColorScheme`).
+    @ObservationIgnored var sentColorScheme: String?
     /// The theme surface whose color a cmux page keeps behind its transparent document (a
     /// `cmux-page://` page in Chromium, `CmuxNextApp` `ChromiumPageHost`); nil for a web page, which
     /// turns white at its first real page like Chrome.
@@ -191,7 +196,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         }
         applyPageBackground()
         // A page following the app needs the theme's appearance before it
-        // paints: Chromium's own window never inherits the view's.
+        // paints: Chromium's own window never inherits the view's. This
+        // browser has heard nothing yet, whatever an earlier one was told.
+        sentColorScheme = nil
         reapplyColorScheme()
         applyPasswordFill()
         leaveAutomaticDownloadsToCmux(browser)
@@ -224,9 +231,17 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// A real page committed, or a page opened this tab (a popup,
     /// target=_blank): Chromium's white default from now on, kept across tab
     /// moves and popups (fork API 12).
-    func reachedFirstRealPage() {
+    ///
+    /// - Parameter settled: the tab already holds a document that paints the
+    ///   page area, so no load event of ours will settle it. A tab adopted
+    ///   after Chromium created and loaded it (a popup, a `target=_blank`
+    ///   window) has no `OnLoadStart`/`OnLoadEnd` of its own, so without this
+    ///   the base would stand in for its document for the tab's whole life
+    ///   (`CEFTab+LoadingBackground`).
+    func reachedFirstRealPage(settled: Bool = false) {
         guard !pastFirstRealPage else { return }
         pastFirstRealPage = true
+        if settled { documentSettled = true }
         applyPageBackground()
         applyOcclusion()
     }
