@@ -13,7 +13,7 @@ import React, {
   useSyncExternalStore,
 } from "react";
 import { flushSync } from "react-dom";
-import { CONNECT_ACTIONS, type ConnectKind } from "./environments";
+import { CONNECT_ACTIONS, type ConnectKind, type OffloadKind } from "./environments";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { QueryClientProvider, useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { applyAgentTheme } from "../shared/theme";
@@ -4383,6 +4383,16 @@ function AcpmuxPane() {
   // SSH… opens Connect to Machine; New Cloud Machine opens the host's create flow (Lawrence 2026-10-06).
   const connectMachine = (kind: ConnectKind) =>
     void callNative("action.run", { id: CONNECT_ACTIONS[kind] }).catch(() => undefined);
+  // Move to Cloud and Bring Back Local report their own progress and failures as the app's toasts;
+  // the notice says only that the app did not start the move (turned off, or not for this chat).
+  const offloadChat = (kind: OffloadKind) =>
+    void callNative("action.run", { id: CONNECT_ACTIONS[kind] }).catch(() =>
+      directClient.current?.notice(
+        translate("composer.offloadNotRun", {
+          action: translate(kind === "move" ? "composer.moveToCloud" : "composer.bringBackLocal"),
+        }),
+      ),
+    );
   /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.
   const [surface, setSurface] = useState<PaneSurface>("pane");
   const quick = surface === "quick";
@@ -5910,7 +5920,12 @@ function AcpmuxPane() {
   // The header's state from the chat's tab (header/headerState.ts): read when a chat opens, then pushed
   // by the App on every change. Whether the panes beside the chat show ([+] New tab reads Hide tabs) also
   // follows the App's answer to the click.
-  const { sideTabs, pullRequest: headerPullRequest } = useHeaderState();
+  const { sideTabs, pullRequest: headerPullRequest, moves } = useHeaderState();
+  // The moves the chat's own right-click menu offers now: the composer's picker offers the same.
+  const offloads = useMemo(
+    () => (["move", "bringBack"] as const).filter((kind) => moves.includes(CONNECT_ACTIONS[kind])),
+    [moves],
+  );
   const toggleSideTabs = () =>
     ignoreFailure(
       callNative<{ shown?: boolean }>("pane.action", { id: "sideTabs" }).then((result) =>
@@ -6932,7 +6947,13 @@ function AcpmuxPane() {
             onProject={chooseProject}
             onNewWorktree={freshChat && !quick && !remoteChat ? startInWorktree : undefined}
             onConnect={connectMachine}
-            onRefreshMachines={() => void directClient.current?.refreshPeers()}
+            // The floating chat has no tab to move.
+            {...(quick ? {} : { onOffload: offloadChat, offloads })}
+            // The list opened: the machines' status and the chat's moves are read again.
+            onRefreshMachines={() => {
+              void directClient.current?.refreshPeers();
+              refreshTabState();
+            }}
             // A started local chat lists the same folders to move to (dogfood 09); Start Agent's
             // panel lists them before its first prompt (cx-hkat).
             projectChoices={freshChat || (!quick && canMove) ? newTabProjects : undefined}
