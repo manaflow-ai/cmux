@@ -27,10 +27,7 @@ type Shown = { length: number; fresh: Reveal[]; now: number };
 const COMMIT_MS = 1000 / 60;
 
 /// The part of `text` to show this frame, and the steps still fading in.
-export function useStreamReveal(
-  text: string,
-  streaming: boolean,
-): { visible: string; fresh: Reveal[]; now: number } {
+export function useStreamReveal(text: string, streaming: boolean): { visible: string; fresh: Reveal[]; now: number } {
   const reveal = useRef<StreamReveal | null>(null);
   const reduce = useRef<boolean | null>(null);
   reduce.current ??= reducedMotion();
