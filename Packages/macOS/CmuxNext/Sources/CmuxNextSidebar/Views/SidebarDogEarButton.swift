@@ -30,6 +30,8 @@ final class SidebarDogEarButton: NSButton {
     private var isPressed = false { didSet { if isPressed != oldValue { needsDisplay = true } } }
     private let icon: IconName
     private var renderedSide: CGFloat = 0
+    /// The glyph in the last tint drawn, so a redraw in the same colors makes no new image.
+    private var tintedGlyph: (color: NSColor, image: NSImage)?
     private var tracking: NSTrackingArea?
 
     init(icon: IconName, label: String) {
@@ -114,6 +116,7 @@ final class SidebarDogEarButton: NSButton {
         let image = NSImage.icon(icon, size: (side * 0.4).rounded())
         image.accessibilityDescription = label
         self.image = image
+        tintedGlyph = nil
     }
 
     override func layout() {
@@ -134,8 +137,10 @@ final class SidebarDogEarButton: NSButton {
             Palette.separator.setStroke()
             crease.stroke()
             guard let image else { return }
-            image.tinted(lit ? Palette.textPrimary : Palette.textSecondary)
-                .draw(in: glyphRect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+            let tint = lit ? Palette.textPrimary : Palette.textSecondary
+            let glyph = tintedGlyph.flatMap { $0.color == tint ? $0.image : nil } ?? image.tinted(tint)
+            tintedGlyph = (tint, glyph)
+            glyph.draw(in: glyphRect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
         }
     }
 

@@ -13,7 +13,7 @@ enum SidebarStyle {
     static var rowTrailingTrim: CGFloat { 0 }
     /// A workspace row's hover dog-ear (`SidebarDogEarButton`): the square its fold fills half of,
     /// on the row's top-right corner.
-    static var dogEarSide: CGFloat { controlSize - Metrics.space1 }
+    static var dogEarSide: CGFloat { controlSize + Metrics.space1 }
     static var rowCornerRadius: CGFloat { SidebarDensityTokens.rowCornerRadius }
     /// A listed tab's icon, sized to its caption-size title.
     static var tabIconSize: CGFloat { .iconRowSize(forLabelPointSize: subtitleFont.pointSize) }

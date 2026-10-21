@@ -107,6 +107,33 @@ struct WorkspaceRowDogEarTests {
         #expect(view === row && anchor.rect == ear.frame)
     }
 
+    /// An expanded row's hover Pin keeps the end of the name's line, clear of the unread badge
+    /// (which now stays on hover) and of the dog-ear, so a click on the pin never closes.
+    @Test func anExpandedRowsPinClearsTheUnreadBadgeAndTheDogEar() throws {
+        let id = WorkspaceID("ws-pin")
+        let ws = SidebarWorkspace(id: id, title: Self.longName, kind: .terminal, unread: .count(3))
+        let model = SidebarModel(sections: [SidebarSection(kind: .machine(Self.machine), nodes: [.workspace(ws)])])
+        model.rowBadgeStyle = .trailing
+        model.workspacePin = (isPinned: { _ in false }, toggle: { _ in })
+        let design = DesignSettings()
+        design.sidebarSections.density = .expanded
+        let sidebar = SidebarView(model: model, design: design)
+        sidebar.contextMenuProvider = { _ in NSMenu() }
+        sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
+        sidebar.renderNow()
+        sidebar.layoutSubtreeIfNeeded()
+        sidebar.list.reload(animated: false)
+        let row = try #require(sidebar.list.rowViews[.workspace(id)] as? WorkspaceRowView)
+        Self.hover(sidebar.list, row, id)
+        #expect(row.isExpanded)
+        #expect(!row.pinButton.isHidden, "an expanded row shows no hover pin")
+        #expect(!row.badge.isHidden && row.badge.alphaValue > 0, "the unread badge hides on hover")
+        #expect(!row.pinButton.frame.intersects(row.badge.frame),
+                "the pin \(row.pinButton.frame) covers the unread badge \(row.badge.frame)")
+        #expect(!row.pinButton.frame.intersects(row.closeButton.frame),
+                "the pin \(row.pinButton.frame) runs under the dog-ear \(row.closeButton.frame)")
+    }
+
     @Test func theRowKeepsOneCornerRadiusAndTheDogEarFollowsIt() throws {
         let ws = SidebarWorkspace(id: WorkspaceID("ws-corner"), title: Self.longName)
         let (list, row) = try Self.row(ws)

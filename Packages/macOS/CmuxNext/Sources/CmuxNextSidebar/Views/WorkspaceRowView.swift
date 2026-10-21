@@ -46,7 +46,7 @@ final class WorkspaceRowView: SidebarRowView {
     /// corner. On hover, the dog-ear of a row that cannot close (Home); a closable row's dog-ear
     /// is its close, and its menu stays on right-click and VoiceOver's custom action.
     let moreButton = SidebarDogEarButton(icon: OverflowButton.glyph, label: Strings.workspaceMenu)
-    /// An expanded row's Pin or Unpin (cx-13w3), on hover beside the menu button.
+    /// An expanded row's Pin or Unpin (cx-13w3), on hover at the end of the name's line.
     let pinButton = SidebarIconButton(icon: .actionPin, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.pinWorkspace)
     /// `sidebar.showWorkspaceTabs`: hides or lists the workspace's tabs. Always drawn
     /// while the setting is on (never on hover), so rows never shift.
