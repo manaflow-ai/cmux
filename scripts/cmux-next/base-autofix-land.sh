@@ -55,7 +55,8 @@ main() {
     case "$1" in
       Packages/macOS/CmuxNext/ci-target-graph.json | cmux-tui/bindings/* | scripts/lint-namespace-types-ratchet.txt \
         | clients/ts/cloud/* | cmux-tui/crates/cmux-cloud-wire/src/generated/*) return 0 ;;
-      cmux-tui/crates/cmux-app-host/generated/*) return 1 ;;
+      # Built from the action exports, and the Chief inspector page from the webviews patch.
+      cmux-tui/crates/cmux-app-host/generated/* | Native/OptChat/optchat-chief/inspector/*) return 1 ;;
       cmux-tui/* | Native/OptChat/*) return 0 ;;
     esac
     return 1

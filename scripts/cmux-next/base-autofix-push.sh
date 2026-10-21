@@ -154,9 +154,12 @@ settings_inputs_same() { # <made-at> <tip>
 }
 
 held=""
-# CMUX_BASE_AUTOFIX_HELD names a file that gets the held files, one per line, however this ends
-# (base-autofix-land.sh makes the ones it can again on the tip).
-trap '[[ -z "${CMUX_BASE_AUTOFIX_HELD:-}" ]] || printf "%s" "$held" > "$CMUX_BASE_AUTOFIX_HELD"' EXIT
+# CMUX_BASE_AUTOFIX_HELD names a file that gets the held files, one per line,
+# when the run ends on a hold (base-autofix-land.sh makes the ones it can again on the tip).
+# Only a hold writes it (held_exit): a run that pushed nothing for another reason (the branch kept
+# moving, a rejection, an unreadable tip) leaves it empty, so no stale list reads as a hold.
+held_exit=0
+trap 'if [[ -n "${CMUX_BASE_AUTOFIX_HELD:-}" ]]; then if ((held_exit)); then printf "%s" "$held"; fi > "$CMUX_BASE_AUTOFIX_HELD"; fi' EXIT
 # The tip the last rejected push went onto; a rejection that did not move the branch is no race.
 rejected_on=""
 for ((attempt = 1; attempt <= attempts; attempt++)); do
@@ -298,6 +301,7 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
       exit 0
     fi
     if ((${#kept[@]} == 0)); then
+      held_exit=1
       echo "::error::$branch moved to ${tip:0:12} after ${base:0:12} and changed the inputs or the files of everything this repair writes; the newer run repairs them:" >&2
       printf '%s' "$held" | sed 's/^/  /' >&2
       exit 1
@@ -325,6 +329,7 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
     fi
     if git diff --cached --quiet; then
       if [[ -n "$held" ]]; then
+        held_exit=1
         echo "::error::$branch ${tip:0:12} already holds the repairs that could land; left to the next run:" >&2
         printf '%s' "$held" | sed 's/^/  /' >&2
         exit 1
@@ -341,6 +346,7 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
   if git push --quiet "$remote" "HEAD:refs/heads/$branch"; then
     echo "Pushed $(git rev-parse --short HEAD) to $branch."
     if [[ -n "$held" ]]; then
+      held_exit=1
       echo "::error::pushed part of the repair; newer commits changed these or their inputs, so the next run repairs them:" >&2
       printf '%s' "$held" | sed 's/^/  /' >&2
       exit 1
