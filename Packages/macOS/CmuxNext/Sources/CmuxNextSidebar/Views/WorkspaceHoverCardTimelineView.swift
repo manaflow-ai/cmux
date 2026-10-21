@@ -34,8 +34,7 @@ final class WorkspaceHoverCardTimelineView: NSView {
         scrollView.documentView = document
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true
-        scrollView.autohidesScrollers = true
-        scrollView.scrollerStyle = .overlay
+        SystemScrollers.followAsCard(scrollView)
         scrollView.verticalScrollElasticity = .none
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(header)

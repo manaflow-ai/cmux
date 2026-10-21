@@ -31,7 +31,7 @@ struct CallChiefIntent: AppIntent {
 /// Opens cmux and records a voice note for the user's Chief.
 struct RecordChiefVoiceNoteIntent: AppIntent {
     static let title: LocalizedStringResource = "Record Voice Note for Chief"
-    static let description = IntentDescription("Opens cmux and records a voice note. It is transcribed on this iPhone and sent to your Chief.")
+    static let description = IntentDescription("Opens cmux and records a voice note. It is transcribed on this device and sent to your Chief.")
     static let openAppWhenRun = true
 
     @MainActor

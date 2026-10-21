@@ -5,6 +5,7 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
+import CmuxNextPages
 import CmuxNextWorkspaceRepair
 import Observation
 
@@ -83,6 +84,12 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         // A pane close's neighbours resize their PTYs once, at rest (close-animation DESIGN.md).
         layoutView.onTerminalGridHold = { [weak layoutView] held in
             if let layoutView { ResizeCoordinator.shared.setHeld(held, by: layoutView) }
+        }
+        // A link dragged in from another app or a page: the drop zones a dragged tab has (LinkDropPlan).
+        layoutView.linkDropHandler = { [weak self] url, target, perform in
+            guard let self, let item = LinkDragItem(url, browserEnabled: LinkRouter.shared.routing().browserEnabled),
+                  let plan = LinkDropPlan(target, takesTabs: { self.panes[$0]?.stripModel.showsNewTabButton == true }) else { return false }
+            return !perform || self.services.linkOpener.drop(item, plan: plan, in: self)
         }
         _ = screenBar
         _ = contentView
@@ -300,6 +307,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         controller.view.toolbar = PaneToolbar(pane: controller) // the tab bar's hover "…" and pinned buttons
         controller.view.swapDrag = PaneSwapDrag(pane: controller)
         panes[pane] = controller
+        services.themes.applyPaneBackground(controller) // its own background and tint, before the first frame
         services.paneMounts.changed()
         sendTopology()
         // Settings… asked before any window had a pane waits for the first one (R82). It opens

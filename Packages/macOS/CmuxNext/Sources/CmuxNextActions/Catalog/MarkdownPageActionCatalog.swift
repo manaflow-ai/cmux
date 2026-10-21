@@ -35,6 +35,15 @@ nonisolated enum MarkdownPageActionCatalog: ActionCatalogGroup {
                 category: .browser, symbol: "chevron.forward", surfaces: [.palette, .keyboard],
                 requires: [.markdownFocused], targets: [.pane], cliName: "browser markdown-forward"
             ),
+            // Column widths a resize saved with the file (MARKDOWN-TABLE-WIDTHS-DESIGN.md); the
+            // table's right-click menu resets one table, this every table of the file.
+            ActionDescriptor(
+                id: "markdownResetTableWidths",
+                title: String(localized: "action.markdownResetTableWidths", defaultValue: "Markdown: Reset Table Column Widths", bundle: .module),
+                keywords: ["markdown", "table", "column", "width", "reset", "resize"],
+                category: .browser, symbol: "tablecells", surfaces: [.palette],
+                requires: [.markdownFocused], targets: [.pane], cliName: "browser markdown-reset-table-widths"
+            ),
         ]
     }
 }

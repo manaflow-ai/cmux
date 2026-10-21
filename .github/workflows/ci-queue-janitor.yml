@@ -67,6 +67,7 @@ concurrency:
 
 jobs:
   sweep:
+    environment: ci-bot
     permissions:
       actions: write
       pull-requests: read

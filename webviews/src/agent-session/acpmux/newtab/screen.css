@@ -167,9 +167,13 @@
 .nt-screen[data-template="console"] .nt-field {
   font-size: 15px;
 }
+/* The composer template's card sits about the window's middle, at a fixed place: centering the
+   page's content moved it up with every row under it (Now Playing, a notice), every pasted image
+   and every line of a long draft (Leo 2026-10-19: the composer kept "going to places"). 102px puts
+   it where centering put the resting page (the composer and the create row, 212px between 32px
+   and 24px insets). */
 .nt-screen[data-template="composer"] {
-  justify-content: center;
-  padding-top: 32px;
+  padding-top: max(32px, calc(50vh - 102px));
 }
 .nt-screen[data-template="composer"] .nt-box {
   border-radius: 24px;
@@ -351,6 +355,16 @@
 }
 .nt-box {
   background: var(--acpmux-composer-surface, var(--cmux-surface-solid, var(--acpmux-base)));
+  /* The chat composer's attachment tiles (composerAttachments.css), on the field's text inset. */
+  --acpmux-attach-inset: 18px;
+  --acpmux-attach-gap: 6px;
+  --acpmux-attach-height: 64px;
+  --acpmux-attach-radius: 6px;
+}
+/* The attachments sit under the field (NewTabScreen), so the text keeps its place as they come:
+   the field's own bottom inset is the gap above them, a short one below. */
+.nt-box > .acpmux-attachments {
+  padding: 0 var(--acpmux-attach-inset) 8px;
 }
 /* A chat with the chats its agent started (ChatCards.tsx, list layout only): its row, a count that
    opens them before the row's harness icon, and when open the children indented below it. The
@@ -596,6 +610,189 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 @media (prefers-reduced-motion:no-preference){.nt-widget-row,.nt-widget-chat,.nt-widget-dismiss{transition:background-color var(--agent-motion-hover-out,0s) var(--agent-ease-out,ease-out),color var(--agent-motion-hover-out,0s) var(--agent-ease-out,ease-out)}.nt-widget-row:hover,.nt-widget-chat:hover,.nt-widget-dismiss:hover{transition-duration:var(--agent-motion-hover,.08s)}}
 /* The quiet row sits 4 px under the box (the column gap is 6). */
 .nt-foot .acpmux-composer-foot { margin-top: -2px; }
+/* The stage layout (templates.ts stage; Leo 2026-10-19, Claude Code desktop's new-session screen):
+   the composer at the foot of the page, full width of the column; over it the stage, which scrolls
+   on its own and centers its cards in the free space, so a list growing or a chat landing never
+   moves the composer. The page itself does not scroll. */
+.nt-screen[data-layout="stage"] {
+  overflow: hidden;
+  gap: 0;
+  padding-top: 0;
+  padding-bottom: 16px;
+}
+.nt-screen[data-layout="stage"] .nt-stage {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 24px 0 16px;
+  box-sizing: border-box;
+}
+.nt-stage > * {
+  width: 100%;
+}
+/* Centered while it fits; once it does not, the auto margins are zero and the stage scrolls from
+   its top (never a cut first card). */
+.nt-stage > :first-child {
+  margin-top: auto;
+}
+.nt-stage > :last-child {
+  margin-bottom: auto;
+}
+.nt-stage-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(440px, 100%);
+}
+/* A floating card: the composer's surface and rim, its shadow, a small radius. */
+.nt-stage-card {
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  box-sizing: border-box;
+  border-radius: 14px;
+  background: var(--acpmux-composer-surface, var(--cmux-surface-solid, var(--acpmux-base)));
+  box-shadow:
+    inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge),
+    var(--acpmux-composer-shadow, var(--elevation-1));
+}
+:root[data-borders="none"] .nt-stage-card {
+  box-shadow: var(--acpmux-composer-shadow, var(--elevation-1));
+}
+/* Rows are text with an icon: no fill or ring at rest, a wash on hover or keyboard focus only. */
+.nt-stage-row,
+.nt-env-choose .acpmux-project-button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  max-width: none;
+  padding: 0 10px;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 9px;
+  background: none;
+  box-shadow: none;
+  color: var(--agent-soft);
+  font: inherit;
+  font-size: var(--text-control);
+  text-align: left;
+  cursor: default;
+}
+.nt-stage-row:hover,
+.nt-stage-row:focus-visible,
+.nt-env-choose .acpmux-project-button:hover,
+.nt-env-choose .acpmux-project-button[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  color: var(--agent-text);
+}
+.nt-stage-row:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-text) 55%, transparent);
+  outline-offset: -1px;
+}
+.nt-env-choose {
+  display: flex;
+}
+.nt-env-choose .acpmux-project-inline {
+  display: flex;
+  width: 100%;
+}
+.nt-env-choose .acpmux-project-button > span {
+  text-decoration: none;
+}
+.nt-stage-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  color: var(--acpmux-composer-dim);
+}
+.nt-stage-row:hover .nt-stage-icon {
+  color: var(--agent-text);
+}
+.nt-stage-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nt-stage-detail {
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--acpmux-composer-dim);
+  font-size: var(--text-detail);
+}
+.nt-stage-check {
+  flex: none;
+  width: 14px;
+  color: var(--agent-text);
+  text-align: center;
+}
+.nt-stage-divider {
+  height: 0;
+  margin: 4px -6px;
+  border: 0;
+  border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-composer-edge);
+}
+.nt-suggest-chat[data-state="input"] .nt-suggest-state {
+  color: var(--agent-warning, var(--agent-text));
+}
+.nt-suggest-chat:is([data-state="error"], [data-state="failed"]) .nt-suggest-state {
+  color: var(--agent-danger);
+}
+/* The create actions are rows of the suggestions card here: no pill, as the rows above. */
+.nt-screen .nt-suggest .nt-create {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 0;
+}
+.nt-screen .nt-suggest .nt-create .nt-tool {
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 9px;
+  box-shadow: none;
+}
+/* The composer at the foot, the full width of the column: Default's own composer (the strip over
+   the box, the chips, the mic and Send in it), only placed under the stage. */
+.nt-screen[data-layout="stage"] .nt-composer {
+  flex: none;
+  width: 100%;
+}
+/* A chat row's hover card (Leo 2026-10-19): a solid floating card offset from the row (Tooltip's
+   gap), clamped to the window by the positioner, with the tooltip's short fade. */
+.nt-hovercard {
+  max-width: min(320px, calc(100vw - 24px));
+  padding: 8px 10px;
+  border-radius: 8px;
+}
+.nt-hovercard-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.nt-hovercard-title {
+  color: var(--agent-text, var(--cmux-text));
+}
+.nt-hovercard-detail {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: var(--acpmux-composer-dim, var(--cmux-text-secondary));
+}
 /* Cards (u2851, from a scrawl of Aside's New Tab page). The field is a pill of its own: a round
    rim, the Search | Ask switch with the Tab hint just above its right end. Under it, outside the
    pill, one quiet row: the project strip on the left, the agent's chips and the mic on the right,
@@ -609,6 +806,12 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 }
 .nt-screen[data-template="cards"][data-pill] .nt-box {
   border-radius: 999px;
+  --acpmux-attach-inset: 22px;
+}
+/* With attachments under the field the pill is taller than a line: its ends would cut into the
+   tiles, so it rounds as the composer template's card does. */
+.nt-screen[data-template="cards"] .nt-box:has(> .acpmux-attachments) {
+  border-radius: 28px;
 }
 .nt-screen[data-template="cards"][data-pill] .nt-input {
   align-items: center;

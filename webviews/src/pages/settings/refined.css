@@ -97,6 +97,8 @@
 }
 
 :root[data-settings-look="refined"] .settings .group { margin-bottom: 28px; }
+/* A search group without a match takes no space (layout.css), also against the margin above. */
+:root[data-settings-look="refined"] .settings .group.collapse:not([data-open]) { margin-bottom: 0; }
 :root[data-settings-look="refined"] .settings .group-title {
   margin: 0 0 10px 12px;
   color: var(--polish-muted);

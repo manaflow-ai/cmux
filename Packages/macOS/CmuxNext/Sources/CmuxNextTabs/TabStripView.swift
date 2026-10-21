@@ -128,6 +128,8 @@ public final class TabStripView: NSView {
     // MARK: Pointer state
 
     var hoveredID: TabID?
+    /// The hovered tab changed (nil: the pointer left every tab); the App wakes a hidden page ahead of the click.
+    public var onHoverTab: ((TabID?) -> Void)?
     var closeHoveredID: TabID?
     var pressedCloseID: TabID?
     /// A press on a tab's speaker (`TabCell.audioButtonRect`): its release there mutes or unmutes the tab.
@@ -441,7 +443,7 @@ public final class TabStripView: NSView {
     }
 
     /// Movement snaps: Reduce Motion or `ui.animationSpeed` "off".
-    var reduceMotion: Bool { !Motion.animatesMovement }
+    var reduceMotion: Bool { !Motion.tabs.animatesMovement }
 
     var viewportWidth: CGFloat { tabsClip.bounds.width }
 

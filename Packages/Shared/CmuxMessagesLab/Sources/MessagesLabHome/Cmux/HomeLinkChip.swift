@@ -63,6 +63,10 @@ public enum HomeLinkChipKind: String, CaseIterable, Sendable {
 /// cmux: the chip a link shows as, and the chip's geometry. Pure functions of the link text;
 /// the host's live facts (title, closed state) belong to the hover card.
 enum HomeLinkChip {
+    /// Whether an agent's reply in the transcript draws its links as chips. Off: Lawrence
+    /// 2026-10-20 called the pills ugly (icon over the text, other size) and asked to revert
+    /// to plain links until he picks a design from plans/cmux-next/home-agent-refs/gallery.html.
+    static let showsInTranscript = false
     /// The style a chip's runs carry (`chip:<kind>`); TextLayout and RowDraw read it.
     static let stylePrefix = "chip:"
     /// The one character before a chip's label that holds its icon.

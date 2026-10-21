@@ -73,9 +73,8 @@ import Testing
 
     /// The Chief's reply streams one more chunk.
     static func stream(_ rig: inout Rig, _ text: String) {
-        var draft = HomeTurnDraft(participant: chief, turn: turn)
-        draft.segments[0] = text
-        for action in rig.core.stream(draft, state: rig.store.state) { rig.store.dispatch(action) }
+        let rows = [HomeStreamRow(turn: turn, author: chief, text: text)]
+        for action in rig.core.streams(rows, state: rig.store.state) { rig.store.dispatch(action) }
     }
 
     /// Every layer between the transcript frame and my rows has the transcript's width,

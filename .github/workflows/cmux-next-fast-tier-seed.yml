@@ -69,7 +69,11 @@ jobs:
     needs: due
     if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && needs.due.outputs.due == 'true' }}
     name: Seed the fast-tier build cache
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-12vcpu-macos-26' }}
+    # Blacksmith 6 vCPU: same image, Xcode pin and workspace path as 12 vCPU, so
+    # the keys match a fast tier on either. The 12 vCPU label runs about five
+    # jobs at once and the cascade fills it first; a seed queued there held this
+    # concurrency group for 85+ minutes (run 39351410275) and no seed landed.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 30
     environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
     permissions:

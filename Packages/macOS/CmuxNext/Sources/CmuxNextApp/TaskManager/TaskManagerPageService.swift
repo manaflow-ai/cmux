@@ -72,6 +72,7 @@ final class TaskManagerPageService: InternalPageProvider {
         guard let key, signaler.terminate(key.pid) else {
             throw ActionFailure(message: TaskManagerKillRefusal.signalFailed.message)
         }
+        // task-owner: one refresh after the kill; ends when the snapshot is read
         if let model { Task { await model.refresh() } }
     }
 

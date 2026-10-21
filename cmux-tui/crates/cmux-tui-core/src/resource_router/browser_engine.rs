@@ -27,10 +27,6 @@ use crate::state::frontend_browser_keys::KeyedFrontendBrowser;
 use crate::workspace_registry::FrontendBrowserRecord;
 use crate::{Mux, ResourceTarget};
 
-/// The engine of a frontend tab the daemon makes for a plain create (the
-/// app's default engine; the daemon does not know `browser.defaultEngine`).
-const FRONTEND_ENGINE: &str = "webkit";
-
 /// Turns a plain `tab.create_browser` into a frontend browser tab when no
 /// cmux-browser provider is attached and a connected frontend renders
 /// browser tabs: the record is registered under the request's key first
@@ -57,8 +53,16 @@ pub(super) fn route_to_frontend(
         return Ok(());
     }
     let url = request.fields.get("url").and_then(Value::as_str).unwrap_or_default().to_string();
+    // The request's `engine`, else the person's `browser.siteEngines` rule
+    // for the URL, else `browser.defaultEngine` (Chromium unless set to
+    // WebKit): an agent's tab opens in the same engine as one the person opens.
+    let engine = crate::browser_profile_ops::requested_or_default_engine(
+        mux,
+        request.fields.get("engine").and_then(Value::as_str),
+        &url,
+    )?;
     let record = FrontendBrowserRecord {
-        engine: FRONTEND_ENGINE.to_string(),
+        engine: engine.to_string(),
         url,
         title: None,
         favicon_url: None,

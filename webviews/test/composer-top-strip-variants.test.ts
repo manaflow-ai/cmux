@@ -106,7 +106,16 @@ await requireBrowserLane("composer-top-strip-variants.test.ts", async () => {
       card: ".acpmux-composer-box",
       kind: "queue",
     },
-    { name: "New Tab strip", entry: "agent-pane.new-tab", variant: "empty", card: ".nt-box", kind: "strip" },
+    // The strip over the New Tab card is the top-of-page templates' (Threads here): the default
+    // Cards draws it in a row under its pill field, and Default's stage layout in the footer under
+    // the box (new-tab-stage-layout, new-tab-cards-template).
+    {
+      name: "New Tab strip",
+      entry: "agent-pane.new-tab",
+      variant: "template-threads",
+      card: ".nt-box",
+      kind: "strip",
+    },
   ];
   const ring = /0px 0px 0px (0\.5|1)px inset/;
 

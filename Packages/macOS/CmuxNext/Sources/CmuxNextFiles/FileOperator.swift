@@ -110,7 +110,9 @@ public struct FileOperator: FileOperating {
                          resolve: @escaping @Sendable (FileConflict) async -> ConflictAnswer)
         -> AsyncThrowingStream<TransferEvent, any Error> {
         let job = FileTransferJob(sources: sources, folder: folder, mode: mode, namer: namer, resolve: resolve)
-        return AsyncThrowingStream { continuation in
+        // Progress events are snapshots and `.finished` is always the last one, so dropping the
+        // oldest when the reader lags loses nothing it needs.
+        return AsyncThrowingStream(bufferingPolicy: .bufferingNewest(16)) { continuation in
             let task = Task.detached(priority: .userInitiated) {
                 do {
                     try await job.run { continuation.yield($0) }

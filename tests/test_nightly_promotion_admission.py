@@ -26,7 +26,9 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -40,9 +42,11 @@ SHA = "a" * 40
 NEWER = "b" * 40
 
 HARNESS = r"""
-const scenario = JSON.parse(process.env.SCENARIO);
+// From a file: a long range's scenario is over Linux's 128 KiB limit for one
+// environment variable (E2BIG).
+const scenario = JSON.parse((await import('node:fs')).readFileSync(process.env.SCENARIO_FILE, 'utf8'));
 const guard = await import(process.env.GUARD);
-const calls = { runs: 0, jobs: 0, activityPages: 0, moves: 0, comparePages: 0, trees: 0 };
+const calls = { runs: 0, jobs: 0, activityPages: 0, moves: 0, comparePages: 0, trees: 0, commitReads: 0, commitInFlight: 0, commitMaxInFlight: 0 };
 const pullsListCommits = Symbol('listCommits');
 const notices = [];
 const actions = {
@@ -134,9 +138,16 @@ const github = {
         calls.comparePages += 1;
         return { data: { status, total_commits: scenario.totalCommitsOverride ?? inRange.length, commits: pageCommits, files: files.slice(0, cap) } };
       },
+      // Each read takes a little time, as on GitHub, so the test sees how
+      // many the guard keeps in flight at once.
       getCommit: async ({ ref, per_page = 300, page = 1 }) => {
         const c = commits[ref];
         if (!c) throw new Error(`unexpected commit ${ref}`);
+        calls.commitReads += 1;
+        calls.commitInFlight += 1;
+        calls.commitMaxInFlight = Math.max(calls.commitMaxInFlight, calls.commitInFlight);
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        calls.commitInFlight -= 1;
         const all = c.files || [];
         return { data: { ...c, files: all.slice((page - 1) * per_page, page * per_page) } };
       },
@@ -165,7 +176,13 @@ const github = {
     },
   }),
   request: async (route, params) => {
-    if (route === 'GET /repos/{owner}/{repo}/commits/{commit_sha}/pulls') return { data: scenario.commitPulls[params.commit_sha] || [] };
+    if (route === 'GET /repos/{owner}/{repo}/commits/{commit_sha}/pulls') {
+      // GitHub answers 500 now and then (run 39413299148): the first
+      // `pullsErrors` reads of this list fail with a server error.
+      calls.pullsReads = (calls.pullsReads || 0) + 1;
+      if (calls.pullsReads <= (scenario.pullsErrors || 0)) throw Object.assign(new Error('Server Error'), { status: scenario.pullsErrorStatus || 500 });
+      return { data: scenario.commitPulls[params.commit_sha] || [] };
+    }
     if (route === 'GET /repos/{owner}/{repo}/actions/runs/{run_id}/approvals') return { data: scenario.approvals };
     throw new Error(`unexpected request ${route}`);
   },
@@ -249,29 +266,41 @@ def scenario(**overrides) -> dict:
 
 
 def run(case: dict) -> dict:
-    result = subprocess.run(
-        ["node", "--input-type=module", "-e", HARNESS],
-        cwd=ROOT,
-        env={**os.environ, "SCENARIO": json.dumps(case), "GUARD": str(GUARD)},
-        capture_output=True, text=True, check=False,
-    )
+    with tempfile.NamedTemporaryFile("w", suffix=".json") as scenario_file:
+        json.dump(case, scenario_file)
+        scenario_file.flush()
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", HARNESS],
+            cwd=ROOT,
+            env={**os.environ, "SCENARIO_FILE": scenario_file.name, "GUARD": str(GUARD)},
+            capture_output=True, text=True, check=False,
+        )
     if result.returncode:
         raise RuntimeError(result.stderr)
     return json.loads(result.stdout)
 
 
-LANDER_RULE_ON = SURFACE.replace("@require_non_lander_approver off", "@require_non_lander_approver on")
+def policy_surface(value: str) -> str:
+    return re.sub(r"(?m)^@require_non_lander_approver (?:on|off)$",
+                  f"@require_non_lander_approver {value}", SURFACE)
+
+
+LANDER_RULE_ON = policy_surface("on")
+LANDER_RULE_OFF = policy_surface("off")
 
 
 def surface_change(lander_rule: bool = True) -> dict:
     case = scenario(rangeFiles=[{"filename": ".github/workflows/nightly.yml"}],
-                    surface=LANDER_RULE_ON if lander_rule else SURFACE)
+                    surface=LANDER_RULE_ON if lander_rule else LANDER_RULE_OFF)
     case["commits"][0]["files"] = [{"filename": ".github/workflows/nightly.yml"}]
     return case
 
 
-def test_lander_rule_ships_off_and_a_lander_may_approve() -> None:
-    assert "@require_non_lander_approver off" in SURFACE
+def test_lander_rule_ships_on() -> None:
+    assert "@require_non_lander_approver on" in SURFACE.splitlines()
+
+
+def test_with_lander_rule_off_a_lander_may_approve() -> None:
     case = surface_change(lander_rule=False)
     case["approvals"] = [{"state": "approved", "user": {"login": "teamleaderleo"},
                           "environments": [{"name": "release-surface-ack"}]}]
@@ -282,7 +311,8 @@ def test_lander_rule_ships_off_and_a_lander_may_approve() -> None:
 
 def test_an_unknown_policy_line_refuses_the_promotion() -> None:
     case = surface_change()
-    case["surface"] = SURFACE.replace("@require_non_lander_approver off", "@require_non_lander_approver ON")
+    case["surface"] = re.sub(r"(?m)^@require_non_lander_approver (?:on|off)$",
+                             "@require_non_lander_approver ON", SURFACE)
     out = run(case)
     assert out["decision"]["action"] == "refuse"
     assert "unknown policy line" in out["decision"]["reason"]
@@ -343,6 +373,16 @@ def test_surface_change_needs_a_non_lander_approval() -> None:
     assert not out["ack"]["ok"]  # nobody approved yet
 
 
+def test_first_promotion_refuses_when_commit_authors_cannot_be_bounded() -> None:
+    case = surface_change()
+    case["current"] = None
+    case["approvals"] = [{"state": "approved", "user": {"login": "teamleaderleo"},
+                          "environments": [{"name": "release-surface-ack"}]}]
+    out = run(case)
+    assert out["decision"]["action"] == "refuse", out["decision"]
+    assert "does not exist" in out["decision"]["reason"]
+
+
 def test_lander_cannot_approve_their_own_surface_change() -> None:
     case = surface_change()
     case["approvals"] = [{"state": "approved", "user": {"login": "teamleaderleo"},
@@ -384,6 +424,16 @@ def test_unknown_push_actor_fails_closed() -> None:
     out = run(case)
     assert out["decision"]["action"] == "refuse"
     assert "push actor" in out["decision"]["reason"]
+
+
+def test_unknown_surface_commit_author_fails_closed() -> None:
+    case = surface_change()
+    case["commits"][0]["author"] = None
+    case["approvals"] = [{"state": "approved", "user": {"login": "austinywang"},
+                          "environments": [{"name": "release-surface-ack"}]}]
+    out = run(case)
+    assert out["decision"]["action"] == "refuse", out["decision"]
+    assert "author" in out["decision"]["reason"]
 
 
 def test_activity_pages_are_followed_and_one_push_covers_its_commits() -> None:
@@ -483,6 +533,99 @@ def test_a_range_over_200_commits_with_a_surface_change_asks_for_an_ack() -> Non
     out = run(long_range(250, surface_at=7))
     assert out["decision"]["action"] == "needs-ack", out["decision"]
     assert out["decision"]["landers"] == ["lawrencecchen", "teamleaderleo"]
+
+
+def merged_long_range(main_count, side_count, surface_at_side=None) -> dict:
+    # A long feat-cmux-next range with a big merge (like the iOS merge
+    # ebc7d9c6296): side_count commits on a side branch from CURRENT, merged
+    # into a main_count-commit line. Over 1000 commits in all.
+    side = [f"a{i:039x}" for i in range(1, side_count + 1)]
+    line = [f"b{i:039x}" for i in range(1, main_count + 1)]
+    merge = "9" * 39 + "e"
+    chain = []
+    for i, sha in enumerate(side):
+        parent = CURRENT if i == 0 else side[i - 1]
+        files = [".github/workflows/nightly.yml"] if i == surface_at_side else [f"ios/S{i}.swift"]
+        chain.append(commit(sha, [parent], files, "austinywang"))
+    for i, sha in enumerate(line):
+        parent = CURRENT if i == 0 else (merge if i == main_count // 2 else line[i - 1])
+        chain.append(commit(sha, [parent], [f"Sources/M{i}.swift"]))
+    merged = commit(merge, [line[main_count // 2 - 1], side[-1]], [])
+    if surface_at_side is not None:
+        # The merge keeps the side branch's surface change (the harness tree
+        # of a merge is otherwise its first parent's).
+        merged["tree"] = {".github/workflows/nightly.yml": side[surface_at_side]}
+    chain.append(merged)
+    chain.reverse()
+    head = line[-1]
+    return scenario(sha=head, sourceHead=head, onSource={head: "identical"},
+                    runs=[gate_run(head_sha=head)], commits=chain + [commit(CURRENT, [], [])],
+                    activity=[{"before": CURRENT, "after": head, "actor": {"login": "teamleaderleo"}}],
+                    commitPulls={}, surface=SURFACE)
+
+
+def test_a_range_over_1000_commits_with_a_merge_promotes() -> None:
+    # 304de7d...ad551c0 on 2026-10-20 was 1782 commits, 1549 from one merge:
+    # no smaller step existed, so a cap on the range blocked every nightly.
+    out = run(merged_long_range(232, 1549))
+    assert out["decision"]["action"] == "promote", out["decision"]
+    assert out["calls"]["comparePages"] >= 18  # every page of the commit list was read
+
+
+def test_a_surface_change_on_a_late_page_of_a_long_range_still_asks_for_an_ack() -> None:
+    # The surface commit sits past the 1000th commit of the list.
+    out = run(merged_long_range(232, 1549, surface_at_side=5))
+    assert out["decision"]["action"] == "needs-ack", out["decision"]
+    assert out["decision"]["surfaceFiles"] == [".github/workflows/nightly.yml"]
+    assert "austinywang" in out["decision"]["landers"], out["decision"]
+
+
+def test_a_long_surface_range_reads_its_commits_in_parallel_within_a_bound() -> None:
+    # Run 39410930509: read one by one, 1782 commits ran the decide job past
+    # its 10-minute limit. Reads overlap, but never more than 16 at once.
+    out = run(merged_long_range(232, 1549, surface_at_side=5))
+    assert out["decision"]["action"] == "needs-ack", out["decision"]
+    assert out["calls"]["commitReads"] >= 1782, out["calls"]
+    assert 8 <= out["calls"]["commitMaxInFlight"] <= 16, out["calls"]
+
+
+def test_a_transient_github_server_error_is_retried() -> None:
+    case = scenario(rangeFiles=[{"filename": ".github/workflows/nightly.yml"}], pullsErrors=2)
+    case["commits"][0]["files"] = [{"filename": ".github/workflows/nightly.yml"}]
+    out = run(case)
+    assert out["decision"]["action"] == "needs-ack", out["decision"]
+    assert "teamleaderleo" in out["decision"]["landers"], out["decision"]
+
+
+def test_a_lasting_github_server_error_still_fails() -> None:
+    case = scenario(rangeFiles=[{"filename": ".github/workflows/nightly.yml"}], pullsErrors=99)
+    case["commits"][0]["files"] = [{"filename": ".github/workflows/nightly.yml"}]
+    try:
+        out = run(case)
+    except RuntimeError as error:
+        assert "Server Error" in str(error), error
+    else:
+        raise AssertionError(f"a lasting 500 must not decide: {out['decision']}")
+
+
+def test_a_client_error_is_not_retried() -> None:
+    case = scenario(rangeFiles=[{"filename": ".github/workflows/nightly.yml"}], pullsErrors=1, pullsErrorStatus=404)
+    case["commits"][0]["files"] = [{"filename": ".github/workflows/nightly.yml"}]
+    try:
+        out = run(case)
+    except RuntimeError as error:
+        assert "Server Error" in str(error), error
+    else:
+        raise AssertionError(f"a 404 must not be retried: {out['decision']}")
+
+
+def test_a_long_range_the_compare_api_lists_short_is_refused() -> None:
+    # total_commits says more than the pages hold: fail closed.
+    case = merged_long_range(232, 1549)
+    case["totalCommitsOverride"] = 1782 + 40
+    out = run(case)
+    assert out["decision"]["action"] == "refuse", out["decision"]
+    assert "did not list them all" in out["decision"]["reason"]
 
 
 def test_a_diverged_or_behind_range_is_refused() -> None:
@@ -748,6 +891,30 @@ def test_only_the_wait_for_the_approval_is_cancellable() -> None:
     assert move["needs"] == ["promote-nightly-next", "await-release-surface-ack"]
     assert move["environment"] == "nightly-next-promote"
     assert "requireNonLander: policy.require_non_lander_approver" in WORKFLOW
+
+
+def test_workflow_executes_the_release_surface_approval_gate() -> None:
+    import yaml
+
+    jobs = yaml.safe_load(WORKFLOW)["jobs"]
+    decide = jobs["promote-nightly-next"]
+    steps = {step["name"]: step for step in decide["steps"]}
+    direct = "steps.decide.outputs.action == 'promote' && steps.decide.outputs.dry_run != 'true'"
+    assert steps["Mint release App token"]["if"] == direct
+    assert steps["Move nightly-next"]["if"] == direct
+
+    wait = jobs["await-release-surface-ack"]
+    assert wait["if"] == (
+        "(needs.promote-nightly-next.outputs.action == 'needs-ack' || "
+        "needs.promote-nightly-next.outputs.action == 'promote') && "
+        "needs.promote-nightly-next.outputs.dry_run != 'true'"
+    )
+    acknowledged = jobs["promote-nightly-next-acked"]
+    assert acknowledged["if"] == (
+        "needs.await-release-surface-ack.result == 'success' && "
+        "needs.promote-nightly-next.outputs.action == 'needs-ack' && "
+        "needs.promote-nightly-next.outputs.dry_run != 'true'"
+    )
 
 
 def main() -> None:

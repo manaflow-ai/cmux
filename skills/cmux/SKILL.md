@@ -26,8 +26,8 @@ cmux workspace list
 cmux pane list
 cmux tab list
 cmux workspace create --name api
-cmux pane pane_… split --right
-cmux pane pane_… run -- npm run dev                # new tab running the argv
+cmux pane pane_… split --right -- npm run dev     # new pane running the argv; focus stays
+cmux pane pane_… run -- npm run dev                # new tab in an existing pane
 cmux tab tab_… move --workspace ws_… --screen screen_… --pane pane_… --index 0
 cmux pane flash-focused                            # attention cue (app action)
 ```

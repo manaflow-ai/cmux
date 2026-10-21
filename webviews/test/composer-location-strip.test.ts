@@ -111,7 +111,9 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       variant: "no-project",
       card: ".acpmux-composer-box",
     },
-    { name: "the New Tab composer", entry: "agent-pane.new-tab", variant: "empty", card: ".nt-box" },
+    // The strip heads the New Tab card in the top-of-page templates (Threads here); Cards draws it
+    // under its pill field and Default's stage layout in the footer under the box.
+    { name: "the New Tab composer", entry: "agent-pane.new-tab", variant: "template-threads", card: ".nt-box" },
   ];
   for (const surface of surfaces)
     for (const width of [420, 720])

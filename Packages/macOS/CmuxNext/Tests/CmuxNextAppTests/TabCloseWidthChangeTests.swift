@@ -32,7 +32,7 @@ import Testing
         let enabledAnimations = DesignSettings.shared.enabledAnimations
         DesignSettings.shared.enabledAnimations.insert(.newTab)
         defer { DesignSettings.shared.enabledAnimations = enabledAnimations }
-        try #require(Motion.animatesMovement, "animation speed is off on this host")
+        try #require(Motion.tabs.animatesMovement, "animation speed is off on this host")
 
         model.tabs.removeLast()
         strip.sync(fromModel: true)

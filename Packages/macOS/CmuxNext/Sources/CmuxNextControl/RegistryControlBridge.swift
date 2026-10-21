@@ -109,6 +109,7 @@ public final class RegistryControlBridge: ControlActionExecutor {
         invocation.callerApp = request.callerApp
         invocation.besideCaller = request.besideCaller
         invocation.newColumnBeside = request.newColumnBeside
+        invocation.opensInBackground = request.background
         invocation.callerAgentSession = request.callerAgentSession
         invocation.callerTerminal = request.callerTerminal
         guard registry.isAvailable(id, for: invocation) else { return .unavailable }

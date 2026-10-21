@@ -25,8 +25,10 @@ drift "$schema" docs/mdm/com.manaflow.cmux.plist webviews/src/main.tsx && fail "
 grep -q "docs/mdm/com.manaflow.cmux.plist" "$tmp/out" || fail "every drifted output is named"
 drift cmux-tui/bindings/go/.cmux-resource-api.json && fail "an SDK manifest without a spec change must be drift"
 # An output whose inputs changed is the pull request's own.
-drift "$graph" Packages/macOS/CmuxNext/Package.swift || fail "Package.swift causes the graph"
-drift "$graph" Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/LinkExportTests.swift || fail "a test source causes the graph (its reads)"
+# The CI target graph is bot-only: the base autofix regenerates it after a merge, and a
+# Package.swift change already routes every tier, so no pull request carries it.
+drift "$graph" Packages/macOS/CmuxNext/Package.swift && fail "the graph is bot-only, even with Package.swift"
+grep -q "only the base autofix writes it" "$tmp/out" || fail "a bot-only file says so"
 drift "$schema" schemas/settings-export/settings-schema.sources.sha256 \
   Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Tabs.swift || fail "a settings source causes its exports"
 # A setting declared outside CmuxNextSettings (CmuxNextDesign's AttentionSettings) changes the exports too.
@@ -72,7 +74,7 @@ git -C "$repo" checkout -q -- .
 
 printf '%s\n' webviews/src/mine.ts Packages/macOS/CmuxNext/Package.swift > "$tmp/changed"
 bash "$APPLY" "$tmp/repair.patch" "$repo" --changed "$tmp/changed" > "$tmp/out" 2>&1 || fail "the apply script must succeed"
-[[ "$(cat "$repo/$graph")" == new ]] || fail "a graph the pull request's Package.swift change caused is applied"
+[[ "$(cat "$repo/$graph")" == old ]] || fail "the bot-only graph is left out even when Package.swift changed"
 git -C "$repo" checkout -q -- .
 
 # Every repair dropped: nothing to push, and still a success.

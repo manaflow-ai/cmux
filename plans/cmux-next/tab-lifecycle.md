@@ -87,7 +87,8 @@ cmux.json:
   "hibernation": "moderate",          // "off" | "moderate" (60 min) | "aggressive" (10 min) | minutes
   "hibernationExclusions": ["mail.google.com", "*.example.com"],
   "hibernatePinnedTabs": false,
-  "freezeHiddenTabs": 30              // "off" | seconds: hidden Chromium pages freeze (power, msg 2654)
+  "freezeHiddenTabs": 30,             // "off" | seconds: hidden Chromium pages freeze (power, msg 2654)
+  "keepNeighborTabsAwake": 1          // 0-3 tabs on each side of a shown tab never freeze or hibernate
 }
 ```
 
@@ -98,6 +99,11 @@ cmux.json:
   the hibernation probe. Pinned tabs (unless `hibernatePinnedTabs`), excluded
   hosts, open DevTools, capture, playing media and Web Audio stay awake; a
   page kept for media is asked again after `freezeHiddenTabs`.
+
+- Neighbors (plans/cmux-next/neighbor-tabs-DESIGN.md): the tabs beside each
+  pane's shown tab (`keepNeighborTabsAwake`, wrapping) never freeze or
+  hibernate and wake as soon as they become neighbors; a hovered tab wakes
+  too. Memory pressure and Low Power Mode turn this off.
 
 - Triggers: time since last visible (one one-shot deadline for the earliest
   page), the memory pressure dispatch source (warning: 10 min, or every

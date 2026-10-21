@@ -51,7 +51,8 @@ export type AttachmentIntakeOptions = {
 
 /// The prompt's staged attachments: what a paste on the composer's field or a file drop anywhere on
 /// the page adds (the document-level drop contract, attachments.ts), with the note a refusal leaves.
-/// `attach(files, uploads)` adds files another way (the + menu's chooser, a capture).
+/// `attach(files, uploads)` adds files another way (the + menu's chooser, which uploads like a drop,
+/// or a capture).
 export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   const t = useT();
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
@@ -59,8 +60,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   const [dropping, setDropping] = useState(false);
   const live = useRef({ options, t, held: attachments.length });
   live.current = { options, t, held: attachments.length };
-  /// `uploads`: the person dropped or pasted these into the prompt, so a moved chat may send what
-  /// the composer can't attach to its machine (never a pick from + or a capture).
+  /// `uploads`: the person dropped, pasted or chose these, so the chat's host may save what the
+  /// composer can't attach (a moved chat's machine, or this Mac for a local chat); never a capture.
   const [attach] = useState(() => async (files: File[], uploads = false) => {
     if (files.length === 0) return;
     const { options: current, t: translate, held } = live.current;

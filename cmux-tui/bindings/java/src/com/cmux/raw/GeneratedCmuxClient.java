@@ -907,6 +907,11 @@ public abstract class GeneratedCmuxClient {
         return PaneNeighborResult.fromWire(result);
     }
 
+    public final Object parkTabs(ParkTabsRequest request) throws CmuxException {
+        Object result = execute(Commands.PARK_TABS, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final PasteImageResult pasteImage(PasteImageRequest request) throws CmuxException {
         Object result = execute(Commands.PASTE_IMAGE, request.toWire());
         return PasteImageResult.fromWire(result);
@@ -1287,6 +1292,11 @@ public abstract class GeneratedCmuxClient {
     public final TerminalResourcesResult terminalResources(TerminalResourcesRequest request) throws CmuxException {
         Object result = execute(Commands.TERMINAL_RESOURCES, request.toWire());
         return TerminalResourcesResult.fromWire(result);
+    }
+
+    public final TerminalResumeCommandResult terminalResumeCommand(TerminalResumeCommandRequest request) throws CmuxException {
+        Object result = execute(Commands.TERMINAL_RESUME_COMMAND, request.toWire());
+        return TerminalResumeCommandResult.fromWire(result);
     }
 
     public final LayoutUndoResult undoLayout(UndoLayoutRequest request) throws CmuxException {

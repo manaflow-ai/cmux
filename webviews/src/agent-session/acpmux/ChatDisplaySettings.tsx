@@ -68,6 +68,7 @@ export function ChatDisplayRows() {
       <label className="acpmux-display-row acpmux-display-check">
         <input
           type="checkbox"
+          aria-label={t("chatDisplay.fullWidth")}
           checked={display.fullWidth}
           onChange={(event) => changeChatDisplay(c.fullWidth.key, event.currentTarget.checked ? true : null)}
         />
@@ -76,6 +77,7 @@ export function ChatDisplayRows() {
       <label className="acpmux-display-row">
         <span>{t("chatDisplay.font")}</span>
         <select
+          aria-label={t("chatDisplay.font")}
           value={fontChoice}
           onChange={(event) =>
             changeChatDisplay(c.font.key, event.currentTarget.value === "markdown" ? null : event.currentTarget.value)
@@ -105,6 +107,7 @@ export function ChatDisplayRows() {
         <span>{t("chatDisplay.codeFont")}</span>
         <input
           type="text"
+          aria-label={t("chatDisplay.codeFont")}
           list={listId}
           value={codeFamily}
           placeholder={display.codeFamily ?? t("chatDisplay.sameAsMarkdown")}
@@ -113,7 +116,9 @@ export function ChatDisplayRows() {
         />
         <datalist id={listId}>
           {CODE_FONT_SUGGESTIONS.map((name) => (
-            <option key={name} value={name} />
+            <option key={name} value={name}>
+              {name}
+            </option>
           ))}
         </datalist>
       </label>
@@ -151,6 +156,7 @@ function Slider({
       <span>{label}</span>
       <input
         type="range"
+        aria-label={label}
         min={range.min}
         max={range.max}
         step={range.step}
