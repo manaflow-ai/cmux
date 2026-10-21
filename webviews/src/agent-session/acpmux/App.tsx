@@ -50,6 +50,7 @@ import { newTabChipSnapshot } from "./newtab/chipDefaults";
 import { HarnessesScreen } from "./harnesses/HarnessesScreen";
 import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./harnesses/harnessesPage";
 import { injectedNewTabContext, useEarlyNewTabContext, useNewTabAdoption, useNewTabPlaces } from "./newtab/adoption";
+import { publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import { heldPick, withDraftFolder } from "./newtab/draftFolder";
 import { rememberRecentFolders } from "./newtab/recentProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
@@ -4634,6 +4635,8 @@ function AcpmuxPane() {
             // (newtab/recentProject.ts); the mock daemon's chats are not the app's.
             if (!mock) {
               rememberRecentFolders(next);
+              // Every page's New Tab lists one chat store (newtab/chatStore.ts).
+              publishSessions(next);
               // The next New Tab page's first frame lists these chats (newtab/warmSnapshot.ts).
               publishWarmNewTab(
                 next,
@@ -5597,13 +5600,24 @@ function AcpmuxPane() {
   // the first frame lists what a page of this Mac listed last, and the live list changes rows in place.
   const warmSessions = useWarmNewTabSessions();
   const carriedSessions = shownNewTabSessions(composerSnapshot, warmSessions);
+  // Over that, the New Tab page lists the chats every page shares (newtab/chatStore.ts): the newest
+  // list any page received, drawn on its first frame and updated in place when another page hears a
+  // change. Debug Settings `newTab.privateChatLists`, a page on another machine's daemon and a page
+  // whose daemon is down list this page's own (`sharesChatList`).
+  const newTabSessions = useSharedSessions(
+    carriedSessions ?? composerSnapshot.sessions,
+    sharesChatList(newTab, composerSnapshot),
+  );
   const newTabSnapshot = useMemo(
-    () => (carriedSessions ? { ...composerSnapshot, sessions: carriedSessions } : composerSnapshot),
-    [composerSnapshot, carriedSessions],
+    () =>
+      newTabSessions === composerSnapshot.sessions
+        ? composerSnapshot
+        : { ...composerSnapshot, sessions: newTabSessions },
+    [composerSnapshot, newTabSessions],
   );
   // The daemon has not listed the chats to this page yet and none are known (newtab/recentProject.ts).
   const newTabChatsPending =
-    !carriedSessions &&
+    newTabSessions.length === 0 &&
     !composerSnapshot.listedSessions &&
     composerSnapshot.sessions.length === 0 &&
     composerSnapshot.connection !== "disconnected" &&
@@ -5618,14 +5632,14 @@ function AcpmuxPane() {
     const byPath = new Map<string, { cwd: string; label: string }>();
     for (const project of directProjects) byPath.set(project.cwd, project);
     for (const path of newTab?.projects ?? []) byPath.set(path, { cwd: path, label: projectLabel(path) });
-    for (const session of composerSnapshot.sessions) {
+    for (const session of newTabSnapshot.sessions) {
       if (typeof session.cwd !== "string" || !session.cwd) continue;
       if (session.host && session.hostKind !== "local") continue;
       byPath.set(session.cwd, { cwd: session.cwd, label: projectLabel(session.cwd) });
     }
     if (newTab?.cwd) byPath.set(newTab.cwd, { cwd: newTab.cwd, label: projectLabel(newTab.cwd) });
     return [...byPath.values()];
-  }, [composerSnapshot.sessions, newTab?.cwd, newTab?.projects, directProjects]);
+  }, [newTabSnapshot.sessions, newTab?.cwd, newTab?.projects, directProjects]);
   // The new chat's hero picker (cx-9g0w): this Mac's projects, then other machines' folders from
   // their chats (each with its machine's name), Add project and Do not work in a project.
   const heroPicker = useMemo<EmptyStateProjects | undefined>(() => {
@@ -6457,7 +6471,7 @@ function AcpmuxPane() {
           ) : showNewTab ? (
             <NewTabPage
               key={newTabGeneration}
-              snapshot={composerSnapshot}
+              snapshot={newTabSnapshot}
               hotkeys={newTab.hotkeys}
               initialKind={newTab.initialKind}
               cwd={newTab.cwd}
