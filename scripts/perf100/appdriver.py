@@ -272,11 +272,11 @@ class App:
             time.sleep(0.002)  # bench: next read of the screen (bounded by the deadline)
         return None
 
-    def wait_first_terminal(self, timeout: float = 60) -> dict:
+    def wait_first_terminal(self, timeout: float = 60, mark: str = "first_terminal_surface_created") -> dict:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             launch = self.rpc.result("debug.timings").get("launch_ms_since_process_start", {})
-            if "first_terminal_surface_created" in launch:
+            if mark in launch:
                 return launch
             time.sleep(0.01)  # bench: waiting for the first terminal (bounded)
         return {}

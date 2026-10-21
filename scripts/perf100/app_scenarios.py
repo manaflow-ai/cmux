@@ -389,7 +389,8 @@ def s4(args, run, rng):
     app = _new_app(args, run)
     t0 = time.monotonic()
     run.metric("cold.socket_ms", round(app.launch(), 1))
-    launch = app.wait_first_terminal(timeout=10)  # a launch window may show no terminal at all
+    # The first window frame, not the first terminal: a launch window may show no terminal at all.
+    launch = app.wait_first_terminal(timeout=60, mark="first_window_frame_committed")
     for key in ("first_window_frame_committed", "first_terminal_surface_created"):
         if key in launch:
             run.metric(f"cold.{key}_ms", round(launch[key], 1))
