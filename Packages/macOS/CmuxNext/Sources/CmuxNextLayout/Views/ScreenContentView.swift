@@ -35,12 +35,13 @@ final class ScreenContentView: NSView {
     var scrollRidesFrames = false
     /// A close waits for `syncScroll` to place its camera, then takes its first frame (`leadIfPending`).
     var leadsFrame = false
-    /// A close's neighbours spring into its space: their terminals keep their grids until they
-    /// land (`LayoutViewContext.closingScreens`, the PTY resizes once at rest).
-    var closing = false {
+    /// A split's or a close's panes spring to their new sizes: their terminals keep their grids
+    /// until every pane landed (`LayoutViewContext.gridHoldScreens`, the PTY resizes once at rest).
+    /// A press during the motion (rapid Cmd-D) keeps the hold, so the grids go once for the whole chain.
+    var holdsGrids = false {
         didSet {
-            guard closing != oldValue else { return }
-            if closing { context.closingScreens.insert(screenID) } else { context.closingScreens.remove(screenID) }
+            guard holdsGrids != oldValue else { return }
+            if holdsGrids { context.gridHoldScreens.insert(screenID) } else { context.gridHoldScreens.remove(screenID) }
         }
     }
     var motionState: ScreenPaneMotionState
@@ -286,7 +287,8 @@ final class ScreenContentView: NSView {
         // A close's neighbours start covering the closed pane's space in the frame it leaves:
         // no frame shows the hole before they move (`leadIfPending`, after `syncScroll`).
         leadsFrame = departing && animateFrames && !covering
-        if departing && animateFrames && !covering { closing = true }
+        // A split's chain and a close's neighbours keep their terminals' grids until they land.
+        if (departing || !arrivals.isEmpty) && animateFrames && !covering { holdsGrids = true }
         reconcileDock()
         reconcileCanvasStacking()
         // The scroll follows in `syncScroll`, which the root calls with the
@@ -294,7 +296,7 @@ final class ScreenContentView: NSView {
         applyPresentation()
         let moving = animate && hasMotion
         if !moving { releaseCovered() }
-        if !(moving && closing) { closing = false }
+        if !(moving && holdsGrids) { holdsGrids = false }
         return moving
     }
 
@@ -337,7 +339,7 @@ final class ScreenContentView: NSView {
     func tearDown() {
         // A drag on a screen that goes away gets no release either.
         endDrag()
-        closing = false
+        holdsGrids = false
         for pane in paneFrames.keys where !context.livePanes.contains(pane) {
             context.release(pane)
         }
