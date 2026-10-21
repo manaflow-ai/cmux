@@ -7,6 +7,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { ComposerQueue } from "./ComposerQueue";
+import { queuedRowsState } from "./queuedRowsState";
 import type { QueueEdit } from "./model";
 import { queueingOn, setQueueing } from "./queueing";
 
@@ -96,19 +97,25 @@ async function settle() {
   });
 }
 
+/** A menu item's label, without the key it names (Edit message's ↩). */
+const itemLabel = (item: Element) =>
+  [...item.childNodes]
+    .filter((node) => !(node instanceof dom!.window.Element && node.classList.contains("ui-menu-shortcut")))
+    .map((node) => node.textContent)
+    .join("")
+    .trim();
+
 /** Opens a row's ⋯ menu; resolves with its items' labels. */
 async function openMore(container: HTMLElement, id: string) {
   const more = actions(container, id).find((button) => button.dataset.menu === "queued-more")!;
   await act(async () => more.click());
   await settle();
-  return [...dom!.window.document.querySelectorAll<HTMLElement>('[role="menuitem"]')].map((item) =>
-    item.textContent?.trim(),
-  );
+  return [...dom!.window.document.querySelectorAll<HTMLElement>('[role="menuitem"]')].map(itemLabel);
 }
 
 function menuItem(label: string) {
   return [...dom!.window.document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
-    (item) => item.textContent?.trim() === label,
+    (item) => itemLabel(item) === label,
   )!;
 }
 
