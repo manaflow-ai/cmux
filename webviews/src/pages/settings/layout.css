@@ -203,6 +203,11 @@
   margin-bottom: 12px;
 }
 
+/* The part before a glass card's rows (Look's characters) keeps clear of their hairline. */
+.group.ui-glass > :not(.rows):has(+ .rows) {
+  margin-bottom: 16px;
+}
+
 /* A Chief row lays out across (picture, name and role, backend, Locked): `.row` above stacks a
    row's lines and loads after styles.css's .chiefs-row, so the row drew every part centred down
    the card. */
