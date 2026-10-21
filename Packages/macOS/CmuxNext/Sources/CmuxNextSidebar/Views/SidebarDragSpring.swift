@@ -17,7 +17,7 @@ import QuartzCore
     /// Springs `view` to `frame` (its superview's coordinates).
     static func move(_ view: NSView, to frame: NSRect) {
         guard view.frame != frame else { return }
-        guard let layer = view.layer, Motion.animatesMovement, Motion.canAnimate(in: view) else {
+        guard let layer = view.layer, Motion.sidebar.animatesMovement, Motion.canAnimate(in: view) else {
             Motion.withoutAnimation { view.frame = frame }
             return
         }
@@ -34,7 +34,7 @@ import QuartzCore
         CATransaction.setDisableActions(true)
         layer.frame = frame
         CATransaction.commit()
-        guard Motion.animatesMovement else { return }
+        guard Motion.sidebar.animatesMovement else { return }
         addDelta(to: layer, position: position, size: size)
     }
 
@@ -64,13 +64,13 @@ import QuartzCore
         let dp = CGPoint(x: position.x - layer.position.x, y: position.y - layer.position.y)
         let ds = CGSize(width: size.width - layer.bounds.width, height: size.height - layer.bounds.height)
         if dp != .zero {
-            let animation = Motion.springAnimation(.move, "position", from: NSValue(point: dp), to: NSValue(point: .zero))
+            let animation = Motion.sidebar.springAnimation(.move, "position", from: NSValue(point: dp), to: NSValue(point: .zero))
             animation.isAdditive = true
             animation.beginTime = begin
             layer.add(animation, forKey: "drag.position.\(serial)")
         }
         if ds != .zero {
-            let animation = Motion.springAnimation(.move, "bounds.size", from: NSValue(size: ds), to: NSValue(size: .zero))
+            let animation = Motion.sidebar.springAnimation(.move, "bounds.size", from: NSValue(size: ds), to: NSValue(size: .zero))
             animation.isAdditive = true
             animation.beginTime = begin
             layer.add(animation, forKey: "drag.size.\(serial)")
@@ -80,6 +80,6 @@ import QuartzCore
     /// Fades `view` to `alpha` (a placeholder row a drag shows or hides).
     static func fade(_ view: NSView, to alpha: CGFloat) {
         guard view.alphaValue != alpha else { return }
-        Motion.animate(.hover, in: view) { view.animator().alphaValue = alpha }
+        Motion.feedback.animate(.hover, in: view) { view.animator().alphaValue = alpha }
     }
 }

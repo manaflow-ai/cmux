@@ -69,6 +69,8 @@ if [[ -n "$base" ]] \
   && source_lines="$(python3 "$root/scripts/cmux-next/count-swift-code-lines.py" "$root")"; then
   if (( source_lines > base_source_lines )); then
     echo "check-app-size: CmuxNextApp source grew ($source_lines source lines now, $base_source_lines at $base); real source growth is not allowed" >&2
+    echo "check-app-size: source-line changes by file (move new code into its own target, see $doc):" >&2
+    python3 "$root/scripts/cmux-next/count-swift-code-lines.py" --grown "$base" "$root" | sed 's/^/  /' >&2 || true
     exit 1
   fi
   if (( lines > cap )); then

@@ -15,10 +15,14 @@ Layouts:
   grid  terminal, WebKit / terminal, Chromium (2 x 2; the Chromium pane is
         diagonal to the first terminal)
   strip four terminal columns in a scrolling strip, plus a docked column
+  splits a split right and a split down of one terminal
+  perf  four panes (three terminals, one WebKit page), one terminal printing `yes` the whole
+        time: zoom, unzoom, zoom the busy one, close and split, for the frame times
 
 Scenarios (OUT/<scenario>/): frame-NNNNN.jpg, frames.json, trace.json,
 timing.json, before.json and after.json (`debug.pane_chrome`), colors.json
-(pane id -> color name).
+(pane id -> color name), work.json (`debug.motion` stop: the main-thread time of each frame,
+`work.layout` the layout's step and `work.clock` the whole display-link tick, in ms).
 
 Usage: zoom-close-record.py --socket SOCK --out DIR [--only NAME ...] [--seconds 1.2]
        [--video --app-name 'cmux DEV TAG'] (a display video through the capture daemon, with Chromium pages)
@@ -32,8 +36,10 @@ parser.add_argument("--out", required=True)
 parser.add_argument("--only", action="append", default=[])
 parser.add_argument("--seconds", type=float, default=1.2)
 parser.add_argument("--speed", default="fast", help="debug.motion speed for the run (fast is the default setting)")
-parser.add_argument("--layout", action="append", default=[], help="close, row, grid, strip, springs (default: all)")
+parser.add_argument("--layout", action="append", default=[], help="close, row, grid, strip, springs, splits, perf (default: all)")
 parser.add_argument("--reduce-motion", action="store_true")
+parser.add_argument("--no-pixels", action="store_true",
+                    help="no window record in any scenario: the trace runs at the display's rate (the record's per-frame JPEG loads the main thread)")
 parser.add_argument("--video", action="store_true", help="also record the display through the capture daemon (--cua-socket)")
 parser.add_argument("--cua-socket", default=os.path.expanduser("~/Library/Application Support/cmux/agent-capture/run/cua.sock"))
 parser.add_argument("--app-name", default="", help="the app's name (cmux DEV <tag>), to find its window in the display video")
@@ -85,7 +91,12 @@ def rpc(method, params=None, timeout=60):
 
 
 def action(name, **params):
-    return rpc("action.run", {"action": name, **params})
+    started = time.monotonic()
+    reply = rpc("action.run", {"action": name, **params})
+    took = time.monotonic() - started
+    if took > 0.5:
+        print(f"slow reply: {name} {took:.2f} s {json.dumps(reply)[:400]}", flush=True)
+    return reply
 
 
 def settle(seconds):
@@ -195,17 +206,40 @@ def split(of, direction, color, engine=None):
 
 
 def first_terminal(color):
+    """A new workspace with one terminal pane painted `color`. A new workspace opens on a New Tab
+    page, not a terminal: a split adds a terminal pane, then the page's pane closes."""
     ids.clear()
-    before = panes()
-    action("workspace.newAtBottom")
-    pane = await_pane(before, color)
+    old = {p["pane"] for p in panes()}
+    reply = action("workspace.newAtBottom")
+    # Through the socket the new workspace is made but not shown: show it (it is the last).
+    action("workspace.selectLast")
+    shown = []
+    for _ in range(25):
+        settle(0.4)
+        shown = [p["pane"] for p in panes()]
+        if shown and not (set(shown) & old):
+            break
+    print("new workspace", color, len(shown), "panes, shared with the last:", len(set(shown) & old), json.dumps(reply)[:100], flush=True)
+    origin = shown[0] if len(shown) == 1 and shown[0] not in old else None
+    known = {p["pane"] for p in panes()}
+    action("splitRight")
+    pane = None
+    for _ in range(20):
+        settle(0.4)
+        created = [p["pane"] for p in panes() if p["pane"] not in known]
+        if created:
+            pane = created[0]
+            break
+    if pane and origin:
+        focus_pane(origin)
+        action("closePane")
+        settle(0.8)
     if not pane:
-        shown = panes()
-        if len(shown) == 1:
-            pane = shown[0]["pane"]
-            colors[pane], ids[color] = color, pane
-    if pane:
-        fill(pane, color)
+        print("first_terminal: no terminal pane for", color, flush=True)
+        return
+    colors[pane], ids[color] = color, pane
+    fill(pane, color)
+    print("first terminal", color, pane, "alone:", len(panes()) == 1, flush=True)
 
 
 def window_on_screen():
@@ -219,7 +253,9 @@ def window_on_screen():
             "screen": (size.get("result") or {}).get("structuredContent")}
 
 
-def record(name, trigger, seconds=None):
+def record(name, trigger, seconds=None, pixels=True):
+    """`pixels` False (perf): no window record, whose per-frame snapshot and JPEG encode would load
+    the main thread being measured; the trace and the frame times only."""
     if opts.only and name not in opts.only:
         return
     directory = os.path.join(opts.out, name)
@@ -238,9 +274,11 @@ def record(name, trigger, seconds=None):
         started_video = cua("start_recording", {"output_dir": video, "record_video": True})
         print(name, "video", json.dumps(started_video)[:160], flush=True)
         settle(0.4)
-    rpc("debug.motion", {"action": "trace_start", "targets": ["panes", "dividers", "zoom"]})
+    rpc("debug.motion", {"action": "trace_start", "targets": ["panes", "dividers", "zoom", "strip_edges"]})
+    rpc("debug.motion", {"action": "start"})
     t0 = time.monotonic()
-    started = rpc("debug.window_record", {"dir": directory, "seconds": seconds})
+    pixels = pixels and not opts.no_pixels
+    started = rpc("debug.window_record", {"dir": directory, "seconds": seconds}) if pixels else {"pixels": False}
     t_started = time.monotonic() - t0
     time.sleep(0.15)  # test harness: still frames before the change
     t_sent = time.monotonic() - t0
@@ -248,6 +286,9 @@ def record(name, trigger, seconds=None):
     t_replied = time.monotonic() - t0
     time.sleep(seconds + 0.5)  # test harness: the recording stops by itself
     trace = rpc("debug.motion", {"action": "trace_stop"}) or {}
+    work = rpc("debug.motion", {"action": "stop"}) or {}
+    with open(os.path.join(directory, "work.json"), "w") as handle:
+        json.dump(work, handle)
     if video:
         print(name, "video stop", json.dumps(cua("stop_recording", {}))[:200], flush=True)
     with open(os.path.join(directory, "trace.json"), "w") as handle:
@@ -400,7 +441,83 @@ def springs():
     tune("exit", None, None)
 
 
-LAYOUTS = {"close": close_layouts, "row": row, "grid": grid, "strip": strip, "springs": springs}
+def splits():
+    first_terminal("red")
+    focus("red")
+    record("split-right", lambda: action("splitRight"))
+    first_terminal("red")
+    focus("red")
+    record("split-down", lambda: action("splitDown"))
+    # red | green | blue, split green right: with even split sizing the whole chain evens out.
+    first_terminal("red")
+    split("red", "right", "green")
+    split("green", "right", "blue")
+    focus("green")
+    record("split-chain-right", lambda: action("splitRight"))
+
+
+def type_into(color, text):
+    focus(color)
+    print("type", color, json.dumps(action("terminal.sendText", args={"text": text}))[:120], flush=True)
+
+
+def perf():
+    # red | green | blue (WebKit) / yellow under red, printing `yes` through every scenario.
+    first_terminal("red")
+    split("red", "right", "green")
+    split("green", "right", "blue", "webkit")
+    split("red", "down", "yellow")
+    for color in ("red", "green"):
+        type_into(color, "seq 1 400 | paste -sd ' ' -\r")
+    type_into("yellow", "yes\r")
+    settle(0.5)
+    focus("green")
+    record("perf-zoom-green", toggle, pixels=False)
+    record("perf-unzoom-green", toggle, pixels=False)
+    focus("yellow")
+    record("perf-zoom-busy", toggle, pixels=False)
+    record("perf-unzoom-busy", toggle, pixels=False)
+    focus("blue")
+    record("perf-zoom-webkit", toggle, pixels=False)
+    record("perf-unzoom-webkit", toggle, pixels=False)
+    focus("red")
+    record("perf-split-red", lambda: action("splitRight"), pixels=False)
+    focus("green")
+    record("perf-close-green", lambda: action("closePane"), pixels=False)
+    type_into("yellow", "\x03")
+
+
+def perf_busy_first():
+    """perf with the busy terminal's zoom first: is a live resize of a terminal under heavy output
+    what slows the daemon (every later reply slow), or another pane's zoom next to it."""
+    first_terminal("red")
+    split("red", "right", "green")
+    split("green", "right", "blue", "webkit")
+    split("red", "down", "yellow")
+    for color in ("red", "green"):
+        type_into(color, "seq 1 400 | paste -sd ' ' -\r")
+    type_into("yellow", "yes\r")
+    settle(0.5)
+    focus("yellow")
+    record("perf-zoom-busy", toggle, pixels=False)
+    record("perf-unzoom-busy", toggle, pixels=False)
+    focus("green")
+    record("perf-zoom-green", toggle, pixels=False)
+    record("perf-unzoom-green", toggle, pixels=False)
+    focus("blue")
+    record("perf-zoom-webkit", toggle, pixels=False)
+    record("perf-unzoom-webkit", toggle, pixels=False)
+    focus("red")
+    record("perf-split-red", lambda: action("splitRight"), pixels=False)
+    focus("green")
+    record("perf-close-green", lambda: action("closePane"), pixels=False)
+    type_into("yellow", "\x03")
+    settle(2)
+    focus("red")
+    print("after ctrl-c, a focus took", json.dumps(action("pane.focus", target=f"pane:{ids.get('red')}"))[:120], flush=True)
+
+
+LAYOUTS = {"perf-busy-first": perf_busy_first, "close": close_layouts, "row": row, "grid": grid, "strip": strip, "springs": springs, "splits": splits, "perf": perf}
 
 
 def main():

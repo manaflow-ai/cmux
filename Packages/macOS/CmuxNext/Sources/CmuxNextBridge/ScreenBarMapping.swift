@@ -48,7 +48,7 @@ public struct ScreenBarMapping {
             subtitle: focused.flatMap { $0.cwd.map(SidebarMapping.shared.abbreviate) ?? $0.url },
             icon: icon(screen.icon, emoji: emojiIcon, asset: assetIcon),
             isPinned: screen.pinned,
-            isUnread: tabs.contains(where: \.hasUnread),
+            isUnread: tabs.contains(where: \.showsUnread),
             isBusy: false,
             status: tabs.contains { $0.agent?.state == .blocked } ? .needsInput : .none,
             groupID: screen.group.map { TabGroupID($0.rawValue) },

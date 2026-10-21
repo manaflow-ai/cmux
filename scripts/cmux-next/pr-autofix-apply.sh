@@ -7,10 +7,22 @@
 # Prints one "applied: PATH" line per file; exits 1 and applies nothing when a
 # path is refused.
 #
-# Usage: scripts/cmux-next/pr-autofix-apply.sh PATCH REPO
+# With --changed FILE (the pull request's changed paths, one per line) it also
+# leaves out every path the pull request does not own (generated_outputs.py
+# drop): formatting of a file it did not change, and an output whose inputs it
+# did not change, regenerated against a newer base. Those are the base
+# autofix's; pushed into a pull request they conflicted with every other one
+# and a later merge could drop the base's newer rows (#21946). Prints one
+# "dropped: PATH" line for each.
+#
+# Usage: scripts/cmux-next/pr-autofix-apply.sh PATCH REPO [--changed FILE]
 set -euo pipefail
-patch="$(cd "$(dirname "${1:?usage: $0 PATCH REPO}")" && pwd)/$(basename "$1")"
-repo="$(cd "${2:?usage: $0 PATCH REPO}" && pwd)"
+patch="$(cd "$(dirname "${1:?usage: $0 PATCH REPO [--changed FILE]}")" && pwd)/$(basename "$1")"
+repo="$(cd "${2:?usage: $0 PATCH REPO [--changed FILE]}" && pwd)"
+changed=""
+if [[ "${3:-}" == --changed ]]; then
+  changed="$(cd "$(dirname "${4:?usage: $0 PATCH REPO [--changed FILE]}")" && pwd)/$(basename "$4")"
+fi
 
 allowed() { # repository-relative path -> 0 when an autofix repair writes it
   case "$1" in
@@ -22,7 +34,6 @@ allowed() { # repository-relative path -> 0 when an autofix repair writes it
     web/data/cmux-shortcuts.generated.json) return 0 ;;
     plans/cmux-next/action-surfaces.json|plans/cmux-next/actions.md|plans/cmux-next/links.json) return 0 ;; # action exports
     scripts/lint-namespace-types-ratchet.txt) return 0 ;;
-    schemas/defaults/cmux-next.json) return 0 ;; # the defaults snapshot (a changed default still needs a call)
     # The settings exports and their source stamp: exactly the files regenerate-settings-exports.sh writes.
     schemas/settings/settings-schema.json|schemas/settings-export/settings-schema.sources.sha256) return 0 ;;
     docs/mdm/com.manaflow.cmux.json|docs/mdm/com.manaflow.cmux.plist|docs/mdm/com.manaflow.cmux.intune.plist) return 0 ;;
@@ -40,12 +51,36 @@ if git -C "$repo" apply --summary "$patch" | grep -qE 'mode change|create mode 1
   echo "refused: the patch changes a file mode, adds a symlink or renames a file" >&2
   exit 1
 fi
-refused=0 files=()
+# The defaults snapshot is bot-only (#21946): the repair rewrites it, but only
+# the base autofix commits it, after a merge.
+bot_only=(schemas/defaults/cmux-next.json)
+refused=0 files=() bot_excludes=()
 while IFS=$'\t' read -r _ _ rel; do
   [[ -n "$rel" ]] || continue
+  if [[ " ${bot_only[*]} " == *" $rel "* ]]; then
+    echo "dropped: $rel (bot-only: the base autofix writes it after a merge)"
+    bot_excludes+=(--exclude="$rel")
+    continue
+  fi
   if allowed "$rel"; then files+=("$rel"); else echo "refused: $rel is not an autofix output" >&2; refused=1; fi
 done < <(git -C "$repo" apply --numstat "$patch")
 (( refused )) && exit 1
 (( ${#files[@]} )) || exit 0
-git -C "$repo" apply "$patch"
+excludes=(${bot_excludes[@]+"${bot_excludes[@]}"})
+if [[ -n "$changed" ]]; then
+  # The ownership table sits beside this script (the base's copy, like this one).
+  dropped="$(printf '%s\n' "${files[@]}" | python3 -I "$(dirname "$0")/generated_outputs.py" drop --changed "$changed")"
+  kept=()
+  for rel in "${files[@]}"; do
+    if grep -qxF -- "$rel" <<<"$dropped"; then
+      echo "dropped: $rel (the pull request did not change it or its inputs; the base autofix owns it)"
+      excludes+=(--exclude="$rel")
+    else
+      kept+=("$rel")
+    fi
+  done
+  (( ${#kept[@]} )) || exit 0
+  files=("${kept[@]}")
+fi
+git -C "$repo" apply ${excludes[@]+"${excludes[@]}"} "$patch"
 printf 'applied: %s\n' "${files[@]}"

@@ -241,17 +241,26 @@ impl Hub {
     /// A child lists under it, never on its own in a chat list. Kept only while that session is
     /// here, listed (not archived) and not a child itself: one level, so a loop of tags or a
     /// parent nobody sees never hides a chat.
+    /// A sub-session (`subsessions.rs`) names its parent the same way, by its proven link.
     pub fn spawned_by(&self, m: &SessionMeta) -> Option<String> {
-        let parent = live_tags(m).get(SPAWNED_BY_TAG)?.as_str()?.to_owned();
+        let parent = match &m.subsession {
+            Some(link) => link.started_by.clone(),
+            None => live_tags(m).get(SPAWNED_BY_TAG)?.as_str()?.to_owned(),
+        };
         let session =
             self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&parent).cloned()?;
-        let tags = live_tags(&session.meta());
-        let listed = tags.get(SPAWNED_BY_TAG).is_none() && tags.get("archived").is_none();
+        let pm = session.meta();
+        let tags = live_tags(&pm);
+        let listed = tags.get(SPAWNED_BY_TAG).is_none()
+            && pm.subsession.is_none()
+            && tags.get("archived").is_none();
         (parent != m.id && listed).then_some(parent)
     }
 
     pub fn session_summary(&self, session: &Session) -> Value {
-        use crate::protocol::session::{QueuedPromptSummary, SessionSummary, TurnSummary};
+        use crate::protocol::session::{
+            QueuedImage, QueuedPromptSummary, SessionSummary, TurnSummary,
+        };
         let m = session.meta();
         let turn = session.turn();
         let summary = SessionSummary {
@@ -271,6 +280,11 @@ impl Hub {
             // Where a fork branched off its parent (the pane's < 1/2 > arrows, cx-ncc.61).
             fork_seq: m.fork_seq,
             spawned_by: self.spawned_by(&m),
+            pull_requests: m.pull_requests.clone(),
+            started_by: m.subsession.as_ref().map(|l| l.started_by.clone()),
+            short_name: m.subsession.as_ref().map(|l| l.short_name.clone()),
+            depth: m.subsession.as_ref().map_or(0, |l| l.depth),
+            children: self.subsessions.open_count(&m.id),
             title: m.title.clone(),
             last_prompt: m.last_prompt.clone(),
             preview: m.preview.as_deref().map(|p| short_text(p, 160)),
@@ -301,6 +315,15 @@ impl Hub {
                     prompt: q.preview,
                     queued_at: q.queued_at,
                     held: q.held,
+                    // By attachment id: `_acpmux/attachment` reads each back.
+                    images: super::prompt_images::named(&q.run.blocks)
+                        .into_iter()
+                        .map(|image| QueuedImage {
+                            id: image["id"].as_str().unwrap_or_default().to_owned(),
+                            mime_type: image["mimeType"].as_str().unwrap_or_default().to_owned(),
+                            name: image["name"].as_str().map(str::to_owned),
+                        })
+                        .collect(),
                 })
                 .collect(),
             pending_permissions: session.pending_permissions().len() as u64,
@@ -366,6 +389,8 @@ impl Hub {
         v["gitHead"] = json!(m.git_head);
         // What the session's turns cost together (`turn_usage.rs`).
         v["totals"] = json!(m.totals);
+        // The sub-session limits in force and where each comes from (`subsessions.rs`).
+        v["subsessionLimits"] = self.subsession_limits_value(&m);
         let mut pending = session.permissions.lock().unwrap().pending_records();
         for p in &mut pending {
             p["personInstance"] = Value::String(self.person.instance().to_owned());

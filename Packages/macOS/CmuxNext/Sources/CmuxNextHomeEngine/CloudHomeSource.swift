@@ -171,10 +171,13 @@ public nonisolated final class CloudHomeSource: HomeSource {
             // task-owner: one inbox list; ends with its reply
             Task { [weak self] in await self?.reloadInbox(generation: generation) }
         case .subscriptionState(let report): apply(report)
-        case .sessionNeeded:
+        case .sessionNeeded, .hostReplicaNeeded:
             break
         case .live(let live): applyLive({ $0.event(live) }, conversation: live.conversation)
         case .runChanged(let changed): applyLive({ $0.event(changed) }, conversation: changed.conversation)
+        case .typing(let typing):
+            guard let identity = state.withLock({ $0.identity }) else { break }
+            publish(.typing(ConversationID(typing.conversation), identity.toHome(typing.participant), on: typing.on))
         }
         if case .changed(let changed) = event { echoed(ConversationID(changed.conversation), rev: changed.rev) }
         if case .resynced(let resynced) = event { echoed(ConversationID(resynced.conversation), rev: resynced.rev) }
@@ -217,9 +220,10 @@ public nonisolated final class CloudHomeSource: HomeSource {
         case .inboxChanged(let changed): account = changed.account
         case .inboxReset(_, let named): return named.map { cloudID == CloudIdentity.cloudID(stackUserID: $0) } ?? true
         case .subscriptionState(let report): return report.account.map { cloudID == CloudIdentity.cloudID(stackUserID: $0) } ?? true
-        case .sessionNeeded: return true
+        case .sessionNeeded, .hostReplicaNeeded: return true
         case .live(let live): account = live.account
         case .runChanged(let changed): account = changed.account
+        case .typing(let typing): account = typing.account
         }
         guard let account else { return false }
         return cloudID == CloudIdentity.cloudID(stackUserID: account)

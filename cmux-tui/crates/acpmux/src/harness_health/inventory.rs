@@ -6,6 +6,12 @@ use serde_json::{Value, json};
 use super::HarnessHealth;
 use crate::rpc::RpcError;
 
+pub(super) const MAX_HARNESSES: usize = 256;
+
+pub(super) fn visible_rows(rows: &[HarnessHealth]) -> impl Iterator<Item = &HarnessHealth> {
+    rows.iter().filter(|row| safe_id(&row.id)).take(MAX_HARNESSES)
+}
+
 /// Select fields individually: health diagnostics include paths, commands
 /// and arbitrary CLI output, and new health fields are private by default.
 pub(crate) fn view(rows: &[HarnessHealth], params: &Value) -> Result<Value, RpcError> {
@@ -22,10 +28,7 @@ pub(crate) fn view(rows: &[HarnessHealth], params: &Value) -> Result<Value, RpcE
 
 /// The one bounded projection shared by cached reads and change snapshots.
 pub(super) fn snapshot(rows: &[HarnessHealth]) -> Value {
-    let harnesses: Vec<Value> = rows
-        .iter()
-        .filter(|row| safe_id(&row.id))
-        .take(256)
+    let harnesses: Vec<Value> = visible_rows(rows)
         .map(|row| {
             let version = safe_version(row.version.as_deref());
             let latest = safe_version(row.latest.as_deref());
@@ -45,7 +48,7 @@ pub(super) fn snapshot(rows: &[HarnessHealth]) -> Value {
     json!({"view": "inventory", "cached": true, "harnesses": harnesses})
 }
 
-fn safe_id(id: &str) -> bool {
+pub(super) fn safe_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 128
         && id.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
@@ -53,7 +56,7 @@ fn safe_id(id: &str) -> bool {
 
 /// Uses only evidence saved together by the health check, never a profile
 /// name or today's configuration. An adapter's version is not its agent's.
-fn cli_family(row: &HarnessHealth) -> Option<&'static str> {
+pub(super) fn cli_family(row: &HarnessHealth) -> Option<&'static str> {
     use super::channel::Channel;
     if matches!(row.channel, Channel::Launcher | Channel::Missing)
         || row.path.as_deref().is_none_or(str::is_empty)
@@ -105,7 +108,7 @@ fn cli_family(row: &HarnessHealth) -> Option<&'static str> {
 
 /// A saved cache may predate version parsing. Only a complete version
 /// token crosses this boundary; never an error line containing one.
-fn safe_version(value: Option<&str>) -> Option<&str> {
+pub(super) fn safe_version(value: Option<&str>) -> Option<&str> {
     static VERSION: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
         regex::Regex::new(r"^v?[0-9]+\.[0-9]+(?:\.[0-9]+)?(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$")
             .expect("inventory version pattern") // crash-allow: constant pattern

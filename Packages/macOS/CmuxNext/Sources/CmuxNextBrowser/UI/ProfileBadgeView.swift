@@ -82,6 +82,7 @@ final class ProfileBadgeView: NSView {
     /// letters, digits and dots, more than one character).
     static func symbolImage(_ name: String) -> NSImage? {
         guard name.count > 1, name.allSatisfy({ ($0.isASCII && ($0.isLowercase || $0.isNumber)) || $0 == "." }) else { return nil }
+        // chrome-icons: allow the profile's own symbol, chosen by the user
         return NSImage(systemSymbolName: name, accessibilityDescription: nil)
     }
 

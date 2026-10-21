@@ -46,6 +46,12 @@ extension ControlRouter {
             }
             request.focus = value
         }
+        if let background = params["background"], !background.isNull {
+            guard let value = background.boolValue else {
+                throw ControlError.invalidParams(ControlStrings.text("control.error.backgroundShape", "background must be true or false"))
+            }
+            request.background = value
+        }
         if let rawTarget = params["target"], !rawTarget.isNull {
             request.target = try target(from: rawTarget, allowedKinds: action.targets, knownKinds: knownKinds, action: action.id)
         }

@@ -16,6 +16,7 @@ public import CoreGraphics
 ///   (`WindowSizer::GetDefaultPopupOrigin`, `kWindowTilePixels`).
 /// - The result is moved, then shrunk, to fit the screen's visible frame
 ///   (`gfx::Rect::AdjustToFit(display.work_area())`), with no margin.
+// lint:allow namespace-type: pure geometry over value inputs (Chrome's popup sizing rules); no receiver owns it yet
 public nonisolated enum BrowserPopupWindowGeometry {
     /// Blink's `kMinimumWindowSize`: the smallest page width or height a
     /// page can ask for.

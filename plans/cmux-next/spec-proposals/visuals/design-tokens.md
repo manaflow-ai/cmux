@@ -29,7 +29,7 @@ Every source line below is in `ThemeTokens.derive` (`ThemeTokens.swift`) unless 
 | textTertiary | textPrimary mixed toward bg, up to 0.55, keeping 3:1 | :157 |
 | hoverFill | fg @ 0.06 / 0.05 | :148 |
 | selectionFill | fg @ 0.10 / 0.08; with appearance.accent: accent @ 0.26 / 0.16 | :150 |
-| secondarySelectionFill | fg @ 0.07 / 0.055 | :196 |
+| secondarySelectionFill | fg @ 0.07 / 0.055; with appearance.accent: accent @ 0.18 / 0.11 | :196 |
 | pressedFill | fg @ 0.14 / 0.11 | :151 |
 | badgeFill | fg @ 0.14 / 0.10 | :198 |
 | separator | fg @ 0.08 / 0.07; clear under borders none | :199; Palette.swift:66 (`Palette.separator`) |
@@ -211,7 +211,7 @@ Every listed surface draws through `OverlaySurfaceView`: the drop overlay, drop 
 
 The "older macOS" column cannot run in the macOS app today: `Packages/macOS/CmuxNext/Package.swift` requires macOS 26. Ports on a platform without Liquid Glass use the vibrancy row where the platform has a blur, else the opaque fallback.
 
-The overlay tint strength Debug tunable (default 1, `ChromeTunables.swift:43-45 (ChromeTunables.glassOverlayTintStrength)`) scales the tint of `OverlaySurface` only. `Glass.makePanel` panels use `glassTint` unscaled.
+The overlay tint strength Debug tunable (default 1.25, `ChromeTunables.swift:43-45 (ChromeTunables.glassOverlayTintStrength)`) scales the tint of `OverlaySurface` only. `Glass.makePanel` panels use `glassTint` unscaled.
 
 ## 5. Motion
 
@@ -232,7 +232,8 @@ Speed `fast` (default) scales times by 1, `normal` by 1.5, `off` disables (`Moti
 | fade | s | use |
 |---|---|---|
 | hover | 0.08 | hover fills, revealed buttons |
-| focus | 0.10 | focus ring, inactive dim |
+| focus | 0.10 | focus ring |
+| paneDim | 0.15 | inactive pane dim |
 | fadeIn / fadeOut | 0.12 / 0.08 | palette, find bar, notices, hover card |
 | crossfade | 0.10 | thumbnail swap; Reduce Motion ceiling |
 | lift | 0.12 | drag lift shadow |
@@ -254,7 +255,7 @@ Reduce Motion: no movement springs and no loops; fades capped at 0.1 s; the atte
 | appearance.tabBarBackground | retired | ignored: every surface draws the one window background |
 | focusRing.contrast | subtle 0.20, standard 0.55, strong 0.85 | ring alpha |
 | focusRing.{enabled,style,color,width,cornerRadius,showWhenSinglePane} | true, ring, nil, 1, nil, false | |
-| focus.inactiveTabStyle (the Debug tunable of the same name overrides it) | fade, tonal, quiet; strength 0.35 (Debug tunable) | see tabs page (`CmuxNextSettings/PaneFocusSettings.swift (PaneFocusSettings.inactiveTabStylePath)`) |
+| focus.inactiveTabStyle (the Debug tunable of the same name overrides it) | fade, tonal, quiet; strength 0.6 (Debug tunable) | see tabs page (`CmuxNextSettings/PaneFocusSettings.swift (PaneFocusSettings.inactiveTabStylePath)`) |
 | sidebar.sectionLook (Debug tunable `sidebar.sections.look` overrides it) | quiet, card, tray, lines, linesIcons | see sidebar page |
 | sidebar.topBandMaxShare / bottomBandMaxShare / pinnedBandsScroll | 1/3, 0.25 (range 0.1-0.9), true | share of the sidebar height a pinned band takes before it scrolls inside; false: bands never scroll and the list shrinks (three rows minimum) |
 | notifications.attention.* | style blink, width 2, blinkCount 2, duration 3 s, persist true | pane attention ring. Blink: blinkCount blinks over 0.5 s each (1.0 s for 2), then holds. duration applies to the pulse style only |

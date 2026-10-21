@@ -33,12 +33,14 @@ public struct TabItemMapping {
                 : tab.cwd.map(SidebarMapping.shared.abbreviate),
             icon: isNewTabPage ? .icon(.tabNew) : icon(tab, isBrowser: isBrowser, isConversation: isConversation),
             isPinned: tab.pinned,
-            isUnread: tab.hasUnread,
+            isUnread: tab.showsUnread,
             isBusy: busy.state.isLoading || isReportingProgress(tab),
             status: status(tab)
         )
         item.isNewTabPage = isNewTabPage
         if busy.state.replacesTabIcon { item.indicator = busy.state }
+        // A terminal title's spinner glyph (`⠐ Fix the bug`) shows as the working mark, not as text.
+        else if item.indicator == .idle, tab.titleActivity == .working { item.indicator = .working(progress: nil) }
         item.busyStyle = busy.style
         if item.status == .needsInput { item.blockedKind = StatusMapping.shared.blockedKind(tab) }
         item.presence = presence(tab)

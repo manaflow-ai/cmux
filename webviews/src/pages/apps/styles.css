@@ -57,10 +57,20 @@
 }
 
 .apps-error {
-  display: block;
-  padding: 6px var(--page-edge);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px var(--page-edge);
   color: var(--page-text-2);
   border-bottom: 1px solid var(--page-separator);
+}
+
+.apps-error-copy {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  min-width: 0;
 }
 
 .apps-scroll {
@@ -69,9 +79,11 @@
   min-height: 0;
 }
 
+/* No max-width: the chips and grid share the toolbar's edges at every width (a centered column sat
+   7px off the tabs at 1214 and 250px in at 1664). Container: the banner and chips below follow the
+   list's own width, which in the split view is the 340px column, not the window. */
 .apps-discover-list {
-  max-width: 1200px;
-  margin: 0 auto;
+  container: apps-discover / inline-size;
   padding: 0 var(--page-edge) 24px;
 }
 
@@ -269,6 +281,17 @@
   min-height: 0;
 }
 
+.apps-detail-state .apps-detail-body {
+  min-height: 220px;
+}
+
+.apps-detail-state-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
 .apps-detail-body {
   max-width: 760px;
   margin: 0 auto;
@@ -378,7 +401,10 @@
 }
 
 code {
-  font: 11.5px ui-monospace, "SF Mono", monospace;
+  font:
+    11.5px ui-monospace,
+    "SF Mono",
+    monospace;
 }
 
 .apps-muted {
@@ -502,7 +528,10 @@ code {
   overflow: auto;
   border-radius: 6px;
   border: 1px solid var(--page-separator);
-  font: 11px ui-monospace, "SF Mono", monospace;
+  font:
+    11px ui-monospace,
+    "SF Mono",
+    monospace;
   white-space: pre-wrap;
 }
 
@@ -515,8 +544,148 @@ code {
   text-align: center;
 }
 
+.apps-state {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 6px;
+  flex: 1;
+  min-height: 180px;
+  padding: 32px;
+  color: var(--page-text-2);
+  text-align: center;
+}
+
+.apps-state strong {
+  color: var(--page-text);
+  font-size: var(--text-body);
+}
+
+.apps-state > span:last-child {
+  max-width: 340px;
+  font-size: var(--text-detail);
+}
+
+.apps-state-mark {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-bottom: 4px;
+  border: 1px solid var(--page-separator);
+  border-radius: 9px;
+  color: var(--page-text-2);
+  background: var(--page-hover);
+  font-size: var(--text-title);
+}
+
+.apps-state-empty {
+  min-height: 220px;
+  margin-top: 8px;
+  border: 1px dashed var(--page-separator);
+  border-radius: 12px;
+}
+
+.apps-state-error {
+  gap: 8px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .apps-switch-knob {
     transition: none;
+  }
+}
+
+/* The featured Cloud banner on the Discover home (CloudFeature.tsx): hairline card, text, a small
+   cloud mark and one button. */
+.apps-cloud-feature {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--page-separator);
+  border-radius: 12px;
+}
+
+.apps-cloud-feature-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.apps-cloud-feature-eyebrow {
+  font-size: var(--text-caption);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--page-text-3);
+}
+
+.apps-cloud-feature-title {
+  font-size: var(--text-title);
+  font-weight: 600;
+}
+
+.apps-cloud-feature-body {
+  font-size: var(--text-detail);
+  line-height: 1.4;
+  color: var(--page-text-2);
+  text-wrap: pretty;
+}
+
+.apps-cloud-feature-art {
+  flex: none;
+  width: 56px;
+  height: auto;
+  fill: var(--page-hover);
+  stroke: var(--page-text-3);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+
+.apps-cloud-feature-art circle {
+  fill: var(--page-text-2);
+  stroke: none;
+}
+
+@media (max-width: 520px) {
+  .apps-cloud-feature {
+    flex-wrap: wrap;
+  }
+
+  .apps-cloud-feature-art {
+    display: none;
+  }
+}
+
+/* A list column too narrow for the banner and chips in one row (the split view's list): the banner
+   puts its button under the text and drops the art, and the chips scroll sideways instead of
+   wrapping one chip onto a line of its own. */
+@container apps-discover (max-width: 480px) {
+  .apps-cloud-feature {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .apps-cloud-feature-text {
+    flex-basis: 100%;
+  }
+
+  .apps-cloud-feature-art {
+    display: none;
+  }
+
+  .apps-chips {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    /* 2px left of the first chip for its focus ring (pulled back so it stays on the edge), and room
+       past the last one to scroll it clear of the fade. */
+    margin-left: -2px;
+    padding-inline: 2px 24px;
+    mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
   }
 }

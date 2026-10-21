@@ -33,10 +33,13 @@ import Testing
                                               statusLine: { id in lines[id].flatMap { statusLine[$0] } })
     }
 
-    static func sidebar(_ sections: [CmuxNextSidebar.SidebarSection]) -> SidebarView {
+    static func sidebar(_ sections: [CmuxNextSidebar.SidebarSection], detailed: Bool = false) -> SidebarView {
         let model = SidebarModel(sections: sections)
         model.rowBadgeStyle = .corner
-        let sidebar = SidebarView(model: model, design: DesignSettings())
+        model.detailedStatus = detailed
+        let design = DesignSettings()
+        design.sidebarSections.detailedStatusIcons = detailed
+        let sidebar = SidebarView(model: model, design: design)
         sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
         sidebar.layoutSubtreeIfNeeded()
         sidebar.list.reload(animated: false)
@@ -55,11 +58,16 @@ import Testing
         #expect(row.rowBadge.states == [.busy(progress: nil)], "`cmux status set --state busy` draws a glyph")
     }
 
+    /// With detailed status icons; by default both read as Ready, the blue dot.
     @Test func aFailureAndAQuestionDrawTheirColoredGlyphs() throws {
-        let sidebar = Self.sidebar(Self.sections([
+        let sections = Self.sections([
             "tests": [WorkspaceStatus.Entry(key: "tests", text: "Tests failed", state: "error")],
             "deploy": [WorkspaceStatus.Entry(key: "deploy", text: "Needs input", state: "waiting")],
-        ]))
+        ])
+        let simple = Self.sidebar(sections)
+        #expect(try Self.row(simple, "tests").rowBadge.states == [.success])
+        #expect(try Self.row(simple, "deploy").rowBadge.states == [.success])
+        let sidebar = Self.sidebar(sections, detailed: true)
         #expect(try Self.row(sidebar, "tests").rowBadge.states == [.error])
         #expect(try Self.row(sidebar, "deploy").rowBadge.states.first.map { if case .waiting = $0 { true } else { false } } == true)
     }

@@ -140,6 +140,24 @@ when `cmux` is not on the client's `PATH`. Global options go before `mcp`:
     ids, states and short titles; no terminal text, chat text or tool input, and notification title and
     body are cut to 80 and 160 characters (`truncated: true`). Kinds not asked for are
     skipped, not kept. Read-only;
+  - `agents_chat_send` and `agents_chat_read` (`cmux agents chat send|read`,
+    `cli/agents/chat.rs`): one agent prompts another agent chat and reads its
+    transcript. Both reach only chats whose acpmux session runs in a workspace of this
+    cmux session (`sessionEnv.CMUX_WORKSPACE_ID` against the snapshot's `extra.key`); a
+    chat with none is refused (`chat.out_of_scope`). A send is a `cmux agent message`:
+    the daemon stores it under its policy and limits, then it reaches the chat as an
+    acpmux prompt with `_meta.acpmux.provenance`, so the chat shows it as another agent's
+    message. It never goes to the caller's own chat (`chat.own_chat`), refuses empty text
+    and text over 32 KiB, is `destructiveHint`, and answers `{action, origin, result:
+    {chat, message_id, state}, idempotency_key}`; a retry with the key is the same
+    message. A message stored but not handed to the chat is an error that keeps its
+    receipt (`state: failed`; the CLI exits 1). The CLI takes the text as one argument
+    or after `--`. A read answers items `{id, role, text}` (`user` with `origin`/`from`
+    for an agent's prompt, `assistant`, `tool` as kind and status only, never its title,
+    which harnesses fill with the input, `turn_end`), paged with `after` = `next_after`;
+    an answer being written or a tool call running is `partial`, and `next_after` never
+    passes it.
+    Waiting for the reply is `agents_wait` with `until: idle` and the chat as target;
   - `render` (`html`, `title`): a page the cmux NEXT chat draws as a live render card
     above the turn's answer (webviews `renderCall.ts`). It reaches no owner; the result is
     the receipt (`rendered`, `bytes`, `title`);

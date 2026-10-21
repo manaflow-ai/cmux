@@ -34,13 +34,28 @@ extension KeyRouter {
     func resolve(_ event: NSEvent, context: KeyContext, ghostty: Bool = true) -> KeyBinding? {
         let table = RegistryKeyBindings(registry).table
         let bits = context.bits
+        let accepts = Self.acceptsEntry(ghostty: ghostty, codeEditor: bits.contains(.codeEditorFocused))
         for shortcut in ActionRegistry.shortcuts(for: event) {
             if let winner = table.resolve([shortcut], in: context, isRunnable: { [registry] in RegistryKeyBindings(registry).canPerform($0, in: bits) },
-                                          accepts: { ghostty || !$0.source.isGhostty }).winner {
+                                          accepts: accepts).winner {
                 return winner
             }
         }
         return nil
+    }
+
+    /// Which table entries may win a key. `ghostty: false` drops every Ghostty entry (a browser
+    /// chord in a browser context). In the code editor (`codeEditor`) Ghostty's own default
+    /// keybinds (`.ghosttyFallback`) never win: they are a terminal's defaults, and they took the
+    /// editor's keys after the cmux defaults stepped aside (R127): Cmd-D split the pane instead of
+    /// adding the next match, Cmd-Opt-Up/Down moved focus instead of adding a cursor. A keybind the
+    /// user wrote in their Ghostty config (`.ghostty`) still wins, as everywhere.
+    nonisolated static func acceptsEntry(ghostty: Bool, codeEditor: Bool) -> @Sendable (KeyBinding) -> Bool {
+        { entry in
+            if !ghostty, entry.source.isGhostty { return false }
+            if codeEditor, entry.source == .ghosttyFallback { return false }
+            return true
+        }
     }
 
     /// The candidate for a key-down in a window with `focus` (no chord).

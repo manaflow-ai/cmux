@@ -13,10 +13,19 @@ extension TaskLocal {
     /// target has an isolated deinit, so the binding must never sit in the fallback storage.
     /// Inside a task both the push and the pop use the task's allocator. CmuxNext binds task
     /// locals only through this (scripts/cmux-next/check-concurrency.sh enforces it).
+    ///
+    /// Below macOS 15.4 the binding stays in the fallback storage. There the back-deploy shim runs
+    /// an isolated deinit inline and pushes no marker, and a task started with `startOnMainActor`
+    /// is not safe: when `body` spins a nested run loop that runs other main-actor jobs
+    /// (`performClose` highlights the close button), the macOS 14 runtime leaves no current task
+    /// after them. The pop and the task's own frame free then go to the no-task allocator and
+    /// abort ("freed pointer was not the last allocation"): New Incognito Window, then Close
+    /// Window, crashed every time on macOS 14.8.7 (scripts/fuzz/macos-matrix/repros).
     @MainActor
     public func withValueInTask<R>(_ value: Value, operation body: () -> R) -> R {
         // The only sanctioned synchronous bindings (check-concurrency: task-local bindings).
         if withUnsafeCurrentTask(body: { $0 != nil }) { return withValue(value, operation: body) }
+        guard #available(macOS 15.4, *) else { return withValue(value, operation: body) }
         return withoutActuallyEscaping(body) { body in
             let run = ImmediateRun { self.withValue(value, operation: body) }
             if #available(macOS 26, *) {

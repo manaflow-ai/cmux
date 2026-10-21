@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR bba09f656c8f685a9e551fa2b11106871b9f155b1f04c0b23e0dadf5e395d1fb.
+// cmux-tui mux protocol 12, IR 96e61acfae440a8a09afd96f3fcebb5b2aa189cff1cdcb74d026be328dd4ea67.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -21,6 +21,9 @@ pub struct AgentChangedEvent {
     /// Adapter identity when the producer knows it; absent from protocol-11 event senders and null when no adapter was identified.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub agent: Optional<String>,
+    /// The harness's own session id that the agent's hooks reported (\`claude\`, \`codex\` session ids), checked to \`[A-Za-z0-9._:-]\` and at most 256 bytes; null when no hook reported one or it isn't portable (a session-less adapter's local token). Hook reports keep \`session\` for a human label, so clients find a terminal's agent session by this.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub agent_session_id: Optional<String>,
     /// The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub last_prompt: Optional<String>,
@@ -206,6 +209,24 @@ pub struct CloudConversationRunChangedEvent {
     pub conversation: String,
     pub run: Nullable<T::JsonValue>,
     pub steps: Vec<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudConversationTypingEvent {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
+    pub conversation: String,
+    pub on: bool,
+    pub participant: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudHostReplicaNeededEvent {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub expires_at: Optional<u64>,
+    pub reason: String,
 }
 
 #[rustfmt::skip]
@@ -968,6 +989,8 @@ pub enum Event {
     CloudConversationLive(CloudConversationLiveEvent),
     CloudConversationResynced(CloudConversationResyncedEvent),
     CloudConversationRunChanged(CloudConversationRunChangedEvent),
+    CloudConversationTyping(CloudConversationTypingEvent),
+    CloudHostReplicaNeeded(CloudHostReplicaNeededEvent),
     CloudInboxChanged(CloudInboxChangedEvent),
     CloudInboxReset(CloudInboxResetEvent),
     CloudMuxResynced(CloudMuxResyncedEvent),
@@ -1060,6 +1083,8 @@ impl Event {
             Self::CloudConversationLive(_) => Some("cloud-conversation-live"),
             Self::CloudConversationResynced(_) => Some("cloud-conversation-resynced"),
             Self::CloudConversationRunChanged(_) => Some("cloud-conversation-run-changed"),
+            Self::CloudConversationTyping(_) => Some("cloud-conversation-typing"),
+            Self::CloudHostReplicaNeeded(_) => Some("cloud-host-replica-needed"),
             Self::CloudInboxChanged(_) => Some("cloud-inbox-changed"),
             Self::CloudInboxReset(_) => Some("cloud-inbox-reset"),
             Self::CloudMuxResynced(_) => Some("cloud-mux-resynced"),
@@ -1151,6 +1176,8 @@ impl Event {
             Self::CloudConversationLive(_) => Some(&CLOUD_CONVERSATION_LIVE_EVENT_METADATA),
             Self::CloudConversationResynced(_) => Some(&CLOUD_CONVERSATION_RESYNCED_EVENT_METADATA),
             Self::CloudConversationRunChanged(_) => Some(&CLOUD_CONVERSATION_RUN_CHANGED_EVENT_METADATA),
+            Self::CloudConversationTyping(_) => Some(&CLOUD_CONVERSATION_TYPING_EVENT_METADATA),
+            Self::CloudHostReplicaNeeded(_) => Some(&CLOUD_HOST_REPLICA_NEEDED_EVENT_METADATA),
             Self::CloudInboxChanged(_) => Some(&CLOUD_INBOX_CHANGED_EVENT_METADATA),
             Self::CloudInboxReset(_) => Some(&CLOUD_INBOX_RESET_EVENT_METADATA),
             Self::CloudMuxResynced(_) => Some(&CLOUD_MUX_RESYNCED_EVENT_METADATA),
@@ -1358,6 +1385,22 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("cloud-conversation-run-changed") => match serde_json::from_value::<CloudConversationRunChangedEvent>(raw.clone()) {
             Ok(event) => Event::CloudConversationRunChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("cloud-conversation-typing") => match serde_json::from_value::<CloudConversationTypingEvent>(raw.clone()) {
+            Ok(event) => Event::CloudConversationTyping(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("cloud-host-replica-needed") => match serde_json::from_value::<CloudHostReplicaNeededEvent>(raw.clone()) {
+            Ok(event) => Event::CloudHostReplicaNeeded(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

@@ -43,7 +43,7 @@ extension SidebarListViewComponents {
             }
         case let (.group(id), view as GroupHeaderRowView):
             view.onMore = { [weak self] in self?.groupEditing.showMenu(id) } // VoiceOver's full menu; the chip and more button edit
-            view.onEdit = { [weak self] in self?.groupEditing.open(id) }
+            view.onEdit = { [weak self] in self?.groupEditing.open(id, from: .moreButton) }
             // The header's + runs the editor's New Workspace in Group (one action path).
             view.onAdd = onGroupEditorItem == nil ? nil : { [weak self] in self?.onGroupEditorItem?(id, "workspaceGroup.newWorkspace") }
             view.isEditing = groupEditor.shownGroup == id

@@ -118,8 +118,9 @@ pub(super) fn placement_spawn_options(
     shell_args: Option<Vec<String>>,
     frontend_shell: bool,
 ) -> anyhow::Result<crate::TerminalSpawnOptions> {
-    let env = env.map(crate::mux::validate_terminal_env).transpose()?.unwrap_or_default();
+    let mut env = env.map(crate::mux::validate_terminal_env).transpose()?.unwrap_or_default();
     let argv = shell_argv(&env, shell_args, frontend_shell);
+    crate::login_shell::mark(&mut env, argv.as_deref());
     Ok(crate::TerminalSpawnOptions { cwd, env, terminal_id, argv, ..Default::default() })
 }
 

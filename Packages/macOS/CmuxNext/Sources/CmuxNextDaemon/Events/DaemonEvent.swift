@@ -32,6 +32,9 @@ public enum DaemonEvent: Sendable, Hashable {
     /// Full resync barrier: refetch `list-workspaces`. `transaction` echoes
     /// the client transaction id of the command that caused it, when any.
     case treeChanged(transaction: ClientTransactionID?)
+    /// Personal state (`profiles-v1`) changed: the store refetches `list-personal` alone, never the
+    /// tree (a sidebar group's fold writes `personal_groups`; plans/cmux-next/state-ownership-DESIGN.md).
+    case personalChanged
     /// Pane geometry changed on a screen. With `layout-delta-v1` it carries
     /// the screen's new layout, which patches that screen; without one
     /// (an older daemon) the store refetches.
@@ -98,6 +101,8 @@ extension DaemonEvent {
         case .connected, .disconnected, .daemonShutdown, .sessionState: true
         // Transient questions to this connection; a snapshot never holds them.
         case .terminalClipboardRead, .terminalClipboardReadCancelled: true
+        // Terminal outcomes live outside list-workspaces, including background jobs.
+        case .terminalRegistryChanged: true
         // Agent state and presence are not in the tree snapshot (only `list-agents` at connect
         // and these events carry them). A blocked hook also posts a notification, whose tree
         // change resyncs; dropping its `agent-changed` behind that snapshot left the row on

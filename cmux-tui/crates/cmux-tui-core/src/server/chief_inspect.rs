@@ -9,8 +9,12 @@
 //! Owner only: the memory holds private conversations. A link-stamped or
 //! relayed (`Remote`), WebSocket, unregistered or agent-bound connection is
 //! refused (`origin.forbidden`) before anything is forwarded; the remote
-//! relay gate never admits the command. Read-only: the seven API paths,
-//! GET only (the tool's default), an answer cap.
+//! relay gate never admits the command. Reads: the read API paths, GET.
+//! The owner's memory changes (the native Memory Inspector,
+//! plans/cmux-next/memory-inspector-native-DESIGN.md): the three change
+//! paths, POST; the brain refuses them to the Chief's own sessions. An
+//! answer cap. The reserved query key `chief` names a Chief that is not the
+//! default (chief-brains-v1): its own brain's tools socket answers.
 //!
 //! Every daemon advertises `chief-inspect-v1` (it speaks the command); one
 //! started without a tools socket answers the owner `chief.not_configured`.
@@ -32,8 +36,8 @@ pub(super) const NOT_CONFIGURED: &str = "chief.not_configured";
 /// The brain host's tools socket, set by whoever starts the brain's daemon
 /// (the app for a local Chief, the server's brain install script).
 pub(super) const TOOLS_SOCKET_ENV: &str = "CMUX_TUI_CHIEF_TOOLS_SOCKET";
-/// The paths the brain answers (optchat-chief `inspect::INSPECT_PATHS`).
-const PATHS: [&str; 7] = [
+/// The read paths the brain answers with GET (optchat-chief `inspect::INSPECT_PATHS`).
+const PATHS: [&str; 9] = [
     "/api/status",
     "/api/turns",
     "/api/turn",
@@ -41,7 +45,13 @@ const PATHS: [&str; 7] = [
     "/api/level",
     "/api/date",
     "/api/search",
+    "/api/view",
+    "/api/memory/changes",
 ];
+/// The owner's change paths, forwarded with POST (optchat-chief `inspect::WRITE_PATHS`).
+const WRITE_PATHS: [&str; 3] = ["/api/memory/edit", "/api/memory/delete", "/api/memory/undo"];
+/// The query key that names a Chief other than the default; not forwarded.
+const CHIEF_KEY: &str = "chief";
 /// The brain refuses answers above 4 MiB; a reply line above this is refused.
 #[cfg_attr(not(unix), allow(dead_code))]
 pub(super) const MAX_REPLY_BYTES: usize = 5 * 1024 * 1024;
@@ -147,30 +157,39 @@ pub(super) fn checked(path: &Path) -> anyhow::Result<std::os::unix::net::UnixStr
 pub(super) fn inspect_with(
     mux: &Mux,
     client: u64,
-    params: Params,
+    mut params: Params,
     socket: Option<&Path>,
 ) -> anyhow::Result<Value> {
     require_owner(mux, client)?;
-    anyhow::ensure!(
-        PATHS.contains(&params.path.as_str()),
-        "not an inspector path: {}",
-        params.path
-    );
-    let path = match socket {
-        Some(path) => path.to_owned(),
-        None => tools_socket().ok_or(NotConfigured)?,
+    let path = params.path.as_str();
+    let method = if PATHS.contains(&path) {
+        "GET"
+    } else if WRITE_PATHS.contains(&path) {
+        "POST"
+    } else {
+        anyhow::bail!("not an inspector path: {path}");
     };
-    forward(&path, &params)
+    let chief = params
+        .query
+        .remove(CHIEF_KEY)
+        .filter(|c| !c.is_empty() && c != crate::chief_registry::DEFAULT_CHIEF);
+    let path = match (socket, chief) {
+        (Some(path), _) => path.to_owned(),
+        (None, Some(chief)) => crate::chief_brains::tools_socket(&chief)
+            .map_err(|(_, message)| anyhow::anyhow!(message))?,
+        (None, None) => tools_socket().ok_or(NotConfigured)?,
+    };
+    forward(&path, method, &params)
 }
 
 /// Sends one `inspect` line to the brain's tools socket and reads its answer.
 #[cfg(unix)]
-fn forward(path: &Path, params: &Params) -> anyhow::Result<Value> {
+fn forward(path: &Path, method: &str, params: &Params) -> anyhow::Result<Value> {
     use std::io::{BufRead, BufReader, Read, Write};
     let stream = checked(path)?;
     stream.set_read_timeout(Some(TIMEOUT))?;
     stream.set_write_timeout(Some(TIMEOUT))?;
-    let request = serde_json::json!({"tool": "inspect", "method": "GET", "path": params.path, "query": params.query});
+    let request = serde_json::json!({"tool": "inspect", "method": method, "path": params.path, "query": params.query});
     (&stream).write_all(format!("{request}\n").as_bytes())?;
     let mut line = String::new();
     BufReader::new((&stream).take(MAX_REPLY_BYTES as u64 + 1)).read_line(&mut line)?;
@@ -184,7 +203,7 @@ fn forward(path: &Path, params: &Params) -> anyhow::Result<Value> {
 /// The brain's tools socket is a Unix socket: a daemon on another platform
 /// speaks the command but is never configured for it.
 #[cfg(not(unix))]
-fn forward(_path: &Path, _params: &Params) -> anyhow::Result<Value> {
+fn forward(_path: &Path, _method: &str, _params: &Params) -> anyhow::Result<Value> {
     Err(NotConfigured.into())
 }
 

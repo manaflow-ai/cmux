@@ -272,6 +272,38 @@ fn smart_attach_cannot_miss_exit_between_dead_check_and_subscribe() {
     let _ = fs::remove_dir(exit_record_root);
 }
 
+/// The host keeps only frames its parser has not applied yet: applied ones
+/// are in every snapshot, and a subscriber still gets exactly the frames
+/// after the applied boundary (terminal-perf-100x).
+#[test]
+fn smart_retention_drops_applied_frames_and_still_replays_the_rest() {
+    let state = SmartStreamState::new();
+    for byte in 1..=3_u8 {
+        state.publish(Frame::new(MessageKind::Output, vec![byte; 1000]));
+    }
+    state.mark_applied(2);
+    {
+        let retained = state.retained.lock().unwrap();
+        assert_eq!(retained.frames.len(), 1, "applied frames 1 and 2 are dropped");
+        assert_eq!(retained.bytes, crate::terminal_host_protocol::HEADER_LEN + 1000);
+    }
+    let (host_socket, _client_socket) = UnixStream::pair().unwrap();
+    let (sender, receiver) = mpsc_channel();
+    let tap = HostTap {
+        sender,
+        queued_bytes: Arc::new(AtomicUsize::new(0)),
+        queued_output_bytes: Arc::new(AtomicUsize::new(0)),
+        shutdown: Arc::new(host_socket),
+        max_queued_bytes: usize::MAX,
+    };
+    assert_eq!(state.subscribe(11, tap).unwrap(), 2);
+    let replayed = receiver.try_recv().unwrap();
+    assert_eq!((replayed.sequence, replayed.payload[0]), (3, 3));
+    assert!(receiver.try_recv().is_err(), "only the unapplied frame is replayed");
+    state.mark_applied(3);
+    assert!(state.retained.lock().unwrap().frames.is_empty());
+}
+
 #[test]
 fn smart_attach_reports_retention_gap_instead_of_silent_corruption() {
     let state = SmartStreamState::new();

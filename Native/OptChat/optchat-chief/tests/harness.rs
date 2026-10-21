@@ -379,6 +379,18 @@ fn a_non_claude_harness_reads_its_instructions_from_agents_md_with_cli_memory_to
     let agents_md = std::fs::read_to_string(paths.session.join("AGENTS.md")).unwrap();
     assert_eq!(agents_md, system_text(None, &setup.tools));
     assert!(!paths.session.join("CLAUDE.md").exists());
+    // The Chief's own tools never wait on an approval: acpmux takes an
+    // allow only from the person's app (2026-10-20 stuck turn).
+    for name in ["settings.json", "settings.local.json"] {
+        let settings: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(paths.session.join(".claude").join(name)).unwrap(),
+        )
+        .unwrap();
+        let allow = settings["permissions"]["allow"].as_array().unwrap();
+        for tool in optchat_chief::approval::turn_allowed_tools() {
+            assert!(allow.iter().any(|v| v == tool), "{name}: {tool}");
+        }
+    }
 }
 
 #[test]
@@ -639,11 +651,16 @@ fn a_codex_turn_preset_carries_the_chiefs_turn_cache_key() {
     );
     assert_eq!(codex.system_prompt, None);
     let bare = turn_preset(&paths, &home, "codex", Family::Codex, false, "SYS").unwrap();
-    // Only acpmux's cmux MCP server in a turn (cx-4a5w2).
+    // Only acpmux's cmux MCP server in a turn (cx-4a5w2), and in it only
+    // the Chief's cmux tools (no code mode).
     assert_eq!(
         bare.env,
         std::collections::BTreeMap::from([
             ("ACPMUX_AGENT_TOOL_SERVERS".to_owned(), "cmux".to_owned()),
+            (
+                "CMUX_MCP_TOOLS".to_owned(),
+                optchat_chief::session_dir::CHIEF_CMUX_TOOLS.join(","),
+            ),
             ("CODEX_PROMPT_CACHE_KEY".to_owned(), key),
         ])
     );
@@ -655,6 +672,14 @@ fn a_codex_turn_preset_carries_the_chiefs_turn_cache_key() {
     assert_eq!(
         claude.env.get("SUBROUTER_SESSION_KEY").map(String::as_str),
         Some(format!("optchat-{id}-turn").as_str())
+    );
+    // acpmux sends that key as X-Subrouter-Session on every route (sr2 too).
+    assert_eq!(
+        claude
+            .env
+            .get("SUBROUTER_SESSION_HEADER")
+            .map(String::as_str),
+        Some("1")
     );
     assert_eq!(
         turn_preset(&paths, &home, "pi", Family::Other, false, "SYS"),
@@ -697,7 +722,8 @@ fn an_isolated_claude_turn_keeps_the_users_login() {
 
 /// The reference's Claude Code path: Chief turns and compactor nodes load
 /// no user settings, user MCP servers, user skills or slash commands
-/// (`--setting-sources project --disable-slash-commands`; checked on Claude
+/// (`--setting-sources project` or `project,local` for turns, and
+/// `--disable-slash-commands`; checked on Claude
 /// Code 2.1.287: a user MCP server and a user skill leave the session's
 /// init, the session directory's .mcp.json and denied tools stay).
 /// Subagents keep the user's environment: they do real work.
@@ -719,7 +745,7 @@ fn turns_and_the_compactor_load_no_user_settings_but_subagents_do() {
             turn.args,
             [
                 "--setting-sources",
-                "project",
+                "project,local",
                 "--disable-slash-commands",
                 "--tools",
                 "Bash,Read,Edit,Write,WebFetch,WebSearch,ToolSearch"
@@ -1113,4 +1139,26 @@ fn a_failed_turn_closes_its_messages_so_the_next_turn_answers_only_the_new_one()
         .rfind("|user: hi")
         .unwrap_or_else(|| panic!("{input}"));
     assert!(closed < hi, "{input}");
+}
+
+/// acpmux's built-in Chief turn presets set the same cmux tool allowlist
+/// (`agent_tools::CHIEF_TURN_TOOLS`) as this crate's own presets; the two
+/// workspaces share no crate, so the source pins them equal.
+#[test]
+fn acpmux_built_in_turns_allow_the_same_cmux_tools() {
+    const ACPMUX: &str = include_str!("../../../../cmux-tui/crates/acpmux/src/agent_tools.rs");
+    let start = ACPMUX
+        .find("pub const CHIEF_TURN_TOOLS: &str = \"")
+        .expect("acpmux defines CHIEF_TURN_TOOLS");
+    let rest = &ACPMUX[start..];
+    let rest = &rest[rest.find('"').unwrap() + 1..];
+    let literal = &rest[..rest.find('"').unwrap()];
+    // A Rust string continuation (`\` at a line end) drops the newline and
+    // the next line's leading spaces.
+    let names: Vec<&str> = literal
+        .split(',')
+        .map(|name| name.trim_start_matches(|c: char| c == '\\' || c.is_whitespace()))
+        .map(|name| name.trim_end_matches(|c: char| c == '\\' || c.is_whitespace()))
+        .collect();
+    assert_eq!(names, optchat_chief::session_dir::CHIEF_CMUX_TOOLS);
 }

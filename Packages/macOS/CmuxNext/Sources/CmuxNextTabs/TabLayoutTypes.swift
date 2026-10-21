@@ -52,9 +52,6 @@ public struct TabLayoutResult: Equatable, Sendable {
     public var standardWidth: CGFloat
     /// The width tabs were allowed to fill.
     public var availableWidth: CGFloat
-    /// Too narrow for every tab: the selected one keeps its minimum, so a
-    /// selection change moves tabs. Otherwise a switch changes no geometry.
-    public var dependsOnSelection = false
 
     public var isOverflowing: Bool { contentWidth > availableWidth + 0.5 }
 

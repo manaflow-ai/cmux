@@ -62,8 +62,6 @@ final class AgentTabStore {
     /// The daemon whose tree lists `tab`, by the record's identity (MachineRegistry.daemon(forTab:)):
     /// it reads no tab list, so a pane snapshot that asks hears no other pane's tabs. Nil in tests.
     var daemonListing: @MainActor (TabModel) -> DaemonService? = { _ in nil }
-    /// Tabs closed while the store was still creating them: closed when it answers.
-    var pendingCloses: [String: @MainActor (String) -> Void] = [:]
     /// This Mac's name for other Macs that show its tabs ("This chat runs on <name>"): ≤255 bytes, no control characters.
     var localHostName: String? {
         didSet { localHostName = localHostName.flatMap(Self.displayName) }
@@ -171,10 +169,16 @@ final class AgentTabStore {
     /// What each released chat page held that acpmux does not (``AgentPageHibernation``), for
     /// the page built when its tab shows again.
     var wakeStates: [String: AgentPaneWakeState] = [:]
+    /// What the chat pages held at the last quit, for each tab's first page at launch (``AgentPaneRelaunchWake``).
+    var relaunchWake = AgentPaneRelaunchWake(file: nil)
+    /// What every chat holds for the next launch (the quit's window step).
+    func relaunchWakeStates() async -> [String: AgentPaneWakeState] { await relaunchWake.collect(held: wakeStates, pages: views.map { (resolve($0.key), $0.value) }, live: isAgentTab) }
     /// The git link of tab `key`: the session host of the tab's own machine (AgentPaneGitReads.swift),
     /// so a Cloud or SSH chat reads its folder there; nil answers the page `native.not_connected`. Move to Floating Chat puts a session in Start Agent's panel.
     /// The upload for a chat tab's dropped or pasted files, nil when it takes none (``CloudUploads``).
     var uploader: (@MainActor (_ tab: String) -> AgentPaneUploader?)?
+    /// A background task's terminal beside chat tab `chat` (``AgentProcessTerminal``); false when none opened.
+    var openProcess: (@MainActor (_ chat: String, _ viewer: AgentPaneProcessViewer) -> Bool)?
     var gitLink: (@MainActor (String) -> AgentPaneGitLink?)?, openFiles: (@MainActor (_ chat: String, _ folder: String, _ target: String?) -> Void)?, moveToFloatingChat: (@MainActor (String) -> Bool)?
 
     /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``); else from `AppServices.settings`.
@@ -306,8 +310,9 @@ final class AgentTabStore {
         // A New Tab page made now (Cmd-N's first page, a restored page) adopts the prewarmed spare
         // when there is one: no cold load and React mount on the open path (cx-ec99).
         // (Its folder rides on the page context, `newTab.cwd`; a first page's seed holds only that.)
+        // A page with a kept composer (``wakeStates``) gets its own page: the spare's handshake is past.
         if local, kind == .local, sessions[key] == nil, record.session == nil, let newTab = newTabPages[key],
-           seed?.holdsOnlyFolder ?? true, let spare = takeSpare?() {
+           seed?.holdsOnlyFolder ?? true, wakeStates[key] == nil, let spare = takeSpare?() {
             adoptSpare(spare, key: key, page: newTab.page)
             track(key, in: store)
             return spare
@@ -360,6 +365,9 @@ final class AgentTabStore {
             let key = resolve(provisional)
             newTabPages[key] = nil
             views[key]?.applyTheme() // now the agent chat surface (R55)
+            // The first session is the outside chat's resume; a later switch shows another chat,
+            // so the tab no longer answers for the outside chat it adopted (cmux://agent links).
+            if let shown = sessions[key], shown != session { adoptions = adoptions.filter { $0.value != key } }
             sessions[key] = session
             // Another machine's store keeps its own record of the session: its daemon bound it at
             // the start, so no bind goes from here (cx-k21v). Its git reads go there (``gitLink``).
@@ -382,11 +390,11 @@ final class AgentTabStore {
         model.onSetNewTabTemplate = { [weak self] template in self?.pageHandler(provisional)?.setTemplate(template) }
         model.onJump = { [weak self] target, id in self?.newTabPage(provisional)?.handler.jump(target, id) }
         model.onEditShortcut = { [weak self] kind in self?.newTabPage(provisional)?.handler.editShortcut(kind) }
-        model.onRunAction = { [weak self] id in
+        model.onRunAction = { [weak self] id, arguments in
             guard let self else { return false }
             // On this tab's pane: the New Tab page opens beside the tab that asked.
             let target = ActionTargetRef(kind: .tab, id: resolve(provisional))
-            return actionRegistry?.perform(ActionID(rawValue: id), invocation: ActionInvocation(target: target, origin: .user)) ?? false
+            return actionRegistry?.perform(ActionID(rawValue: id), invocation: ActionInvocation(target: target, arguments: arguments.mapValues(ActionValue.string), origin: .user)) ?? false
         }
         wireHeader(model, key: provisional)
         model.onBrowseProject = { [weak self] in
@@ -445,6 +453,7 @@ final class AgentTabStore {
         if model.newTab != nil { view.showsLoadingState = false }
         pageChats.seed(view)
         model.onComposerSetting = { [weak pageSettings] path, show in try await pageSettings?.setComposer(path, show) }
+        model.onDisplaySetting = { [weak pageSettings] path, value in try await pageSettings?.setDisplay(path, value) }
         customization.start()
         return view
     }
@@ -457,10 +466,6 @@ final class AgentTabStore {
 
     /// The tab still shows the new tab page (it has not become a chat).
     func isNewTabPage(_ key: String) -> Bool { newTabPages[resolve(key)] != nil }
-
-    /// A New Tab page whose selected kind is an agent chat: it becomes that chat in place, so it
-    /// takes the chat's chrome from its first frame (cx-ncc.58).
-    func isAgentNewTabPage(_ key: String) -> Bool { newTabPages[resolve(key)]?.page.kind == .agent }
 
     /// A chat outside any pane (onboarding's first task, Start Agent's panel), new or on `session`,
     /// on the same daemon and page as the tabs. The caller owns it and closes it.

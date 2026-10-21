@@ -5,24 +5,47 @@ public import QuartzCore
 /// loop and runs for the configured duration only, so nothing loops while
 /// idle (architecture.md 5). Reduce Motion: one fade. Off: no animation.
 extension Motion {
-    /// The ring's opacity once its animation ends: the look's resting
-    /// strength while it persists (`AttentionHighlightLook`, faint by default).
+    /// The ring's opacity once its animation ends, while it persists: the look's
+    /// steady strength for the steady style (clearly visible), its faint resting
+    /// strength after a blink or pulse (`AttentionHighlightLook`).
     public static func attentionRestingOpacity(_ settings: AttentionSettings,
                                                look: AttentionHighlightLook = AttentionHighlightLook.tunable.value) -> Float {
-        settings.style == .none || !settings.persists ? 0 : look.restingOpacity
+        let style = attentionStyle(settings)
+        guard style != .none, settings.persists else { return 0 }
+        return style == .steady ? look.steadyOpacity : look.restingOpacity
     }
 
-    /// The opacity animation for a new attention mark, or nil for none.
-    public static func attentionAnimation(_ settings: AttentionSettings,
-                                          look: AttentionHighlightLook = AttentionHighlightLook.tunable.value) -> CAAnimation? {
+    /// The style the ring draws: static status indicators (cx-sya4n) turn a blink or pulse
+    /// into the steady ring, for its animation and its rest alike.
+    static func attentionStyle(_ settings: AttentionSettings) -> AttentionStyle {
+        guard settings.style != .none, DesignSettings.shared.statusIndicator.animation == .static else {
+            return settings.style
+        }
+        return .steady
+    }
+
+    /// How far the steady ring's arrival pulse rises over its rest, and how long it takes:
+    /// one small, fast swell (motion.md), never a blink.
+    static let steadyPulseRise: Float = 0.2
+    static let steadyPulseDuration: TimeInterval = 0.3
+}
+
+extension MotionGate {
+    /// The opacity animation for a new attention mark, or nil for none. `showing`: the ring
+    /// already shows (a further notification), so the steady ring swells from its rest instead
+    /// of dropping to nothing first.
+    public func attentionAnimation(_ settings: AttentionSettings,
+                                   look: AttentionHighlightLook = AttentionHighlightLook.tunable.value,
+                                   showing: Bool = false) -> CAAnimation? {
         guard animatesFades, settings.style != .none else { return nil }
         // Static status indicators (cx-sya4n): the steady ring, no blink or pulse.
         var settings = settings
-        if DesignSettings.shared.statusIndicator.animation == .static { settings.style = .steady }
-        let rest = attentionRestingOpacity(settings, look: look)
+        settings.style = Motion.attentionStyle(settings)
+        let rest = Motion.attentionRestingOpacity(settings, look: look)
         let peak = look.peakOpacity
         guard animatesLoops else {
             // Reduce Motion: fade in to rest, or a single flash that fades.
+            if settings.style == .steady, showing, rest > 0 { return nil }
             let fade = CAKeyframeAnimation(keyPath: "opacity")
             fade.values = rest > 0 ? [0, rest] : [peak, 0]
             fade.duration = duration(.fadeIn)
@@ -32,10 +55,17 @@ extension Motion {
         case .none:
             return nil
         case .steady:
-            let fade = CAKeyframeAnimation(keyPath: "opacity")
-            fade.values = rest > 0 ? [0, rest] : [0, peak, 0]
-            fade.duration = duration(.fadeIn)
-            return fade
+            let swell = CAKeyframeAnimation(keyPath: "opacity")
+            guard rest > 0 else {
+                swell.values = [0, peak, 0]
+                swell.duration = duration(.fadeIn)
+                return swell
+            }
+            swell.values = [showing ? rest : 0, min(1, rest + Motion.steadyPulseRise), rest]
+            swell.keyTimes = [0, 0.4, 1]
+            swell.timingFunctions = [CAMediaTimingFunction(name: .easeOut), CAMediaTimingFunction(name: .easeInEaseOut)]
+            swell.duration = Motion.steadyPulseDuration * speed.timeScale
+            return swell
         case .blink:
             let count = min(max(settings.blinkCount, AttentionSettings.blinkRange.lowerBound), AttentionSettings.blinkRange.upperBound)
             let blink = CAKeyframeAnimation(keyPath: "opacity")
@@ -66,5 +96,29 @@ extension Motion {
             group.duration = pulse.repeatDuration + settle.duration
             return group
         }
+    }
+}
+
+extension MotionGate {
+    /// The flash a ring plays as it goes away because the person went into its pane (cmux
+    /// classic's dismiss flash): `blinkCount` blinks at the peak, ending with no ring. Static
+    /// status indicators (cx-sya4n) and Reduce Motion get one fade out; no ring style, or
+    /// animations off, gets none.
+    public func attentionDismissAnimation(_ settings: AttentionSettings,
+                                          look: AttentionHighlightLook = AttentionHighlightLook.tunable.value) -> CAAnimation? {
+        guard animatesFades, settings.style != .none else { return nil }
+        let peak = look.peakOpacity
+        let flash = CAKeyframeAnimation(keyPath: "opacity")
+        guard animatesLoops, DesignSettings.shared.statusIndicator.animation != .static else {
+            flash.values = [peak, 0]
+            flash.duration = duration(.fadeIn)
+            return flash
+        }
+        let count = min(max(settings.blinkCount, AttentionSettings.blinkRange.lowerBound), AttentionSettings.blinkRange.upperBound)
+        var values: [Float] = []
+        for _ in 0..<count { values += [peak, 0] }
+        flash.values = values
+        flash.duration = MotionLoop.flash.period / 2 * Double(count) * speed.timeScale
+        return flash
     }
 }

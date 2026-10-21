@@ -37,6 +37,7 @@ struct MachineCatalogAppJourneyTests {
             #expect(catalog.last?["origin"] == .string("server"))
 
             await expectRefusal("scope.missing") { try await fixture.run("inventory", params: ["machine": .string(server)]) }
+            await expectRefusal("scope.missing") { try await fixture.run("inventory", params: ["machine": .string(server), "check_latest": .bool(true)]) }
             try await fixture.grantInventory(true)
             let inventory = try await fixture.run("inventory", params: ["machine": .string(server), "check_latest": .bool(false)])
             #expect(inventory["machine"] == .string(server))
@@ -45,7 +46,9 @@ struct MachineCatalogAppJourneyTests {
             #expect(inventory["clis"] == .array([]))
             // Only the server's acpmux is running: falling back to the Mac cannot pass.
             await expectRefusal("agent_inventory.unavailable") { try await fixture.run("inventory", params: ["machine": .string(local)]) }
-            await expectRefusal("operation.unsupported") { try await fixture.run("inventory", params: ["machine": .string(server), "check_latest": .bool(true)]) }
+            // This fixture deliberately disables registry sources. Refresh
+            // reaches the actual selected acpmux owner and preserves its refusal.
+            await expectRefusal("agent_inventory.unsupported") { try await fixture.run("inventory", params: ["machine": .string(server), "check_latest": .bool(true)]) }
             try await fixture.grantInventory(false)
             await expectRefusal("scope.missing") { try await fixture.run("inventory", params: ["machine": .string(server)]) }
 
@@ -69,6 +72,7 @@ struct MachineCatalogAppJourneyTests {
             let after = try #require(try await fixture.run("discover").arrayValue)
             #expect(after.map { $0["id"] } == [.string(local)])
             await expectRefusal("machine.unavailable") { try await fixture.run("inventory", params: ["machine": .string(server)]) }
+            await expectRefusal("machine.unavailable") { try await fixture.run("inventory", params: ["machine": .string(server), "check_latest": .bool(true)]) }
         } catch {
             await fixture.stop()
             throw error

@@ -163,6 +163,8 @@ public final class TerminalSession {
                     await io.resize(cols: grid.columns, rows: grid.rows, pixelWidth: width, pixelHeight: height)
                 case .focusGained:
                     await io.focusGained()
+                case .takeOverSize(let setLatest):
+                    await io.takeOverSize(setLatest: setLatest)
                 case .reconnect:
                     await io.reconnectRequested()
                 case .resync:
@@ -266,6 +268,7 @@ public final class TerminalSession {
     /// Stops consuming events and detaches the surface. The IO owner decides
     /// whether the underlying terminal keeps running.
     public func close() {
+        surfaceView.clipboardRequests.cancelPendingWrite()
         eventsTask?.cancel()
         eventsTask = nil
         closeCancels.forEach { $0.cancel() }
@@ -326,12 +329,23 @@ public final class TerminalSession {
             model.hasExited = status == .exited
             surfaceView.updateReflowPreview()
             view.showStatus(status)
+            // A disconnected or exited view no longer knows who sets the grid.
+            if status != .connected { view.showSizedFor(nil) }
+        case .sizedFor(let sizedFor):
+            view.showSizedFor(model.connection == .connected ? sizedFor : nil)
         }
     }
 
-    /// A click in the surface: a disconnected terminal re-attaches.
+    /// Take over ("Sized for" chip): this view sets the grid, always with a new claim; under a
+    /// policy that picks by size the terminal becomes last active first.
+    func takeOverSize(setLatest: Bool) {
+        input.takeOverSize(setLatest: setLatest)
+    }
+
+    /// A click in the surface: a disconnected terminal re-attaches now, also
+    /// one waiting out its backoff between retries.
     func surfaceClicked() {
-        guard case .disconnected(_, reconnecting: false) = model.connection else { return }
+        guard case .disconnected = model.connection else { return }
         input.reconnect()
     }
 
@@ -349,6 +363,7 @@ public final class TerminalSession {
     /// that takes the old one's place (cmux-tui-contract.md 3.2).
     private func swapSurface() {
         let old = surfaceView
+        old.clipboardRequests.cancelPendingWrite()
         let wasFirstResponder = old.isFirstResponder
         let fresh = TerminalSurfaceView(io: ioMode, input: input, session: self)
         swappedSurfaces += 1

@@ -21,6 +21,10 @@
 //!   intent with its own key, then asks for a snapshot.
 //! - An intent older than [`INTENT_TTL_MS`] is never resent; it moves to
 //!   `expired` and is reported to the user.
+//! - A snapshot that does not decode keeps the mirror waiting (events stay
+//!   buffered) and is asked for again after a backoff ([`SnapshotBackoff`]).
+//!   After the last attempt the caller drops the connection; the next one
+//!   resumes, so a stream is never stuck on a snapshot it cannot read.
 //!
 //! A relay (the daemon proxy) keeps no rows ([`StreamMirror::without_rows`]),
 //! moves its position on events without effects ([`PositionOnly`]), resumes
@@ -42,6 +46,44 @@ pub const INTENT_TTL_MS: i64 = 24 * 3600 * 1000;
 /// buffer is dropped: the snapshot, or the gap the next event opens, covers
 /// them, and a snapshot that never comes cannot grow the buffer forever.
 pub const MAX_BUFFERED_EVENTS: usize = 1024;
+
+/// How a mirror asks again for a snapshot that did not decode: after
+/// `first_ms`, then twice as long each time up to `max_ms`, at most
+/// `attempts` times before it gives the connection up
+/// ([`SnapshotRetry::Exhausted`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SnapshotBackoff {
+    pub first_ms: i64,
+    pub max_ms: i64,
+    pub attempts: u32,
+}
+
+impl Default for SnapshotBackoff {
+    fn default() -> Self {
+        Self { first_ms: 250, max_ms: 30_000, attempts: 6 }
+    }
+}
+
+impl SnapshotBackoff {
+    /// The wait before attempt `n` (1-based).
+    fn delay(&self, n: u32) -> i64 {
+        let doublings = n.saturating_sub(1).min(32);
+        self.first_ms.max(0).saturating_mul(1_i64 << doublings).min(self.max_ms.max(0))
+    }
+}
+
+/// What the mirror does about a snapshot that did not decode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SnapshotRetry {
+    /// It asks again at this time (ms): call
+    /// [`StreamMirror::snapshot_retry_due`] then and send its frames.
+    At(i64),
+    /// Every attempt failed: drop the connection. The next connection
+    /// resumes ([`StreamMirror::resume`]); the failures count on, so each
+    /// later connection that still gets an unreadable snapshot gives up at
+    /// once and the transport's own reconnect backoff paces it.
+    Exhausted,
+}
 
 /// A new op while the owner is unreachable: refused, nothing queues (U5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -185,11 +227,13 @@ pub enum Applied {
     Event(Box<EventFrame>),
 }
 
-/// What one owner frame did: frames to send and frames applied.
+/// What one owner frame did: frames to send, frames applied and, for a
+/// snapshot that did not decode, when it is asked for again.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Received {
     pub send: Vec<ClientOut>,
     pub applied: Vec<Applied>,
+    pub snapshot_retry: Option<SnapshotRetry>,
 }
 
 /// How to subscribe on a new connection (see [`StreamMirror::resume`]).
@@ -233,6 +277,15 @@ pub struct StreamMirror<R: Reducer = EffectsOnly> {
     /// False for a relay that keeps only the head and the position.
     track_rows: bool,
     applied: Vec<Applied>,
+    backoff: SnapshotBackoff,
+    /// Snapshots in a row that did not decode; 0 after one that did, or
+    /// after an event applied in order.
+    snapshot_failures: u32,
+    /// The count before the last snapshot applied, so a caller that could
+    /// not use that snapshot ([`StreamMirror::snapshot_unusable`]) counts on.
+    failures_before_snapshot: u32,
+    /// When the next snapshot request goes out after a failed snapshot.
+    snapshot_retry_at: Option<i64>,
 }
 
 impl StreamMirror<EffectsOnly> {
@@ -265,7 +318,17 @@ impl<R: Reducer> StreamMirror<R> {
             resumed: false,
             track_rows: true,
             applied: Vec::new(),
+            backoff: SnapshotBackoff::default(),
+            snapshot_failures: 0,
+            failures_before_snapshot: 0,
+            snapshot_retry_at: None,
         }
+    }
+
+    /// Replaces the default [`SnapshotBackoff`].
+    pub fn with_snapshot_backoff(mut self, backoff: SnapshotBackoff) -> Self {
+        self.backoff = backoff;
+        self
     }
 
     /// Keeps no rows (a relay such as the daemon proxy, whose clients hold the
@@ -299,6 +362,9 @@ impl<R: Reducer> StreamMirror<R> {
         self.positioned = false;
         self.resumed = false;
         self.applied.clear();
+        self.snapshot_failures = 0;
+        self.failures_before_snapshot = 0;
+        self.snapshot_retry_at = None;
     }
 
     /// A new connection is open and subscribes (the daemon proxy's path; a
@@ -313,6 +379,8 @@ impl<R: Reducer> StreamMirror<R> {
         let after_seq = self.resume_seq();
         self.awaiting = after_seq.is_none();
         self.resumed = after_seq.is_some();
+        // The subscribe is the new ask: the owner answers it.
+        self.snapshot_retry_at = None;
         Resume {
             after_seq,
             pending: self.reported_keys(),
@@ -371,6 +439,60 @@ impl<R: Reducer> StreamMirror<R> {
     pub fn desyncs(&self) -> u64 {
         self.desyncs
     }
+    /// Snapshots in a row that did not decode (0: the last one did).
+    pub fn snapshot_failures(&self) -> u32 {
+        self.snapshot_failures
+    }
+    /// When the next snapshot request is due after a failed snapshot (ms).
+    pub fn snapshot_retry_at(&self) -> Option<i64> {
+        self.snapshot_retry_at
+    }
+
+    /// A snapshot of this stream did not decode (or the caller could not
+    /// use it). The mirror keeps waiting, so events stay buffered, and says
+    /// when it asks again.
+    pub fn snapshot_failed(&mut self, now: i64) -> SnapshotRetry {
+        self.desyncs += 1;
+        self.awaiting = true;
+        self.snapshot_failures = self.snapshot_failures.saturating_add(1);
+        if self.snapshot_failures > self.backoff.attempts {
+            self.snapshot_retry_at = None;
+            return SnapshotRetry::Exhausted;
+        }
+        let at = now.saturating_add(self.backoff.delay(self.snapshot_failures));
+        self.snapshot_retry_at = Some(at);
+        SnapshotRetry::At(at)
+    }
+
+    /// The caller could not use a frame this mirror applied (a relay whose
+    /// translation failed): the position it gave is forgotten, so a later
+    /// resume subscribes fresh instead of skipping what the caller never
+    /// showed. Pair it with [`StreamMirror::resync`].
+    pub fn forget_position(&mut self) {
+        self.seq = 0;
+        self.positioned = false;
+        self.resumed = false;
+        self.buffered.clear();
+    }
+
+    /// The caller could not use the snapshot this mirror just applied: its
+    /// position is forgotten ([`StreamMirror::forget_position`]) and it
+    /// counts as a failed snapshot, after the failures before it.
+    pub fn snapshot_unusable(&mut self, now: i64) -> SnapshotRetry {
+        self.forget_position();
+        self.snapshot_failures = self.failures_before_snapshot;
+        self.snapshot_failed(now)
+    }
+
+    /// The snapshot request of a failed snapshot, once its time came.
+    pub fn snapshot_retry_due(&mut self, now: i64) -> Vec<ClientOut> {
+        let mut out = Vec::new();
+        if self.connected && self.snapshot_retry_at.is_some_and(|at| now >= at) {
+            self.snapshot_retry_at = None;
+            self.request_snapshot(&mut out);
+        }
+        out
+    }
 
     /// Issues a typed intent with the next key of this client. Offline: refused.
     pub fn issue(
@@ -407,6 +529,24 @@ impl<R: Reducer> StreamMirror<R> {
         self.receive_applied(frame).send
     }
 
+    /// One owner frame as JSON, as the socket carries it. A known frame that
+    /// does not decode is handled here: an event asks for a snapshot, a
+    /// snapshot is asked for again after the backoff
+    /// ([`Received::snapshot_retry`]). Any other frame that does not decode
+    /// is ignored.
+    pub fn receive_value(&mut self, frame: Value, now: i64) -> Received {
+        let kind = frame.get("t").and_then(Value::as_str).unwrap_or_default().to_owned();
+        match OwnerFrame::from_value(frame) {
+            Ok(frame) => self.receive_applied(frame),
+            Err(_) if !self.connected => Received::default(),
+            Err(_) if kind == "event" => Received { send: self.resync(), ..Received::default() },
+            Err(_) if kind == "snapshot" => {
+                Received { snapshot_retry: Some(self.snapshot_failed(now)), ..Received::default() }
+            }
+            Err(_) => Received::default(),
+        }
+    }
+
     /// [`StreamMirror::receive`], also returning the frames it applied in
     /// order: a gap's buffered events come after the snapshot that closed it.
     pub fn receive_applied(&mut self, frame: OwnerFrame) -> Received {
@@ -421,13 +561,14 @@ impl<R: Reducer> StreamMirror<R> {
                 OwnerFrame::Result(_) | OwnerFrame::Reject(_) | OwnerFrame::Other(_) => {}
             }
         }
-        Received { send: out, applied: std::mem::take(&mut self.applied) }
+        Received { send: out, applied: std::mem::take(&mut self.applied), snapshot_retry: None }
     }
 
     pub fn disconnect(&mut self) {
         self.connected = false;
         self.awaiting = false;
         self.buffered.clear();
+        self.snapshot_retry_at = None;
     }
 
     /// Resends every pending intent with its key, then asks for a snapshot.
@@ -529,6 +670,8 @@ impl<R: Reducer> StreamMirror<R> {
         self.seq = e.seq;
         self.positioned = true;
         self.resumed = false;
+        // An event in order: the stream works again.
+        self.snapshot_failures = 0;
         self.applied.push(Applied::Event(Box::new(e)));
     }
 
@@ -561,6 +704,8 @@ impl<R: Reducer> StreamMirror<R> {
 
     fn on_snapshot(&mut self, snap: SnapshotFrame, out: &mut Vec<ClientOut>) {
         self.awaiting = false;
+        self.failures_before_snapshot = std::mem::take(&mut self.snapshot_failures);
+        self.snapshot_retry_at = None;
         let behind = snap.seq < self.seq;
         // A snapshot behind the position answers only a resume (the owner
         // lost its tail): it replaces the position. Any other one is stale.

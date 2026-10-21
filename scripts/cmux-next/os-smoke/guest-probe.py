@@ -251,6 +251,10 @@ env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR":
        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
        "CMUX_NEXT_CONFIG_FILE": os.path.join(scratch, "cmux.json"), "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(scratch, "ghostty"),
        "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800"}
+# A release build keeps Chromium's cookie key in the default keychain. Without one (HOME
+# pointed at an empty directory) the key's first write waits on a dialog and no Chromium page loads.
+keychain = subprocess.run(["/usr/bin/security", "default-keychain"], env=env, capture_output=True, text=True, timeout=30)
+step("keychain", keychain.returncode == 0, (keychain.stdout + keychain.stderr).strip()[:300])
 # The guest display before the app starts: shows what the image itself has open.
 subprocess.run(["/usr/sbin/screencapture", "-x", "-t", "png", os.path.join(OUT, "baseline.png")], capture_output=True, timeout=60)
 # A fresh profile for the lazy-launch check: no record of an earlier Chromium tab (ChromiumUseRecord).
@@ -439,6 +443,81 @@ try:
         settings_shot = snap("settings", "settings.png")
         step("settings", isinstance(settings, dict) and settings.get("opened") is True and bool(page_state) and settings_shot,
              {"run": settings, "page": {k: (page_state or {}).get(k) for k in ("page", "painted", "painted_ms", "language")}})
+        if debug_router():
+            # Cmd-D then Cmd-W at once from the Settings tab (macOS 15 tester, 2026-10-19: "does not
+            # work on the first 2-3 tries and then ends up closing"). The split's key hold kept every
+            # Cmd-W until the new pane's focus landed, which a New Tab page split never gives, then ran
+            # them all together: the new tab, Settings and the window closed. Each Cmd-W must run at
+            # once (closeTab), and the window must end with the tabs it had before the first Cmd-D.
+            def shown_windows():
+                return [w for w in (windows_now() or []) if w.get("open") and w.get("visible")]
+
+            def tab_count():
+                return (rpc("snapshot.get") or {}).get("tab_count")
+
+            windows_before, tabs_before = len(shown_windows()), tab_count()
+            pairs = []
+            for _ in range(3):
+                pairs.append((rpc("debug.key", {"key": "d", "modifiers": ["cmd"]}),
+                              rpc("debug.key", {"key": "w", "modifiers": ["cmd"]})))
+            settled = wait(lambda: tab_count() == tabs_before, 5, alive)
+            late_closes = [w.get("action") for _, w in pairs if not isinstance(w, dict) or w.get("action") != "closeTab"]
+            crash = None if alive() else wait(lambda: crash_frames(started), 30, step_s=1)
+            step("settings_split_close", alive() and not late_closes and bool(settled) and len(shown_windows()) == windows_before,
+                 {"windows_before": windows_before, "windows_after": len(shown_windows()), "tabs_before": tabs_before,
+                  "tabs_after": tab_count(), "cmd_w_routed": [(w or {}).get("action") for _, w in pairs],
+                  "cmd_d_routed": [(d or {}).get("action") for d, _ in pairs],
+                  "settings": rpc("debug.page", {"page": "cmux.settings"}), "crash": crash})
+
+            # The tab count above cannot tell a closed new pane from a closed Settings tab (the
+            # new terminal staying): each Cmd-W must close the pane Cmd-D made, never Settings,
+            # whether it comes at once, mid-creation or after the new pane's focus landed. Ends
+            # with the tabs from before and Settings focused again (debug.focus model).
+            def focus_model():
+                windows = (rpc("debug.focus") or {}).get("windows") or []
+                window = next((w for w in windows if w.get("is_key")), windows[0] if windows else {})
+                # Each entry is "<tab id>:<kind>"; tab ids may hold colons (local-page:settings).
+                tabs = sorted(t.rsplit(":", 1)[0] for p in window.get("topology") or [] for t in p.get("tabs") or [])
+                model = window.get("model") or {}
+                return {"tabs": tabs, "focused": model.get("resolved_tab"), "expectation": model.get("expectation")}
+
+            target_rounds = []
+            if alive():
+                rpc("settings.open", {"focus": True})
+                start = wait(lambda: (lambda m: m if str(m["focused"] or "").startswith("local-page:") else None)(focus_model()), 5, alive)
+                for delay in (0.0, 0.15, 0.4, None):  # None: after the new pane's focus landed
+                    before = start or focus_model()
+                    split = rpc("debug.key", {"key": "d", "modifiers": ["cmd"]})
+                    landed_ms = None
+                    if delay is None:
+                        t0 = time.time()
+                        landed = wait(lambda: (lambda m: m if m["focused"] and m["focused"] not in before["tabs"] and not m["expectation"] else None)(focus_model()),
+                                      5, alive, step_s=0.05)
+                        landed_ms = round((time.time() - t0) * 1000) if landed else None
+                    elif delay:
+                        time.sleep(delay)
+                    close = rpc("debug.key", {"key": "w", "modifiers": ["cmd"]})
+                    after = wait(lambda: (lambda m: m if m["tabs"] == before["tabs"] and m["focused"] == before["focused"] else None)(focus_model()),
+                                 5, alive) or focus_model()
+                    target_rounds.append({"delay": "landed" if delay is None else delay, "landed_ms": landed_ms,
+                                          "cmd_d": (split or {}).get("action"), "cmd_w": (close or {}).get("action"),
+                                          "ok": after["tabs"] == before["tabs"] and after["focused"] == before["focused"],
+                                          "settings_kept": before["focused"] in after["tabs"], "after": after})
+                    start = after
+            step("settings_split_close_target", alive() and len(target_rounds) == 4 and all(r["ok"] for r in target_rounds),
+                 {"rounds": target_rounds, "windows_after": len(shown_windows())})
+            # Cmd-1, Cmd-2, Cmd-3 (macOS 15 tester: "crashes after cmd 123"). Cmd-1 is Home: leaving
+            # it releases its views inside the key's action scope, where every main-actor class's
+            # implicit isolated deinit runs inline (CMUXTERM-MACOS-44XN, macOS 15.8.1).
+            digits = [rpc("debug.key", {"key": str(n), "modifiers": ["cmd"]}) for _ in range(4) for n in (1, 2, 3)]
+            wait(lambda: not alive(), 3, step_s=0.5)
+            digit_errors = [d for d in digits if not isinstance(d, dict) or "error" in d or d.get("handled_by") != "app"]
+            crash = None if alive() else wait(lambda: crash_frames(started), 30, step_s=1)
+            step("cmd_digits", alive() and not digit_errors,
+                 {"keys": len(digits), "routed": [(d or {}).get("action") for d in digits][:6], "errors": digit_errors[:3],
+                  "exit": None if alive() else app.returncode, "crash": crash})
+            if alive():
+                rpc("settings.open", {"focus": True})
         sidebar = rpc("action.run", {"action": "toggleSidebar"})
         snap("sidebar", "sidebar.png")
         rpc("action.run", {"action": "toggleSidebar"})

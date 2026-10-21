@@ -2,6 +2,9 @@
 
 use super::*;
 
+mod grid_hold;
+pub(super) use grid_hold::AppliedSeat;
+
 impl Mux {
     /// Activity by one client view: attach, explicit focus-click, or keyboard,
     /// paste or mouse input. Under the default `latest` policy the view takes
@@ -352,7 +355,8 @@ impl Mux {
     }
 
     /// Pins the `latest` policy on the workspace that shows `surface`, for
-    /// tests about latest-activity semantics (the default is `smallest`).
+    /// tests about latest-activity semantics (`latest` is also the default; the pin keeps
+    /// such a test independent of the default).
     #[cfg(test)]
     pub(crate) fn pin_latest_size_policy_for_test(&self, surface: SurfaceId) {
         let workspace = self.surface_workspace(surface).expect("surface has a workspace");
@@ -500,6 +504,8 @@ impl Mux {
                     placements: BTreeSet::new(),
                     members: HashMap::new(),
                     applied: std::cell::Cell::new(None),
+                    applied_participants: std::cell::RefCell::new(std::collections::BTreeMap::new()),
+                    hold: std::cell::Cell::new(None),
                 },
             );
         }
@@ -559,12 +565,13 @@ impl Mux {
     pub(super) fn apply_terminal_grid(&self, sizing: &ClientSizingState, runtime: SurfaceId) {
         let Some(entry) = sizing.terminal_sizing.get(&runtime) else { return };
         let state = entry.engine.state();
-        if state.reason == TerminalSizingReason::Held
-            || entry.applied.get() == Some((state.cols, state.rows))
-        {
+        if state.reason == TerminalSizingReason::Held {
             return;
         }
-        entry.applied.set(Some((state.cols, state.rows)));
+        let target = self.terminal_grid_target(entry, runtime, (state.cols, state.rows));
+        if entry.applied.get() == Some(target) {
+            return;
+        }
         let Some(surface) = entry
             .placements
             .iter()
@@ -573,8 +580,13 @@ impl Mux {
         else {
             return;
         };
-        if surface.size() != (state.cols, state.rows) {
-            let _ = self.resize_surface(surface.id, state.cols, state.rows);
+        // Compare with the size last requested (a hosted mirror lags the
+        // host by a round trip), and record the decision only once it is in
+        // effect so that a failed resize is retried on the next decision.
+        if surface.requested_size() == target
+            || self.resize_surface(surface.id, target.0, target.1).is_ok()
+        {
+            entry.applied.set(Some(target));
         }
     }
 

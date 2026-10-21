@@ -1,5 +1,6 @@
 public import AppKit
 import Carbon.HIToolbox
+import CmuxNextDesign
 import GhosttyNextKit
 import UniformTypeIdentifiers
 
@@ -15,7 +16,7 @@ extension TerminalSurfaceView: NSMenuItemValidation {
     /// nothing for a Command key on macOS, so a shell sees nothing.
     @objc public func copy(_ sender: Any?) {
         guard hasSelection else { return sendCommandKeyToProgram("c", keyCode: UInt16(kVK_ANSI_C)) }
-        performBindingAction("copy_to_clipboard")
+        clipboardRequests.asUserClipboardWrite { performBindingAction("copy_to_clipboard") }
     }
 
     private func sendCommandKeyToProgram(_ character: String, keyCode: UInt16) {
@@ -29,7 +30,7 @@ extension TerminalSurfaceView: NSMenuItemValidation {
     }
 
     @objc public func paste(_ sender: Any?) {
-        performBindingAction("paste_from_clipboard")
+        clipboardRequests.asUserPaste { performBindingAction("paste_from_clipboard") }
     }
 
     @objc public func pasteAsPlainText(_ sender: Any?) {
@@ -47,14 +48,15 @@ extension TerminalSurfaceView: NSMenuItemValidation {
             // Cmd-C before the program can get it (see `copy(_:)`).
             return surface != nil
         case #selector(paste(_:)), #selector(pasteAsPlainText(_:)):
-            return TerminalPasteboard.pasteText(from: .general) != nil
+            return TerminalPasteboard.pasteText(from: .general) != nil || TerminalPasteboard.hasImage(.general)
         default:
             return true
         }
     }
 
     public override func menu(for event: NSEvent) -> NSMenu? {
-        if let session, let menu = session.delegate?.terminalSession(session, contextMenuFor: event) { return menu }
+        // The terminal's rows highlight as the sidebar's and the tab strip's do: a wash of its theme's accent.
+        if let session, let menu = session.delegate?.terminalSession(session, contextMenuFor: event) { return menu.themeRows(in: themeScope.fullStrength) }
         let menu = NSMenu()
         if hasSelection {
             menu.addItem(withTitle: String(localized: "terminal.menu.copy", defaultValue: "Copy", bundle: .module), action: #selector(copy(_:)), keyEquivalent: "")

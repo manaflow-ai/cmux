@@ -250,9 +250,18 @@ def ensure_group():
 # ---------------------------------------------------------------- verbs
 
 
+# Claude goes through subrouter2 (`sr2 claude`) unless the caller names a
+# launcher: CMUX_TERMINAL_AGENTS_CLAUDE="claude" (or any argv) overrides it.
+def claude_launcher():
+    override = os.environ.get("CMUX_TERMINAL_AGENTS_CLAUDE", "").split()
+    if override:
+        return override
+    return ["sr2", "claude"]
+
+
 def harness_argv(harness, prompt, extra):
     if harness == "claude":
-        return ["claude"] + extra + ([prompt] if prompt else [])
+        return claude_launcher() + extra + ([prompt] if prompt else [])
     if harness == "codex":
         return ["codex"] + extra + ([prompt] if prompt else [])
     raise SystemExit(f"unknown harness {harness}; use claude or codex")
@@ -473,6 +482,62 @@ def cmd_continue(a):
     cmd_send(a, text=a.message or "continue")
 
 
+PROMPT_MARKS = ("Do you want to proceed", "Do you want to make this edit", "Do you want to create",
+                "❯ 1. Yes", "Esc to cancel", "(y/n)", "[Y/n]", "Allow command?", "Press Enter to continue")
+
+
+def target(name_or_term):
+    """An agent record from this tool, or a bare term_… id (any terminal)."""
+    if name_or_term.startswith("term_"):
+        return {"name": name_or_term, "terminal_id": name_or_term}
+    return load(name_or_term)
+
+
+def screen_text(terminal):
+    s = screen(terminal) or {}
+    return s.get("text") or (s.get("result") or {}).get("text") or ""
+
+
+def prompt_on_screen(text):
+    tail = "\n".join([l for l in text.splitlines() if l.strip()][-25:])
+    return tail if any(m in tail for m in PROMPT_MARKS) else None
+
+
+def cmd_prompts(a):
+    """Agents (this tool's, plus --terminal ids) blocked on a prompt/menu."""
+    recs = all_agents() + [{"name": t, "terminal_id": t} for t in (a.terminal or [])]
+    out = []
+    for rec in recs:
+        p = prompt_on_screen(screen_text(rec["terminal_id"]))
+        if p:
+            out.append({"name": rec["name"], "terminal_id": rec["terminal_id"], "prompt": p})
+    print(json.dumps(out, indent=2, ensure_ascii=False))
+
+
+def cmd_steer(a):
+    """Esc (dismiss prompt/menu or interrupt the turn), then send the text + Enter."""
+    rec = target(a.name)
+    text = read_text(a.text)
+    for _ in range(max(1, a.esc)):
+        cmux("terminal", rec["terminal_id"], "write", "--bytes-base64", base64.b64encode(b"\x1b").decode())
+        time.sleep(0.4)
+    result = {"escaped": True, "agent": rec["name"]}
+    if text:
+        send_text(rec, text)
+        result["sent"] = text
+        if "turns" in rec:
+            rec["turns"].append({"sent_ms": now_ms(), "prompt": text, "before": turn_marks(rec)})
+            save(rec)
+    print(json.dumps(result, indent=2))
+
+
+def cmd_choose(a):
+    """Pick a numbered option on a visible menu (types the digit, no Esc)."""
+    rec = target(a.name)
+    cmux("terminal", rec["terminal_id"], "write", "--bytes-base64", base64.b64encode(str(a.option).encode()).decode())
+    print(json.dumps({"chose": a.option, "agent": rec["name"]}))
+
+
 def cmd_list(a):
     out = []
     for rec in all_agents():
@@ -547,6 +612,21 @@ def main():
     s = sub.add_parser("list", help="agents this tool started")
     s.add_argument("--fast", action="store_true", help="skip live state")
     s.set_defaults(fn=cmd_list)
+
+    s = sub.add_parser("prompts", help="list agents blocked on a permission prompt/menu")
+    s.add_argument("--terminal", action="append", help="also check this term_… id (repeat)")
+    s.set_defaults(fn=cmd_prompts)
+
+    s = sub.add_parser("steer", help="press Esc, then send instructions + Enter (name or term_… id)")
+    s.add_argument("name")
+    s.add_argument("text", nargs="*", help="'-' reads stdin; empty = Esc only")
+    s.add_argument("--esc", type=int, default=1, help="Esc presses (2 also interrupts a running turn)")
+    s.set_defaults(fn=cmd_steer)
+
+    s = sub.add_parser("choose", help="pick option N on a visible menu (name or term_… id)")
+    s.add_argument("name")
+    s.add_argument("option", type=int)
+    s.set_defaults(fn=cmd_choose)
 
     s = sub.add_parser("close", help="close agents this tool started (never others)")
     s.add_argument("names", nargs="*")

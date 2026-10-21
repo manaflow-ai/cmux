@@ -1,6 +1,6 @@
 // l10n-allow-file: test fixture prompts, replies, commands and subagent names, not shipped UI.
 // The running turn's line counts the work still going in the background, after Claude's phone
-// app ("Working… · 5 running tasks"): "Working for 42s · 2 agents · 1 command". It counts only
+// app ("Working… · 5 running tasks"): "Read src/app.ts 42s · 2 agents · 1 command". It counts only
 // subagents still running and background shells that have not ended, each count opens what it
 // counts, and a count never moves the line or the rows under it. The page is the pane's dev entry
 // with its browser host, talking JSON-RPC to a stand-in acpmux daemon.
@@ -170,10 +170,11 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
   const open = async (session: string, width = 900) => {
     const page = await browser!.newPage({ viewport: { width, height: 760 } });
     await page.goto(url(session));
-    await page.locator(".cv-worked", { hasText: "Working for" }).waitFor({ timeout: 25_000 });
+    await line(page).waitFor({ timeout: 25_000 });
     return page;
   };
-  const line = (page: Page) => page.locator(".cv-worked", { hasText: "Working for" });
+  // The running line names the read in flight ("Read src/app.ts 1m 30s", WorkingFor.tsx).
+  const line = (page: Page) => page.locator(".cv-worked", { hasText: "Read src/app.ts" });
   beforeAll(async () => {
     daemon = Bun.serve({
       port: 0,
@@ -216,10 +217,12 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
   test("the line counts the subagents and background shells still running", async () => {
     const page = await open(BUSY);
     // The Linter finished and the watcher stopped: neither counts.
-    expect((await line(page).innerText()).replace(/\s+/g, " ")).toMatch(/^Working for [^·]+ · 2 agents · 1 command$/);
+    expect((await line(page).innerText()).replace(/\s+/g, " ")).toMatch(
+      /^Read src\/app\.ts [^·]+ · 2 agents · 1 command$/,
+    );
     await page.close();
     const plain = await open(QUIET);
-    expect((await line(plain).innerText()).trim()).toMatch(/^Working for [^·]+$/);
+    expect((await line(plain).innerText()).replace(/\s+/g, " ").trim()).toMatch(/^Read src\/app\.ts [^·]+$/);
     await plain.close();
   });
 
@@ -262,7 +265,8 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
 
   test("the agent count opens the list of the chat's agents", async () => {
     const page = await open(BUSY);
-    await page.getByRole("button", { name: "2 agents" }).click();
+    // The agents pill above the composer says "2 agents" too; this is the working line's count.
+    await line(page).getByRole("button", { name: "2 agents" }).click();
     const list = page.getByRole("region", { name: "Subagents" });
     await list.waitFor({ timeout: 5_000 });
     expect(await list.getByText("Reviewer").isVisible()).toBe(true);

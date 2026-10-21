@@ -33,6 +33,8 @@ export type AgentSessionTheme = {
   danger: string;
   /// Caution, softer than `danger` (ANSI yellow): the full-access mode chip.
   warning?: string;
+  /// Done and passing marks (ANSI green): open PRs, passing checks, a finished Chief task.
+  success?: string;
   /// The primary action (the composer's Send): the theme's ANSI blue.
   highlight?: string;
   /// Glyphs on `highlight`.
@@ -63,6 +65,9 @@ export type AgentSessionTheme = {
   /// `data-status-indicators` on the root; under `static` no status loop runs and color-only
   /// marks draw a shape each. Absent means the stylesheet defaults (animated).
   statusIndicators?: "animated" | "static";
+  /// How agent work shows (Debug Settings `status.working`, CmuxNextDesign StatusWorkingLook): sets
+  /// `data-working-look` on the root. Absent means the stylesheet default, the breathing dot.
+  workingLook?: "breathe" | "shimmer" | "spinner";
 };
 
 export type AppContext = {

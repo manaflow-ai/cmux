@@ -18,7 +18,7 @@ function ensureWasm(): void {
   initialized = true;
 }
 
-export type Kind = "user" | "talk" | "tool" | "echo" | "note";
+export type Kind = "user" | "talk" | "tool" | "echo" | "note" | "ai";
 
 export interface LogEntry {
   readonly i: number;

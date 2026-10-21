@@ -98,3 +98,23 @@ describe("AppsStore update center", () => {
     store.stop();
   });
 });
+
+describe("AppsStore deep link after a catalog failure", () => {
+  test("a deep-linked app does not stay Loading when the catalog load fails", async () => {
+    const provider = new MockAppsProvider();
+    provider.failNext(AppsOps.catalogList, new Error("supervisor unavailable"));
+    const store = new AppsStore(provider, "#/discover?app=cmux.github-prs");
+
+    await store.start();
+
+    expect(store.getSnapshot().catalogStatus).toBe("error");
+    expect(store.getSnapshot().selection).toBe("cmux.github-prs");
+    expect(store.getSnapshot().detailStatus).toBe("error");
+    store.stop();
+  });
+
+  test("without a client a deep link is idle, not loading", () => {
+    const store = new AppsStore(null, "#/discover?app=cmux.github-prs");
+    expect(store.getSnapshot().detailStatus).toBe("idle");
+  });
+});

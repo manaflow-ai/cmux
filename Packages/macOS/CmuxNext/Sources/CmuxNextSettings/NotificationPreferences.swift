@@ -3,7 +3,9 @@ public import Foundation
 
 /// Everything under `notifications` in cmux.json that the app applies.
 public nonisolated struct NotificationPreferences: Hashable, Sendable {
-    public var dismissal: NotificationDismissal = .keystroke
+    /// `click` (Austin, 2026-10-20): the ring stays until the person clicks into its pane or types
+    /// in it. `focus` (2026-10-19) also read a pane that merely took focus.
+    public var dismissal: NotificationDismissal = .click
     public var timeoutSeconds: Double = 30
     public var desktop: DesktopNotificationMode = .unlessFocused
     /// `"default"`, a sound in /System/Library/Sounds (for example `"Glass"`), or `"none"`.

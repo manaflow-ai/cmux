@@ -100,6 +100,7 @@ impl CmuxClient {
         self.send(SendRequest {
             surface: Optional::Value(surface),
             terminal_id: Optional::Missing,
+            expect_foreground: Optional::Missing,
             text: Optional::Value(text.into()),
             bytes: Optional::Missing,
             paste: None,
@@ -111,6 +112,7 @@ impl CmuxClient {
         self.send(SendRequest {
             surface: Optional::Value(surface),
             terminal_id: Optional::Missing,
+            expect_foreground: Optional::Missing,
             text: Optional::Missing,
             bytes: Optional::Value(bytes.into()),
             paste: None,
@@ -122,6 +124,7 @@ impl CmuxClient {
         self.send(SendRequest {
             surface: Optional::Value(surface),
             terminal_id: Optional::Missing,
+            expect_foreground: Optional::Missing,
             text: Optional::Value(text.into()),
             bytes: Optional::Missing,
             paste: Some(true),

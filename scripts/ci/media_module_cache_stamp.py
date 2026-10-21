@@ -15,10 +15,21 @@ e6a27a1fb, the new head pins ced99dcde).
 
 The key is every sha256 literal in the source's tracked Package.swift files
 (the binary targets' checksums change with their URLs) plus every tracked
-Package.resolved. `clear`, before the build, removes the precompiled module
-dirs and the stamp when the stamp is missing or differs; the rest of the
-DerivedData stays warm. `record`, after a build that succeeded, writes the
-stamp. A dir that does not exist yet has nothing to clear.
+Package.resolved. `clear`, before the build, removes the dir's build state
+when the stamp is missing or differs, then stamps it: what is left was built
+from no other pin, whether the build then succeeds or not. `record`, after a
+build that succeeded, writes the stamp too. A dir that does not exist yet has
+nothing to clear.
+
+The build state is the whole Build dir and the module caches, not only the
+precompiled module dirs. With only those gone, Xcode's build description in
+Build/Intermediates.noindex/XCBuildData still listed the removed .pcm files
+as built, and the next compile failed within a minute on "module file
+'.../ExplicitPrecompiledModules/Darwin-*.pcm' not found": all 14 such tour
+failures on 2026-10-19 (e.g. job 118285853270) ran right after a clear of that
+dir. A failed build never recorded the stamp, so each retry cleared and failed
+again. The package checkouts in SourcePackages stay; the build after a pin
+change is otherwise cold.
 """
 
 from __future__ import annotations
@@ -32,11 +43,12 @@ import sys
 from pathlib import Path
 
 STAMP = "cmux-binary-pins.stamp"
-# Explicit Swift and Clang module builds, and the implicit module cache.
-MODULE_DIRS = (
-    "Build/Intermediates.noindex/SwiftExplicitPrecompiledModules",
-    "Build/Intermediates.noindex/ExplicitPrecompiledModules",
+# Products, intermediates, the build description and the explicit module
+# builds under Build, the implicit module cache, and the SDK stat caches.
+BUILD_STATE = (
+    "Build",
     "ModuleCache.noindex",
+    "SDKStatCaches.noindex",
 )
 CHECKSUM = re.compile(r"\b[0-9a-f]{64}\b")
 
@@ -77,14 +89,18 @@ def clear(source: Path, derived: Path) -> None:
         print(f"binary pins unchanged since the last build in {derived} ({key[:12]})")
         return
     why = f"changed ({previous[:12]} -> {key[:12]})" if previous else f"not recorded (now {key[:12]})"
-    print(f"binary pins {why}: clearing precompiled modules in {derived}")
+    print(f"binary pins {why}: clearing the build state in {derived}")
     stamp.unlink(missing_ok=True)
-    for relative in MODULE_DIRS:
+    for relative in BUILD_STATE:
         path = derived / relative
-        if path.is_symlink() or not path.exists():
+        if path.is_symlink():
+            path.unlink()
+        elif path.exists():
+            shutil.rmtree(path)
+        else:
             continue
-        shutil.rmtree(path)
         print(f"  removed {relative}")
+    stamp.write_text(key + "\n")
 
 
 def record(source: Path, derived: Path) -> None:

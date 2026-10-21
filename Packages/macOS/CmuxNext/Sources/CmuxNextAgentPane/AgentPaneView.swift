@@ -20,28 +20,21 @@ public final class AgentPaneView: NSView {
     public let model: AgentPaneModel
     public let webView: WKWebView
     /// Opens a link the user clicked in the transcript: the shared link rule (``LinkRouter``,
-    /// `browser.openLinksInCmuxBrowser`), `otherTarget` for a Shift-Command click.
+    /// `browser.openLinksInCmuxBrowser`), `otherTarget` for a Shift-Command click, beside the pane
+    /// that shows this chat (set in `init`; never the focused pane).
     public var openURL: (_ url: URL, _ otherTarget: Bool) -> Void = AgentPaneView.routedOpenURL
     static let routedOpenURL: (URL, Bool) -> Void = { LinkRouter.shared.open($0, otherTarget: $1) }
 
     public let source: AgentPaneSource
-    public var customization = AgentPaneCustomization() {
-        didSet {
-            if customization != oldValue { applyCustomization() }
-        }
-    }
-    public var shortcuts = AgentPaneShortcuts() {
-        didSet {
-            if shortcuts != oldValue { applyShortcuts() }
-        }
-    }
-    public var previewFeatures = false {
-        didSet { if previewFeatures != oldValue { applyPreviewFeatures() } }
-    }
+    public var customization = AgentPaneCustomization() { didSet { if customization != oldValue { applyCustomization() } } }
+    public var shortcuts = AgentPaneShortcuts() { didSet { if shortcuts != oldValue { applyShortcuts() } } }
+    public var previewFeatures = false { didSet { if previewFeatures != oldValue { applyPreviewFeatures() } } }
+    /// The `agent.sessionStatus` tunable (Debug Settings), followed live (``AgentPaneSessionStatus``).
+    public internal(set) var sessionStatus = AgentPaneTunables.sessionStatus.value { didSet { if sessionStatus != oldValue { AgentPaneSessionStatus.push(to: self) } } }
     /// The newest device chats for the New Tab cards.
     public var deviceChats: [AgentPaneDeviceChat] = [] { didSet { if deviceChats != oldValue { AgentPaneDeviceChat.push(deviceChats, to: self) } } }
     /// The newest recently closed items for the New Tab page's Recently Closed section.
-    public var recentlyClosed: [AgentPaneClosedItem] = [] { didSet { if recentlyClosed != oldValue { AgentPaneClosedItem.push(recentlyClosed, to: self) } } }
+    public var recentlyClosed: AgentPaneClosedList = .empty { didSet { if recentlyClosed != oldValue { AgentPaneClosedItem.push(recentlyClosed, to: self) } } }
     public var editedFiles = AgentPaneEditedFilesSetting.fallback {
         didSet { if editedFiles != oldValue { applyEditedFiles() } }
     }
@@ -66,7 +59,7 @@ public final class AgentPaneView: NSView {
     public let inputReadiness: PageInputReadiness
     /// Re-pushes the theme when ui.animationSpeed or Reduce Motion changes, so the
     /// page's `--agent-motion-*` fades follow them (AgentPaneTheme.values).
-    private var motionObservation: Task<Void, Never>?
+    private var motionObservation: Task<Void, Never>?, sessionStatusObservation: Task<Void, Never>?
     /// The theme last pushed to the page (I5: a push only when it changed since then; a page load
     /// pushes again with `force`, a page-host replay or a crash forgets it).
     var deliveredThemeEvent: AgentPageEvent?
@@ -99,6 +92,8 @@ public final class AgentPaneView: NSView {
     public private(set) lazy var topBar = AgentPaneTopBar(pane: self) // the App's omnibar row over a New Tab page (cx-e2aa)
     /// The process pool every agent page shares (R81: fonts are listed once per pool).
     static let processPool = WKProcessPool()
+    /// The web content process groups of the agent pages in ``processPool`` (8 pages per process).
+    static let processGroups = WebProcessGroups()
 
     /// The bundled page, nil when it is missing (a broken build).
     public static var bundledPage: URL? {
@@ -158,7 +153,10 @@ public final class AgentPaneView: NSView {
             // Console errors, uncaught errors and rejections go to the error journal (`cmux errors`).
             ConsoleErrorCapture(page: "agent-pane").install(in: configuration.userContentController)
             inputReadiness = PageInputReadiness(configuration: configuration)
-            webView = AgentPaneWKWebView(frame: .zero, configuration: configuration)
+            // Pages share web content processes, 8 per process (WebProcessGroups): a process per
+            // page made 55 tabs cost 54 processes and 4 GB (plans/cmux-next/sequoia-lag.md).
+            // webview-allow: agent chat needs WebKit (native context menu, file drops, input hooks)
+            webView = Self.processGroups.webView(for: configuration) { AgentPaneWKWebView(frame: .zero, configuration: $0) }
             #if DEBUG
             // Automation launches (capture slots) keep a covered window's page drawing, as
             // PageWebView does: WebKit hid the covered New Tab page, so it never drew (cx-zjtn.6).
@@ -170,6 +168,9 @@ public final class AgentPaneView: NSView {
         }
         self.webView = webView
         super.init(frame: .zero)
+        openURL = { [weak self] url, other in
+            if let self { LinkRouter.shared.open(url, otherTarget: other, from: self) } else { Self.routedOpenURL(url, other) }
+        }
         inputReadiness.attach(webView)
         if let page {
             attachPage(page)
@@ -191,12 +192,11 @@ public final class AgentPaneView: NSView {
         if webView.responds(to: NSSelectorFromString("_setDrawsBackground:")) {
             webView.setValue(false, forKey: "drawsBackground")
         }
-        #if DEBUG
-        // Web Inspector and profiling for the pane (debug.agent_pane).
+        // Web Inspector and profiling for the pane in every build (Inspect Element, Cmd-Opt-I).
         webView.isInspectable = true
-        #endif
         model.onSaveFile = { [weak self] save in try await self?.savePanel.save(save, window: self?.window) ?? false }
         model.onChooseFiles = { [weak self] in await AgentPaneFilePicker.pick(window: self?.window) }
+        model.onChooseAttachments = { [weak self] in await AgentPaneFilePicker.pickAttachments(window: self?.window) }
         model.onFramePacing = { [weak self] _ in self?.framePacingSettings() ?? [:] }
         model.onRenderRate = { [weak self] full in
             guard let self, self.renderRate == .adaptive else { return }
@@ -224,6 +224,7 @@ public final class AgentPaneView: NSView {
         Self.logger.info("agent pane webview loading source=\(Self.sourceDescription(source), privacy: .public) bundled=\(Self.bundledPage != nil, privacy: .public)")
         observeMotion()
         observeUIScale()
+        sessionStatusObservation = AgentPaneSessionStatus.follow(self)
     }
 
     private static func sourceDescription(_ source: AgentPaneSource) -> String {
@@ -235,7 +236,7 @@ public final class AgentPaneView: NSView {
 
     private func observeMotion() {
         motionObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (Motion.speed, DesignSettings.shared.statusIndicator.animation) }) {
+            for await _ in ObservationStream({ (Motion.speed, Motion.web.isEnabled, Motion.indicators.isEnabled, DesignSettings.shared.statusIndicator.animation) }) {
                 guard let self else { return }
                 self.applyTheme()
             }
@@ -272,6 +273,7 @@ public final class AgentPaneView: NSView {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             uiScaleObservation?.cancel()
+            sessionStatusObservation?.cancel()
         }
     }
 
@@ -320,6 +322,7 @@ public final class AgentPaneView: NSView {
         rateReapply?.cancel()
         motionObservation?.cancel()
         motionObservation = nil
+        sessionStatusObservation?.cancel()
         if let reduceMotionObserver { NSWorkspace.shared.notificationCenter.removeObserver(reduceMotionObserver) }
         if let reduceMotionOverrideObserver { NotificationCenter.default.removeObserver(reduceMotionOverrideObserver) }
         (reduceMotionObserver, reduceMotionOverrideObserver) = (nil, nil)

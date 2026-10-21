@@ -175,7 +175,7 @@ fn connection_handler_owns_every_router_connection_operation() {
         );
         connection_operations += usize::from(requires_connection);
     }
-    assert_eq!(connection_operations, 54);
+    assert_eq!(connection_operations, 56);
 }
 
 #[test]

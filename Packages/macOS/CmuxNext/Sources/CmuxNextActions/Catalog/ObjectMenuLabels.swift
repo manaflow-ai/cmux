@@ -19,6 +19,8 @@ nonisolated enum ObjectMenuLabels {
     static var moveRight: String { text("menu.object.moveRight", "Move Right") }
     static var moveUp: String { text("menu.object.moveUp", "Move Up") }
     static var moveDown: String { text("menu.object.moveDown", "Move Down") }
+    static var moveToTop: String { text("menu.object.moveToTop", "Move to Top") }
+    static var moveToBottom: String { text("menu.object.moveToBottom", "Move to Bottom") }
     static var moveToNewSplit: String { text("menu.object.moveToNewSplit", "Move to New Split") }
     static var moveToNewColumn: String { text("menu.object.moveToNewColumn", "Move to New Column") }
     static var moveToNewWorkspace: String { text("menu.object.moveToNewWorkspace", "Move to New Workspace") }
@@ -32,6 +34,10 @@ nonisolated enum ObjectMenuLabels {
     static var toggleGroupCollapsed: String { text("menu.group.toggleCollapsed", "Collapse/Expand Group") }
     static var ungroup: String { text("menu.group.ungroup", "Ungroup") }
     static var closeGroup: String { text("menu.group.close", "Close Group") }
+    static var collapseOtherGroups: String { text("menu.group.collapseOthers", "Collapse Others") }
+    static var sortByName: String { text("menu.group.sortByName", "Sort by Name") }
+    static var sortByLastUsed: String { text("menu.group.sortByLastUsed", "Sort by Last Used") }
+    static var sortByDirectory: String { text("menu.group.sortByDirectory", "Sort by Directory") }
 
     // Toggles, one style.
     static var togglePinScreen: String { text("menu.screen.togglePin", "Pin/Unpin Screen") }

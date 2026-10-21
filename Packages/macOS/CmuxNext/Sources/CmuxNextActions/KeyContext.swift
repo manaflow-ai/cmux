@@ -116,22 +116,29 @@ extension ActionContext {
         (.signedOut, "signedOut"), (.cloudWorkspace, "cloudWorkspace"), (.agentPaneFocused, "agentPaneFocused"),
         (.checkpointCaptureAvailable, "checkpointCaptureAvailable"), (.recordingShortcut, "recordingShortcut"),
         (.omnibarFocused, "omnibarFocused"), (.codeEditorFocused, "codeEditorFocused"),
-        (.homeChannelsEnabled, "homeChannelsEnabled"),
+        (.homeChannelsEnabled, "homeChannelsEnabled"), (.webViewFocused, "webViewFocused"),
+        (.markdownReadOnlyFocused, "markdownReadOnlyFocused"), (.markdownEditorFocused, "markdownEditorFocused"),
     ]
 
     /// The bits a window's focus decides; the rest are app-wide facts.
     public nonisolated static let focusBits: ActionContext = [
         .terminalFocused, .browserFocused, .agentPaneFocused, .omnibarFocused, .diffViewerFocused, .codeEditorFocused,
-        .markdownFocused,
+        .markdownFocused, .markdownReadOnlyFocused, .markdownEditorFocused, .textBoxFocused,
     ]
 
     /// Whether two focus keys never hold together: one surface has the keyboard (a terminal, a
     /// browser page, an agent chat, or one internal page by its id), so of ``focusBits`` only the
-    /// address bar's key holds with another, the browser's it sits in (`KeyRouter.keyContext`).
+    /// address bar's key holds with another, the browser's it sits in, and a markdown page's
+    /// read-only or editor key with `markdownFocused` (`KeyRouter.keyContext`).
     public nonisolated static func focusKeysExclude(_ lhs: String, _ rhs: String) -> Bool {
         guard lhs != rhs, focusKeyNames.contains(lhs), focusKeyNames.contains(rhs) else { return false }
-        return Set([lhs, rhs]) != ["omnibarFocused", "browserFocused"]
+        return !focusKeysHoldingTogether.contains(Set([lhs, rhs]))
     }
+
+    private nonisolated static let focusKeysHoldingTogether: Set<Set<String>> = [
+        ["omnibarFocused", "browserFocused"], ["markdownFocused", "markdownReadOnlyFocused"],
+        ["markdownFocused", "markdownEditorFocused"],
+    ]
 
     private nonisolated static let focusKeyNames = Set(keyNames.filter { focusBits.contains($0.0) }.map(\.1))
 }

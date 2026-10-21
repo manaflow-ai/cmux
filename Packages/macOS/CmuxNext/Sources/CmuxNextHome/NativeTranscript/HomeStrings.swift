@@ -14,9 +14,11 @@ enum HomeStrings {
         String(localized: "home.composer.attach.failed", defaultValue: "The file couldn’t be attached.", bundle: .module)
     }
     static func attachUnsupported(_ name: String) -> String {
-        String(format: String(localized: "home.composer.attach.unsupported",
-                              defaultValue: "“%@” can’t be attached. You can attach photos, videos, audio, PDFs, text files and ZIP archives.",
-                              bundle: .module), name)
+        String(format: String(localized: "home.composer.attach.refused", defaultValue: "“%@” can’t be attached.", bundle: .module), name)
+    }
+    static func attachFolder(_ name: String) -> String {
+        String(format: String(localized: "home.composer.attach.folder",
+                              defaultValue: "“%@” is a folder. Attach the files in it, or a ZIP of the folder.", bundle: .module), name)
     }
     static func attachTooLarge(_ name: String) -> String {
         String(format: String(localized: "home.composer.attach.tooLarge", defaultValue: "“%@” is larger than 100 MB.", bundle: .module), name)
@@ -69,6 +71,7 @@ enum HomeStrings {
     static func attachmentRefusal(_ refusal: HomeAttachmentError, name: String? = nil) -> String {
         switch refusal {
         case .typeRefused(_, let file): attachUnsupported(name ?? file)
+        case .folder(let file): attachFolder(name ?? file)
         case .tooLarge: name.map(attachTooLarge) ?? attachTooLargeAny()
         case .empty(let file): attachEmpty(name ?? file)
         case .invalidName(let file): attachInvalidName(name ?? file)
@@ -84,10 +87,55 @@ enum HomeStrings {
     static var firstRunStartAgent: String {
         String(localized: "home.firstRun.startAgent", defaultValue: "Start an agent", bundle: .module)
     }
-    /// The keyboard hint under the first-run rows; `keys` is the tab family's
-    /// shortcut as the registry shows it (`⌃1…9`).
-    static func firstRunTabsHint(_ keys: String) -> String {
-        String(format: String(localized: "home.firstRun.tabsHint", defaultValue: "%@ switches tabs.", bundle: .module), keys)
+    /// The first-run panel's title under the Chief's character (`HomeFirstRunHero`).
+    static var firstRunHeroTitle: String {
+        String(localized: "home.firstRun.hero.title", defaultValue: "Your Chief", bundle: .module)
+    }
+    /// What the Chief does today, under the title.
+    static var firstRunHeroBody: String {
+        String(localized: "home.firstRun.hero.body",
+               defaultValue: "Tell it what you want done. It handles quick things itself and hands longer work to agents, each in its own workspace you can watch and join. It reports back here.",
+               bundle: .module)
+    }
+    /// The first-run row that shows the floating Chief pet (`home.toggleChiefPet`).
+    static var firstRunShowPet: String {
+        String(localized: "home.firstRun.showPet", defaultValue: "Show Chief Pet", bundle: .module)
+    }
+    /// The same row while the pet shows.
+    static var firstRunHidePet: String {
+        String(localized: "home.firstRun.hidePet", defaultValue: "Hide Chief Pet", bundle: .module)
+    }
+    /// The heading of the first-run "Switching" card (`HomeFirstRunSwitchCard`).
+    static var switchKeysHeader: String {
+        String(localized: "home.firstRun.switchKeys.header", defaultValue: "Switching", bundle: .module)
+    }
+    /// The card's button that hides it for good.
+    static var switchKeysHide: String {
+        String(localized: "home.firstRun.switchKeys.hide", defaultValue: "Hide", bundle: .module)
+    }
+    static var switchKeysTabs: String {
+        String(localized: "home.firstRun.switchKeys.tabs", defaultValue: "Tab 1–9 (like VS Code)", bundle: .module)
+    }
+    static var switchKeysWorkspaces: String {
+        String(localized: "home.firstRun.switchKeys.workspaces", defaultValue: "Workspace 1–9", bundle: .module)
+    }
+    static var switchKeysNextTab: String {
+        String(localized: "home.firstRun.switchKeys.nextTab", defaultValue: "Previous / next tab", bundle: .module)
+    }
+    static var switchKeysNextWorkspace: String {
+        String(localized: "home.firstRun.switchKeys.nextWorkspace", defaultValue: "Previous / next workspace", bundle: .module)
+    }
+    static var switchKeysFocus: String {
+        String(localized: "home.firstRun.switchKeys.focus", defaultValue: "Focus back / forward", bundle: .module)
+    }
+    /// The one-line note when Mission Control's Switch to Desktop takes the tab keys.
+    static var switchKeysDesktopConflict: String {
+        String(localized: "home.firstRun.switchKeys.desktopConflict",
+               defaultValue: "Mission Control uses these keys to switch desktops.", bundle: .module)
+    }
+    /// The note's button: opens System Settings > Keyboard > Keyboard Shortcuts.
+    static var switchKeysOpenSettings: String {
+        String(localized: "home.firstRun.switchKeys.openSettings", defaultValue: "Keyboard Shortcuts…", bundle: .module)
     }
     /// The heading over the first-run panel's agent rows.
     static var firstRunAgentsHeader: String {

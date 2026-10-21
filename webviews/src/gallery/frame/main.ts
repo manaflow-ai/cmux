@@ -5,6 +5,7 @@
 import { installGalleryClock } from "../clock";
 import { readEnv, widthPx } from "../env";
 import { readTunes } from "../../experiments/tunable";
+import { readOptions } from "../options";
 import type { GalleryEntry } from "../format";
 import { errorText, readyEntries } from "../entryStore";
 import { createFrameEntryStore } from "../registry";
@@ -132,6 +133,8 @@ if (experiment && arm) {
 
 // Edited tunables (the stage's curve editors): the page reads them through tunableValue().
 globalThis.cmuxTunables = { ...globalThis.cmuxTunables, ...readTunes(params.get("tune") ?? "") };
+// The entry's changed options (options.ts): the component host applies them to the variant's props.
+const optionValues = readOptions(params.get("opts") ?? "");
 
 const log: { method: string; params?: unknown }[] = [];
 (window as unknown as { cmuxGalleryLog: typeof log }).cmuxGalleryLog = log;
@@ -143,6 +146,7 @@ const context: StageContext = {
   agentTheme: agentPaneTheme(tokens, env.reducedMotion),
   appearance: diffAppearance(pair, { family: env.fontFamily || undefined, size: env.fontSize || undefined }),
   log: (method, params) => log.push({ method, params }),
+  options: optionValues,
 };
 
 if (stageRoot) {

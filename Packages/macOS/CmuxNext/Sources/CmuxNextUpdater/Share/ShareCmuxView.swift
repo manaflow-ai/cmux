@@ -42,6 +42,7 @@ public final class ShareCmuxView: NSView {
         self.writeToPasteboard = writeToPasteboard
         surface = OverlaySurfaceView(material: .opaque, interactive: true)
         copyButton = CmuxDialogButtonView(CmuxDialogButton(id: "copy-link", title: ShareCmuxStrings.copyLink, role: .default),
+                                          hint: .return,
                                           target: nil, action: #selector(ShareCmuxView.copyMessage))
         closeButton = NSButton(image: NSImage.icon(.actionClose, size: 12),
                                target: nil, action: nil)
@@ -123,7 +124,6 @@ public final class ShareCmuxView: NSView {
         closeButton.bezelStyle = .regularSquare
         closeButton.imagePosition = .imageOnly
         closeButton.setAccessibilityLabel(ShareCmuxStrings.close)
-        closeButton.themedToolTip = ShareCmuxStrings.close
         closeButton.identifier = NSUserInterfaceItemIdentifier("cmux.shareCmux.close")
         closeButton.translatesAutoresizingMaskIntoConstraints = false
         closeButton.widthAnchor.constraint(equalToConstant: 20).isActive = true

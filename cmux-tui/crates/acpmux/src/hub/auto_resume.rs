@@ -19,21 +19,24 @@
 //!   when the chat is moving. A turn running when Stop or close came gets none, however it
 //!   ends: an agent stopped mid-stream may still answer with a connection error. The turn's
 //!   end and Stop's check share one lock, so a Stop after the turn ended but before its
-//!   continuation is scheduled counts too. Each chat staggers its waits a little, so chats an
+//!   continuation is scheduled counts too, and so does one after the continuation fired but
+//!   before its turn started. Each chat staggers its waits a little, so chats an
 //!   outage cut off together do not all come back at the same moment.
 //! - Its `user_message` carries `_meta.provenance = {kind: "auto_resume", promptId, attempt,
 //!   turnId}` so a client can show it as acpmux's, not the person's.
 //! - A continuation that completes resumes the prompts the cut turn held (`pause_queue`), and
-//!   only those: they waited only because of the connection.
+//!   only those: they waited only because of the connection. A failed attempt holds nothing
+//!   new (the cut turn already holds them), so attempt `n` follows the attempts before it back
+//!   to the turn the connection first cut, and resumes what each of those held.
 //! - Usage limits and sign-in failures are not transport errors: the fallback profile handles
 //!   those (`turns.rs`). A daemon restart mid-turn stays `outcome_unknown` (`mod.rs`).
 //! - A wait in progress is not persisted: a daemon restart during it drops the attempt.
 
-use super::{Control, Hub, PromptOptions, Session, SessionStatus};
+use super::{Control, Hub, PromptOptions, Session, SessionStatus, TurnInfo};
 use crate::rpc::RpcError;
 use crate::store::EventRecord;
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -87,6 +90,9 @@ pub(super) struct CutTurn<'a> {
 enum Mark {
     /// A continuation waits to answer for this cut turn.
     Waiting(String),
+    /// The continuation of this cut turn fired and has not started its turn yet; Stop or
+    /// close now still counts for it.
+    Firing(String),
     /// This turn has ended and whether it is continued is not settled yet; Stop or close now
     /// still counts for it.
     Ending(String),
@@ -119,6 +125,12 @@ pub(super) fn superseded() -> RpcError {
         "auto_resume.superseded: the chat moved on before the continuation ran",
     )
     .with_data(json!({"reason": "auto_resume.superseded"}))
+}
+
+/// The refusal of a continuation Stop or close overtook after it fired.
+fn stopped() -> RpcError {
+    RpcError::invalid_params("auto_resume.stopped: Stop or close came before the continuation ran")
+        .with_data(json!({"reason": "auto_resume.stopped"}))
 }
 
 /// `Err(superseded)` for a continuation (`after`) whose chat moved on, or that would wait.
@@ -172,6 +184,27 @@ fn checked_delays(v: &Value) -> Option<Vec<u64>> {
         );
     }
     Some(delays)
+}
+
+impl TurnInfo {
+    /// The turn a prompt starts (`run_prompt`), before its `turn_started` record gives its seq.
+    pub(super) fn prompted(
+        client: &str,
+        text: &str,
+        turn_id: &str,
+        prompt_id: &str,
+        control: Control,
+    ) -> Self {
+        TurnInfo {
+            started_at: super::now_ms(),
+            client: client.to_owned(),
+            prompt_preview: super::short_text(text, 200),
+            turn_id: turn_id.to_owned(),
+            prompt_id: prompt_id.to_owned(),
+            turn_seq: 0,
+            control,
+        }
+    }
 }
 
 impl Hub {
@@ -248,13 +281,59 @@ impl Hub {
     pub(super) fn stop_auto_resume(&self, session: &Session) {
         let mut pending = self.auto_resumes.lock();
         let ending = match pending.get(&session.id) {
-            Some(Mark::Ending(t)) => Some(t.clone()),
+            Some(Mark::Ending(t) | Mark::Firing(t)) => Some(t.clone()),
             _ => None,
         };
         match session.turn().map(|t| t.turn_id).or(ending) {
             Some(t) => pending.insert(session.id.clone(), Mark::Stopped(t)),
             None => pending.remove(&session.id),
         };
+    }
+
+    /// Starts the chat's turn (`run_prompt`). A continuation (`after` its cut turn) that Stop
+    /// or close overtook since it fired is refused instead, in one step with Stop's check.
+    pub(super) fn start_turn(
+        &self,
+        session: &Session,
+        after: Option<&str>,
+        turn: super::TurnInfo,
+    ) -> Result<(), RpcError> {
+        let mut pending = self.auto_resumes.lock();
+        if let Some(cut) = after {
+            let mark = match pending.get(&session.id) {
+                Some(Mark::Firing(t)) if t == cut => Some(true),
+                Some(Mark::Stopped(t)) if t == cut => Some(false),
+                _ => None,
+            };
+            if mark.is_some() {
+                pending.remove(&session.id);
+            }
+            if mark == Some(false) {
+                return Err(stopped());
+            }
+        }
+        *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = Some(turn);
+        Ok(())
+    }
+
+    /// Fires the chat's waiting continuation when it still answers for `cut_turn`: its mark
+    /// stays, as firing, until its turn starts.
+    fn fire_pending(&self, session: &Session, cut_turn: &str) -> bool {
+        let mut pending = self.auto_resumes.lock();
+        let ours = matches!(pending.get(&session.id), Some(Mark::Waiting(t)) if t == cut_turn);
+        if ours {
+            pending.insert(session.id.clone(), Mark::Firing(cut_turn.to_owned()));
+        }
+        ours
+    }
+
+    /// Drops what is left of a continuation of `cut_turn` that did not start its turn.
+    fn clear_fired(&self, session: &Session, cut_turn: &str) {
+        let mut pending = self.auto_resumes.lock();
+        if matches!(pending.get(&session.id), Some(Mark::Firing(t) | Mark::Stopped(t)) if t == cut_turn)
+        {
+            pending.remove(&session.id);
+        }
     }
 
     /// Takes the chat's waiting continuation when it still answers for `cut_turn`.
@@ -277,21 +356,23 @@ impl Hub {
     ) {
         let (root, cut_turn) = (cut.prompt_id, cut.turn_id);
         let skipped = |why: &str| json!({"promptId": root, "attempt": attempt, "turnId": cut_turn, "skipped": why});
-        if !self.take_pending(session, cut_turn) {
+        if !self.fire_pending(session, cut_turn) {
             // Stop or close took it, or a newer turn replaced it.
             let why = if still_cut(session, cut_turn) { "stopped" } else { "superseded" };
             self.append(session, "mux", "auto_resume_skipped", skipped(why));
             return;
         }
         if session.status() == SessionStatus::Closed || session.moving().is_some() {
+            self.clear_fired(session, cut_turn);
             self.append(session, "mux", "auto_resume_skipped", skipped("closed"));
             return;
         }
         if !still_cut(session, cut_turn) {
+            self.clear_fired(session, cut_turn);
             self.append(session, "mux", "auto_resume_skipped", skipped("superseded"));
             return;
         }
-        let held = self.held_by(session, cut_turn);
+        let held = self.held_by(session, root, cut_turn);
         let provenance = json!({"kind": "auto_resume", "promptId": root, "attempt": attempt, "turnId": cut_turn});
         let opts = PromptOptions {
             prompt_id: Some(format!("{root}{SUFFIX}{attempt}")),
@@ -303,40 +384,64 @@ impl Hub {
             ..PromptOptions::default()
         };
         let blocks = vec![json!({"type": "text", "text": continue_text(cut.error)})];
-        match self.prompt_with(session, blocks, "acpmux", false, opts).await {
+        let result = self.prompt_with(session, blocks, "acpmux", false, opts).await;
+        self.clear_fired(session, cut_turn);
+        match result {
             Ok(v) if v.get("stopReason").and_then(Value::as_str) != Some("cancelled") => {
                 self.resume_held(session, &held);
             }
             Ok(_) => {}
-            Err(e)
-                if e.data.as_ref().and_then(|d| d.get("reason"))
-                    == Some(&json!("auto_resume.superseded")) =>
-            {
-                self.append(session, "mux", "auto_resume_skipped", skipped("superseded"));
-            }
-            // A failure that is itself a transport error scheduled the next attempt.
-            Err(e) => tracing::warn!(session = %session.id, attempt, "auto resume: {}", e.message),
+            Err(e) => match e.data.as_ref().and_then(|d| d.get("reason")).and_then(Value::as_str) {
+                Some(why @ ("auto_resume.superseded" | "auto_resume.stopped")) => {
+                    let why = why.trim_start_matches("auto_resume.");
+                    self.append(session, "mux", "auto_resume_skipped", skipped(why));
+                }
+                // A failure that is itself a transport error scheduled the next attempt.
+                _ => tracing::warn!(session = %session.id, attempt, "auto resume: {}", e.message),
+            },
         }
     }
 
-    /// The prompts `cut_turn` held (its `queue_paused` record).
-    fn held_by(&self, session: &Session, cut_turn: &str) -> Vec<String> {
-        let mut held = Vec::new();
+    /// The prompts `cut_turn` held (its `queue_paused` record), and those the turns it
+    /// continues held: back through the earlier attempts at `root` to the turn the connection
+    /// first cut. A failed attempt writes no record of its own when the prompts behind it were
+    /// already held, so its continuation finds them on the turn before.
+    fn held_by(&self, session: &Session, root: &str, cut_turn: &str) -> Vec<String> {
+        let mut paused: HashMap<String, Vec<String>> = HashMap::new();
+        // An attempt's turn, and the turn it continues.
+        let mut continues: HashMap<String, String> = HashMap::new();
         let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
-            if e.kind == "queue_paused"
-                && e.msg.get("turnId").and_then(Value::as_str) == Some(cut_turn)
-            {
-                held = e
-                    .msg
-                    .get("held")
-                    .and_then(Value::as_array)
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|v| v.as_str().map(str::to_owned))
-                    .collect();
+            let Some(turn) = e.msg.get("turnId").and_then(Value::as_str) else { return true };
+            match e.kind.as_str() {
+                "queue_paused" => {
+                    let ids = e.msg.get("held").and_then(Value::as_array).into_iter().flatten();
+                    let ids = ids.filter_map(|v| v.as_str().map(str::to_owned)).collect();
+                    paused.insert(turn.to_owned(), ids);
+                }
+                "user_message" => {
+                    let p = e.msg.pointer("/_meta/provenance");
+                    let field = |k: &str| p.and_then(|p| p.get(k)).and_then(Value::as_str);
+                    if field("kind") == Some("auto_resume")
+                        && field("promptId") == Some(root)
+                        && let Some(cut) = field("turnId")
+                    {
+                        continues.insert(turn.to_owned(), cut.to_owned());
+                    }
+                }
+                _ => {}
             }
             true
         });
+        let (mut held, mut seen) = (Vec::new(), HashSet::new());
+        let mut turn = Some(cut_turn);
+        while let Some(t) = turn.filter(|t| seen.insert(*t)) {
+            for id in paused.get(t).into_iter().flatten() {
+                if !held.contains(id) {
+                    held.push(id.clone());
+                }
+            }
+            turn = continues.get(t).map(String::as_str);
+        }
         held
     }
 }

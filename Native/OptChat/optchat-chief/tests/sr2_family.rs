@@ -36,28 +36,96 @@ fn the_gate_admits_claude_sr2_as_a_claude_stdio_profile() {
     assert_eq!(admitted.family, Family::Claude);
 }
 
-/// With no harness set, the Chief and its subagents run on `claude-sr2`
-/// when acpmux can run it (Lawrence 2026-10-18: every agent on Opus 5.5
-/// medium through the subrouter); a configured CodeRouter route still wins,
-/// and an `unavailable` sr2 leaves the user's own login.
+/// With no harness set, the Chief, its compactor and its subagents run the
+/// user's own Claude CLI (acpmux's `claude`: the `claude` on the login
+/// shell's PATH, with the user's `~/.claude/settings.json` and login), even
+/// when the sr2 harness file is installed and runnable (Lawrence
+/// 2026-10-19: "make sure Chief, by default, will talk to the correct
+/// Claude, using the user's Claude CLI"). sr2 is an explicit choice
+/// (`chief engine set --harness claude-sr2`), or the fallback only when
+/// acpmux has no usable `claude`. A configured CodeRouter route still wins.
 #[test]
-fn the_default_is_sr2_when_acpmux_can_run_it() {
+fn the_default_is_the_users_own_claude_cli_even_when_sr2_runs() {
     use optchat_chief::host::default_harness;
-    assert_eq!(default_harness(&answer()), "claude-sr2");
+    assert_eq!(default_harness(&answer()), "claude");
+    let admitted = admit(&answer(), default_harness(&answer())).unwrap();
+    assert_eq!(admitted.argv0, "/u/.local/bin/claude");
     let down = json!({"harnesses": {
         "claude": {"kind": "claude-stdio", "argv": ["/u/.local/bin/claude"]},
         "claude-sr2": {"kind": "claude-stdio", "argv": ["/u/.local/bin/sr2", "claude"],
                        "unavailable": "`sr2 --version` failed"},
     }});
     assert_eq!(default_harness(&down), "claude");
-    let acp = json!({"harnesses": {
-        "claude": {"kind": "claude-stdio", "argv": ["/u/.local/bin/claude"]},
-        "claude-sr2": {"kind": "acp", "argv": ["/u/bin/some-acp"]},
+    // No usable `claude` on the PATH: sr2, when it runs, rather than a
+    // harness that refuses every turn.
+    let no_cli = json!({"harnesses": {
+        "claude": {"kind": "claude-stdio", "argv": ["claude"],
+                   "unavailable": "claude was not found on PATH"},
+        "claude-sr2": {"kind": "claude-stdio", "argv": ["/u/.local/bin/sr2", "claude"]},
     }});
-    assert_eq!(default_harness(&acp), "claude");
+    assert_eq!(default_harness(&no_cli), "claude-sr2");
     let routed = json!({"harnesses": {
+        "claude": {"kind": "claude-stdio", "argv": ["/u/.local/bin/claude"]},
         "claude-cr": {"kind": "claude-stdio", "argv": ["/u/bin/coderouter", "team-route"]},
         "claude-sr2": {"kind": "claude-stdio", "argv": ["/u/.local/bin/sr2", "claude"]},
     }});
     assert_eq!(default_harness(&routed), "claude-cr");
+}
+
+/// The compactor of a Chief with an empty engine.json runs the same CLI as
+/// its turns: the user's own `claude`, not sr2.
+#[test]
+fn an_empty_engine_compacts_on_the_users_own_claude_cli() {
+    use optchat_chief::host::{compactor_harness_for, default_harness};
+    let engine = optchat_chief::engine::EngineChoice::default();
+    let turn = default_harness(&answer());
+    assert_eq!(
+        compactor_harness_for(&answer(), None, turn, &engine),
+        "claude"
+    );
+    // An explicit choice still wins.
+    let set = optchat_chief::engine::EngineChoice {
+        harness: Some("claude-sr2".into()),
+        ..Default::default()
+    };
+    assert_eq!(
+        compactor_harness_for(&answer(), None, turn, &set),
+        "claude-sr2"
+    );
+}
+
+/// `chief engine show` names the CLI each role runs (path and version), from
+/// what the host resolved at its start.
+#[test]
+fn engine_show_prints_the_resolved_cli_of_each_role() {
+    use optchat_chief::engine::{ResolvedEngine, ResolvedHarness, save_resolved};
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("mux");
+    let claude = ResolvedHarness {
+        harness: "claude".into(),
+        kind: "claude-stdio".into(),
+        argv0: "/u/.local/bin/claude".into(),
+        version: "2.1.303 (Claude Code)".into(),
+    };
+    let resolved = ResolvedEngine {
+        turn: Some(claude.clone()),
+        compactor: Some(claude.clone()),
+        subagent: Some(claude),
+    };
+    save_resolved(&home, &resolved).unwrap();
+    let flags = optchat_chief::cli::Flags::parse(&[
+        "engine".to_owned(),
+        "show".to_owned(),
+        "--mux-home".to_owned(),
+        home.display().to_string(),
+    ]);
+    let out = optchat_chief::engine::run(&flags).unwrap();
+    for role in ["turn", "compactor", "subagent"] {
+        assert!(
+            out.contains(&format!(
+                "{role}: claude (claude-stdio, /u/.local/bin/claude, 2.1.303 (Claude Code))"
+            )),
+            "{out}"
+        );
+    }
 }

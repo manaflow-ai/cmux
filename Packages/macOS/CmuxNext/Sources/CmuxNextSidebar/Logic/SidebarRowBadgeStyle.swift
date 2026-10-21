@@ -2,12 +2,13 @@ public import CmuxNextDesign
 
 /// How a workspace row shows what waits in it (Debug Settings `sidebar.rowBadge`). Leo and
 /// Lawrence 2026-10-14: no count numbers on NEXT rows. The default follows T3 Code's thread list:
-/// the row leads with its harness logo or kind icon, and one small badge on that icon's corner says
-/// the most urgent state; the count reads in the hover card. `stack` is Leo's alternative, one
+/// one small glyph says the most urgent state; the count reads in the hover card. Every style draws
+/// in the trailing slot: nothing but the favicon or the user's icon draws in the leading slot
+/// (Lawrence 2026-10-19). `stack` is Leo's alternative, one
 /// glyph per pending item overlapping in the trailing slot; `trailing` keeps the count badge and
 /// the trailing status glyph (the look before).
 public nonisolated enum SidebarRowBadgeStyle: String, Sendable, CaseIterable, Hashable, TunableChoice {
-    /// One badge on the leading icon's bottom-right corner.
+    /// One glyph, the most urgent state, in the trailing slot (the case keeps its stored name).
     case corner
     /// Overlapping glyphs in the trailing slot, one per pending item, up to `SidebarRowBadgeStackCap`.
     case stack
@@ -16,7 +17,7 @@ public nonisolated enum SidebarRowBadgeStyle: String, Sendable, CaseIterable, Ha
 
     public var tunableTitle: String {
         switch self {
-        case .corner: "Corner badge on the icon"
+        case .corner: "One glyph (most urgent)"
         case .stack: "Glyph stack (one per item)"
         case .trailing: "Count and trailing glyph (before)"
         }
@@ -24,20 +25,29 @@ public nonisolated enum SidebarRowBadgeStyle: String, Sendable, CaseIterable, Ha
 
     public static let tunable = Tunable<SidebarRowBadgeStyle>.choice(
         "sidebar.rowBadge", .sidebar, "Row badge",
-        help: "How a workspace row shows unread items and agent states: a badge on the leading icon's corner, a stack of glyphs, or the count with a trailing glyph.",
+        help: "How a workspace row shows unread items and agent states, at its end: one glyph for the most urgent state, a stack of glyphs, or the count with a trailing glyph.",
         default: .corner, code: "SidebarRowBadgeStyle.tunable")
 }
 
 /// A row's pending items, most urgent first: a failure, then a permission (or sign-in) request,
-/// then a question, then work in progress, then each unread item (done). The corner badge draws
+/// then a question, then work in progress, then each unread item (done). The one-glyph badge draws
 /// the first; the stack draws up to `stackLimit` (`SidebarRowBadgeStackCap`) and leaves the rest to
 /// the tooltip and hover card.
+///
+/// Unless `detailed` (`sidebar.detailedStatusIcons`, off by default), a row says one of two things
+/// (Lawrence 2026-10-18: "it is working" or "it is blue and ready for me to look at it"): Ready, the
+/// blue done dot, for anything that waits for the user (unread, done, a question, a permission, an
+/// error), else Working, the one spinner. `items` then holds at most one state; `unreadCount` and
+/// `pending` keep what the tooltip lists.
 nonisolated struct WorkspaceRowBadges: Equatable {
     var items: [StatusIndicatorState]
+    /// Every pending item, detailed, for the tooltip.
+    var pending: [StatusIndicatorState]
     var unreadCount: Int
     var stackLimit: Int
 
-    init(unread: UnreadState, activity: StatusIndicatorState, stackLimit: Int = SidebarRowBadgeStackCap.five.limit) {
+    init(unread: UnreadState, activity: StatusIndicatorState, stackLimit: Int = SidebarRowBadgeStackCap.five.limit,
+         detailed: Bool = true) {
         self.stackLimit = stackLimit
         switch unread {
         case .none: unreadCount = 0
@@ -47,7 +57,20 @@ nonisolated struct WorkspaceRowBadges: Equatable {
         var items: [StatusIndicatorState] = activity == .idle || activity == .success ? [] : [activity]
         // Each unread item is a done dot; a finished workspace with nothing unread still shows one.
         items += Array(repeating: .success, count: unreadCount == 0 && activity == .success ? 1 : unreadCount)
-        self.items = items.sorted { Self.rank($0) < Self.rank($1) }
+        pending = items.sorted { Self.rank($0) < Self.rank($1) }
+        self.items = detailed ? pending : Self.simple(pending).map { [$0] } ?? []
+    }
+
+    /// The one state a row shows without detailed icons: Ready (`success`, the blue dot) when any
+    /// item waits for the user, else the work in progress (its progress kept), else nothing.
+    static func simple(_ items: [StatusIndicatorState]) -> StatusIndicatorState? {
+        let ready = items.contains { state in
+            switch state {
+            case .waiting, .error, .success: true
+            case .idle, .busy, .paused, .working: false
+            }
+        }
+        return ready ? .success : items.first { $0.isWorking || $0.isLoading }
     }
 
     var first: StatusIndicatorState? { items.first }

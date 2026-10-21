@@ -148,6 +148,9 @@ public struct ThemeTokens: Hashable, Sendable {
         let hover = fg.withAlpha(isDark ? 0.06 : 0.05)
         // An accent selection is the app theme's (`AppTheme` .selection: the accent over the background).
         let selection = accent?.withAlpha(isDark ? 0.26 : 0.16) ?? fg.withAlpha(isDark ? 0.10 : 0.08)
+        // The other rows of a multi-selection: the selection's own color at 0.7 of its weight, so an accent
+        // theme's drag-selected rows read as one selection, as the neutral fills always did.
+        let secondarySelection = accent?.withAlpha(isDark ? 0.18 : 0.11) ?? fg.withAlpha(isDark ? 0.07 : 0.055)
         let pressed = fg.withAlpha(isDark ? 0.14 : 0.11)
         // Text must hold its contrast on the strongest fill it can sit on.
         let worstSurface = [pressed, selection].map { $0.composited(over: bg) }
@@ -193,7 +196,7 @@ public struct ThemeTokens: Hashable, Sendable {
             textTertiary: tertiary,
             hoverFill: hover,
             selectionFill: selection,
-            secondarySelectionFill: fg.withAlpha(isDark ? 0.07 : 0.055),
+            secondarySelectionFill: secondarySelection,
             pressedFill: pressed,
             badgeFill: fg.withAlpha(isDark ? 0.14 : 0.10),
             separator: fg.withAlpha(isDark ? 0.08 : 0.07),

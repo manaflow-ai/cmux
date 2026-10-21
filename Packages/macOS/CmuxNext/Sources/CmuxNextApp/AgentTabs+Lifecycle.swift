@@ -36,11 +36,10 @@ extension AgentTabStore {
                 : localHost == nil ? RefusalStrings.agentTabCreateFailed : RefusalStrings.agentTabsUnsupported
             throw AgentTabRefusal(message: reason)
         }
-        // A Chief subagent's tab names this app's Chief home (`chief:<home id>`); no other host.
         let record: AgentSessionRef
-        if let host, host != chiefHost {
+        if let refusal = Self.hostRefusal(host, localHost: localHost, chiefHost: chiefHost, daemonIsLocal: daemon.isLocal) {
             if let spare, recycle?(spare) != true { retirer.retire(spare) }
-            throw AgentTabRefusal(message: RefusalStrings.agentTabCreateFailed)
+            throw AgentTabRefusal(message: refusal)
         }
         // A session never leaves its machine (cx-k21v): a pane of another machine never gets a
         // chat of this Mac (its session, an outside chat it resumes, a past chat of this Mac's list;
@@ -97,24 +96,35 @@ extension AgentTabStore {
                 let (created, sequence) = try await create(pane, daemon, record, idempotencyKey, transaction,
                                                            splitPane.map { ConversationTabSplit(direction: $0.0, paneID: $0.1.paneID,
                                                                                           splitID: sendsSplitID ? $0.1.splitID : nil) })
-                tabCreated(key, as: created)
+                // Closed first (CancelledCreation): nothing moves to the store's tab, which the store
+                // hides and closes; the page's view state goes.
+                if !store.creations.wasCancelled(transaction) { tabCreated(key, as: created) }
                 // The store's tab replaces the provisional one in one step, never beside it.
                 ProvisionalTab.created(transaction, surface: created.surface, in: store)
                 if let sequence { store.noteSettled(transaction, at: sequence) } else { store.noteSettledAtNextSnapshot(transaction) }
-                if let close = pendingCloses.removeValue(forKey: key) {
-                    close(created.key)
-                } else if let started = sessions[created.key], !remote {
-                    // A chat its page started (or the harness acpmux reported) before the store answered binds now.
-                    sendSession(started, for: created.key)
-                }
+                if store.creations.wasCancelled(transaction) { throw CancellationError() }
+                // A chat its page started (or the harness acpmux reported) before the store answered binds now.
+                if let started = sessions[created.key], !remote { sendSession(started, for: created.key) }
                 return created
             } catch {
-                store.rejectIntent(transaction)
+                // A cancelled creation stays in the log until the store's close of its tab commits.
+                if !(error is CancellationError) || !store.creations.wasCancelled(transaction) { store.rejectIntent(transaction) }
                 self?.release(key)
                 throw error
             }
         }
         return pending
+    }
+
+    /// Why a tab cannot open on the session host `host`, nil when it can: none, this Mac's own
+    /// host, or this app's Chief home (`chief:<home id>`, a Chief subagent's tab). Another
+    /// machine's session never opens in a tab of this Mac (cx-k21v), and the refusal says so
+    /// (`app_agent_open` with `host: "cmux16"` said only "see the app log", 2026-10-20). This
+    /// Mac's host never opens in a pane of another machine (`daemonIsLocal` false) either.
+    static func hostRefusal(_ host: String?, localHost: String?, chiefHost: String?, daemonIsLocal: Bool) -> String? {
+        guard let host, host != chiefHost else { return nil }
+        if host == localHost { return daemonIsLocal ? nil : RefusalStrings.agentTabMachineMismatch }
+        return RefusalStrings.agentTabRunsOnHost(host)
     }
 
     /// ``open(in:of:session:seed:newTab:spare:linked:adopt:idempotencyKey:)`` in `pane`: the tab
@@ -125,8 +135,8 @@ extension AgentTabStore {
     @discardableResult
     func openTab(in pane: PaneController, session: String? = nil, seed: AgentPaneSeedSource? = nil,
                  newTab: (page: AgentPaneNewTab, handler: NewTabPageHandler)? = nil, spare: AgentPaneView? = nil,
-                 linked: Bool = false, select: Bool = true, hidden: Bool = false, split: SplitDirection? = nil,
-                 then: (@MainActor (String) -> Void)? = nil) -> Bool {
+                 linked: Bool = false, select: Bool = true, hidden: Bool = false, split: SplitDirection? = nil, focuses: Bool = true,
+                 then: (@MainActor (String) -> Void)? = nil, failed: (@MainActor () -> Void)? = nil) -> Bool {
         let daemon = pane.daemon
         let pending: AgentTabPending
         do {
@@ -136,8 +146,9 @@ extension AgentTabStore {
             pane.services.registry.refuse((error as? AgentTabRefusal)?.message ?? RefusalStrings.agentTabCreateFailed)
             return false
         }
-        // A split's tab takes focus in its provisional pane now, then in the store's (as a terminal split does).
-        let content = split == nil ? nil : pane.workspace, intent = content?.beginFocusIntent()
+        // A split's tab takes focus in its provisional pane now, then in the store's (as a terminal split does),
+        // unless the caller keeps focus where it is (`focuses` false: a tab dropped on its own pane's edge).
+        let content = split == nil || !focuses ? nil : pane.workspace, intent = content?.beginFocusIntent()
         content?.focus.expect(.tab(pending.key), generation: intent)
         // The selection follows the provisional tab to the created one (`moveSelection`).
         if select { pane.selectWhenReported(surface: pending.surface) }
@@ -160,6 +171,8 @@ extension AgentTabStore {
             } catch {
                 // A chat bound for a dock that never came: the pane stops waiting for it (cx-ihyx2).
                 if hidden { pane.dockFinished(pending.key) }
+                failed?()
+                guard !(error is CancellationError) else { return nil } // the person closed it first
                 daemon.logger.error("new-conversation-tab (agent) failed: \(String(describing: error), privacy: .public)")
                 return "\(RefusalStrings.agentTabCreateFailed)"
             }
@@ -260,14 +273,6 @@ extension AgentTabStore {
             && lookup(key)?.record.host.hasPrefix(AgentTabRemoteStart.registryPrefix) != true
     }
 
-    /// Close on a tab the store is still creating: it closes when the store answers (its
-    /// provisional surface names no daemon tab). False for any other tab.
-    func closeWhenCreated(_ key: String, close: @escaping @MainActor (String) -> Void) -> Bool {
-        guard ProvisionalTab.isProvisional(key), aliases[key] == nil, tabStores[key] != nil else { return false }
-        pendingCloses[key] = close
-        return true
-    }
-
     /// The tab already resuming the outside chat `adopt` while a tree lists it.
     func tab(resuming adopt: AgentPaneAdopt) -> String? {
         guard let key = adoptions["\(adopt.harness):\(adopt.agentSessionId)"], isAgentTab(key) else { return nil }
@@ -303,7 +308,6 @@ extension AgentTabStore {
             }
         }
         notices[key] = nil
-        pendingCloses[key] = nil
         sessions[key] = nil
         newTabPages[key] = nil
         seeds[key] = nil

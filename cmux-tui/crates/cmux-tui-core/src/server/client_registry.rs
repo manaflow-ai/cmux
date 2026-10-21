@@ -658,6 +658,7 @@ impl ClientRegistry {
                     || capability == super::FRONTEND_BROWSER_TABS_CAPABILITY
                     || capability == super::conversation_runs::CONVERSATION_RUNS_CAPABILITY
                     || capability == super::conversation_live::CHIEF_LIVE_CAPABILITY
+                    || capability == super::cloud_conversations::CLOUD_TYPING_CAPABILITY
                     // No placement restatement on `session.events`
                     // (state/placement_shift.rs).
                     || capability == crate::state::placement_shift::CAPABILITY
@@ -668,6 +669,14 @@ impl ClientRegistry {
             record.writer.negotiate_conversation_tabs(record.capabilities.iter());
         }
         Ok((record.name.clone(), record.kind.clone()))
+    }
+
+    /// The client's declared API revision (server/api_revision_wire.rs).
+    pub(super) fn set_api_revision(&self, client: u64, revision: u32) -> anyhow::Result<()> {
+        let state = self.state.lock().unwrap();
+        let record =
+            state.clients.get(&client).ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
+        record.writer.api_revision.declare(revision)
     }
 
     /// Merge identity fields: absent fields keep their previous value.

@@ -141,6 +141,7 @@ fn a_codex_host_installs_the_compactor_preset_a_claude_host_saved() {
         tags: Default::default(),
         env: Default::default(),
         fast: false,
+        peer: None,
     };
     let started = codex.new_session(&spec);
     assert_eq!(

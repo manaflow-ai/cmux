@@ -1,0 +1,214 @@
+import Foundation
+import CmuxNextSettings
+
+/// A project's own favicon for its picker badge (`project.icon {cwd}`): the New Tab page's folder
+/// strip and the composer's folder menu draw it in place of the letter tile. The page reads no
+/// file (CSP `img-src data:`), so the host looks for a few well-known icon files in the folder and
+/// answers a small data URL.
+///
+/// Never a read inside a privacy-protected folder (LAUNCH-NO-TCC-PROMPTS): the folder and every
+/// candidate go through `ChatRootValidator` first, which checks the spelling, then resolves links
+/// with `readlink` only, and refuses `/`, the home folder, other volumes and the protected folders
+/// of the one list (cmux-tui/crates/acpmux/data/protected-folders.json). The disk matches names
+/// more loosely than a spelling check (`Documentſ`, `/System/Volumes/Data/Users/…`), so each path,
+/// before and after its links are resolved, must also reach no protected folder by identity
+/// (`reachesProtectedFolder`, `lstat` only). Resolving can lstat or readlink through a protected
+/// folder, which raises no prompt; a refused path is never stat'ed for its contents, opened or read,
+/// so a favicon linked into Documents is no icon. One linked elsewhere in the project is read at its
+/// target.
+nonisolated struct AgentPaneProjectIcon: Sendable {
+    /// Larger files are skipped: a tile is 20pt, and the answer crosses the bridge as base64.
+    static let maximumBytes = 64 * 1024
+    /// Best first: a vector or a 180px touch icon draws sharper in the tile than a 16px `.ico`.
+    static let names = ["favicon.svg", "icon.svg", "apple-touch-icon.png", "favicon.png", "icon.png", "favicon.ico"]
+    /// The folder itself and where web frameworks keep their icons (Next.js `app/`, Vite and
+    /// Next.js `public/`, SvelteKit `static/`).
+    static let folders = ["", "public", "static", "app", "src/app", "assets"]
+    /// An icon the repository picked for cmux wins over any web favicon.
+    static let chosen = [".cmux/icon.svg", ".cmux/icon.png"]
+    /// Logos, after the favicons: a logo is often a wordmark that reads poorly in a square tile.
+    static let logos = ["logo.svg", "logo.png", "assets/logo.svg", "assets/logo.png"]
+    /// Where Xcode projects keep their asset catalog; `<folder name>/Assets.xcassets` is the
+    /// app target's folder in a new Xcode project.
+    static let assetCatalogs = ["Assets.xcassets", "Resources/Assets.xcassets"]
+
+    /// A regular file's size and modification date, or nil (the cache key with its path).
+    var stat: @Sendable (String) -> File?
+    var read: @Sendable (String) -> Data?
+    /// A folder's entry names, or nil (the AppIcon set's images).
+    var list: @Sendable (String) -> [String]?
+    private let validator: ChatRootValidator
+
+    struct File: Equatable, Sendable {
+        var size: Int
+        var modified: Date
+    }
+
+    init(home: String = NSHomeDirectory()) {
+        validator = ChatRootValidator(home: home)
+        stat = { path in
+            guard let values = try? URL(fileURLWithPath: path).resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey]),
+                  values.isRegularFile == true, let size = values.fileSize else { return nil }
+            return File(size: size, modified: values.contentModificationDate ?? .distantPast)
+        }
+        read = { path in
+            guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+            defer { try? handle.close() }
+            return try? handle.read(upToCount: AgentPaneProjectIcon.maximumBytes + 1)
+        }
+        list = { path in try? FileManager.default.contentsOfDirectory(atPath: path) }
+    }
+
+    /// Every path looked for in `folder`, best first.
+    static func candidates(in folder: String) -> [String] {
+        let base = folder.hasSuffix("/") ? String(folder.dropLast()) : folder
+        let favicons = names.flatMap { name in folders.map { sub in sub.isEmpty ? "\(base)/\(name)" : "\(base)/\(sub)/\(name)" } }
+        return chosen.map { "\(base)/\($0)" } + favicons + logos.map { "\(base)/\($0)" }
+    }
+
+    /// The AppIcon sets an Xcode project in `folder` may have.
+    static func appIconSets(in folder: String) -> [String] {
+        let base = folder.hasSuffix("/") ? String(folder.dropLast()) : folder
+        let name = (base as NSString).lastPathComponent
+        return (assetCatalogs + ["\(name)/Assets.xcassets"]).map { "\(base)/\($0)/AppIcon.appiconset" }
+    }
+
+    /// True when `path` may be looked at: refused neither by its spelling nor by what it reaches.
+    func allows(_ path: String) -> Bool {
+        validator.refusal(path) == nil && !validator.reachesProtectedFolder(path)
+    }
+
+    /// The candidates in `folder` that may be read, are regular files and are small enough, best
+    /// first, each at its resolved path (a favicon linked within the project is read at its target).
+    func files(in folder: String) -> [(path: String, file: File)] {
+        guard folder.hasPrefix("/"), allows(folder) else { return [] }
+        var found: [(path: String, file: File)] = []
+        for candidate in Self.candidates(in: folder) where allows(candidate) {
+            // `realpath` reads only link entries and keeps `/private`, unlike `resolvingSymlinksInPath`.
+            guard let resolved = Self.realPath(candidate), resolved == candidate || allows(resolved),
+                  let file = stat(resolved), file.size > 0, file.size <= Self.maximumBytes else { continue }
+            found.append((resolved, file))
+        }
+        if let appIcon = appIcon(in: folder) { found.append(appIcon) }
+        return found
+    }
+
+    /// `path` resolved, when it and its target may be looked at and it is a regular file.
+    private func regularFile(_ path: String) -> String? {
+        guard allows(path), let resolved = Self.realPath(path), resolved == path || allows(resolved),
+              stat(resolved) != nil else { return nil }
+        return resolved
+    }
+
+    /// The largest PNG of the first AppIcon set that has one small enough: the sharpest that still
+    /// crosses the bridge.
+    func appIcon(in folder: String) -> (path: String, file: File)? {
+        for set in Self.appIconSets(in: folder) where allows(set) {
+            guard let entries = list(set) else { continue }
+            var best: (path: String, file: File)?
+            for entry in entries.sorted() where entry.lowercased().hasSuffix(".png") {
+                let candidate = set + "/" + entry
+                guard allows(candidate), let resolved = Self.realPath(candidate), resolved == candidate || allows(resolved),
+                      let file = stat(resolved), file.size > 0, file.size <= Self.maximumBytes,
+                      file.size > (best?.file.size ?? 0) else { continue }
+                best = (resolved, file)
+            }
+            if let best { return best }
+        }
+        return nil
+    }
+
+    /// A language or framework mark from the project's manifest, for a project with no icon file:
+    /// `swift`, `rust`, `react`, `typescript`, `node`, `python`, `go` or `ruby`; nil for none.
+    func glyph(in folder: String) -> String? {
+        guard folder.hasPrefix("/"), allows(folder) else { return nil }
+        let base = folder.hasSuffix("/") ? String(folder.dropLast()) : folder
+        let has = { (name: String) -> Bool in regularFile(base + "/" + name) != nil }
+        if has("Package.swift") { return "swift" }
+        if has("Cargo.toml") { return "rust" }
+        if let package = regularFile(base + "/package.json") {
+            let manifest = read(package).map { String(decoding: $0, as: UTF8.self) } ?? ""
+            if manifest.contains("\"react\"") { return "react" }
+            if has("tsconfig.json") || manifest.contains("\"typescript\"") { return "typescript" }
+            return "node"
+        }
+        if has("pyproject.toml") || has("setup.py") || has("requirements.txt") { return "python" }
+        if has("go.mod") { return "go" }
+        if has("Gemfile") { return "ruby" }
+        return nil
+    }
+
+    private static func realPath(_ path: String) -> String? {
+        guard let resolved = realpath(path, nil) else { return nil }
+        defer { free(resolved) }
+        return String(cString: resolved)
+    }
+
+    /// The data URL of an image file, typed by its bytes; nil for anything that is not one.
+    func dataURL(_ path: String) -> String? {
+        guard let data = read(path), !data.isEmpty, data.count <= Self.maximumBytes, let type = Self.imageType(data) else { return nil }
+        return "data:\(type);base64,\(data.base64EncodedString())"
+    }
+
+    /// The icon of the project at `folder`, uncached: the first candidate that is an image.
+    func icon(in folder: String) -> String? {
+        files(in: folder).lazy.compactMap { dataURL($0.path) }.first
+    }
+
+    static func imageType(_ data: Data) -> String? {
+        let bytes = [UInt8](data.prefix(8))
+        if bytes.starts(with: [0x89, 0x50, 0x4E, 0x47]) { return "image/png" }
+        if bytes.starts(with: [0x00, 0x00, 0x01, 0x00]) { return "image/x-icon" }
+        if bytes.starts(with: [0xFF, 0xD8, 0xFF]) { return "image/jpeg" }
+        if bytes.starts(with: [0x47, 0x49, 0x46, 0x38]) { return "image/gif" }
+        // An SVG as an <img> runs no script; its root element must show up front.
+        // Decoded leniently: the first kilobyte can end inside a character.
+        if String(decoding: data.prefix(1024), as: UTF8.self).lowercased().contains("<svg") { return "image/svg+xml" }
+        return nil
+    }
+}
+
+/// The icons the pickers asked for, read off the main actor and kept by file path and
+/// modification date: a project's icon is read once until the file changes.
+actor AgentPaneProjectIcons {
+    static let shared = AgentPaneProjectIcons(reader: AgentPaneProjectIcon())
+
+    private let reader: AgentPaneProjectIcon
+    private let repos: AgentPaneProjectRepoReader
+    private let avatars: AgentPaneOwnerAvatars
+    private var cache: [String: (file: AgentPaneProjectIcon.File, url: String?)] = [:]
+
+    init(reader: AgentPaneProjectIcon, repos: AgentPaneProjectRepoReader = .shared, avatars: AgentPaneOwnerAvatars = .shared) {
+        self.reader = reader
+        self.repos = repos
+        self.avatars = avatars
+    }
+
+    /// The `project.icon` answer: an icon file in the folder, else in its repository's main checkout
+    /// (a worktree whose icon is not checked in yet, or a folder inside the repository), else the
+    /// GitHub owner's avatar; and the manifest's language mark, which the page draws only without an
+    /// icon. Both nil keep the page's letters.
+    func answer(for folder: String) async -> (src: String?, glyph: String?) {
+        let repo = reader.allows(folder) ? repos.repo(for: folder) : nil
+        let root = repo.map(\.root).flatMap { $0 == folder ? nil : $0 }
+        let glyph = reader.glyph(in: folder) ?? root.flatMap(reader.glyph(in:))
+        if let src = icon(for: folder) ?? root.flatMap({ icon(for: $0) }) { return (src, glyph) }
+        guard let owner = repo?.github?.split(separator: "/").first.map(String.init) else { return (nil, glyph) }
+        return (await avatars.avatar(for: owner), glyph)
+    }
+
+    /// The first candidate that is an image; a cached answer stands until its file changes.
+    func icon(for folder: String) -> String? {
+        for picked in reader.files(in: folder) {
+            if let known = cache[picked.path], known.file == picked.file {
+                if let url = known.url { return url }
+                continue
+            }
+            let url = reader.dataURL(picked.path)
+            if cache.count >= 512 { cache.removeAll() }
+            cache[picked.path] = (picked.file, url)
+            if let url { return url }
+        }
+        return nil
+    }
+}

@@ -5,6 +5,8 @@
 //! `adoption` (resuming a harness's own session), `models_view` (the picker's model lists).
 
 mod adoption;
+mod agent_pairs;
+pub use agent_pairs::PairGuard;
 mod aside;
 pub(crate) mod auto_resume;
 mod btw;
@@ -56,12 +58,14 @@ mod secrets;
 mod seen;
 mod session;
 pub(crate) mod session_pages;
+mod settings_watch;
 pub use session::{Session, live_tags};
 pub(super) use session::{prompt_text, short_text};
 mod shutdown;
 mod spawn;
 mod start_defaults;
 pub(crate) mod start_mode;
+mod start_mode_state;
 mod startup;
 mod steer_end;
 mod stream;
@@ -74,29 +78,39 @@ pub use new_request::{
 };
 pub use paging::{EventFilter, EventPage};
 pub use spawn::expand_env_value;
+pub mod approvers;
+mod peer_cache;
 mod peers;
 pub(crate) use peers::PEER_PERMISSION_PENDING;
 mod permission_groups;
 mod permissions;
 pub mod person;
 mod processes;
+mod pull_requests;
 mod questions;
 mod remote_floor;
 mod remote_sandbox;
+pub use remote_sandbox::vm_host_peer_approves;
 mod start_gate;
+pub mod subsessions;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
+mod drafts;
 pub mod rules;
+mod transcript;
 mod transfer;
 mod transfer_guard;
 mod transfer_in;
 mod transfer_out;
 mod transfer_watch;
+mod trust_wait;
+mod turn_git;
 mod turn_usage;
 mod turns;
 pub(crate) mod views;
 mod warm;
 mod web_control;
 mod web_token;
+pub(crate) mod worktree_care;
 mod xai;
 pub use web_control::Control;
 pub(crate) use web_control::ModeWrite;
@@ -154,6 +168,8 @@ pub(super) struct PendingPermission {
     /// The nonce a relayed allow's decision proof covers (`person.rs`,
     /// cx-0q7o): new for each prompt, valid only while it is pending.
     pub(super) decision_nonce: String,
+    /// The session's status before this prompt made it Waiting (`settle_permission`).
+    pub(super) prev_status: SessionStatus,
 }
 
 #[derive(Debug, Clone)]
@@ -239,6 +255,10 @@ pub struct Hub {
     /// Where adopt looks for harness sessions.
     pub(super) harness_homes: StdMutex<crate::adopt::HarnessHomes>,
     pub(super) events: broadcast::Sender<HubEvent>,
+    /// `_acpmux/models` replies now asking peers for theirs
+    /// (`server/models_fanout.rs`): a remote asker meanwhile gets this
+    /// daemon's own catalog, so mutual peers cannot ping-pong.
+    pub models_fanouts: std::sync::atomic::AtomicUsize,
     pub shutdown: Notify,
     pub started_at: u64,
     pub(super) peers: StdMutex<HashMap<String, Arc<crate::peer::Peer>>>,
@@ -259,6 +279,12 @@ pub struct Hub {
     /// launcher checks) in the background. Session creation and agent
     /// spawns wait for it; every other request is answered at once.
     pub(super) startup_ready: tokio::sync::watch::Sender<bool>,
+    /// False from a deferred start (`Hub::new_deferred`) until `load_logs` read the
+    /// chat logs: prompts wait for it, so a restored queue keeps its place.
+    pub(super) logs_ready: tokio::sync::watch::Sender<bool>,
+    /// Sessions that were waiting for a permission when the last daemon stopped;
+    /// `load_logs` settles them.
+    pub(super) waiting_at_load: StdMutex<Vec<String>>,
     /// Startup has read the login environment: the catalog sees its PATH.
     pub(super) catalog_ready: tokio::sync::watch::Sender<bool>,
     pub(super) login_env_requested: AtomicBool,
@@ -303,7 +329,11 @@ pub struct Hub {
     pub(crate) chats: std::sync::OnceLock<Arc<crate::chats::ChatService>>,
     /// Work that waits for the chat index to start (`Hub::when_chats_ready`).
     pub(crate) chats_waiters: StdMutex<Vec<crate::chats::ChatsWaiter>>,
+    /// The forced start mode and the setting's change count (`start_mode_state.rs`).
+    pub(super) start_mode_state: start_mode_state::StartModeCell,
     pub(super) harness_watch: harness_watch::HarnessWatchState,
+    /// The settings file watched for start-mode changes (`settings_watch.rs`).
+    pub(super) settings_watch: settings_watch::SettingsWatchState,
     pub catalog: Arc<crate::catalog::CatalogService>,
     /// Agent CLI health (`harness_health`, `hub/health_view.rs`).
     pub health: Arc<crate::harness_health::HealthService>,
@@ -315,12 +345,18 @@ pub struct Hub {
     pub(super) transfer_lease: StdMutex<std::time::Duration>,
     /// Chats agents offered the person, still open (`offers.rs`).
     pub(super) offers: offers::Offers,
+    /// Open sub-sessions per parent and starts in flight (`subsessions.rs`).
+    pub(super) subsessions: subsessions::Index,
     /// Automatic continuations waiting to fire, by chat (`auto_resume.rs`).
     pub(super) auto_resumes: auto_resume::Pending,
     /// Fired by `set_transfer_lease`: each move's watch reads the new lease now.
     pub(super) transfer_lease_changed: Notify,
     /// Secrets agents asked the person for, and their one-use refs (`secrets.rs`).
     pub(super) secrets: secrets::Secrets,
+    /// Sub-session starts waiting on a folder's trust card, and Not nows (`trust_wait.rs`).
+    pub(super) trust_waits: trust_wait::Waits,
+    /// Agent message pairs and their runaway guard (`agent_pairs.rs`).
+    pub(super) agent_pairs: agent_pairs::AgentPairs,
 }
 
 impl Hub {
@@ -328,7 +364,18 @@ impl Hub {
         Self::new_with_mailbox(config, store, Mailbox::memory())
     }
 
+    /// A daemon's hub: only the session list is read before it answers. The chat
+    /// logs (their tails, queues and unsettled turns) load in `load_logs`, after
+    /// the ready line (2026-10-20: reading 3.9 GB of logs first took 26.8 s).
+    pub fn new_deferred(config: Config, store: Box<dyn Store>, mailbox: Mailbox) -> Arc<Self> {
+        Self::build(config, store, mailbox, true)
+    }
+
     pub fn new_with_mailbox(config: Config, store: Box<dyn Store>, mailbox: Mailbox) -> Arc<Self> {
+        Self::build(config, store, mailbox, false)
+    }
+
+    fn build(config: Config, store: Box<dyn Store>, mailbox: Mailbox, deferred: bool) -> Arc<Self> {
         let (events, _) = broadcast::channel(8192);
         let (peer_notices, peer_notices_rx) = mpsc::channel(4096);
         let peers_cfg = config.peers.clone();
@@ -340,6 +387,7 @@ impl Hub {
             sessions: StdMutex::new(HashMap::new()),
             harness_homes: StdMutex::new(crate::adopt::HarnessHomes::from_env()),
             events,
+            models_fanouts: std::sync::atomic::AtomicUsize::new(0),
             shutdown: Notify::new(),
             started_at: now_ms(),
             peers: StdMutex::new(HashMap::new()),
@@ -350,6 +398,8 @@ impl Hub {
             live_models: StdMutex::new(HashMap::new()),
             refused_models: StdMutex::new(HashMap::new()),
             startup_ready: tokio::sync::watch::channel(true).0,
+            logs_ready: tokio::sync::watch::channel(true).0,
+            waiting_at_load: StdMutex::new(Vec::new()),
             catalog_ready: tokio::sync::watch::channel(true).0,
             login_env_requested: AtomicBool::new(false),
             importing: StdMutex::new(std::collections::HashSet::new()),
@@ -372,21 +422,29 @@ impl Hub {
             remote_sandbox_exec: StdMutex::new(PathBuf::from(remote_sandbox::SANDBOX_EXEC)),
             chats: std::sync::OnceLock::new(),
             chats_waiters: StdMutex::new(Vec::new()),
+            start_mode_state: Default::default(),
             harness_watch: Default::default(),
+            settings_watch: Default::default(),
             catalog: Arc::new(crate::catalog::CatalogService::new()),
             health: Arc::new(crate::harness_health::HealthService::new()),
             web_token: WebToken::new(String::new()),
             person: Default::default(),
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
             offers: Default::default(),
+            subsessions: Default::default(),
             auto_resumes: Default::default(),
             transfer_lease_changed: Notify::new(),
             secrets: Default::default(),
+            trust_waits: Default::default(),
+            agent_pairs: Default::default(),
         });
         if let Ok(c) = hub.config.try_read() {
             hub.refresh_web_modes(&c);
         }
-        hub.load_from_store();
+        hub.load_from_store(deferred);
+        if !deferred {
+            hub.load_logs();
+        }
         if tokio::runtime::Handle::try_current().is_ok() {
             let h = hub.clone();
             tokio::spawn(async move { h.peer_notice_loop().await });
@@ -411,42 +469,6 @@ impl Hub {
         self.idle_wake.notify_one();
     }
 
-    /// Limits the model probes to `names` (None: every harness), so a
-    /// client that uses a few harnesses (the Chief) never starts the others'
-    /// agents at daemon start. Set before `begin_startup`.
-    pub fn set_probe_only(&self, names: Option<std::collections::BTreeSet<String>>) {
-        *self.probe_only.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = names;
-    }
-
-    /// A client now uses `names` too (the Chief's engine set): they join the
-    /// probe list and are probed now, in the background, so their model
-    /// lists arrive without a daemon restart.
-    pub async fn allow_probes(self: &Arc<Self>, names: std::collections::BTreeSet<String>) {
-        if let Some(list) =
-            self.probe_only.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_mut()
-        {
-            list.extend(names.iter().cloned());
-        }
-        let hub = self.clone();
-        tokio::spawn(async move { hub.probe_models_with(false, false, Some(names)).await });
-    }
-
-    /// Whether the model probes may start harness `name`.
-    pub(super) fn probes(&self, name: &str) -> bool {
-        self.probe_only
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .as_ref()
-            .is_none_or(|names| names.contains(name))
-    }
-
-    /// `ACPMUX_PROBE_HARNESSES`: comma-separated harness names; unset, every harness.
-    pub fn probe_only_from_env(value: Option<&str>) -> Option<std::collections::BTreeSet<String>> {
-        value.map(|v| {
-            v.split(',').map(str::trim).filter(|n| !n.is_empty()).map(str::to_owned).collect()
-        })
-    }
-
     /// Turns on the folder-trust gate for the app's agent pane, reading the
     /// agents' files and acpmux's record at `paths` (the daemon passes the
     /// user's; tests pass fixtures). None turns it off.
@@ -466,7 +488,7 @@ impl Hub {
 
     /// Points adopt at other harness stores (tests use fixture stores).
     pub fn set_harness_homes(&self, homes: crate::adopt::HarnessHomes) {
-        *self.harness_homes.lock().unwrap() = homes;
+        *self.harness_homes.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = homes;
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<HubEvent> {
@@ -477,7 +499,7 @@ impl Hub {
         &self.mailbox
     }
 
-    pub(super) fn load_from_store(self: &Arc<Self>) {
+    pub(super) fn load_from_store(self: &Arc<Self>, deferred: bool) {
         let metas = match self.store.list() {
             Ok(m) => m,
             Err(e) => {
@@ -486,7 +508,7 @@ impl Hub {
             }
         };
         let mut sessions = self.sessions.lock().unwrap();
-        let waiting: Vec<String> = metas
+        *self.waiting_at_load.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = metas
             .iter()
             .filter(|m| m.status == SessionStatus::Waiting)
             .map(|m| m.id.clone())
@@ -495,28 +517,107 @@ impl Hub {
             if meta.status != SessionStatus::Closed {
                 meta.status = SessionStatus::Idle;
             }
-            // Meta is saved less often than events; after a hard stop the
-            // log can be ahead of it. Never hand out a sequence twice.
-            if let Ok(extra) = self.store.events(&meta.id, meta.last_seq, 1_000_000)
-                && let Some(last) = extra.last()
+            // Every child's short name stays taken (`subsessions.rs`).
+            if let Some(link) = &meta.subsession {
+                self.subsessions.note_name(&link.started_by, &link.short_name);
+            }
+            // A sub-session that is not closed holds a slot of its parent (`subsessions.rs`).
+            if let Some(link) =
+                meta.subsession.as_ref().filter(|_| meta.status != SessionStatus::Closed)
             {
-                meta.event_count += extra.len() as u64;
-                meta.last_seq = last.seq;
+                self.subsessions.set_open(&link.started_by, &meta.id, true);
             }
             let session = self.make_session(meta);
+            session.caught_up.store(false, Ordering::SeqCst);
             sessions.insert(session.id.clone(), session);
         }
         tracing::info!("loaded {} sessions from store", sessions.len());
         drop(sessions);
+        if deferred {
+            self.logs_ready.send_replace(false);
+        }
+    }
+
+    /// Reads what the chat logs add to the session list: each log's tail past its
+    /// saved `lastSeq`, the turns a restart cut off, and the queued prompts. A
+    /// daemon runs it after its ready line; prompts wait for it (`wait_logs`).
+    pub fn load_logs(self: &Arc<Self>) {
+        let started = std::time::Instant::now();
+        let sessions = self.sessions();
+        self.on_every_core(&sessions, |session| self.catch_up(session));
+        let waiting = std::mem::take(&mut *self.waiting_at_load.lock().unwrap());
         // A turn whose agent host still runs is not lost: the host is adopted.
         let hosted = Self::live_host_sessions();
         self.mark_lost_waits(&waiting, &hosted);
         self.mark_unknown_outcomes(&hosted);
         self.restore_queues();
+        self.logs_ready.send_replace(true);
+        tracing::info!(
+            "loaded the chat logs of {} sessions in {} ms",
+            sessions.len(),
+            started.elapsed().as_millis()
+        );
     }
 
-    pub(super) fn make_session(&self, meta: SessionMeta) -> Arc<Session> {
+    /// `load_logs` off the executor.
+    pub async fn load_logs_async(self: &Arc<Self>) {
+        let hub = self.clone();
+        let _ = tokio::task::spawn_blocking(move || hub.load_logs()).await;
+    }
+
+    /// Wait until the chat logs are read (immediate outside a deferred daemon start).
+    pub(crate) async fn wait_logs(&self) {
+        let mut rx = self.logs_ready.subscribe();
+        let _ = rx.wait_for(|ready| *ready).await;
+    }
+
+    /// Meta is saved less often than events; after a hard stop the log can be
+    /// ahead of it. Counts the tail past `lastSeq` once, so no sequence is
+    /// handed out twice; only that tail is read.
+    pub(super) fn catch_up(&self, session: &Session) {
+        let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.catch_up_locked(session);
+    }
+
+    fn catch_up_locked(&self, session: &Session) {
+        if session.caught_up.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let last_seq = session.meta.lock().unwrap().last_seq;
+        if let Ok((extra, last)) = self.store.tail_after(&session.id, last_seq)
+            && extra > 0
+        {
+            let mut meta = session.meta.lock().unwrap();
+            meta.event_count += extra;
+            meta.last_seq = last;
+            session.seq.fetch_max(last, Ordering::SeqCst);
+        }
+    }
+
+    /// Runs `work` for each session on up to 8 threads (sessions are independent).
+    pub(super) fn on_every_core(
+        &self,
+        sessions: &[Arc<Session>],
+        work: impl Fn(&Arc<Session>) + Sync,
+    ) {
+        let workers = std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(1, 8);
+        let next = std::sync::atomic::AtomicUsize::new(0);
+        std::thread::scope(|scope| {
+            for _ in 0..workers.min(sessions.len()) {
+                scope.spawn(|| {
+                    while let Some(session) = sessions.get(next.fetch_add(1, Ordering::Relaxed)) {
+                        work(session);
+                    }
+                });
+            }
+        });
+    }
+
+    pub(super) fn make_session(&self, mut meta: SessionMeta) -> Arc<Session> {
         let (inbound_tx, inbound_rx) = mpsc::channel(1024);
+        // A Claude chat saved without `steering` (an older build) still steers once adopted.
+        meta.steering |= crate::claude_stdio::steers_by_info(meta.agent_info.as_ref());
+        let steering = meta.steering;
         Arc::new(Session {
             id: meta.id.clone(),
             seq: AtomicU64::new(meta.last_seq),
@@ -525,6 +626,7 @@ impl Hub {
             spawn_lock: Mutex::new(()),
             append_lock: StdMutex::new(()),
             loading: AtomicBool::new(false),
+            caught_up: AtomicBool::new(true),
             turn_lock: Mutex::new(()),
             turn: StdMutex::new(None),
             queued: AtomicU64::new(0),
@@ -542,7 +644,8 @@ impl Hub {
             route_switch: AtomicBool::new(false),
             inbound_tx,
             inbound_rx: Mutex::new(Some(inbound_rx)),
-            steering: AtomicBool::new(false),
+            steering: AtomicBool::new(steering),
+            steer_now: Default::default(),
             steer_end: tokio::sync::watch::channel(None).0,
             fork_from: StdMutex::new(None),
             applied: StdMutex::new(session::Applied::default()),
@@ -553,11 +656,13 @@ impl Hub {
             stderr_tail: StdMutex::new(std::collections::VecDeque::new()),
             prompts: StdMutex::new(std::collections::VecDeque::new()),
             append_errors: AtomicU64::new(0),
+            last_progress: AtomicU64::new(0),
             last_active: AtomicU64::new(self.clock_now()),
             web_control_ended: AtomicBool::new(false),
             floor: Default::default(),
             subagents: StdMutex::new(Default::default()),
             processes: StdMutex::new(Default::default()),
+            pr_creates: StdMutex::new(Default::default()),
         })
     }
 
@@ -582,14 +687,20 @@ impl Hub {
         if let Some(s) = sessions.get(key) {
             return Ok(s.clone());
         }
+        // Names are read under each session's meta lock, never cloned: a
+        // clone of every meta took ~45 ms with 2,500 sessions, on each Stop
+        // (`acpmux session cancel NAME`) and every other call by name.
+        let named = |s: &Session, pick: &dyn Fn(&str) -> bool| {
+            pick(&s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner).name)
+        };
         let mut by_name: Vec<_> =
-            sessions.values().filter(|s| s.meta().name == key).cloned().collect();
+            sessions.values().filter(|s| named(s, &|n| n == key)).cloned().collect();
         if by_name.len() == 1 {
             return Ok(by_name.remove(0));
         }
         let by_prefix: Vec<_> = sessions
             .values()
-            .filter(|s| s.id.starts_with(key) || s.meta().name.starts_with(key))
+            .filter(|s| s.id.starts_with(key) || named(s, &|n| n.starts_with(key)))
             .cloned()
             .collect();
         match by_prefix.len() {
@@ -648,10 +759,15 @@ impl Hub {
         host_seq: Option<u64>,
         at: Option<u64>,
     ) -> (EventRecord, bool) {
-        let _order = session.append_lock.lock().unwrap();
+        let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.catch_up_locked(session);
         let seq = session.seq.fetch_add(1, Ordering::SeqCst) + 1;
         let at = at.unwrap_or_else(now_ms);
         let record = EventRecord { seq, at, dir: dir.into(), kind: kind.into(), msg, host_seq };
+        // The agent message runaway guard reads progress from here, not the store.
+        if agent_pairs::progress_record(&record) {
+            session.last_progress.store(seq, Ordering::SeqCst);
+        }
         if session.purged.load(Ordering::SeqCst) {
             return (record, true);
         }
@@ -740,10 +856,21 @@ impl Hub {
 
     /// Turn-by-turn summary from the event log.
     pub fn history(&self, session: &Session, limit: usize) -> Vec<Value> {
-        let events = self.store.events(&session.id, 0, 500_000).unwrap_or_default();
+        // Only the kinds a summary reads are parsed, one record at a time: the whole log
+        // as records grew the daemon by 347 MB for a 70 MB Chief log (perf100, rbx).
+        const KINDS: &[&str] = &[
+            "user_message",
+            "tool_call",
+            "permission_request",
+            "permission_auto",
+            "usage_update",
+            "turn_result",
+            "turn_end",
+            "turn_error",
+        ];
         let mut turns: Vec<Value> = Vec::new();
         let mut cur: Option<serde_json::Map<String, Value>> = None;
-        for e in events {
+        let _ = self.store.scan_kinds(&session.id, KINDS, &mut |e: EventRecord| {
             match e.kind.as_str() {
                 "user_message" if e.msg.get("steer").and_then(Value::as_bool) != Some(true) => {
                     if let Some(t) = cur.take() {
@@ -823,12 +950,25 @@ impl Hub {
                 }
                 _ => {}
             }
-        }
+            true
+        });
         if let Some(t) = cur.take() {
             turns.push(Value::Object(t));
         }
         let n = turns.len();
         turns.into_iter().skip(n.saturating_sub(limit)).collect()
+    }
+
+    /// The seq of the log's last `turn_result`; only those records are parsed.
+    pub(super) fn latest_turn_result(&self, id: &str) -> Result<Option<u64>, RpcError> {
+        let mut latest = None;
+        self.store
+            .scan_kinds(id, &["turn_result"], &mut |e: EventRecord| {
+                latest = latest.max(Some(e.seq));
+                true
+            })
+            .map_err(|e| RpcError::internal(e.to_string()))?;
+        Ok(latest)
     }
 
     /// After a restart: a turn that started but never settled gets a
@@ -842,7 +982,11 @@ impl Hub {
             // Scan the whole log: a long turn can stream far more records
             // than any fixed tail window after its `turn_started`.
             let mut open: Option<(u64, Value)> = None;
-            let scanned = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
+            if session.meta().status == SessionStatus::Closed {
+                continue;
+            }
+            let kinds = ["turn_started", "turn_result"];
+            let scanned = self.store.scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
                 match e.kind.as_str() {
                     "turn_started" => {
                         open = Some((e.seq, e.msg.get("turnId").cloned().unwrap_or(Value::Null)))
@@ -863,25 +1007,54 @@ impl Hub {
         }
     }
 
+    /// Saves the session's record; never a purged session's. A late save
+    /// (a generated title after the turn, a tag) would write its record
+    /// back after the purge deleted it, and the next daemon start loaded it
+    /// as a closed session: the Chief's compactor, which purges each node's
+    /// session when the node is built, left about 450 of them in two hours
+    /// (2026-10-20).
     pub(super) fn save_meta(&self, session: &Session) {
+        if session.purged.load(Ordering::SeqCst) {
+            return;
+        }
         let meta = session.meta();
         if let Err(e) = self.store.save(&meta) {
             tracing::warn!(session = %session.id, "save meta failed: {e}");
         }
+        // The purge ran between the check and the save: delete it again.
+        if session.purged.load(Ordering::SeqCst)
+            && let Err(e) = self.store.delete(&session.id)
+        {
+            tracing::warn!(session = %session.id, "delete of a purged session failed: {e}");
+        }
     }
 
     pub(super) fn set_status(&self, session: &Session, status: SessionStatus) {
-        let changed = {
+        let (was, link) = {
             let mut m = session.meta.lock().unwrap();
-            let changed = m.status != status;
+            let was = m.status;
             m.status = status;
             m.updated_at = now_ms();
-            changed
+            // The parent's slot follows the status under the same lock, so
+            // concurrent status writes and the index never disagree (the
+            // index is a leaf lock, `subsessions.rs`).
+            if let Some(link) = &m.subsession {
+                self.subsessions.set_open(
+                    &link.started_by,
+                    &session.id,
+                    status != SessionStatus::Closed,
+                );
+            }
+            (was, m.subsession.clone())
         };
-        if changed {
+        if was != status {
+            if let Some(link) = &link {
+                self.subsession_status(&session.id, link, was, status);
+            }
             session.mark_waiting(status == SessionStatus::Waiting);
             self.append(session, "mux", "status", json!({"status": status.to_string()}));
             self.save_meta(session);
+            self.care_status(status);
         }
     }
 
@@ -889,16 +1062,18 @@ impl Hub {
         self.store.events(id, after, limit)
     }
 
+    /// Visits the records past `after` in order, one at a time, until `visit` returns false.
+    pub fn scan_events(
+        &self,
+        id: &str,
+        after: u64,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.store.scan(id, after, visit)
+    }
+
     pub fn session_dir(&self, id: &str) -> Option<PathBuf> {
         self.store.session_dir(id)
-    }
-}
-
-/// The unsent draft went out as `text`, from whichever client sent it: it is no longer the
-/// chat's draft. Any other prompt leaves the draft as it is.
-fn clear_sent_draft(meta: &mut SessionMeta, text: &str) {
-    if meta.composer_draft.as_deref().is_some_and(|d| d.trim() == text.trim()) {
-        meta.composer_draft = None;
     }
 }
 

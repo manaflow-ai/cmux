@@ -96,9 +96,10 @@ Rules:
 - Popups, menus, pickers and tooltips render in the portal container (`usePortalContainer`), never
   inside a component, so no parent's stacking context (`transform`, `filter`, `opacity`, `isolation`)
   or `overflow` traps or clips them. Inside a component use only base, raised and sticky.
-- Menus, popovers, pickers and tooltips are the solid popup surface, `background: var(--surface-popup)`
+- Menus, popovers, pickers and tooltips are the popup surface, `background: var(--surface-popup)`
   (desktop.css: the host's `--cmux-popup-surface`, the native overlays' `Palette.popupSurface`), with
-  no `backdrop-filter`. A translucent surface that carries text keeps at least
+  no `backdrop-filter` (a page cannot blur the native glass behind it; native overlays are themed glass,
+  solid under Reduce Transparency). A translucent surface that carries text keeps at least
   `--surface-text-min` of its fill: `color-mix(in srgb, <fill> var(--surface-text-min), transparent)`.
 - A blur uses `backdrop-filter: var(--surface-blur)`, or the file has its own
   `@media (prefers-reduced-transparency: reduce)` rule that makes the surface opaque. Both tokens turn

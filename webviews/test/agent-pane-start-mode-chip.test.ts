@@ -276,6 +276,18 @@ await requireBrowserLane("agent-pane-start-mode-chip.test.ts", async () => {
     });
     await other.getByText("Docs updated.").waitFor({ state: "detached" });
     expect(await settledChip(other)).toBe("Full access");
+    // A sessionless pending chat still exposes the harness-specific full-access mode as a real
+    // menu, rather than a disabled placeholder. The same path works for Claude and Codex mode ids.
+    const pendingAccess = other.locator(".acpmux-access-trigger");
+    expect(await pendingAccess.isEnabled()).toBe(true);
+    await pendingAccess.click();
+    await other.locator(".acpmux-access-menu .acpmux-access-item", { hasText: "Full access" }).waitFor();
+    expect(
+      await other
+        .locator(".acpmux-access-menu .acpmux-access-item", { hasText: "Full access" })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
+    await other.keyboard.press("Escape");
     // Then the person picks Normal in another pane: the pending chat names Normal before any send.
     const picked = await context.newPage();
     await picked.goto(url(PICKED));
@@ -286,6 +298,42 @@ await requireBrowserLane("agent-pane-start-mode-chip.test.ts", async () => {
       timeout: 10_000,
     });
     expect(calls.some((call) => call.method === "session/prompt")).toBe(false);
+    await context.close();
+  });
+
+  test("returning to the pane asks acpmux nothing; a pushed change still reaches the chip", async () => {
+    reset(false);
+    const context = await browser!.newContext({ viewport: { width: 900, height: 760 } });
+    const other = await context.newPage();
+    await other.goto(url(OTHER));
+    await other.getByText("Docs updated.").waitFor();
+    await other.evaluate(() => {
+      const actions = (window as { cmuxAcpmuxActions?: Record<string, (params: object) => Promise<unknown>> })
+        .cmuxAcpmuxActions;
+      void actions?.["chat.new"]?.({ harness: "claude" });
+    });
+    await other.getByText("Docs updated.").waitFor({ state: "detached" });
+    expect(await settledChip(other)).toBe("Full access");
+    const asks = () => calls.filter((call) => call.method === "_acpmux/start_mode").length;
+    const before = asks();
+    // The person switches away and back: the pane is shown and focused again, twice.
+    for (let round = 0; round < 2; round++) {
+      await other.evaluate(() => {
+        document.dispatchEvent(new Event("visibilitychange"));
+        window.dispatchEvent(new Event("focus"));
+      });
+    }
+    await Bun.sleep(500);
+    expect(asks()).toBe(before);
+    // Settings changes the default meanwhile: acpmux pushes `_acpmux/start_mode_changed` (it watches
+    // the settings file), and the pending chat asks once and names the new mode.
+    daemonState.startMode = "default";
+    const notice = JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/start_mode_changed", params: {} });
+    for (const socket of sockets) socket.send(notice);
+    await other.waitForFunction((selector) => document.querySelector(selector)?.textContent === "Normal", CHIP, {
+      timeout: 10_000,
+    });
+    expect(asks()).toBeGreaterThan(before);
     await context.close();
   });
 });

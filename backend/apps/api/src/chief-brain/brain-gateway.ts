@@ -86,8 +86,13 @@ export const turnFailedNotice = async (env: Env, sql: SqlStorage, config: BrainC
     sql.exec(`INSERT INTO cb_config (name, value) VALUES (?, '1') ON CONFLICT (name) DO NOTHING`, marker)
     return void (await postNotice(env, principal, conversation, DAILY_CAP_NOTICE, marker).catch(() => undefined))
   }
+  // A paid model this owner may not use here (claude-auth.ts ownerTurn): say so, not "could not reach".
+  if (/owner_not_allowed|model_not_offered/.test(reason)) return void (await postNotice(env, principal, conversation, MODEL_UNAVAILABLE_NOTICE, `turn-failed:${config.agent}:${run}`).catch(() => undefined))
   await postNotice(env, principal, conversation, TURN_FAILED_NOTICE, `turn-failed:${config.agent}:${run}`).catch(() => undefined)
 }
+
+/** The notice for a turn whose paid model this owner may not use on this deployment (no vendor names). */
+export const MODEL_UNAVAILABLE_NOTICE = "This model is not available for your team, so I stopped here."
 
 /** The loop guard refuses a Chief that spoke under 2 s ago (agent_rate): a notice right after a reply waits that gap, twice at most. */
 const NOTICE_GAP_MS = 2_500

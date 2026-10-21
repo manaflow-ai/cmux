@@ -5,7 +5,7 @@ import Foundation
 ///
 /// Selection uses public machine IDs only. A read stays on its selected carrier,
 /// verifies the owner there, then rechecks route admission before returning data.
-/// Installation, updates, live refresh and other operations remain unsupported.
+/// Explicit refresh updates registry evidence only. Execution remains unsupported.
 public nonisolated struct AgentCLICapabilityHandler: AppHostCapabilityHandler {
     private let routes: @MainActor @Sendable () -> [AgentInventoryRoute]
     /// The capability family supplied on the verified-app provider channel.
@@ -30,17 +30,22 @@ public nonisolated struct AgentCLICapabilityHandler: AppHostCapabilityHandler {
             guard let machine = field.stringValue, !machine.isEmpty, machine.utf8.count <= 128 else { throw invalid() }
             wanted = machine
         } else { wanted = nil }
+        let refresh: Bool
         if let field = params["check_latest"] {
-            guard let refresh = field.boolValue else { throw invalid() }
-            if refresh { throw .unsupported(request.op) }
-        }
+            guard let value = field.boolValue else { throw invalid() }
+            refresh = value
+        } else { refresh = false }
         try checkCancellation()
         let route = try select(await routes(), machine: wanted)
         try checkCancellation()
         guard let machine = route.machineID, let reader = route.reader else { throw unavailable() }
         let snapshot: AcpmuxHarnessInventory
         do {
-            snapshot = try await reader.readAgentInventory(machine: machine)
+            if refresh {
+                snapshot = try await reader.refreshAgentInventory(machine: machine)
+            } else {
+                snapshot = try await reader.readAgentInventory(machine: machine)
+            }
         } catch is CancellationError {
             throw cancelled()
         } catch let error as DaemonError {

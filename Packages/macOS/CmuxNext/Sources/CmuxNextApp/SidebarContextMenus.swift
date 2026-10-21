@@ -6,48 +6,62 @@ import CmuxNextSidebar
 /// A sidebar right-click's menu, by target. The layout sections' menus stay
 /// on SidebarBridge (SidebarBridge+Sections), which dispatches to these.
 enum SidebarContextMenus {
-    /// The workspace and tab menus draw their rows in `scope`'s accent (the sidebar's), not the
-    /// system's (#19754's follow-up).
+    /// Every sidebar menu draws its rows with a wash of `scope`'s accent (the sidebar's), not the
+    /// system's blue (#19754's follow-up); the workspace and group menus open with their name and colors.
     static func menu(for target: SidebarContextTarget, model: SidebarModel, services: AppServices, scope: ThemeScope) -> NSMenu? {
         let registry = services.registry
         switch target {
         case .tab(let workspace, let tab):
             // The tab's own menu, as on its strip; the row is not selected by the right-click.
             let model = services.locateTab(tab.rawValue)?.0
-            let menu = PaneController.tabMenu(tab.rawValue, tab: model, workspaceKind: services.workspace(id: workspace.rawValue)?.kind,
+            let menu = PaneController.tabMenu(tab.rawValue, tab: model, keepsTab: TabPromotion.staysPut(tab: tab.rawValue, in: services.workspace(id: workspace.rawValue)),
                                               sameKind: NewTabKind.of(tab.rawValue, tab: model, services: services), registry: registry)
             menu.themeRows(in: scope)
             return menu
         case .workspaces(let ids):
             // A connecting SSH machine's row (cx-gaq9) has its machine's menu: Reconnect, Disconnect, Forget.
             if ids.count == 1, let machine = ids.first.flatMap(SSHConnectingRows.machine(of:)) {
-                return registry.makeContextMenu(for: .sshMachine, target: ActionTargetRef(kind: .machine, id: machine))
+                return registry.makeContextMenu(for: .sshMachine, target: ActionTargetRef(kind: .machine, id: machine)).themeRows(in: scope)
             }
             // A placeholder row is no workspace yet: no menu, not one that does nothing.
             guard let first = ids.first, !ids.contains(where: { model.isPlaceholder($0) || CloudCreationRows.isRow($0, services) }) else { return nil }
             // Dismiss Highlight shows only while the row's workspace draws an attention ring (cx-epgo).
             let highlighted = services.daemon.store.workspaces.first { $0.id == first.rawValue }.map(services.notifications.hasHighlight) ?? false
             let entries = highlighted ? nil : ContextMenuCatalog.shared.entries(for: .workspaceRow, removing: ["notifications.dismissHighlight"])
-            let menu = registry.makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: first.rawValue), entries: entries)
-            WorkspaceColorSwatchRow.inline(in: menu)
+            let target = ActionTargetRef(kind: .workspace, id: first.rawValue)
+            let menu = registry.makeContextMenu(for: .workspaceRow, target: target, entries: entries)
+            // The name field renames the clicked row only, so a multi-row selection gets just the swatches.
+            MenuIdentityHeader.install(in: menu, registry: registry, target: target, name: ids.count == 1 ? model.workspace(first)?.title ?? "" : nil,
+                                       rename: "renameWorkspace")
             menu.themeRows(in: scope)
             return menu
         case .group(let id):
-            return registry.makeContextMenu(for: .workspaceGroup, target: ActionTargetRef(kind: .workspaceGroup, id: id.rawValue))
+            let target = ActionTargetRef(kind: .workspaceGroup, id: id.rawValue)
+            let menu = registry.makeContextMenu(for: .workspaceGroup, target: target)
+            let group = model.group(id)
+            MenuIdentityHeader.install(in: menu, registry: registry, target: target, name: group?.name ?? "", rename: "workspaceGroup.rename",
+                                       current: group?.custom == nil ? group?.color : nil)
+            menu.themeRows(in: scope)
+            return menu
         case .section(.machine(let machine)) where machine.rawValue == MachineRegistry.localID && SidebarSection.machineCount(model.sections) == 1:
             // This Mac alone: its header is the list's "Projects" title and draws no machine icon.
-            return registry.makeContextMenu(for: .sidebarBackground)
+            return registry.makeContextMenu(for: .sidebarBackground).themeRows(in: scope)
         case .section(.machine(let machine)):
-            return machineMenu(machine.rawValue, services: services)
+            return machineMenu(machine.rawValue, services: services).themeRows(in: scope)
         case .section, .background:
-            return registry.makeContextMenu(for: .sidebarBackground)
+            return registry.makeContextMenu(for: .sidebarBackground).themeRows(in: scope)
         case .footer:
             // Show for each piece hidden from the band (cx-wab7m); with none hidden, the sidebar's menu.
             let band: NSMenu? = registry.makeContextMenu(for: .sidebarFooter)
-            if let band, band.items.contains(where: { !$0.isSeparatorItem }) { return band }
-            return registry.makeContextMenu(for: .sidebarBackground)
+            if let band, band.items.contains(where: { !$0.isSeparatorItem }) { return band.themeRows(in: scope) }
+            return registry.makeContextMenu(for: .sidebarBackground).themeRows(in: scope)
         case .profile(let id):
-            return registry.makeContextMenu(for: .profile, target: ActionTargetRef(kind: .profile, id: id.rawValue))
+            return registry.makeContextMenu(for: .profile, target: ActionTargetRef(kind: .profile, id: id.rawValue)).themeRows(in: scope)
+        case .nowPlaying:
+            // The media card's rows (u2437): Play/Pause, Hide, Hide Until Relaunch, Never Show Media Card.
+            let menu = registry.makeContextMenu(for: .nowPlayingCard)
+            menu.themeRows(in: scope)
+            return menu
         case .layoutItem, .layoutSection:
             return nil
         }

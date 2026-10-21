@@ -117,7 +117,9 @@ public final class SessionStateStore {
         let groups = state.flatMap { state in id.map { Self.screenGroups(state, workspace: $0, screens: workspace.screens) } }
         workspace.applyState(ephemeral: id.map { state?.ephemeralWorkspaces.contains($0) ?? false } ?? false,
                              agentFolder: id.flatMap { state?.agentFolders[$0] },
-                             status: id.flatMap { state?.workspaceStatus[$0] }, screenGroups: groups)
+                             notes: id.flatMap { state?.workspaceNotes[$0] } ?? .init(),
+                             status: id.flatMap { state?.workspaceStatus[$0] },
+                             checklist: id.flatMap { state?.workspaceChecklists[$0]?.items } ?? [], screenGroups: groups)
     }
 
     /// Lays `state`'s tab record and terminal records over `tab` (`overlay`'s tab step).

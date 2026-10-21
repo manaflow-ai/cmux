@@ -1,10 +1,11 @@
 /// Files the composer attaches to a prompt. Images, PDFs and dictation's voice recordings go to
 /// the agent as ACP content blocks. A text file is written into the prompt's text because
-/// the web view never learns a dropped file's path; other files are refused.
+/// the web view never learns a dropped file's path; any other file (a binary, a large text file)
+/// goes to the chat's host (`chat.upload`), which saves it and puts its path in the prompt.
 
 export type ComposerAttachment = {
   id: string;
-  kind: "image" | "text" | "document" | "audio";
+  kind: "image" | "text" | "document" | "link" | "audio";
   name: string;
   mimeType: string;
   size: number;
@@ -16,6 +17,8 @@ export type ComposerAttachment = {
   pageCount?: number;
   /** A shell mode command's chip (shell/shellRuns.ts): its text is the run's output, filled when the prompt goes. */
   shellRun?: string;
+  /** A link's file or folder on this computer (Attach files or folders): the agent reads it there. */
+  path?: string;
 };
 
 export type AttachmentError = { name: string; reason: "tooLarge" | "unsupported" | "imagesUnsupported" | "tooMany" };
@@ -24,10 +27,17 @@ export type PromptBlock =
   | { type: "text"; text: string }
   | { type: "image"; mimeType: string; data: string; name?: string }
   | { type: "document"; mimeType: "application/pdf"; data: string; name?: string }
+  | { type: "resource_link"; uri: string; name: string }
   | { type: "audio"; mimeType: string; data: string };
 
 /** Anthropic's per-image limit. */
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+/** The longest side an attached image keeps: the models scale anything larger down to about this
+ * anyway, so more pixels only grow the prompt (a six-screenshot prompt passed acpmux's 16 MiB frame
+ * limit and reset the chat's connection, 2026-10-20). */
+export const MAX_IMAGE_SIDE = 2000;
+/** The bytes one attached image may have: past this it is re-encoded (as JPEG) or scaled down. */
+export const IMAGE_BUDGET_BYTES = 1536 * 1024;
 /** Keep PDF prompts bounded while leaving room for the rest of the request. */
 export const MAX_DOCUMENT_BYTES = 20 * 1024 * 1024;
 /** A text file this large is already a lot of prompt. */
@@ -81,20 +91,93 @@ export async function readAttachment(file: File, allowImages: boolean): Promise<
   }
   if (IMAGE_TYPES.has(file.type)) {
     if (!allowImages) return { name, reason: "imagesUnsupported" };
-    if (file.size > MAX_IMAGE_BYTES) return { name, reason: "tooLarge" };
+    const fitted = await fitImage(file);
+    // An image the engine cannot decode or scale goes as it is when the API takes it.
+    if (fitted === "fits" || (fitted === undefined && file.size <= MAX_IMAGE_BYTES))
+      return {
+        id,
+        kind: "image",
+        name,
+        mimeType: file.type,
+        size: file.size,
+        data: base64(new Uint8Array(await file.arrayBuffer())),
+      };
+    if (!fitted) return { name, reason: "tooLarge" };
     return {
       id,
       kind: "image",
-      name,
-      mimeType: file.type,
-      size: file.size,
-      data: base64(new Uint8Array(await file.arrayBuffer())),
+      name: name.replace(/(\.[^./]*)?$/, fitted.mimeType === "image/jpeg" ? ".jpg" : ".png"),
+      mimeType: fitted.mimeType,
+      size: fitted.bytes.length,
+      data: base64(fitted.bytes),
     };
   }
   if (file.size > MAX_TEXT_BYTES) return { name, reason: "tooLarge" };
   const text = decodeText(new Uint8Array(await file.arrayBuffer()));
   if (text === undefined) return { name, reason: "unsupported" };
   return { id, kind: "text", name, mimeType: file.type || "text/plain", size: file.size, text };
+}
+
+/// The steps an image that does not fit takes, in order: its longest side, then the JPEG quality.
+/// A PNG source tries PNG at each side first (a screenshot's text stays sharp). The last step is
+/// far under MAX_IMAGE_BYTES for any real picture, so an image is not refused for its size.
+const FIT_STEPS = [
+  { side: MAX_IMAGE_SIDE, quality: 0.9 },
+  { side: MAX_IMAGE_SIDE, quality: 0.8 },
+  { side: 1600, quality: 0.8 },
+  { side: 1200, quality: 0.75 },
+  { side: 800, quality: 0.7 },
+] as const;
+
+/// An image whose longest side is over MAX_IMAGE_SIDE or whose bytes are over IMAGE_BUDGET_BYTES,
+/// scaled and re-encoded by FIT_STEPS until it is under the budget: as PNG when that fits, else as
+/// JPEG (on white, which has no alpha). A JPEG source skips the PNG tries; an animated GIF or WebP
+/// keeps its first frame. "fits" for an image that is already within both bounds (an animated GIF
+/// stays animated); undefined when the engine cannot decode or scale it.
+async function fitImage(
+  file: Blob,
+): Promise<{ mimeType: "image/png" | "image/jpeg"; bytes: Uint8Array } | "fits" | undefined> {
+  if (typeof createImageBitmap !== "function" || typeof OffscreenCanvas !== "function") return undefined;
+  let bitmap: ImageBitmap | undefined;
+  try {
+    bitmap = await createImageBitmap(file);
+    const longest = Math.max(bitmap.width, bitmap.height, 1);
+    if (longest <= MAX_IMAGE_SIDE && file.size <= IMAGE_BUDGET_BYTES) return "fits";
+    let last: Blob | undefined;
+    let triedPng = 0;
+    for (const step of FIT_STEPS) {
+      const scale = Math.min(1, step.side / longest);
+      const width = Math.max(1, Math.round(bitmap.width * scale));
+      const height = Math.max(1, Math.round(bitmap.height * scale));
+      if (file.type !== "image/jpeg" && triedPng !== width) {
+        triedPng = width;
+        const canvas = new OffscreenCanvas(width, height);
+        const context = canvas.getContext("2d");
+        if (!context) return undefined;
+        context.drawImage(bitmap, 0, 0, width, height);
+        const png = await canvas.convertToBlob({ type: "image/png" });
+        if (png.size <= IMAGE_BUDGET_BYTES)
+          return { mimeType: "image/png", bytes: new Uint8Array(await png.arrayBuffer()) };
+      }
+      const flat = new OffscreenCanvas(width, height);
+      const context = flat.getContext("2d");
+      if (!context) return undefined;
+      context.fillStyle = "#fff";
+      context.fillRect(0, 0, width, height);
+      context.drawImage(bitmap, 0, 0, width, height);
+      last = await flat.convertToBlob({ type: "image/jpeg", quality: step.quality });
+      if (last.size <= IMAGE_BUDGET_BYTES)
+        return { mimeType: "image/jpeg", bytes: new Uint8Array(await last.arrayBuffer()) };
+    }
+    // Past every step (noise no encoder shrinks): the smallest try, which the API still takes.
+    return last && Math.ceil(last.size / 3) * 4 <= MAX_IMAGE_BYTES
+      ? { mimeType: "image/jpeg", bytes: new Uint8Array(await last.arrayBuffer()) }
+      : undefined;
+  } catch {
+    return undefined;
+  } finally {
+    bitmap?.close();
+  }
 }
 
 /// UTF-8 text without NUL bytes, else undefined (a binary file).
@@ -110,9 +193,13 @@ export function decodeText(bytes: Uint8Array): string | undefined {
 /// A thumbnail of an image attachment `height`px tall (as a data: URL), in the image's own shape
 /// between 0.7:1 and 2:1, its center cropped only past those bounds, so a wide screenshot shows as
 /// itself rather than a sliver of its text (Leo, 2026-10-14) and a chip never hands a
-/// multi-megabyte image to a small <img>. Undefined when the engine cannot decode the image or has
-/// no OffscreenCanvas; the chip then draws the image itself.
-export async function thumbnail(image: { mimeType: string; data: string }, height = 160): Promise<string | undefined> {
+/// multi-megabyte image to a small <img>, with the image's natural size (its hover name says it).
+/// Undefined when the engine cannot decode the image or has no OffscreenCanvas; the chip then draws
+/// the image itself.
+export async function thumbnail(
+  image: { mimeType: string; data: string },
+  height = 160,
+): Promise<{ url: string; width: number; height: number } | undefined> {
   if (typeof createImageBitmap !== "function" || typeof OffscreenCanvas !== "function") return undefined;
   try {
     const bytes = Uint8Array.from(atob(image.data), (char) => char.charCodeAt(0));
@@ -143,9 +230,10 @@ export async function thumbnail(image: { mimeType: string; data: string }, heigh
       canvas.width,
       canvas.height,
     );
+    const natural = { width: bitmap.width, height: bitmap.height };
     bitmap.close();
     const blob = await canvas.convertToBlob({ type: "image/png" });
-    return `data:image/png;base64,${base64(new Uint8Array(await blob.arrayBuffer()))}`;
+    return { url: `data:image/png;base64,${base64(new Uint8Array(await blob.arrayBuffer()))}`, ...natural };
   } catch {
     return undefined;
   }
@@ -169,7 +257,7 @@ export function promptText(text: string, attachments: ComposerAttachment[]): str
   return [text, ...files].filter(Boolean).join("\n\n");
 }
 
-/// ACP prompt blocks: the text (with text files) first, then each image, PDF and recording.
+/// ACP prompt blocks: the text (with text files) first, then each image, PDF, recording and file or folder link.
 export function promptBlocks(text: string, attachments: ComposerAttachment[]): PromptBlock[] {
   const blocks: PromptBlock[] = [];
   const body = promptText(text, attachments);
@@ -179,9 +267,31 @@ export function promptBlocks(text: string, attachments: ComposerAttachment[]): P
       blocks.push({ type: "image", mimeType: attachment.mimeType, data: attachment.data, name: attachment.name });
     else if (attachment.kind === "document" && attachment.data)
       blocks.push({ type: "document", mimeType: "application/pdf", data: attachment.data, name: attachment.name });
+    else if (attachment.kind === "link" && attachment.path)
+      blocks.push({ type: "resource_link", uri: fileUri(attachment.path), name: attachment.name });
     else if (attachment.kind === "audio" && attachment.data)
       blocks.push({ type: "audio", mimeType: attachment.mimeType, data: attachment.data });
   return blocks;
+}
+
+/// A link chip for a file or folder the host's panel chose (`chat.attach.choose`): named by its
+/// last component, a folder's with a trailing slash.
+export function linkAttachment(path: string, folder: boolean): ComposerAttachment {
+  const trimmed = path.replace(/\/+$/, "") || "/";
+  const name = trimmed.slice(trimmed.lastIndexOf("/") + 1) || trimmed;
+  return {
+    id: `link:${trimmed}`,
+    kind: "link",
+    name: folder ? `${name}/` : name,
+    mimeType: "",
+    size: 0,
+    path: trimmed,
+  };
+}
+
+/// `file://` and the path, each segment percent-encoded.
+function fileUri(path: string): string {
+  return `file://${path.split("/").map(encodeURIComponent).join("/")}`;
 }
 
 /// Whether a session takes voice input through its picked model: the harness advertises ACP
@@ -205,16 +315,27 @@ export function takesAudio(promptCapabilities: unknown, configOptions: unknown):
   return Array.isArray(modalities) && modalities.includes("audio");
 }
 
+/// The largest recording a prompt carries: the host stops keeping audio at two minutes (3.84 MB
+/// of 16 kHz PCM), so this only backs that cap up. A bigger clip would go out as one huge JSON
+/// line that the model's API refuses; the transcript goes alone instead.
+export const MAX_AUDIO_BYTES = 4 * 1024 * 1024;
+
 /// A dictation session's recording as a chip, for a harness that takes voice input
-/// (`promptCapabilities.audio`): it goes with the prompt beside the transcript.
-export function audioAttachment(audio: { mimeType: string; data: string }, name: string): ComposerAttachment {
+/// (`promptCapabilities.audio`): it goes with the prompt beside the transcript. Undefined past
+/// `MAX_AUDIO_BYTES`.
+export function audioAttachment(
+  audio: { mimeType: string; data: string },
+  name: string,
+): ComposerAttachment | undefined {
   const padding = audio.data.endsWith("==") ? 2 : audio.data.endsWith("=") ? 1 : 0;
+  const size = Math.floor((audio.data.length * 3) / 4) - padding;
+  if (size > MAX_AUDIO_BYTES) return undefined;
   return {
     id: crypto.randomUUID(),
     kind: "audio",
     name,
     mimeType: audio.mimeType,
-    size: Math.floor((audio.data.length * 3) / 4) - padding,
+    size,
     data: audio.data,
   };
 }

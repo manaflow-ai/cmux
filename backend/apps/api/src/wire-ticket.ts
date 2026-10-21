@@ -29,7 +29,7 @@ export const WIRE_TICKET_TTL_MS = 30_000
 export const WIRE_AUTH_HEADER = "x-cmux-wire-auth"
 export const WIRE_AUTH_VALUE = "authorization, ticket"
 /** The socket scopes a ticket can be minted for: the `/v1/wire/<scope>` routes (index.ts). */
-export const WIRE_SCOPES = ["user", "team", "feed", "cloud", "conv", "mux"] as const
+export const WIRE_SCOPES = ["user", "team", "feed", "cloud", "conv", "mux", "host"] as const
 export type WireScope = (typeof WIRE_SCOPES)[number]
 const TICKET_SHARDS = 256
 const TICKET_SHAPE = /^[A-Za-z0-9_-]{43}$/

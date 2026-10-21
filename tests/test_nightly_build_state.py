@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A trusted NEXT worker keeps its Swift package checkouts, never its build state.
+"""A trusted NEXT worker keeps its package checkouts and compilation cache, never its build state.
 
 An incremental Xcode build can keep stale autolink and force-load data in
 objects it did not recompile after an import set changed, so a shipped build
@@ -49,13 +49,18 @@ class NightlyBuildState(unittest.TestCase):
         derived = self.workspace / 'build-universal'
         (derived / 'Build').mkdir()
         (derived / 'Build/object.o').write_text('built by this job')
+        cas = derived / 'CompilationCache.noindex/v1.1/data'
+        cas.parent.mkdir(parents=True)
+        cas.write_text('content-keyed')
 
         # Checkout's clean drops the workspace links; the next job prepares again.
         (self.workspace / '.spm-cache').unlink()
         self.assertTrue(self.prepare())
 
         self.assertFalse(derived.is_symlink())
-        self.assertEqual(list(derived.iterdir()), [])
+        self.assertEqual([path.name for path in derived.iterdir()], ['CompilationCache.noindex'])
+        self.assertTrue((derived / 'CompilationCache.noindex').is_symlink())
+        self.assertEqual(cas.read_text(), 'content-keyed')
         self.assertEqual(sorted(self.retained().glob('*/DerivedData')), [])
         self.assertEqual(checkout.read_text(), 'kept')
 

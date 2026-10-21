@@ -148,6 +148,48 @@ class FreezeTests(unittest.TestCase):
         other = issue(body=body(), labels=("bug",))
         self.assertEqual(self.check([closed, other], ["cmux-tui/spec/x.json"])[0], 0)
 
+    def test_expire_closes_lapsed_and_old_inactive_freezes_only(self):
+        old = NOW - timedelta(hours=73)
+        cases = {
+            "active": (issue(body=body()), None),
+            "lapsed": (issue(body=body(expires=stamp(NOW - timedelta(minutes=5)))), "set"),
+            "fresh unauthorised": (issue(body=body(), labeled_by="triager", labeler_role="triage"), None),
+            "old unauthorised": (issue(body=body(), created=old, labeled_by="triager", labeler_role="triage"), "set"),
+            "old malformed": (issue(body="paths: cmux-tui/", created=old), "set"),
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            for name, (raw, expected) in cases.items():
+                with self.subTest(case=name):
+                    path = Path(directory) / f"{name}.json"
+                    path.write_text(json.dumps([raw]))
+                    [parsed] = freeze.open_freezes("x/y", str(path))
+                    result = freeze.lapsed_at(parsed, NOW)
+                    self.assertEqual(result is not None, expected is not None)
+
+    def test_an_unexpected_api_shape_is_status_2_not_1(self):
+        with tempfile.TemporaryDirectory() as directory:
+            files = Path(directory) / "files.txt"
+            files.write_text("docs/a.md\n")
+            issues = Path(directory) / "issues.json"
+            issues.write_text(json.dumps([{"number": 1, "created_at": None, "labels": [{"name": "merge-freeze"}]}]))
+            with redirect_stderr(io.StringIO()):
+                status = freeze.main(["check", "--repo", "x/y", "--pr", "1", "--files", str(files),
+                                      "--issues-file", str(issues), "--events-file", "/dev/null"])
+        self.assertEqual(status, 2)
+
+    def test_list_and_expire_report_an_unreadable_list_as_status_2(self):
+        with tempfile.TemporaryDirectory() as directory:
+            issues = Path(directory) / "issues.json"
+            issues.write_text(json.dumps([{"number": 1, "created_at": None, "labels": [{"name": "merge-freeze"}]}]))
+            original = freeze.open_freezes
+            freeze.open_freezes = lambda repo, issues_file=None: original(repo, str(issues))
+            try:
+                for mode in (["list"], ["expire", "--dry-run"]):
+                    with self.subTest(mode=mode[0]), redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()):
+                        self.assertEqual(freeze.main([*mode, "--repo", "x/y"]), 2)
+            finally:
+                freeze.open_freezes = original
+
     def test_an_unreadable_freeze_list_is_status_2_not_clear(self):
         with tempfile.TemporaryDirectory() as directory:
             files = Path(directory) / "files.txt"

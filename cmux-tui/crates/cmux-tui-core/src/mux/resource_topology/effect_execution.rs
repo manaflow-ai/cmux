@@ -2,6 +2,7 @@
 
 use super::client_ids::{
     requested_client_pane_id, requested_client_split_id, requested_client_tab_id,
+    requested_reopen_tab_id,
 };
 use super::*;
 use crate::state::app_workspaces::{APP_WORKSPACE_FIELD, APP_WORKSPACE_NAME_FIELD};
@@ -63,7 +64,11 @@ impl Mux {
                 "mutation_origin":mutation.origin,
                 "mutation_actor":mutation.actor.wire(),
             });
-            if let Some(tab_id) = requested_client_tab_id(fields, state, registry)? {
+            let tab_id = match requested_client_tab_id(fields, state, registry)? {
+                Some(tab_id) => Some(tab_id),
+                None => requested_reopen_tab_id(fields, state, registry)?,
+            };
+            if let Some(tab_id) = tab_id {
                 intent["terminal_reservation"]["tab_id"] = json!(tab_id);
             }
         }
@@ -110,8 +115,12 @@ impl Mux {
                 Some(id) => Mux::unbound_frontend_browser_id(&registry.connection.get(), id)?,
                 None => BrowserPublicId::random()?,
             };
+            let tab_id = match requested_reopen_tab_id(fields, state, registry)? {
+                Some(tab_id) => tab_id,
+                None => TabPublicId::random()?,
+            };
             intent["browser_reservation"] = json!({
-                "tab_id":TabPublicId::random()?,
+                "tab_id":tab_id,
                 "browser_id":browser_id,
             });
         }
@@ -212,7 +221,10 @@ impl Mux {
                         name: optional_owned_string(fields, "terminal_name")?,
                         created_screen_name: None,
                         size: effect_cell_size(fields)?,
-                        on_exit: None,
+                        // Internal owner jobs retain their terminal view.
+                        // Generic workspace.create still rejects this field
+                        // at catalog admission, preserving its public shape.
+                        on_exit: effect_on_exit(fields)?,
                     },
                 )
                 .map(|created| created.path)
@@ -323,6 +335,7 @@ impl Mux {
                             ratio: None,
                             viewport_width: None,
                             row_height: None,
+                            focus: true,
                         },
                     ),
                     None if slots.workspace.is_some() => self.effect_create_terminal_in_workspace(
@@ -371,6 +384,13 @@ impl Mux {
                             .and_then(Value::as_f64)
                             .map(|value| value as f32),
                         row_height: rows::row_height_field(fields)?,
+                        // Absent only on the daemon's own and the user's
+                        // splits: the resource router sends `focus: false`
+                        // for a caller that did not ask.
+                        focus: fields
+                            .get(PANE_SPLIT_FOCUS_FIELD)
+                            .and_then(Value::as_bool)
+                            .unwrap_or(true),
                     },
                 )
                 .map(|created| created.path)
@@ -639,13 +659,17 @@ impl Mux {
         // `workspace.create {ephemeral: true}` stages the flag with the
         // workspace row; the request's fields are part of its fingerprint.
         let ephemeral = intent["fields"]["ephemeral"].as_bool().unwrap_or(false);
+        // `workspace.create` from a caller: the resource router sends
+        // `focus: false` unless it asked. Other creations focus.
+        let focus = intent["fields"][WORKSPACE_CREATE_FOCUS_FIELD].as_bool().unwrap_or(true);
         crate::debug_spans::mark("effect.workspace_reserved");
-        let placement = self.create_empty_workspace_for_resource_effect(
+        let placement = self.create_empty_workspace_for_resource_effect_focus(
             workspace_name,
             Some(workspace_key),
             workspace_public_id,
             &workspace_mutation,
             crate::state::home_store::EmptyWorkspaceMark::ephemeral(ephemeral),
+            focus,
         )?;
         crate::debug_spans::mark("effect.workspace_created");
         self.effect_create_terminal_in_workspace(intent, placement.workspace, options)
@@ -825,7 +849,7 @@ impl Mux {
         target: PaneId,
         options: PaneAddOptions<'_>,
     ) -> anyhow::Result<CreatedTerminalEffect> {
-        let PaneAddOptions { direction, argv, cwd, size, ratio, viewport_width, row_height } =
+        let PaneAddOptions { direction, argv, cwd, size, ratio, viewport_width, row_height, focus } =
             options;
         let split_direction = direction
             .map(|direction| {
@@ -976,7 +1000,9 @@ impl Mux {
                     || self.next_id(),
                 );
             }
-            screen.active_pane = pane_id;
+            if focus {
+                screen.active_pane = pane_id;
+            }
             screen.zoomed_pane = None;
             screen.record_layout_change(before, vec![pane_id], None);
             if let (Some(split), Some(public_id)) = (split_id, split_public_id) {
@@ -993,7 +1019,9 @@ impl Mux {
                 focused_at: 0,
             });
             state.register_placed_tab_identity(surface.id);
-            stamp_pane_focus(self, &mut state, pane_id);
+            if focus {
+                stamp_pane_focus(self, &mut state, pane_id);
+            }
             Self::rebuild_split_screen_index(&mut state);
             let entity = crate::server::tree_entity_json(
                 &state,

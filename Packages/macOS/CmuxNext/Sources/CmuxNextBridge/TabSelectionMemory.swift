@@ -37,8 +37,10 @@ public final class TabSelectionMemory {
     /// order so a later removal can pick the neighbor
     /// (`FocusAfterClose.tab`: the next shown tab, else the previous one;
     /// a member of a collapsed group in `hidden` is skipped while a shown
-    /// tab survives).
-    public func resolve(pane: String, tabs: [String], defaultIndex: Int, hidden: Set<String> = []) -> String? {
+    /// tab survives; a link tab goes back to its opener family first, from
+    /// `openers`, read only when the selected tab closed).
+    public func resolve(pane: String, tabs: [String], defaultIndex: Int, hidden: Set<String> = [],
+                        openers: () -> [String: String] = { [:] }) -> String? {
         defer { lastOrder[pane] = tabs }
         guard !tabs.isEmpty else {
             set(nil, in: pane)
@@ -48,7 +50,7 @@ public final class TabSelectionMemory {
             if tabs.contains(current) { return current }
             if let old = lastOrder[pane], old.contains(current) {
                 let pick = FocusAfterClose.tab(selected: current, old: old, surviving: tabs,
-                                               shown: Set(tabs).subtracting(hidden)) ?? tabs[0]
+                                               shown: Set(tabs).subtracting(hidden), opener: openers()) ?? tabs[0]
                 set(pick, in: pane)
                 return pick
             }

@@ -28,7 +28,8 @@ $A close --all
   workspace named NAME, runs the harness with PROMPT as its first message, and adds the workspace
   to the sidebar group `Chief agents` (created when absent; `CMUX_TERMINAL_AGENTS_GROUP` renames
   it, `--no-group` skips it). Pass harness flags with `--extra`, for example
-  `--extra=--model --extra=sonnet`.
+  `--extra=--model --extra=sonnet`. `--harness claude` runs `sr2 claude` (Claude Code through
+  subrouter2); set `CMUX_TERMINAL_AGENTS_CLAUDE=claude` to run the plain `claude` instead.
 - `send` writes one bracketed paste plus CR (one cmux mutation), so a multi-line prompt arrives
   as one message.
 - `wait` ends on the first signal that fires and says which in `via`:
@@ -60,3 +61,16 @@ $A close --all
 - Do not poll `read` in a loop. Use `wait`, then `read` once.
 - Give each agent a clear task and an end condition. Tell it what to put in its final answer,
   because `read` returns only that.
+
+## Prompts: find and answer them yourself
+- `cmux-terminal-agents prompts [--terminal term_…]` lists agents stuck on a permission prompt or menu, with the prompt text.
+- `cmux-terminal-agents choose <name|term_…> N` picks option N when that choice is safe.
+- `cmux-terminal-agents steer <name|term_…> "instructions"` presses Esc (dismisses the prompt, or with `--esc 2` interrupts the turn) and then sends the instructions + Enter. Use this to redirect an agent instead of approving something risky.
+- Check `prompts` whenever an agent goes quiet. Ask the user only for money, legal, destructive or credential-minting steps.
+
+## Native subagents first
+For a Chief's own subagents (`a<N>`), use the native tools instead of this skill:
+`tell` (never fails for a queued or starting one; it is delivered after its task) and
+`control` (status, interrupt, answer, pause, resume, cancel, restart, priority, cap).
+Prompts, stuck runs and reports reach the Chief as messages, so nothing polls a screen.
+Use this skill only for agents in plain terminals.

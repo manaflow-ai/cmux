@@ -2850,7 +2850,7 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
     for job_name in MACOS_JOBS:
         assert f"      - {job_name}" not in block
 
-    assert "if: ${{ !cancelled() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}" in block
+    assert "if: ${{ !cancelled() }}" in block
     assert "PLATFORM_NEEDS: ${{ toJSON(needs) }}" in block
     assert 'allowed = {"success", "skipped"}' in block
 
@@ -2881,12 +2881,26 @@ def test_feat_next_route_preserves_focused_package_lane() -> None:
 
 
 def test_cmux_next_does_not_run_full_suite_for_unrelated_packages() -> None:
+    # Since #21504 the pull_request paths admit every product input
+    # (Packages/macOS/** included) and only decide whether the workflow
+    # starts; cmux_next_route.py picks the tier. A file in a package
+    # CmuxNext does not use must not reach the full suite there.
     workflow = (ROOT / ".github/workflows/cmux-next.yml").read_text(encoding="utf-8")
     pull = workflow[workflow.index("  pull_request:"):workflow.index("  push:")]
-    assert "      - Packages/macOS/**" not in pull
-    assert "      - Packages/Shared/**" not in pull
-    assert "      - Packages/iOS/**" not in pull
     assert "      - Packages/macOS/CmuxNext/**" in pull
+    spec = importlib.util.spec_from_file_location("cmux_next_route", ROOT / "scripts/ci/cmux_next_route.py")
+    assert spec is not None and spec.loader is not None
+    router = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = router
+    spec.loader.exec_module(router)
+    for path in (
+        "Packages/macOS/CmuxPhonePush/Sources/CmuxPhonePush/PhonePushPayload.swift",
+        "Packages/iOS/CmuxMobilePairedMac/Package.swift",
+    ):
+        assert (ROOT / path).is_file(), path
+        result = router.route(ROOT, "pull_request", [path], set())
+        assert not result.full, (path, result.reasons)
+        assert not result.tests, (path, sorted(result.tests))
 
 
 def test_ci_status_waits_for_platform_workflows() -> None:

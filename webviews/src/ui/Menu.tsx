@@ -155,6 +155,8 @@ export interface MenuButtonProps {
   "aria-labelledby"?: string;
   /** The name automation finds the menu by (`button[data-menu]`), whatever the UI language. */
   "data-menu"?: string;
+  /** Also holds the button, for a caller that anchors other UI to it. */
+  buttonRef?: RefObject<HTMLButtonElement | null>;
   children: ReactNode;
 }
 
@@ -166,12 +168,16 @@ export function MenuButton({
   "aria-haspopup": ariaHasPopup,
   "aria-labelledby": ariaLabelledBy,
   "data-menu": dataMenu,
+  buttonRef,
   children,
 }: MenuButtonProps) {
   const context = use(MenuContext);
   return (
     <BaseMenu.Trigger
-      ref={context?.trigger}
+      ref={(node: HTMLButtonElement | null) => {
+        if (context) context.trigger.current = node;
+        if (buttonRef) buttonRef.current = node;
+      }}
       className={cx("ui-button", className)}
       aria-label={label}
       title={title}
@@ -446,17 +452,25 @@ export function MenuRadioItem({
   disabled,
   shortcut,
   closeOnClick,
+  label,
+  title,
   children,
 }: {
   value: string;
   /** Close the menu when picked (Base UI keeps a radio menu open by default). */
   closeOnClick?: boolean;
+  /** The row's accessible name, for a row that draws only an icon. */
+  label?: string;
+  /** The row's tooltip. */
+  title?: string;
 } & Omit<MenuItemProps, "onSelect">) {
   const context = use(MenuContext);
   return (
     <BaseMenu.RadioItem
       className={cx("ui-menu-item", className)}
       value={value}
+      aria-label={label}
+      title={title}
       disabled={disabled}
       closeOnClick={closeOnClick}
       onPointerMove={(event) => context?.movePointer(event)}

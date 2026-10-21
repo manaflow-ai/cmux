@@ -2,7 +2,8 @@ import { depart, isOpen, validName, type OpOf } from "./cloud.ts"
 import { formatRfc3339Millis, parseRfc3339Millis, validAddressId, validInviteId, validParticipantId, validToken } from "./ids.ts"
 import { fail } from "./reject.ts"
 import { conversationChanged, upsertParticipant, type Commit, type Draft, type OpRequest } from "./request.ts"
-import { INVITE_TTL_MS, MAX_PARTICIPANTS, MAX_PENDING_INVITES, type ConversationHead, type DeliveryState, type Invite, type Participant } from "./types.ts"
+import { MAX_GROUP_MEMBERS, memberCount } from "./large.ts"
+import { INVITE_TTL_MS, MAX_PENDING_INVITES, type ConversationHead, type DeliveryState, type Invite, type Participant } from "./types.ts"
 import { currentParticipant } from "./validate.ts"
 
 /**
@@ -77,7 +78,7 @@ export const createInvite = (head: ConversationHead, next: Draft, request: OpReq
   if (head.kind === "dm" && !existing) fail("kind_forbids")
   if (existing && existing.kind !== "address") fail("invalid_invite")
   if (!existing || existing.left_at !== undefined) {
-    if (next.participants.filter((participant) => participant.left_at === undefined).length >= MAX_PARTICIPANTS) fail("invalid_participant")
+    if (memberCount(next) >= MAX_GROUP_MEMBERS) fail("invalid_participant")
     next.participants = upsertParticipant(next.participants, {
       id: op.address,
       kind: "address",
@@ -143,7 +144,7 @@ const bindUser = (head: ConversationHead, next: Draft, invite: Invite, user: str
     if (address) {
       participants = participants.map((participant) => (participant.id === address.id ? joined : participant))
     } else {
-      if (participants.filter((participant) => participant.left_at === undefined).length >= MAX_PARTICIPANTS) fail("invalid_participant")
+      if (memberCount({ ...next, participants }) >= MAX_GROUP_MEMBERS) fail("invalid_participant")
       participants = [...participants, joined]
     }
   } else if (address) {
@@ -179,6 +180,27 @@ export const acceptInvite = (head: ConversationHead, next: Draft, request: OpReq
     next.invites = replaceInvite(next.invites ?? [], { ...invite, status: "pending_approval", requested_by: user, requested_name: op.display_name, requested_at: request.now })
     return conversationChanged(next, request)
   }
+  bindUser(head, next, invite, user, op.display_name, request.now)
+  return conversationChanged(next, request)
+}
+
+/**
+ * `invite.accept_verified` (a message request accepted in Home): the caller's verified email is
+ * the invited address, so no link is needed. The open invite to one of the caller's verified
+ * addresses binds the caller, in a dm and in a group alike (the same rule as a verified
+ * `invite.accept`). Any other caller gets `unknown_invite`, the answer for a wrong link, so the
+ * op never tells whether a conversation invited someone.
+ */
+export const acceptVerifiedInvite = (head: ConversationHead, next: Draft, request: OpRequest, op: OpOf<"invite.accept_verified">): Commit => {
+  if (head.state === "archived") fail("archived")
+  const user = request.actor
+  if (!user.startsWith("user_") || !validParticipantId(user) || !validName(op.display_name)) fail("invalid_participant")
+  const mine = request.actor_addresses ?? []
+  const invite = (head.invites ?? []).find((candidate) => candidate.channel === "email" && candidate.status === "pending" && mine.includes(candidate.address))
+  if (!invite) return fail("unknown_invite")
+  if (isExpired(invite, request.now)) fail("invite_expired")
+  if (invite.invited_by === user) fail("invite_self")
+  closeExpired(head, next, request.now)
   bindUser(head, next, invite, user, op.display_name, request.now)
   return conversationChanged(next, request)
 }

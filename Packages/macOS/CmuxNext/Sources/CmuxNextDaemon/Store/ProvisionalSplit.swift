@@ -21,6 +21,27 @@ import Foundation
         return store.screen(containing: pane.handle)?.layout.paneIDs.contains(pane.handle) == true
     }
 
+    /// A split stays until the daemon's layout places its pane (cx-ry0y): `pane-added` and the
+    /// `layout-changed` that places it can land after the reply's settle sequence, and undoing
+    /// the split before them showed the pane unsplit for one turn. A cancelled creation stays
+    /// while the records hold what it made (``CancelledCreation``).
+    static func awaitsRecords(_ intent: PendingIntent, in store: DaemonStore) -> Bool {
+        if intent.closeWhenCreated { return CancelledCreation.daemonHolds(intent, in: store) }
+        switch intent.kind {
+        case .splitPane(_, _, _, let provisional):
+            return !daemonPlaces(provisional, in: store)
+        case .closeTabs(let surfaces):
+            return TabCloseOverlay(store: store).daemonHolds(surfaces)
+        case .createWorkspace(let provisional, _):
+            // Cmd-N's workspace settles only once the daemon's workspace holds a tab: before
+            // that, undoing the overlay would show the window an empty workspace for a turn.
+            guard let workspace = store.workspacesByKey[provisional.key] else { return true }
+            return !workspace.screens.contains { $0.panes.contains { !$0.tabs.isEmpty } }
+        default:
+            return false
+        }
+    }
+
     private static func daemonPane(_ provisional: ProvisionalPane, in store: DaemonStore) -> PaneModel? {
         store.index.panesByResource[ResourceID(rawValue: provisional.paneID)].flatMap { $0.handle != provisional.handle ? $0 : nil }
     }

@@ -84,6 +84,20 @@ public nonisolated enum AgentPaneReasoningSliderStyle: String, Sendable, CaseIte
     }
 }
 
+/// What a click on the composer's model chip opens. `compact` is the short Claude Code style menu
+/// (numbered models, Effort, Account, More models); `full` opens the harness rail and search at once.
+public nonisolated enum AgentPaneModelMenuStyle: String, Sendable, CaseIterable, TunableChoice {
+    case compact
+    case full
+
+    public var tunableTitle: String {
+        switch self {
+        case .compact: "Compact (default)"
+        case .full: "Full picker (harness rail and search)"
+        }
+    }
+}
+
 /// Visual treatments for the session sidebar's latest-reply hover preview.
 public nonisolated enum AgentPaneSidebarPreviewVariant: String, Sendable, CaseIterable, TunableChoice {
     /// The elevated card used by the current sidebar.
@@ -128,6 +142,15 @@ public nonisolated struct AgentPaneTunables {
         help: "Each click of an agent chat's Terminal button opens a new terminal right of the last one and focuses it, instead of closing the terminal it opened.",
         default: false, code: "AgentPaneTunables.terminalButtonAdds")
 
+    /// Leo 2026-10-20, "these buttons are kind of weird": one globe instead of Preview beside Browser.
+    /// On (the default), the chat header's Browser opens the chat's local page beside the chat when its
+    /// last turns named one, and Preview is not a button of its own. Off: Preview shows as its own
+    /// button and Browser always opens a plain browser, as before. Pushed with the header state.
+    public static let browserOpensPreview = Tunable<Bool>.toggle(
+        "agentChat.browserOpensPreview", .panes, "Browser button opens the chat's page",
+        help: "An agent chat's Browser button opens the local page the chat named (its preview) beside the chat, and Preview is not a separate button. Off: separate Preview and Browser buttons.",
+        default: true, code: "AgentPaneTunables.browserOpensPreview")
+
     /// How wide the chat's column draws on a wide pane (cx-ncc.107, a trial before real Settings).
     /// The page gets it with the theme (`AgentPaneTheme`, `chatWidth`), again on each change.
     public static let chatWidth = Tunable<ChatWidth>.choice(
@@ -149,6 +172,13 @@ public nonisolated struct AgentPaneTunables {
             }
         }
     }
+
+    /// Claude Code desktop's in-session status in an agent chat: the live plan card and the recap
+    /// card. Off by default; each open agent page follows a change (``AgentPaneView/sessionStatus``).
+    public static let sessionStatus = Tunable<Bool>.toggle(
+        "agent.sessionStatus", PageTunables.section, "In-session status (plan card, recap card)",
+        help: "Agent chats show the live plan card and the recap card.",
+        default: false, code: "AgentPaneTunables.sessionStatus")
 
     /// Side sessions: the composer's `/btw <question>` opens a read-only side session about the chat
     /// beside it.
@@ -189,6 +219,15 @@ public nonisolated struct AgentPaneTunables {
         help: "While a long thought streams, it holds seven lines with its newest in view, then folds. Needs Fold long thoughts. New agent tabs.",
         default: true, code: "AgentPaneTunables.liveThoughtViewport")
 
+    /// A turn that started or mentioned a local web page gets a preview card under its answer
+    /// (webviews conversation/PreviewCard.tsx: the address, Load preview, Open in tab, Open in). Off
+    /// by default (Leo 2026-10-20: a mentioned dev server is not worth a card nobody asked for); the
+    /// address stays a link in the reply. New agent tabs read it.
+    public static let turnPreviewCards = Tunable<Bool>.toggle(
+        "agentPane.debug.turnPreviewCards", PageTunables.section, "Local page preview cards in the agent pane",
+        help: "A turn that started or mentioned a local web page shows a card under its answer with Load preview. New agent tabs.",
+        default: false, code: "AgentPaneTunables.turnPreviewCards")
+
     /// The top strip's look (webviews composerLocation.css): `default` sets nothing, so the page
     /// draws as before; the others set `data-top-strip` on `<html>`. New agent tabs read it.
     public static let topStripStyle = Tunable<AgentPaneTopStripStyle>.choice(
@@ -199,8 +238,8 @@ public nonisolated struct AgentPaneTunables {
     /// The answer footer's copy/retry/fork actions (the webview's `turnActionsPlacement`).
     public static let turnActionsPlacement = Tunable<AgentPaneTurnActionsPlacement>.choice(
         "agentPane.debug.turnActionsPlacement", PageTunables.section, "Turn footer actions",
-        help: "Place the answer footer's copy, retry and fork actions on the left or right.",
-        default: .right, code: "AgentPaneTunables.turnActionsPlacement")
+        help: "Place the answer footer's copy, retry and fork actions on the left, under the answer as Claude Code desktop does, or on the right.",
+        default: .left, code: "AgentPaneTunables.turnActionsPlacement")
 
     /// The composer footer's plain look (Claude Code desktop's footer): the model name muted, no
     /// brand mark or mode lock, Plan as accent text; a chip's wash only on hover, focus or an open
@@ -208,17 +247,19 @@ public nonisolated struct AgentPaneTunables {
     public static let composerPlainFooter = Tunable<Bool>.toggle(
         "agent.composerPlainFooter", PageTunables.section, "Agent composer: plain footer",
         help: "The composer's model, effort and mode chips draw as plain text until hovered, focused or open.",
-        default: false, code: "AgentPaneTunables.composerPlainFooter")
+        default: true, code: "AgentPaneTunables.composerPlainFooter")
 
     /// Tool runs fold as the Codex desktop app folds them while a turn runs (webviews
     /// conversation/turns.ts `codexRuns`, cx-ncc.108): the run in flight is one line naming its
     /// newest call, and a run any later row follows settles into its summary line. Off keeps every
     /// call's row. The page gets it with the theme (`AgentPaneTheme`, `codexToolRuns`), again on
-    /// each change. The Debug toggle remains available for comparing the ungrouped presentation.
+    /// each change. Off by default: a running turn lists each call as it lands, as the Codex and
+    /// Claude Code desktop apps do (Leo 2026-10-20: "we're swallowing up a few too many of these").
+    /// The toggle stays for comparing the folded presentation.
     public static let codexToolRuns = Tunable<Bool>.toggle(
         "agentPane.debug.codexToolRuns", PageTunables.section, "Codex-style tool runs in the agent pane",
         help: "While a turn runs, each run of tool calls is one line: the newest call, then a summary once text follows.",
-        default: true, code: "AgentPaneTunables.codexToolRuns")
+        default: false, code: "AgentPaneTunables.codexToolRuns")
 
     /// Repaints every window when ``codexToolRuns`` changes, so open agent pages get it with the
     /// theme at once (as AppServices.observeBorders does for ``chatWidth``). The first theme push
@@ -241,19 +282,21 @@ public nonisolated struct AgentPaneTunables {
     static var documentAttributes: [String: String] {
         attributes(foldLongThoughts: foldLongThoughts.value, topStripStyle: topStripStyle.value,
                    thoughtHeader: thoughtHeader.value, liveThoughtViewport: liveThoughtViewport.value,
-                   thoughtFoldThreshold: thoughtFoldThreshold.value)
+                   thoughtFoldThreshold: thoughtFoldThreshold.value, turnPreviewCards: turnPreviewCards.value)
     }
 
     static func attributes(foldLongThoughts: Bool, topStripStyle: AgentPaneTopStripStyle,
                            thoughtHeader: AgentPaneThoughtHeader = .duration,
                            liveThoughtViewport: Bool = true,
-                           thoughtFoldThreshold: AgentPaneThoughtFoldThreshold = .viewport) -> [String: String] {
+                           thoughtFoldThreshold: AgentPaneThoughtFoldThreshold = .viewport,
+                           turnPreviewCards: Bool = false) -> [String: String] {
         var attributes: [String: String] = [:]
         if foldLongThoughts { attributes["fold-long-thoughts"] = "on" }
         if thoughtFoldThreshold != .viewport { attributes["thought-fold-threshold"] = thoughtFoldThreshold.rawValue }
         if thoughtHeader != .duration { attributes["thought-header"] = thoughtHeader.rawValue }
         if !liveThoughtViewport { attributes["live-thought-viewport"] = "off" }
         if topStripStyle != .default { attributes["top-strip"] = topStripStyle.rawValue }
+        if turnPreviewCards { attributes["turn-preview-cards"] = "on" }
         return attributes
     }
 
@@ -284,6 +327,31 @@ public nonisolated struct AgentPaneTunables {
         help: "Visual treatment for the opt-in reasoning slider: today's accent treatment or a quieter outlined thumb.",
         default: .accent, code: "AgentPaneTunables.reasoningSliderStyle")
 
+    /// What the composer's model chip opens. It applies live, as the `composer` event's
+    /// `modelMenu` (AgentPaneComposerSetting, webviews composerSettings.ts).
+    public static let modelMenu = Tunable<AgentPaneModelMenuStyle>.choice(
+        "agent.modelMenu", PageTunables.section, "Composer model menu",
+        help: "Compact: a short menu of numbered models with Effort, Account and More models. Full: the harness rail and search.",
+        default: .compact, code: "AgentPaneTunables.modelMenu")
+
+    /// Whether a chat that has a message can still switch harness from its model menu. Off (the
+    /// default), its harness is fixed, as in Claude Code: the menu lists that harness's models alone,
+    /// with no harness rail and no Add harness…. It applies live, as the `composer` event's
+    /// `harnessSwitch` (AgentPaneComposerSetting, webviews composerSettings.ts).
+    public static let harnessSwitchInStartedChat = Tunable<Bool>.toggle(
+        "agent.harnessSwitchInStartedChat", PageTunables.section, "Allow switching harness in a started chat",
+        help: "A chat with a message keeps the model menu's harness rail and Add harness…, and a pick in another harness starts a new chat there.",
+        default: false, code: "AgentPaneTunables.harnessSwitchInStartedChat")
+
+    /// Whether Esc on an empty composer stops a running turn only on a second press inside a short
+    /// window, as in Claude Code. On (the default), the first press shows "Press Esc again to stop"
+    /// in the prompt; off, one press stops the turn. It applies live, as the `composer` event's
+    /// `escapeDoublePress` (AgentPaneComposerSetting, webviews composerSettings.ts, escapeStop.ts).
+    public static let escapeStopDoublePress = Tunable<Bool>.toggle(
+        "agent.escapeStopDoublePress", PageTunables.section, "Esc stops a turn on a double press",
+        help: "Esc on an empty composer stops a running turn only when pressed twice in a row. Off, one press stops it.",
+        default: true, code: "AgentPaneTunables.escapeStopDoublePress")
+
     /// The session sidebar's latest-reply hover preview treatment. User layout customization may
     /// still override this choice with `layout.sidebarPreviewVariant` for a prototype.
     public static let sidebarPreviewVariant = Tunable<AgentPaneSidebarPreviewVariant>.choice(
@@ -291,5 +359,37 @@ public nonisolated struct AgentPaneTunables {
         help: "Visual treatment for the session sidebar's latest-reply hover preview: card, quiet, or outline.",
         default: .card, code: "AgentPaneTunables.sidebarPreviewVariant")
 
-    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, thoughtFoldThreshold.descriptor, thoughtHeader.descriptor, liveThoughtViewport.descriptor, topStripStyle.descriptor, turnActionsPlacement.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor, reasoningSliderStyle.descriptor, sidebarPreviewVariant.descriptor, composerPlainFooter.descriptor] }
+    public static var all: [TunableDescriptor] {
+        [
+            agentPairGuard.descriptor,
+            agentPairCap.descriptor,
+            agentPairWindow.descriptor,
+            chatWidth.descriptor,
+            codexToolRuns.descriptor,
+            composerPlainFooter.descriptor,
+            escapeStopDoublePress.descriptor,
+            foldLongThoughts.descriptor,
+            harnessSwitchInStartedChat.descriptor,
+            liveThoughtViewport.descriptor,
+            modelMenu.descriptor,
+            pagesFollowLinkPlacement.descriptor,
+            newTabPrivateChatLists.descriptor,
+            newTabWidgets.descriptor,
+            pageHost.descriptor,
+            reasoningSlider.descriptor,
+            reasoningSliderStyle.descriptor,
+            sessionStatus.descriptor,
+            sidebarPreviewVariant.descriptor,
+            sideSessions.descriptor,
+            suggestedTasks.descriptor,
+            terminalButtonAdds.descriptor,
+            browserOpensPreview.descriptor,
+            thoughtFoldThreshold.descriptor,
+            thoughtHeader.descriptor,
+            topStripStyle.descriptor,
+            turnPreviewCards.descriptor,
+            turnActionsPlacement.descriptor,
+            agentLinks.descriptor,
+        ]
+    }
 }

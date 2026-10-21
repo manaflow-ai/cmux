@@ -2,6 +2,9 @@
 // schemas/settings/source/updates.json. Do not edit; edit the JSON and rerun.
 
 extension UpdatesSettings {
+    /// `updates.channel`: Release ring inside the one cmux NEXT appcast: each choice allows its own sparkle:channel tag plus every slower one (stable < nightly < canary < dev). Design: cmuxterm-hq docs/release-rings.md.
+    public nonisolated static let channelPath = ["updates", "channel"]
+    public nonisolated static let channelDefault: UpdatesChannelSetting = .nightly
     /// `updates.checkAutomatically`.
     public nonisolated static let checkAutomaticallyPath = ["updates", "checkAutomatically"]
     public nonisolated static let checkAutomaticallyDefault = true
@@ -25,7 +28,7 @@ extension UpdatesSettings {
     public nonisolated static let keepPreviousVersionsPath = ["updates", "keepPreviousVersions"]
     public nonisolated static let keepPreviousVersionsDefault: Double = 1
     public nonisolated static let keepPreviousVersionsRange: ClosedRange<Double> = 0...5
-    /// `updates.showWhatsNew`: The What's New item at the top of the sidebar after an update (WHATS-NEW-AFTER-UPDATE W1); managed config can force it off.
+    /// `updates.showWhatsNew`: The bottom-left "cmux Updated!" card after an update (WHATS-NEW-AFTER-UPDATE W1; never a top-of-sidebar item); managed config can force it off.
     public nonisolated static let showWhatsNewPath = ["updates", "showWhatsNew"]
     public nonisolated static let showWhatsNewDefault = true
 }
@@ -45,6 +48,21 @@ nonisolated enum UpdateSettingsSchema {
     static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.updates", "Updates")
         return [
+            SettingDescriptor(
+                UpdatesSettings.channelPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.updates.channel", "Update Channel"),
+                help: SettingsText.keyed("settings.updates.channel.help", "Canary and Dev get builds before they reach Nightly. Stable gets only builds that have run a week without problems, so switching to it may mean no updates for a while."),
+                kind: .choice([
+                    SettingChoice(UpdatesChannelSetting.stable.rawValue, SettingsText.keyed("settings.choice.updatesChannelStable", "Stable")),
+                    SettingChoice(UpdatesChannelSetting.nightly.rawValue, SettingsText.keyed("settings.choice.updatesChannelNightly", "Nightly")),
+                    SettingChoice(UpdatesChannelSetting.canary.rawValue, SettingsText.keyed("settings.choice.updatesChannelCanary", "Canary")),
+                    SettingChoice(UpdatesChannelSetting.dev.rawValue, SettingsText.keyed("settings.choice.updatesChannelDev", "Dev")),
+                ]),
+                default: .string(UpdatesSettings.channelDefault.rawValue),
+                keywords: ["update", "channel", "ring", "release", "stable", "nightly", "canary", "beta", "dev"]
+            ),
             SettingDescriptor(
                 UpdatesSettings.checkAutomaticallyPath,
                 section: .general,
@@ -124,7 +142,7 @@ nonisolated enum UpdateSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.updates.showWhatsNew", "Show What's New After Updates"),
-                help: SettingsText.keyed("settings.updates.showWhatsNew.help", "After an update, a What's New item shows at the top of the sidebar until you open it."),
+                help: SettingsText.keyed("settings.updates.showWhatsNew.help", "After an update, a card at the bottom of the sidebar links to What's New until you open or dismiss it."),
                 kind: .toggle,
                 default: .bool(UpdatesSettings.showWhatsNewDefault),
                 keywords: ["whats new", "release notes", "changelog", "update", "sidebar"]

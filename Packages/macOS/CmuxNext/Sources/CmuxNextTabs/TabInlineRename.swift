@@ -49,7 +49,10 @@ import CmuxNextDesign
         let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         close()
         guard let model = strip?.model else { return }
-        if model.tab(id)?.title != name { model.send(.renameCommitted(id, name: name)) }
+        guard model.tab(id)?.title != name else { return }
+        // The editor already showed the new name: its echo swaps without the rename crossfade.
+        strip?.cells[id]?.directTitle = name
+        model.send(.renameCommitted(id, name: name))
     }
 
     /// Closes the editor without a change.

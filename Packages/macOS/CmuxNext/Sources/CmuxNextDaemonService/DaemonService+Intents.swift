@@ -13,14 +13,22 @@ extension DaemonService {
     /// or when `body` throws. Returns the body's value, or nil on failure.
     public func intend<T: Sendable>(_ label: String, _ intent: Intent, transaction: ClientTransactionID,
                              _ body: @Sendable (isolated DaemonConnection) async throws -> T) async -> T? {
+        await withoutActuallyEscaping(body) { await intendNow(label, intent, transaction: transaction, $0)() }
+    }
+
+    /// ``intend(_:_:transaction:_:)`` in two steps (Cmd-D): the intent shows now, before any await; the returned work sends `body`.
+    public func intendNow<T: Sendable>(_ label: String, _ intent: Intent, transaction: ClientTransactionID,
+                                       _ body: @escaping @Sendable (isolated DaemonConnection) async throws -> T) -> @MainActor () async -> T? {
         let ticket = openTicket(label)
         guard let connection else {
-            logger.error("\(label, privacy: .public): not connected")
-            await closeTicket(ticket, label: label, error: DaemonError.notConnected)
-            return nil
+            return { [self] in
+                logger.error("\(label, privacy: .public): not connected")
+                await closeTicket(ticket, label: label, error: DaemonError.notConnected)
+                return nil
+            }
         }
         store.intend(intent, transaction: transaction)
-        do {
+        return { [self] in do {
             let value = try await body(connection)
             // Every event the daemon emitted before the reply. Nil when the
             // connection is gone: no event will come on it, and the next
@@ -37,7 +45,7 @@ extension DaemonService {
             logger.error("\(label, privacy: .public) rejected: \(String(describing: error), privacy: .public)")
             await closeTicket(ticket, label: label, error: error)
             return nil
-        }
+        } }
     }
 
     /// `intend` with a fresh transaction, for commands that do not carry

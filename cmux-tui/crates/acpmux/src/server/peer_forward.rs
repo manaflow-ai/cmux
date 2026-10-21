@@ -20,6 +20,9 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_RELOAD_CONFIG,
     method::MUX_WATCH,
     method::MUX_HARNESS_INVENTORY_WATCH,
+    method::MUX_HARNESS_INVENTORY_REFRESH,
+    method::MUX_HARNESS_UPDATE_PLAN,
+    method::MUX_HARNESS_UPDATE_PREPARE,
     method::MUX_WARM,
     method::MUX_PREWARM,
     method::MUX_START_MODE,
@@ -27,6 +30,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_SHUTDOWN,
     // An agent message is taken back on this daemon only (`hub/withdraw.rs`).
     method::MUX_PROMPT_WITHDRAW,
+    // Agent pairs are this daemon's own (`hub/agent_pairs.rs`).
+    method::MUX_AGENT_PAIR_RESUME,
     method::MUX_HANDOFF_PREPARE,
     method::MUX_HANDOFF_GET,
     method::MUX_HANDOFF_DRAFT,
@@ -139,6 +144,15 @@ async fn forward_inner(
             obj.insert("peer".into(), Value::String(peer.name.clone()));
         }
         return Ok(Some(result));
+    }
+    // `PEER/name` for a peer that is down and lists no such session: say
+    // the peer is unreachable, not that the session does not exist.
+    if !SESSION_SCOPED_EXCLUDED.contains(&m)
+        && let Ok(key) = session_key(params)
+        && hub.resolve(key).is_err()
+        && let Some(e) = hub.peer_down_for(key)
+    {
+        return Err(e);
     }
     Ok(None)
 }

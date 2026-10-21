@@ -189,9 +189,10 @@ public final class DictationSession {
         finishEngine()
         transcriber = nil
         let audio = recording?.wav()
+        let omitted = recording?.omission
         recording = nil
         phase = .idle
-        onUpdate?(DictationUpdate(phase: .idle, text: committed, audio: audio))
+        onUpdate?(DictationUpdate(phase: .idle, text: committed, audio: audio, audioOmitted: omitted))
     }
 
     private func fail(_ session: Int, _ error: any Error) {

@@ -118,13 +118,40 @@ final class PageInfoChipButton: NSView, PointerHoverReporting {
         hover?.refresh()
     }
 
+    /// The page a drag that starts on the chip carries; nil: no drag.
+    var dragItem: (() -> BrowserURLDragItem?)?
+    /// Where the press began, in window points, until it drags or ends.
+    private var pressLocation: NSPoint?
+
     override func mouseDown(with event: NSEvent) {
         guard indicator.isTriggerable else { return }
         isPressed = true
+        pressLocation = event.locationInWindow
+    }
+
+    /// Chrome: dragging the location icon drags the page out as a link.
+    override func mouseDragged(with event: NSEvent) {
+        guard isPressed, let start = pressLocation, let item = dragItem?() else { return }
+        let moved = hypot(event.locationInWindow.x - start.x, event.locationInWindow.y - start.y)
+        guard moved >= 3 else { return }
+        isPressed = false
+        pressLocation = nil
+        let dragging = NSDraggingItem(pasteboardWriter: item.pasteboardItem)
+        let label = NSAttributedString(string: item.title.flatMap { $0.isEmpty ? nil : $0 } ?? item.url.absoluteString,
+                                       attributes: [.font: OmnibarStyle.font, .foregroundColor: NSColor.labelColor])
+        let size = NSSize(width: min(ceil(label.size().width) + 8, 360), height: ceil(label.size().height) + 4)
+        let image = NSImage(size: size, flipped: false) { rect in
+            label.draw(with: rect.insetBy(dx: 4, dy: 2), options: [.truncatesLastVisibleLine, .usesLineFragmentOrigin])
+            return true
+        }
+        let origin = convert(event.locationInWindow, from: nil)
+        dragging.setDraggingFrame(NSRect(origin: NSPoint(x: origin.x - 8, y: origin.y - size.height / 2), size: size), contents: image)
+        beginDraggingSession(with: [dragging], event: event, source: self)
     }
 
     /// Page info opens on release inside the button.
     override func mouseUp(with event: NSEvent) {
+        pressLocation = nil
         guard isPressed else { return }
         isPressed = false
         if bounds.contains(convert(event.locationInWindow, from: nil)) { onPress?() }
@@ -176,5 +203,11 @@ final class PageInfoChipButton: NSView, PointerHoverReporting {
         super.viewDidChangeEffectiveAppearance()
         refreshFill()
         applyTint()
+    }
+}
+
+extension PageInfoChipButton: NSDraggingSource {
+    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+        [.copy, .link]
     }
 }

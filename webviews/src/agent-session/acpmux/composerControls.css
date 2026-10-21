@@ -1,8 +1,7 @@
 /* Reasoning menu: one row per level the model offers, the chosen one marked by a check at the
    row's trailing edge as Claude's model list marks it, so every label starts at the row's own
    inset with no empty leading gutter (Leo 2026-10-18); one row height; section headers and
-   separators on the label column's rhythm. The track below is the model menu's
-   inline effort row (modelMenuNodes.tsx). Theme tokens only. */
+   separators on the label column's rhythm. Theme tokens only. */
 .acpmux-effort-menu {
   --acpmux-menu-gutter: 16px;
   --acpmux-menu-gutter-gap: 8px;
@@ -249,3 +248,20 @@
    chip's face, inert until the session's own replaces it in place (ComposerPickers PendingChip). */
 .acpmux-chip-pending { pointer-events: none; }
 .acpmux-chip-pending .acpmux-picker-button:hover { background: none; }
+/* The Options chip (AgentOptionsMenu): the harness's other settings, a quiet pill like the access
+   chip, its face one option's name and choice or "Options". */
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-options .acpmux-picker-button {
+  height: 28px;
+  gap: 4px;
+  padding: 0 6px 0 8px;
+  border-radius: 999px;
+  color: var(--agent-muted);
+}
+.acpmux-options .acpmux-picker-button[aria-expanded="true"],
+.acpmux-options .acpmux-picker-button:hover { color: var(--agent-text); }
+.acpmux-options-text {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

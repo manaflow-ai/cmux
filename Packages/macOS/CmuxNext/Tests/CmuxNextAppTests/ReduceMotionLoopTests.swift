@@ -85,7 +85,9 @@ import Testing
         cell.startTypingBreath(insert: CACurrentMediaTime())
         MessagesLabHomeView.reduceMotionOverride = true
         cell.startTypingBreath(insert: CACurrentMediaTime())
-        #expect([cell.typingContainer, cell.typingClip].flatMap { Self.loops(under: $0) } == [])
+        // Hoisted: #expect wraps a rethrowing call in a throwing closure ("call can throw").
+        let breathLoops: [String] = [cell.typingContainer, cell.typingClip].flatMap { Self.loops(under: $0) }
+        #expect(breathLoops == [])
     }
 
     /// The pins follow `Motion.reduceMotionOverride` after the mirror is installed.
