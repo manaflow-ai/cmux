@@ -48,7 +48,7 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
           {after && <span data-find-skip>{after}</span>}
         </span>
         <span className="cv-command__meta">
-          {tool.status === "in_progress" && <BackgroundHint />}
+          {running && <BackgroundHint />}
           {running ? (
             <Spinner size={12} />
           ) : failed ? (

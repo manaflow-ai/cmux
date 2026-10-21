@@ -24,15 +24,15 @@ const row = (
   }) as unknown as AcpmuxRow;
 
 describe("backgroundsWork", () => {
-  test("a local Claude Code chat moves its work", () => {
+  test("a local Claude Code chat moves its work, a profile's too", () => {
     expect(backgroundsWork({ harness: "claude" })).toBe(true);
     expect(backgroundsWork({ harness: "claude", hostKind: "local" })).toBe(true);
+    expect(backgroundsWork({ harness: "claude-sr" })).toBe(true);
   });
 
   test("other harnesses, a peer's or Cloud chat and a chat not yet known do not", () => {
     expect(backgroundsWork({ harness: "codex" })).toBe(false);
-    // An ACP harness whose command names claude is not acpmux's Claude Code (HarnessKind::ClaudeStdio).
-    expect(backgroundsWork({ harness: "claude-acp" })).toBe(false);
+    expect(backgroundsWork({ harness: "claudette" })).toBe(false);
     expect(backgroundsWork({ harness: "claude", peer: "huge-blue" })).toBe(false);
     expect(backgroundsWork({ harness: "claude", hostKind: "cloud" })).toBe(false);
     expect(backgroundsWork(undefined)).toBe(false);
@@ -48,16 +48,16 @@ describe("foregroundCalls", () => {
         { id: "build", kind: "execute", status: "in_progress" },
       ]),
       row("tools", [
-        { id: "agent", kind: "think", status: "in_progress" },
+        { id: "agent", kind: "think", status: "pending" },
         { id: "done", kind: "execute", status: "completed" },
       ]),
     ];
     expect(foregroundCalls(rows)).toEqual(["agent", "build"]);
   });
 
-  test("a call waiting for permission is not running yet", () => {
-    const rows = [row("user"), row("tools", [{ id: "asks", kind: "execute", status: "pending" }])];
-    expect(foregroundCalls(rows)).toEqual([]);
+  test("a command left pending after its permission prompt was answered still counts", () => {
+    const rows = [row("user"), row("tools", [{ id: "allowed", kind: "execute", status: "pending" }])];
+    expect(foregroundCalls(rows)).toEqual(["allowed"]);
   });
 
   test("a prompt steered into the turn does not hide the calls before it", () => {
@@ -65,6 +65,16 @@ describe("foregroundCalls", () => {
       row("user"),
       row("tools", [{ id: "build", kind: "execute", status: "in_progress" }]),
       row("user", [], { steer: "landed" }),
+    ];
+    expect(foregroundCalls(rows)).toEqual(["build"]);
+  });
+
+  test("a prompt still sending, or never sent, does not end the turn either", () => {
+    const rows = [
+      row("user"),
+      row("tools", [{ id: "build", kind: "execute", status: "in_progress" }]),
+      row("user", [], { failed: true }),
+      row("user", [], { pending: true }),
     ];
     expect(foregroundCalls(rows)).toEqual(["build"]);
   });

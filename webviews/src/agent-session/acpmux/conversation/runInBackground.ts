@@ -7,6 +7,7 @@
 // the foreground, and a running command's row says so.
 import { createContext, useEffect, useRef } from "react";
 import type { AcpmuxRow } from "../model";
+import { continuesTurn } from "../turnStart";
 
 /// Moves the chat's foreground work to the background: only the call `toolCallId` started, or all
 /// of it. Absent when the chat cannot (another harness, or no acpmux to ask).
@@ -14,26 +15,29 @@ export type RunInBackground = (toolCallId?: string) => void;
 
 export const RunInBackgroundContext = createContext<RunInBackground | undefined>(undefined);
 
-/// Whether acpmux moves this chat's work: a local Claude Code chat only. acpmux refuses the other
-/// harnesses (Codex moves a long command to the background itself), and a peer's or a Cloud chat's
-/// processes are not this acpmux's to move.
+/// Whether acpmux moves this chat's work: a local Claude Code chat only (`claude` and its profiles,
+/// `claude-sr` and the like). acpmux refuses the other harnesses (Codex moves a long command to the
+/// background itself), and a peer's or a Cloud chat's processes are not this acpmux's to move.
 export function backgroundsWork(
   summary: { harness?: string; peer?: string; hostKind?: "local" | "cloud" } | undefined,
 ): boolean {
-  return summary?.harness === "claude" && !summary.peer && summary.hostKind !== "cloud";
+  const harness = summary?.harness;
+  const claude = harness === "claude" || Boolean(harness?.startsWith("claude-"));
+  return claude && !summary?.peer && summary?.hostKind !== "cloud";
 }
 
 /// The calls of the running turn that hold it up: a running command or subagent (what Claude
-/// Code's Ctrl-B moves). A call still waiting for permission is not running yet. Read from the end
-/// back to the turn's prompt; a prompt steered into the turn does not start a new one.
+/// Code's Ctrl-B moves). A call stays `pending` after its permission prompt is answered, so pending
+/// calls count too. Read from the end back to the prompt that opened the turn, past steers and
+/// prompts still sending or never sent, as subagents/subagentRows.ts `runningGroups` does.
 export function foregroundCalls(rows: readonly AcpmuxRow[]): string[] {
   const calls: string[] = [];
   for (let index = rows.length - 1; index >= 0; index -= 1) {
     const row = rows[index]!;
-    if (row.kind === "user" && !row.steer) break;
+    if (row.kind === "user" && !row.pending && !row.failed && !continuesTurn(row)) break;
     for (const item of row.items ?? []) {
       const tool = item.tool;
-      if (tool?.status !== "in_progress") continue;
+      if (!tool || (tool.status !== "pending" && tool.status !== "in_progress")) continue;
       if (tool.kind === "execute" || tool.kind === "think") calls.push(tool.id);
     }
   }

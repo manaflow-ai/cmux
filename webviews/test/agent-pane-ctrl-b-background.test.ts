@@ -201,7 +201,8 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
     return page;
   };
   const composer = (page: Page) => page.locator("[contenteditable=true]").first();
-  /// Records whether the page took each Ctrl-B, read after it reached the window's bubble phase.
+  /// Records each Ctrl-B the page left alone, from the window's bubble phase. A Ctrl-B the page
+  /// takes stops at its capture listener and never shows here.
   const watchCtrlB = (page: Page) =>
     page.evaluate(() => {
       const taken: boolean[] = [];
