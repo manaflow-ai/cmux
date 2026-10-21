@@ -2065,8 +2065,11 @@ jobs:
         run: |
           python3 -I scripts/ci/job_input_fingerprint.py fast-tier \
             --extra "xcode=$(xcodebuild -version | tr '\n' ' ')" \
-            --extra "macos=$(sw_vers -productVersion | cut -d. -f1)" \
-            --extra "arch=$(uname -m)" >> "$GITHUB_OUTPUT"
+            --extra "macos=$(sw_vers -productVersion)" \
+            --extra "macos_build=$(sw_vers -buildVersion)" \
+            --extra "arch=$(uname -m)" \
+            --extra "pool=${{ contains(runner.name, '-glaeda') && 'owned' || startsWith(runner.name, 'blacksmith-') && 'blacksmith' || runner.environment == 'github-hosted' && 'hosted' || runner.name }}" \
+            --extra "image=${ImageOS:-}${ImageVersion:+-$ImageVersion}" >> "$GITHUB_OUTPUT"
 
       - name: Look for a pass on the same inputs
         id: reuse
@@ -2205,7 +2208,13 @@ jobs:
           persist-credentials: false
           submodules: false
 
-      # Zig and Rust come before the reuse key, which names their versions.
+      # clang (bindgen's libclang), Zig and Rust come before the reuse key, which
+      # names their versions.
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+
       - name: Init the ghostty-next submodule (libghostty-vt for cmux-tui-core)
         run: bash scripts/ci/init-submodule.sh ghostty-next
 
@@ -2230,7 +2239,9 @@ jobs:
             --extra "runner=${{ runner.os }}-${{ runner.arch }}" \
             --extra "rustc=$(rustc -Vv | tr '\n' ' ')" \
             --extra "cargo=$(cargo -V)" \
-            --extra "zig=$("${CMUX_ZIG:-zig}" version)" >> "$GITHUB_OUTPUT"
+            --extra "zig=$("${CMUX_ZIG:-zig}" version)" \
+            --extra "clang=$(clang --version | head -1)" \
+            --extra "image=${ImageOS:-}${ImageVersion:+-$ImageVersion}" >> "$GITHUB_OUTPUT"
 
       - name: Look for a pass on the same inputs
         id: reuse
@@ -2250,12 +2261,6 @@ jobs:
           sha="$(sed -n 2p .ci-job-pass/pass.txt)"
           echo "::notice title=cmux-next fast tier (cargo) reused::$run_url passed on the same inputs (${sha:0:12})"
           echo "Reused $run_url: it passed on \`${sha:0:12}\` with the same inputs (\`$KEY\`)." >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Install Linux build dependencies
-        if: ${{ steps.reuse.outputs.cache-hit != 'true' }}
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
 
       # As cmux-tui.yml: cargo's registry and dependency builds under cmux-tui/target.
       # Only a feat-cmux-next push saves this build cache; a pull request reads the base

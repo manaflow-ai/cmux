@@ -12,11 +12,13 @@ The key covers:
   reused only on an identical tree: a rerun, or a re-push of the same tree;
 - the blob hash of the whole .github/workflows/cmux-next.yml;
 - the toolchain the workflow step names with `--extra`: Xcode (the
-  `xcodebuild -version` output), macOS and arch for fast-tier; the runner,
-  `rustc -Vv`, `cargo -V` and the Zig version for fast-tier-cargo.
+  `xcodebuild -version` output), the macOS version and build, arch and the
+  runner pool (owned, Blacksmith or hosted) for fast-tier; the runner,
+  `rustc -Vv`, `cargo -V`, the Zig version and the clang that bindgen uses for
+  fast-tier-cargo; and the runner image (`image`) when the runner names one.
 
-When a toolchain value is missing or empty it prints no key, and the job runs
-as without reuse. Prints `key=` and `fingerprint=` lines for $GITHUB_OUTPUT
+When a required toolchain value is missing or empty, or git cannot read the
+revision, it prints no key, and the job runs as without reuse. Prints `key=` and `fingerprint=` lines for $GITHUB_OUTPUT
 and the inputs on stderr.
 """
 
@@ -31,9 +33,11 @@ import sys
 VERSION = 2  # 1 keyed a per-job file closure; no key of it may match.
 WORKFLOW = ".github/workflows/cmux-next.yml"
 TOOLCHAIN = {
-    "fast-tier": ("xcode", "macos", "arch"),
-    "fast-tier-cargo": ("runner", "rustc", "cargo", "zig"),
+    "fast-tier": ("xcode", "macos", "macos_build", "arch", "pool"),
+    "fast-tier-cargo": ("runner", "rustc", "cargo", "zig", "clang"),
 }
+# Keyed when given; not every runner image sets ImageOS/ImageVersion.
+OPTIONAL = ("image",)
 
 
 class Unresolved(Exception):
@@ -52,6 +56,9 @@ def fingerprint(root: str, rev: str, job: str, extra: list[str]) -> tuple[str, d
         if not sep:
             raise Unresolved(f"--extra {item!r} is not NAME=VALUE")
         toolchain[name] = " ".join(value.split())
+    unknown = sorted(set(toolchain) - set(TOOLCHAIN[job]) - set(OPTIONAL))
+    if unknown:
+        raise Unresolved(f"unknown toolchain value {', '.join(unknown)}")
     missing = [name for name in TOOLCHAIN[job] if not toolchain.get(name)]
     if missing:
         raise Unresolved(f"no toolchain value for {', '.join(missing)}")
