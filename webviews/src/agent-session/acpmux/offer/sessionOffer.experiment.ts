@@ -2,7 +2,7 @@
 import { defineExperiment } from "../../../experiments/experiment";
 
 /// Session offers (cx-807da) and suggested tasks (cx-lo9yf, SuggestedTasks.tsx): this experiment is
-/// off by default, but the `agent.suggestedTasks` Debug toggle (on by default) turns them on too (offersShown.ts). Without it: set
+/// off by default, but the host's suggested tasks (Settings > Suggest Follow-Up Tasks, on by default) turn them on too (offersShown.ts). Without it: set
 /// `cmux.experiments` to `{"session-offer":"on"}` in the pane's web inspector and reload.
 export const sessionOffer = defineExperiment({
   id: "session-offer",

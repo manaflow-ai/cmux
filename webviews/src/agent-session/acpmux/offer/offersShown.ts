@@ -12,8 +12,9 @@ export function setSuggestedTasks(on: boolean): boolean {
   return offersShown() !== before;
 }
 
-/// Whether an agent's offers draw (cx-lo9yf): with the `agent.suggestedTasks` Debug toggle on, or the
-/// `session-offer` experiment's `on` arm. The host's toggle is on by default; off, offers draw nothing.
+/// Whether an agent's offers draw (cx-lo9yf): with the host's suggested tasks on, or the
+/// `session-offer` experiment's `on` arm. The host's value is Settings > Suggest Follow-Up Tasks (on by
+/// default) or the `agent.suggestedTasks` Debug toggle forcing it on; off, offers draw nothing.
 export function offersShown(): boolean {
   return toggle || experimentArm(sessionOffer) === "on";
 }
