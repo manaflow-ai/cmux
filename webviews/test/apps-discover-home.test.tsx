@@ -9,6 +9,7 @@ import type { Strings } from "../src/pages/shared/i18n";
 import { AppsPage } from "../src/pages/apps/AppsPage";
 import type { AppsSnapshot, AppsStore } from "../src/pages/apps/store";
 import type { CatalogApp } from "../src/pages/apps/types";
+import { UiProvider } from "../src/ui/UiProvider";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -72,11 +73,15 @@ const snapshot = (overrides: Partial<AppsSnapshot>): AppsSnapshot =>
     ...overrides,
   }) as unknown as AppsSnapshot;
 
-const render = (snap: AppsSnapshot) => {
+const render = (snap: AppsSnapshot, dir: "ltr" | "rtl" = "ltr") => {
   const store = { subscribe: () => () => {}, getSnapshot: () => snap } as unknown as AppsStore;
   act(() => {
     root ??= createRoot(host);
-    root.render(<AppsPage store={store} strings={strings} />);
+    root.render(
+      <UiProvider container={host} dir={dir}>
+        <AppsPage store={store} strings={strings} />
+      </UiProvider>,
+    );
   });
   return host;
 };
@@ -112,4 +117,69 @@ test("no empty All section when every app is featured", () => {
   const page = render(snapshot({ visible: [app("cmux.github-prs", "first-party", 30)] }));
   expect(page.querySelectorAll(".apps-featured-grid > *").length).toBe(1);
   expect(page.querySelector("#apps-catalog-title")).toBeNull();
+});
+
+test("tabs are a roving keyboard stop and arrow keys move with focus", () => {
+  const calls: string[] = [];
+  const current = snapshot({ tab: "discover" });
+  const store = {
+    subscribe: () => () => {},
+    getSnapshot: () => current,
+    setTab: (tab: string) => calls.push(tab),
+  } as unknown as AppsStore;
+  const page = render(current);
+  // Replace the static render's store with the recording one for this interaction.
+  act(() =>
+    root!.render(
+      <UiProvider container={host}>
+        <AppsPage store={store} strings={strings} />
+      </UiProvider>,
+    ),
+  );
+  const discover = page.querySelector<HTMLButtonElement>('[role="tab"][aria-selected="true"]')!;
+  const installed = page.querySelector<HTMLButtonElement>('[role="tab"][aria-selected="false"]')!;
+  expect(discover.tabIndex).toBe(0);
+  expect(installed.tabIndex).toBe(-1);
+  act(() => void discover.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
+  expect(calls).toEqual(["installed"]);
+  expect(document.activeElement).toBe(installed);
+});
+
+test("tabs wrap backward, jump with Home/End, and mirror arrows in RTL", () => {
+  const calls: string[] = [];
+  const current = snapshot({ tab: "discover" });
+  const store = {
+    subscribe: () => () => {},
+    getSnapshot: () => current,
+    setTab: (tab: string) => calls.push(tab),
+  } as unknown as AppsStore;
+  const page = render(current);
+  act(() =>
+    root!.render(
+      <UiProvider container={host}>
+        <AppsPage store={store} strings={strings} />
+      </UiProvider>,
+    ),
+  );
+  const discover = page.querySelector<HTMLButtonElement>('[role="tab"][aria-selected="true"]')!;
+  const installed = page.querySelector<HTMLButtonElement>('[role="tab"][aria-selected="false"]')!;
+  act(() => void discover.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true })));
+  expect(calls.at(-1)).toBe("installed");
+  expect(document.activeElement).toBe(installed);
+  act(() => void discover.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Home", bubbles: true })));
+  expect(calls.at(-1)).toBe("discover");
+  act(() => void installed.dispatchEvent(new window.KeyboardEvent("keydown", { key: "End", bubbles: true })));
+  expect(calls.at(-1)).toBe("installed");
+
+  act(() =>
+    root!.render(
+      <UiProvider container={host} dir="rtl">
+        <AppsPage store={store} strings={strings} />
+      </UiProvider>,
+    ),
+  );
+  const rtlPage = host;
+  const rtlDiscover = rtlPage.querySelector<HTMLButtonElement>('[role="tab"][aria-selected="true"]')!;
+  act(() => void rtlDiscover.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
+  expect(calls.at(-1)).toBe("installed");
 });
