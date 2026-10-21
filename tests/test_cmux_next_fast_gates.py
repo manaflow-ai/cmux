@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""cmux-next fast gates: the PR merged with its base, four gates in fail mode, one commit status.
+"""cmux-next fast gates: the PR merged with its base, five gates in fail mode, one commit status.
 
 Four base reds landed on 2026-10-21 through checks that only warn on a pull request or run only
 on push: webviews lint/format and switch-fetches (ci-web's react-apps-check is warn-only on a PR;
@@ -39,6 +39,7 @@ GATE_SCRIPTS = {
     "crash ratchet": "scripts/ci/crash_ratchet_compare.py",
     "defaults stamp": "scripts/ci/defaults_guard.py",
     "prepush gate": "scripts/cmux-next/prepush-gate.py",
+    "crash-class rules": "scripts/ci/crash_class_fast_gate.py",
 }
 
 
@@ -132,7 +133,7 @@ class WorkflowShape(unittest.TestCase):
         self.assertEqual(job(doc)["permissions"], {"contents": "read"})
         self.assertEqual(job(doc, "post")["permissions"], {"statuses": "write"})
 
-    def test_four_gates_fail_the_job(self):
+    def test_every_gate_fails_the_job(self):
         doc = workflow()
         self.assertNotIn("CMUX_NEXT_STYLE_GUARDS", json.dumps(doc))
         gates = job(doc)
@@ -397,8 +398,10 @@ class ScriptBehavior(unittest.TestCase):
         ratchet = calls["crash ratchet"]["argv"]
         self.assertEqual(ratchet[:2], ["--script", "scripts/cmux-next/crash_ratchet.py"])
         self.assertEqual(Path(ratchet[ratchet.index("--head") + 1]).resolve(), work.resolve())
-        # The ratchet's base tree is BASE exported, not the merge.
+        # The ratchet's and the crash-class rules' base tree is BASE exported, not the merge.
         self.assertEqual(calls["crash ratchet"]["base_marker"], "base\n")
+        self.assertEqual(calls["crash-class rules"]["argv"][0], "--base")
+        self.assertEqual(calls["crash-class rules"]["base_marker"], "base\n")
         for entry in calls.values():
             self.assertEqual(Path(entry["cwd"]).resolve(), work.resolve())
         text = summary.read_text()
