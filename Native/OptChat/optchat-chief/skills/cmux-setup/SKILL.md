@@ -89,3 +89,11 @@ one.
   Ask first before adding a machine the user did not name.
   `cmux setup status` lists every peer with `connected` and `outdated`, and
   the `fix` for each one that needs it.
+- MCP outside cmux: `cmux setup mcp [claude|codex ...]` gives Claude Code
+  and Codex started outside cmux (a terminal, another app) the cmux MCP
+  server, through their own `mcp add`; chats cmux starts already have it.
+  `needs_user` with `user_action.kind` `setting` means the person turns on
+  `"mcp": {"enabled": true}` in the settings file the text names; hand them
+  that line, do not edit the file. Kind `conflict` means their own server
+  is named `cmux`: ask before removing it. `undo` is the shell line that
+  puts each changed config back.
