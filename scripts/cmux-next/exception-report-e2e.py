@@ -9,7 +9,8 @@ Two phases around a relaunch the caller does (a capture slot: `capture-host laun
                   cx-r3q). The app's process must end.
                   With --crash frozen it instead calls `debug.crash.app {"signal": "frozen"}`: a crash
                   path that blocks (a trap whose Mach exception nothing receives, the 2026-10-20
-                  NIGHTLY freezes); the crash deadline must end the process.
+                  NIGHTLY freezes); the crash deadline must end the process, not before 8 s.
+                  (--phase check applies to the exception crash only.)
                   --expect-reporting: Sentry must run in the app (launch it with
                   CMUX_NEXT_DEV_SENTRY=1), the setup that froze instead of crashing.
   --phase check   after the relaunch: `debug.crashes` says the previous run ended, its restart
@@ -95,7 +96,12 @@ if opts.phase == "raise":
             sys.exit("FAIL Sentry does not run in the app (launch it with CMUX_NEXT_DEV_SENTRY=1)")
     if opts.app_pid and not wait(lambda: ended(opts.app_pid), opts.end_within):
         sys.exit(f"FAIL the app ({opts.app_pid}) still runs {opts.end_within:.0f} s after the {opts.crash} crash")
-    print(f"PASS the {opts.crash} crash ended the app" + (f" after {time.time() - started:.1f} s" if opts.app_pid else ""))
+    elapsed = time.time() - started
+    # A frozen crash that ended early never blocked (the dead exception port was not set): the
+    # deadline (10 s) did not end it, so it proves nothing.
+    if opts.crash == "frozen" and opts.app_pid and elapsed < 8:
+        sys.exit(f"FAIL the frozen crash ended after {elapsed:.1f} s: its trap did not block, the deadline was not tested")
+    print(f"PASS the {opts.crash} crash ended the app" + (f" after {elapsed:.1f} s" if opts.app_pid else ""))
     sys.exit(0)
 
 report = wait(lambda: (lambda r: r if "error" not in r else None)(rpc("debug.crashes", timeout=5) or {"error": "no reply"}), 60)

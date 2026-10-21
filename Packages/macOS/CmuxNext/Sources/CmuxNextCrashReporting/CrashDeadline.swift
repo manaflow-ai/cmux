@@ -9,8 +9,9 @@ import Foundation
 /// recover it. On 2026-10-20 two NIGHTLY crashes froze instead (a trap whose
 /// Mach exception nothing received, see ``TaskExceptionPorts``) until the
 /// user forced them to quit. `TaskExceptionPorts` fixes that cause; this
-/// bounds the whole class: a crash reporter or handler that blocks, a
-/// recrash in a handler, an exception port whose receiver is gone.
+/// bounds the class: a crash handler that blocks after it let the other
+/// threads run again, a recrash in a handler, an exception port whose
+/// receiver is gone.
 ///
 /// A dedicated thread, started at launch, waits on a Mach semaphore (no
 /// wakeups while the app runs). ``arm()`` signals it from any crash path;
@@ -19,6 +20,13 @@ import Foundation
 /// with SIGABRT at its default action: macOS writes a crash report that
 /// holds every thread (the blocked one too), and the next launch forwards
 /// it (`SystemCrashForwarder`). With a debugger attached it does nothing.
+/// After the arm it allocates nothing (a crash inside malloc can hold the
+/// heap lock).
+///
+/// Limit: Sentry suspends every other thread while it writes its report
+/// (`sentrycrashmc_suspendEnvironment`); a Sentry handler that blocks with
+/// the threads suspended also stops this thread. Only an out-of-process
+/// watcher could end that case.
 enum CrashDeadline {
     /// How long a crash may take before the deadline ends the process. A
     /// normal crash ends in well under a second; Sentry's own concurrent
@@ -32,7 +40,8 @@ enum CrashDeadline {
         var semaphore = semaphore_t(0)
         guard semaphore_create(mach_task_self_, &semaphore, SYNC_POLICY_FIFO, 0) == KERN_SUCCESS else { return }
         deadlineSemaphore = semaphore
-        let thread = Thread { CrashDeadline.watch(semaphore) }
+        let parked = semaphore
+        let thread = Thread { CrashDeadline.watch(parked) }
         thread.name = "cmux-next crash deadline"
         thread.qualityOfService = .userInteractive
         thread.start()
@@ -47,7 +56,9 @@ enum CrashDeadline {
 
     private static func watch(_ semaphore: semaphore_t) {
         // concurrency-allow: dedicated crash-deadline thread, parked until a crash path arms it; never the main thread.
-        while semaphore_wait(semaphore) != KERN_SUCCESS {}
+        var result = semaphore_wait(semaphore)
+        while result == KERN_ABORTED { result = semaphore_wait(semaphore) }
+        guard result == KERN_SUCCESS else { return }
         var timebase = mach_timebase_info_data_t()
         mach_timebase_info(&timebase)
         let ticks = seconds * 1_000_000_000 * UInt64(timebase.denom) / UInt64(max(timebase.numer, 1))
@@ -71,8 +82,12 @@ enum CrashDeadline {
     private static func isBeingDebugged() -> Bool {
         var info = kinfo_proc()
         var size = MemoryLayout<kinfo_proc>.stride
-        var name: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
-        guard sysctl(&name, 4, &info, &size, nil, 0) == 0 else { return false }
+        // A tuple on the stack: no allocation after the arm.
+        var name: (Int32, Int32, Int32, Int32) = (CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid())
+        let result = withUnsafeMutableBytes(of: &name) { raw in
+            sysctl(raw.baseAddress?.assumingMemoryBound(to: Int32.self), 4, &info, &size, nil, 0)
+        }
+        guard result == 0 else { return false }
         return info.kp_proc.p_flag & P_TRACED != 0
     }
 }

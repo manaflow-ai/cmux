@@ -1,6 +1,7 @@
 import CmuxNextControl
 import CmuxNextCrashReporting
 import Foundation
+import CmuxNextCompat
 import os
 
 /// An Objective-C exception that ended the previous run: what the
@@ -33,14 +34,22 @@ nonisolated enum UncaughtExceptionRecorder {
     /// Frames kept from the exception's call stack.
     static let frameLimit = 64
     private static let file = OSAllocatedUnfairLock<URL?>(initialState: nil)
+    /// The main thread is inside `reportException:` for an exception AppKit
+    /// logs and survives (crashing turned off by the user's own setting).
+    static let reportingSurvivableException = Atomic<Bool>(false)
 
     /// Sets the handler that writes into `url`. No other code in the app
     /// installs an uncaught-exception handler (CEF and Ghostty do not).
     static func install(writingTo url: URL) {
         file.withLock { $0 = url }
-        // The runtime aborts after this handler: the crash has begun.
+        // The runtime aborts after this handler: the crash has begun. Sentry's
+        // reportException: hook also calls it for an exception AppKit reports
+        // and survives (the user turned NSApplicationCrashOnExceptions off):
+        // that one must not end the app.
         NSSetUncaughtExceptionHandler { exception in
-            CrashReporter.beginCrashDeadline()
+            if !(Thread.isMainThread && UncaughtExceptionRecorder.reportingSurvivableException.load(ordering: .acquiring)) {
+                CrashReporter.beginCrashDeadline()
+            }
             UncaughtExceptionRecorder.handle(exception)
         }
     }

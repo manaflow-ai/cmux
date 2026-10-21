@@ -75,8 +75,14 @@ enum TaskExceptionPorts {
         // stay on Sentry's port.
         _ = task_set_exception_ports(task, sentryMask, nullPort,
                                      exception_behavior_t(EXCEPTION_DEFAULT), thread_state_flavor_t(THREAD_STATE_NONE))
-        for index in 0 ..< Int(savedCount) where ports[index] != nullPort {
-            _ = task_set_exception_ports(task, masks[index], ports[index], behaviors[index], flavors[index])
+        // A plain loop: no generic Range code in a signal handler (Debug builds).
+        var index = 0
+        let count = Int(savedCount)
+        while index < count {
+            if ports[index] != nullPort {
+                _ = task_set_exception_ports(task, masks[index], ports[index], behaviors[index], flavors[index])
+            }
+            index += 1
         }
     }
 
@@ -89,13 +95,19 @@ enum TaskExceptionPorts {
         var flavor = thread_state_flavor_t(0)
         let result = task_get_exception_ports(mach_task_self_, exception_mask_t(EXC_MASK_BREAKPOINT),
                                               &mask, &count, &port, &behavior, &flavor)
-        return result == KERN_SUCCESS && count == 1 ? port : nullPort
+        guard result == KERN_SUCCESS, count == 1 else { return nullPort }
+        // The call added a send-right reference; give it back (the name stays
+        // valid: the task keeps the handler's right while it is registered).
+        if port != nullPort { _ = mach_port_deallocate(mach_task_self_, port) }
+        return port
     }
 
     private static func savedBreakpointPort() -> mach_port_t {
         guard let masks = savedMasks, let ports = savedPorts else { return nullPort }
-        for index in 0 ..< Int(savedCount) where masks[index] & exception_mask_t(EXC_MASK_BREAKPOINT) != 0 {
-            return ports[index]
+        var index = 0
+        while index < Int(savedCount) {
+            if masks[index] & exception_mask_t(EXC_MASK_BREAKPOINT) != 0 { return ports[index] }
+            index += 1
         }
         return nullPort
     }
