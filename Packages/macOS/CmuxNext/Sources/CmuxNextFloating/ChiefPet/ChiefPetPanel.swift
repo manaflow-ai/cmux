@@ -25,7 +25,7 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
     /// The right-click menu's Hide Chief Pet item.
     public var onHide: (() -> Void)?
     /// Whether Hide Chief Pet can run now (false while `home.chiefPetEnabled` is managed).
-    public var canHide: (() -> Bool)?
+    public var hideAllowed: (() -> Bool)?
     let placement: ChiefPetPlacement
     let pet: ChiefPetView
     private var expandTool: ChiefPetTool?
@@ -92,7 +92,7 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
             item.target = self
             menu.addItem(item)
         }
-        hide.isEnabled = canHide?() ?? true
+        hide.isEnabled = hideAllowed?() ?? true
         return menu
     }
 
