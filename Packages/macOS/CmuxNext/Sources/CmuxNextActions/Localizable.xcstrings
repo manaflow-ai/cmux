@@ -24763,22 +24763,10 @@
     "workspaceSelection.addToNewGroup": {
       "extractionState": "manual",
       "localizations": {
-        "ar": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "إضافة مساحات العمل إلى مجموعة جديدة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dodaj radne prostore u novu grupu"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Føj arbejdsområder til ny gruppe"
+            "value": "Add Workspaces to New Group"
           }
         },
         "de": {
@@ -24787,10 +24775,16 @@
             "value": "Arbeitsbereiche zu neuer Gruppe hinzufügen"
           }
         },
-        "en": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add Workspaces to New Group"
+            "value": "Ajouter les espaces de travail à un nouveau groupe"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إضافة مساحات العمل إلى مجموعة جديدة"
           }
         },
         "es": {
@@ -24799,82 +24793,10 @@
             "value": "Añadir espacios de trabajo a un grupo nuevo"
           }
         },
-        "fr": {
+        "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajouter les espaces de travail à un nouveau groupe"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aggiungi spazi di lavoro a un nuovo gruppo"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペースを新しいグループに追加"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បន្ថែមកន្លែងធ្វើការទៅក្រុមថ្មី"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "새 그룹에 작업 공간 추가"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Legg til arbeidsområder i ny gruppe"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dodaj obszary robocze do nowej grupy"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Adicionar espaços de trabalho a um novo grupo"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Добавить рабочие пространства в новую группу"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เพิ่มพื้นที่ทำงานลงในกลุ่มใหม่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Çalışma alanlarını yeni gruba ekle"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Додати робочі простори до нової групи"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Thêm các không gian làm việc vào nhóm mới"
+            "value": "將工作區加入新群組"
           }
         },
         "zh-Hans": {
@@ -24883,10 +24805,16 @@
             "value": "将工作区添加到新组"
           }
         },
-        "zh-Hant": {
+        "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "將工作區加入新群組"
+            "value": "새 그룹에 작업 공간 추가"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを新しいグループに追加"
           }
         }
       }
@@ -24894,22 +24822,10 @@
     "workspaceSelection.duplicate": {
       "extractionState": "manual",
       "localizations": {
-        "ar": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "تكرار مساحات العمل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dupliciraj radne prostore"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dupliker arbejdsområder"
+            "value": "Duplicate Workspaces"
           }
         },
         "de": {
@@ -24918,10 +24834,16 @@
             "value": "Arbeitsbereiche duplizieren"
           }
         },
-        "en": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Duplicate Workspaces"
+            "value": "Dupliquer les espaces de travail"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تكرار مساحات العمل"
           }
         },
         "es": {
@@ -24930,82 +24852,10 @@
             "value": "Duplicar espacios de trabajo"
           }
         },
-        "fr": {
+        "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dupliquer les espaces de travail"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Duplica spazi di lavoro"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペースを複製"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ចម្លងកន្លែងធ្វើការស្ទួន"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "작업 공간 복제"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dupliser arbeidsområder"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Duplikuj obszary robocze"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Duplicar espaços de trabalho"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Дублировать рабочие пространства"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ทำสำเนาพื้นที่ทำงาน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Çalışma Alanlarını Çoğalt"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Дублювати робочі простори"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nhân bản các không gian làm việc"
+            "value": "複製工作區"
           }
         },
         "zh-Hans": {
@@ -25014,10 +24864,16 @@
             "value": "复制工作区"
           }
         },
-        "zh-Hant": {
+        "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "複製工作區"
+            "value": "작업 공간 복제"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを複製"
           }
         }
       }
@@ -25025,22 +24881,10 @@
     "workspaceSelection.pin": {
       "extractionState": "manual",
       "localizations": {
-        "ar": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "تثبيت مساحات العمل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prikači radne prostore"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fastgør arbejdsområder"
+            "value": "Pin Workspaces"
           }
         },
         "de": {
@@ -25049,10 +24893,16 @@
             "value": "Arbeitsbereiche anheften"
           }
         },
-        "en": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pin Workspaces"
+            "value": "Épingler les espaces de travail"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تثبيت مساحات العمل"
           }
         },
         "es": {
@@ -25061,82 +24911,10 @@
             "value": "Fijar espacios de trabajo"
           }
         },
-        "fr": {
+        "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Épingler les espaces de travail"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fissa spazi di lavoro"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペースをピン留め"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ខ្ទាស់កន្លែងធ្វើការ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "작업 공간 고정"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fest arbeidsområder"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Przypnij obszary robocze"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fixar espaços de trabalho"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Закрепить рабочие пространства"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ปักหมุดพื้นที่ทำงาน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Çalışma alanlarını sabitle"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Закріпити робочі простори"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ghim các không gian làm việc"
+            "value": "固定工作區"
           }
         },
         "zh-Hans": {
@@ -25145,10 +24923,16 @@
             "value": "固定工作区"
           }
         },
-        "zh-Hant": {
+        "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "固定工作區"
+            "value": "작업 공간 고정"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースをピン留め"
           }
         }
       }
@@ -25156,22 +24940,10 @@
     "workspaceSelection.unpin": {
       "extractionState": "manual",
       "localizations": {
-        "ar": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "إلغاء تثبيت مساحات العمل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Otkači radne prostore"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Frigør arbejdsområder"
+            "value": "Unpin Workspaces"
           }
         },
         "de": {
@@ -25180,10 +24952,16 @@
             "value": "Arbeitsbereiche loslösen"
           }
         },
-        "en": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unpin Workspaces"
+            "value": "Détacher les espaces de travail"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إلغاء تثبيت مساحات العمل"
           }
         },
         "es": {
@@ -25192,82 +24970,10 @@
             "value": "No fijar espacios de trabajo"
           }
         },
-        "fr": {
+        "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Détacher les espaces de travail"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sblocca spazi di lavoro"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペースのピン留めを解除"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ឈប់ខ្ទាស់កន្លែងធ្វើការ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "작업 공간 고정 해제"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Løsne arbeidsområder"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Odepnij obszary robocze"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Desafixar espaços de trabalho"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Открепить рабочие пространства"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เลิกปักหมุดพื้นที่ทำงาน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Çalışma alanlarının sabitlemesini kaldır"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Відкріпити робочі простори"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bỏ ghim các không gian làm việc"
+            "value": "取消固定工作區"
           }
         },
         "zh-Hans": {
@@ -25276,10 +24982,16 @@
             "value": "取消固定工作区"
           }
         },
-        "zh-Hant": {
+        "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "取消固定工作區"
+            "value": "작업 공간 고정 해제"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースのピン留めを解除"
           }
         }
       }
@@ -25287,22 +24999,10 @@
     "workspaceSelection.mute": {
       "extractionState": "manual",
       "localizations": {
-        "ar": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "كتم صوت مساحات العمل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Utišaj radne prostore"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Slå lyd fra for arbejdsområder"
+            "value": "Mute Workspaces"
           }
         },
         "de": {
@@ -25311,10 +25011,16 @@
             "value": "Arbeitsbereiche stummschalten"
           }
         },
-        "en": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mute Workspaces"
+            "value": "Couper le son des espaces de travail"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كتم صوت مساحات العمل"
           }
         },
         "es": {
@@ -25323,82 +25029,10 @@
             "value": "Silenciar espacios de trabajo"
           }
         },
-        "fr": {
+        "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couper le son des espaces de travail"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Disattiva audio degli spazi di lavoro"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペースをミュート"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បិទសំឡេងកន្លែងធ្វើការ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "작업 공간 음소거"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Slå av lyd for arbeidsområder"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wycisz obszary robocze"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Silenciar espaços de trabalho"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Отключить звук рабочих пространств"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ปิดเสียงพื้นที่ทำงาน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Çalışma alanlarının sesini kapat"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Вимкнути звук робочих просторів"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tắt tiếng các không gian làm việc"
+            "value": "將工作區靜音"
           }
         },
         "zh-Hans": {
@@ -25407,10 +25041,16 @@
             "value": "将工作区静音"
           }
         },
-        "zh-Hant": {
+        "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "將工作區靜音"
+            "value": "작업 공간 음소거"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースをミュート"
           }
         }
       }
@@ -25418,22 +25058,10 @@
     "workspaceSelection.unmute": {
       "extractionState": "manual",
       "localizations": {
-        "ar": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "إلغاء كتم صوت مساحات العمل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Uključi zvuk radnih prostora"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Slå lyd til for arbejdsområder"
+            "value": "Unmute Workspaces"
           }
         },
         "de": {
@@ -25442,10 +25070,16 @@
             "value": "Stummschaltung der Arbeitsbereiche aufheben"
           }
         },
-        "en": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unmute Workspaces"
+            "value": "Rétablir le son des espaces de travail"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إلغاء كتم صوت مساحات العمل"
           }
         },
         "es": {
@@ -25454,82 +25088,10 @@
             "value": "Activar el sonido de los espacios de trabajo"
           }
         },
-        "fr": {
+        "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rétablir le son des espaces de travail"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Riattiva audio degli spazi di lavoro"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペースのミュートを解除"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បើកសំឡេងកន្លែងធ្វើការ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "작업 공간 음소거 해제"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Slå på lyd for arbeidsområder"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wyłącz wyciszenie obszarów roboczych"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ativar som dos espaços de trabalho"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Включить звук рабочих пространств"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เปิดเสียงพื้นที่ทำงาน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Çalışma alanlarının sesini aç"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Увімкнути звук робочих просторів"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bật tiếng các không gian làm việc"
+            "value": "取消工作區靜音"
           }
         },
         "zh-Hans": {
@@ -25538,10 +25100,16 @@
             "value": "取消工作区静音"
           }
         },
-        "zh-Hant": {
+        "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "取消工作區靜音"
+            "value": "작업 공간 음소거 해제"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースのミュートを解除"
           }
         }
       }
@@ -25549,22 +25117,10 @@
     "menu.group.closeAll": {
       "extractionState": "manual",
       "localizations": {
-        "ar": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "إغلاق الكل في المجموعة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zatvori sve u grupi"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Luk alle i gruppen"
+            "value": "Close All in Group"
           }
         },
         "de": {
@@ -25573,10 +25129,16 @@
             "value": "Alle in der Gruppe schließen"
           }
         },
-        "en": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Close All in Group"
+            "value": "Tout fermer dans le groupe"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إغلاق الكل في المجموعة"
           }
         },
         "es": {
@@ -25585,82 +25147,10 @@
             "value": "Cerrar todo en el grupo"
           }
         },
-        "fr": {
+        "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tout fermer dans le groupe"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chiudi tutto nel gruppo"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "グループ内をすべて閉じる"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បិទទាំងអស់ក្នុងក្រុម"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "그룹에서 모두 닫기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lukk alle i gruppen"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zamknij wszystkie w grupie"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fechar tudo no grupo"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Закрыть все в группе"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ปิดทั้งหมดในกลุ่ม"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gruptakilerin Tümünü Kapat"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Закрити всі в групі"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Đóng tất cả trong nhóm"
+            "value": "關閉群組中的全部"
           }
         },
         "zh-Hans": {
@@ -25669,10 +25159,16 @@
             "value": "关闭组中的全部"
           }
         },
-        "zh-Hant": {
+        "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "關閉群組中的全部"
+            "value": "그룹에서 모두 닫기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ内をすべて閉じる"
           }
         }
       }
