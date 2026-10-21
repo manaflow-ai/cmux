@@ -1,4 +1,5 @@
 public import CmuxNextDesign
+import CmuxNextPages
 
 /// How the agent pane's header draws Needs you (webviews needsYou/NeedsYou.tsx):
 /// `agentPane.debug.needsYou`. `pinned` sets nothing on the page.
