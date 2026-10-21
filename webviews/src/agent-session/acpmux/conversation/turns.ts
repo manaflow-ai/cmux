@@ -771,7 +771,7 @@ function inFlightCall(row: AcpmuxRow): { title: string; command: boolean; row: O
 type OwnRow = true | { key: string; open: boolean } | undefined;
 
 /// Where ToolRows draws a call (TurnRows.tsx groupNode, ToolGroupRow.tsx): a lone call, a message
-/// card and a lone MCP call have their own row; a grouped call shows under its group's line while
+/// card, a sub-session card and a lone MCP call have their own row; a grouped call shows under its group's line while
 /// the group is open, among its latest GROUP_TAIL; a folded run (`foldRun`, codexRuns) shows none
 /// until opened. The key is the one groupNode gives the group's disclosure.
 function ownRow(row: AcpmuxRow, item: AcpmuxActivity): OwnRow {
@@ -779,7 +779,12 @@ function ownRow(row: AcpmuxRow, item: AcpmuxActivity): OwnRow {
   const at = groups.findIndex((group) => ("items" in group ? group.items.includes(item) : group.item === item));
   const group = groups[at];
   if (!group || row.foldRun) return undefined;
-  if (group.type === "item" || group.type === "message" || (group.type === "mcp" && group.items.length === 1))
+  if (
+    group.type === "item" ||
+    group.type === "message" ||
+    group.type === "subsession" ||
+    (group.type === "mcp" && group.items.length === 1)
+  )
     return true;
   const kind = group.type === "mcp" ? "mcp" : group.kind;
   const tail = kind === "mcp" || kind === "edits" || group.items.indexOf(item) >= group.items.length - GROUP_TAIL;

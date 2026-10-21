@@ -1,7 +1,6 @@
 /* Needs you (needsYou/NeedsYou.tsx, JumpPill.tsx): the header badge, its pinned list, and the
    chat's Needs your input pill. One mark says "this needs you" everywhere: the dot the
-   window sidebar draws for a workspace that waits on you (the sidebar's input mark, the badge, the
-   pill). */
+   window sidebar draws for a workspace that waits on you (the badge, the pill, the Chief dock). */
 :root,
 .acpmux-shell,
 .ui-positioner {
@@ -18,14 +17,9 @@
   background: var(--acpmux-needs-you-mark);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--acpmux-needs-you-mark) 18%, transparent);
 }
-.acpmux-session-mark-input,
-.acpmux-session-preview-status.acpmux-session-mark-input {
+/* The dev prototype's workspace row (prototype/WorkspaceShell.tsx) tints its input mark the same. */
+.acpmux-session-mark-input {
   color: var(--acpmux-needs-you-mark);
-}
-.acpmux-session-mark .acpmux-needs-you-dot {
-  width: 7px;
-  height: 7px;
-  box-shadow: none;
 }
 
 /* The badge: the header's tool button, widened by the count while asks are open. */

@@ -145,6 +145,7 @@ public nonisolated enum ActionCatalog {
         NowPlayingCardActionCatalog.self,
         BookmarkActionCatalog.self,
         SidebarSectionActionCatalog.self,
+        SidebarPriorityActionCatalog.self,
         AppStoreActionCatalog.self,
         TasksActionCatalog.self,
         PhoneActionCatalog.self,

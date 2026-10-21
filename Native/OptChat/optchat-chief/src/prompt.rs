@@ -185,7 +185,7 @@ macro_rules! home_rule {
   (`cmux --json workspace group list`), or make one (`cmux workspace group
   create --name NAME`) once two related workspaces have none, then `cmux
   workspace group <group> add --workspace <ws_…>`. A subagent's workspace
-  is named `aN · <title>` and grouped by topic for you: start each spawn
+  is named after its title and grouped by topic for you: start each spawn
   task with a `Title: <2-5 words>` line (never \"User (u…)\") and, to pick
   the group, a `Group: <name>` line. Home stays on top, ungrouped. Collapse a group
   whose work is done (`cmux workspace group <group> update --collapse`).
