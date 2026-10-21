@@ -58,12 +58,19 @@ public nonisolated struct HostStepResult: Equatable, Sendable, Codable {
     public var detail: String
     /// A sentence for a person; never a command cmux runs for them.
     public var fix: String?
+    /// Why it failed, for a failure the app acts on (acpmux `host_steps.rs`): `wrong-platform`, or
+    /// `not-this-program` (the host needs a binary only the app has).
+    public var reason: String?
 
-    public init(step: HostStep, state: HostStepState, detail: String = "", fix: String? = nil) {
+    public static let wrongPlatform = "wrong-platform"
+    public static let notThisProgram = "not-this-program"
+
+    public init(step: HostStep, state: HostStepState, detail: String = "", fix: String? = nil, reason: String? = nil) {
         self.step = step
         self.state = state
         self.detail = detail
         self.fix = fix
+        self.reason = reason
     }
 
     public init(from decoder: any Decoder) throws {
@@ -72,6 +79,7 @@ public nonisolated struct HostStepResult: Equatable, Sendable, Codable {
         state = try container.decode(HostStepState.self, forKey: .state)
         detail = try container.decodeIfPresent(String.self, forKey: .detail) ?? ""
         fix = try container.decodeIfPresent(String.self, forKey: .fix).flatMap { $0.isEmpty ? nil : $0 }
+        reason = try container.decodeIfPresent(String.self, forKey: .reason)
     }
 }
 

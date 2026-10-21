@@ -368,6 +368,16 @@ async fn connect_peer(client: &Client, name: &str, url: Option<&str>) -> Result<
     }
 }
 
+/// The peer url of an ssh host whose daemon listens on `port`: the port
+/// only when it is not the default.
+pub(crate) fn ssh_peer_url(host: &str, port: u16) -> String {
+    if port == crate::peer::SSH_PEER_PORT {
+        format!("ssh://{host}")
+    } else {
+        format!("ssh://{host}:{port}")
+    }
+}
+
 /// The peer name a host gets by default: its first label, without `user@`.
 pub(crate) fn short_name(host: &str) -> String {
     host.split('@').next_back().unwrap_or(host).split('.').next().unwrap_or(host).to_owned()
@@ -385,7 +395,7 @@ pub(crate) async fn setup(
     let version = push_binary(&remote, DAEMON_BIN)?;
     let status = install_daemon(&remote, port, false)?;
     // Register (or re-register) the peer.
-    let url = if port == 47811 { format!("ssh://{host}") } else { format!("ssh://{host}:{port}") };
+    let url = ssh_peer_url(host, port);
     // Always with the url: a known peer takes the host and port given now.
     let peers = connect_peer(&client, &name, Some(url.as_str())).await?;
     if json_out {
@@ -441,6 +451,29 @@ fn daemon_config(existing: &str, port: u16, fresh: &str) -> Value {
     cfg
 }
 
+/// The fixed script that writes the daemon config from stdin: the config
+/// holds the WebSocket token, so it never goes into a command line (ssh's,
+/// visible in `ps` here, or the remote shell's), and the file is
+/// owner-only whatever the umask, replaced in one rename.
+fn config_write_script() -> String {
+    format!(
+        "mkdir -p {REMOTE_HOME} && chmod 700 {REMOTE_HOME} && umask 077 && cat > {REMOTE_HOME}/config.json.new && chmod 600 {REMOTE_HOME}/config.json.new && mv -f {REMOTE_HOME}/config.json.new {REMOTE_HOME}/config.json"
+    )
+}
+
+/// Write `cfg_text` as the remote daemon config, over stdin.
+fn write_config(r: &dyn Remote, cfg_text: &str) -> Result<()> {
+    let out = r.exec(&config_write_script(), Some(cfg_text.as_bytes()))?;
+    if !out.ok {
+        return Err(anyhow!(
+            "writing the daemon config on {} failed: {}",
+            r.host(),
+            out.stderr.trim()
+        ));
+    }
+    Ok(())
+}
+
 /// Configure and (re)start the daemon of the acpmux at [`DAEMON_BIN`]: keep
 /// an existing config but make sure the WebSocket listener on `port` and its
 /// token exist ([`daemon_config`]), then launchd on macOS, the user systemd
@@ -452,14 +485,7 @@ pub(crate) fn install_daemon(r: &dyn Remote, port: u16, json: bool) -> Result<St
     getrandom_fill(&mut fresh)?;
     let fresh: String = fresh.iter().map(|x| format!("{x:02x}")).collect();
     let cfg = daemon_config(&existing, port, &fresh);
-    let cfg_text = serde_json::to_string_pretty(&cfg)?;
-    // The config holds the WebSocket token: owner-only, whatever the umask.
-    run(
-        r,
-        &format!(
-            "mkdir -p {REMOTE_HOME} && chmod 700 {REMOTE_HOME} && umask 077 && cat > {REMOTE_HOME}/config.json <<'ACPMUX_CFG' && chmod 600 {REMOTE_HOME}/config.json\n{cfg_text}\nACPMUX_CFG"
-        ),
-    )?;
+    write_config(r, &serde_json::to_string_pretty(&cfg)?)?;
     let os = run(r, "uname -s")?;
     if os != "Darwin" {
         let out = run(r, &linux_restart(true, json))?;
@@ -564,6 +590,67 @@ fn getrandom_fill(buf: &mut [u8]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Records each script and its stdin; answers ok with `stdout`.
+    struct Recorder(std::cell::RefCell<Vec<(String, Option<Vec<u8>>)>>, &'static str);
+
+    impl Remote for Recorder {
+        fn host(&self) -> &str {
+            "box"
+        }
+        fn exec(&self, script: &str, stdin: Option<&[u8]>) -> Result<RemoteOut> {
+            self.0.borrow_mut().push((script.to_owned(), stdin.map(<[u8]>::to_vec)));
+            Ok(RemoteOut { ok: true, stdout: self.1.into(), stderr: String::new() })
+        }
+        fn push(&self, _: &Path, _: &str) -> Result<()> {
+            unreachable!()
+        }
+    }
+
+    #[test]
+    fn the_config_and_its_token_go_over_stdin_not_the_command_line() {
+        let r = Recorder(Default::default(), "");
+        let cfg = daemon_config("{}", 47811, "secret-token-123");
+        write_config(&r, &serde_json::to_string_pretty(&cfg).unwrap()).unwrap();
+        let calls = r.0.borrow();
+        let (script, stdin) = &calls[0];
+        assert!(!script.contains("secret-token-123"), "{script}");
+        assert_eq!(script, &config_write_script());
+        for keep in ["chmod 700", "umask 077", "chmod 600", "cat > "] {
+            assert!(script.contains(keep), "{keep}: {script}");
+        }
+        let stdin = String::from_utf8(stdin.clone().expect("stdin")).unwrap();
+        assert!(stdin.contains("secret-token-123"));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn the_config_script_writes_an_owner_only_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let home = std::env::temp_dir().join(format!("acpmux-cfg-write-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(&home).unwrap();
+        let mut child = std::process::Command::new("sh")
+            .args(["-c", &config_write_script()])
+            .env("HOME", &home)
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        std::io::Write::write_all(&mut child.stdin.take().unwrap(), b"{\"x\":1}\n").unwrap();
+        assert!(child.wait().unwrap().success());
+        let dir = home.join(REMOTE_HOME.trim_start_matches("~/"));
+        let file = dir.join("config.json");
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "{\"x\":1}\n");
+        assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
+        assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn peer_urls_name_a_port_only_off_the_default() {
+        assert_eq!(ssh_peer_url("hb", 47811), "ssh://hb");
+        assert_eq!(ssh_peer_url("leo@hb", 47900), "ssh://leo@hb:47900");
+    }
 
     #[test]
     fn the_daemon_config_keeps_the_listener_settings_and_marks_a_new_token() {

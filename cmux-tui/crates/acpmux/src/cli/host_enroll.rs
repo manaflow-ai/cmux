@@ -6,7 +6,9 @@
 
 use crate::cli::errors::{AppError, Code};
 use crate::cli::host_peering::{self, PeerTarget};
-use crate::cli::host_steps::{Report, Step, StepResult, StepState};
+use crate::cli::host_steps::{
+    REASON_NOT_THIS_PROGRAM, REASON_WRONG_PLATFORM, Report, Step, StepResult, StepState,
+};
 use crate::cli::hosts::{self, DAEMON_BIN, Remote, SshRemote};
 use crate::client::Client;
 use anyhow::Result;
@@ -71,6 +73,7 @@ pub(crate) async fn run(client: Arc<Client>, plan: Plan, fix: bool, json_out: bo
     let t = PeerTarget {
         name: &plan.name,
         host: &plan.host,
+        port: plan.port,
         local_name: &local_name,
         local_dest: None,
     };
@@ -605,7 +608,8 @@ fn install(r: &dyn Remote, name: &str, bin: &str, fix: bool) -> StepResult {
             Step::Install,
             format!("{why}; {host} is {uname}, this build is {os} {arch}"),
             from_app,
-        );
+        )
+        .with_reason(REASON_WRONG_PLATFORM);
     }
     // cmux-tui runs as acpmux under that name; a standalone acpmux cannot
     // stand in for the app's cmux-tui.
@@ -618,7 +622,8 @@ fn install(r: &dyn Remote, name: &str, bin: &str, fix: bool) -> StepResult {
             Step::Install,
             format!("{why}; this program cannot replace {bin_name}"),
             from_app,
-        );
+        )
+        .with_reason(REASON_NOT_THIS_PROGRAM);
     }
     let pushed = hosts::push_binary(r, bin).and_then(|_| {
         if bin == DAEMON_BIN {

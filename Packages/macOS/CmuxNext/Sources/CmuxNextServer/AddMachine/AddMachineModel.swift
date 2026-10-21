@@ -255,7 +255,13 @@ public final class AddMachineModel {
 
     /// Waits for the run in flight; nil when it ended ready, else why not (the CLI's answer).
     public func finished() async -> String? {
-        await task?.value
+        // A Fix or Try Again replaces the task while this waits: wait for each run in turn until the
+        // one in place has finished (or a Cancel left none).
+        var waited: Task<Void, Never>?
+        while let current = task, current != waited {
+            await current.value
+            waited = current
+        }
         switch phase {
         case .ready: return nil
         case .failed, .pick, .running: return checklist.failing.map { "\($0.step.rawValue): \($0.detail)" } ?? details
@@ -379,11 +385,15 @@ public final class AddMachineModel {
         installingAppBuild = false
     }
 
-    /// Enroll reached the host but could not put cmux-tui on it: the app installs its own build
-    /// (the same as Install cmux-tui on Machine), then enroll runs again.
+    /// Enroll reached the host but this build cannot go on it: another OS or CPU, or a binary only
+    /// the app has. The app installs its own build (the same as Install cmux-tui on Machine), then
+    /// enroll runs again. Any other install failure (a probe that failed, a push that broke) is
+    /// shown as it is.
     static func needsAppInstall(_ report: HostReport) -> Bool {
-        report.steps.contains { $0.step == .install && $0.state == .fail }
-            && !report.steps.contains { $0.step == .reach && $0.state == .fail }
+        report.steps.contains { step in
+            step.step == .install && step.state == .fail
+                && [HostStepResult.wrongPlatform, HostStepResult.notThisProgram].contains(step.reason)
+        } && !report.steps.contains { $0.step == .reach && $0.state == .fail }
     }
 
     private static func trimmed(_ text: String) -> String? {

@@ -497,6 +497,8 @@ fn install_refuses_another_platform_and_reach_failure_skips_the_rest() {
         &mut |_| {},
     );
     assert_eq!(results[1].state, StepState::Fail);
+    assert_eq!(results[1].reason, Some(REASON_WRONG_PLATFORM), "the app installs the right build");
+    assert_eq!(serde_json::to_value(&results[1]).unwrap()["reason"], "wrong-platform");
     assert!(results[1].fix.as_deref().unwrap().contains("cmux remote install"));
     assert!(fake.pushes.borrow().is_empty());
     assert_eq!(results[2].detail, "needs install");
@@ -658,6 +660,8 @@ fn a_host_whose_only_gap_is_the_link_gets_linked_not_pushed() {
     let r = install(&fake, "box", DAEMON_BIN, false);
     assert_eq!(r.state, StepState::Fail, "{r:?}");
     assert_eq!(r.detail, format!("{DAEMON_BIN} is missing"));
+    assert_eq!(r.reason, None, "nothing for the app to install");
+    assert!(serde_json::to_value(&r).unwrap().get("reason").is_none());
     assert_read_only(&fake);
 
     // With --fix: one link, no push and no platform check (that would fail

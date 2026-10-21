@@ -49,16 +49,16 @@ public struct HostCLI: Sendable {
         let binary = binary, environment = environment
         // A run writes a line per step and a report; the cap only bounds a runaway writer.
         return AsyncThrowingStream(bufferingPolicy: .bufferingOldest(1024)) { continuation in
-            let process = Process()
+            let process = Process(), gate = RunGate()
             // task-owner: ends when the process starts, or with the stream's cancel
             let start = Task {
                 let env = await Self.grouped(environment())
-                guard !Task.isCancelled else { return continuation.finish(throwing: CancellationError()) }
-                Self.run(process, binary: binary, arguments: arguments, environment: env, into: continuation)
+                Self.run(process, gate: gate, binary: binary, arguments: arguments, environment: env, into: continuation)
             }
             continuation.onTermination = { _ in
                 start.cancel()
-                if process.isRunning { Self.stop(process) }
+                // Before the start: it sees the gate closed and never runs. After it: stopped here.
+                if gate.close(), process.isRunning { Self.stop(process) }
             }
         }
     }
@@ -77,7 +77,7 @@ public struct HostCLI: Sendable {
         kill(getpgid(pid) == pid ? -pid : pid, SIGTERM)
     }
 
-    private static func run(_ process: Process, binary: URL, arguments: [String], environment: [String: String],
+    private static func run(_ process: Process, gate: RunGate, binary: URL, arguments: [String], environment: [String: String],
                             into continuation: AsyncThrowingStream<String, any Error>.Continuation) {
         process.executableURL = binary
         process.arguments = arguments
@@ -119,10 +119,38 @@ public struct HostCLI: Sendable {
                 }
             }
         }
+        // The stream may end (Cancel) at any point up to here; the gate decides under one lock
+        // whether this start still runs, and a cancel that lands after it stops the process.
         do {
-            try process.run()
+            try gate.start { try process.run() }
+        } catch is CancellationError {
+            continuation.finish(throwing: CancellationError())
         } catch {
             continuation.finish(throwing: HostCLIStop(status: nil, message: error.localizedDescription))
+        }
+    }
+}
+
+/// Orders a run's start against its stream's end: ``start(_:)`` runs the launch only while the gate
+/// is open, under the same lock ``close()`` takes, so a cancel either comes first (no launch) or
+/// after the launch (``close()`` says it started, and the caller stops the process).
+final class RunGate: Sendable {
+    private let state = Mutex((closed: false, started: false))
+
+    /// Launches unless closed; throws `CancellationError` when it was.
+    func start(_ launch: () throws -> Void) throws {
+        try state.withLock { state in
+            guard !state.closed else { throw CancellationError() }
+            try launch()
+            state.started = true
+        }
+    }
+
+    /// Closes the gate; whether the launch already happened (the caller stops the process).
+    func close() -> Bool {
+        state.withLock { state in
+            state.closed = true
+            return state.started
         }
     }
 }

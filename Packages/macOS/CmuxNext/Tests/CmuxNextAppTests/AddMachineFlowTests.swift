@@ -67,9 +67,10 @@ import Testing
         }
     }
 
-    static func step(_ step: String, _ state: String, _ detail: String = "", fix: String? = nil) -> String {
+    static func step(_ step: String, _ state: String, _ detail: String = "", fix: String? = nil, reason: String? = nil) -> String {
         let fixJSON = fix.map { "\"\($0)\"" } ?? "null"
-        return "{\"step\":\"\(step)\",\"state\":\"\(state)\",\"detail\":\"\(detail)\",\"fix\":\(fixJSON)}"
+        let reasonJSON = reason.map { ",\"reason\":\"\($0)\"" } ?? ""
+        return "{\"step\":\"\(step)\",\"state\":\"\(state)\",\"detail\":\"\(detail)\",\"fix\":\(fixJSON)\(reasonJSON)}"
     }
 
     static func report(_ name: String, _ host: String, ok: Bool, _ steps: [String]) -> String {
@@ -249,7 +250,7 @@ import Testing
     }
 
     @Test func aFailedInstallRunsTheAppsInstallThenEnrollAgain() async {
-        let installFail = Self.step("install", "fail", "remote cmux-tui is missing", fix: "Install cmux-tui on the host.")
+        let installFail = Self.step("install", "fail", "remote cmux-tui is missing", fix: "Install cmux-tui on the host.", reason: "not-this-program")
         host.scripts = [[Self.step("reach", "ok"), installFail, Self.report("hb", "hb", ok: false, [Self.step("reach", "ok"), installFail])],
                         [Self.report("hb", "hb", ok: true, Self.okSteps)]]
         model.begin(destination: "hb")
@@ -265,7 +266,7 @@ import Testing
     }
 
     @Test func aFailedAppInstallFailsTheInstallStep() async {
-        let installFail = Self.step("install", "fail", "remote cmux-tui is missing")
+        let installFail = Self.step("install", "fail", "remote cmux-tui is missing", reason: "wrong-platform")
         host.scripts = [[Self.step("reach", "ok"), installFail, Self.report("hb", "hb", ok: false, [Self.step("reach", "ok"), installFail])]]
         host.installAnswer = .failed("The download did not match its SHA-256 checksum.")
         model.begin(destination: "hb")
@@ -275,6 +276,39 @@ import Testing
         #expect(model.checklist.failing?.step == .install)
         #expect(model.checklist.failing?.detail == "The download did not match its SHA-256 checksum.")
         guard case .failed(_?) = model.phase else { Issue.record("not failed: \(model.phase)"); return }
+    }
+
+    @Test func anInstallFailureWithoutAnAppReasonIsShownNotInstalled() async {
+        let probeFail = Self.step("install", "fail", "ssh: connection reset", fix: "Check again.")
+        host.scripts = [[Self.step("reach", "ok"), probeFail, Self.report("hb", "hb", ok: false, [Self.step("reach", "ok"), probeFail])]]
+        model.begin(destination: "hb")
+        model.perform(.add)
+        _ = await model.finished()
+        #expect(host.installs.isEmpty)
+        #expect(host.commands.count == 1)
+        #expect(model.checklist.failing?.detail == "ssh: connection reset")
+        #expect(HostLine.parse(Self.step("install", "fail", reason: "wrong-platform")) ==
+            .step(HostStepResult(step: .install, state: .fail, reason: HostStepResult.wrongPlatform)))
+    }
+
+    @Test func finishedWaitsThroughAFixThatReplacesTheRun() async throws {
+        // Check Machine's doctor is in flight and a caller (machine.doctor) waits on it.
+        host.holdNextRun = true
+        model.beginCheck(host: "hb", machineID: "ssh-1")
+        await Task.yield()
+        let first = try #require(host.live)
+        let waiter = Task { await model.finished() }
+        await Task.yield()
+        // Fix replaces that run with another; the wait follows it instead of reporting the cancel.
+        host.holdNextRun = true
+        #expect(!model.perform(.fix))
+        try await waitFor { host.commands.count == 2 }
+        let second = try #require(host.live)
+        first.finish()
+        second.yield(Self.report("hb", "hb", ok: true, Self.okSteps))
+        second.finish()
+        #expect(await waiter.value == nil, "the tracked wait reports the fix's result, not the replaced run")
+        #expect(host.commands.last == .doctor(host: "hb", fix: true))
     }
 
     @Test func anUnreachableHostDoesNotInstall() async {

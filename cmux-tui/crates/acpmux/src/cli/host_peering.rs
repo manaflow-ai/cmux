@@ -20,6 +20,9 @@ pub struct PeerTarget<'a> {
     pub name: &'a str,
     /// The machine's ssh destination, `[user@]host`.
     pub host: &'a str,
+    /// The machine's daemon port: the peer url names it when it is not
+    /// the default (`hosts::ssh_peer_url`).
+    pub port: u16,
     /// This machine's peer name on that machine.
     pub local_name: &'a str,
     /// How that machine reaches this one over ssh (`[user@]host`); `None`
@@ -151,7 +154,7 @@ pub(crate) async fn peer_with(io: &impl Io, t: &PeerTarget<'_>, fix: bool) -> St
     if let Err(e) = checked_host(t.host) {
         return fail(e.to_string()).with_fix("Give the host as [user@]name, without a port.");
     }
-    let (name, url) = (t.name, format!("ssh://{}", t.host));
+    let (name, url) = (t.name, crate::cli::hosts::ssh_peer_url(t.host, t.port));
     let peers = match io.rpc("_acpmux/peers", json!({})).await {
         Ok(reply) => list(&reply),
         Err(e) => {

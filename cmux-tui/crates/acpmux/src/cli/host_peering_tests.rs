@@ -121,7 +121,13 @@ impl Fake {
 }
 
 fn target<'a>(dest: Option<&'a str>) -> PeerTarget<'a> {
-    PeerTarget { name: "hb", host: "huge-blue", local_name: "cosmic", local_dest: dest }
+    PeerTarget {
+        name: "hb",
+        host: "huge-blue",
+        port: crate::peer::SSH_PEER_PORT,
+        local_name: "cosmic",
+        local_dest: dest,
+    }
 }
 
 #[test]
@@ -360,4 +366,34 @@ async fn identity_passes_a_connected_peer_by_name() {
     let r = identity_with(&fake, &target(None)).await;
     assert_eq!((r.state, r.detail.as_str()), (StepState::Ok, "name hb (app sets icon)"));
     assert!(!fake.mutated_here());
+}
+
+#[tokio::test]
+async fn a_peer_on_another_port_passes_peer_and_identity_and_fix_adds_it_with_its_port() {
+    // A peer `host setup --port 47900` made: doctor finds it by name.
+    let fake = Fake::default();
+    fake.peers
+        .borrow_mut()
+        .push(json!({"name": "hb", "url": "ssh://huge-blue:47900", "connected": true}));
+    let t = PeerTarget { port: 47900, ..target(None) };
+    let r = peer_with(&fake, &t, true).await;
+    assert_eq!(
+        (r.state, r.detail.as_str()),
+        (StepState::Ok, "hb at ssh://huge-blue:47900, connected")
+    );
+    assert_eq!(identity_with(&fake, &t).await.state, StepState::Ok);
+    assert!(!fake.mutated_here());
+    // The default port's target sees that peer as another url.
+    assert_eq!(peer_with(&fake, &target(None), true).await.state, StepState::Fail);
+
+    // Missing: --fix adds it at its port, and it then passes.
+    let fake = Fake::default();
+    let r = peer_with(&fake, &t, true).await;
+    assert_eq!(
+        (r.state, r.detail.as_str()),
+        (StepState::Fixed, "hb at ssh://huge-blue:47900, connected")
+    );
+    assert_eq!(fake.peers.borrow()[0]["url"], "ssh://huge-blue:47900");
+    assert_eq!(peer_with(&fake, &t, false).await.state, StepState::Ok);
+    assert_eq!(identity_with(&fake, &t).await.state, StepState::Ok);
 }

@@ -1,6 +1,7 @@
 //! The step contract shared by `host enroll`, `host doctor` and the app's
 //! Add Machine sheet (plans/cmux-next/add-machine-DESIGN.md): each step
-//! is one JSON line `{"step","state","detail","fix"}`.
+//! is one JSON line `{"step","state","detail","fix"}`, plus `"reason"` for
+//! a failure the app acts on.
 
 use serde::Serialize;
 
@@ -39,11 +40,27 @@ pub struct StepResult {
     pub detail: String,
     /// A sentence for a person; never a command acpmux runs for them.
     pub fix: Option<String>,
+    /// Why it failed, for a failure the app acts on itself; a stable word
+    /// ([`REASON_WRONG_PLATFORM`], [`REASON_NOT_THIS_PROGRAM`]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<&'static str>,
 }
+
+/// `install`: this build is for another OS or CPU than the host's, so the
+/// app installs the right one (its own install path).
+pub const REASON_WRONG_PLATFORM: &str = "wrong-platform";
+/// `install`: the binary the host needs is not one this program can stand
+/// in for (the app's cmux-tui), so the app installs it.
+pub const REASON_NOT_THIS_PROGRAM: &str = "not-this-program";
 
 impl StepResult {
     pub fn new(step: Step, state: StepState, detail: impl Into<String>) -> Self {
-        Self { step, state, detail: detail.into(), fix: None }
+        Self { step, state, detail: detail.into(), fix: None, reason: None }
+    }
+
+    pub fn with_reason(mut self, reason: &'static str) -> Self {
+        self.reason = Some(reason);
+        self
     }
 
     pub fn with_fix(mut self, fix: impl Into<String>) -> Self {
