@@ -333,7 +333,7 @@ test("Connectors counts the connected servers and the ones to reconnect; a harne
       ],
     },
   });
-  expect(sectionIds(container)).toEqual(["environment", "context", "connectors", "outputs"]);
+  expect(sectionIds(container)).toEqual(["environment", "context", "connectors"]);
   const connectors = section(container, "connectors")!;
   expect(meta(connectors)).toBe("1 connected · 1 to reconnect");
   expect(connectors.querySelector(".acpmux-inspector-row")).toBeNull();
@@ -389,7 +389,7 @@ test("Changes lists the pull requests the chat opened or touched, newest first, 
       ),
     ]),
   );
-  expect(sectionIds(container)).toEqual(["environment", "context", "changes", "outputs"]);
+  expect(sectionIds(container)).toEqual(["environment", "context", "changes"]);
   const changes = section(container, "changes")!;
   expect(meta(changes)).toBe("9");
   const rows = [...changes.querySelectorAll<HTMLElement>("li.acpmux-inspector-pr")];

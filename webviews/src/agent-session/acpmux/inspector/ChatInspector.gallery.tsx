@@ -30,7 +30,7 @@ const local = chat([
 ]);
 const made = sessionSummary(local.rows);
 
-function GalleryInspector({ placement = "push", ...props }: Props) {
+function GalleryInspector({ placement = "overlay", ...props }: Props) {
   return (
     <div className="acpmux-shell" style={{ display: "flex", justifyContent: "flex-end", height: "100%" }}>
       <InspectorPanel width={320} placement={placement}>
@@ -199,7 +199,7 @@ export default componentEntry<Props>({
       },
     },
     "cloud-empty": {
-      note: "A Cloud chat before the agent reports usage or edits anything: Context reads a dash, Outputs says nothing yet.",
+      note: "A Cloud chat before the agent reports usage or edits anything: Context and Outputs have no sections yet.",
       props: {
         summary: {
           ...local.summary!,
@@ -211,9 +211,9 @@ export default componentEntry<Props>({
         },
       },
     },
-    overlay: {
-      note: "Settings > Agent Chat > Inspector set to Overlay: the panel lies over the chat with a shadow instead of pushing it aside.",
-      props: { ...full, placement: "overlay" },
+    push: {
+      note: "Settings > Agent Chat > Inspector set to Push: the panel sits beside the chat and narrows it, instead of lying over it with a shadow.",
+      props: { ...full, placement: "push" },
     },
   },
 });
