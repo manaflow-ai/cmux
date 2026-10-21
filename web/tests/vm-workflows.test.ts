@@ -1168,6 +1168,8 @@ describe("VM Effect workflows", () => {
     let createdNetwork: unknown;
     const repo: VmRepositoryShape = {
       ...testWorkflowRepo({ vm: source }),
+      beginSnapshotRequest: () => Effect.succeed({ kind: "started" }),
+      finishSnapshotRequest: () => Effect.void,
       beginCreate: () => Effect.succeed({ inserted: true, vm: pending }),
       markCreateRunning: ({ providerVmId }) => Effect.succeed({ ...pending, providerVmId, status: "running" }),
     };
