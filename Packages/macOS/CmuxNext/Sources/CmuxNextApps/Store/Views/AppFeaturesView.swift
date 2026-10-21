@@ -143,7 +143,8 @@ struct AppFeatureButton: View {
     }
 }
 
-/// The card's preview: a bundled painting, or the feature's icon on a quiet tile.
+/// The card's preview: a bundled painting, sidebar rows at a density, or the feature's icon on a
+/// quiet tile.
 struct AppFeaturePreviewView: View {
     let preview: AppFeature.Preview
     @Environment(\.appSceneColors) private var colors
@@ -161,6 +162,8 @@ struct AppFeaturePreviewView: View {
                 }
             case .icon(let name):
                 Icon(name, size: 28).foregroundStyle(colors.secondary)
+            case .sidebarRows(let density):
+                AppFeatureSidebarRows(density: density)
             }
         }
         .frame(maxWidth: .infinity)
@@ -168,6 +171,56 @@ struct AppFeaturePreviewView: View {
         .clipShape(shape)
         .overlay(shape.strokeBorder(colors.separator, lineWidth: Borders.drawsLines ? 0.5 : 0))
         .accessibilityHidden(true)
+    }
+}
+
+/// A sidebar in placeholder rows at one density, the first one selected: one line per row,
+/// taller rows with more room when comfortable, and a dim detail line and an age when expanded.
+struct AppFeatureSidebarRows: View {
+    let density: SidebarDensity
+    @Environment(\.appSceneColors) private var colors
+
+    private var titleWidths: [CGFloat] {
+        switch density {
+        case .compact: [0.62, 0.48, 0.7, 0.4]
+        case .comfortable: [0.62, 0.48, 0.7]
+        case .expanded: [0.62, 0.48]
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: density == .comfortable ? Metrics.space2 : Metrics.space1) {
+            ForEach(Array(titleWidths.enumerated()), id: \.offset) { index, width in
+                row(title: width, selected: index == 0)
+            }
+        }
+        .padding(Metrics.space3)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(colors.background)
+    }
+
+    private func row(title: CGFloat, selected: Bool) -> some View {
+        HStack(alignment: .top, spacing: Metrics.space2) {
+            Circle().fill(colors.secondary).frame(width: 6, height: 6).padding(.top, 2)
+            GeometryReader { proxy in
+                VStack(alignment: .leading, spacing: Metrics.space1) {
+                    HStack(spacing: 0) {
+                        bar(colors.secondary, width: proxy.size.width * title)
+                        Spacer(minLength: 0)
+                        if density == .expanded { bar(colors.tertiary, width: 12) }
+                    }
+                    if density == .expanded { bar(colors.tertiary, width: proxy.size.width * 0.8) }
+                }
+            }
+        }
+        .padding(.horizontal, Metrics.space2)
+        .padding(.vertical, density == .comfortable ? Metrics.space2 : Metrics.space1)
+        .frame(height: density == .expanded ? 26 : density == .comfortable ? 18 : 14)
+        .background(RoundedRectangle(cornerRadius: 4, style: .continuous).fill(selected ? colors.selection : .clear))
+    }
+
+    private func bar(_ color: Color, width: CGFloat) -> some View {
+        Capsule().fill(color).frame(width: max(width, 0), height: 4)
     }
 }
 

@@ -174,7 +174,7 @@ async function render(shot: Snapshot, options: { catalog?: boolean } = {}) {
   });
 }
 
-const settle = () => act(async () => await new Promise((resolve) => setTimeout(resolve, 20)));
+const settle = () => act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
 const chip = () => host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!;
 const menu = () => dom.window.document.querySelector<HTMLElement>(".acpmux-quick-menu");
 const fastRow = () => menu()?.querySelector<HTMLElement>('.acpmux-quick-fast[role="menuitemcheckbox"]') ?? null;

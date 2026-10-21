@@ -1712,7 +1712,7 @@
       "type" : "boolean"
     },
     "diff.wordDiffs" : {
-      "default" : false,
+      "default" : true,
       "description" : "diff.wordDiffs",
       "title" : "Highlight Word Changes",
       "type" : "boolean"
@@ -4352,7 +4352,7 @@
       "type" : "boolean"
     },
     "workspaces.newPlacement" : {
-      "default" : "afterCurrent",
+      "default" : "top",
       "description" : "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. Pinned workspaces stay above it.",
       "enum" : [
         "top",

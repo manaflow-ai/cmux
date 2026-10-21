@@ -1,16 +1,25 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextFiles
+import CmuxNextFilesUI
 
 /// The right sidebar's Files section (classic's file explorer): the focused
 /// terminal's folder as a tree. Click selects, double-click, Return and
 /// Cmd-Down open, the right-click menu runs the explorer actions. Every row
 /// runs through the registry, the path the palette, keys and CLI take.
-final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSource, NSTableViewDelegate {
+final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate {
     let model: FileExplorerModel
     private let rootFolder: @MainActor @Sendable () -> URL?
     private let perform: @MainActor (String) -> Void
-    private let rowMenu: @MainActor () -> NSMenu?
+    private let rowMenu: @MainActor (_ hasSelection: Bool) -> NSMenu?
+    /// Builds the menu's Open With apps submenu (it fills when LaunchServices answers).
+    private let openWithMenu: FileExplorerOpenWithMenu?
+    private let apps: any FileAppsProviding
+    private let effects: any FileExplorerEffects
+    private let showError: @MainActor (String) -> Void
+    /// The item whose name is being edited (Rename, or a new item's first name).
+    private var renaming: URL?
     private let header = NSTextField(labelWithString: "")
     let table = FileExplorerTableView()
     private let scroll = NSScrollView()
@@ -23,13 +32,24 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
     ///   - rootFolder: The focused terminal's folder, nil when the focused tab has no local folder
     ///     (the tree keeps its root). Read in an observation, so a `cd` there moves the tree.
     ///   - perform: Runs an explorer action with `fileExplorerFocused` (``FileExplorerHandlers``).
-    ///   - rowMenu: A row's right-click menu, the registry's `fileExplorerRow` menu.
+    ///   - rowMenu: The right-click menu, the registry's `fileExplorerRow` menu (New File and
+    ///     New Folder only when nothing is selected).
+    ///   - openWith: Turns the menu's Open With row into the file's apps submenu.
+    ///   - apps: The apps that open a file (LaunchServices; a fake in tests).
+    ///   - effects: What a rename typed in a row uses besides the file system.
+    ///   - showError: Shows why a rename typed in a row failed.
     init(model: FileExplorerModel, rootFolder: @escaping @MainActor @Sendable () -> URL?, perform: @escaping @MainActor (String) -> Void,
-         rowMenu: @escaping @MainActor () -> NSMenu?) {
+         rowMenu: @escaping @MainActor (_ hasSelection: Bool) -> NSMenu?, openWith: FileExplorerOpenWithMenu? = nil,
+         apps: any FileAppsProviding = WorkspaceFileApps(),
+         effects: any FileExplorerEffects = NullFileExplorerEffects(), showError: @escaping @MainActor (String) -> Void = { _ in }) {
+        self.effects = effects
+        self.showError = showError
         self.model = model
         self.rootFolder = rootFolder
         self.perform = perform
         self.rowMenu = rowMenu
+        openWithMenu = openWith
+        self.apps = apps
         super.init(frame: NSRect(x: 0, y: 0, width: RightSidebarModel.width, height: 400))
         build()
         observation = Task { [weak self] in
@@ -97,7 +117,7 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
         table.target = self
         table.doubleAction = #selector(doubleClicked)
         table.perform = { [weak self] id in self?.perform(id) }
-        table.contextMenu = { [weak self] in self?.rowMenu() }
+        table.contextMenu = { [weak self] in self?.makeMenu() }
         table.setAccessibilityIdentifier("cmux.fileExplorer")
         scroll.documentView = table
         scroll.hasVerticalScroller = true
@@ -127,6 +147,51 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
     @objc private func doubleClicked() {
         guard table.clickedRow >= 0 else { return }
         perform("fileExplorerOpenSelection")
+    }
+
+    /// The right-click menu from the registry; a row's Open With becomes its apps submenu.
+    private func makeMenu() -> NSMenu? {
+        let row = model.selectedRow
+        guard let menu = rowMenu(row != nil) else { return nil }
+        if let row { openWithMenu?.attach(to: menu, for: row, apps: apps) }
+        return menu
+    }
+
+    /// Runs one file change through ``FileExplorerCommands``; a failure shows its reason.
+    private func edit(_ change: @escaping @MainActor (FileExplorerCommands) async throws -> Void) {
+        let commands = FileExplorerCommands(model: model, effects: effects)
+        let showError = showError
+        // task-owner: one file change and a relisting; ends when the folder lists again.
+        Task { @MainActor in
+            do { try await change(commands) } catch {
+                showError((error as? FileExplorerError)?.reason ?? (error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
+            }
+        }
+    }
+
+    /// Edits `item`'s name in its row (Rename, and a new item's first name, as Finder does).
+    func beginRename(_ item: URL) {
+        let item = item.standardizedFileURL
+        render()
+        guard let index = rows.firstIndex(where: { $0.url == item }) else { return }
+        table.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
+        table.scrollRowToVisible(index)
+        guard let cell = table.view(atColumn: 0, row: index, makeIfNecessary: true) as? FileExplorerCell else { return }
+        renaming = item
+        cell.beginEditing(delegate: self)
+    }
+
+    func controlTextDidEndEditing(_ notification: Notification) {
+        guard let field = notification.object as? NSTextField, let item = renaming else { return }
+        renaming = nil
+        (field.superview as? FileExplorerCell)?.endEditing()
+        let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, name != item.lastPathComponent else {
+            field.stringValue = item.lastPathComponent
+            return
+        }
+        edit { _ = try await $0.rename(item, to: name) }
+        window?.makeFirstResponder(table)
     }
 
     // MARK: NSTableViewDataSource, NSTableViewDelegate

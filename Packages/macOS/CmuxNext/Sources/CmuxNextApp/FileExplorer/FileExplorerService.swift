@@ -23,7 +23,12 @@ final class FileExplorerService {
             model: FileExplorerModel(),
             rootFolder: { [weak self, weak controller] in controller.flatMap { self?.folder(focusedIn: $0) } },
             perform: { [weak self] id in self?.perform(ActionID(rawValue: id)) },
-            rowMenu: { [weak self] in self?.services?.registry.makeContextMenu(for: .fileExplorerRow) })
+            rowMenu: { [weak self] hasSelection in self?.rowMenu(hasSelection: hasSelection) },
+            openWith: services.map { FileExplorerOpenWithMenu(registry: $0.registry) },
+            effects: effects,
+            showError: { [weak self, weak controller] reason in
+                self?.services?.refusalHUD.show(reason, in: controller?.window)
+            })
         sections.setObject(view, forKey: controller)
         return view
     }
@@ -40,6 +45,18 @@ final class FileExplorerService {
         sections.object(forKey: controller)?.follow()
     }
 
+    /// A Files row's right-click menu: the registry's `fileExplorerRow` menu, only New File and
+    /// New Folder (in the root) for the empty area.
+    func rowMenu(hasSelection: Bool) -> NSMenu? {
+        let empty: [ContextMenuEntry] = [.action("fileExplorerNewFile"), .action("fileExplorerNewFolder")]
+        return services?.registry.makeContextMenu(for: .fileExplorerRow, entries: hasSelection ? nil : empty)
+    }
+
+    /// Edits `item`'s name in the active window's Files tree (Rename, a new item's first name).
+    func beginRename(_ item: URL) {
+        services?.windows.active.flatMap { sections.object(forKey: $0) }?.beginRename(item)
+    }
+
     /// The active window's explorer, once its Files section was shown.
     var activeExplorer: FileExplorerModel? {
         services?.windows.active.flatMap { sections.object(forKey: $0)?.model }
@@ -53,8 +70,13 @@ final class FileExplorerService {
 
     /// The focused tab's folder when it is a local terminal's.
     func folder(focusedIn controller: WindowController) -> URL? {
-        guard let services, let key = controller.focusedPane?.currentTabKey,
-              let (tab, pane) = services.locateTab(key), services.daemon(for: pane).isLocal,
+        controller.focusedPane.flatMap(folder(of:))
+    }
+
+    /// The selected tab's folder of `pane` when it is a local terminal's.
+    func folder(of pane: PaneController) -> URL? {
+        guard let services, let key = pane.currentTabKey,
+              let (tab, model) = services.locateTab(key), services.daemon(for: model).isLocal,
               let cwd = tab.cwd, !cwd.isEmpty else { return nil }
         return URL(fileURLWithPath: cwd, isDirectory: true)
     }

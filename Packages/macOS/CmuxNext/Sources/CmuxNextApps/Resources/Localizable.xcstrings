@@ -18486,6 +18486,534 @@
         }
       }
     },
+    "store.feature.comfortableSidebar.name" : {
+      "comment" : "App Store Features card: sidebar density Comfortable (taller one-line rows).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "شريط جانبي مريح"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Udoban bočni panel"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rummelig sidebjælke"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Komfortable Seitenleiste"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Comfortable Sidebar"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Barra lateral cómoda"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Barre latérale confortable"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Barra laterale comoda"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ゆったりしたサイドバー"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "របារចំហៀងធូរ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "여유 있는 사이드바"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Romslig sidepanel"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wygodny pasek boczny"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Barra lateral confortável"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Просторная боковая панель"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "แถบข้างแบบสบายตา"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rahat Kenar Çubuğu"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Простора бічна панель"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Thanh bên thoải mái"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "宽松侧边栏"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "寬鬆側邊欄"
+          }
+        }
+      }
+    },
+    "store.feature.comfortableSidebar.summary" : {
+      "comment" : "App Store Features card: what the Comfortable sidebar density does.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "صفوف أطول في الشريط الجانبي مع مساحة أكبر حولها، ولا تزال بسطر واحد لكل صف."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Viši redovi bočnog panela s više prostora oko njih, i dalje po jedan red."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Højere rækker i sidebjælken med mere luft omkring dem, stadig én linje hver."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Höhere Zeilen in der Seitenleiste mit mehr Raum darum, weiterhin einzeilig."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Taller sidebar rows with more room around them, still one line each."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Filas más altas en la barra lateral con más espacio alrededor, aún de una línea."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Des lignes plus hautes dans la barre latérale, plus aérées, toujours sur une ligne."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Righe della barra laterale più alte e più spaziate, sempre su una riga."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "サイドバーの行を高くし、周りに余白を取ります。各行は1行のままです。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ជួររបារចំហៀងខ្ពស់ជាង មានចន្លោះច្រើនជុំវិញ ហើយនៅតែមួយបន្ទាត់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "사이드바 행이 더 높아지고 주변 여백이 넓어지며, 여전히 한 줄입니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Høyere rader i sidepanelet med mer luft rundt, fortsatt én linje hver."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wyższe wiersze paska bocznego z większym odstępem, nadal po jednej linii."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linhas mais altas na barra lateral, com mais espaço ao redor, ainda em uma linha."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Более высокие строки боковой панели с бо́льшими отступами, по-прежнему в одну строку."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "แถวในแถบข้างสูงขึ้นและมีระยะรอบมากขึ้น แต่ยังคงเป็นบรรทัดเดียว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daha yüksek kenar çubuğu satırları, çevrelerinde daha fazla boşluk; yine tek satır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вищі рядки бічної панелі з більшими відступами, як і раніше в один рядок."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Các hàng thanh bên cao hơn, thoáng hơn, vẫn mỗi hàng một dòng."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "侧边栏的行更高、留白更多，仍为单行显示。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "側邊欄的列更高、留白更多，仍為單行顯示。"
+          }
+        }
+      }
+    },
+    "store.feature.expandedSidebar.name" : {
+      "comment" : "App Store Features card: sidebar density Expanded (a detail line under each workspace).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "شريط جانبي موسّع"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prošireni bočni panel"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Udvidet sidebjælke"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erweiterte Seitenleiste"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Expanded Sidebar"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Barra lateral ampliada"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Barre latérale détaillée"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Barra laterale estesa"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "詳細表示のサイドバー"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "របារចំហៀងពង្រីក"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "확장된 사이드바"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Utvidet sidepanel"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rozszerzony pasek boczny"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Barra lateral expandida"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Развёрнутая боковая панель"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "แถบข้างแบบขยาย"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Genişletilmiş Kenar Çubuğu"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Розгорнута бічна панель"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Thanh bên mở rộng"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "展开的侧边栏"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "展開的側邊欄"
+          }
+        }
+      }
+    },
+    "store.feature.expandedSidebar.summary" : {
+      "comment" : "App Store Features card: what the Expanded sidebar density does.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تعرض كل مساحة عمل حالتها أو مجلدها وعمرها وطلب السحب الخاص بها تحت اسمها."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Svaki radni prostor ispod imena prikazuje status ili mapu, starost i pull request."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hvert arbejdsområde viser sin status eller mappe, sin alder og sin pull request under navnet."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jeder Arbeitsbereich zeigt unter seinem Namen Status oder Ordner, Alter und Pull-Request."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Each workspace shows its status or folder, its age and its pull request under its name."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cada espacio de trabajo muestra su estado o carpeta, su antigüedad y su pull request bajo su nombre."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chaque espace de travail affiche sous son nom son statut ou son dossier, son âge et sa pull request."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ogni workspace mostra sotto il nome lo stato o la cartella, l'età e la pull request."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "各ワークスペースの名前の下に、ステータスまたはフォルダ、経過時間、プルリクエストを表示します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "កន្លែងធ្វើការនីមួយៗបង្ហាញស្ថានភាព ឬថត អាយុ និង pull request នៅក្រោមឈ្មោះ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "각 워크스페이스 이름 아래에 상태나 폴더, 경과 시간, 풀 리퀘스트를 표시합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hvert arbeidsområde viser status eller mappe, alder og pull request under navnet."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Każdy obszar roboczy pokazuje pod nazwą status lub folder, wiek i pull request."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cada espaço de trabalho mostra o status ou a pasta, a idade e o pull request abaixo do nome."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Под названием каждого рабочего пространства — статус или папка, давность и pull request."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "แต่ละเวิร์กสเปซแสดงสถานะหรือโฟลเดอร์ อายุ และพูลรีเควสต์ใต้ชื่อ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Her çalışma alanı adının altında durumunu veya klasörünü, yaşını ve pull request'ini gösterir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Під назвою кожного робочого простору — статус або тека, давність і pull request."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mỗi không gian làm việc hiện trạng thái hoặc thư mục, tuổi và pull request dưới tên."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每个工作区在名称下显示其状态或文件夹、时长和拉取请求。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每個工作區在名稱下顯示其狀態或資料夾、時長和拉取請求。"
+          }
+        }
+      }
+    },
     "store.feature.agentCursor.name" : {
       "extractionState" : "manual",
       "localizations" : {

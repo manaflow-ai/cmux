@@ -6105,7 +6105,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "afterCurrent",
+      "default" : "top",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -16463,7 +16463,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.diffViewer",

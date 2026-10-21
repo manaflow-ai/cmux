@@ -23,18 +23,20 @@ WORKFLOW = ROOT / ".github" / "workflows" / "ci-web.yml"
 
 FAKE_BUN = """#!/usr/bin/env bash
 [ "$1" = test ] || exit 9
-printf '%s\\n' "$2" >> "$BUN_CALLS"
+# The test file is the last argument: the runner passes options such as --timeout before it.
+file="${!#}"
+printf '%s\\n' "$file" >> "$BUN_CALLS"
 # A file that starts a Vite dev server optimizes dependencies into its Vite cache while it runs: two
 # at once on one cache lose each other's files, and a cold cache is the slow first bundle.
-if grep -q -e '"dev",' -e 'createServer(' -e 'vite.config.gallery-dev.ts' -e 'vite.config.acpmux-pane.mjs' "$2"; then
+if grep -q -e '"dev",' -e 'createServer(' -e 'vite.config.gallery-dev.ts' -e 'vite.config.acpmux-pane.mjs' "$file"; then
   config=default
-  grep -q 'vite.config.settings-page.mjs' "$2" && config=settings
-  grep -q 'vite.config.gallery-dev.ts' "$2" && config=gallery
-  grep -q 'vite.config.acpmux-pane.mjs' "$2" && config=pane
+  grep -q 'vite.config.settings-page.mjs' "$file" && config=settings
+  grep -q 'vite.config.gallery-dev.ts' "$file" && config=gallery
+  grep -q 'vite.config.acpmux-pane.mjs' "$file" && config=pane
   cache="${CMUX_VITE_CACHE_DIR:-$SHARED_VITE_CACHE}"
   warm=cold
   [ -e "$cache/warm-$config" ] && warm=warm
-  printf '%s %s %s\\n' "$2" "$cache" "$warm" >> "$BUN_DEV"
+  printf '%s %s %s\\n' "$file" "$cache" "$warm" >> "$BUN_DEV"
   mkdir "$DEV_RUNNING/$$"
   ls "$DEV_RUNNING" | wc -l >> "$BUN_PEAK"
   if mkdir "$cache.lock" 2> /dev/null; then
@@ -43,15 +45,15 @@ if grep -q -e '"dev",' -e 'createServer(' -e 'vite.config.gallery-dev.ts' -e 'vi
     touch "$cache/warm-$config"
     rmdir "$cache.lock"
   else
-    printf 'overlap %s\\n' "$2" >> "$BUN_OVERLAPS"
+    printf 'overlap %s\\n' "$file" >> "$BUN_OVERLAPS"
   fi
   rmdir "$DEV_RUNNING/$$"
 fi
-case "$2" in
+case "$file" in
   *hang*) sleep 60 ;;
-  *slow*) sleep 3; echo "(pass) $2" ;;
+  *slow*) sleep 3; echo "(pass) $file" ;;
   *fail*) echo "(fail) a broken test"; exit 1 ;;
-  *) echo "(pass) $2" ;;
+  *) echo "(pass) $file" ;;
 esac
 """
 
@@ -105,7 +107,10 @@ class PerFileRunner(unittest.TestCase):
         env = {**base_env, "PATH": f"{bin_dir}:{system_path}", "BUN_CALLS": str(calls),
                "BUN_OVERLAPS": str(self.overlaps), "SHARED_VITE_CACHE": str(web / "node_modules" / ".vite"),
                "BUN_DEV": str(self.dev), "BUN_PEAK": str(self.peak), "DEV_RUNNING": str(running),
-               "CMUX_WEB_TEST_FILE_TIMEOUT": "2", "CMUX_WEB_TEST_JOBS": "8"}
+               "CMUX_WEB_TEST_FILE_TIMEOUT": "2", "CMUX_WEB_TEST_JOBS": "8",
+               # These tests read each file's first run; scripts/ci/tests/run-webviews-tests-retry.test.sh
+               # covers the rerun of a failed file.
+               "CMUX_WEB_TEST_RETRIES": "0"}
         if shard is not None:
             env["CMUX_WEB_TEST_SHARD"] = str(shard)
             env["CMUX_WEB_TEST_SHARD_COUNT"] = str(shard_count)

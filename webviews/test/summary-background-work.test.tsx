@@ -6,7 +6,7 @@
 // agent started sit under Subagents with their state; an empty card draws one quiet line instead
 // of "None" under every title. The running turn's line counts started chats; and between turns one
 // compact row says what still runs.
-import { afterEach, expect, setSystemTime, test } from "bun:test";
+import { afterEach, expect, jest, setSystemTime, test } from "bun:test";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -68,6 +68,7 @@ afterEach(async () => {
     else scope[key] = value;
   }
   saved.clear();
+  jest.useRealTimers();
   setSystemTime();
 });
 
@@ -106,6 +107,8 @@ const emptySummary = (fields: Partial<SessionSummary> = {}): SessionSummary => (
 });
 
 test("the card lists running commands with their time and Stop, and folds the finished into one row", async () => {
+  // The running times tick on a clock the test moves.
+  jest.useFakeTimers();
   setSystemTime(new Date(100_000));
   const container = installDom();
   const commands = backgroundCommands(
@@ -150,11 +153,8 @@ test("the card lists running commands with their time and Stop, and folds the fi
   expect(stops.map((stop) => stop.getAttribute("aria-label"))).toEqual(["Stop bun run dev", "Stop tsc --watch"]);
   await act(async () => stops[0]!.click());
   expect(stopped).toEqual(["s1/a"]);
-  // The time ticks.
-  await act(async () => {
-    setSystemTime(new Date(102_000));
-    await new Promise((resolve) => setTimeout(resolve, 1_100));
-  });
+  // The time ticks: two seconds on, the row reads two seconds more.
+  await act(async () => void jest.advanceTimersByTime(2_000));
   expect(rows()[0]).toEqual(["bun run dev", "1m 18s"]);
 });
 

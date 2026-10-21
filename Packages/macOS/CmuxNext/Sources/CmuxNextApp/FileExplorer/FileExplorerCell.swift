@@ -2,11 +2,13 @@ import AppKit
 import CmuxNextDesign
 
 /// One file explorer row: a disclosure arrow for folders, the item's icon and
-/// name, indented by its depth.
+/// name, indented by its depth, and its git state's letter at the end. The
+/// name becomes editable for Rename.
 final class FileExplorerCell: NSTableCellView {
     private let arrow = NSImageView()
     private let icon = NSImageView()
     private let name = NSTextField(labelWithString: "")
+    private let badge = NSTextField(labelWithString: "")
     private var indent: NSLayoutConstraint?
 
     init(identifier: NSUserInterfaceItemIdentifier) {
@@ -14,7 +16,9 @@ final class FileExplorerCell: NSTableCellView {
         self.identifier = identifier
         name.font = Typography.body
         name.lineBreakMode = .byTruncatingMiddle
-        for view in [arrow, icon, name] as [NSView] {
+        badge.font = Typography.caption
+        badge.alignment = .right
+        for view in [arrow, icon, name, badge] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
         }
@@ -30,8 +34,11 @@ final class FileExplorerCell: NSTableCellView {
             icon.widthAnchor.constraint(equalToConstant: 16),
             icon.heightAnchor.constraint(equalToConstant: 16),
             name.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: Metrics.space1),
-            name.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -Metrics.space2),
+            name.trailingAnchor.constraint(lessThanOrEqualTo: badge.leadingAnchor, constant: -Metrics.space1),
             name.centerYAnchor.constraint(equalTo: centerYAnchor),
+            badge.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.space3),
+            badge.centerYAnchor.constraint(equalTo: centerYAnchor),
+            badge.widthAnchor.constraint(equalToConstant: 14),
         ])
         textField = name
         imageView = icon
@@ -46,6 +53,33 @@ final class FileExplorerCell: NSTableCellView {
                                              accessibilityDescription: nil) : nil
         icon.image = NSImage(systemSymbolName: row.isFolder ? "folder" : "doc", accessibilityDescription: nil)
         name.stringValue = row.name
-        setAccessibilityLabel(row.name)
+        endEditing()
+        badge.stringValue = row.git?.badge ?? ""
+        badge.textColor = row.git.map(Self.color) ?? .secondaryLabelColor
+        setAccessibilityLabel(row.git.map { "\(row.name), \(FileExplorerStrings.gitState($0))" } ?? row.name)
+    }
+
+    /// Makes the name editable (Rename); `delegate` gets the end of editing.
+    func beginEditing(delegate: any NSTextFieldDelegate) {
+        name.isEditable = true
+        name.isSelectable = true // text-focus-allow: the rename field in a sidebar row; the ring shows where typing goes (accessibility).
+        name.delegate = delegate
+        window?.makeFirstResponder(name)
+        name.currentEditor()?.selectedRange = NSRange(location: 0, length: ((name.stringValue as NSString).deletingPathExtension as NSString).length)
+    }
+
+    /// The name is a label again.
+    func endEditing() {
+        name.isEditable = false
+        name.isSelectable = false
+        name.delegate = nil
+    }
+
+    private static func color(_ state: FileGitState) -> NSColor {
+        switch state {
+        case .modified, .renamed, .containsChanges: .systemOrange
+        case .added, .untracked: .systemGreen
+        case .deleted, .conflicted: .systemRed
+        }
     }
 }

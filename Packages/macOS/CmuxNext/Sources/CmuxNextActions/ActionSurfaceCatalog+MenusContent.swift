@@ -126,12 +126,17 @@ nonisolated extension ActionSurfaceCatalog {
         "notificationCopy": [p(.notification, .inspect, 0)],
         "notificationToggleRead": [p(.notification, .identity, 0)],
         "notificationDismiss": [p(.notification, .close, 0)],
-        // A Files row (classic's file explorer menu, in its order): open it, then copy where it is.
+        // A Files row: open it, make an item beside it, rename it, copy where it is, trash it.
+        // Open With becomes the row's apps submenu (FileExplorerOpenWithMenu).
         "fileExplorerOpenInCmux": [p(.fileExplorerRow, .navigate, 0)],
         "fileExplorerOpenWith": [p(.fileExplorerRow, .navigate, 1)],
         "fileExplorerReveal": [p(.fileExplorerRow, .navigate, 2)],
+        "fileExplorerNewFile": [p(.fileExplorerRow, .create, 0)],
+        "fileExplorerNewFolder": [p(.fileExplorerRow, .create, 1)],
+        "fileExplorerRename": [p(.fileExplorerRow, .identity, 0)],
         "fileExplorerCopyPath": [p(.fileExplorerRow, .inspect, 0)],
         "fileExplorerCopyRelativePath": [p(.fileExplorerRow, .inspect, 1)],
+        "fileExplorerMoveToTrash": [p(.fileExplorerRow, .close, 0)],
         "notifications.toggleWorkspaceMute": [p(.workspaceRow, .identity, 113, folder: .options, label: ObjectMenuLabels.toggleWorkspaceMute)],
         "notifications.dismissHighlight": [p(.workspaceRow, .identity, 111, folder: .options)],
         "palette.newAgentChat": [p(.newTab, .create, 4)],
