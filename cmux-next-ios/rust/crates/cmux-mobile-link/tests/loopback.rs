@@ -471,8 +471,9 @@ async fn wireguard_mac_takes_the_turn_allocation_it_missed_while_answering() {
         ..options()
     };
     let (run, ()) = tokio::join!(exercise_turn_for(options(), mac, Duration::from_secs(2)), async {
-        // Past the answer's 2 s allocation window, well inside the dial's 20 s timeout.
-        tokio::time::sleep(Duration::from_secs(4)).await;
+        // Well past the answer's STUN wait and allocation window (3.5 s),
+        // well inside the dial's 20 s timeout.
+        tokio::time::sleep(Duration::from_secs(6)).await;
         turn.set_udp_blocked(false);
     });
     // The phone reaches the Mac through the Mac's allocation. (Its plain UDP
