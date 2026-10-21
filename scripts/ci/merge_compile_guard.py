@@ -28,6 +28,10 @@ gives no verdict) and the build fleet compiled the exact head, read from either 
   workflow file came from a commit on that branch. A token can post any status, and a workflow on
   another branch or a tag any run, so the guard trusts only that run.
 
+A same-repository PR compiles its head on the build fleet (`cmux-next app compile (build fleet)`) and runs
+the Release compile only when that gave no verdict: while that job runs, the Release compile does not
+exist yet, which is a wait, and its red is a refusal like a red Release compile.
+
 A Release compile that finished red (any conclusion but success, skipped, neutral or
 cancelled) stays a refusal, even with a rerun queued: the fleet compiles on Linux with the pool
 SDK, not Xcode 26 Release. The pass covers what `cmux-ci compile-check --app`
@@ -52,8 +56,11 @@ import time
 BASE = "feat-cmux-next"
 GUARDED_REPO = "manaflow-ai/cmux"
 COMPILE = "cmux-next Release compile (Xcode 26)"
+# A same-repository PR's app compile on the build fleet (cmux-next.yml app-compile-fleet): the Release
+# compile runs on a PR only when it gave no verdict, so its red is the PR's compile red.
+FLEET_COMPILE = "cmux-next app compile (build fleet)"
 # The jobs release-compile `needs`: until they finish, its check run does not exist.
-ROUTING = ("cmux-next path routing", "cmux-next push head preflight", "cmux-next macOS placement")
+ROUTING = ("cmux-next path routing", "cmux-next push head preflight", "cmux-next macOS placement", FLEET_COMPILE)
 RUNNING = frozenset(("queued", "in_progress", "pending", "waiting", "requested"))
 NOT_RUN = frozenset(("skipped", "neutral"))
 # A cancelled attempt is no verdict on the head: a newer push, a runner shortage or a person stopped it
@@ -318,7 +325,16 @@ def compile_wait(checks: list[dict]) -> bool:
         return False  # an attempt finished red: a rerun queued after it is no wait (every attempt is read)
     return (not checks or any(c.get("status") in RUNNING for c in named)
             or (not named and any(c.get("name") in ROUTING and c.get("status") in RUNNING for c in checks))
-            or (len(finished) == len(named) and set(finished) - NOT_RUN == {"cancelled"}))
+            or (len(finished) == len(named) and set(finished) - NOT_RUN == {"cancelled"})
+            or fleet_stopped(checks))
+
+
+def fleet_stopped(checks: list[dict]) -> bool:
+    """The PR's build-fleet compile was cancelled with no pass and no Release compile ran: no verdict at all
+    (a run cancelled mid-compile also skips the Release compile)."""
+    fleet = [c.get("conclusion") for c in checks if c.get("name") == FLEET_COMPILE and c.get("status") == "completed"]
+    ran = [c for c in checks if c.get("name") == COMPILE and c.get("conclusion") not in NOT_RUN]
+    return bool(fleet) and set(fleet) == {"cancelled"} and not ran
 
 
 def compile_refusal(pr: dict, swift: list[str], checks: list[dict]) -> str:
@@ -335,6 +351,13 @@ def compile_refusal(pr: dict, swift: list[str], checks: list[dict]) -> str:
     if ran and not any(c.get("conclusion") == "success" for c in ran):
         return (f"{what} and its {COMPILE} finished {ran[0].get('conclusion')} on {head}. "
                 f"Fix it, or merge the base in when the base has the fix, and merge once it passes.")
+    fleet = [c.get("conclusion") for c in checks if c.get("name") == FLEET_COMPILE and c.get("status") == "completed"]
+    red = [c for c in fleet if c not in NO_VERDICT and c != "success"]
+    if red and "success" not in fleet and not any(c.get("conclusion") == "success" for c in ran):
+        return (f"{what} and its {FLEET_COMPILE} finished {red[0]} on {head}. "
+                f"Fix it, or merge the base in when the base has the fix, and merge once it passes.")
+    if fleet_stopped(checks):
+        return f"{what} and its {FLEET_COMPILE} was cancelled on {head}, so nothing compiled it; rerun it."
     return ""
 
 

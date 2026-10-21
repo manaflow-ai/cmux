@@ -25,6 +25,10 @@ Inside cmux your `cmux-subsessions` MCP server starts children instead:
 `start_session` (with `worktree: true` for a worktree of its own),
 `list_sessions`, `get_session`, `wait_for_sessions`, `send_message` and
 `stop_session`. Prefer them when you have them; this CLI is the fallback.
+A lane is different: an agent with its own worktree and brief that reports
+back to you and outlives you. Start it with the one launcher command in
+section 3 (`acpmux new --worktree … --prompt-file …`), not a hand-made
+`git worktree add` + `acpmux send` script.
 Start a session only when the user asked for one. If they refuse with "this
 session's caller token is not one this acpmux daemon knows", run
 `acpmux session restart @`: your agent restarts in the same conversation when
@@ -148,6 +152,14 @@ acpmux run --on-permission deny|fail …       # never hang a script on a prompt
 (`cmux://needs-you/<permissionId>`). Put it in a reply to point the user at an
 open ask instead of restating it; cmux draws it as a chip that opens the ask in
 its Needs you list.
+
+Show UI instead of describing it. A reply in cmux draws `![alt](/abs/path.png)`,
+a bare image path (`.png`, `.jpg`, `.gif`, `.webp`), a `file://` URL or an
+https image address (a PR's `pr-media` link) as a thumbnail that opens full
+size on click. Two images in one paragraph, such as
+`![Before](/tmp/a.png) ![After](/tmp/b.png)` or `Before: /tmp/a.png` and
+`After: /tmp/b.png` on two lines, sit side by side. `#N`, `owner/repo#N`,
+`hq#N`, commit SHAs and `path/to/file.ts:42` become links.
 
 `--policy ask` sends every request to a human or to you; the other policies
 answer locally. Rules sit above the policy and match tool kind, title, and
