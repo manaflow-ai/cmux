@@ -381,14 +381,14 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       const folderIcon = marks.folderIcon!;
       const branchChevron = marks.branchChevron!;
       // The marks sit over the box's content edges: the prompt's, or + and the last action's
-      // (the mic at rest) where they stand beside it. A 14 px stroke icon's ink starts ~1.5 px inside its box; the chevron's
-      // ink ends 4 px inside.
+      // (the mic at rest) where they stand beside it, ink to ink. A 14 px stroke icon's ink (the +, the
+      // folder, the mic) lies ~1.5 px inside its box at each side; the chevron's ink ends 4 px inside.
       const lead = marks.plusGlyph?.left ?? prompt.left;
-      const trail = marks.trailGlyph?.right ?? prompt.right;
+      const trail = marks.trailGlyph ? marks.trailGlyph.right - 1.5 : prompt.right;
       expect(Math.abs(folderIcon.left + 1.5 - lead)).toBeLessThanOrEqual(2);
       expect(
         Math.abs(branchChevron.right - 4 - trail),
-        `the branch chevron ends at ${branchChevron.right.toFixed(1)}, the last action's glyph at ${trail.toFixed(1)}`,
+        `the branch chevron ends at ${branchChevron.right.toFixed(1)}, the last action's glyph's ink at ${trail.toFixed(1)}`,
       ).toBeLessThanOrEqual(2);
       expect(marks.text).not.toContain("·");
       // At or under 460 px the computer is its icon (the strip's first step).
