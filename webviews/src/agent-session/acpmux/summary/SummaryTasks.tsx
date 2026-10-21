@@ -1,6 +1,6 @@
 // The summary card's Background tasks (SummaryBody.tsx): the chat's background commands
 // (backgroundWork.ts), running ones first and newest first, each with how long it has run and a
-// Stop button (RailTasks.tsx `StopButton`). The finished ones fold into one "N finished" row that
+// Stop button (inspector/TasksSection.tsx `StopButton`). The finished ones fold into one "N finished" row that
 // opens them in place. A row opens the command's terminal beside the chat (processTerminal.ts).
 import { useMemo, useState } from "react";
 import { formatDuration } from "../conversation/turns";
@@ -10,7 +10,7 @@ import { rowIconSize } from "../icons/iconSize";
 import { openProcessTerminal } from "../processTerminal";
 import { useNow } from "../subagents/SubagentGroup";
 import { type BackgroundCommand, splitCommands } from "./backgroundWork";
-import { StopButton } from "./RailTasks";
+import { StopButton } from "../inspector/TasksSection";
 
 const ROW_ICON = rowIconSize(12);
 /// Running rows shown before "View all".

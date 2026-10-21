@@ -1102,6 +1102,7 @@ export function ModelPicker(props: ModelPickerProps) {
                           className={`acpmux-mp-favorite pointer-events-auto grid size-6 cursor-pointer place-items-center rounded-md border-0 bg-transparent p-0 text-muted hover:text-fg ${favorites.has(model.id) ? "" : "invisible group-hover:visible focus-visible:visible"}`}
                           aria-label={`${starredText}: ${model.name}`}
                           aria-pressed={favorites.has(model.id)}
+                          title={t(favorites.has(model.id) ? "picker.unstar" : "picker.star")}
                           onClick={() => toggleFavorite(model.id)}
                         >
                           <StarGlyph filled={favorites.has(model.id)} size={13} />

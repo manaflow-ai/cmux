@@ -4,6 +4,7 @@
 #import <AppKit/AppKit.h>
 
 #include "include/cef_devtools_message_observer.h"
+#include "include/cef_drag_handler.h"
 #include "include/cef_jsdialog_handler.h"
 #include "include/cef_parser.h"
 #include "include/cef_resource_request_handler.h"
@@ -113,6 +114,7 @@ class Client : public CefClient,
                public CefCommandHandler,
                public CefFocusHandler,
                public CefJSDialogHandler,
+               public CefDragHandler,
                public CefDevToolsMessageObserver {
  public:
   explicit Client(int request) : request_(request) {}
@@ -128,6 +130,7 @@ class Client : public CefClient,
   CefRefPtr<CefFocusHandler> GetFocusHandler() override { return this; }
   // beforeunload only; alert, confirm and prompt keep Chromium's dialogs.
   CefRefPtr<CefJSDialogHandler> GetJSDialogHandler() override { return this; }
+  CefRefPtr<CefDragHandler> GetDragHandler() override { return this; }
   // Every download waits for the host's path (shim_downloads.mm).
   CefRefPtr<CefDownloadHandler> GetDownloadHandler() override { return DownloadHandler(); }
   // Location requests ask in the host's prompt bar (shim_permissions.mm).
@@ -152,6 +155,24 @@ class Client : public CefClient,
   // focus to its omnibar.
   void OnTakeFocus(CefRefPtr<CefBrowser> browser, bool next) override {
     Emit(CMUX_SHIM_TAKE_FOCUS, browser->GetIdentifier(), 0, next ? 1 : 0);
+  }
+
+  // MARK: Drags
+
+  // A drag of files from outside entered the page: the host learns their
+  // paths (a page sees only File objects), so a cmux page can hand a drop
+  // to the host the way its WebKit view does (PAGE_DRAG_ENTER). The page
+  // still gets the drag.
+  bool OnDragEnter(CefRefPtr<CefBrowser> browser, CefRefPtr<CefDragData> drag, DragOperationsMask) override {
+    if (!drag || !drag->IsFile()) return false;
+    std::vector<CefString> names;
+    if (!drag->GetFilePaths(names) || names.empty()) return false;
+    CefRefPtr<CefListValue> list = CefListValue::Create();
+    for (size_t i = 0; i < names.size(); ++i) list->SetString(i, names[i]);
+    CefRefPtr<CefValue> value = CefValue::Create();
+    value->SetList(list);
+    Emit(CMUX_SHIM_PAGE_DRAG_ENTER, browser->GetIdentifier(), 0, 0, 0, CefWriteJSON(value, JSON_WRITER_DEFAULT).ToString());
+    return false;
   }
 
   // MARK: beforeunload
