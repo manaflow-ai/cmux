@@ -64,12 +64,14 @@ async fn an_agent_gone_without_an_answer_is_lost() {
     assert_eq!(s.get("indicator"), Some(&json!("lost")), "{s}");
 }
 
+/// An agent that exits with nothing lost leaves the chat idle: the next prompt starts it again
+/// on the same conversation (`hub/auto_resume/revive.rs`).
 #[tokio::test]
 async fn an_agent_gone_before_any_prompt_shows_nothing() {
     let env = BTreeMap::from([("FAKE_EXIT_AFTER_NEW".to_owned(), "1".to_owned())]);
     let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
     let id = new_session(&mut c, "unprompted").await;
-    let s = settled(&hub, &mut c, &id, |s| s["status"] == "disconnected").await;
+    let s = settled(&hub, &mut c, &id, |s| s["status"] == "idle").await;
     assert!(s["lastTurn"].is_null(), "{s}");
     assert_eq!(s["indicator"], Value::Null, "{s}");
 }
@@ -79,8 +81,8 @@ async fn an_agent_gone_after_its_answer_is_done() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     let id = new_session(&mut c, "answered").await;
     c.request(method::SESSION_PROMPT, prompt(&id, "answer-then-exit", None)).await.unwrap();
-    // The agent is gone; the chat keeps its answer, so it is done, not lost.
-    let s = settled(&hub, &mut c, &id, |s| s["status"] == "disconnected").await;
+    // The agent is gone; the chat keeps its answer, so it is done, not lost, and idle.
+    let s = settled(&hub, &mut c, &id, |s| s["status"] == "idle").await;
     assert_eq!(s["lastTurn"]["status"], "completed", "{s}");
     assert_eq!(s.get("indicator"), Some(&json!("done")), "{s}");
 }

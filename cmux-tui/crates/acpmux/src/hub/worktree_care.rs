@@ -22,6 +22,8 @@
 
 use super::*;
 
+pub(super) mod revive;
+
 use std::path::PathBuf;
 use std::sync::LazyLock;
 use std::sync::atomic::AtomicU64;
@@ -263,15 +265,22 @@ impl Hub {
 
     /// Before a session's harness starts: its folder back, when cleanup
     /// reclaimed the worktree it is in. Logged as `worktree_restored`, or
-    /// `worktree_restore_failed` (the start goes on and reports the
-    /// missing folder as before).
+    /// `worktree_restore_failed` (the start goes on). A folder still gone is
+    /// added back from its branch, or the session moves above it (`revive.rs`).
     pub(super) async fn ready_to_start(&self, session: &Arc<Session>) {
-        self.care_restore_for(session).await;
+        self.ready_folder(session, true).await;
         // A stopped session reopens on demand. Only a purge is final.
         if session.status() == SessionStatus::Closed {
             self.append(session, "mux", "reopened", json!({}));
             self.set_status(session, SessionStatus::Idle);
         }
+    }
+
+    /// The session's folder there before its agent or a turn starts (`run_prompt`): restored
+    /// from cleanup's archive, else added back or moved from (`revive.rs`).
+    pub(super) async fn ready_folder(&self, session: &Arc<Session>, starting: bool) {
+        self.care_restore_for(session).await;
+        self.revive_folder(session, &CARE.restoring, starting).await;
     }
 
     async fn care_restore_for(&self, session: &Arc<Session>) {
