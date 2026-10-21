@@ -59,6 +59,8 @@ import Testing
     static func show(_ view: WorkspaceContentView, in root: WindowRootView) {
         root.show(view)
         settle(root)
+        // The shown workspace fills the main pane, as a window's later passes leave it.
+        if let host = view.superview { view.frame = host.bounds }
         view.layoutView.subviews.first?.frame = view.layoutView.bounds
     }
 
