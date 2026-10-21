@@ -66,7 +66,7 @@ fn tools() -> Value {
         },
         {
             "name": "list_sessions",
-            "description": "List your sub-sessions with their live state (status running, ready, waiting, closed; the last turn's outcome; open children) and your own limits: depth, open sub-sessions, maxChildren and maxDepth.",
+            "description": "List your sub-sessions with their live state (state working, input, failed or idle; doing: one line of what a working one does right now, its plan step and latest tool; queued: messages waiting for its turn to end; the last turn's outcome; open children) and your own limits: depth, open sub-sessions, maxChildren and maxDepth. Report a sub-session's progress from doing, not from status alone. waitingOn question or permission means it waits on the user: only the user answers it, in the app; you cannot, so tell the user what it asks.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -76,7 +76,7 @@ fn tools() -> Value {
         },
         {
             "name": "get_session",
-            "description": "Read one of your sub-sessions (or your parent session): its state and the text of its last reply.",
+            "description": "Read one of your sub-sessions (or your parent session): its state, doing (what it does right now, while a turn runs, or what it waits on the user for), waitingOn (question or permission: only the user answers it, in the app), queued messages and the text of its last reply.",
             "inputSchema": {
                 "type": "object",
                 "properties": {"sessionId": {"type": "string"}},
@@ -96,13 +96,14 @@ fn tools() -> Value {
         },
         {
             "name": "send_message",
-            "description": "Send a message to one of your sub-sessions (or to your parent session, to report or to ask for a higher limit). It queues behind a running turn; with interrupt: true it stops that turn first. The receiver sees it came from you.",
+            "description": "Send a message to one of your sub-sessions (or to your parent session, to report or to ask for a higher limit). To a working session it queues behind the running turn by default, and the result says where it waits. deliver: next_step puts it into the running turn instead, read at the agent's next tool step (an agent that cannot take a message mid-turn gets it when the turn ends; the result's delivery says which); interrupt stops the turn first. A message to your parent always waits for its turn to end. The receiver's chat shows it came from you.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "sessionId": {"type": "string"},
                     "text": {"type": "string"},
-                    "interrupt": {"type": "boolean"}
+                    "deliver": {"type": "string", "enum": ["next_step", "after_turn", "interrupt"], "description": "after_turn (default): queued behind the running turn. next_step: into the running turn, read at its next tool step (use it when the receiver must change course now). interrupt: stop the running turn, then run this."},
+                    "interrupt": {"type": "boolean", "description": "The same as deliver: interrupt."}
                 },
                 "required": ["sessionId", "text"]
             }
@@ -151,6 +152,28 @@ fn ok(text: String, structured: Value) -> Value {
     json!({"content": [{"type": "text", "text": text}], "structuredContent": structured, "isError": false})
 }
 
+/// `send_message`'s one line: when the receiver reads the message.
+fn sent_text(r: &Value) -> String {
+    let queue = r["queueLength"].as_u64().unwrap_or(0);
+    match r["delivery"].as_str().unwrap_or_default() {
+        "next_step" => {
+            "Delivered into its running turn: it reads it at its next tool step.".to_owned()
+        }
+        "queued" => {
+            let sooner = if r["steering"].as_bool().unwrap_or(false) {
+                "To reach it sooner send with deliver: next_step, or interrupt to stop the turn."
+            } else {
+                "Its agent takes no message mid-turn; interrupt stops the turn to reach it sooner."
+            };
+            format!(
+                "Queued behind its running turn (position {}, {queue} queued): it reads it when that turn ends. {sooner}",
+                r["position"].as_u64().unwrap_or(queue)
+            )
+        }
+        _ => "Sent: it started a turn with it.".to_owned(),
+    }
+}
+
 /// A daemon refusal as the agent reads it: the daemon's message is the advice.
 fn refusal(e: anyhow::Error) -> Value {
     error_result(format!("{e:#}"))
@@ -166,8 +189,8 @@ async fn call(daemon: &Client, params: &Value) -> Value {
         "start_session" => match request(method::MUX_SUBSESSION_START, args).await {
             Ok(r) => ok(
                 format!(
-                    "Started sub-session {} (sessionId {}, depth {}). It works in parallel; use wait_for_sessions to get its result.",
-                    r["name"].as_str().unwrap_or_default(),
+                    "Started sub-session {} (sessionId {}, depth {}). The user sees it in your chat's Subagents summary. It works in parallel; use wait_for_sessions to get its result.",
+                    r["shortName"].as_str().or(r["name"].as_str()).unwrap_or_default(),
                     r["sessionId"].as_str().unwrap_or_default(),
                     r["depth"]
                 ),
@@ -184,7 +207,7 @@ async fn call(daemon: &Client, params: &Value) -> Value {
             Err(e) => refusal(e),
         },
         "send_message" => match request(method::MUX_SUBSESSION_SEND, args).await {
-            Ok(r) => ok("Sent.".to_owned(), r),
+            Ok(r) => ok(sent_text(&r), r),
             Err(e) => refusal(e),
         },
         "stop_session" => match request(method::MUX_SUBSESSION_STOP, args).await {
