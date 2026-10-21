@@ -200,10 +200,12 @@ The Chief loads the `cmux-setup` skill (shipped in optchat-chief's
    that one click. Allowed is `changed` with `undo` `cmux settings set
    computerUse.enabled false --confirm` (the same sheet), or `needs_user`
    with that `undo` while a grant is still missing or the phase has not
-   caught up (`kind` `wait`, never a second sheet); not allowed is
-   `needs_user` (`kind` `declined`: the person declined, or cmux had no
-   window for the sheet), and the agent asks before trying again. Once on, each missing grant is `needs_user` (`kind` `grant`)
-   whose `command` opens its System Settings pane (`open
+   caught up (`kind` `wait`). A rerun reads `settings.get
+   computerUse.enabled` first, so a lagging phase never shows a second
+   sheet. Not allowed is `needs_user` (`kind` `declined`: the person
+   declined, or cmux had no window for the sheet), and the agent asks
+   before trying again. Once on, each missing grant is `needs_user`
+   (`kind` `grant`) whose `command` opens its System Settings pane (`open
    'x-apple.systempreferences:...'`), Accessibility first. Managed
    settings that turn it off (`kind` `policy`), a helper that is starting
    (`kind` `wait`) or not ready (`kind` `app`, `cmux action run

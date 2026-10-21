@@ -1177,11 +1177,13 @@ fn cmux_setup_mcp_replaces_a_moved_cmux_and_leaves_another_server_named_cmux() {
 /// computer-use` and `cmux settings set` ask: `computer_use.status` answers
 /// `status`; `settings.set computerUse.enabled` with `confirm` is the
 /// person's sheet, approved while `approve` is set (true turns Computer Use
-/// on with the grants of `on`, false turns it off) and declined otherwise.
+/// on with the grants of `on`, false turns it off) and declined otherwise;
+/// `settings.get computerUse.enabled` reads the last approved value.
 /// Every request is kept.
 struct FakeApp {
     status: Arc<Mutex<Value>>,
     approve: Arc<std::sync::atomic::AtomicBool>,
+    enabled: Arc<std::sync::atomic::AtomicBool>,
     requests: Arc<Mutex<Vec<Value>>>,
 }
 
@@ -1193,10 +1195,11 @@ impl FakeApp {
         let app = Self {
             status: Arc::new(Mutex::new(off.clone())),
             approve: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             requests: Arc::new(Mutex::new(Vec::new())),
         };
-        let (status, approve, requests) =
-            (app.status.clone(), app.approve.clone(), app.requests.clone());
+        let (status, approve, enabled, requests) =
+            (app.status.clone(), app.approve.clone(), app.enabled.clone(), app.requests.clone());
         std::thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(stream) = stream else { break };
@@ -1209,12 +1212,16 @@ impl FakeApp {
                     let params = &request["params"];
                     let answer = match request["method"].as_str() {
                         Some("computer_use.status") => Ok(status.lock().unwrap().clone()),
+                        Some("settings.get") if params["path"] == "computerUse.enabled" => {
+                            Ok(json!({"value": enabled.load(Ordering::SeqCst)}))
+                        }
                         Some("settings.set")
                             if params["path"] == "computerUse.enabled"
                                 && params["confirm"] == true =>
                         {
                             if approve.load(Ordering::SeqCst) {
                                 let next = if params["value"] == true { &on } else { &off };
+                                enabled.store(params["value"] == true, Ordering::SeqCst);
                                 *status.lock().unwrap() = next.clone();
                                 Ok(json!({"path": params["path"], "value": params["value"]}))
                             } else {
@@ -1346,8 +1353,8 @@ fn cmux_setup_computer_use_names_what_it_cannot_change() {
 }
 
 /// Allowed, but the app still reads `off` (its phase follows the setting a
-/// moment later): setup says to wait, not to ask the person again, and the
-/// rerun asks for no second sheet once the phase caught up.
+/// moment later): setup says to wait, not to ask the person again, and no
+/// rerun asks for a second sheet, before or after the phase caught up.
 #[test]
 fn cmux_setup_computer_use_waits_when_the_phase_lags_the_ok() {
     let mut world = World::new("culag");
@@ -1357,6 +1364,9 @@ fn cmux_setup_computer_use_waits_when_the_phase_lags_the_ok() {
     assert_eq!(result["state"], "needs_user", "{result}");
     assert_eq!(result["user_action"]["kind"], "wait", "{result}");
     assert_eq!(result["undo"], "cmux settings set computerUse.enabled false --confirm");
+    let early = world.json(&["setup", "computer-use"]);
+    assert_eq!(early["user_action"]["kind"], "wait", "{early}");
+    assert_eq!(early["undo"], Value::Null, "{early}");
     *app.status.lock().unwrap() =
         json!({"phase": "ready", "accessibility": true, "screen_recording": true, "helper": "1"});
     let rerun = world.json(&["setup", "computer-use"]);

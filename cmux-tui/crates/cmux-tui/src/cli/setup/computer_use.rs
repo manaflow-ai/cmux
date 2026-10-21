@@ -65,6 +65,14 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> Result<Outcome, Refus
     report["before"] = before.clone();
     let mut current = before;
     if current["phase"] == "off" {
+        // Already on, and the app's phase has not caught up: asking again
+        // would show the person a second sheet.
+        if enabled(global) {
+            report["state"] = json!("needs_user");
+            report["after"] = current;
+            report["user_action"] = wait_step();
+            return Ok(Outcome { report, failed: false });
+        }
         if dry_run {
             report["state"] = json!("planned");
             report["undo"] = json!(UNDO);
@@ -158,6 +166,20 @@ fn read(global: &GlobalArgs) -> Result<Value, Value> {
         None,
     )
     .map_err(|error| app_problem(&error))
+}
+
+/// Whether the setting is already on. An app that does not answer reads as
+/// off, so setup asks as before.
+fn enabled(global: &GlobalArgs) -> bool {
+    let params = json!({"path": SETTING});
+    super::super::mcp::agent_app(
+        global,
+        "settings.get",
+        params,
+        super::super::app::READ_TIMEOUT,
+        None,
+    )
+    .is_ok_and(|reply| reply["value"] == Value::Bool(true))
 }
 
 /// Turns Computer Use on: the app asks the person on its sheet. Answers what
