@@ -59,6 +59,8 @@ export function ChiefPetCard({ focus = null }: { focus?: string | null }) {
   const revealedFor = useRef<string | null>(null);
   // The character under the pointer or keyboard focus: the preview shows it until it leaves.
   const [previewed, setPreviewed] = useState<string | null>(null);
+  // Each click bumps it: a pick turns the pet on only if no later click came while its write was out.
+  const clicks = useRef(0);
   const target = shown.connected && shown.readable && character.readable ? focus : null;
   const reveal = (control: HTMLElement | null) => {
     if (!control || revealedFor.current === target) return;
@@ -75,13 +77,22 @@ export function ChiefPetCard({ focus = null }: { focus?: string | null }) {
   const value = character.value;
   const mascot = CHIEF_PET_MASCOTS.find((entry) => entry.id === value) ?? CHIEF_PET_MASCOTS[0];
   const selected = enabled ? mascot.id : "none";
-  const preview = CHIEF_PET_MASCOTS.find((entry) => entry.id === previewed) ?? mascot;
+  // A locked grid previews nothing: a disabled card may never get its mouseleave or blur.
+  const live = gridLocked ? null : previewed;
+  const preview = CHIEF_PET_MASCOTS.find((entry) => entry.id === live) ?? mascot;
+  const setShown = (on: boolean) => {
+    clicks.current += 1;
+    void store.set(CHIEF_PET_ENABLED, on);
+  };
   const choose = (id: string) => {
-    if (id === "none") return void store.set(CHIEF_PET_ENABLED, false);
-    // A refused character write leaves the pet as it was.
+    if (id === "none") return setShown(false);
+    const click = (clicks.current += 1);
+    // A refused character write leaves the pet as it was; a later click (None, Hide Pet) wins.
     void store
       .set(CHIEF_PET_MASCOT, id)
-      .then((result) => (result.ok && !enabled ? store.set(CHIEF_PET_ENABLED, true) : undefined));
+      .then((result) =>
+        result.ok && !enabled && clicks.current === click ? store.set(CHIEF_PET_ENABLED, true) : undefined,
+      );
   };
   return (
     <section className="group chief-pet" data-card="chief-pet" data-enabled={enabled ? "true" : "false"}>
@@ -93,7 +104,7 @@ export function ChiefPetCard({ focus = null }: { focus?: string | null }) {
           data-action="chief-pet-toggle"
           disabled={toggleLocked}
           ref={target === CHIEF_PET_ENABLED ? reveal : undefined}
-          onClick={() => void store.set(CHIEF_PET_ENABLED, !enabled)}
+          onClick={() => setShown(!enabled)}
         >
           {enabled ? t("settingsPage.chiefPet.hide") : t("settingsPage.chiefPet.show")}
         </button>
@@ -101,8 +112,8 @@ export function ChiefPetCard({ focus = null }: { focus?: string | null }) {
       <RowStatus settingKey={CHIEF_PET_ENABLED} state={shown} />
       <div
         className="chief-pet-preview"
-        data-enabled={enabled || previewed ? "true" : "false"}
-        data-previewing={previewed ? "true" : "false"}
+        data-enabled={enabled || live ? "true" : "false"}
+        data-previewing={live ? "true" : "false"}
       >
         <img className="chief-pet-art" src={preview.art} alt={t(`settings.choice.chiefPetMascot.${preview.id}`)} />
         <Rail />

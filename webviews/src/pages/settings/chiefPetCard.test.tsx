@@ -82,11 +82,11 @@ test("hovering a character previews it without picking it", async () => {
   const fox = card(page.container).querySelector<HTMLElement>('[data-pet="fox"]')!;
   const preview = () => card(page.container).querySelector<HTMLElement>(".chief-pet-preview")!;
   // React's onMouseEnter and onMouseLeave come from mouseover and mouseout.
-  await act(async () => fox.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })));
+  await act(async () => fox.dispatchEvent(new window.MouseEvent("mouseover", { bubbles: true })));
   expect(shown(card(page.container)).character).toBe("Fox");
   expect(preview().dataset.previewing).toBe("true");
   expect(checked(card(page.container))).toBe("none");
-  await act(async () => fox.dispatchEvent(new MouseEvent("mouseout", { bubbles: true })));
+  await act(async () => fox.dispatchEvent(new window.MouseEvent("mouseout", { bubbles: true })));
   expect(shown(card(page.container))).toEqual({ enabled: false, character: "Moon" });
   expect(preview().dataset.previewing).toBe("false");
   page.unmount();
