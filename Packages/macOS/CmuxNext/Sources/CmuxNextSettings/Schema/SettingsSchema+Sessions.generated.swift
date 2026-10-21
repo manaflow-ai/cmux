@@ -8,6 +8,9 @@ extension SessionSettings {
     /// `sessions.resumeAgents`: On: a terminal brought back after a crash or restart runs its agent's resume (claude --resume <id>, codex resume <id>) at the new shell's empty prompt. Off, or a settings file that does not parse: nothing runs, and the restored line shows the command. The daemon reads it at each respawn (cmux-tui-util user_settings::resume_agents). Commands other than agents never run again.
     public nonisolated static let resumeAgentsPath = ["sessions", "resumeAgents"]
     public nonisolated static let resumeAgentsDefault = true
+    /// `sessions.allowFullAccess`: Off: AgentPaneTransport refuses session/set_mode and the mode config option into a mode that skips approvals (AgentPaneModeConfirmation.isFullAccess, the picker's warning-color rule). On by default: today's behavior, and Lawrence 2026-10-07 (no sheet for full access).
+    public nonisolated static let allowFullAccessPath = ["sessions", "allowFullAccess"]
+    public nonisolated static let allowFullAccessDefault = true
 }
 
 extension SessionSettings {
@@ -54,6 +57,16 @@ nonisolated enum SessionSettingsSchema {
                 kind: .toggle,
                 default: .bool(SessionSettings.resumeAgentsDefault),
                 keywords: ["resume", "restore", "restart", "reboot", "crash", "claude", "codex", "agents"]
+            ),
+            SettingDescriptor(
+                SessionSettings.allowFullAccessPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.sessions.allowFullAccess", "Allow Full-Access Modes"),
+                help: SettingsText.keyed("settings.sessions.allowFullAccess.help", "Off, cmux won't switch an agent into a mode that skips approvals."),
+                kind: .toggle,
+                default: .bool(SessionSettings.allowFullAccessDefault),
+                keywords: ["bypass", "permissions", "yolo", "full access", "dangerous", "approve", "safety"]
             ),
         ]
     }
