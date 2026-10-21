@@ -1,7 +1,9 @@
 //! What a respawned terminal (cx-6so.49 L2) does with what it ran:
 //! - the resume command a person set for the terminal (`resume-command`,
 //!   `terminal_resume_store`) wins over anything the daemon would offer. It
-//!   is typed without Return, so they decide whether to run it;
+//!   is typed without Return, so they decide whether to run it, and only on
+//!   a prompt shell integration marks with the shell in the foreground, so
+//!   it never lands in a program the shell's startup files started;
 //! - else an agent session whose harness is known resumes, started as it was
 //!   (its flags and account directory, `relaunch_store::agent_launch`):
 //!   `CLAUDE_CONFIG_DIR=<dir> claude --resume <id> <flags>` or
@@ -12,8 +14,9 @@
 //!   - the new shell is a POSIX shell (sh, bash, zsh, dash, ksh), the
 //!     quoting it is written in;
 //!   - its flags turn no approvals off (`--dangerously-skip-permissions`,
-//!     `--permission-mode bypassPermissions`, codex `--yolo`, a codex
-//!     profile, which may): a respawn never starts an agent with its
+//!     `--permission-mode bypassPermissions`, codex `--yolo`, `-s
+//!     danger-full-access` or `-a never`; a claude settings file or agent
+//!     and a codex profile count too, as they may): a respawn never starts an agent with its
 //!     approvals off by itself (#22292). Such a resume is typed without
 //!     Return instead;
 //!   - when it is written, shell integration itself marks the prompt (OSC
@@ -211,33 +214,42 @@ fn agent_prefill(record: &StoredRelaunch, resume_agents: bool) -> Option<Prefill
 /// Whether `flags` may start `harness` with its approvals off. A codex
 /// profile (`-p`) may set them, so it counts; an unknown harness counts.
 fn turns_approvals_off(harness: &str, flags: &[String]) -> bool {
-    let has = |names: &[&str]| {
-        flags.iter().any(|flag| {
-            names.contains(&flag.as_str())
-                || names.iter().any(|name| flag.starts_with(&format!("{name}=")))
-        })
-    };
-    let has_value = |names: &[&str], values: &[&str]| {
-        flags
-            .windows(2)
-            .any(|pair| names.contains(&pair[0].as_str()) && values.contains(&pair[1].as_str()))
-            || flags.iter().any(|flag| {
-                flag.split_once('=')
-                    .is_some_and(|(name, value)| names.contains(&name) && values.contains(&value))
-            })
-    };
+    let has = |names: &[&str]| !flag_values(flags, names).is_empty();
+    let has_value = |names: &[&str], value: &str| flag_values(flags, names).contains(&value);
     match harness {
+        // A settings file or an agent definition can set the permission mode.
         "claude" => {
-            has(&["--dangerously-skip-permissions"])
-                || has_value(&["--permission-mode"], &["bypassPermissions"])
+            has(&["--dangerously-skip-permissions", "--settings", "--agent"])
+                || has_value(&["--permission-mode"], "bypassPermissions")
         }
         "codex" => {
             has(&["--dangerously-bypass-approvals-and-sandbox", "--yolo", "-p", "--profile"])
-                || has_value(&["-s", "--sandbox"], &["danger-full-access"])
-                || has_value(&["-a", "--ask-for-approval"], &["never"])
+                || has_value(&["-s", "--sandbox"], "danger-full-access")
+                || has_value(&["-a", "--ask-for-approval"], "never")
         }
         _ => true,
     }
+}
+
+/// The values `flags` give a flag in `names`: `name value`, `name=value`
+/// or, for a short name, `-nvalue` (`relaunch_store::agent_launch` keeps
+/// each form). A flag given without a value counts with an empty one.
+fn flag_values<'a>(flags: &'a [String], names: &[&str]) -> Vec<&'a str> {
+    let mut values = Vec::new();
+    for (index, flag) in flags.iter().enumerate() {
+        for name in names {
+            if flag == name {
+                values.push(flags.get(index + 1).map_or("", String::as_str));
+            } else if let Some(rest) = flag.strip_prefix(name) {
+                if let Some(value) = rest.strip_prefix('=') {
+                    values.push(value);
+                } else if name.len() == 2 && !rest.is_empty() {
+                    values.push(rest);
+                }
+            }
+        }
+    }
+    values
 }
 
 /// What a respawned terminal ran, as its marker line names it.
@@ -363,6 +375,8 @@ mod tests {
             &["--dangerously-skip-permissions"][..],
             &["--model", "opus", "--permission-mode", "bypassPermissions"],
             &["--permission-mode=bypassPermissions"],
+            &["--settings", "yolo.json"],
+            &["--agent=reviewer"],
         ] {
             assert!(turns_approvals_off("claude", &strings(flags)), "{flags:?}");
         }
@@ -376,10 +390,16 @@ mod tests {
             &["--sandbox=danger-full-access"],
             &["-a", "never"],
             &["-p", "work"],
+            &["-pwork"],
+            &["-sdanger-full-access"],
+            &["-anever"],
+            &["--profile=work"],
         ] {
             assert!(turns_approvals_off("codex", &strings(flags)), "{flags:?}");
         }
-        for flags in [&["-m", "gpt-5.5"][..], &["--full-auto"], &["-a", "on-request"]] {
+        for flags in
+            [&["-m", "gpt-5.5"][..], &["--full-auto"], &["-a", "on-request"], &["-aon-request"]]
+        {
             assert!(!turns_approvals_off("codex", &strings(flags)), "{flags:?}");
         }
     }
