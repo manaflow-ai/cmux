@@ -117,8 +117,13 @@ import Testing
         for file in [history, wal, shm] { #expect(!FileManager.default.fileExists(atPath: file.path)) }
     }
 
+    /// A root with no symbolic link anywhere above it, as cleanup requires. The temporary
+    /// folder is /var/folders/… and /var links to /private/var; `resolvingSymlinksInPath()`
+    /// drops a leading /private again, so the real path comes from realpath(3).
     private func temporaryRoot() throws -> URL {
-        let root = FileManager.default.temporaryDirectory.resolvingSymlinksInPath().appending(
+        let temporary = try #require(realpath(FileManager.default.temporaryDirectory.path, nil))
+        defer { free(temporary) }
+        let root = URL(fileURLWithPath: String(cString: temporary), isDirectory: true).appending(
             path: "cmux-legacy-history-\(UUID().uuidString)",
             directoryHint: .isDirectory
         )
