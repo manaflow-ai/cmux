@@ -116,6 +116,40 @@ struct AgentPaneUnsentPromptTests {
         #expect(Self.prompts(daemon, peer: 2).isEmpty, "a prompt acpmux answered went again at the next launch")
     }
 
+    /// The daemon closes the connection before it acknowledged a prompt (an acpmux restart, a reset
+    /// socket): the pane's next connection sends it again, once, as a resend of the same prompt id,
+    /// and the page waits for it there instead of asking the person to send it again ("The agent
+    /// connection was interrupted", 2026-10-20).
+    @Test func aPromptTheDaemonDroppedWithItsConnectionGoesAgainOnTheNextOne() async throws {
+        let url = Self.journalURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let daemon = AcpmuxStandInServer()
+        try await daemon.start()
+        defer { daemon.stop() }
+        daemon.hold("session/prompt")
+        let pane = try await Self.pane(daemon, journal: AgentPanePromptJournal(url: url))
+        let inbox = pane.inbox
+        pane.transport.deliver = { event, done in
+            inbox.deliver(event.frames + (event.closed == nil ? [] : ["<closed>"]))
+            done()
+        }
+        pane.transport.gestures.record()
+        #expect(await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 1, promptId: "p-5")]) == nil)
+        #expect(await daemon.wait { _ in Self.prompts(daemon, peer: 0).count == 1 })
+        daemon.pushThenClose([], to: 0)
+        _ = await inbox.frame(containing: "<closed>")
+
+        let again = try await pane.transport.open(
+            AcpmuxConnection(url: daemon.url, dashboardToken: "t", localAppToken: nil, socketPath: Self.daemon))
+        #expect(await pane.transport.send(connection: again, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#]) == nil)
+        await Self.barrier(Pane(server: daemon, transport: pane.transport, inbox: inbox, id: again), id: 2)
+        let resent = Self.prompts(daemon, peer: 1)
+        #expect(resent.count == 1, "the prompt the daemon dropped with its connection was not sent again")
+        guard let frame = resent.first else { return }
+        #expect(Self.mux(frame)?["promptId"] as? String == "p-5")
+        #expect(Self.mux(frame)?["resend"] as? Bool == true, "a prompt sent again must say so, so acpmux runs it at most once")
+    }
+
     /// A prompt acpmux acknowledged (`_acpmux/prompt_accepted`) is in its session log: the
     /// relaunch never sends it, even when its turn was still running as the app ended.
     @Test func anAcknowledgedPromptIsNotSentAgain() async throws {
