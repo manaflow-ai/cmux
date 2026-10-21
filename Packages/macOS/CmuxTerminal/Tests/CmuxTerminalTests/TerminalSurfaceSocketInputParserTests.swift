@@ -52,6 +52,17 @@ import CmuxTerminalCore
         #expect(rawBytes(in: events).isEmpty)
     }
 
+    /// `ESC O` then text is Escape, then the text (vim's "open line above").
+    @Test func escapeThenCapitalOStaysTheEscapeKey() {
+        let events = TerminalSurface.parsedSocketInputEvents(for: "\u{1B}Ofix")
+        guard case .key(let key) = events.first else {
+            Issue.record("Expected the Escape key first: \(events)")
+            return
+        }
+        #expect(key.label == "escape")
+        #expect(rawBytes(in: events) == Data("Ofix".utf8))
+    }
+
     @Test func c1StringRepliesStayTerminalBytes() {
         let replies = ["\u{9B}50;1R", "\u{9D}11;rgb:1e1e/1e1e/1e1e\u{9C}", "\u{98}terminal-status\u{9C}"]
         let events = TerminalSurface.parsedSocketInputEvents(for: replies.joined())
