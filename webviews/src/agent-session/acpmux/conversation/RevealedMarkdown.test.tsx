@@ -9,7 +9,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { RevealedMarkdown, revealFrames } from "./RevealedMarkdown";
-import { wordEdge } from "../streamReveal";
+import { StreamReveal, wordEdge } from "../streamReveal";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -135,6 +135,55 @@ test("with the Debug toggle off, a reply grows a character at a time", () => {
   expect(shown.at(-1)).toBe("Hello there wor");
   // On the way there it showed parts of words.
   expect(shown).toContain("Hello there w");
+});
+
+/// Runs a display frame `gap` ms after the one before for each of `gaps`, from `from`; returns how
+/// many ran a reveal step (StreamReveal.advance), the frames that commit.
+function steps(from: number, gaps: number[]): number {
+  const advance = StreamReveal.prototype.advance;
+  let count = 0;
+  StreamReveal.prototype.advance = function (this: StreamReveal, ...args: Parameters<typeof advance>) {
+    count += 1;
+    return advance.apply(this, args);
+  };
+  try {
+    let now = from;
+    for (const gap of gaps) {
+      now += gap;
+      const pending = queued;
+      queued = [];
+      act(() => {
+        for (const callback of pending) callback(now);
+      });
+    }
+  } finally {
+    StreamReveal.prototype.advance = advance;
+  }
+  return count;
+}
+
+const LONG_REPLY = "The checks on the merged head are green and the notes are ready. ".repeat(30);
+
+// WebKit's frame times are whole milliseconds and jitter: a 14 or 15 ms frame follows a 17 to 19
+// ms one. Each frame is still a 60 Hz display frame, and one with no step is a frame the reply did
+// not grow while text waited (the streaming-text harness counted 64 to 119 a reply in WebKit).
+test("on a 60 Hz display the reveal steps on every frame, with WebKit's jittery frame times", () => {
+  root = createRoot(container);
+  render("", true);
+  render(LONG_REPLY, true);
+  const gaps = [17, 19, 14, 17, 15, 18, 16, 17, 14, 19, 17, 16, 15, 18];
+  expect(steps(0, gaps)).toBe(gaps.length);
+});
+
+// Fades run on the compositor, so a faster display commits no more than 60 times a second.
+test("on a 120 Hz display the reveal steps on every other frame", () => {
+  root = createRoot(container);
+  render("", true);
+  render(LONG_REPLY, true);
+  const frameGaps = (count: number) => Array.from({ length: count }, () => 1000 / 120);
+  // The loop learns the display's frame time over its first few frames.
+  steps(0, frameGaps(8));
+  expect(steps(8000 / 120, frameGaps(12))).toBe(6);
 });
 
 test("wordEdge ends at a whole word, keeps what shows, and lets a long word through", () => {
