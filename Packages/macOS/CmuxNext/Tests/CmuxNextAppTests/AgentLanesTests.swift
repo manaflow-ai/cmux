@@ -21,11 +21,12 @@ import Testing
 struct AgentLanesTests {
     /// One session summary as acpmux sends it, with its lane.
     static func summary(_ id: String, _ state: String, since: Double = 1_760_000_000_000, error: String? = nil,
-                        parent: String? = nil, peer: String? = nil) -> [String: Any] {
+                        parent: String? = nil, peer: String? = nil, workspaceID: String? = nil) -> [String: Any] {
         var summary: [String: Any] = ["sessionId": id, "name": id, "status": "idle",
                                       "lane": ["state": state, "since": since, "error": error as Any]]
         if let parent { summary["tags"] = [AgentActivityLane.parentTag: parent] }
         if let peer { summary["peer"] = peer; summary["name"] = "\(peer)/\(id)" }
+        if let workspaceID { summary["workspaceId"] = workspaceID }
         return summary
     }
 
@@ -77,7 +78,47 @@ struct AgentLanesTests {
         withExtendedLifetime((acpmux, feed)) {}
     }
 
-    @Test func theLanesItemShowsOnlyWhileLabsPreviewFeaturesAreOn() async throws {
+    @Test func aLanePreservesTheExistingSessionWorkspaceBinding() {
+        let summary = Self.summary("codex-1", "working", workspaceID: "workspace-7")
+        let lane = AgentActivityLane.of(summary: summary)
+        #expect(lane?.workspaceID == "workspace-7")
+    }
+
+    /// hq#2509: a lane row says which harness owns it and what it is doing now. acpmux masks
+    /// secrets in `lane.step` before the summary leaves it; the raw prompt beside it still holds
+    /// the token, so the app reads only `lane.step` and never falls back to the prompt.
+    @Test func aLaneShowsTheDaemonsMaskedStepNeverTheRawPrompt() {
+        let token = "gh" + "p_" + "aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jS1234"
+        var summary = Self.summary("op-busy", "working")
+        summary["harness"] = "codex"
+        summary["turn"] = ["prompt": "push with \(token)", "startedAt": 1_760_000_500_000.0]
+        summary["lastMessage"] = ["role": "agent", "text": token]
+        summary["lane"] = ["state": "working", "since": 1_760_000_500_000.0, "error": NSNull(), "step": "push with [github token]"]
+        let lane = AgentActivityLane.of(summary: summary)
+        #expect(lane?.harness == "codex")
+        #expect(lane?.step == "push with [github token]")
+
+        summary["lane"] = ["state": "working", "since": 1_760_000_500_000.0, "error": NSNull()]
+        #expect(AgentActivityLane.of(summary: summary)?.step == nil, "an acpmux from before lane.step shows no step")
+    }
+
+    /// hq#2509: a lane's title is acpmux's masked `lane.title`, never the summary's raw title or
+    /// latest prompt; an acpmux from before it shows the session's name.
+    @Test func aLanesTitleIsTheDaemonsMaskedTitle() {
+        let token = "gh" + "p_" + "aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jS1234"
+        var summary = Self.summary("op-busy", "working")
+        summary["title"] = "push \(token)"
+        summary["lastPrompt"] = "push \(token)"
+        summary["lane"] = ["state": "working", "since": 1_760_000_500_000.0, "error": NSNull(), "title": "push [github token]"]
+        #expect(AgentActivityLane.of(summary: summary)?.title == "push [github token]")
+        summary["lane"] = ["state": "working", "since": 1_760_000_500_000.0, "error": NSNull()]
+        #expect(AgentActivityLane.of(summary: summary)?.title == "op-busy")
+    }
+
+    /// Leo 2026-10-20: "I'm not sure which ones are actually running... Isn't there an expanded
+    /// view of things?" The lanes view is that view, so the sidebar's Lanes item shows by default,
+    /// not only while Labs preview features are on, and stays with Labs off.
+    @Test func theLanesItemShowsWithoutLabsPreviewFeatures() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cnc-lanes-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appending(path: "cmux.json")
@@ -87,25 +128,23 @@ struct AgentLanesTests {
         await settings.reload()
         let lanes = AgentLaneStore()
         lanes.lanes = ["op-broke": AgentActivityLane(id: "op-broke", name: "op-broke", title: "op-broke", peer: nil, parent: nil,
-                                                     state: .failed, since: nil, error: "Credit balance too low")]
-        let center = WhatsNewCenter(currentVersion: "0", defaults: UserDefaults(suiteName: "cnc-lanes-\(UUID().uuidString)")!, sources: [])
+                                                     state: .failed, since: nil, error: "Credit balance too low", workspaceID: nil)]
         let model = SidebarModel()
-        let feed = SidebarWhatsNewItemFeed.start(model: model, center: center, settings: settings, lanes: lanes)
+        let feed = SidebarWhatsNewItemFeed.start(model: model, settings: settings, lanes: lanes)
         defer { feed.cancel() }
         let lanesItem = { model.transientTopItems.first { $0.item.id == SidebarTransientItem.lanesID } }
 
-        try await Task.sleep(for: .milliseconds(200))
-        #expect(lanesItem() == nil, "off by default: no Lanes item")
-
-        try Data(#"{"labs": {"previewFeatures": true}}"#.utf8).write(to: url)
-        await settings.reload()
         try await until { lanesItem() != nil }
-        #expect(lanesItem()?.info.badge == 1)
+        #expect(lanesItem()?.info.badge == 1, "on by default: the failed session counts")
 
-        try Data("{}".utf8).write(to: url)
+        try Data(#"{"labs": {"previewFeatures": false}}"#.utf8).write(to: url)
         await settings.reload()
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(lanesItem() != nil, "Labs off keeps the Lanes item")
+
+        lanes.lanes = [:]
         try await until { lanesItem() == nil }
-        #expect(lanesItem() == nil)
+        #expect(lanesItem() == nil, "no lane: no Lanes item")
     }
 
     /// Leo 2026-10-15: the Lanes item counts his own sessions on this Mac, not every acpmux peer's

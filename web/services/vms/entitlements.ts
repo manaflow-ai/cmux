@@ -8,6 +8,7 @@ import {
   TEAM_PLAN_ID,
   isPaidPlanId,
 } from "../billing/pro";
+import { hasCompanyPlanGrant } from "../billing/companyPlan";
 import { planIncludes } from "../billing/planTier";
 import {
   MAX_PLAN_RESOURCE_POOL,
@@ -83,6 +84,17 @@ export function resolveVmEntitlements(
   options: VmEntitlementOptions = {},
 ): VmEntitlements {
   const billing = resolveBillingContext(user, options);
+  if (hasCompanyPlanGrant(user)) {
+    // Staff accounts are Team by default and may run any number of machines.
+    // Max keeps Max's larger machine sizes; neither has a count cap or pool.
+    return {
+      planId: normalizedPlanId(user.userBillingPlanId ?? "") === MAX_PLAN_ID ? MAX_PLAN_ID : TEAM_PLAN_ID,
+      billingCustomerType: billing.billingCustomerType,
+      billingTeamId: billing.billingTeamId,
+      maxActiveVms: null,
+      resourcePool: null,
+    };
+  }
   if (!user.isAnonymous && isDevelopmentProAccessEnabled(env) && user.userBillingPlanId !== MAX_PLAN_ID) {
     const maxActiveVms = maxActiveVmsForPlan(PRO_PLAN_ID, env, { seats: billing.billingSeats });
     return {

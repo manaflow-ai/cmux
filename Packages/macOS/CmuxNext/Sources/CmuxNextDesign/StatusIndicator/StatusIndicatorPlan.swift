@@ -28,11 +28,10 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
     }
 
     public enum Animation: Hashable, Sendable {
-        /// Continuous rotation (Motion `spinner` period).
+        /// Continuous clockwise rotation (Motion `spinner` period). The only
+        /// direction: every spinner turns the same way (Lawrence 2026-10-20), so
+        /// there is no backward case to reach for.
         case spin
-        /// `spin` the other way: a page waiting for its first response (Chromium's
-        /// waiting throbber turns counter-clockwise, its loading one clockwise).
-        case spinBackward
         /// Rotation in discrete steps, one spoke at a time, like the native
         /// control.
         case step
@@ -79,9 +78,14 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
     /// (`Motion.animatesLoops`): then nothing animates and the static glyph
     /// stays, so an indicator never costs a frame it cannot be seen in.
     /// `set` restyles the attention and working marks (`StatusIconSet`);
-    /// the default `current` is the drawing above, unchanged.
+    /// the default `current` is the drawing above, unchanged. `isStatic`
+    /// (`StatusIndicatorConfig.isStatic`) draws the static look whatever the
+    /// set (`staticLookPlan`); `staticShapes` picks its shapes over the
+    /// Static set's glyphs.
     public static func make(_ state: StatusIndicatorState, style: StatusIndicatorStyle, animates: Bool,
-                            set: StatusIconSet = .current) -> StatusIndicatorPlan {
+                            set: StatusIconSet = .current, isStatic: Bool = false,
+                            staticShapes: Bool = false) -> StatusIndicatorPlan {
+        if isStatic { return staticLookPlan(state, style: style, shapes: staticShapes) }
         var plan = set.plan(for: state) ?? staticPlan(state, style: style)
         if !animates {
             plan.animation = nil
@@ -92,7 +96,7 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
         return plan
     }
 
-    private static func staticPlan(_ state: StatusIndicatorState, style: StatusIndicatorStyle) -> StatusIndicatorPlan {
+    static func staticPlan(_ state: StatusIndicatorState, style: StatusIndicatorStyle) -> StatusIndicatorPlan {
         switch state {
         case .idle:
             return .hidden

@@ -70,7 +70,7 @@ import Testing
         try #require(strip.result.contentWidth > strip.viewportWidth, "42 tabs fit in 1000 pt, nothing scrolls")
 
         harness.scroll(to: harness.last)
-        try #require(strip.scroll.value > 0, "revealing the last tab did not scroll the strip")
+        try #require(strip.scrollOffset > 0, "revealing the last tab did not scroll the strip")
         for id in harness.pinned {
             let slot = try #require(strip.result.slot(id))
             let cell = try #require(strip.cells[id])
@@ -81,7 +81,7 @@ import Testing
         // The unpinned tabs scrolled.
         let unpinned = try #require(strip.result.slots.last { !$0.isPinned })
         let lastCell = try #require(strip.cells[unpinned.id])
-        #expect(abs(lastCell.frame.minX - (unpinned.x - strip.scroll.value)) <= 0.5)
+        #expect(abs(lastCell.frame.minX - (unpinned.x - strip.scrollOffset)) <= 0.5)
         #expect(lastCell.frame.maxX <= strip.viewportWidth + 0.5, "the selected last tab is out of view")
         // Unpinned tabs scrolled under the pinned band draw nothing over it.
         let band = harness.band
@@ -99,9 +99,9 @@ import Testing
 
         // A pinned tab is always in view: revealing it scrolls nothing.
         harness.scroll(to: harness.last)
-        let scrolled = strip.scroll.value
+        let scrolled = strip.scrollOffset
         harness.scroll(to: harness.pinned[0])
-        #expect(strip.scroll.value == scrolled, "revealing a pinned tab scrolled the strip from \(scrolled) to \(strip.scroll.value)")
+        #expect(strip.scrollOffset == scrolled, "revealing a pinned tab scrolled the strip from \(scrolled) to \(strip.scrollOffset)")
     }
 
     /// Pinned tabs wider than the strip cannot stay fixed: the whole strip scrolls, pinned tabs too.
@@ -111,7 +111,7 @@ import Testing
         defer { harness.window.orderOut(nil) }
         let strip = harness.strip
         harness.scroll(to: harness.last)
-        try #require(strip.scroll.value > 0)
+        try #require(strip.scrollOffset > 0)
         let cell = try #require(strip.cells[harness.pinned[0]])
         #expect(cell.frame.minX < -0.5, "12 pinned tabs in 600 pt stayed fixed, the unpinned tabs have no room")
         let lastCell = try #require(strip.cells[harness.last])

@@ -8,7 +8,7 @@ extension HomeStore {
         let outcome = liveBook.apply(event) { author in author ?? self.chief(of: conversation) }
         switch outcome {
         case .ignored: break
-        case .changed: live = liveBook.shown
+        case .changed: publishLive(conversation)
         case .resync: requestLive(conversation)
         }
         // A run record names the reply's key (Cloud: Run.turn): a reply that came first ends the run now.
@@ -41,11 +41,42 @@ extension HomeStore {
                 changed = liveBook.end(key) || changed
             }
         }
-        if changed { live = liveBook.shown }
+        if changed { publishLive(conversation) }
     }
+
+    /// After the live or draft book changed for `conversation`: `live`, `drafts` and that
+    /// conversation's `streams` take the books' values (each assigned only when it changed, so an
+    /// unchanged one wakes no observer).
+    func publishLive(_ conversation: ConversationID) {
+        let shown = liveBook.shown
+        if live != shown { live = shown }
+        if drafts != draftBook.live { drafts = draftBook.live }
+        let rows = streamRows(conversation)
+        if streams[conversation, default: []] != rows { streams[conversation] = rows.isEmpty ? nil : rows }
+    }
+
+    /// Every running reply of `conversation` in begin order: the Chief live runs, then a reply
+    /// from an older owner's `conversation-draft` that is not one of them.
+    private func streamRows(_ conversation: ConversationID) -> [HomeStreamRow] {
+        var rows = liveBook.streams(in: conversation).map { HomeStreamRow(turn: $0.turn, author: $0.participant, text: $0.text) }
+        if let draft = draftBook.live[conversation], !rows.contains(where: { $0.turn == draft.turn }) {
+            rows.append(HomeStreamRow(turn: draft.turn, author: draft.participant, text: draft.text))
+        }
+        return rows.filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+
+    /// The running replies of `id`, in the order their turns began (``HomeTimeline/streams``).
+    public func streams(in id: ConversationID) -> [HomeStreamRow] { streams[id] ?? [] }
 
     /// The running Chief run `id` shows (`live`), nil when none.
     public func liveRun(in id: ConversationID) -> HomeLiveRun? { live[id] }
+
+    /// Who shows typing dots in `id`: the owner's typing frames, plus the author of a run still
+    /// running there. One rule for every view: typing frames do not outlive a connection
+    /// (`handle(.connection)`), a running turn's dots come from its live run.
+    public func typists(in id: ConversationID) -> Set<ParticipantID> {
+        (typing[id] ?? []).union(live[id].map { [$0.participant] } ?? [])
+    }
 
     /// Asks the owner for its `run.live` snapshot (it arrives as an event).
     func requestLive(_ conversation: ConversationID) {

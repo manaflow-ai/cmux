@@ -75,7 +75,7 @@ function DigestRelease({
           {item.media ? <Media media={item.media} className="cld-thumb" /> : <span />}
         </div>
       ))}
-      {view && <ChangesFold changes={view.changes} strings={ctx.strings} />}
+      {view && <ChangesFold changes={view.changes} internal={view.internalChanges} strings={ctx.strings} />}
     </section>
   );
 }

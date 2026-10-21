@@ -395,6 +395,24 @@ impl Mux {
         self.workspace_registry.lock().unwrap().resource_events_after(revision)
     }
 
+    /// A read-only reader for a `session.events` stream's resource pages and
+    /// the registry generation its pages carry, or `None` for an in-memory
+    /// registry (then the stream reads through `resource_events_after`).
+    /// Takes the registry lock once, briefly, with no SQLite work.
+    pub(crate) fn resource_event_reader(
+        &self,
+    ) -> anyhow::Result<Option<(crate::workspace_registry::SessionJournalReader, String)>> {
+        let (database_path, generation) = {
+            let registry = self.workspace_registry.lock().unwrap();
+            (registry.session_journal_database_path(), registry.generation().to_owned())
+        };
+        database_path
+            .as_deref()
+            .map(crate::workspace_registry::SessionJournalReader::open)
+            .transpose()
+            .map(|reader| reader.map(|reader| (reader, generation)))
+    }
+
     /// The journal head without decoding any record or sealed segment.
     pub(crate) fn session_journal_head(&self) -> anyhow::Result<u64> {
         self.workspace_registry.lock().unwrap().session_journal_head()
@@ -406,6 +424,21 @@ impl Mux {
         limit: usize,
     ) -> anyhow::Result<crate::workspace_registry::SessionJournalPage> {
         self.workspace_registry.lock().unwrap().session_journal_after(sequence, limit)
+    }
+
+    /// Records in `(sequence, through]` other than `terminal.output`, at
+    /// most `limit`, and the sequence the read covered through (see
+    /// `WorkspaceRegistry::session_journal_without_output_after`).
+    pub(crate) fn session_journal_without_output_after(
+        &self,
+        sequence: u64,
+        through: u64,
+        limit: usize,
+    ) -> anyhow::Result<(Vec<crate::workspace_registry::SessionJournalRecord>, u64)> {
+        self.workspace_registry
+            .lock()
+            .unwrap()
+            .session_journal_without_output_after(sequence, through, limit)
     }
 
     pub(crate) fn session_journal_reader(
@@ -569,7 +602,7 @@ impl Mux {
         } else if let Err(_bookkeeping_error) = self
             .workspace_registry
             .lock()
-            .unwrap()
+            .unwrap_or_else(PoisonError::into_inner)
             .clear_agent_hook_pending(&ingress.producer_id, origin, idempotency_key)
         {
             self.report_internal_diagnostic(

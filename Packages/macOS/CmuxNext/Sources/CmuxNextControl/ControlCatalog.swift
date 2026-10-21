@@ -109,6 +109,13 @@ public struct ControlActionInfo: Sendable, Hashable {
     /// The CLI waits for the work's result (`ActionDescriptor.waitsForResult`);
     /// `action.run` with `wait` then gets the result deadline.
     public var waitsForResult = false
+    /// The run waits for a person's answer (`ActionDescriptor.waitsForPerson`);
+    /// `action.run` with `wait` then gets the person deadline.
+    public var waitsForPerson = false
+    /// A keyed daemon create that asks again when its reply is late
+    /// (`ActionDescriptor.waitsForKeyedCreate`): `action.run` with `wait`
+    /// gets `ActionRunLimit.keyedCreate`.
+    public var waitsForKeyedCreate = false
     /// The action's purpose is a view change (`ActionDescriptor.focuses`):
     /// it focuses or shows even when run from the CLI without `focus`.
     public var focuses = false
@@ -160,6 +167,7 @@ public struct ControlActionInfo: Sendable, Hashable {
             "starts_terminal": .bool(startsTerminal),
             "cli": .bool(isCLI),
             "waits_for_result": .bool(waitsForResult),
+            "waits_for_person": .bool(waitsForPerson),
             "focuses": .bool(focuses),
         ]
         if let mainMenu { members["main_menu"] = .string(mainMenu) }

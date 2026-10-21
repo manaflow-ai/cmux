@@ -36,7 +36,49 @@ pub fn discover_harnesses(route: Option<&str>) -> BTreeMap<String, HarnessProfil
     let mut found = discover_harnesses_from(acpx.as_deref(), &which);
     add_coderouter_route(&mut found, route, &which);
     add_cmux_router(&mut found, &which);
+    add_uniichat(&mut found, self_argv());
     found
+}
+
+/// The profile name of the built-in UniiChat harness.
+pub const UNIICHAT_PROFILE: &str = "unii";
+
+/// This process's own binary and the prefix that reaches its subcommands
+/// (`cmux acp …` when acpmux runs inside cmux): the bundled adapter.
+fn self_argv() -> Option<Vec<String>> {
+    let exe = std::env::current_exe().ok()?;
+    let mut argv = vec![exe.to_string_lossy().into_owned()];
+    argv.extend(crate::daemon::daemon_prefix().iter().map(|p| p.to_string_lossy().into_owned()));
+    Some(argv)
+}
+
+/// Adds `unii`: a Chief or chat on UniiChat (uniichat.com, or the server
+/// `$UNII_URL` names) through the bundled `uniichat-agent` adapter, which
+/// speaks UniiChat's own protocol with the sign-in `unii login` keeps. It
+/// needs no program on PATH, so it is always offered; a missing sign-in
+/// fails the session with the setup steps. A profile file named `unii`
+/// (the old `cli-agent` one) still wins.
+pub fn add_uniichat(found: &mut BTreeMap<String, HarnessProfile>, self_argv: Option<Vec<String>>) {
+    if found.contains_key(UNIICHAT_PROFILE) {
+        return;
+    }
+    let Some(mut argv) = self_argv else { return };
+    argv.push("uniichat-agent".into());
+    found.insert(
+        UNIICHAT_PROFILE.to_owned(),
+        HarnessProfile {
+            kind: HarnessKind::Acp,
+            argv,
+            env: BTreeMap::new(),
+            description: Some("UniiChat: one chat that never ends (uniichat.com)".into()),
+            fallback: None,
+            family: Some("unii".into()),
+            models: vec![],
+            model: None,
+            effort: None,
+            policy: None,
+        },
+    );
 }
 
 /// The profile name of the cmux model router harness.
@@ -162,7 +204,17 @@ pub fn discover_harnesses_from(
             }
         }
     }
-    // A `codex` the user imported from ~/.acpx stays theirs.
+    // A `codex` the user imported from ~/.acpx stays theirs, except the retired cmux ACP
+    // installer's own adapter (`~/.local/share/cmux-acp/`): it ran another model than the
+    // config named and titled every chat on a second model, so the in-process bridge takes
+    // `codex` and the adapter stays as `codex-acp` (user 2026-10-20).
+    if agents
+        .get("codex")
+        .is_some_and(|p| p.argv.first().is_some_and(|a| a.contains("/.local/share/cmux-acp/")))
+        && let Some(adapter) = agents.remove("codex")
+    {
+        agents.entry(CODEX_ACP.to_owned()).or_insert(adapter);
+    }
     let codex_imported = agents.contains_key("codex");
     for (name, bin) in [
         ("codex", "codex-acp"),
@@ -332,4 +384,61 @@ fn cursor_agent_launcher(path: &str) -> bool {
         .ok()
         .and_then(|real| real.file_name().map(|n| n == "cursor-agent"))
         .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod uniichat_tests {
+    use super::*;
+
+    #[test]
+    fn unii_is_built_in_through_the_bundled_adapter() {
+        let mut found = BTreeMap::new();
+        add_uniichat(&mut found, Some(vec!["/App/bin/cmux".into(), "acp".into()]));
+        let unii = &found[UNIICHAT_PROFILE];
+        assert_eq!(unii.argv, vec!["/App/bin/cmux", "acp", "uniichat-agent"]);
+        assert_eq!(unii.kind, HarnessKind::Acp);
+        assert_eq!(unii.family.as_deref(), Some("unii"));
+    }
+
+    #[test]
+    fn a_unii_profile_file_still_wins() {
+        let mut found = BTreeMap::new();
+        add_uniichat(&mut found, Some(vec!["/a/acpmux".into()]));
+        let mine = HarnessProfile { argv: vec!["/mine".into()], ..found[UNIICHAT_PROFILE].clone() };
+        let mut found = BTreeMap::from([(UNIICHAT_PROFILE.to_owned(), mine.clone())]);
+        add_uniichat(&mut found, Some(vec!["/a/acpmux".into()]));
+        assert_eq!(found[UNIICHAT_PROFILE], mine);
+    }
+}
+
+#[cfg(test)]
+mod acpx_codex_tests {
+    use super::*;
+
+    fn which(name: &str) -> Option<String> {
+        (name == "codex").then(|| "/opt/bin/codex".to_owned())
+    }
+
+    /// The cmux ACP installer's own codex-acp (an `~/.acpx` entry under
+    /// `~/.local/share/cmux-acp/`) gives way to the in-process bridge: it picked
+    /// another model than the config named and asked a second model to title every
+    /// chat (user 2026-10-20). It stays reachable as `codex-acp`.
+    #[test]
+    fn a_retired_cmux_acp_codex_import_gives_way_to_the_bridge() {
+        let acpx = r#"{"agents": {"codex": {"argv": ["/Users/me/.local/share/cmux-acp/current/bin/codex-acp"]}}}"#;
+        let found = discover_harnesses_from(Some(acpx), &which);
+        assert_eq!(found["codex"].argv, ["/opt/bin/codex", "app-server"]);
+        assert_eq!(
+            found[CODEX_ACP].argv,
+            ["/Users/me/.local/share/cmux-acp/current/bin/codex-acp"]
+        );
+    }
+
+    /// An adapter of the person's own (anywhere else) stays `codex`.
+    #[test]
+    fn a_persons_own_codex_import_stays_theirs() {
+        let acpx = r#"{"agents": {"codex": {"argv": ["/Users/me/bin/my-codex-adapter"]}}}"#;
+        let found = discover_harnesses_from(Some(acpx), &which);
+        assert_eq!(found["codex"].argv, ["/Users/me/bin/my-codex-adapter"]);
+    }
 }

@@ -5273,6 +5273,9 @@ mod close_path;
 #[path = "terminal_host_recovery/reopen_closed_kinds.rs"]
 mod reopen_closed_kinds;
 
+#[path = "terminal_host_recovery/durable_tab_links.rs"]
+mod durable_tab_links;
+
 #[path = "terminal_host_recovery/host_orphan.rs"]
 mod host_orphan;
 
@@ -5321,3 +5324,102 @@ mod parallel_new_tabs;
 
 #[path = "terminal_host_recovery/host_scrollback.rs"]
 mod host_scrollback;
+
+#[cfg(target_os = "macos")]
+#[path = "terminal_host_recovery/slim_host.rs"]
+mod slim_host;
+
+/// Background service start with many live terminals (2026-10-20, Lawrence:
+/// "Why is starting a background service so slow?"; this Mac runs 471
+/// terminal hosts). A restarted daemon parks every client until its restore
+/// ends, so the first answered request is the moment cmux can talk to it.
+/// Prints `service-start: {...}` for plans/cmux-next/service-start-PERF.md;
+/// `CMUX_TUI_STARTUP_BENCH_TERMINALS` sets the terminal count (default 60)
+/// and `CMUX_TUI_STARTUP_BUDGET_MS` the budget for the first answer. The budget
+/// guards today's level (951 ms for 60 terminals on a Mac mini, 2026-10-20: hosts
+/// re-attach one at a time before the first answer, plans/cmux-next/service-start-PERF.md);
+/// lower it when that becomes parallel.
+#[test]
+fn restart_with_many_live_terminals_answers_within_budget() {
+    let count: usize = std::env::var("CMUX_TUI_STARTUP_BENCH_TERMINALS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(60);
+    let budget_ms: u128 = std::env::var("CMUX_TUI_STARTUP_BUDGET_MS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(2_000);
+    let mut harness = RecoveryHarness::start("startup-many-terminals");
+    let mut terminals = Vec::with_capacity(count);
+    for index in 0..count {
+        let created = request(
+            &harness.socket,
+            serde_json::json!({
+                "id": 1000 + index,
+                "cmd": "run",
+                "argv": ["/bin/cat"],
+                "new_workspace": index % 4 == 0,
+                "name": format!("startup-{index}"),
+            }),
+        );
+        terminals.push(created["terminal_id"].as_str().unwrap().to_string());
+    }
+    wait_for_host_records(&harness.host_root(), count);
+    let identify = request(&harness.socket, serde_json::json!({"id": 1, "cmd": "identify"}));
+    let daemon_pid = identify["pid"].as_u64().unwrap();
+    let generation = identify["generation"].as_str().unwrap().to_string();
+    request(
+        &harness.socket,
+        serde_json::json!({"id": 2, "cmd": "shutdown-daemon", "pid": daemon_pid, "generation": generation}),
+    );
+    let mut daemon = harness.child.take().unwrap();
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(20));
+    while daemon.try_wait().unwrap().is_none() {
+        assert!(Instant::now() < deadline, "daemon did not exit after fenced shutdown");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let _ = fs::remove_file(&harness.socket);
+
+    let started = Instant::now();
+    harness.child = Some(harness.daemon_command().spawn().unwrap());
+    let deadline = started + test_timeout(Duration::from_secs(120));
+    let bound = loop {
+        if transport::connect(&harness.socket).is_ok() {
+            break started.elapsed();
+        }
+        assert!(Instant::now() < deadline, "restarted daemon never bound its socket");
+        std::thread::sleep(Duration::from_millis(1));
+    };
+    request(&harness.socket, serde_json::json!({"id": 3, "cmd": "identify"}));
+    let answered = started.elapsed();
+    let mut pending: std::collections::HashSet<String> = terminals.iter().cloned().collect();
+    while !pending.is_empty() {
+        pending.retain(|terminal_id| {
+            let resolved = request(
+                &harness.socket,
+                serde_json::json!({"id": 4, "cmd": "resolve-terminal", "terminal_id": terminal_id}),
+            );
+            resolved["lifecycle"] != "running" || resolved["surface"].as_u64().is_none()
+        });
+        assert!(Instant::now() < deadline, "{} terminals never re-attached", pending.len());
+    }
+    let all_running = started.elapsed();
+    println!(
+        "service-start: {}",
+        serde_json::json!({
+            "terminals": count,
+            "bound_ms": bound.as_millis(),
+            "first_answer_ms": answered.as_millis(),
+            "all_running_ms": all_running.as_millis(),
+            "budget_ms": budget_ms,
+        })
+    );
+    assert!(
+        answered.as_millis() <= budget_ms,
+        "the restarted daemon answered after {} ms with {count} live terminals (budget {budget_ms} ms; \
+         bound {} ms, all running {} ms)",
+        answered.as_millis(),
+        bound.as_millis(),
+        all_running.as_millis(),
+    );
+}

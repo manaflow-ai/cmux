@@ -1,12 +1,5 @@
 import { PIERRE_DIFFS_SCROLLER_CSS, PIERRE_TREES_SCROLLER_CSS } from "./scrollers";
-import {
-  DIFF_GUTTER_TINT,
-  DIFF_LINE_TINT,
-  DIFF_NUMBER_TINT,
-  DIFF_WEIGHT_CSS,
-  DIFF_WORD_TINT,
-  diffTint,
-} from "./diffWeight";
+import { DIFF_NUMBER_TINT, DIFF_WEIGHT_CSS, diffModeTint } from "./diffWeight";
 import type { CodeViewOptions } from "@pierre/diffs";
 import type { WorkerInitializationRenderOptions } from "@pierre/diffs/worker";
 import {
@@ -89,12 +82,12 @@ export function codeViewUnsafeCSS(): string {
       --cmux-diff-number-deletion: color-mix(in srgb, var(--diffs-deletion-base) ${DIFF_NUMBER_TINT}%, var(--diffs-fg-number));
       --diffs-fg-number-addition-override: var(--cmux-diff-number-addition);
       --diffs-fg-number-deletion-override: var(--cmux-diff-number-deletion);
-      --diffs-bg-addition-override: ${diffTint("var(--diffs-addition-base)", DIFF_LINE_TINT)};
-      --diffs-bg-deletion-override: ${diffTint("var(--diffs-deletion-base)", DIFF_LINE_TINT)};
-      --diffs-bg-addition-number-override: ${diffTint("var(--diffs-addition-base)", DIFF_GUTTER_TINT)};
-      --diffs-bg-deletion-number-override: ${diffTint("var(--diffs-deletion-base)", DIFF_GUTTER_TINT)};
-      --diffs-bg-addition-emphasis-override: ${diffTint("var(--diffs-addition-base)", DIFF_WORD_TINT)};
-      --diffs-bg-deletion-emphasis-override: ${diffTint("var(--diffs-deletion-base)", DIFF_WORD_TINT)};
+      --diffs-bg-addition-override: ${diffModeTint("var(--diffs-addition-base)", "line")};
+      --diffs-bg-deletion-override: ${diffModeTint("var(--diffs-deletion-base)", "line")};
+      --diffs-bg-addition-number-override: ${diffModeTint("var(--diffs-addition-base)", "gutter")};
+      --diffs-bg-deletion-number-override: ${diffModeTint("var(--diffs-deletion-base)", "gutter")};
+      --diffs-bg-addition-emphasis-override: ${diffModeTint("var(--diffs-addition-base)", "word")};
+      --diffs-bg-deletion-emphasis-override: ${diffModeTint("var(--diffs-deletion-base)", "word")};
     }
     ${DIFF_WEIGHT_CSS}
     pre,

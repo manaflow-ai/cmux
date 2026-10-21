@@ -95,3 +95,11 @@ Packages/Shared/CmuxTerminalClient/CmuxTerminalClient.xcframework/
 !/Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/GENERATED.md
 /Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js
 /Resources/markdown-viewer/webviews-app/
+# The React pages' strings tables: build output of webviews/scripts/pages/gen-strings.mjs, written
+# by bun install, the webviews test preload and every bundle build from the xcstrings catalogs
+# (#21946). Committed copies collided in every pull request that touched a catalog.
+/webviews/src/**/generated/strings.json
+/webviews/src/pages/home-channels/generated/pane-strings.json
+/webviews/src/pages/diff/generated/locales/
+/webviews/src/pages/diff/generated/localeLoaders.ts
+/webviews/src/**/generated/*.tmp

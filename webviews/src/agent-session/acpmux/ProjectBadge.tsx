@@ -1,5 +1,6 @@
-import type { CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
 import type { Project } from "./ProjectChooser";
+import { useProjectIcon } from "./projectIcon";
 
 const BADGE_COLORS = [
   "var(--agent-ansi-4, #58a6ff)",
@@ -8,6 +9,16 @@ const BADGE_COLORS = [
   "var(--agent-ansi-2, #32d74b)",
   "var(--agent-ansi-3, #ff9f0a)",
 ] as const;
+
+/// A deliberately small visual cue derived only from the project identity we already have.
+/// Remote projects keep the host/peer distinction visible; home and local folders stay quiet.
+export type ProjectKind = "remote" | "home" | "local";
+
+export function projectKind(project: Pick<Project, "cwd" | "peer" | "host">): ProjectKind {
+  if (project.peer || project.host) return "remote";
+  const cwd = project.cwd.trim();
+  return cwd === "" || cwd === "/" || cwd === "~" ? "home" : "local";
+}
 
 function projectBadge(project: Project): { label: string; color: string } {
   const words = project.label
@@ -20,15 +31,23 @@ function projectBadge(project: Project): { label: string; color: string } {
   return { label: (label || "?").toUpperCase(), color: BADGE_COLORS[Math.abs(hash) % BADGE_COLORS.length]! };
 }
 
+/// The project's own favicon when the host finds one on this Mac (projectIcon.ts), else its
+/// letters; an icon WebKit cannot draw falls back to the letters too.
 export function ProjectBadge({ project }: { project: Project }) {
   const badge = projectBadge(project);
+  const kind = projectKind(project);
+  const icon = useProjectIcon(kind === "local" ? project.cwd : undefined);
+  const [broken, setBroken] = useState<string | undefined>();
+  const shown = icon && icon !== broken ? icon : undefined;
   return (
     <span
       className="acpmux-project-badge"
       style={{ "--acpmux-project-badge": badge.color } as CSSProperties}
+      data-project-kind={kind}
+      data-project-icon={shown ? "" : undefined}
       aria-hidden="true"
     >
-      {badge.label}
+      {shown ? <img src={shown} alt="" draggable={false} onError={() => setBroken(shown)} /> : badge.label}
     </span>
   );
 }

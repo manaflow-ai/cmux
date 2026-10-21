@@ -25,7 +25,7 @@ extension UpdatesSettings {
     public nonisolated static let keepPreviousVersionsPath = ["updates", "keepPreviousVersions"]
     public nonisolated static let keepPreviousVersionsDefault: Double = 1
     public nonisolated static let keepPreviousVersionsRange: ClosedRange<Double> = 0...5
-    /// `updates.showWhatsNew`: The What's New item at the top of the sidebar after an update (WHATS-NEW-AFTER-UPDATE W1); managed config can force it off.
+    /// `updates.showWhatsNew`: The bottom-left "cmux Updated!" card after an update (WHATS-NEW-AFTER-UPDATE W1; never a top-of-sidebar item); managed config can force it off.
     public nonisolated static let showWhatsNewPath = ["updates", "showWhatsNew"]
     public nonisolated static let showWhatsNewDefault = true
 }
@@ -124,7 +124,7 @@ nonisolated enum UpdateSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.updates.showWhatsNew", "Show What's New After Updates"),
-                help: SettingsText.keyed("settings.updates.showWhatsNew.help", "After an update, a What's New item shows at the top of the sidebar until you open it."),
+                help: SettingsText.keyed("settings.updates.showWhatsNew.help", "After an update, a card at the bottom of the sidebar links to What's New until you open or dismiss it."),
                 kind: .toggle,
                 default: .bool(UpdatesSettings.showWhatsNewDefault),
                 keywords: ["whats new", "release notes", "changelog", "update", "sidebar"]

@@ -21,14 +21,6 @@ import Testing
         func makeContentView(for pane: CmuxNextLayout.PaneID) -> NSView { NSView() }
     }
 
-    final class Owner: ResizeTarget {
-        var sent: [CellSize] = []
-        /// Grids sent that the daemon has not echoed yet.
-        var unechoed = 0
-        var awaitsEcho: Bool { unechoed > 0 }
-        func applySettled(_ size: CellSize) { sent.append(size) }
-    }
-
     static func window(width: CGFloat, height: CGFloat) -> NSWindow {
         NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: height), styleMask: [.borderless],
                  backing: .buffered, defer: true)
@@ -52,7 +44,7 @@ import Testing
         let paneAnimations = DesignSettings.shared.paneAnimations
         DesignSettings.shared.paneAnimations = true
         defer { DesignSettings.shared.paneAnimations = paneAnimations }
-        try #require(Motion.animatesMovement, "animation speed is off on this host")
+        try #require(Motion.panes.animatesMovement, "animation speed is off on this host")
         let provider = Panes()
         let model = LayoutModel(screens: Self.split(0.5), activeScreenID: "s", focusedPane: "p1")
         let root = LayoutRootView(model: model, contentProvider: provider)
@@ -86,30 +78,30 @@ import Testing
         defer { Motion.liveResizeOverride = nil }
         model.apply(screens: Self.split(0.6))
         root.syncWithModel()
-        #expect(!settled("p1"), "a layout change after the resize did not animate (moves \(Motion.animatesMovement), other windows resizing \(otherWindowsResizing))")
+        #expect(!settled("p1"), "a layout change after the resize did not animate (moves \(Motion.panes.animatesMovement), other windows resizing \(otherWindowsResizing))")
     }
 
     @Test func aTabStripThatStartsOverflowingMidDragFadesItsEdgeAtOnce() throws {
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
-        try #require(Motion.animatesFades, "animation speed is off on this host")
+        try #require(Motion.panes.animatesFades, "animation speed is off on this host")
         let tabs = (0..<8).map { CmuxNextTabs.TabItem(id: CmuxNextTabs.TabID("tab\($0)"), title: "Tab \($0)") }
         let strip = TabStripView(model: TabStripModel(tabs: tabs, selectedID: CmuxNextTabs.TabID("tab0")))
         let window = Self.window(width: 1600, height: 40)
         window.contentView = strip
         strip.frame = NSRect(x: 0, y: 0, width: 1600, height: TabStripView.preferredHeight)
         strip.layoutSubtreeIfNeeded()
-        try #require(!strip.fadedEdges.trailing, "eight tabs overflow a 1600 pt strip")
+        try #require(!strip.edgeFade.edges.trailing, "eight tabs overflow a 1600 pt strip")
 
         Self.liveResize {
             // The window narrows until the tabs no longer fit.
             for width in stride(from: 1400, through: 200, by: -100) {
                 strip.setFrameSize(NSSize(width: CGFloat(width), height: strip.frame.height))
                 strip.layoutSubtreeIfNeeded()
-                #expect((strip.fadeMask.animationKeys() ?? []).isEmpty, "\(width) pt: the edge fade animates mid-resize")
+                #expect((strip.edgeFade.mask.animationKeys() ?? []).isEmpty, "\(width) pt: the edge fade animates mid-resize")
             }
         }
-        #expect(strip.fadedEdges.trailing, "the narrowed strip's tabs fit; the test proves nothing")
+        #expect(strip.edgeFade.edges.trailing, "the narrowed strip's tabs fit; the test proves nothing")
     }
 
     @Test func aWindowIsInALiveResizeFromItsStartToItsEndOrClose() {
@@ -123,51 +115,5 @@ import Testing
         center.post(name: NSWindow.willStartLiveResizeNotification, object: window)
         center.post(name: NSWindow.willCloseNotification, object: window)
         #expect(!windows.isActive, "a window closed mid-drag still holds every spring")
-    }
-
-    @Test func aTerminalGridGoesToItsOwnerTheNextFrameOfALiveResize() throws {
-        let coordinator = ResizeCoordinator()
-        let owner = Owner()
-        Self.liveResize {
-            // Each frame of the drag fits one more column.
-            for columns in 81...85 {
-                coordinator.submit(owner, size: CellSize(cols: columns, rows: 24))
-                _ = coordinator.tick()
-                #expect(owner.sent.last == CellSize(cols: columns, rows: 24), "\(columns) columns waited for the drag to stop")
-            }
-        }
-        // At rest a size still waits until it holds (layout springs, sidebar slides): not the next frame.
-        let sent = owner.sent.count
-        coordinator.submit(owner, size: CellSize(cols: 90, rows: 24))
-        _ = coordinator.tick()
-        #expect(owner.sent.count == sent)
-        for _ in 0..<ResizeCoordinator.settleFrames { _ = coordinator.tick() }
-        #expect(owner.sent.last == CellSize(cols: 90, rows: 24))
-    }
-
-    @Test func aDragKeepsOneGridInFlightPerTerminal() {
-        let coordinator = ResizeCoordinator()
-        let owner = Owner()
-        Self.liveResize {
-            coordinator.submit(owner, size: CellSize(cols: 81, rows: 24))
-            _ = coordinator.tick()
-            owner.unechoed = 1
-            // The daemon is still rebuilding 81 columns: frames that fit 82 and 83 hold.
-            for columns in 82...83 {
-                coordinator.submit(owner, size: CellSize(cols: columns, rows: 24))
-                _ = coordinator.tick()
-            }
-            #expect(owner.sent == [CellSize(cols: 81, rows: 24)], "a grid went before the daemon echoed the last one")
-            // The echo came back: the newest grid goes the next frame; 82 never does.
-            owner.unechoed = 0
-            _ = coordinator.tick()
-            #expect(owner.sent == [CellSize(cols: 81, rows: 24), CellSize(cols: 83, rows: 24)])
-            owner.unechoed = 1
-            coordinator.submit(owner, size: CellSize(cols: 84, rows: 24))
-            _ = coordinator.tick()
-        }
-        // An echo that never comes holds a grid only until the drag ends.
-        for _ in 0..<ResizeCoordinator.settleFrames { _ = coordinator.tick() }
-        #expect(owner.sent.last == CellSize(cols: 84, rows: 24))
     }
 }

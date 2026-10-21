@@ -57,9 +57,9 @@ public struct SidebarDocMachines {
 
     /// Sends a move intent as one document move. False: not a move, or the
     /// document is not active (the older path handles it).
-    public func handle(_ intent: SidebarIntent, model: SidebarModel, pinTitle: String, unpinTitle: String) -> Bool {
+    public func handle(_ intent: SidebarIntent, model: SidebarModel, pinTitle: String, unpinTitle: String, undoable: Bool = true) -> Bool {
         guard let store = SidebarDocStore.current, let drag = drag() else { return false }
-        return store.handle(intent, model: model, drag: drag, pinTitle: pinTitle, unpinTitle: unpinTitle)
+        return store.handle(intent, model: model, drag: drag, pinTitle: pinTitle, unpinTitle: unpinTitle, undoable: undoable)
     }
 
     /// Keeps `store` current: it refreshes when the home daemon connects or starts serving the document, and it shows
@@ -71,8 +71,12 @@ public struct SidebarDocMachines {
         Task { for await _ in ObservationStream({ (connected(), serves()) }) { store.refresh() } }
         // task-owner: the app's services; one view call per document or live-set change
         Task {
-            for await live in ObservationStream({ () -> [SidebarDocWorkspaceRef] in _ = (store.version, store.isActive); return liveRefs() }) {
-                store.show(live: live, connectedRemotes: connectedRemotes())
+            // A trigger: a document change (`version`) with the same live set still redraws the bands.
+            for await live in ObservationStream({ () -> ObservationTrigger<[SidebarDocWorkspaceRef]> in
+                _ = (store.version, store.isActive)
+                return ObservationTrigger(liveRefs())
+            }) {
+                store.show(live: live.value, connectedRemotes: connectedRemotes())
                 shown(store.shown?.layout)
             }
         }

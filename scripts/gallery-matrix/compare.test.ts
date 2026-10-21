@@ -252,8 +252,8 @@ const STORED_NAME = [
   "print(module.sanitize(sys.argv[2]))",
 ].join("\n");
 
-// gallery-pr.yml uploads each thumbnail as <prefix><key> through scripts/pr-media.py, which stores it
-// under that tool's sanitized name, so a link must name the file the uploader actually wrote.
+// The optional gallery publisher uploads each thumbnail as <prefix><key> through scripts/pr-media.py,
+// which stores it under that tool's sanitized name, so a link must name the file the uploader wrote.
 test("thumbnail links name the file pr-media.py stores", () => {
   const o = outcome({});
   const local = `gallery-e574a65-${o.key}`;

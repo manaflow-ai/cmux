@@ -388,24 +388,13 @@ pub(crate) struct PtyGeometry {
 }
 
 impl PtyGeometry {
-    fn pty_size(self) -> anyhow::Result<PtySize> {
-        let pixel_width = self.cols.checked_mul(self.cell_width.max(1)).ok_or_else(|| {
-            anyhow::anyhow!(
-                "PTY pixel width exceeds {}: {} columns at {} pixels per cell",
-                u16::MAX,
-                self.cols,
-                self.cell_width.max(1)
-            )
-        })?;
-        let pixel_height = self.rows.checked_mul(self.cell_height.max(1)).ok_or_else(|| {
-            anyhow::anyhow!(
-                "PTY pixel height exceeds {}: {} rows at {} pixels per cell",
-                u16::MAX,
-                self.rows,
-                self.cell_height.max(1)
-            )
-        })?;
-        Ok(PtySize { rows: self.rows, cols: self.cols, pixel_width, pixel_height })
+    /// The winsize for this geometry. The pixel fields saturate at
+    /// `u16::MAX`: a grid the size clamp accepts must not fail only because
+    /// `ws_xpixel`/`ws_ypixel` cannot hold its pixel extent.
+    fn pty_size(self) -> PtySize {
+        let pixel_width = self.cols.saturating_mul(self.cell_width.max(1));
+        let pixel_height = self.rows.saturating_mul(self.cell_height.max(1));
+        PtySize { rows: self.rows, cols: self.cols, pixel_width, pixel_height }
     }
 }
 
@@ -717,7 +706,7 @@ impl Surface {
         }
         let initial_color_revision = term.color_revision();
         let initial_cursor_activity = term.cursor_activity().ok();
-        let title = term.title().unwrap_or_default();
+        let title = crate::terminal_title::read(&term);
         let pwd = term.pwd();
         let mut mouse_encoders = MouseEncoders::new()?;
         mouse_encoders.sync_from_terminal(&term);

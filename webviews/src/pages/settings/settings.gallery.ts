@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
 import { settingsPageEntry, type PageFixtureStep, type SettingsPageVariant } from "../../gallery/format";
-import type { AccountsRow, AccountsState, HostLists } from "./ops";
+import type { AccountsCmux, AccountsRow, AccountsState, HostLists } from "./ops";
 import { categories, homes } from "./categories";
 import { mockThemeColors } from "./mockThemes";
 import { schema } from "./schema";
@@ -38,10 +38,40 @@ const account: AccountsRow = {
   confirm: null,
   paste: null,
 };
+const cmuxSignedIn: AccountsCmux = {
+  title: "cmux Account",
+  detail: "s…@e…",
+  status: "Signed in",
+  statusKind: "success",
+  busy: false,
+  buttons: [
+    button("cmux.switchAccount", "Switch Account…"),
+    { ...button("cmux.signOut", "Sign Out"), destructive: true },
+  ],
+  note: null,
+  error: null,
+};
+const cmuxSignedOut: AccountsCmux = {
+  ...cmuxSignedIn,
+  detail: null,
+  status: "Signed out",
+  statusKind: "attention",
+  buttons: [button("cmux.signIn", "Sign In to cmux")],
+  error: "Sign-in did not finish: Sign-in timed out. Check your connection and try again. (TIMED_OUT)",
+};
+const cmuxSigningIn: AccountsCmux = {
+  ...cmuxSignedIn,
+  detail: null,
+  status: "Signing in…",
+  statusKind: "neutral",
+  busy: true,
+  buttons: [button("cmux.continueInBrowser", "Open in Browser"), button("cmux.cancelSignIn", "Cancel")],
+  note: "Finish signing in in your browser. If no page opened, choose Open in Browser.",
+};
 const accounts = (patch: Partial<AccountsRow> = {}, state: Partial<AccountsState> = {}): AccountsState => ({
   refresh: "Refresh",
   refreshing: false,
-  signIn: null,
+  cmux: cmuxSignedIn,
   removeTitle: "Remove from CodeRouter",
   groups: [{ id: "sample", title: "Sample providers", rows: [{ ...account, ...patch }] }],
   ...state,
@@ -166,6 +196,86 @@ Object.assign(variants, {
       { selector: '[data-card="backdrop"] button[aria-pressed="true"]', action: "focus" },
     ],
     note: "Change Background…: the art picker and its Opacity slider on Appearance, with a public-safe sample thumbnail.",
+  }),
+  // Leo, 10-19: Appearance's floating Undo, Redo and Reset, after a background pick (Undo names it).
+  "appearance-undo-bar": variant("appearance", {
+    host: {
+      ...host,
+      derived: { "appearance.backgroundOpacity": 1 },
+      backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
+    },
+    steps: [
+      wait('[data-card="backdrop"]'),
+      click('[data-card="backdrop"] .backdrop-tile[aria-label="Shuffle Paintings"]'),
+      wait("[data-appearance-bar] [data-undo]:not([disabled])"),
+      { selector: "[data-appearance-bar] [data-undo]", action: "focus" },
+    ],
+    note: "Appearance's floating bar at the bottom right after picking Shuffle Paintings: Undo names the step, Redo waits, Reset offers Restore How It Was or Reset to Defaults.",
+  }),
+  // Unset surface rows rest on the window's values, dimmed under an "Inherits window" badge.
+  "surfaces-inherit-window": variant("appearance", {
+    focus: "appearance.surfaces.sidebar.opacity",
+    options: { values: { "appearance.backgroundOpacity": 0.8 } },
+    host: { ...host, derived: { "appearance.backgroundOpacity": 0.8 } },
+    steps: [wait(row("appearance.surfaces.sidebar.opacity"))],
+    note: "Surfaces: each unset opacity rests on the window's 80% and each unset color on the window's color, dimmed with an Inherits window badge; no row reads a truncated default label.",
+  }),
+  "backdrops-pending": variant("appearance", {
+    options: { values: { "appearance.background": "system:/S/Sonoma.heic" } },
+    host: {
+      ...host,
+      backdrops: [
+        {
+          id: "system:/S/Sonoma.heic",
+          title: "Sonoma",
+          attribution: "macOS system wallpaper · Sonoma",
+          collection: "apple",
+          collection_title: "Apple Wallpapers",
+          downloaded: true,
+        },
+        {
+          id: "system:/S/Grid Green.madesktop",
+          title: "Grid Green",
+          attribution: "macOS system wallpaper · Grid Green",
+          collection: "apple",
+          collection_title: "Apple Wallpapers",
+          downloaded: false,
+        },
+      ],
+    },
+    backdropImages: {
+      "system:/S/Sonoma.heic":
+        "data:image/svg+xml," +
+        encodeURIComponent(
+          '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="#8b9aae"/><circle cx="236" cy="58" r="34" fill="#f7e7bd"/><path d="M0 145L90 82L160 139L250 72L320 130V180H0Z" fill="#40526b"/></svg>',
+        ),
+      "system:/S/Grid Green.madesktop":
+        "data:image/svg+xml," +
+        encodeURIComponent(
+          '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="#263a32"/><path d="M0 180L108 58L186 180Z" fill="#6fa06c"/><path d="M128 180L233 38L320 180Z" fill="#9bcf8d"/></svg>',
+        ),
+    },
+    steps: [wait('[data-card="backdrop"]'), { selector: '[data-card="backdrop"] .backdrop-pending', action: "focus" }],
+    note: "Backgrounds while macOS is still downloading one wallpaper: the selected tile is ready and the pending tile stays visibly dimmed with its download affordance.",
+  }),
+  "backdrops-empty": variant("appearance", {
+    options: { values: { "appearance.background": "none" } },
+    host: { ...host, backdrops: [] },
+    steps: [wait('[data-card="backdrop"]')],
+    note: "Background picker with no artwork returned yet: the real empty state keeps the setting usable while the host list loads or is unavailable.",
+  }),
+  // Add from a Link (backgrounds plan phase 3): the link form open under the picker, a link typed.
+  "backdrops-link": variant("appearance", {
+    host: {
+      ...host,
+      backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
+    },
+    steps: [
+      wait('[data-card="backdrop"]'),
+      click('[data-card="backdrop"] button[aria-expanded] ~ button[aria-expanded]'),
+      input('[data-card="backdrop-link"] input[type="url"]', "https://example.com/harbor.jpg"),
+    ],
+    note: "Add from a Link: an https image or movie downloads into the backgrounds folder and becomes the background.",
   }),
   // Change Background… on a workspace (cx-t2x.5): This Workspace, following All Workspaces.
   "backdrops-workspace": variant("appearance", {
@@ -394,6 +504,11 @@ Object.assign(variants, {
   }),
   "search-results": variant("general", { steps: [input("[data-settings-search]", "browser")] }),
   "search-results-font": variant("general", { steps: [input("[data-settings-search]", "font")] }),
+  "search-results-theme": variant("general", {
+    allThemes: true,
+    steps: [input("[data-settings-search]", "theme")],
+    note: "Theme rows in search results use the Theme section's picker and accent popup.",
+  }),
   "search-empty": variant("general", { steps: [input("[data-settings-search]", "no-such-setting")] }),
   "reset-confirmation": variant("advanced", { steps: [click("[data-reset-all]"), wait("[data-confirm-reset-all]")] }),
   "theme-picker": variant("theme", {
@@ -430,6 +545,30 @@ Object.assign(variants, {
     allThemes: true,
     options: { values: { "appearance.theme": "Gruvbox Dark", "appearance.appTheme": "Rose Pine" } },
     note: "An app theme apart from the terminal theme (appearance.appTheme).",
+  }),
+  "theme-app-light-dark": variant("theme", {
+    allThemes: true,
+    options: {
+      values: {
+        "appearance.theme": "light:Catppuccin Latte,dark:Catppuccin Mocha",
+        "appearance.appTheme": "light:Rose Pine Dawn,dark:Rose Pine",
+        "appearance.accent": "magenta",
+      },
+    },
+    note: "One Theme card: the terminal and the app theme each with Match System Appearance, then the accent.",
+  }),
+  "theme-long-name": variant("theme", {
+    allThemes: true,
+    options: {
+      values: { "appearance.theme": "Builtin Pastel Dark Solarized Tango Long Name", "appearance.accent": "blue" },
+    },
+    note: "A long theme name ellipsizes; every popup keeps its one width.",
+  }),
+  "theme-accent": variant("theme", {
+    allThemes: true,
+    options: { values: { "appearance.theme": "Dracula", "appearance.accent": "theme" } },
+    steps: [click("[data-accent-picker]"), wait("[data-accent-option]")],
+    note: "The accent swatch popup: each choice's color on the app theme, the check on the right.",
   }),
   "theme-managed": variant("theme", {
     allThemes: true,
@@ -583,6 +722,15 @@ Object.assign(variants, {
     steps: [wait("[data-agent-harness]")],
     note: "Every harness acpmux knows: kind, source, a probe problem; Check and Remove on user profiles.",
   }),
+  // Settings > Agents > Chiefs (u2586): every Chief; a row opens the same editor as Home.
+  "agents-chiefs": variant("agents", {
+    steps: [wait('[data-card="chiefs"] [data-chief]')],
+    note: "Chiefs: picture, name, role, backend and a Locked badge; New Chief opens the editor.",
+  }),
+  "agents-chief-editor": variant("agents", {
+    steps: [click('[data-chief="agent_release"]'), wait('[data-card="chiefs"] section.chief-editor')],
+    note: "A Chief row opens its editor in the card: backend, lock and history, never a dialog.",
+  }),
   "agents-add-custom": variant("agents", {
     focus: "agents.add",
     steps: [wait("[data-agents-custom]")],
@@ -607,7 +755,11 @@ Object.assign(variants, {
     note: "An acpmux without the operations: the CLI commands, no Add, Check or Remove.",
   }),
   "agents-empty": variant("agents", { agents: { harnesses: [] }, note: "No harness: the empty line." }),
-  "accounts-empty": variant("accounts", { accounts: accounts({}, { groups: [], signIn: "Sign in to cmux" }) }),
+  "accounts-empty": variant("accounts", { accounts: accounts({}, { groups: [], cmux: cmuxSignedOut }) }),
+  "accounts-cmux-signing-in": variant("accounts", {
+    accounts: accounts({}, { cmux: cmuxSigningIn }),
+    note: "Sign In to cmux in progress: open it in the browser, or cancel.",
+  }),
   "accounts-refreshing": variant("accounts", {
     accounts: accounts(
       { busy: true, status: "Refreshing", statusKind: "neutral", buttons: [button("reauth", "Re-authenticate", true)] },
@@ -727,13 +879,16 @@ export default settingsPageEntry({
   widths: { narrow: 480, normal: 1000, wide: 1440 },
   covers: [
     "page:cmux.settings",
+    "pages/settings/components/AccentPicker.tsx",
     "pages/settings/components/AccountsSection.tsx",
     "pages/settings/components/AgentHarnesses.tsx",
     "pages/settings/components/ComputerUseCard.tsx",
+    "pages/settings/components/ChiefsCard.tsx#ChiefsCard",
     "pages/settings/components/HarnessesCard.tsx",
     "pages/settings/components/AgentHarnesses.tsx#AgentHarnesses",
     "pages/settings/components/ActionRow.tsx",
     "pages/settings/components/ArtBrowser.tsx",
+    "pages/settings/components/BackdropLink.tsx",
     "pages/settings/components/BackdropScope.tsx",
     "pages/settings/components/GhosttyDiagnostics.tsx",
     "pages/settings/components/GroupList.tsx",
@@ -758,6 +913,7 @@ export default settingsPageEntry({
     "pages/settings/components/ThemePreview.tsx",
     "pages/settings/components/AppIllustration.tsx",
     "pages/settings/components/ThemeStudio.tsx",
+    "pages/settings/editors/AccentRowEditor.tsx",
     "pages/settings/editors/ChoiceOrNumberEditor.tsx",
     "pages/settings/editors/ColorEditor.tsx",
     "pages/settings/editors/DomainListEditor.tsx",
@@ -768,6 +924,7 @@ export default settingsPageEntry({
     "pages/settings/editors/NumberEditor.tsx",
     "pages/settings/editors/NumberField.tsx",
     "pages/settings/editors/SearchTemplateEditor.tsx",
+    "pages/settings/editors/ThemeRowEditor.tsx",
     "pages/settings/editors/SegmentedEditor.tsx",
     "pages/settings/editors/Select.tsx",
     "pages/settings/editors/SoundEditor.tsx",

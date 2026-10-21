@@ -61,6 +61,8 @@ fn terminal_create_mutation_persists_only_a_secret_free_digest() {
                     public_id: WorkspacePublicId::random().unwrap(),
                     key: "workspace-one".into(),
                     name: "One".into(),
+                    name_source: Default::default(),
+                    name_revision: 0,
                     group_key: "secret-test".into(),
                 }],
                 &serde_json::json!({"workspace":1,"key":"workspace-one"}),

@@ -93,6 +93,8 @@ nonisolated extension StatusIndicatorStyle: TunableChoice {
 /// `appearance.statusIndicator.*` in cmux.json.
 public nonisolated struct StatusIndicatorSettings: Hashable, Sendable {
     public var style: StatusIndicatorStyle = .arc
+    /// Animated or static indicators (`animation`).
+    public var animation: StatusIndicatorAnimation = .animated
     /// Share of the host's indicator slot the glyph fills.
     public var scale: CGFloat = 1
     /// Stroke width of the arc and the progress ring, in points.

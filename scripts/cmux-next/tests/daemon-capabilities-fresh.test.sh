@@ -117,6 +117,14 @@ open(path, "wb").write(data.replace(b"\n", b"\r\n"))
 EOF
 if out="$(run)"; then fail "a CRLF export passed: $out"; fi
 
+# bdce169c4b8af (#21445) put workspace-name-source-v1 in optional and in the
+# unserved list; the identify check then failed every dev build. A capability
+# in two lists fails here, before any build.
+write_swift "workspaceGroups, sidebarLayout" "remoteTerminalTabs, sidebarLayout"
+write_json "sidebar-layout-v1 workspace-groups-v1" "remote-terminal-tabs-v1 sidebar-layout-v1"
+if out="$(run)"; then fail "a capability in optional and unserved passed: $out"; fi
+[[ "$out" == *"in both optional and unservedByBundledDaemon"*"sidebar-layout-v1"* ]] || fail "the failure does not name the overlap: $out"
+
 # The committed export passes as it is.
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 out="$(python3 "$check" --repo "$repo" 2>&1)" || fail "the committed export failed: $out"

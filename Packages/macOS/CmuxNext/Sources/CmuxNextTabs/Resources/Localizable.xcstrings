@@ -7993,395 +7993,266 @@
         }
       }
     },
-    "tabs.overflowHint": {
+    "tabs.audio.mute": {
+      "comment": "A tab's speaker button: tooltip and VoiceOver action.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tabs are at their minimum width. Use scrolling tabs?"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "علامات التبويب في أدنى عرض لها. هل تريد استخدام علامات تبويب قابلة للتمرير؟"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kartice su na minimalnoj širini. Koristiti pomične kartice?"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fanerne har deres minimumsbredde. Vil du bruge rullende faner?"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Die Tabs haben ihre Mindestbreite erreicht. Scrollende Tabs verwenden?"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Las pestañas están en su ancho mínimo. ¿Usar pestañas desplazables?"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Les onglets sont à leur largeur minimale. Utiliser des onglets défilants ?"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Le schede sono alla larghezza minima. Usare schede scorrevoli?"
+            "value": "Mute tab"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "タブが最小幅になりました。スクロールするタブを使用しますか？"
+            "value": "タブをミュート"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "كتم صوت علامة التبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utišaj karticu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slå lyden fra på fanen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab stummschalten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Silenciar pestaña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Couper le son de l'onglet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Disattiva audio scheda"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ផ្ទាំងស្ថិតនៅទទឹងអប្បបរមាហើយ។ ប្រើផ្ទាំងរមូរឬ?"
+            "value": "បិទសំឡេងផ្ទាំង"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "탭이 최소 너비에 도달했습니다. 스크롤 탭을 사용할까요?"
+            "value": "탭 음소거"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Fanene har minstebredden. Vil du bruke rullende faner?"
+            "value": "Slå av lyd i fanen"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Karty mają minimalną szerokość. Używać przewijanych kart?"
+            "value": "Wycisz kartę"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "As abas estão na largura mínima. Usar abas roláveis?"
+            "value": "Desativar som da guia"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Вкладки достигли минимальной ширины. Использовать прокручиваемые вкладки?"
+            "value": "Отключить звук вкладки"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แท็บแคบสุดแล้ว ใช้แท็บแบบเลื่อนไหม"
+            "value": "ปิดเสียงแท็บ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sekmeler en küçük genişlikte. Kaydırılan sekmeler kullanılsın mı?"
+            "value": "Sekmenin sesini kapat"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Вкладки досягли мінімальної ширини. Використовувати прокручувані вкладки?"
+            "value": "Вимкнути звук вкладки"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Các thẻ đã ở độ rộng tối thiểu. Dùng thẻ cuộn?"
+            "value": "Tắt tiếng thẻ"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "标签页已是最小宽度。要使用滚动标签页吗？"
+            "value": "将标签页静音"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "分頁已是最小寬度。要使用捲動分頁嗎？"
+            "value": "將分頁靜音"
           }
         }
       }
     },
-    "tabs.overflowHint.use": {
+    "tabs.audio.unmute": {
+      "comment": "A tab's speaker button: tooltip and VoiceOver action.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Use Scrolling Tabs"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "استخدام علامات تبويب قابلة للتمرير"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Koristi pomične kartice"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Brug rullende faner"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Scrollende Tabs verwenden"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Usar pestañas desplazables"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Utiliser des onglets défilants"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Usa schede scorrevoli"
+            "value": "Unmute tab"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "スクロールするタブを使用"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ប្រើផ្ទាំងរមូរ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "스크롤 탭 사용"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bruk rullende faner"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Używaj przewijanych kart"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Usar abas roláveis"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Прокручиваемые вкладки"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ใช้แท็บแบบเลื่อน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kaydırılan Sekmeleri Kullan"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Прокручувані вкладки"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dùng thẻ cuộn"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "使用滚动标签页"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "使用捲動分頁"
-          }
-        }
-      }
-    },
-    "tabs.overflowHint.dismiss": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dismiss"
+            "value": "タブのミュートを解除"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تجاهل"
+            "value": "إلغاء كتم صوت علامة التبويب"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Odbaci"
+            "value": "Uključi zvuk kartice"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Afvis"
+            "value": "Slå lyden til på fanen"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Schließen"
+            "value": "Stummschaltung des Tabs aufheben"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Descartar"
+            "value": "Activar sonido de la pestaña"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ignorer"
+            "value": "Réactiver le son de l'onglet"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ignora"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "閉じる"
+            "value": "Riattiva audio scheda"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បិទ"
+            "value": "បើកសំឡេងផ្ទាំង"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "닫기"
+            "value": "탭 음소거 해제"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Avvis"
+            "value": "Slå på lyd i fanen"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Odrzuć"
+            "value": "Wyłącz wyciszenie karty"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dispensar"
+            "value": "Ativar som da guia"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Закрыть"
+            "value": "Включить звук вкладки"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ปิด"
+            "value": "เปิดเสียงแท็บ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kapat"
+            "value": "Sekmenin sesini aç"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Закрити"
+            "value": "Увімкнути звук вкладки"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bỏ qua"
+            "value": "Bật tiếng thẻ"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "关闭"
+            "value": "取消标签页静音"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "關閉"
+            "value": "取消分頁靜音"
           }
         }
       }

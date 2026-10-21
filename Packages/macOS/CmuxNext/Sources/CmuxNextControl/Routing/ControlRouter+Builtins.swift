@@ -36,10 +36,9 @@ extension ControlRouter {
                 (request.params["wait"]?.boolValue ?? true)
                     && ((try? Self.resolveAction(request.params, in: snapshot.catalog))?.startsTerminal ?? false)
             }).claimingProgress().withLimit { request, snapshot in
-                // A network action the caller awaits (Connect to CodeRouter).
-                guard request.params["wait"]?.boolValue == true,
-                      (try? Self.resolveAction(request.params, in: snapshot.catalog))?.waitsForResult == true else { return nil }
-                return ActionDescriptor.resultDeadline
+                // A network action, a run that waits for a person, or a keyed create that asks again.
+                guard let action = try? Self.resolveAction(request.params, in: snapshot.catalog) else { return nil }
+                return ActionRunLimit.limit(for: action, wait: request.params["wait"]?.boolValue)
             },
             // `cmux tab <id> focus` (state-ownership.md 3): runs the
             // `tab.focus` action on the tab, with action.run's contract.
@@ -57,7 +56,7 @@ extension ControlRouter {
                 params["target"] = .string("tab:" + tab)
                 let request = ControlRequest(id: call.request.id, method: call.method, params: params)
                 return try await self.runAction(ControlCall(request: request, snapshot: call.snapshot, connection: call.connection,
-                                                            deadline: call.deadline, progress: call.progress))
+                                                            deadline: call.deadline, progress: call.progress, engineStartMark: call.engineStartMark))
             }.claimingProgress(),
             BrowserOpenSplitRun.method(router: self),
             FileOpenRun.method(router: self),

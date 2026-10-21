@@ -137,14 +137,11 @@ cd "$ROOT/webviews"
 # The lockfile may have changed since node_modules was installed (a merge, a
 # branch switch); a bundle built with other dependencies differs.
 bun install --frozen-lockfile >/dev/null
-# The strings tables are inputs of the pane and page bundles and are still
-# committed. A build never writes a tracked file (cx-t3e5): a fleet or
-# nx-remote build that regenerated them would ship sources no commit holds.
-# A stale committed table fails the build; regenerate and commit it.
-if ! bun scripts/pages/gen-strings.mjs --check; then
-  echo "error: generated file is stale; run gen-strings and commit: bun webviews/scripts/pages/gen-strings.mjs (or scripts/cmux-next/regenerate-web-bundles.sh)" >&2
-  exit 1
-fi
+# The strings tables are inputs of the pane and page bundles. They are build
+# output, ignored by git (#21946), made here from the commit's xcstrings
+# catalogs and settings schema, which the source key hashes; so a build still
+# ships only what a commit holds (cx-t3e5). A missing translation fails.
+bun scripts/pages/gen-strings.mjs
 cd "$ROOT"
 
 if [ -z "$OUT_ROOT" ] && [ "$MODE" = build ] && current; then

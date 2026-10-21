@@ -286,5 +286,117 @@ class DefaultsGuardTests(unittest.TestCase):
         self.assertIn("does not match the sources; run `python3 scripts/ci/defaults_guard.py snapshot`", result.stdout)
 
 
+
+SETTINGS_SOURCES = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings"
+EXPORTER_TESTS = "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests"
+STAMP = "schemas/settings-export/settings-schema.sources.sha256"
+
+
+def stamp_for(root):
+    """The stamp SettingsSchemaExportTests writes: one `sha256  path` entry per exporter input, in
+    UTF-8 path order, a blank line between entries so two pull requests that edit different
+    sources change lines git merges apart (#21946)."""
+    import hashlib
+    paths = [f"{EXPORTER_TESTS}/ManagedPreferencesManifestTests.swift", f"{EXPORTER_TESTS}/SettingsSchemaExportTests.swift"]
+    paths += [file.relative_to(root).as_posix() for file in (root / SETTINGS_SOURCES).rglob("*")
+              if file.suffix in (".swift", ".xcstrings")]
+    paths.sort(key=lambda path: path.encode("utf-8"))
+    return "\n\n".join(f"{hashlib.sha256((root / path).read_bytes()).hexdigest()}  {path}" for path in paths) + "\n"
+
+
+class SettingsExportStampTests(unittest.TestCase):
+    """`check-fresh` and the settings export stamp (schemas/settings-export/settings-schema.sources.sha256)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = Repo(pathlib.Path(self.tmp.name))
+        self.repo.git("init", "-q", "-b", "main")
+        self.repo.write("scripts/ci/defaults_guard.py", SCRIPT.read_text(encoding="utf-8"))
+        self.repo.write(".github/defaults-call-owners.json", json.dumps(OWNERS))
+        self.repo.sources(BASE_ACTIONS, BASE_SETTINGS)
+        self.repo.write(f"{EXPORTER_TESTS}/ManagedPreferencesManifestTests.swift", "// manifest\n")
+        self.repo.write(f"{EXPORTER_TESTS}/SettingsSchemaExportTests.swift", f"// writes {STAMP.rsplit('/', 1)[1]}\n")
+        for name in ("Alpha.swift", "Beta.swift", "Gamma.swift", "Localizable.xcstrings"):
+            self.repo.write(f"{SETTINGS_SOURCES}/{name}", f"// {name}\n")
+        self.repo.write(f"{SETTINGS_SOURCES}/README.md", "not an input\n")
+        self.export()
+        self.repo.commit("base")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def export(self):
+        self.repo.write(STAMP, stamp_for(self.repo.root))
+
+    def fresh(self, *args):
+        return self.repo.guard("check-fresh", *args)
+
+    def test_a_stamp_of_every_input_is_fresh(self):
+        result = self.fresh()
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(len(self.repo.root.joinpath(STAMP).read_text().split("\n\n")), 6)
+
+    def test_an_edited_source_is_stale_and_named(self):
+        self.repo.write(f"{SETTINGS_SOURCES}/Beta.swift", "// beta, edited\n")
+        result = self.fresh()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("settings exports are stale", result.stdout)
+        self.assertIn(f"{SETTINGS_SOURCES}/Beta.swift", result.stdout)
+        self.assertNotIn("Alpha.swift", result.stdout)
+
+    def test_an_added_or_removed_source_is_stale_and_named(self):
+        self.repo.write(f"{SETTINGS_SOURCES}/Delta.swift", "// delta\n")
+        (self.repo.root / SETTINGS_SOURCES / "Gamma.swift").unlink()
+        result = self.fresh()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Delta.swift", result.stdout)
+        self.assertIn("Gamma.swift", result.stdout)
+
+    def test_a_one_digest_stamp_from_before_the_manifest_is_stale(self):
+        self.repo.write(STAMP, "a01b76447321b7bdf25b78a05bd9a7e530b92e767537d604bae476d7084a7bde\n")
+        result = self.fresh()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("settings exports are stale", result.stdout)
+
+    def merge_two_branches(self):
+        for branch, name in (("one", "Alpha.swift"), ("two", "Gamma.swift")):
+            self.repo.git("checkout", "-q", "-b", branch, "main")
+            self.repo.write(f"{SETTINGS_SOURCES}/{name}", f"// {name}, edited on {branch}\n")
+            self.export()
+            self.repo.commit(branch, snapshot=False)
+        self.repo.git("checkout", "-q", "one")
+        self.repo.git("-c", "user.name=t", "-c", "user.email=t@t", "merge", "-q", "--no-edit", "two")
+
+    def test_a_clone_with_the_merge_drivers_keeps_one_stamp_so_check_fresh_fails(self):
+        """A line-merged stamp would match the merged sources while settings-schema.json and docs/mdm
+        (cmux-generated-v1: one side's copy) miss the other branch's rows, so check-fresh would pass
+        on stale exports. With the repository's drivers (the bots, a lane's local merge) the stamp
+        keeps one side too, and check-fresh names the other side's source until the exports are
+        regenerated. GitHub ignores drivers: there the stamp merges by line and the base autofix
+        regenerates the exports, which it does whenever CmuxNextSettings changed."""
+        self.repo.write(".gitattributes", (ROOT / ".gitattributes").read_text(encoding="utf-8"))
+        self.repo.commit("attributes", snapshot=False)
+        self.repo.git("config", "merge.cmux-generated-v1.driver", "true")
+        self.merge_two_branches()
+        result = self.fresh()
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("Gamma.swift", result.stdout)
+
+    def test_two_branches_editing_different_sources_merge_by_line_without_drivers(self):
+        """GitHub's view (no drivers): the two stamps merge cleanly, so neither pull request shows a
+        conflict, and the merged stamp is the merged sources'."""
+        self.merge_two_branches()
+        self.assertEqual(self.repo.root.joinpath(STAMP).read_text(), stamp_for(self.repo.root))
+
+    def test_check_fresh_reads_a_commit_as_it_reads_a_checkout(self):
+        head = self.repo.git("rev-parse", "HEAD")
+        self.assertEqual(self.fresh("--ref", head).returncode, 0)
+        self.repo.write(f"{SETTINGS_SOURCES}/Alpha.swift", "// alpha, edited\n")
+        stale = self.repo.commit("stale", snapshot=False)
+        result = self.fresh("--ref", stale)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Alpha.swift", result.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

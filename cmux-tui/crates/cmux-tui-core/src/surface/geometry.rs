@@ -170,6 +170,20 @@ impl Surface {
         }
     }
 
+    /// The grid size this daemon last asked for. For a hosted terminal this
+    /// is the viewer size sent to the host, which can be ahead of the mirror
+    /// in [`Self::size`] until the host publishes `Resized`.
+    pub(crate) fn requested_size(&self) -> (u16, u16) {
+        #[cfg(any(unix, windows))]
+        if let Surface::Pty(pty) = self
+            && let PtyRuntime::Hosted(host) = &*pty.runtime.lock().unwrap()
+            && let Some(size) = host.viewer_size()
+        {
+            return size;
+        }
+        self.size()
+    }
+
     pub(crate) fn cell_pixel_size(&self) -> (u16, u16) {
         match self {
             Surface::Pty(pty) => {

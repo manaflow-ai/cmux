@@ -5,6 +5,7 @@ import { EffortTrack } from "./EffortTrack";
 import { useT } from "./i18n";
 import { registerPicker } from "./pickerOpeners";
 import { Menu, MenuButton, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator } from "../../ui/Menu";
+import type { ReasoningSliderStyle } from "./composerSettings";
 
 /// A switch section in the reasoning menu: Claude Code's Fast Mode (On/Off) or Codex's Service
 /// Tier (Standard/Fast), and Claude Code's Ultracode. `on` is the choice the chip names.
@@ -20,13 +21,15 @@ export type SpeedSection = {
 /// with one checked row per level the model offers; then Ultracode and the speed section when the
 /// agent has them. The agent's own level ("default", `defaulted`) checks the level it resolves to,
 /// with a Default hint, and the chip names that level; unresolved, it says Reasoning, never the
-/// first level. The chip says Ultracode while that is on, plus "Fast" while fast mode is on.
+/// first level. The chip says Ultracode while that is on; fast mode shows on the bolt beside the
+/// mic (FastToggle.tsx), not on the chip.
 /// The menu is the shared popup layer's opaque surface (ui/Menu), so nothing shows through it.
 /// Picking sends chat.effort through `onPick` (and each section's own `onPick`).
 /// With `slider` (the Debug Settings toggle `agent.reasoningSlider`, off by default) the Reasoning
 /// section is the model picker's stepped slider (EffortTrack) instead of the rows, when the model
 /// offers two or more levels. The slider picks as it moves and keeps the menu open; Escape closes
-/// it back to the chip.
+/// it back to the chip. `sliderStyle` is an opt-in visual comparison choice and defaults to the
+/// current accent treatment.
 export function EffortPicker({
   label,
   efforts,
@@ -36,7 +39,9 @@ export function EffortPicker({
   ultracode,
   speed,
   chevron,
+  short,
   slider = false,
+  sliderStyle: requestedSliderStyle = "accent",
 }: {
   /// The stable name automation opens it by (`openPicker`), whatever the UI language.
   label: string;
@@ -48,8 +53,12 @@ export function EffortPicker({
   ultracode?: SpeedSection;
   speed?: SpeedSection;
   chevron?: React.ReactNode;
+  /// The level's short name ("Med"), for a narrow composer row (composerRowFit.ts).
+  short?: string;
   /// Draw the Reasoning section as a slider (the person's opt-in); the list is the default.
   slider?: boolean;
+  /// Visual treatment for the opt-in slider; the current accent treatment is the default.
+  sliderStyle?: ReasoningSliderStyle;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -61,9 +70,9 @@ export function EffortPicker({
     ultracode && ultracode.current === ultracode.on
       ? ultracode.title
       : (selectedVisible?.name ?? t("picker.reasoning"));
-  const fast = speed !== undefined && speed.current === speed.on;
   // One level is nothing to slide between: the list shows it as a single checked row.
   const sliding = slider && visibleEfforts.length > 1;
+  const sliderStyle = requestedSliderStyle;
   const recommended = visibleEfforts.find((choice) => choice.recommended);
   // The level the thumb shows: the picked one, else (the agent's own default) the recommended one.
   const shown = selectedVisible ?? recommended ?? visibleEfforts[0];
@@ -90,9 +99,10 @@ export function EffortPicker({
   }, [open]);
   const levelRow = (choice: Choice) =>
     row(defaulted && choice.id === selectedVisible?.id ? { ...choice, hint: t("picker.default") } : choice);
-  // One line per row, as a native menu: the check in its own leading gutter (empty when the row is
-  // not chosen, so every label starts at the same x), the label, a hint, and a short note (Ultracode)
-  // in secondary text on the same line, its full text in the tooltip when the menu clips it.
+  // One line per row, as a native menu: the label, a hint, and a short note (Ultracode) in secondary
+  // text on the same line, its full text in the tooltip when the menu clips it, then the check in its
+  // own trailing gutter (composerControls.css; empty when the row is not chosen, so every label
+  // starts at the same x).
   const row = (choice: Choice) => (
     <MenuRadioItem key={choice.id} value={choice.id} className="acpmux-effort-item">
       <span className="acpmux-effort-text">
@@ -115,7 +125,7 @@ export function EffortPicker({
     <span className="acpmux-picker acpmux-effort">
       <Menu open={open} onOpenChange={setOpen}>
         <MenuButton className="acpmux-picker-button" label={t("effort.title")} data-menu={label} aria-haspopup="menu">
-          <span>{fast ? `${level} ${t("picker.chipFast")}` : level}</span>
+          <EffortLabel label={level} short={short && short !== level ? short : undefined} />
           {chevron}
         </MenuButton>
         <MenuPopup side="top" align="start" className="acpmux-effort-menu">
@@ -126,6 +136,7 @@ export function EffortPicker({
               current={selectedVisible?.id}
               shown={shown}
               fallback={recommended?.id}
+              sliderStyle={sliderStyle}
               onPick={onPick}
               onClose={() => setOpen(false)}
             />
@@ -183,6 +194,21 @@ export function EffortPicker({
   );
 }
 
+/// The effort chip's label: the level, and its short name for a narrow composer row, which swaps
+/// one for the other whole (composerRowFit.ts). The short name is drawn, so the chip's text stays
+/// the level's name.
+export function EffortLabel({ label, short }: { label: string; short?: string | undefined }) {
+  if (!short) return <span>{label}</span>;
+  return (
+    <>
+      <span data-fit-part="effort" data-fit-forms="full">
+        {label}
+      </span>
+      <span className="acpmux-fit-label" data-fit-part="effort" data-fit-forms="short" data-label={short} />
+    </>
+  );
+}
+
 /// Keys the slider steps by itself, so the menu's own row navigation and typeahead never see them.
 const SLIDER_KEYS = new Set(["ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"]);
 
@@ -197,6 +223,7 @@ function ReasoningSlider({
   current,
   shown,
   fallback,
+  sliderStyle,
   onPick,
   onClose,
 }: {
@@ -205,6 +232,7 @@ function ReasoningSlider({
   current?: string;
   shown?: Choice;
   fallback?: string;
+  sliderStyle: ReasoningSliderStyle;
   onPick(value: string): void;
   onClose(): void;
 }) {
@@ -263,6 +291,7 @@ function ReasoningSlider({
         efforts={efforts}
         current={current}
         fallback={fallback}
+        sliderStyle={sliderStyle}
         onPick={commit}
         onEscape={onClose}
         onRangeKey={onRangeKey}

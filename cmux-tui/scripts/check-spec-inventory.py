@@ -580,7 +580,13 @@ CONTROL_EVENT_MODULES = ("server/url_open.rs", "server/clipboard_read.rs", "serv
 # attach, loopback forwarding, scripts, terminal snapshot digests). The
 # inventory does not read them until the spec covers those events (cx-chun).
 SERVER_MODULES_OUTSIDE_RAW_SDK = frozenset(
-    {"agent_session_attach", "loopback_forward", "scripts", "terminal_snapshot"}
+    {
+        "agent_session_attach",
+        "agent_session_stream",  # Existing attach events moved here; same wire family.
+        "loopback_forward",
+        "scripts",
+        "terminal_snapshot",
+    }
 )
 
 
@@ -706,6 +712,13 @@ def runtime_event_stream_hints() -> dict[str, set[str]]:
         first_function_event_names(server, "browser_state_message", "browser_state_json"),
         "attach-browser",
     )
+    # These internal owner-watch events are targeted on the subscribing
+    # native control connection, independently of the tree subscribe stream.
+    inventory_watch = TUI / "crates/cmux-tui-core/src/server/agent_inventory_watch/state.rs"
+    if inventory_watch.is_file():
+        source = inventory_watch.read_text()
+        add(function_event_names(source, "observe"), "control")
+        add(function_event_names(source, "stop"), "control")
     return hints
 
 

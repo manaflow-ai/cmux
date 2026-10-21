@@ -17,6 +17,7 @@ public final class SetColumnDockRequest implements WireValue {
     private final Field<String> mode;
     private final UInt64 pane;
     private final Field<Boolean> permanent;
+    private final Field<Boolean> pinned;
     private final Field<String> role;
     private final Field<UInt64> transaction;
 
@@ -28,6 +29,7 @@ public final class SetColumnDockRequest implements WireValue {
         if (!builder.paneSet) throw new IllegalArgumentException("pane is required");
         this.pane = Wire.nonNull(builder.pane, "pane");
         this.permanent = builder.permanent;
+        this.pinned = builder.pinned;
         this.role = builder.role;
         this.transaction = builder.transaction;
     }
@@ -39,6 +41,7 @@ public final class SetColumnDockRequest implements WireValue {
     public Field<String> mode() { return mode; }
     public UInt64 pane() { return pane; }
     public Field<Boolean> permanent() { return permanent; }
+    public Field<Boolean> pinned() { return pinned; }
     public Field<String> role() { return role; }
     public Field<UInt64> transaction() { return transaction; }
 
@@ -61,6 +64,10 @@ public final class SetColumnDockRequest implements WireValue {
         if (!Wire.isMissing(rawPermanent)) {
             builder.permanent(rawPermanent == null ? null : Wire.bool(rawPermanent, "SetColumnDockRequest.permanent"));
         }
+        Object rawPinned = Wire.optional(object, "pinned");
+        if (!Wire.isMissing(rawPinned)) {
+            builder.pinned(rawPinned == null ? null : Wire.bool(rawPinned, "SetColumnDockRequest.pinned"));
+        }
         Object rawRole = Wire.optional(object, "role");
         if (!Wire.isMissing(rawRole)) {
             builder.role(rawRole == null ? null : Wire.string(rawRole, "SetColumnDockRequest.role"));
@@ -80,6 +87,7 @@ public final class SetColumnDockRequest implements WireValue {
         Wire.put(object, "mode", mode);
         Wire.put(object, "pane", pane);
         Wire.put(object, "permanent", permanent);
+        Wire.put(object, "pinned", pinned);
         Wire.put(object, "role", role);
         Wire.put(object, "transaction", transaction);
         return Collections.unmodifiableMap(object);
@@ -88,11 +96,11 @@ public final class SetColumnDockRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof SetColumnDockRequest that)) return false;
-        return Objects.equals(dock, that.dock) && Objects.equals(edge, that.edge) && Objects.equals(mode, that.mode) && Objects.equals(pane, that.pane) && Objects.equals(permanent, that.permanent) && Objects.equals(role, that.role) && Objects.equals(transaction, that.transaction);
+        return Objects.equals(dock, that.dock) && Objects.equals(edge, that.edge) && Objects.equals(mode, that.mode) && Objects.equals(pane, that.pane) && Objects.equals(permanent, that.permanent) && Objects.equals(pinned, that.pinned) && Objects.equals(role, that.role) && Objects.equals(transaction, that.transaction);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(dock, edge, mode, pane, permanent, role, transaction); }
+    public int hashCode() { return Objects.hash(dock, edge, mode, pane, permanent, pinned, role, transaction); }
 
     @Override
     public String toString() { return "SetColumnDockRequest" + toWire(); }
@@ -105,6 +113,7 @@ public final class SetColumnDockRequest implements WireValue {
         private UInt64 pane;
         private boolean paneSet;
         private Field<Boolean> permanent = Field.omitted();
+        private Field<Boolean> pinned = Field.omitted();
         private Field<String> role = Field.omitted();
         private Field<UInt64> transaction = Field.omitted();
 
@@ -128,6 +137,10 @@ public final class SetColumnDockRequest implements WireValue {
         }
         public Builder permanent(Boolean value) {
             this.permanent = Field.ofNullable(value);
+            return this;
+        }
+        public Builder pinned(Boolean value) {
+            this.pinned = Field.ofNullable(value);
             return this;
         }
         public Builder role(String value) {

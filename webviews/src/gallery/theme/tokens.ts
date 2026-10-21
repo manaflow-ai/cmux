@@ -201,7 +201,7 @@ export function deriveTokens(input: ThemeInput): ThemeTokens {
     textTertiary: tertiary,
     hoverFill: hover,
     selectionFill: selection,
-    secondarySelectionFill: withAlpha(fg, isDark ? 0.07 : 0.055),
+    secondarySelectionFill: accent ? withAlpha(accent, isDark ? 0.18 : 0.11) : withAlpha(fg, isDark ? 0.07 : 0.055),
     pressedFill: pressed,
     badgeFill: withAlpha(fg, isDark ? 0.14 : 0.1),
     separator: withAlpha(fg, isDark ? 0.08 : 0.07),

@@ -65,7 +65,8 @@ import Testing
             .appendingPathComponent("plans/cmux-next/actions.md")
         let text = try String(contentsOf: url, encoding: .utf8)
         let start = try #require(text.range(of: "## Catalog counts\n\n"))
-        let end = try #require(text.range(of: "\n## Counts (", range: start.upperBound..<text.endIndex))
+        let endRange = text.range(of: "\n## Counts (", range: start.upperBound..<text.endIndex)
+        let end = try #require(endRange)
         var counts: [ActionCategory: Int] = [:]
         for line in text[start.upperBound..<end.lowerBound].split(separator: "\n") {
             let fields = line.split { $0 == "`" || $0 == ":" }

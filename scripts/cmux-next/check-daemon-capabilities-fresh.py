@@ -147,6 +147,12 @@ def main() -> int:
     stored_text = read(args.repo, args.rev, JSON)
     stored = json.loads(stored_text)
     problems = []
+    # A capability in required/optional must be served by the bundled daemon;
+    # one in the unserved list must not. In both, every build fails (#21445).
+    for a, b in (("required", "optional"), ("required", "unservedByBundledDaemon"), ("optional", "unservedByBundledDaemon")):
+        both = sorted(set(swift[a]) & set(swift[b]))
+        if both:
+            problems.append(f"in both {a} and {b} in DaemonEndpoint.swift: {', '.join(both)}; keep each in one list")
     for name in LISTS:
         want, have = swift[name], stored.get(name, [])
         if len(set(want)) != len(want):

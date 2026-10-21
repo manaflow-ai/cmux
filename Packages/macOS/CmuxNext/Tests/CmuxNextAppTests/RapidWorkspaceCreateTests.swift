@@ -1,7 +1,9 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBridge
 @testable import CmuxNextApp
 import CmuxNextDaemon
+@testable import CmuxNextSidebar
 import Foundation
 import Testing
 
@@ -215,6 +217,77 @@ struct RapidWorkspaceCreateTests {
         #expect(final == atPress, "rows changed: \(atPress) -> \(final)")
         #expect(names.count == presses && (names == names.sorted() || names == names.sorted(by: >)), "press order: \(names)")
         #expect(gaps.isEmpty, "rows left the sidebar: \(gaps)")
+        #expect(failures.isEmpty, "failed: \(failures)")
+    }
+
+    /// Leo 2026-10-18 (nightly 22637785a4): fifty quick Cmd-N presses drew their rows late and out
+    /// of order ("workspace-50, 49, 38, 42, 48, 41, 47, 46, 33"; "it goes out of order because it
+    /// opens too slowly"). With default names, at key-repeat speed: each press's row is drawn in
+    /// the window's sidebar within 250 ms of the press, every drawn frame lists the new rows in
+    /// press order, and the names count up with the presses.
+    @Test func fiftyCmdNDrawEachRowAtItsPressInPressOrder() async throws {
+        let launched = try await Self.launch()
+        let services = launched.services
+        let window = try #require(services.windows.active?.state.id)
+        let controller = try #require(services.windows.controller(for: window))
+        let list = controller.sidebar.container.sidebarView.list
+        let presses = 50
+        let before = Self.rowsBeforePresses(shown: Set(controller.sidebar.model.allWorkspaces.map(\.id.rawValue)),
+                                            services: services, window: window)
+        /// The new rows the sidebar draws, top to bottom.
+        func drawn() -> [String] {
+            list.displayed.rows.compactMap { row in
+                guard case let .workspace(id) = row.key, !before.contains(id.rawValue) else { return nil }
+                return id.rawValue
+            }
+        }
+        var pressed: [ContinuousClock.Instant] = []
+        /// Each press's workspace key, in press order (a press adds its row at the press).
+        var keys: [String] = []
+        var firstDrawn: [String: ContinuousClock.Instant] = [:]
+        var misordered: [[Int]] = []
+        func sample() {
+            for row in PendingWorkspaceRows.shared.rows(in: window) where !keys.contains(row.id) { keys.append(row.id) }
+            let now = ContinuousClock.now, rows = drawn()
+            for id in rows where firstDrawn[id] == nil { firstDrawn[id] = now }
+            let order = rows.compactMap { keys.firstIndex(of: $0) }
+            if order != order.sorted(), order != order.sorted(by: >), misordered.count < 5 { misordered.append(order) }
+        }
+
+        var work: [ActionWork] = []
+        for _ in 1...presses {
+            pressed.append(.now)
+            work += services.registry.capturingWork { _ = services.registry.perform("newTab") }
+            let next = ContinuousClock.now + .milliseconds(33) // key repeat
+            while ContinuousClock.now < next { sample(); try? await Task.sleep(for: .milliseconds(3)) }
+        }
+        var settled = false
+        let settleBy = ContinuousClock.now + .seconds(90)
+        while !settled, ContinuousClock.now < settleBy {
+            sample()
+            let members = Set(services.windows.registry.members(of: window))
+            settled = keys.count == presses && keys.allSatisfy(members.contains) && PendingWorkspaceRows.shared.rows(in: window).isEmpty
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        let settle = ContinuousClock.now - pressed[0]
+        var failures: [String] = []
+        for task in work { if let failure = await task.value { failures.append(failure.message) } }
+        let latencies = zip(keys, pressed).map { key, at in firstDrawn[key].map { $0 - at } ?? .seconds(999) }
+        let sorted = latencies.sorted()
+        let worst = sorted.last ?? .zero
+        let numbers = keys.map { key in
+            services.daemon.store.workspaces.first { $0.id == key }.flatMap { Int($0.name.dropFirst(SidebarMapping.defaultNamePrefix.count)) } ?? -1
+        }
+        let final = drawn().compactMap { keys.firstIndex(of: $0) }
+        await launched.stop()
+        print("fifty-cmd-n: press-to-row median \(sorted.isEmpty ? .zero : sorted[sorted.count / 2]) worst \(worst), settled \(settle) after the first press")
+
+        #expect(keys.count == presses, "\(keys.count) of \(presses) presses added a row")
+        #expect(settled, "never settled")
+        #expect(worst < .milliseconds(250), "slowest press-to-row \(worst); by press: \(latencies.map { $0.components.seconds * 1000 + $0.components.attoseconds / 1_000_000_000_000_000 })")
+        #expect(misordered.isEmpty, "drawn frames out of press order: \(misordered)")
+        #expect(final.count == presses && (final == final.sorted() || final == final.sorted(by: >)), "final order by press: \(final)")
+        #expect(numbers == numbers.sorted() && Set(numbers).count == presses, "names by press: \(numbers)")
         #expect(failures.isEmpty, "failed: \(failures)")
     }
 }

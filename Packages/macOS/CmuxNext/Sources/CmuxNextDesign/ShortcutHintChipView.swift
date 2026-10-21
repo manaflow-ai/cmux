@@ -17,7 +17,7 @@ public final class ShortcutHintChipView: NSView {
 
     private var glass: GlassPanelView?
     private let fill = NSView()
-    private let label = NSTextField(labelWithString: "")
+    private let label = ChromeLabel(labelWithString: "")
     private let reduceTransparency: ReduceTransparency
 
     public init(reduceTransparency: ReduceTransparency = .shared) {

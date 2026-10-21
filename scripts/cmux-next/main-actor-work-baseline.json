@@ -130,9 +130,6 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/SidebarSections/SidebarLayoutRemote.swift": {
   "JSON / property-list decode": 1
  },
- "Packages/macOS/CmuxNext/Sources/CmuxNextApp/TerminalOutput.swift": {
-  "line split of a whole input": 1
- },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/UpdaterService+Relaunch.swift": {
   "process launch": 1
  },
@@ -198,9 +195,6 @@
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteLocalhostService/ActionRegistry+WorkspaceLocalhost.swift": {
   "line split of a whole input": 1
- },
- "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Store/SidebarMirror.swift": {
-  "JSON / property-list decode": 0
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabHoverCard.swift": {
   "a main-actor Task per line or event (batch with MainActorLineBatch)": 1

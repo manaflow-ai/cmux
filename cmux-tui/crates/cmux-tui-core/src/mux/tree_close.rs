@@ -61,7 +61,7 @@ impl Mux {
         }
         if removed.is_some() || !changed_screens.is_empty() {
             for screen in changed_screens {
-                self.emit(MuxEvent::LayoutChanged(screen));
+                self.emit_layout_changed(screen, None);
             }
         }
         self.emit_empty_if_current(empty_revision);
@@ -169,7 +169,7 @@ impl Mux {
         if tree_removed {
             self.emit_tree_delta(delta, selection_resync);
             for screen in changed_screens {
-                self.emit(MuxEvent::LayoutChanged(screen));
+                self.emit_layout_changed(screen, None);
             }
         }
         self.emit_empty_if_current(empty_revision);

@@ -33,11 +33,13 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     /// A workspace with no icon of its own and no favicon (WORKSPACE-ROWS-NO-DEFAULT-ICON): a look
     /// with a title draws no glyph; an icon-only look and a tile draw the title's first letter.
     public var textOnly = false
+    /// A workspace in Pinned drawn as a row: a pin leads it, before its icon and title.
+    public var leadingPin = false
     /// An unread dot instead of a count, in every look (What's New after an update).
     public var unreadDot = false
     /// The current profile's avatar (SIDEBAR-FOOTER-AND-SPACE-MENU
     /// amendment 2): an icon-only item with an avatar draws its initial in
-    /// a circle with a small chevron, and a click opens the profile menu.
+    /// a circle, and a click opens the profile menu.
     public var avatar: SidebarAvatar?
     /// A workspace item's merged status (its row's `activity`), drawn by the shared indicator.
     public var activity: StatusIndicatorState = .idle

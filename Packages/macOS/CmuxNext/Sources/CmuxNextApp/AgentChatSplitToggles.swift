@@ -1,5 +1,6 @@
 import CmuxNextAgentPane
 import CmuxNextDaemon
+import CmuxNextFloating
 
 /// The chat header's Terminal and Browser splits, its Changes diff and its Preview page (acpmux
 /// header/quickActions.ts), each the panel its button owns, as in Claude Code desktop's top right (cx-00n1). Toggling (`mode:

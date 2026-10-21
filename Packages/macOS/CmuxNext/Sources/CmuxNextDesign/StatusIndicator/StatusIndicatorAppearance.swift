@@ -27,11 +27,17 @@ public nonisolated struct StatusIndicatorConfig: Hashable, Sendable {
     public var terminalFontFamily: String?
     /// The status icon set (Debug Settings `status.iconSet`, cx-kxa2).
     public var iconSet: StatusIconSet
+    /// System Reduce Motion (or its test override).
+    public var reduceMotion: Bool
+    /// The static look draws shapes instead of the Static set's glyphs
+    /// (Debug Settings `status.static.shapes`).
+    public var staticShapes: Bool
 
     public init(settings: StatusIndicatorSettings = StatusIndicatorSettings(), styleOverride: StatusIndicatorStyle? = nil,
                 arcLength: Double = 0.72, trackOpacity: Double = 0.22, dotScale: Double = 0.5, pulseLow: Double = 0.35,
                 nativeSteps: Int = 8, animatesLoops: Bool = true, spinnerPeriod: Double? = nil, pulsePeriod: Double? = nil,
-                terminalFontFamily: String? = nil, iconSet: StatusIconSet = .current) {
+                terminalFontFamily: String? = nil, iconSet: StatusIconSet = .current, reduceMotion: Bool = false,
+                staticShapes: Bool = false) {
         self.settings = settings
         self.styleOverride = styleOverride
         self.arcLength = arcLength
@@ -44,7 +50,14 @@ public nonisolated struct StatusIndicatorConfig: Hashable, Sendable {
         self.pulsePeriod = pulsePeriod
         self.terminalFontFamily = terminalFontFamily
         self.iconSet = iconSet
+        self.reduceMotion = reduceMotion
+        self.staticShapes = staticShapes
     }
+
+    /// The static look (cx-sya4n): the setting says static, or Reduce Motion
+    /// is on. Nothing animates and each state draws its own still shape in
+    /// the same slot and size, whatever the icon set.
+    public var isStatic: Bool { settings.animation == .static || reduceMotion }
 
     /// The style for a report that asked for `hint`: the Debug Settings
     /// override, else the hint, else the setting.
@@ -62,11 +75,13 @@ public nonisolated struct StatusIndicatorConfig: Hashable, Sendable {
             dotScale: StatusIndicatorTunables.dotScale.value,
             pulseLow: StatusIndicatorTunables.pulseLow.value,
             nativeSteps: Int(StatusIndicatorTunables.nativeSteps.value.rounded()),
-            animatesLoops: Motion.animatesLoops,
-            spinnerPeriod: Motion.period(.spinner),
-            pulsePeriod: Motion.period(.pulse),
+            animatesLoops: Motion.indicators.animatesLoops,
+            spinnerPeriod: Motion.indicators.period(.spinner),
+            pulsePeriod: Motion.indicators.period(.pulse),
             terminalFontFamily: DesignSettings.shared.terminalFontFamily,
-            iconSet: StatusIconSet.tunable.value)
+            iconSet: StatusIconSet.tunable.value,
+            reduceMotion: Motion.reduceMotion,
+            staticShapes: StatusIndicatorPlan.staticShapes.value)
     }
 }
 

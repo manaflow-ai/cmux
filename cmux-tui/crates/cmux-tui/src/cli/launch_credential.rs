@@ -10,6 +10,8 @@ use std::io::{BufReader, Write};
 use std::path::{Path, PathBuf};
 
 use cmux_tui_core::launch_credential::LAUNCH_CREDENTIAL_CAPABILITY;
+
+use super::capability_cache::CapabilityCache;
 use cmux_tui_core::platform::transport;
 use serde_json::{Value, json};
 
@@ -32,7 +34,7 @@ pub(super) fn for_connection(
 ) -> Option<String> {
     let own_socket = std::env::var_os("CMUX_TUI_SOCKET").map(PathBuf::from);
     let credential = for_socket(crate::startup_env::launch_credential(), own_socket, socket)?;
-    advertises(reader, LAUNCH_CREDENTIAL_CAPABILITY).then_some(credential)
+    advertises(reader, socket, LAUNCH_CREDENTIAL_CAPABILITY).then_some(credential)
 }
 
 fn for_socket(credential: Option<String>, own: Option<PathBuf>, socket: &Path) -> Option<String> {
@@ -46,29 +48,50 @@ fn for_socket(credential: Option<String>, own: Option<PathBuf>, socket: &Path) -
     same.then_some(credential)
 }
 
-/// One `identify` on the connection; false on any doubt (the request then
-/// goes without a credential, which is the pre-P8 behavior).
+/// Whether the daemon on this connection serves `capability`, a capability
+/// a daemon keeps for its whole life: remembered per daemon process
+/// ([`CapabilityCache`]), else one `identify` on the connection. False on
+/// any doubt (the request then goes without a credential, which is the
+/// pre-P8 behavior).
 pub(super) fn advertises(
     reader: &mut BufReader<Box<dyn transport::Stream>>,
+    socket: &Path,
     capability: &str,
 ) -> bool {
-    let Ok(id) = super::wire::random_request_id() else { return false };
+    let cache = CapabilityCache::for_user();
+    let peer = reader.get_ref().peer_process_key();
+    if let Some(peer) = peer.as_deref()
+        && let Some(capabilities) = cache.load(socket, peer)
+    {
+        return capabilities.iter().any(|known| known == capability);
+    }
+    let Some(capabilities) = identify_capabilities(reader) else { return false };
+    if let Some(peer) = peer.as_deref() {
+        cache.store(socket, peer, &capabilities);
+    }
+    capabilities.iter().any(|known| known == capability)
+}
+
+/// The capabilities one `identify` on the connection reports.
+fn identify_capabilities(
+    reader: &mut BufReader<Box<dyn transport::Stream>>,
+) -> Option<Vec<String>> {
+    let Ok(id) = super::wire::random_request_id() else { return None };
     let request = json!({"id": id, "cmd": "identify"});
-    let Ok(encoded) = serde_json::to_vec(&request) else { return false };
-    let sent = reader
+    let Ok(encoded) = serde_json::to_vec(&request) else { return None };
+    reader
         .get_mut()
         .write_all(&encoded)
         .and_then(|()| reader.get_mut().write_all(b"\n"))
-        .and_then(|()| reader.get_mut().flush());
-    if sent.is_err() {
-        return false;
-    }
-    let Ok(Some(response)) = super::wire::read_envelope(reader, false) else { return false };
+        .and_then(|()| reader.get_mut().flush())
+        .ok()?;
+    let Ok(Some(response)) = super::wire::read_envelope(reader, false) else { return None };
     if response.get("id").and_then(Value::as_str) != Some(id.as_str())
         || response.get("ok").and_then(Value::as_bool) != Some(true)
     {
-        return false;
+        return None;
     }
     crate::session::parse_identity_capabilities(response.get("data").unwrap_or(&Value::Null))
-        .is_ok_and(|capabilities| capabilities.contains(capability))
+        .ok()
+        .map(|capabilities| capabilities.into_iter().collect())
 }

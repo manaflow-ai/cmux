@@ -23,7 +23,7 @@ struct TabClosingModeHit {
               abs(point.y - anchor.y) <= strip.metrics.closeButtonSize / 2 + 2,
               let hit = Self.laidOut(strip).first(where: { $0.frame.minX <= point.x && point.x < $0.frame.maxX }),
               abs(hit.frame.maxX - point.x - anchor.fromTrailing) <= 4,
-              let item = strip.model.tab(hit.id), !item.isPinned,
+              let item = strip.model.tab(hit.id), !item.isPinned, item.isClosable,
               TabChromeVisibility.resolve(width: hit.frame.width, isPinned: false, isSelected: item.id == strip.model.selectedID,
                                           isHovered: true, style: strip.model.style, metrics: strip.metrics).showsClose else { return nil }
         return hit.id
@@ -31,11 +31,11 @@ struct TabClosingModeHit {
 
     /// The strip's shown tabs' frames in its clip once their springs settle.
     static func laidOut(_ strip: TabStripView) -> [(id: TabID, frame: CGRect)] {
-        let mapping = strip.scrollMapping(offset: strip.scroll.target)
+        let mapping = strip.scrollMapping(offset: strip.scrollOffset)
         return strip.displayed.compactMap { item in
-            guard let m = strip.motion[item.id], m.width.target > 0.5 else { return nil }
+            guard let place = strip.placed[item.id], place.width > 0.5 else { return nil }
             let height = strip.tabsClip.bounds.height
-            return (item.id, CGRect(x: mapping.viewX(m.x.target, isPinned: item.isPinned), y: 0, width: m.width.target, height: height))
+            return (item.id, CGRect(x: mapping.viewX(place.x, isPinned: item.isPinned), y: 0, width: place.width, height: height))
         }
     }
 }

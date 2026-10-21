@@ -31,13 +31,13 @@ final class TabHoverCardController: HoverCardSource {
     /// Samples CPU and memory of the hovered tab while its card shows (first
     /// sample when it shows: a sweep across tabs samples none), never otherwise.
     let resources = ResourceCardSampler(source: nil)
-    /// Pointer rest before a tab's card opens: Chrome's tab hover card delay
-    /// (`HoverCardTiming.chromeDelay`), or `sidebar.hoverCards.delay`; read on
+    /// Pointer rest before a tab's card opens: `HoverCardTiming.showDelay`,
+    /// or `sidebar.hoverCards.delay`; read on
     /// each hover so a Settings change applies at once. Every tab waits the
     /// same, as a sidebar row does (no width scaling, cx-23e1f).
     var delay: Duration { DesignSettings.shared.hoverCardDelay }
     /// Like a browser's tab preview (Leo 2026-10-14): leaving the tab hides its card at once,
-    /// and another tab reached within Chrome's reshow window shows its card at once.
+    /// and another tab reached within the reshow window shows its card at once.
     var leave: HoverCardLeave { .hides(reshow: HoverCardTiming.reshowWindow) }
     /// The app's one coordinator; the App injects it, a demo strip uses its own.
     var coordinator: HoverCardCoordinator {
@@ -49,6 +49,8 @@ final class TabHoverCardController: HoverCardSource {
     }
 
     private var body: TabHoverCardView?
+    /// Group chips' summary card body, reused chip to chip.
+    private var groupBody: GroupHoverCardView?
     private var thumbnailTask: Task<Void, Never>?
     /// Recently hovered tabs' thumbnails.
     var thumbnails = TabThumbnailCache()
@@ -70,6 +72,9 @@ final class TabHoverCardController: HoverCardSource {
 
     init(coordinator: HoverCardCoordinator = HoverCardCoordinator()) {
         self.coordinator = coordinator
+        #if DEBUG
+        HoverCardGallery.register("tabs") { TabHoverCardGallery.cards() }
+        #endif
         let source = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
         source.setEventHandler { [weak self] in
             Task { @MainActor in
@@ -104,7 +109,7 @@ final class TabHoverCardController: HoverCardSource {
 
     /// This strip's tab or chip whose card shows now.
     var shownID: TabID? {
-        guard let id = coordinator.machine.shownTarget?.id, let tab = tabID(id), strip?.hoverContent(for: tab) != nil else { return nil }
+        guard let id = coordinator.machine.shownTarget?.id, let tab = tabID(id), content(for: tab) != nil else { return nil }
         return tab
     }
     var isVisible: Bool { shownID != nil }
@@ -115,11 +120,11 @@ final class TabHoverCardController: HoverCardSource {
 
     func hoverCardHit(at screenPoint: CGPoint) -> HoverCardHit? {
         guard let strip, let window = strip.window,
-              let target = strip.hoverCardTarget(at: strip.convert(window.convertPoint(fromScreen: screenPoint), from: nil))
+              let target = self.target(at: strip.convert(window.convertPoint(fromScreen: screenPoint), from: nil))
         else { return nil }
         return HoverCardHit(
             target: HoverTarget(id: Self.targetID(target.id), window: window.windowNumber,
-                                delay: delay, leave: leave),
+                                delay: target.id.isGroupChip ? DesignSettings.shared.groupHoverCard.delay : delay, leave: leave),
             anchor: target.anchor
         )
     }
@@ -133,11 +138,20 @@ final class TabHoverCardController: HoverCardSource {
 
     func hoverCardAnchor(for id: HoverTargetID) -> CGRect? {
         guard let tab = tabID(id) else { return nil }
-        return strip?.hoverCardAnchor(for: tab)
+        return anchor(forTab: tab)
     }
 
     func hoverCardBody(for id: HoverTargetID) -> HoverCardBody? {
-        guard let strip, let tab = tabID(id), let content = strip.hoverContent(for: tab) else { return nil }
+        guard let strip, let tab = tabID(id), let content = self.content(for: tab) else { return nil }
+        if let group = tab.chipGroupID, let item = strip.groups.byID[group] {
+            let body = groupBody ?? GroupHoverCardView()
+            groupBody = body
+            body.configure(strip.groupHoverSummary(item, options: DesignSettings.shared.groupHoverCard, now: now()))
+            bodyID = id
+            return HoverCardBody(view: body, placement: Self.placement(for: DesignSettings.shared.tabBarPosition), themeAnchor: strip) { [weak body] in
+                body?.applyColors()
+            }
+        }
         let body = body ?? TabHoverCardView()
         self.body = body
         body.configure(content)
@@ -147,11 +161,15 @@ final class TabHoverCardController: HoverCardSource {
             body.setResources(resources.report ?? lastReport(for: tab))
             // On a retarget, a tab whose thumbnail is not known yet keeps what the card
             // shows (the last tab's picture, or no frame) until its own lands: never an
-            // empty frame that collapses again (R131).
+            // empty frame that collapses again (R131). A card opening fresh shows no frame
+            // until the picture lands (`loadThumbnail` grows it): an empty gray well under
+            // the facts read as broken (Leo 2026-10-20).
             if !full || noThumbnail.contains(tab) {
                 body.setThumbnailVisible(false)
-            } else if thumbnails.image(for: tab) != nil || (bodyID != id && opensFresh) {
+            } else if thumbnails.image(for: tab) != nil {
                 body.setThumbnailVisible(true)
+            } else if bodyID != id && opensFresh {
+                body.setThumbnailVisible(false)
             }
         }
         let newCard = bodyID != id
@@ -195,6 +213,7 @@ final class TabHoverCardController: HoverCardSource {
         // Its frame stays as it is while it fades out.
         if !cardIsShowing() {
             body?.setThumbnail(nil)
+            body?.resetResourceHistory()
             opensFresh = true
         }
     }
@@ -233,6 +252,7 @@ final class TabHoverCardController: HoverCardSource {
     func tokensChanged() {
         coordinator.dismiss(.action)
         body = nil
+        groupBody = nil
         bodyID = nil
     }
 

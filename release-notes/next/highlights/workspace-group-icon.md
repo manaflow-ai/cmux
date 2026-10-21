@@ -1,4 +1,5 @@
 title: Give a workspace group an icon
+category: new
 action: workspaceGroup.setIcon | Set Workspace Group Icon…
 
-Right-click a group header and choose Appearance, then Set Icon, to pick an emoji or a symbol for the group. The icon shows in the group's colored label before its name. Remove Icon takes it away. The group's Color menu moved into the same Appearance menu, as on a workspace row.
+Right-click a group header and choose Appearance > Set Icon to give the group an emoji or symbol in its colored label. The group's Color menu moved into the same Appearance menu.

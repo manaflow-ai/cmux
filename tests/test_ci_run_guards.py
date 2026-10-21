@@ -12,6 +12,7 @@ waiting on the child's copy of the output pipe.
 from __future__ import annotations
 
 import concurrent.futures
+import copy
 import re
 import subprocess
 import sys
@@ -116,6 +117,33 @@ class PlanFollowsTheWorkflow(unittest.TestCase):
         # The fast group's steps are independent, which is what makes it fast.
         self.assertFalse(run_ci_guards.is_stateful(by_group["ci"]))
 
+    def test_fast_guard_skip_gate_is_a_supported_group_condition(self) -> None:
+        step = {
+            "name": "gated",
+            "if": "${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}",
+            "run": "true",
+        }
+        workflow = copy.deepcopy(self.workflow)
+        workflow["jobs"]["workflow-guard-tests"]["steps"].append(step)
+        units = run_ci_guards.plan(workflow, "base", "head")
+        ci = next(unit for unit in units if unit.group == "ci")
+        self.assertIn("gated", {step.name for step in ci.steps})
+
+    def test_or_group_condition_runs_each_named_group_only(self) -> None:
+        workflow = copy.deepcopy(self.workflow)
+        workflow["jobs"]["workflow-guard-tests"]["steps"].append(
+            {
+                "name": "or-gated",
+                "if": "${{ matrix.group == 'preflight-agent-chat' || matrix.group == 'release-ios' }}",
+                "run": "true",
+            }
+        )
+        units = run_ci_guards.plan(workflow, "base", "head")
+        by_group = {unit.group: {step.name for step in unit.steps} for unit in units}
+        self.assertIn("or-gated", by_group["preflight-agent-chat"])
+        self.assertIn("or-gated", by_group["release-ios"])
+        self.assertNotIn("or-gated", by_group["preflight"])
+
 
 class PlanRefusesWhatItCannotRun(unittest.TestCase):
     def workflow(self, step: dict) -> dict:
@@ -128,6 +156,11 @@ class PlanRefusesWhatItCannotRun(unittest.TestCase):
 
     def test_an_unknown_condition_fails_instead_of_dropping_the_step(self) -> None:
         step = {"name": "b", "if": "${{ matrix.group == 'ci' && !cancelled() }}", "run": "true"}
+        with self.assertRaises(run_ci_guards.PlanError):
+            run_ci_guards.plan(self.workflow(step), "base", "head")
+
+    def test_an_unknown_or_condition_fails_instead_of_selecting_one_group(self) -> None:
+        step = {"name": "b", "if": "${{ matrix.group == 'ci' || always() }}", "run": "true"}
         with self.assertRaises(run_ci_guards.PlanError):
             run_ci_guards.plan(self.workflow(step), "base", "head")
 

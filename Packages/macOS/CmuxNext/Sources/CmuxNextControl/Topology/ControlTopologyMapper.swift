@@ -255,11 +255,13 @@ enum ControlTopologyMapper {
             gitBranch: model.gitBranch,
             isPinned: model.pinned,
             isDead: model.dead,
-            hasUnread: model.hasUnread,
+            hasUnread: model.showsUnread,
             tabGroupID: model.tabGroup?.rawValue,
             agentState: model.agent?.state.rawValue
         ).withTerminalResource(model.terminalResourceID?.rawValue)
         info.agent = model.agent?.agent
+        // Hook bookkeeping values (`cmux-hook-sequence:`, `cmux-hook-ended:`) are not a session.
+        info.agentHarnessSessionID = model.agent?.session.flatMap { $0.isEmpty || $0.hasPrefix("cmux-hook-") ? nil : $0 }
         info.remoteSessionID = model.remote?.sessionID
         info.remoteTerminalID = model.remote?.terminalID.rawValue
         if model.kind == .browser { info.browserProfileID = model.browserProfileID ?? "default" }  // tracked: a move re-publishes

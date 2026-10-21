@@ -1,12 +1,13 @@
 import CmuxNextCompat
 
 /// The sidebar's rows and selection passes, each observed and also run on
-/// demand. The window swaps a workspace's content in on its own observation
-/// hop; the bridge reached `SidebarModel` a hop later and the view drew it a
-/// hop after that, so the first frame of a new workspace (Cmd-N) showed its
-/// content beside the old row selected and no new row. The window runs
-/// `syncNow` before the swap: rows, selection and the drawn list land in the
-/// same turn. The streams' next values are then equal and skipped (the
+/// demand. The window swaps a workspace's content in on a switch's own turn
+/// (or its observation hop); the bridge reached `SidebarModel` a hop later and
+/// the view drew it a hop after that, so the first frame of a new workspace
+/// (Cmd-N) showed its content beside the old row selected and no new row. The
+/// window runs `syncNow` before the swap: rows, selection and the drawn list
+/// land in the same turn. A switch to a listed workspace runs only the
+/// selection pass, which the list draws as a patch of the old and new rows. The streams' next values are then equal and skipped (the
 /// model's setters, the selection hold, the view's render). The app's
 /// SidebarBridge owns one.
 @MainActor
@@ -24,7 +25,8 @@ public final class SidebarSameTurn {
     public func observe<Value: Sendable>(listsRows: Bool = false, _ compute: @escaping @MainActor @Sendable () -> Value,
                                   apply: @escaping @MainActor @Sendable (Value) -> Void) {
         passes.append((listsRows, { apply(compute()) }))
-        tasks.append(Task { for await value in ObservationStream(compute) { apply(value) } })
+        // A trigger: `syncNow` applies outside the stream too, and `apply` compares with what it applied.
+        tasks.append(Task { for await value in ObservationStream({ ObservationTrigger(compute()) }) { apply(value.value) } })
     }
 
     /// Runs the passes in order (rows, then selection) and draws the sidebar now. `rows` false

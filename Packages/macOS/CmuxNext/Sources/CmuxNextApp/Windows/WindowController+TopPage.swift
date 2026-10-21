@@ -18,6 +18,7 @@ extension WindowController {
         root.titlebar.title = topPages.title(for: route)
         services.windows.recordSaver.stateDidChange(state)
         services.cloudContextDidChange()
+        services.canvasContextDidChange()
         services.locationTrail.pageHistoryDidChange()
         return true
     }
@@ -35,7 +36,7 @@ extension WindowController {
     /// the parked one under a top page (a tab opened behind the page lands
     /// there).
     var workspaceContent: WorkspaceContentController? {
-        content ?? parked.last { $0.workspace.id == state.workspaceID }
+        content ?? state.workspaceID.flatMap { parked[$0] }
     }
 
     /// Whether a page tab that a focused show opens here would be seen: the

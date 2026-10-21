@@ -1,5 +1,16 @@
 //! `cmux settings get [PATH] | set PATH VALUE | reset PATH | unset PATH`,
-//! the app's `settings.*` control methods (plans/cmux-next/settings-surfaces.md).
+//! the app's `settings.*` control methods (plans/cmux-next/settings-surfaces.md),
+//! plus `list`, `schema` and `validate`, which read this build's settings
+//! schema (`cmux_config::Schema::embedded`). `cmux config` is the same scope
+//! (classic cmux's name for it).
+//!
+//! - `list [--section S] [--keys]`: every schema key with the value that
+//!   applies, read from the app (`settings.get`); `--keys` prints the key
+//!   list without asking the app (shell completion).
+//! - `schema`: the JSON Schema of the settings file, for editors and agents.
+//! - `validate [FILE]`: the problems the settings owner would report for the
+//!   file (default: the settings file), without the app. Exit 1 when the
+//!   file does not parse or a value is refused.
 //!
 //! A socket write of a user-only key (schema `agent_settable: false`) is
 //! refused with `setting_user_only`. `--confirm` sends `confirm: true`: the
@@ -8,9 +19,76 @@
 //! answers `setting_user_only` with `data.declined: true`. Both refusals exit
 //! 1, the CLI's code for an op the app refused.
 
+use cmux_config::schema::Accepted;
+use cmux_config::{FileRead, Refusal, Schema, State};
 use serde_json::{Value, json};
 
-use super::{AppCommand, READ_TIMEOUT, UsageError};
+use std::os::unix::net::UnixStream;
+
+use super::{AppCommand, GlobalArgs, OutputMode, READ_TIMEOUT, UsageError};
+
+/// The verbs of `cmux settings` (and `cmux config`).
+pub(super) const VERBS: &[&str] = &["get", "set", "reset", "unset", "list", "schema", "validate"];
+
+/// A settings verb this module runs itself.
+#[derive(Debug, PartialEq)]
+pub(crate) enum Command {
+    /// An answer this CLI has without the app (`list --keys`, `validate`):
+    /// printed as a success, or as an error with exit 1.
+    Local(Result<Value, Value>),
+    /// A JSON document (`schema`), printed as indented JSON in every output
+    /// mode, so `> file` works.
+    Document(Value),
+    /// `list`: the app's settings (`settings.get`) as schema rows.
+    List { section: Option<String> },
+}
+
+impl Command {
+    /// Runs the command, connecting to the app only for `list`.
+    pub(super) fn run(self, global: &GlobalArgs) -> i32 {
+        if let Command::List { .. } = self {
+            return match super::connect_command(global) {
+                Ok(mut stream) => self.run_on(global, &mut stream),
+                Err(error) => super::super::wire::print_local_error(&error, global.output, 3),
+            };
+        }
+        self.run_on_nothing(global.output)
+    }
+
+    pub(super) fn run_on(self, global: &GlobalArgs, stream: &mut UnixStream) -> i32 {
+        let Command::List { section } = self else { return self.run_on_nothing(global.output) };
+        let wire = super::super::wire::print_local_error;
+        match super::wait::request(global, stream, "settings.get", &json!({}), Some(READ_TIMEOUT)) {
+            Ok(Ok(result)) => {
+                let rows = list_rows(&result, section.as_deref());
+                let human = global.output == OutputMode::Human;
+                let shown = if human { human_rows(&rows) } else { rows };
+                super::super::wire::print_local_success(&shown, global.output)
+            }
+            Ok(Err(error)) => wire(&error, global.output, 1),
+            Err(error) => wire(&error, global.output, 3),
+        }
+    }
+
+    fn run_on_nothing(self, output: OutputMode) -> i32 {
+        match self {
+            Command::Local(Ok(value)) => super::super::wire::print_local_success(&value, output),
+            Command::Local(Err(error)) => super::super::wire::print_local_error(&error, output, 1),
+            Command::Document(document) => print_document(&document),
+            Command::List { .. } => 2,
+        }
+    }
+}
+
+fn print_document(document: &Value) -> i32 {
+    use std::io::Write as _;
+    let text = serde_json::to_string_pretty(document).unwrap_or_default();
+    let mut stdout = std::io::stdout().lock();
+    match writeln!(stdout, "{text}").and_then(|()| stdout.flush()) {
+        Ok(()) => 0,
+        Err(_) => 1,
+    }
+}
 
 /// The app's refusal of a user-only key.
 const USER_ONLY: &str = "setting_user_only";
@@ -20,6 +98,25 @@ pub(super) fn parse(rest: &[String]) -> Result<AppCommand, UsageError> {
     let messages = &crate::localization::catalog().app_control;
     let usage = || UsageError::new(messages.settings_usage);
     let Some((verb, args)) = rest.split_first() else { return Err(usage()) };
+    match verb.as_str() {
+        "list" => return parse_list(args)?.ok_or_else(usage),
+        "schema" if args.is_empty() => {
+            return Ok(AppCommand::Settings(Command::Document(Schema::embedded().json_schema())));
+        }
+        "validate" => {
+            return match args {
+                [] => Ok(AppCommand::Settings(Command::Local(validate(
+                    &cmux_config::config_path(),
+                    false,
+                )))),
+                [file] if !file.starts_with("--") => Ok(AppCommand::Settings(Command::Local(
+                    validate(std::path::Path::new(file), true),
+                ))),
+                _ => Err(usage()),
+            };
+        }
+        _ => {}
+    }
     if verb == "get" {
         return match args {
             [] => Ok(read(json!({}))),
@@ -90,4 +187,165 @@ pub(super) fn explain_refusal(method: &str, params: &Value, error: &mut Value) {
         format!("{message}\n{}", messages.settings_confirm_hint)
     };
     error["message"] = json!(text);
+}
+
+/// `list [--section S] [--keys]`; `None` for any other word, and an error
+/// naming the sections for a section no row is in.
+fn parse_list(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
+    let mut section = None;
+    let mut keys = false;
+    let mut words = args.iter();
+    while let Some(word) = words.next() {
+        match (word.as_str(), words.clone().next()) {
+            ("--keys", _) => keys = true,
+            ("--section", Some(name)) if section.is_none() => {
+                section = Some(name.clone());
+                words.next();
+            }
+            _ => return Ok(None),
+        }
+    }
+    let schema = Schema::embedded();
+    if let Some(name) = &section
+        && schema.rows_in(Some(name)).next().is_none()
+    {
+        let mut sections: Vec<&str> = schema.rows.iter().map(|row| row.section.as_str()).collect();
+        sections.sort_unstable();
+        sections.dedup();
+        let messages = &crate::localization::catalog().app_control;
+        return Err(UsageError::new(
+            messages
+                .settings_unknown_section
+                .replace("{section}", name)
+                .replace("{sections}", &sections.join(", ")),
+        ));
+    }
+    if keys {
+        let mut names: Vec<&str> =
+            schema.rows_in(section.as_deref()).map(|row| row.key.as_str()).collect();
+        names.sort_unstable();
+        return Ok(Some(AppCommand::Settings(Command::Local(Ok(json!(names))))));
+    }
+    Ok(Some(AppCommand::Settings(Command::List { section })))
+}
+
+/// The `settings.list` rows (the daemon's row shape) for the settings the
+/// app reports from `settings.get` with no path.
+pub(super) fn list_rows(result: &Value, section: Option<&str>) -> Value {
+    let root = result.get("value").filter(|value| value.is_object()).cloned().unwrap_or(json!({}));
+    let state = local_state(FileRead::Text(root.to_string()));
+    // The app reports the settings that apply (the file with MDM and team
+    // policy merged in), so whether the file sets a key, and whether a policy
+    // manages it, is not known here: the rows leave both out.
+    let rows: Vec<Value> = state
+        .list(section)
+        .iter()
+        .map(|view| {
+            let mut row = view.to_json();
+            if let Some(members) = row.as_object_mut() {
+                members.remove("customized");
+                members.remove("managed");
+            }
+            row
+        })
+        .collect();
+    json!(rows)
+}
+
+/// What a person sees of a row in a table: the key, what applies, and the
+/// default. JSON output keeps the whole row.
+pub(super) fn human_rows(rows: &Value) -> Value {
+    let pick = |row: &Value| {
+        json!({
+            "key": row["key"],
+            "value": row["value"],
+            "default": row["default"],
+        })
+    };
+    json!(rows.as_array().map(|rows| rows.iter().map(pick).collect::<Vec<_>>()))
+}
+
+/// The diagnostics the settings owner would report for the file at `path`.
+/// A missing settings file (`named`: false) is valid, as the owner reads it:
+/// every key has its default. A file the caller names must exist.
+pub(super) fn validate(path: &std::path::Path, named: bool) -> Result<Value, Value> {
+    let file = path.display().to_string();
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(error) if !named && error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(json!({ "file": file, "exists": false, "valid": true, "diagnostics": [] }));
+        }
+        Err(error) => {
+            return Err(json!({
+                "code": "settings.unreadable",
+                "message": format!("cmux: {file}: {error}"),
+                "details": { "file": file },
+                "retryable": false,
+            }));
+        }
+    };
+    let state = local_state(FileRead::Text(text));
+    let snapshot = state.snapshot();
+    if snapshot.diagnostics.is_empty() {
+        return Ok(json!({ "file": file, "exists": true, "valid": true, "diagnostics": [] }));
+    }
+    let mut lines = Vec::new();
+    let mut diagnostics = Vec::new();
+    for diagnostic in &snapshot.diagnostics {
+        let accepted = expected(&snapshot.file, &diagnostic.path);
+        let mut line = diagnostic.message.clone();
+        if let Some(words) = accepted.as_ref().and_then(describe) {
+            line = format!("{line}; expected {words}");
+        }
+        lines.push(line);
+        let mut entry = serde_json::to_value(diagnostic).unwrap_or(Value::Null);
+        entry["accepted"] = accepted.map_or(Value::Null, |accepted| accepted.to_json());
+        diagnostics.push(entry);
+    }
+    Err(json!({
+        "code": "settings.invalid",
+        "message": format!("cmux: {file}\n  {}", lines.join("\n  ")),
+        "details": { "file": file, "diagnostics": diagnostics },
+        "retryable": false,
+    }))
+}
+
+/// What the row at `key` accepts, when the file's value there is refused.
+fn expected(file: &Value, key: &str) -> Option<Accepted> {
+    let row = Schema::embedded().row(key)?;
+    let stored = cmux_config::value::value_at(file, &row.path)?;
+    match cmux_config::schema::accepts(row, stored, &Default::default()) {
+        Err(Refusal::InvalidValue { accepted, .. }) => Some(accepted),
+        _ => None,
+    }
+}
+
+/// `accepted` in words, for a person.
+fn describe(accepted: &Accepted) -> Option<String> {
+    let number = |x: &f64| x.to_string();
+    Some(match accepted {
+        Accepted::Choices(choices) => format!("one of {}", choices.join(", ")),
+        Accepted::Range { min, max } => format!("a number from {} to {}", number(min), number(max)),
+        Accepted::ChoicesOrRange { choices, min, max } => format!(
+            "one of {}, or a number from {} to {}",
+            choices.join(", "),
+            number(min),
+            number(max)
+        ),
+        Accepted::Shape(shape) => (*shape).to_owned(),
+        Accepted::Domain { name, .. } => format!("a {name} name"),
+    })
+}
+
+/// The owner's state for one file, with no managed layers and no published
+/// value domains (theme, font and sound names are checked by shape).
+fn local_state(file: FileRead) -> State {
+    State::new(
+        Schema::embedded(),
+        file,
+        Default::default(),
+        Default::default(),
+        Default::default(),
+        0,
+    )
 }

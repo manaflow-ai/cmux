@@ -28,12 +28,13 @@ impl Hub {
             workspace_id,
             keep_harness_mode,
             route,
+            subsession,
         } = req;
         // An adopted session's harness names the head unless one was given.
         let harness = harness.or_else(|| adopt.as_ref().and_then(|a| a.harness.clone()));
         // Resolution is a lookup, never a guess: preset → head (family or
         // profile) → defaults chain → explicit values on top.
-        let Resolved { agent, profile, defaults, head, preset_name, folder_root } = {
+        let Resolved { agent, profile, defaults, head, preset_name, folder_root, preset_digest } = {
             let cfg = self.config.read().await;
             self.resolve_new(&cfg, harness, &preset, model.as_deref(), remote, cwd.as_deref())?
         };
@@ -71,6 +72,11 @@ impl Hub {
         } else {
             (None, None)
         };
+        // A catalog default (not a saved pick) is skipped when the harness doesn't offer it.
+        let model_from_catalog = !model_pinned
+            && start_model
+                .as_ref()
+                .is_some_and(|s| s.source == super::start_defaults::StartSource::Catalog);
         let (model, model_soft) = match (model_pinned, start_model) {
             (true, _) | (false, None) => (pinned_model, false),
             (false, Some(start)) => (Some(start.value), true),
@@ -87,8 +93,7 @@ impl Hub {
                 Adoption::Existing(existing) => return Ok(existing),
                 Adoption::Found { cwd, fork, file, store } => (cwd, fork, file, store),
             };
-        // A fork resumes nothing as itself: its process forks the adopted id
-        // into a new conversation, so the adopted id is not this session's.
+        // A fork resumes nothing as itself: it forks the adopted id into a new conversation.
         let fork_from = adopt.as_ref().filter(|_| fork).map(|a| a.agent_session_id.clone());
         // A gone recorded folder may be remapped: git runs to compare repositories.
         let cwd_map = adopt.as_ref().map(|a| a.cwd_map.clone()).unwrap_or_default();
@@ -125,6 +130,7 @@ impl Hub {
         (meta.session_env, meta.chat_store, meta.adopted_cwd, meta.git_branch, meta.git_head) =
             (session_env, chat_store, adopted_cwd, git.branch, git.head);
         meta.workspace_id = workspace_id;
+        meta.subsession = subsession;
         // A pooled session of exactly this shape (`pool/`) gives the session
         // its id; `ensure_child` then takes it instead of starting cold.
         // A pooled harness started without this session's env: never claimed.
@@ -176,6 +182,8 @@ impl Hub {
                             "session name {n:?} is taken"
                         )));
                     }
+                    // Named by the person: no generated title (`titles.rs`).
+                    meta.title_source = Some(super::titles::NAMED.to_owned());
                     n
                 }
                 // A pooled harness was started under its name: keep it.
@@ -217,6 +225,7 @@ impl Hub {
             };
             self.append(&session, "mux", "adopted", adopted);
         }
+        self.note_preset_resolved(&session, preset_digest);
         let spawned = match self.spawn_profile(&session, &profile, &defaults.env).await {
             Ok(spawn) => self.ensure_child(&session, &spawn).await,
             Err(e) => Err(e),
@@ -250,7 +259,12 @@ impl Hub {
                     let catalog = self.catalog_ids(agent).await;
                     let full = format!("{head}/{m}");
                     let m = if !catalog.is_empty() && !catalog.iter().any(|id| id == m) && catalog.contains(&full) { full } else { m.clone() };
-                    if let Err(e) = self.set_model(&session, &m).await {
+                    // A start value this session's harness does not list (its account
+                    // lacks it): the harness accepts set_model, then fails every prompt.
+                    if model_from_catalog && !self.harness_offers(agent, &profile, &m) {
+                        tracing::warn!(harness = agent, model = %m, "start model skipped: not offered by the harness");
+                        self.append(&session, "mux", "start_default_skipped", json!({"modelId": m, "error": "the harness does not offer this model"}));
+                    } else if let Err(e) = self.set_model(&session, &m).await {
                         // A start value the harness refuses (start_defaults.rs): the
                         // chat runs the harness's own default instead.
                         if model_soft {
@@ -332,7 +346,7 @@ impl Hub {
     pub(super) async fn ensure_child(
         self: &Arc<Self>,
         session: &Arc<Session>,
-        profile: &HarnessProfile,
+        profile: &super::spawn::Spawn,
     ) -> Result<Arc<ChildAgent>, RpcError> {
         // One spawn at a time per session; a caller that waited here finds
         // the child the previous holder started.
@@ -368,13 +382,31 @@ impl Hub {
 
         self.record_spawn_inputs(session, profile).await;
         // A fresh agent: what acpmux set on the last one is replayed, not assumed.
-        *session.applied.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
-            Default::default();
+        self.fresh_agent(session, profile.preset_digest.clone());
         // A pooled session claimed for this id (`pool/`): its host already
         // runs with the harness initialized and its session created.
         if let Some(pooled) = self.pool_take_claimed(&session.id) {
             match self.adopt_pooled(session, pooled).await {
-                Ok(child) => return Ok(child),
+                // A harness whose own settings started it in full access: capped like a cold
+                // start, under the same budget. Its `session/set_mode` would otherwise wait
+                // forever on a harness that stays alive but never answers, holding `spawn_lock`.
+                Ok(child) => {
+                    let budget = self.config.read().await.agent_start_timeout();
+                    return match tokio::time::timeout(
+                        budget,
+                        self.cap_full_access(session, &child, profile),
+                    )
+                    .await
+                    {
+                        Ok(result) => {
+                            result.map(|()| self.keep_account_home(session, profile, child))
+                        }
+                        Err(_) => {
+                            self.abandon_cold_start(session, budget).await;
+                            Err(RpcError::deadline_exceeded("agent_start", budget))
+                        }
+                    };
+                }
                 // Not promotable: it was ended; start cold below.
                 Err(e) => tracing::warn!(session = %session.id, "pooled session not taken: {e:#}"),
             }
@@ -387,7 +419,7 @@ impl Hub {
         // own bounds: they serve agents that may be mid-turn.
         let budget = self.config.read().await.agent_start_timeout();
         match tokio::time::timeout(budget, self.cold_start(session, profile)).await {
-            Ok(result) => result,
+            Ok(result) => result.map(|child| self.keep_account_home(session, profile, child)),
             Err(_) => {
                 self.abandon_cold_start(session, budget).await;
                 Err(RpcError::deadline_exceeded("agent_start", budget))
@@ -492,6 +524,18 @@ impl Hub {
             } else {
                 mode
             };
+            // Nor does any chat saved in full access while sessions.allowFullAccess is off.
+            // A profile pinning --permission-mode keeps it (spawn_plan adds none), so its record does too.
+            let saved_mode = mode.clone();
+            let mode = if super::start_mode::profile_sets_mode(profile) {
+                mode
+            } else {
+                super::start_mode::resumable_mode(mode, "default")
+            };
+            if mode != saved_mode {
+                tracing::info!(session = %session.id, "resume: full access is off; {saved_mode} runs as {mode}");
+                self.write_mode_state(session, [ModeWrite::CurrentMode(json!(mode))]);
+            }
             let model = current_model(&meta).unwrap_or_else(|| "default".into());
             let plan = crate::claude_stdio::spawn_plan(
                 profile,
@@ -591,7 +635,10 @@ impl Hub {
             tokio::spawn(async move { hub.inbound_loop(s, rx).await });
         }
 
-        let init = child.request(method::INITIALIZE, super::pool::initialize_params()).await?;
+        let init = match child.request(method::INITIALIZE, super::pool::initialize_params()).await {
+            Ok(v) => v,
+            Err(e) => return Err(Self::explain_start_failure(session, e).await),
+        };
         let supports_load = init
             .get("agentCapabilities")
             .and_then(|c| c.get("loadSession"))
@@ -608,6 +655,7 @@ impl Hub {
             let mut m = session.meta.lock().unwrap();
             m.agent_info = init.get("agentInfo").cloned();
             m.agent_capabilities = init.get("agentCapabilities").cloned();
+            m.steering = steering;
         }
 
         if is_claude {
@@ -621,6 +669,7 @@ impl Hub {
                     .await;
                 session.loading.store(false, Ordering::SeqCst);
                 if let Err(e) = primed {
+                    let e = Self::explain_start_failure(session, e).await;
                     return Err(RpcError::internal(format!("claude did not start: {}", e.message)));
                 }
             }
@@ -667,7 +716,7 @@ impl Hub {
                 let res = child
                     .request(
                         method::SESSION_LOAD,
-                        self.acp_params(&session.id, &meta, profile, Some(&sid)),
+                        self.acp_params(&session.id, &meta, profile, Some(&sid), &child),
                     )
                     .await;
                 session.loading.store(false, Ordering::SeqCst);
@@ -689,9 +738,16 @@ impl Hub {
         };
         if !loaded {
             let had_history = session.meta().agent_session_id.is_some();
-            let res = child
-                .request(method::SESSION_NEW, self.acp_params(&session.id, &meta, profile, None))
-                .await?;
+            let res = match child
+                .request(
+                    method::SESSION_NEW,
+                    self.acp_params(&session.id, &meta, profile, None, &child),
+                )
+                .await
+            {
+                Ok(v) => v,
+                Err(e) => return Err(Self::explain_start_failure(session, e).await),
+            };
             let sid = res
                 .get("sessionId")
                 .and_then(Value::as_str)
@@ -710,6 +766,7 @@ impl Hub {
         if saved.agent_session_id.is_some() {
             self.replay_config(session, &child, &saved).await;
         }
+        self.cap_full_access(session, &child, profile).await?;
         self.set_status(session, SessionStatus::Ready);
         self.save_meta(session);
         let meta_now = session.meta();
@@ -728,8 +785,15 @@ impl Hub {
         saved: &SessionMeta,
     ) {
         let Some(sid) = session.meta().agent_session_id else { return };
-        if let Some(mode) =
-            saved.modes.as_ref().and_then(|m| m.get("currentModeId")).and_then(Value::as_str)
+        // A resumed chat saved in a full-access mode does not get it back while the setting is off.
+        if let Some(mode) = saved
+            .modes
+            .as_ref()
+            .and_then(|m| m.get("currentModeId"))
+            .and_then(Value::as_str)
+            .filter(|mode| {
+                !super::start_mode::is_full_access(mode) || super::start_mode::full_access_allowed()
+            })
         {
             if let Err(e) = child
                 .request(method::SESSION_SET_MODE, json!({"sessionId": sid, "modeId": mode}))
@@ -761,6 +825,12 @@ impl Hub {
             .collect();
         for (id, value) in ordered {
             if value.is_null() {
+                continue;
+            }
+            if value.as_str().is_some_and(super::start_mode::is_full_access)
+                && !super::start_mode::full_access_allowed()
+            {
+                tracing::info!(session = %session.id, "replay {id}: full access is off; kept the harness's own mode");
                 continue;
             }
             match child

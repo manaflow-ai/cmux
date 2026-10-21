@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextCloud
 import Foundation
 
 /// Update Machine (cx-rppd.13): a Cloud machine whose image baked an older cmux-tui lacks verbs

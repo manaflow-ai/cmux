@@ -16,7 +16,8 @@ import { commonmark } from "@milkdown/kit/preset/commonmark";
 import { gfm } from "@milkdown/kit/preset/gfm";
 import { history } from "@milkdown/kit/plugin/history";
 import { clipboard } from "@milkdown/kit/plugin/clipboard";
-import { baseKeymap, chainCommands } from "@milkdown/kit/prose/commands";
+import { baseKeymap, chainCommands, selectAll } from "@milkdown/kit/prose/commands";
+import { redo, redoDepth, undo, undoDepth } from "@milkdown/kit/prose/history";
 import { keymap } from "@milkdown/kit/prose/keymap";
 import { splitListItem } from "@milkdown/kit/prose/schema-list";
 import { Plugin, TextSelection } from "@milkdown/kit/prose/state";
@@ -61,6 +62,13 @@ export type MarkdownFieldHandle = {
   format(format: MarkdownFormat, href?: string): void;
   /// The formats active at the selection, for the toolbar's pressed states.
   formats(): Set<MarkdownFormat>;
+  /// The field's own history (its context menu's Undo and Redo): whether there is an edit to
+  /// undo or redo, and doing it.
+  history(): { undo: boolean; redo: boolean };
+  undo(): void;
+  redo(): void;
+  /// Selects the whole prompt (its context menu's Select All).
+  selectAll(): void;
 };
 
 export type PlainPrompt = { value: string; selectionStart: number; selectionEnd: number };
@@ -84,6 +92,10 @@ export type MarkdownFieldProps = {
   onBeforeInput?(data: string, state: { empty: boolean; composing: boolean }): boolean;
   /// Enter (with `cmd` for Cmd-Enter) that `onKeyDown` did not take; unset, Enter is the editor's.
   onSubmit?(markdown: string, modifiers: { cmd: boolean }): void;
+  /// A new paragraph or line the browser inserts on its own, not from a key the field handled: the
+  /// Return an input method or Dictation passes on (keyCode 229, which every key handler leaves to
+  /// it). Set, the field never adds that line and this runs instead, as Return would.
+  onReturnInput?(): void;
   /// The user's first edit (the new tab's `newTab.touched`).
   onFirstInput?(): void;
   /// The surface's own key handling, which runs before the editor's keys (the omnibar word rules).
@@ -91,6 +103,8 @@ export type MarkdownFieldProps = {
   /// Shift-Enter adds a line (default true).
   multiline?: boolean;
   placeholder?: string;
+  /// A muted keycap after the placeholder, naming the key that takes it (the composer's "Tab").
+  placeholderKey?: string;
   className?: string;
   /// Attributes for the editable element (aria-label, role=combobox, aria-expanded...).
   attributes?: Record<string, string | undefined>;
@@ -108,6 +122,9 @@ const clean = (markdown: string) =>
 
 /** Spaces at the end of the prompt: markdown drops them, but "/review " needs its space. */
 const trailingSpaces = (view: EditorView) => /[ \t]+$/.exec(view.state.doc.lastChild?.textContent ?? "")?.[0] ?? "";
+
+/** HTML/JSX copied from a code editor is plain text, even when its clipboard advertises HTML. */
+const looksLikeMarkupText = (text: string) => /<>|<\/?[A-Za-z][\w.-]*(?:\s[^<>]*)?\/?>(?=\s|$|[.,;:!?)]|<)/.test(text);
 
 /** The document as the prompt's markdown, keeping the spaces typed at its end. */
 function promptMarkdown(editor: Editor | undefined, view: EditorView): string {
@@ -197,10 +214,12 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
     onCompositionChange,
     onBeforeInput,
     onSubmit,
+    onReturnInput,
     onFirstInput,
     plugins = [],
     multiline = true,
     placeholder,
+    placeholderKey,
     className,
     attributes,
   },
@@ -211,8 +230,26 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
   const remark = useRef<RemarkParser | undefined>(undefined);
   // The markdown the field last emitted or applied; a different `value` comes from outside.
   const known = useRef(value);
-  const latest = useRef({ onChange, onCaret, onKeyDown, onCompositionChange, onBeforeInput, onSubmit, onFirstInput });
-  latest.current = { onChange, onCaret, onKeyDown, onCompositionChange, onBeforeInput, onSubmit, onFirstInput };
+  const latest = useRef({
+    onChange,
+    onCaret,
+    onKeyDown,
+    onCompositionChange,
+    onBeforeInput,
+    onSubmit,
+    onReturnInput,
+    onFirstInput,
+  });
+  latest.current = {
+    onChange,
+    onCaret,
+    onKeyDown,
+    onCompositionChange,
+    onBeforeInput,
+    onSubmit,
+    onReturnInput,
+    onFirstInput,
+  };
   const composing = useRef(false);
   const touched = useRef(false);
   // Focus asked for before the editor exists is applied once it does.
@@ -260,6 +297,16 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
                 }
                 return false;
               },
+              // Shift-Return's line comes from the keymap (a transaction), never from this input.
+              beforeinput: (_view, event) => {
+                const returnInput = latest.current.onReturnInput;
+                const input = event as InputEvent;
+                if (!returnInput || (input.inputType !== "insertParagraph" && input.inputType !== "insertLineBreak"))
+                  return false;
+                event.preventDefault();
+                returnInput();
+                return true;
+              },
               compositionstart: () => {
                 composing.current = true;
                 latest.current.onCompositionChange?.(true);
@@ -281,8 +328,16 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
               },
             },
             handleTextInput: (editorView, _from, _to, text) => beforeInput(editorView, text),
-            handlePaste: (editorView, _event, slice) =>
-              beforeInput(editorView, slice.content.textBetween(0, slice.content.size, "\n", "\n")),
+            handlePaste: (editorView, event, slice) => {
+              const plain = event.clipboardData?.getData("text/plain");
+              if (plain && looksLikeMarkupText(plain)) {
+                if (beforeInput(editorView, plain)) return true;
+                const { from, to } = editorView.state.selection;
+                editorView.dispatch(editorView.state.tr.insertText(plain, from, to));
+                return true;
+              }
+              return beforeInput(editorView, slice.content.textBetween(0, slice.content.size, "\n", "\n"));
+            },
           },
           // Report every document and caret change; the composer's menu follows the caret.
           view: () => ({
@@ -326,9 +381,12 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
         }));
         // The field fills a box (the composer, a prompt editor) and its caret shows focus: a text
         // field is :focus-visible on every focus, so desktop.css's ring drew a rectangle inside it.
+        // The scroll margin covers the field's own padding, so a long draft scrolls the caret's
+        // whole line into view, not to 5px under the field's edge.
         ctx.update(editorViewOptionsCtx, (options) => ({
           ...options,
           attributes: { class: "acpmux-md", "data-focus-ring": "none" },
+          scrollMargin: 16,
         }));
       })
       .use(composerKeys)
@@ -347,6 +405,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
         editor.current = made;
         view.current = made.ctx.get(editorViewCtx);
         remark.current = made.ctx.get(remarkCtx);
+        if (known.current) setDocument(known.current);
         showPlaceholder(known.current);
         applyAttributes();
         if (pendingFocus.current) view.current.focus();
@@ -462,6 +521,19 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
           current.dispatch(tr);
         },
         focused: () => view.current?.hasFocus() ?? false,
+        history: () => {
+          const state = view.current?.state;
+          return { undo: state ? undoDepth(state) > 0 : false, redo: state ? redoDepth(state) > 0 : false };
+        },
+        undo: () => {
+          if (view.current) undo(view.current.state, view.current.dispatch);
+        },
+        redo: () => {
+          if (view.current) redo(view.current.state, view.current.dispatch);
+        },
+        selectAll: () => {
+          if (view.current) selectAll(view.current.state, view.current.dispatch);
+        },
         element: () => wrapper.current,
         plainText: () => {
           const doc = view.current?.state.doc;
@@ -505,8 +577,13 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
           Object.defineProperty(element, "acpmuxMarkdownField", { get: () => handle.current, configurable: true });
       }}
     >
-      <span ref={empty} className="acpmux-md-placeholder" aria-hidden="true">
-        {placeholder}
+      <span
+        ref={empty}
+        className={placeholderKey ? "acpmux-md-placeholder has-key" : "acpmux-md-placeholder"}
+        aria-hidden="true"
+      >
+        {placeholderKey ? <span className="acpmux-md-placeholder-text">{placeholder}</span> : placeholder}
+        {placeholderKey && <kbd className="acpmux-md-placeholder-key">{placeholderKey}</kbd>}
       </span>
       <div ref={mount} className="acpmux-md-root" />
     </div>

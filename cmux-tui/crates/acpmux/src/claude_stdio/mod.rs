@@ -174,6 +174,11 @@ pub fn models() -> &'static [(String, String)] {
 }
 
 #[cfg(test)]
+mod background_output_tests;
+mod early_calls;
+#[cfg(test)]
+mod early_calls_tests;
+#[cfg(test)]
 mod edit_diff_tests;
 mod inbound;
 mod outbound;
@@ -350,6 +355,9 @@ pub struct Translator {
     /// The tokens the chat's context last held (its last `message_delta`; a
     /// compaction resets it).
     context_used: AtomicU64,
+    /// A compaction just ended: the synthetic user line Claude writes next
+    /// is its summary (`compaction_summary`).
+    awaiting_summary: AtomicBool,
     /// The model id the chat's main loop last ran (its `message_start`): the
     /// `modelUsage` key for its window, which a picker alias is not.
     loop_model: Mutex<String>,
@@ -360,6 +368,9 @@ pub struct Translator {
     /// Running file edits: tool_use id -> their ACP diff content, which their
     /// completion carries again so the diff outlives the tool's text result.
     edits: Mutex<HashMap<String, Value>>,
+    /// Tool calls named as their block started (`early_calls.rs`), before
+    /// their input streamed: tool_use id -> the session they run in.
+    announced: Mutex<HashMap<String, (String, Option<String>)>>,
     /// Running shells by tool_use id (cx-ncc.84): each Bash call until its
     /// result (or, once a `local_bash` task names it, its `task_notification`),
     /// and those in the background (`run_in_background`, or moved there) until
@@ -434,9 +445,11 @@ impl Translator {
             background_shells: Mutex::new(HashMap::new()),
             context_window: AtomicU64::new(0),
             context_used: AtomicU64::new(0),
+            awaiting_summary: AtomicBool::new(false),
             loop_model: Mutex::new(String::new()),
             message_ids: Mutex::new(HashMap::new()),
             edits: Mutex::new(HashMap::new()),
+            announced: Mutex::new(HashMap::new()),
         })
     }
 
@@ -540,6 +553,30 @@ impl Translator {
                  {"value": "on", "name": "On", "description": "Faster output, increased usage"},
              ]},
         ])
+    }
+}
+
+/// A Claude Code `tool_use` as the fields of the ACP `tool_call` a turn sends for it (without
+/// its id and status): kind, title, input, and an edit's diffs and file. A live turn
+/// (`inbound.rs`) and an adopted chat's past turns (`adopt_tools.rs`) both draw calls from it.
+pub(crate) fn tool_call_fields(name: &str, input: &Value) -> Value {
+    let mut call = json!({
+        "title": tool_title(name, input),
+        "kind": tool_kind(name),
+        "rawInput": input,
+        "_meta": {"claude": {"tool": name}}
+    });
+    with_edit(&mut call, name, input);
+    call
+}
+
+/// Adds a file edit's diff and location to its ACP tool call.
+fn with_edit(call: &mut Value, name: &str, input: &Value) {
+    if let Some(diffs) = edit_diffs(name, input) {
+        call["content"] = diffs;
+        if let Some(locations) = tool_locations(input) {
+            call["locations"] = locations;
+        }
     }
 }
 

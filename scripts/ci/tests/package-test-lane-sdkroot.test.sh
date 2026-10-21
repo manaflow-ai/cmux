@@ -14,10 +14,11 @@ ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 repo="$tmp/repo"
-mkdir -p "$repo/scripts/ci" "$repo/Packages/macOS/Fake" "$tmp/bin"
-# The lane and the Python helpers it imports (hung_test_watchdog.py needs ci_process_tree.py).
+mkdir -p "$repo/scripts/ci" "$repo/scripts/cmux-next" "$repo/Packages/macOS/Fake" "$tmp/bin"
+# The lane, the scripts it sources and the Python helpers it imports (hung_test_watchdog.py needs ci_process_tree.py).
 cp "$ROOT/scripts/ci/package-test-lane.sh" "$ROOT"/scripts/ci/*.py \
-  "$ROOT/scripts/ci/swift-test-debug-info.sh" "$repo/scripts/ci/"
+  "$ROOT/scripts/ci/swift-test-debug-info.sh" "$ROOT/scripts/ci/swiftpm-binary-module-guard.sh" "$repo/scripts/ci/"
+cp "$ROOT/scripts/cmux-next/stale-pcm-retry-needed.sh" "$repo/scripts/cmux-next/"
 printf '// swift-tools-version:5.9\nimport PackageDescription\nlet package = Package(name: "Fake")\n' \
   > "$repo/Packages/macOS/Fake/Package.swift"
 dev="$tmp/Xcode_26.6.app/Contents/Developer"

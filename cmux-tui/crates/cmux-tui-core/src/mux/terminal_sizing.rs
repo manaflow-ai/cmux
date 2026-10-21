@@ -352,7 +352,8 @@ impl Mux {
     }
 
     /// Pins the `latest` policy on the workspace that shows `surface`, for
-    /// tests about latest-activity semantics (the default is `smallest`).
+    /// tests about latest-activity semantics (`latest` is also the default; the pin keeps
+    /// such a test independent of the default).
     #[cfg(test)]
     pub(crate) fn pin_latest_size_policy_for_test(&self, surface: SurfaceId) {
         let workspace = self.surface_workspace(surface).expect("surface has a workspace");
@@ -564,7 +565,6 @@ impl Mux {
         {
             return;
         }
-        entry.applied.set(Some((state.cols, state.rows)));
         let Some(surface) = entry
             .placements
             .iter()
@@ -573,8 +573,13 @@ impl Mux {
         else {
             return;
         };
-        if surface.size() != (state.cols, state.rows) {
-            let _ = self.resize_surface(surface.id, state.cols, state.rows);
+        // Compare with the size last requested (a hosted mirror lags the
+        // host by a round trip), and record the decision only once it is in
+        // effect so that a failed resize is retried on the next decision.
+        if surface.requested_size() == (state.cols, state.rows)
+            || self.resize_surface(surface.id, state.cols, state.rows).is_ok()
+        {
+            entry.applied.set(Some((state.cols, state.rows)));
         }
     }
 

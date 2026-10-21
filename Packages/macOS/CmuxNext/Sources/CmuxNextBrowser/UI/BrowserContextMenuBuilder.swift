@@ -12,6 +12,10 @@ public final class BrowserContextMenuBuilder {
     /// The page menu while it is open (diagnostics: `debug.menu`).
     public private(set) weak var presentedMenu: NSMenu?
 
+    /// Row images by icon: an extension's files are read once, not on every
+    /// right-click.
+    private let images = BrowserContextMenuImages()
+
     /// Menu items for `request.items`; choosing one completes the request
     /// with its id.
     public func items(for request: BrowserContextMenuRequest) -> [NSMenuItem] {
@@ -63,6 +67,7 @@ public final class BrowserContextMenuBuilder {
         if model.kind == .separator { return .separator() }
         let item = NSMenuItem(title: model.title, action: nil, keyEquivalent: "")
         item.isEnabled = model.isEnabled
+        if let icon = model.icon { item.image = images.image(for: icon) }
         item.state = (model.kind == .check || model.kind == .radio) && model.isChecked ? .on : .off
         if model.kind == .submenu {
             let submenu = NSMenu(title: model.title)

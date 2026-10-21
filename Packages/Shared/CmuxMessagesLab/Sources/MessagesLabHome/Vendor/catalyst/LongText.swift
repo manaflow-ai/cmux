@@ -337,7 +337,7 @@ final class BlockLayout: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         if let a = drawAttr[outgoing] { return a }
         let color = outgoing ? Fixture.outgoingText : Fixture.incomingText
-        let link = outgoing ? Fixture.outgoingText : UIColor(red: 0.27, green: 0.55, blue: 1, alpha: 1)
+        let link = outgoing ? Fixture.outgoingText : Fixture.incomingLink // cmux: themed link tint
         let a = NSMutableAttributedString(string: string as String,
                                           attributes: [.font: Fixture.bodyFont, .foregroundColor: color, .kern: Fixture.bodyKern])
         if string.range(of: "http").location != NSNotFound || string.range(of: "www.").location != NSNotFound {
@@ -891,15 +891,34 @@ final class LongTextStore: @unchecked Sendable {
             guard create else { return nil }
             // Streaming: the same text with more at the end keeps every block but the last
             // (a plain stream that turns into markdown is indexed again from its start).
-            if let prev, prev.ready, prev.count < p.count, prev.blockCount > 0,
+            // cmux: a stream whose end was rewritten (a Markdown style that closes rewrites its last
+            // line, and can shorten the text a little) keeps every block before the change, and its
+            // lineage (its tiles): a new index from the start cost every such token O(reply) on main
+            // (plans/cmux-next/home-streaming-perf-DESIGN.md).
+            if let prev, prev.ready, prev.count != p.count, p.count + 64 >= prev.count, prev.blockCount > 0,
                prev.markdown || !LongTextIndex.isMarkdown(String(decoding: UnsafeBufferPointer(rebasing: p.dropFirst(max(0, prev.starts.dropLast().last ?? 0))) /* the last block start, no index math */, as: UTF8.self)) {
-                let keep = prev.blockCount - 1
-                let from = max(0, (prev.starts[checked: keep] ?? 0) - 256) // checked
-                let same = prev.withBytes { q in // no force unwraps
+                let last = prev.blockCount - 1
+                let from = max(0, (prev.starts[checked: last] ?? 0) - 256) // checked
+                // An append: the old text is the new one's start (the previous rule).
+                let appended = prev.count < p.count && prev.withBytes { q in // no force unwraps
                     guard let qb = q.baseAddress, let pb = p.baseAddress else { return false }
                     return memcmp(qb + from, pb + from, prev.count - from) == 0
                 }
-                if same {
+                // cmux: else the last block whose start the texts share byte for byte (at least one block kept).
+                var keepAt: Int? = appended ? last : nil
+                if keepAt == nil {
+                    var k = last
+                    while k >= 1, keepAt == nil {
+                        let end = prev.starts[checked: k] ?? 0 // checked
+                        let shared = end <= p.count && prev.withBytes { q in // no force unwraps
+                            guard let qb = q.baseAddress, let pb = p.baseAddress else { return false }
+                            return memcmp(qb, pb, end) == 0
+                        }
+                        if shared { keepAt = k }
+                        k -= 1
+                    }
+                }
+                if let keep = keepAt {
                     let i = LongTextIndex.build(t, lineage: prev.lineage, prefix: prev, keep: keep)
                     LongTextStats.streamExtends += 1
                     let old = layoutsOf(prev)

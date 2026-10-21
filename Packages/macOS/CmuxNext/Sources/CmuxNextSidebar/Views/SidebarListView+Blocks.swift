@@ -103,11 +103,13 @@ final class SidebarBlockRowView: SidebarRowView {
 
     override func layout() {
         super.layout()
+        // The list resizes this row on a sidebar resize without configuring it again.
+        region.fit(width: layoutBounds.width)
         region.frame = NSRect(x: 0, y: 0, width: layoutBounds.width, height: region.layoutResult.height)
     }
 }
 
-extension SidebarListView {
+extension SidebarListViewComponents {
     /// The items the drag lifts (or a held drop moved), which no block draws meanwhile.
     private var blockHidden: Set<String> {
         Set(shownDrag?.docItems ?? [])
@@ -200,7 +202,7 @@ extension SidebarListView {
             abandonSettle()
             guard let doc = model.docDrag, !model.locksReorder, let view = region.itemView(id) else { return false }
             let origin = convert(start, from: nil), point = convert(event.locationInWindow, from: nil)
-            guard hypot(point.x - origin.x, point.y - origin.y) >= SidebarStyle.dragThreshold else { return false }
+            guard SidebarPress.movedPastThreshold(from: origin, to: point) else { return false }
             endLanding()
             hoverCards.dismiss(.click)
             let frame = convert(view.bounds, from: view)
@@ -260,7 +262,7 @@ extension SidebarListView {
     }
 }
 
-extension SidebarListView {
+extension SidebarListViewComponents {
     /// Where a dropped card settles: the block's gap, the list's gap (a tile
     /// dropped among rows), else its own rows at the slot (nil: `land` finds them).
     func settleFrame(_ drag: SidebarListDrag) -> NSRect? {

@@ -15,17 +15,20 @@ moves a synthetic pointer through the windows' tracking areas (`debug.pointer_ho
 the mouse-button check. The state is read from `debug.hover_cards`. Checks, for a workspace row
 and for a tab:
 
-  1. the default delay is Chrome's 1300 ms: no card at 0.6 s, the card at 1.2-2.4 s;
+  1. the default delay is 250 ms (HoverCardTiming.showDelay): no card at 0.11 s, the card at 0.21-1.75 s;
   2. warm: with a card shown, the next row's (tab's) card shows at once (under 0.35 s);
   3. leaving a row before the delay cancels its card;
   4. quick return: a hover just after the card went shows at once;
   5. a held mouse button (a terminal selection dragged onto a row) shows no card (real input only);
-  6. `sidebar.hoverCards.delay` 300 shows the card by 0.9 s;
+  6. `sidebar.hoverCards.delay` 1000 holds the card until about 1 s;
   7. `sidebar.hoverCards.enabled` false: no card after 2.5 s, and a shown card goes at once.
 
 With $NX_CAPTURE and --shots it writes PNGs of the window with the card and without it.
 Exits 1 when a check fails.
 """
+DEFAULT_DELAY_MS = 250  # HoverCardTiming.showDelay
+OTHER_DELAY_MS = 1000
+
 import argparse, json, os, plistlib, socket, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -199,7 +202,7 @@ def cold(kind, point, delay_ms):
     settle()
     start = time.monotonic()
     move(point)
-    early = 0.6 * delay_ms / 1300
+    early = 0.45 * delay_ms / 1000
     time.sleep(max(0.0, early - (time.monotonic() - start)))
     before = showing()
     report = cards()
@@ -223,7 +226,7 @@ def warm(kind, point, previous):
 def cancel(kind, point, delay_ms):
     settle()
     move(point)
-    time.sleep(0.35 * delay_ms / 1300)
+    time.sleep(0.27 * delay_ms / 1000)
     move(None)
     seen = quiet_wait(showing, delay_ms / 1000 + 0.8, step=0.05)
     check(seen is None, f"{kind}: leaving before the delay cancels the card (shown: {seen})")
@@ -234,7 +237,7 @@ def quick_return(kind, first, second, delay_ms, away):
     if not shown:
         return
     # The card lingers 200 ms after the pointer leaves (cardGrace), then hides; for 300 ms after
-    # that (Chrome's kShowWithoutDelayTimeBuffer) a new hover shows at once. `away` leaves away
+    # that (HoverCardTiming.reshowWindow 500 ms) a new hover shows at once. `away` leaves away
     # from the card (a path toward the card would hold it: the safe triangle). Return as soon as
     # the card has gone.
     move(away)
@@ -330,8 +333,8 @@ try:
     check(len(rows) >= 2, f"two workspace rows to hover ({len(rows)})")
     check(len(tabs) >= 2, f"two tabs to hover ({len(tabs)})")
     report = cards()
-    check(report.get("enabled") == "true" and report.get("delay_ms") == "1300",
-          f"defaults: hover cards on, delay 1300 ms (Chrome) (enabled {report.get('enabled')}, delay {report.get('delay_ms')})")
+    check(report.get("enabled") == "true" and report.get("delay_ms") == str(DEFAULT_DELAY_MS),
+          f"defaults: hover cards on, delay {DEFAULT_DELAY_MS} ms (enabled {report.get('enabled')}, delay {report.get('delay_ms')})")
 
     for kind in ("rows", "tabs"):
         # Fresh frames: tabs settle their widths a moment after they are added.
@@ -339,28 +342,28 @@ try:
         print(f"{kind} now {points}", flush=True)
         if len(points) < 2:
             continue
-        first = cold(kind, points[0][1], 1300)
+        first = cold(kind, points[0][1], DEFAULT_DELAY_MS)
         if kind == "rows":
             shot("row-card")
         else:
             shot("tab-card")
         warm(kind, points[1][1], first)
         points = row_points() if kind == "rows" else tab_points()
-        cancel(kind, points[0][1], 1300)
+        cancel(kind, points[0][1], DEFAULT_DELAY_MS)
         # Away from the card (it opens right of a row and below a tab): up and left, to the
         # titlebar over the sidebar, which is no row and no tab.
         away = [60, 8]
-        quick_return(kind, points[0][1], points[1][1], 1300, away)
+        quick_return(kind, points[0][1], points[1][1], DEFAULT_DELAY_MS, away)
 
     if rows:
-        set_setting("sidebar.hoverCards.delay", 300)
-        quiet_wait(lambda: cards().get("delay_ms") == "300", 5)
-        cold("rows (delay 300)", rows[0][1], 300)
-        set_setting("sidebar.hoverCards.delay", 1300)
-        quiet_wait(lambda: cards().get("delay_ms") == "1300", 5)
+        set_setting("sidebar.hoverCards.delay", OTHER_DELAY_MS)
+        quiet_wait(lambda: cards().get("delay_ms") == str(OTHER_DELAY_MS), 5)
+        cold(f"rows (delay {OTHER_DELAY_MS})", rows[0][1], OTHER_DELAY_MS)
+        set_setting("sidebar.hoverCards.delay", DEFAULT_DELAY_MS)
+        quiet_wait(lambda: cards().get("delay_ms") == str(DEFAULT_DELAY_MS), 5)
 
         # A shown card goes at once when cards are turned off.
-        shown = cold("rows (before off)", rows[0][1], 1300)
+        shown = cold("rows (before off)", rows[0][1], DEFAULT_DELAY_MS)
         set_setting("sidebar.hoverCards.enabled", False)
         gone = quiet_wait(lambda: showing() is None, 1.0, step=0.02)
         check(bool(shown) and bool(gone), "off: the shown card goes within 1 s of the settings write (file write + reload)")
@@ -373,13 +376,13 @@ try:
             check(seen is None, f"{kind} off: no card after 2.5 s on a {kind[:-1]} (shown: {seen}; enabled {cards().get('enabled')})")
         shot("off-no-card")
         set_setting("sidebar.hoverCards.enabled", True)
-        cold("rows (on again)", rows[0][1], 1300)
+        cold("rows (on again)", rows[0][1], DEFAULT_DELAY_MS)
         # Last: a held press, then the press ends (a click elsewhere) and cards work again.
         held_button(rows[0][1])
         if opts.input == "real":
             x, y = to_screen(OFF)
             probe("click", x, y)
-            cold("rows (after the held press ends)", rows[0][1], 1300)
+            cold("rows (after the held press ends)", rows[0][1], DEFAULT_DELAY_MS)
     move(None)
 finally:
     rpc("action.run", {"action": "quitEndSessions", "origin": "script"})

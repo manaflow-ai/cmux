@@ -199,6 +199,9 @@ impl Mux {
         let ClientResizeRequest { surface: id, client, requested, completion, terminal_runtime } =
             request;
         let previous_geometry = self.surface(id).map(|surface| surface.size());
+        // For a hosted terminal the mirror lags the host; compare decisions
+        // with the size already requested of it.
+        let requested_geometry = self.surface(id).map(|surface| surface.requested_size());
         if terminal_runtime.is_none()
             && sizing
                 .policies
@@ -238,7 +241,7 @@ impl Mux {
                     ((entry.engine.state().cols, entry.engine.state().rows), Some(&entry.applied))
                 });
             if applied.is_some_and(|applied| applied.get() == Some(target))
-                || previous_geometry == Some(target)
+                || requested_geometry == Some(target)
             {
                 // The owner's decision is already in effect. Re-applying it
                 // would override a resize this engine did not make.
@@ -256,20 +259,22 @@ impl Mux {
                     },
                 ));
             }
-            if let Some(applied) = applied {
-                applied.set(Some(target));
-            }
             return match self.resize_surface_with_completion(id, target.0, target.1, completion) {
-                Ok(changed) => Ok((
-                    changed,
-                    Some(target),
-                    ClientSizeRollback {
-                        previous_size: previous,
-                        previous_report_order: previous_order,
-                        previous_geometry,
-                        applied_report_order: report_order,
-                    },
-                )),
+                Ok(changed) => {
+                    if let Some(entry) = sizing.terminal_sizing.get(&runtime) {
+                        entry.applied.set(Some(target));
+                    }
+                    Ok((
+                        changed,
+                        Some(target),
+                        ClientSizeRollback {
+                            previous_size: previous,
+                            previous_report_order: previous_order,
+                            previous_geometry,
+                            applied_report_order: report_order,
+                        },
+                    ))
+                }
                 Err(error) => {
                     if let Some(viewers) = sizing.surfaces.get_mut(&id) {
                         if let Some(previous) = previous {
@@ -289,9 +294,6 @@ impl Mux {
                         None => {
                             sizing.report_order.remove(&(id, client));
                         }
-                    }
-                    if let Some(entry) = sizing.terminal_sizing.get(&runtime) {
-                        entry.applied.set(previous_geometry);
                     }
                     self.sync_terminal_view_locked(sizing, runtime, id, client);
                     Err(error)
@@ -408,6 +410,14 @@ impl Mux {
             let desired_geometry = (owned_geometry && held)
                 .then_some(rollback.previous_size.or(rollback.previous_geometry))
                 .flatten();
+            if desired_geometry.is_some()
+                && let Some(entry) = sizing.terminal_sizing.get(&runtime)
+            {
+                // The restore below is outside the engine, so its last
+                // applied decision no longer describes the grid; the next
+                // decision compares with the requested size and retries.
+                entry.applied.set(None);
+            }
             drop(sizing);
             drop(lifecycle);
             if let Some((cols, rows)) = desired_geometry {

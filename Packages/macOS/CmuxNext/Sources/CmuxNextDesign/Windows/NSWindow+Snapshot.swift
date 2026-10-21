@@ -98,14 +98,17 @@ extension NSWindow {
     /// ones a snapshot composites.
     public var visibleChildWindows: [NSWindow] {
         var result: [NSWindow] = []
-        func visit(_ window: NSWindow) {
-            for child in window.childWindows ?? [] where child.isVisible && child.windowNumber > 0 && child.alphaValue > 0 {
-                result.append(child)
-                visit(child)
-            }
-        }
-        visit(self)
+        Self.appendVisibleChildWindows(of: self, into: &result)
         return result
+    }
+
+    /// Depth first, a child before its own children. A static function with inout state, not a
+    /// capturing local function (Swift 6.3.3's SendNonSendable pass crashed now and then on those).
+    private static func appendVisibleChildWindows(of window: NSWindow, into result: inout [NSWindow]) {
+        for child in window.childWindows ?? [] where child.isVisible && child.windowNumber > 0 && child.alphaValue > 0 {
+            result.append(child)
+            appendVisibleChildWindows(of: child, into: &result)
+        }
     }
 
     // kCGWindowImageBoundsIgnoreFraming | kCGWindowImageBestResolution.
@@ -151,17 +154,7 @@ extension NSWindow {
 
     /// Whether every pixel of `image` is transparent (sampled at 64 x 64).
     static func isBlank(_ image: CGImage) -> Bool {
-        let side = 64
-        var pixels = [UInt8](repeating: 0, count: side * side * 4)
-        let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
-            guard let context = CGContext(data: buffer.baseAddress, width: side, height: side, bitsPerComponent: 8,
-                                          bytesPerRow: side * 4, space: CGColorSpaceCreateDeviceRGB(),
-                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
-            context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
-            return true
-        }
-        guard drawn else { return true }
-        return !stride(from: 3, to: pixels.count, by: 4).contains { pixels[$0] > 0 }
+        image.isFullyTransparent
     }
 
     /// Writes the window as PNG to `url`: composited when the window server

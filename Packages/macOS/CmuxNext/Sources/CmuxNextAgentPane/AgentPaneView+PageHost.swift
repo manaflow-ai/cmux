@@ -25,8 +25,12 @@ extension AgentPaneView {
         page.onCrash = { [weak self] _, reloading in self?.pageCrashed(reloading: reloading) }
         pageEvents?.replay = { [weak self] in
             // A new subscriber is a page that loaded again: its registry renderers are gone.
-            self?.runPageHostRegistry()
-            return self.map(AgentPanePageHost.currentEvents) ?? []
+            guard let self else { return [] }
+            self.runPageHostRegistry()
+            let events = AgentPanePageHost.currentEvents(self)
+            // The theme it gets here is the one it has now, whatever was pushed before.
+            self.deliveredThemeEvent = events.first { $0.kind == "theme" }
+            return events
         }
         addSubview(page)
     }

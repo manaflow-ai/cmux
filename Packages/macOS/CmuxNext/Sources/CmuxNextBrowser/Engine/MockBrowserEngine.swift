@@ -108,6 +108,11 @@ public final class MockBrowserTab: BrowserTab {
     public var showsExtensionToolbar = false
     @ObservationIgnored public var extensionActionAnchor: ((String) -> CGRect?)?
     @ObservationIgnored public let extensionBackend = MockExtensionBackend()
+    // Extension omnibox keywords (`BrowserOmniboxKeywordProviding`, MockBrowserTab+Omnibox).
+    /// The keywords the page's extensions offer; none by default.
+    @ObservationIgnored public var omniboxKeywordsFake: [OmnibarKeyword] = []
+    /// Each keyword session's Enter (`omniboxKeywordEntered`), in order.
+    @ObservationIgnored public internal(set) var enteredOmniboxKeywords: [(extensionID: String, text: String)] = []
     @ObservationIgnored public private(set) lazy var extensionStore = BrowserExtensionStore(
         profile: profileID, backend: extensionBackend
     )
@@ -151,6 +156,16 @@ public final class MockBrowserTab: BrowserTab {
 
     public func emit(_ intent: BrowserTabIntent) {
         delegate?.browserTab(self, didRequest: intent)
+    }
+
+    /// Queues a prompt as an engine's tab does: answering it removes it.
+    func enqueuePrompt(_ kind: BrowserPromptKind, origin: String, completion: @escaping (BrowserPromptResponse) -> Void) {
+        var prompt: BrowserPrompt?
+        prompt = BrowserPrompt(kind: kind, origin: origin) { [weak self] response in
+            self?.pendingPrompts.removeAll { $0 === prompt }
+            completion(response)
+        }
+        if let prompt { pendingPrompts.append(prompt) }
     }
 
     // MARK: BrowserTab

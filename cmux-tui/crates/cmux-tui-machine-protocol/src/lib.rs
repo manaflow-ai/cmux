@@ -15,6 +15,11 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
+mod machine_metadata;
+pub use machine_metadata::{
+    MACHINE_METADATA_CLIENT_CAPABILITY, MachineDescriptor, MachinePlatform,
+};
+
 pub const PROTOCOL_NAME: &str = "cmux.machine-provider";
 pub const PROTOCOL_VERSION: u16 = 1;
 /// Gates provider-owned external-machine enrollment.
@@ -584,10 +589,17 @@ pub struct SnapshotResult {
 }
 
 impl SnapshotResult {
-    /// Removes action shapes that are unsafe for a strict pre-negotiation v1
-    /// decoder. Providers call this before every snapshot-shaped response,
+    /// Removes unnegotiated additive fields and action shapes for strict v1
+    /// decoders. The name is kept for source compatibility. Providers call this
+    /// before every snapshot-shaped response,
     /// using the capabilities accepted for that control generation.
     pub fn retain_actions_for_client_capabilities(&mut self, capabilities: &[String]) {
+        if !capabilities.iter().any(|capability| capability == MACHINE_METADATA_CLIENT_CAPABILITY) {
+            for machine in &mut self.machines {
+                machine.platform = None;
+                machine.capabilities.clear();
+            }
+        }
         if !capabilities
             .iter()
             .any(|capability| capability == PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY)
@@ -611,18 +623,6 @@ pub struct ScopeDescriptor {
 pub enum ScopeKind {
     Personal,
     Team,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct MachineDescriptor {
-    pub id: OpaqueId,
-    pub display_name: String,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub subtitle: String,
-    pub status: MachineStatus,
-    pub connectable: bool,
-    pub workspace_create: WorkspaceCreatePolicy,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1542,6 +1542,11 @@ mod tests {
                     default_mode: WorkspaceCreateMode::Isolated,
                     modes: vec![WorkspaceCreateMode::Isolated, WorkspaceCreateMode::Host],
                 },
+                platform: Some(MachinePlatform {
+                    os: Some("linux".into()),
+                    arch: Some("x86_64".into()),
+                }),
+                capabilities: vec!["terminal".into(), "workspace".into(), "agent_session".into()],
             }],
             selected_machine_id: Some(id("vm-uuid")),
             capabilities: ProviderCapabilities {
@@ -1591,7 +1596,9 @@ mod tests {
                         "owner": "provider",
                         "default_mode": "isolated",
                         "modes": ["isolated", "host"]
-                    }
+                    },
+                    "platform": {"os": "linux", "arch": "x86_64"},
+                    "capabilities": ["terminal", "workspace", "agent_session"]
                 }],
                 "selected_machine_id": "vm-uuid",
                 "capabilities": {
@@ -1616,6 +1623,17 @@ mod tests {
 
         let decoded: ResponseEnvelope<SnapshotResult> = serde_json::from_value(expected).unwrap();
         assert_eq!(decoded, response);
+
+        let mut legacy = serde_json::to_value(&response).unwrap();
+        let machine = legacy["result"]["machines"][0].as_object_mut().unwrap();
+        machine.remove("platform");
+        machine.remove("capabilities");
+        let legacy: ResponseEnvelope<SnapshotResult> = serde_json::from_value(legacy).unwrap();
+        let ProviderResponse::Success(result) = legacy.response else {
+            panic!("expected a legacy snapshot result");
+        };
+        assert!(result.machines[0].platform.is_none());
+        assert!(result.machines[0].capabilities.is_empty());
     }
 
     #[test]

@@ -14,6 +14,9 @@ pub struct Session {
     /// so the log and fan-out always see sequences in order.
     pub(super) append_lock: StdMutex<()>,
     pub(super) loading: AtomicBool,
+    /// The log's records past the saved `lastSeq` are counted (`Hub::catch_up`).
+    /// False from a deferred daemon start until the first append or the log load.
+    pub(super) caught_up: AtomicBool,
     pub(super) turn_lock: Mutex<()>,
     pub(super) turn: StdMutex<Option<TurnInfo>>,
     pub(super) queued: AtomicU64,
@@ -76,6 +79,9 @@ pub struct Session {
     /// Bumped when a record failed to reach the store; an agent host entry
     /// is acknowledged only when its record was stored.
     pub(super) append_errors: AtomicU64,
+    /// The seq of the last record that shows the agent doing work: a tool call that is not
+    /// messaging, or a file write (`agent_pairs.rs` `progress_record`). 0: none since load.
+    pub(super) last_progress: AtomicU64,
     /// The hub clock's time (`Hub::clock_now`) of the last record or
     /// attach change; the idle harness exit counts from it (`idle.rs`).
     pub(super) last_active: AtomicU64,
@@ -167,4 +173,9 @@ pub(crate) fn prompt_text(blocks: &[Value]) -> String {
 pub(super) struct Applied {
     pub model: Option<String>,
     pub effort: Option<String>,
+    /// The approval digest of the preset contents `session/new` resolved
+    /// with, and the one its harness last spawned with
+    /// (`start_gate/preset_bind.rs`).
+    pub preset_resolved: Option<String>,
+    pub preset_spawned: Option<String>,
 }

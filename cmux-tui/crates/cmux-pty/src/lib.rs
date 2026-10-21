@@ -32,6 +32,8 @@ use std::sync::Arc;
 
 pub use portable_pty::{Child, ChildKiller, ExitStatus, MasterPty, PtySize};
 
+#[cfg(target_vendor = "apple")]
+mod input_queue;
 #[cfg(unix)]
 mod macos;
 #[cfg(unix)]

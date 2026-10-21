@@ -1,3 +1,5 @@
+import CmuxNextFocus
+
 // World invariants (W): the focus model against what AppKit, Ghostty,
 // WebKit and Chromium actually show (plans/cmux-next/input-spec.md
 // section 2.5). Valid only once effects and presentation settled; a pane
@@ -53,7 +55,9 @@ extension InputInvariants {
             }
         }
         let resolved = model.resolved
-        let childPage: String? = if case .browserPage(_, let tab) = resolved, window.childWindowTabs.contains(tab) { tab } else { nil }
+        // A Chromium browser tab or a cmux page in Chromium: its page window has the keys.
+        let childPage: String? = if let tab = resolved.tab, ["browserPage", "page"].contains(resolved.kind),
+                                    window.childWindowTabs.contains(tab) { tab } else { nil }
         if let expected = expectedResponder(resolved, childPage: childPage), expected != window.responder {
             fail(.responderMatches, "appkit \(describe(window.responder)) (\(window.responderClass ?? "nil")) != model \(resolved.kind)")
         }
@@ -73,14 +77,15 @@ extension InputInvariants {
         return out
     }
 
-    private static func expectedResponder(_ resolved: FocusState.Resolved, childPage: String?) -> FocusEvent.Responder? {
+    /// The responder AppKit should report for `resolved` (W1; `debug.focus` uses the same table).
+    static func expectedResponder(_ resolved: FocusState.Resolved, childPage: String?) -> FocusEvent.Responder? {
         switch resolved {
         case .terminal(let pane, _): .content(pane: pane)
         // A Chromium page has the keys in its own window; this window keeps no responder.
-        case .browserPage(let pane, _): childPage == nil ? .content(pane: pane) : .windowOrNone
+        case .browserPage(let pane, _), .page(let pane, _): childPage == nil ? .content(pane: pane) : .windowOrNone
         case .addressBar(let pane, _): .addressBar(pane: pane)
         case .findBar(let pane, _): .findBar(pane: pane)
-        case .agentPage(let pane, _), .page(let pane, _), .conversation(let pane, _): .content(pane: pane)
+        case .agentPage(let pane, _), .conversation(let pane, _): .content(pane: pane)
         // A docked DevTools has the keys in its own child window, like a page.
         case .devTools: .windowOrNone
         case .sidebar: .sidebar
@@ -107,7 +112,7 @@ extension InputInvariants {
             let underlying = window.model.underlying
             // The page's window, or its docked DevTools window.
             let isChildPage: Bool = switch underlying {
-            case .browserPage(_, let tab), .devTools(_, let tab): window.childWindowTabs.contains(tab)
+            case .browserPage(_, let tab), .devTools(_, let tab), .page(_, let tab): window.childWindowTabs.contains(tab)
             default: false
             }
             if !isChildPage, window.model.overlays.isEmpty {

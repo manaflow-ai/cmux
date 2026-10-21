@@ -26,4 +26,12 @@ public protocol BrowserPageEngine: Sendable {
     /// `tabID` is the tab's public id (`tab_…`); `url` is the tab's last
     /// known URL, for an engine that must load the page first.
     func run(_ operation: BrowserPageOperation, tabID: String, url: String?) async throws -> JSONValue
+
+    /// An agent input a `browser.page.*` command made in tab `tabID`, after
+    /// it ran: the app draws its agent cursor there. The default does nothing.
+    func announce(_ input: BrowserPageAgentInput, tabID: String) async
+}
+
+extension BrowserPageEngine {
+    public func announce(_ input: BrowserPageAgentInput, tabID: String) async {}
 }

@@ -49,6 +49,9 @@ struct Browser {
     /// A fetch shell's navigation never answers (Chromium seen stalling a
     /// first connection on the Testbox).
     stall_shell_navigation: bool,
+    /// The page's `navigator.maxTouchPoints`: above 0 under touch emulation,
+    /// also one DevTools device mode turned on (cx-3ny35).
+    max_touch_points: i64,
 }
 
 struct FakeWire {
@@ -149,6 +152,7 @@ impl FakeWire {
             | "Emulation.setFocusEmulationEnabled"
             | "Runtime.runIfWaitingForDebugger"
             | "Input.dispatchMouseEvent"
+            | "Input.dispatchTouchEvent"
             | "Input.dispatchKeyEvent"
             | "Input.insertText"
             | "Emulation.setDeviceMetricsOverride"
@@ -327,6 +331,11 @@ impl FakeWire {
                 } else {
                     json!({"node": {"backendNodeId": 42, "nodeName": "BUTTON"}})
                 }
+            }
+            "Runtime.evaluate"
+                if params["expression"].as_str().is_some_and(|e| e.contains("maxTouchPoints")) =>
+            {
+                json!({"result": {"type": "number", "value": browser.max_touch_points}})
             }
             "DOM.resolveNode" => {
                 json!({"object": {"type": "object", "objectId": format!("page-{}", params["backendNodeId"])}})
@@ -722,6 +731,94 @@ fn mouse_clicks_track_pressed_buttons_and_modifiers() {
     assert_eq!(events[4]["type"], "mouseWheel");
     assert_eq!((events[4]["x"].as_f64(), events[4]["y"].as_f64()), (Some(15.0), Some(25.0)));
     assert_eq!(events[4]["deltaY"], 120.0);
+}
+
+#[test]
+fn a_touch_emulating_tab_gets_touch_events_and_mouse_again_after_clear() {
+    // cx-3ny35: with touch emulation on, Chromium (and Chrome) never answers
+    // Input.dispatchMouseEvent; a click is a touch at the scaled point.
+    let h = Harness::new();
+    let target = h.open(None);
+    h.driver.set_input_scale(0.5);
+    h.driver.set_touch_emulation(true);
+    let mark = h.mark();
+    h.call("input.mouse", json!({"targetId": target, "type": "move", "x": 10, "y": 20}));
+    h.call("input.mouse", json!({"targetId": target, "type": "down", "x": 10, "y": 20, "button": "left", "clickCount": 1}));
+    h.call("input.mouse", json!({"targetId": target, "type": "move", "x": 12, "y": 24}));
+    h.call("input.mouse", json!({"targetId": target, "type": "up", "x": 12, "y": 24, "button": "left", "clickCount": 1}));
+    let input: Vec<(String, Value)> =
+        h.sent_since(mark).into_iter().filter(|(m, _)| m.starts_with("Input.")).collect();
+    assert!(input.iter().all(|(m, _)| m == "Input.dispatchTouchEvent"), "{input:?}");
+    let types: Vec<&str> = input.iter().map(|(_, p)| p["type"].as_str().unwrap()).collect();
+    assert_eq!(types, ["touchStart", "touchMove", "touchEnd"], "a hover move sends nothing");
+    assert_eq!(
+        (input[0].1["touchPoints"][0]["x"].as_f64(), input[0].1["touchPoints"][0]["y"].as_f64()),
+        (Some(5.0), Some(10.0))
+    );
+    assert_eq!(
+        (input[1].1["touchPoints"][0]["x"].as_f64(), input[1].1["touchPoints"][0]["y"].as_f64()),
+        (Some(6.0), Some(12.0))
+    );
+    assert_eq!(input[2].1["touchPoints"], json!([]));
+
+    h.driver.set_touch_emulation(false);
+    let mark = h.mark();
+    h.call(
+        "input.mouse",
+        json!({"targetId": target, "type": "down", "x": 10, "y": 20, "button": "left"}),
+    );
+    h.call(
+        "input.mouse",
+        json!({"targetId": target, "type": "up", "x": 10, "y": 20, "button": "left"}),
+    );
+    let methods: Vec<String> =
+        h.methods_since(mark).into_iter().filter(|m| m.starts_with("Input.")).collect();
+    assert_eq!(
+        methods,
+        ["Input.dispatchMouseEvent", "Input.dispatchMouseEvent"],
+        "after clear: mouse again"
+    );
+}
+
+#[test]
+fn a_page_with_touch_emulated_by_devtools_gets_touch_events() {
+    // cx-3ny35: DevTools device mode turns touch on itself (the app is not
+    // told), and Chromium then never answers Input.dispatchMouseEvent either.
+    let h = Harness::with_browser(Browser { max_touch_points: 5, ..Browser::default() });
+    let target = h.open(None);
+    let mark = h.mark();
+    h.call(
+        "input.mouse",
+        json!({"targetId": target, "type": "down", "x": 10, "y": 20, "button": "left"}),
+    );
+    h.call("input.mouse", json!({"targetId": target, "type": "move", "x": 11, "y": 21}));
+    h.call(
+        "input.mouse",
+        json!({"targetId": target, "type": "up", "x": 11, "y": 21, "button": "left"}),
+    );
+    let input: Vec<(String, Value)> =
+        h.sent_since(mark).into_iter().filter(|(m, _)| m.starts_with("Input.")).collect();
+    let types: Vec<&str> = input.iter().map(|(_, p)| p["type"].as_str().unwrap()).collect();
+    assert!(input.iter().all(|(m, _)| m == "Input.dispatchTouchEvent"), "{input:?}");
+    assert_eq!(types, ["touchStart", "touchMove", "touchEnd"]);
+
+    h.wire.browser.lock().unwrap().max_touch_points = 0;
+    let mark = h.mark();
+    h.call(
+        "input.mouse",
+        json!({"targetId": target, "type": "down", "x": 10, "y": 20, "button": "left"}),
+    );
+    h.call(
+        "input.mouse",
+        json!({"targetId": target, "type": "up", "x": 10, "y": 20, "button": "left"}),
+    );
+    let methods: Vec<String> =
+        h.methods_since(mark).into_iter().filter(|m| m.starts_with("Input.")).collect();
+    assert_eq!(
+        methods,
+        ["Input.dispatchMouseEvent", "Input.dispatchMouseEvent"],
+        "device mode off: mouse"
+    );
 }
 
 #[test]

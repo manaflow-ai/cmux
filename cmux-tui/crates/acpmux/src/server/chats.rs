@@ -74,6 +74,10 @@ pub(super) async fn route(
     if let Some(reply) = offers::dispatch(hub, conn, m, &params) {
         return reply;
     }
+    // So do the sub-session methods (`subsessions.rs`): this daemon's own sessions only.
+    if let Some(reply) = super::subsessions::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
     // So do the process methods (`processes.rs`).
     if let Some(reply) = super::processes::dispatch(hub, conn, m, &params).await {
         return reply;

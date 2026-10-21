@@ -30,7 +30,7 @@ extension AppServices {
         if let tab = cache.tabModel(key) { return machines.daemon(forTab: tab) }
         for window in windows.controllers {
             for pane in window.content?.panes.values.map({ $0 }) ?? []
-            where window.state.localBrowserTabs[pane.paneKey]?.contains(where: { $0.id == key }) == true {
+            where window.state.localBrowserTabs[pane.paneKey].contains(where: { $0.id == key }) {
                 return pane.daemon
             }
         }

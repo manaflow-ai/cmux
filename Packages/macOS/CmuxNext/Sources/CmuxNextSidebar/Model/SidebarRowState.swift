@@ -15,4 +15,14 @@ public nonisolated enum SidebarRowState: Hashable, Sendable {
     /// With a title (a connecting SSH machine's pending row, cx-gaq9) it draws
     /// the title and second line instead of the bar, still never interactive.
     case placeholder
+    /// A workspace this app is creating, from the press until the daemon
+    /// lists it: drawn exactly as its live row will be (its final title,
+    /// folder and look, no bar, no dim), so the row never changes look when
+    /// the daemon replies. Like a placeholder it is never interactive: the
+    /// daemon does not know the workspace yet.
+    case creating
+
+    /// True for a row that names no daemon workspace yet (a placeholder, or a
+    /// workspace still being created): no selection, menu, drag or save.
+    public var isPending: Bool { self == .placeholder || self == .creating }
 }

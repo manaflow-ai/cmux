@@ -40,8 +40,8 @@ final class TooltipPanel: NSPanel {
     /// How far the surface rises as it fades in.
     static let rise: CGFloat = 2
 
-    let text = NSTextField(wrappingLabelWithString: "")
-    let hint = NSTextField(labelWithString: "")
+    let text = ChromeLabel(wrappingLabelWithString: "")
+    let hint = ChromeLabel(labelWithString: "")
     /// The surface: it carries the shadow, and the fade and the rise run on its layer.
     let surface = NSView()
     /// The frosted glass under the tint (hidden under Reduce Transparency).
@@ -100,6 +100,17 @@ final class TooltipPanel: NSPanel {
         setAccessibilityElement(false)
     }
 
+    /// AppKit may recreate an NSView-backed layer when the view enters a
+    /// window. Reapply the surface shadow at presentation time so the panel
+    /// keeps its elevation contract after that replacement.
+    private func configureSurfaceShadow() {
+        guard let layer = surface.layer else { return }
+        layer.shadowColor = NSColor.black.cgColor
+        layer.shadowOpacity = Float(TooltipSurface.shadow.alpha)
+        layer.shadowRadius = TooltipSurface.shadow.layerRadius
+        layer.shadowOffset = TooltipSurface.shadow.layerOffset()
+    }
+
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 
@@ -136,6 +147,7 @@ final class TooltipPanel: NSPanel {
         surface.frame = NSRect(x: Self.margin, y: Self.margin, width: width, height: height)
         surface.layer?.shadowPath = CGPath(roundedRect: surface.bounds, cornerWidth: Self.radius, cornerHeight: Self.radius,
                                            transform: nil)
+        configureSurfaceShadow()
     }
 
     /// Puts it on screen: fading in and rising when `fade`, else at once (a warm neighbor's, or new text).
@@ -152,8 +164,8 @@ final class TooltipPanel: NSPanel {
             return
         }
         if fade, !isVisible {
-            Motion.set(layer, "opacity", to: Float(1), fade: .fadeIn, from: Float(0))
-            Motion.set(layer, "transform.translation.y", to: CGFloat(0), movementFade: .fadeIn, from: -Self.rise)
+            Motion.hoverCards.set(layer, "opacity", to: Float(1), fade: .fadeIn, from: Float(0))
+            Motion.hoverCards.set(layer, "transform.translation.y", to: CGFloat(0), movementFade: .fadeIn, from: -Self.rise)
         } else {
             layer.removeAllAnimations()
             Motion.withoutAnimation { layer.opacity = 1 }
@@ -166,7 +178,7 @@ final class TooltipPanel: NSPanel {
         guard isVisible, !isFadingOut else { return }
         generation += 1
         let fading = generation
-        guard let layer = surface.layer, Motion.duration(.fadeOut) > 0 else {
+        guard let layer = surface.layer, Motion.hoverCards.duration(.fadeOut) > 0 else {
             orderOut(nil)
             return
         }
@@ -176,7 +188,7 @@ final class TooltipPanel: NSPanel {
         CATransaction.setCompletionBlock { [weak self] in
             MainActor.assumeIsolated { self?.fadedOut(fading) } // main-proof: CATransaction.h: the completion block is called on the main thread
         }
-        Motion.set(layer, "opacity", to: Float(0), fade: .fadeOut, from: layer.presentation()?.opacity ?? layer.opacity)
+        Motion.hoverCards.set(layer, "opacity", to: Float(0), fade: .fadeOut, from: layer.presentation()?.opacity ?? layer.opacity)
         CATransaction.commit()
     }
 

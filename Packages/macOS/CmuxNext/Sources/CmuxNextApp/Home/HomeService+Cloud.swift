@@ -22,14 +22,15 @@ extension HomeService {
         let cloudInbox = homeCloudInbox
         // task-owner: lives as long as the service; event-driven (Observation)
         cloudLink = Task {
-            for await link in ObservationStream({
+            // A trigger: a daemon restart on the same connection refreshes the inbox again.
+            for await link in ObservationStream({ () -> ObservationTrigger<HomeCloudLink.Link> in
                 let connection = local.supports(DaemonCapabilities.shared.cloudConversations) ? local.connection : nil
-                return HomeCloudLink.Link(endpoint: connection.map(CloudConversationClient.init),
-                                          id: connection.map(ObjectIdentifier.init),
-                                          userID: auth.isSignedIn ? auth.user?.id : nil,
-                                          displayName: auth.user?.displayName ?? auth.user?.primaryEmail ?? "")
+                return ObservationTrigger(HomeCloudLink.Link(endpoint: connection.map(CloudConversationClient.init),
+                                                             id: connection.map(ObjectIdentifier.init),
+                                                             userID: auth.isSignedIn ? auth.user?.id : nil,
+                                                             displayName: auth.user?.displayName ?? auth.user?.primaryEmail ?? ""))
             }) {
-                await linker.apply(link)
+                await linker.apply(link.value)
                 cloudInbox.connectionChanged(local.supports(DaemonCapabilities.shared.cloudConversations) ? local.connection : nil)
             }
         }
@@ -40,6 +41,7 @@ extension HomeService {
             cloudLinker?.sessionNeeded(reason: needed.reason, expiresAt: needed.expiresAt)
             return
         }
+        if case .hostReplicaNeeded(let needed) = event { return services.cloud.hostReplica.needed(needed) }
         cloudSource.handle(event)
     }
 }

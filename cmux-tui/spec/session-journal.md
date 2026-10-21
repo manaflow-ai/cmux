@@ -444,6 +444,13 @@ owned plugin file. Existing unrelated hooks remain in place. Reinstallation is
 idempotent, legacy cmux-tui journal shims are migrated, and an unrecognized
 file at an owned plugin path is never overwritten.
 
+`status` reports each provider as `installed`, `partial` or `absent`, or as
+`conflict` when the target exists in a form installation refuses (a symlink,
+a non-file, or a plugin file cmux-tui did not write) and `unavailable` when it
+cannot be inspected. Those two states carry a machine-readable `reason`
+(`symlink`, `not_a_file`, `not_a_directory`, `not_owned` or `unreadable`) and
+a human-readable `detail`; `cmux --json agent hook status` emits them.
+
 Command-hook providers wait for only the helper's bounded durable receipt.
 Plugin providers return from their callback immediately and let an external
 helper child finish that same bounded receipt. Provider work, normalization,

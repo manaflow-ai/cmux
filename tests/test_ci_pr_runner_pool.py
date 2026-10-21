@@ -1813,6 +1813,22 @@ class RootRunners(unittest.TestCase):
         self.assertIn("10 gui runners, more than the 4 machines",
                       pool.slot_problems('{"std": 4, "gui-std": 10}', PR_XCODE)[0])
 
+    def test_the_session_label_is_an_owned_role_label_beside_the_gui_label(self):
+        # glaeda#1530: a mini's console gui runner and its extra session runners carry
+        # glaeda-session-<class>-xcode-<version>. Jobs that need a logged-in session but not the
+        # console gui token take it, so they run beside a console GUI job.
+        session = "glaeda-session-std-xcode-26.6"
+        self.assertTrue(pool.persistent(session))
+        self.assertEqual((pool.session_label(MINI), pool.pool_label(session)), (session, MINI))
+        self.assertEqual(pool.session_label("glaeda-light-xcode-26.6"), "glaeda-session-light-xcode-26.6")
+        for label in (session, "glaeda-gui-std-xcode-26.6", ROOT_MINI, SMALL, ""):
+            self.assertEqual(pool.session_label(label), "", label)
+        self.assertEqual((pool.root_label(session), pool.side_label(session), pool.gui_label(session)), ("", "", ""))
+        # The class form counts. A mini with guiRunners 2 carries it on two runners, so a count above
+        # the pool's machines is not a typo.
+        self.assertEqual(pool.slots('{"std": 4, "session-std": 8}', PR_XCODE)[session], 8)
+        self.assertEqual(pool.slot_problems('{"std": 4, "session-std": 8}', PR_XCODE), [])
+
     def test_no_root_count_keeps_the_pool_label(self):
         choice = owned_choice(fleet(busy=0), jobs=4, root_jobs=2)
         self.assertEqual((choice.runner, choice.root_runner), (MINI, ""))
@@ -3737,7 +3753,7 @@ class IOSWiring(unittest.TestCase):
                 self.assertNotIn(routed, text, f"{name} must not route to an owned Mac")
         validate = self.workflow("ios-streamed-validate.yml")["jobs"]["validate"]
         self.assertEqual(validate["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
-                                              "vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}")
+                                              "'blacksmith-6vcpu-macos-26' }}")
 
     def test_home_secrets_are_removed_however_the_job_ends(self):
         # A reused runner keeps $HOME: every job that writes a secret file there

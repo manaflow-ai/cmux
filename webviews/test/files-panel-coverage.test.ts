@@ -209,6 +209,49 @@ await requireBrowserLane("files-panel-coverage.test.ts", async () => {
           await browser.close();
         }
       });
+
+      run("turning animation speed off mid-slide cancels the Web Animations and settles the panel", async () => {
+        const browser = await engine.launch({ headless: true });
+        try {
+          const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+          await page.goto(`${base}/test/latency/diff.html`);
+          await page.waitForFunction(() => document.body.dataset.streamFileCount === "240", undefined, {
+            timeout: 30_000,
+          });
+          const state = await page.evaluate(async () => {
+            const panel = document.querySelector<HTMLElement>("#files-sidebar")!;
+            const toggle = document.querySelector<HTMLButtonElement>("#files-toggle")!;
+            const before = panel.dataset.filesMotionTarget;
+            const changed = new Promise<void>((resolve) => {
+              const observer = new MutationObserver(() => {
+                if (panel.dataset.filesMotionTarget === before) return;
+                observer.disconnect();
+                resolve();
+              });
+              observer.observe(panel, { attributes: true, attributeFilter: ["data-files-motion-target"] });
+            });
+            toggle.click();
+            await changed;
+            const started = panel.getAnimations().length;
+            document.documentElement.dataset.agentMotion = "off";
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            return {
+              started,
+              remaining: panel.getAnimations().length,
+              hidden: document.body.dataset.filesHidden,
+              motion: panel.dataset.filesMotion,
+              target: panel.dataset.filesMotionTarget,
+            };
+          });
+          expect(state.started).toBeGreaterThan(0);
+          expect(state.remaining).toBe(0);
+          expect(state.hidden).toBe("true");
+          expect(state.motion).toBeUndefined();
+          expect(state.target).toBeUndefined();
+        } finally {
+          await browser.close();
+        }
+      });
     },
   );
 });

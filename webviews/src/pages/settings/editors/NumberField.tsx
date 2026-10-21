@@ -2,9 +2,11 @@ import { useState } from "react";
 import { clamp, displayNumber, parseNumber, unitLabel } from "../format";
 import type { NumberRange } from "../schema";
 
-/** A number field with its unit; commits on Return or blur, clamped to the range. */
+/** A number field with its unit; commits on Return or blur, clamped to the range. `inherited`
+ * (an unset row's effective value) shows dimmed in place of the placeholder. */
 export function NumberField({
   value,
+  inherited = null,
   range,
   placeholder,
   disabled,
@@ -12,6 +14,7 @@ export function NumberField({
   onCommit,
 }: {
   value: number | null;
+  inherited?: number | null;
   range: NumberRange | undefined;
   placeholder: string;
   disabled: boolean;
@@ -19,7 +22,8 @@ export function NumberField({
   onCommit: (value: number) => void;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
-  const shown = draft ?? (value === null ? "" : displayNumber(value, range));
+  const resting = value ?? inherited;
+  const shown = draft ?? (resting === null ? "" : displayNumber(resting, range));
   const commit = () => {
     if (draft === null) return;
     setDraft(null);
@@ -36,6 +40,7 @@ export function NumberField({
       <span className="number-sizer" data-value={shown || placeholder}>
         <input
           className="field number"
+          data-inherited={draft === null && value === null && inherited !== null ? "" : undefined}
           type="text"
           inputMode="decimal"
           size={1}

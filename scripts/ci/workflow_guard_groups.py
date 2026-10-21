@@ -51,6 +51,12 @@ GROUPS = (
 # imports, a working-directory, a submodule). Paths a step runs directly are
 # derived from ci-guards.yml by direct_path_owners() and need no entry here.
 PATH_OWNERS = {
+    # The What's New and release-notes tests in release-notary import or run these.
+    "scripts/whats-new/digest.py": frozenset(("release-notary",)),
+    "scripts/whats-new/validate.py": frozenset(("release-notary",)),
+    "scripts/whats-new/community.py": frozenset(("release-notary",)),
+    "scripts/cmux-next/release-notes.py": frozenset(("release-notary",)),
+
     # test_ci_runner_capability_resolver.py reads the capability map, the
     # resolver it imports, the reusable workflow that publishes the map, and
     # the one workflow wired to consume it.
@@ -120,6 +126,11 @@ PATH_OWNERS = {
 
     "scripts/ci/ios_upload_batch_decision.py": frozenset(("release-ios",)),
     "scripts/ci/peer_product_source.py": frozenset(("preflight",)),
+    # test_nightly_sign_admit.py runs the admit tool; the shadow test reads
+    # the workflow and nightly.yml's producer step. test_ci_workflow_run_sources.py
+    # (ci) reads every workflow_run trigger and the tool's job-name match.
+    ".github/workflows/nightly-sign.yml": frozenset(("ci", "release-notary")),
+    "scripts/ci/nightly_sign_admit.py": frozenset(("ci", "release-notary")),
     "scripts/ci/drop-previous-nightlies-with-other-sparkle-key.sh": frozenset(("release-notary",)),
     "scripts/ci/nightly-sparkle-key.sh": frozenset(("release-notary",)),
     "scripts/ci/product_input_identity.py": frozenset(("preflight",)),

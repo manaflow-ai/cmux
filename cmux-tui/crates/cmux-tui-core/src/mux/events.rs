@@ -142,8 +142,11 @@ pub enum MuxEvent {
         terminal: Option<String>,
         grace_ms: u64,
     },
-    /// A screen's pane geometry changed. Clients should re-fetch layout.
-    LayoutChanged(ScreenId),
+    /// A screen's pane geometry changed. With `layout-delta-v1` it carries
+    /// the screen's new layout (`LayoutDelta`), so a client patches that one
+    /// screen; without one (a remote session's parsed event) clients
+    /// re-fetch the layout.
+    LayoutChanged(ScreenId, Option<Arc<LayoutDelta>>),
     /// A control connection attached its first surface.
     ClientAttached {
         client: u64,
@@ -238,6 +241,19 @@ impl TreeDeltaKind {
             Self::TabChanged => "tab-changed",
         }
     }
+}
+
+/// The payload of `layout-changed` (`layout-delta-v1`): the screen's layout
+/// fields at the commit that changed them, captured under the state lock.
+#[derive(Debug, Clone)]
+pub struct LayoutDelta {
+    pub workspace: WorkspaceId,
+    /// `screen_layout_json`: active and zoomed pane, split tree, viewport
+    /// splits, base width and columns. No panes or tabs.
+    pub layout: Value,
+    /// The decimal transaction of the request that caused it (a divider or
+    /// column drag), so the frontend that sent it can recognize its echo.
+    pub transaction: Option<Arc<str>>,
 }
 
 #[derive(Debug, Clone)]

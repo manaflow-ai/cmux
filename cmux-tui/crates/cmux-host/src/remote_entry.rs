@@ -8,16 +8,11 @@
 //! a tailnet bind adds `--remote-ws-insecure-bind` because the plaintext
 //! WebSocket rides the WireGuard tunnel.
 //!
-//! The only other mode is the cmux Cloud edge carrier:
-//! `{"remoteWs": {"bind": "0.0.0.0:1337", "carrier": "freestyle-edge"}}`.
-//! It runs the exact Cloud command line (`--remote-ws-insecure-bind
-//! --remote-ws-trusted-carrier`, equal to cmuxTuiDaemon.ts), which grants
-//! carrier auth to every link without enrollment. It is accepted only with
-//! the wildcard bind, on Linux, on a machine bound to a metadata instance id.
-//! It ASSUMES that nothing reaches port 1337 except the Freestyle edge:
-//! verifying that in the image (firewall or interface bind, public IPv6
-//! included) and moving Cloud clients to enrolled auth are tracked in bead
-//! cx-wx2.
+//! A cmux Cloud machine may use the wildcard behind the Freestyle edge only
+//! with explicit enrolled-device authentication:
+//! `{"remoteWs": {"bind": "[::]:1337", "carrier": "freestyle-edge-grant"}}`.
+//! The edge decides reachability; a short-lived invitation from the
+//! authenticated Cloud API grants the client application authority.
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
@@ -27,10 +22,9 @@ use serde_json::{Map, Value};
 pub const HOST_CONFIG_FILE: &str = "/etc/cmux/host.json";
 /// The default entry: loopback, enrolled auth.
 pub const DEFAULT_BIND: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 1337);
-/// The bead that tracks the edge carrier's assumptions.
+/// Compatibility mode stays explicit until every running machine is recreated.
 pub const EDGE_CARRIER_BEAD: &str = "cx-wx2";
-
-/// Who admits peers in the trusted-carrier mode.
+/// Which network edge makes a wildcard listener reachable.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Carrier {
     /// The Freestyle edge in front of a cmux Cloud machine.
@@ -49,7 +43,9 @@ impl Carrier {
 pub enum RemoteEntry {
     /// Every connection presents an enrolled device.
     Enrolled { bind: SocketAddr },
-    /// The network admits peers; carrier auth without enrollment.
+    /// A Cloud edge wildcard whose clients still authenticate as enrolled devices.
+    EdgeEnrolled { bind: SocketAddr, carrier: Carrier },
+    /// Compatibility for old supervisors and images: network reach grants authority.
     TrustedCarrier { bind: SocketAddr, carrier: Carrier },
 }
 
@@ -72,6 +68,11 @@ impl RemoteEntry {
                 }
                 args
             }
+            RemoteEntry::EdgeEnrolled { bind, .. } => vec![
+                "--remote-ws".to_owned(),
+                bind.to_string(),
+                "--remote-ws-insecure-bind".to_owned(),
+            ],
             RemoteEntry::TrustedCarrier { bind, .. } => vec![
                 "--remote-ws".to_owned(),
                 bind.to_string(),
@@ -81,15 +82,13 @@ impl RemoteEntry {
         }
     }
 
-    /// The one warning line logged at start, for the trusted-carrier mode.
+    /// Enrolled edge listeners need no insecure-carrier warning.
     pub fn warning(&self) -> Option<String> {
         match self {
-            RemoteEntry::Enrolled { .. } => None,
+            RemoteEntry::Enrolled { .. } | RemoteEntry::EdgeEnrolled { .. } => None,
             RemoteEntry::TrustedCarrier { bind, carrier } => Some(format!(
-                "cmux-host: WARNING remote entry {bind} runs in trusted-carrier mode \
-                 (carrier {}): links get carrier auth without enrollment; this assumes \
-                 nothing reaches the port except the {} (bead {EDGE_CARRIER_BEAD})",
-                carrier.as_str(),
+                "cmux-host: WARNING remote entry {bind} runs in trusted-carrier compatibility mode \
+                 (carrier {}): links get authority without enrollment (bead {EDGE_CARRIER_BEAD})",
                 carrier.as_str(),
             )),
         }
@@ -130,10 +129,15 @@ pub fn parse(text: Option<&str>, facts: Facts) -> Result<RemoteEntry, String> {
     let bind = bind(section)?;
     match section.get("carrier") {
         None => enrolled(bind),
-        Some(Value::String(name)) if name == Carrier::FreestyleEdge.as_str() => {
+        Some(Value::String(name)) if name == "freestyle-edge-grant" => {
             edge(bind, facts, Carrier::FreestyleEdge)
         }
-        Some(other) => Err(format!("`remoteWs.carrier` {other} is not \"freestyle-edge\"")),
+        Some(Value::String(name)) if name == Carrier::FreestyleEdge.as_str() => {
+            trusted_edge(bind, facts, Carrier::FreestyleEdge)
+        }
+        Some(other) => Err(format!(
+            "`remoteWs.carrier` {other} is neither \"freestyle-edge-grant\" nor \"freestyle-edge\""
+        )),
     }
 }
 
@@ -155,12 +159,21 @@ fn enrolled(bind: Option<SocketAddr>) -> Result<RemoteEntry, String> {
     } else {
         Err(format!(
             "`remoteWs.bind` {bind} is neither loopback nor tailnet; a wider bind needs \
-             `\"carrier\": \"freestyle-edge\"` on a cmux Cloud machine"
+             `\"carrier\": \"freestyle-edge-grant\"` on a cmux Cloud machine"
         ))
     }
 }
 
 fn edge(bind: Option<SocketAddr>, facts: Facts, carrier: Carrier) -> Result<RemoteEntry, String> {
+    let bind = edge_bind(bind, facts, carrier)?;
+    Ok(RemoteEntry::EdgeEnrolled { bind, carrier })
+}
+
+fn edge_bind(
+    bind: Option<SocketAddr>,
+    facts: Facts,
+    carrier: Carrier,
+) -> Result<SocketAddr, String> {
     let Some(bind) = bind.filter(|b| b.ip().is_unspecified()) else {
         return Err(format!(
             "the {} carrier needs the wildcard bind (0.0.0.0 or [::])",
@@ -176,5 +189,14 @@ fn edge(bind: Option<SocketAddr>, facts: Facts, carrier: Carrier) -> Result<Remo
             carrier.as_str()
         ));
     }
+    Ok(bind)
+}
+
+fn trusted_edge(
+    bind: Option<SocketAddr>,
+    facts: Facts,
+    carrier: Carrier,
+) -> Result<RemoteEntry, String> {
+    let bind = edge_bind(bind, facts, carrier)?;
     Ok(RemoteEntry::TrustedCarrier { bind, carrier })
 }

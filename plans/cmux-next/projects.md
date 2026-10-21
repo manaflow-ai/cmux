@@ -85,6 +85,7 @@ Local only: the table lives in the daemon store; nothing is sent to Cloud, telem
 
 - Settings: a Projects page (React settings page) listing projects (rename, pin, hide, remove, add folder) and per-source toggles with each source's project count. First import runs silently; onboarding reads the list as detection input (hq-b1).
 - New Tab and composer project pickers read `project.list`; picks and Choose Folder send `project.add`/`project.touch` intents. Swift keeps no copy.
+- Picker badges show the project's own favicon (`project.icon {cwd}`, AgentPaneProjectIcon.swift): the host looks for `favicon.svg`/`icon.svg`/`apple-touch-icon.png`/`favicon.png`/`icon.png`/`favicon.ico` in the folder, `public/`, `static/`, `app/`, `src/app/` and `assets/`, at most 64 KB, typed by its bytes, cached by path and modification date. Every path passes the protected-folder check first (spelling, then readlink only), so nothing in a privacy-protected folder is stat'ed or read; remote projects are never asked about. No icon keeps the letter tile.
 
 ## 9. Slices (one landing each)
 

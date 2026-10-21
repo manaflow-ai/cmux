@@ -8,7 +8,7 @@ Use these commands from a cmux terminal; the CLI reads the session from the envi
 cmux app identify              # the app: bundle, tag, socket
 cmux app capabilities
 cmux app ping
-cmux session list
+cmux workspace list            # reaches the cmux-tui daemon
 cmux terminal "$CMUX_TUI_TERMINAL_ID" show --json
 ```
 
@@ -43,8 +43,10 @@ cmux pane list --json
 cmux tab list --json
 cmux terminal list --json
 
-cmux pane pane_… split --right
-cmux pane pane_… split --down --cwd "$PWD"
+cmux pane pane_… neighbor right --json      # the pane to its right: add tabs there
+cmux pane pane_… split --right -- npm run dev   # only when no pane is there; keeps focus
+cmux pane pane_… split --down --cwd "$PWD" --shell 'tail -f logs/dev.log'
+cmux pane pane_… split --right --focus     # moves focus: only when the user asked
 cmux pane pane_… run --name tests -- npm test
 cmux pane pane_… run shell 'tail -f logs/dev.log'
 cmux tab create terminal --pane pane_… --cwd "$PWD" --name shell
@@ -151,14 +153,14 @@ cmux pane flash-focused                                  # app action
 
 ## Not supported
 
-Sidebar status, progress and log (`set-status`, `set-progress`, `log`, `sidebar-state`), `surface-health`, `drag-surface-to-split`, `reorder-surface`, and `cmux docs` have no equivalent in cmux-next. `cmux workspace set-status --target ws_… --status done` sets only the workflow status.
+Sidebar status, progress and log (`set-status`, `set-progress`, `log`, `sidebar-state`), `surface-health`, `drag-surface-to-split`, and `reorder-surface` have no equivalent in cmux-next. `cmux docs` is now a different, catalog-backed help command. `cmux workspace set-status --target ws_… --status done` sets only the workflow status.
 
 ## Settings and actions
 
 ```bash
 cmux settings get
-cmux settings get app.appearance
-cmux settings set app.appearance dark
+cmux settings get diff.layout
+cmux settings set diff.layout split
 cmux settings reload-configuration     # app action
 cmux action list --noun workspace
 cmux action describe "workspace new"

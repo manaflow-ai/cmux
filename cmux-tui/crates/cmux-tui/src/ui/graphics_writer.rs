@@ -8,7 +8,7 @@ use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, TrySendError, sync_channel};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError, TryLockError};
 use std::thread::{JoinHandle, ThreadId};
 use std::time::{Duration, Instant};
 
@@ -782,6 +782,25 @@ impl WriterControl {
 
     fn request_cancel(&self, notify: &SyncSender<()>) {
         self.cancelled.store(true, Ordering::Release);
+        // Pass through `state` before the notify: a waiter that read
+        // `cancelled == false` under `state` is then already parked in the
+        // condvar, so it cannot miss this wakeup.
+        drop(self.state.lock().unwrap_or_else(PoisonError::into_inner));
+        self.changed.notify_all();
+        notify_writer(notify);
+    }
+
+    /// Like `request_cancel`, but never blocks: the panicking thread may own
+    /// `state`. When `state` is busy, the store is still visible to every
+    /// `is_cancelled` reader; only a condvar waiter can miss the wakeup, and
+    /// production waiters wait on `done`, which is set under `state`.
+    fn request_cancel_nonblocking(&self, notify: &SyncSender<()>) {
+        self.cancelled.store(true, Ordering::Release);
+        match self.state.try_lock() {
+            Ok(state) => drop(state),
+            Err(TryLockError::Poisoned(state)) => drop(state.into_inner()),
+            Err(TryLockError::WouldBlock) => {}
+        }
         self.changed.notify_all();
         notify_writer(notify);
     }
@@ -833,8 +852,13 @@ impl WriterControl {
 
     #[cfg(test)]
     fn wait_until_cancelled(&self) {
-        let state = self.state.lock().unwrap();
-        drop(self.changed.wait_while(state, |_| !self.cancelled.load(Ordering::Acquire)).unwrap());
+        // `request_cancel` passes through `state` before it notifies, so a
+        // plain wait cannot lose that wakeup. The bounded re-check also
+        // covers `request_cancel_nonblocking` when `state` was busy.
+        let mut state = self.state.lock().unwrap();
+        while !self.is_cancelled() {
+            state = self.changed.wait_timeout(state, Duration::from_millis(50)).unwrap().0;
+        }
     }
 
     #[cfg(test)]
@@ -875,7 +899,8 @@ impl GraphicsWriterShutdown {
         // A renderer panic can still own the reentrant stdout lock. Only
         // signal here; the writer observes cancellation before writing after
         // that lock is released, and normal unwind cleanup performs the join.
-        self.control.request_cancel(&self.notify);
+        // The panicking thread may also own `state`, so do not block on it.
+        self.control.request_cancel_nonblocking(&self.notify);
     }
 
     #[cfg(test)]

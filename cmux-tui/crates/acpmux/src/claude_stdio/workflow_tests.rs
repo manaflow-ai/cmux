@@ -151,6 +151,25 @@ fn progress_reaches_clients_in_the_subagent_model() {
     );
 }
 
+#[test]
+fn a_background_subagent_reaches_clients_marked_background() {
+    let mut tree = SubagentTree::default();
+    let mut spawn = json!({"sessionId": "acp-1", "update": {"sessionUpdate": "subagent_spawned",
+        "subagentSessionId": "acp-1/toolu_b", "name": "Watch", "task": "Watch", "background": true}});
+    tree.annotate(&mut spawn);
+    assert_eq!(
+        spawn["_meta"]["acpmux"]["subagents"],
+        json!([{"id": "acp-1/toolu_b", "parent": null, "name": "Watch", "task": "Watch", "state": "running", "background": true}])
+    );
+    let mut moved = json!({"sessionId": "acp-1", "update": {"sessionUpdate": "subagent_progress",
+        "subagentSessionId": "acp-1/toolu_f", "background": true}});
+    tree.annotate(&mut moved);
+    assert_eq!(
+        moved["_meta"]["acpmux"]["subagents"],
+        json!([{"id": "acp-1/toolu_f", "parent": null, "state": "running", "background": true}])
+    );
+}
+
 /// The app's stop on a background agent or workflow row: `_acpmux/subagent_stop`
 /// becomes Claude's `stop_task` control request for the subagent's task, and
 /// Claude's answer answers the request.

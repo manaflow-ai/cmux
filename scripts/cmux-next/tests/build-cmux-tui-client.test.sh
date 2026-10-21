@@ -27,16 +27,19 @@ echo one > "$src/cmux-tui/a"
 git_q -C "$src" add -A
 git_q -C "$src" commit -m one
 
-# cargo build -p P --bin B: writes $CARGO_TARGET_DIR/release/B, which reports
-# CMUX_TUI_BUILD_COMMIT the way the real binary's --version does.
+# cargo build -p P --bin B [--bin B2...]: writes $CARGO_TARGET_DIR/release/B for
+# each --bin, each reporting CMUX_TUI_BUILD_COMMIT the way the real binary's
+# --version does, and logs one line per invocation under its first --bin.
 cat > "$TMP/bin/cargo" <<'EOF'
 #!/usr/bin/env bash
-name=""
-while [[ $# -gt 0 ]]; do case "$1" in --bin) name="$2"; shift ;; esac; shift; done
+names=()
+while [[ $# -gt 0 ]]; do case "$1" in --bin) names+=("$2"); shift ;; esac; shift; done
 mkdir -p "$CARGO_TARGET_DIR/release"
-printf '#!/bin/sh\necho "%s 0.1.0 (%s 2026-10-08)"\n' "$name" "${CMUX_TUI_BUILD_COMMIT:-0000000000000000000000000000000000000000}" > "$CARGO_TARGET_DIR/release/$name"
-chmod 755 "$CARGO_TARGET_DIR/release/$name"
-echo "$name $PWD" >> "$FAKE_CARGO_LOG"
+for name in "${names[@]}"; do
+  printf '#!/bin/sh\necho "%s 0.1.0 (%s 2026-10-08)"\n' "$name" "${CMUX_TUI_BUILD_COMMIT:-0000000000000000000000000000000000000000}" > "$CARGO_TARGET_DIR/release/$name"
+  chmod 755 "$CARGO_TARGET_DIR/release/$name"
+done
+echo "${names[0]} $PWD" >> "$FAKE_CARGO_LOG"
 EOF
 chmod 755 "$TMP/bin/cargo"
 run() { (cd "$src" && env -i PATH="$TMP/bin:/usr/bin:/bin" HOME="$TMP" TMPDIR="$TMP" FAKE_CARGO_LOG="$TMP/cargo.log" "$@"); }
@@ -46,7 +49,7 @@ if run bash scripts/cmux-next/build-cmux-tui-client.sh 2>"$TMP/err"; then fail "
 grep -q "never runs Cargo" "$TMP/err" || fail "unexpected refusal: $(cat "$TMP/err")"
 
 path=$(run NX_JOB_ID=job bash scripts/cmux-next/build-cmux-tui-client.sh --print-path 2>"$TMP/err") || fail "an nx-remote job did not build: $(cat "$TMP/err")"
-[[ -x "$path" && -x "$(dirname "$path")/cmux-app-host" && -x "$(dirname "$path")/cmux-agent-screen-detection" ]] || fail "missing client set at $path: $(ls "$(dirname "$path")" 2>&1)"
+[[ -x "$path" && -x "$(dirname "$path")/cmux-tui-host" && -x "$(dirname "$path")/cmux-app-host" && -x "$(dirname "$path")/cmux-agent-screen-detection" ]] || fail "missing client set at $path: $(ls "$(dirname "$path")" 2>&1)"
 (cd "$src" && bash scripts/cmux-next/pin-cmux-tui.sh local-build "$path") || fail "pin-cmux-tui.sh local-build refused the build"
 [[ "$(builds)" == 3 ]] || fail "want cmux-tui, cmux-app-host and the detector built once each: $(cat "$TMP/cargo.log")"
 # The detector is its own Cargo workspace: built from its own directory.

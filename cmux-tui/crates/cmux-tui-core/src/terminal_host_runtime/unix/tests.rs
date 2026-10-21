@@ -133,7 +133,7 @@ fn exited_host_fixture_with_parser_at(
         stream_progress: TerminalStreamProgress::default(),
         writer: Mutex::new(Box::new(std::io::sink())),
         master: Mutex::new(Box::new(TestHostMaster {
-            size: Mutex::new(pty_size(80, 24, DEFAULT_CELL_PIXELS).unwrap()),
+            size: Mutex::new(pty_size(80, 24, DEFAULT_CELL_PIXELS)),
         })),
         killer: Mutex::new(Box::new(TestHostKiller)),
         pid: None,

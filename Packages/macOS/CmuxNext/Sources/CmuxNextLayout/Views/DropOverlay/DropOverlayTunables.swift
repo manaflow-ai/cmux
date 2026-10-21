@@ -95,10 +95,10 @@ public nonisolated enum LayoutTunables {
         "drop.edgeFraction", .tabDrag, "Edge zone share", help: "Share of a pane's extent that counts as an edge (split) drop zone.",
         default: 0.25, range: 0.05...0.5, step: 0.01, unit: .fraction, code: "LayoutTunables.dropEdgeFraction")
     public static let dropEdgeMinimum = Tunable<CGFloat>.number(
-        "drop.edgeMinimum", .tabDrag, "Edge zone minimum", help: "The edge band is at least this wide (classic: 80).", default: 40, range: 4...200, step: 1,
+        "drop.edgeMinimum", .tabDrag, "Edge zone minimum", help: "The edge band is at least this wide (classic: 80).", default: 48, range: 4...200, step: 1,
         unit: .points, code: "LayoutTunables.dropEdgeMinimum")
     public static let dropEdgeMaximum = Tunable<CGFloat>.number(
-        "drop.edgeMaximum", .tabDrag, "Edge zone maximum", help: "The edge band is at most this wide; 0 sets no maximum (classic).", default: 120, range: 0...600, step: 1,
+        "drop.edgeMaximum", .tabDrag, "Edge zone maximum", help: "The edge band is at most this wide; 0 sets no maximum (classic, the default).", default: 0, range: 0...600, step: 1,
         unit: .points, code: "LayoutTunables.dropEdgeMaximum")
     public static let dropZoneHysteresis = Tunable<CGFloat>.number(
         "drop.zoneHysteresis", .tabDrag, "Zone hysteresis", help: "How far past a zone line the pointer goes before the preview changes zone (classic: 0).",
@@ -129,6 +129,11 @@ public nonisolated enum LayoutTunables {
         "layout.prototype.model", .panes, "Layout model prototype",
         help: "Draws the current screen as another layout model (plans/cmux-next/layout-model.md). View only; nothing is saved.",
         default: .off, code: "LayoutTunables.prototypeModel")
+    /// Opt-in motion prototypes; this changes presentation only and requires pane animations to be enabled.
+    public static let paneMotionVariant = Tunable<PaneMotionVariant>.choice(
+        "motion.pane.variant", .springs, "Pane close and expand",
+        help: "Compare current pane close/expand movement with a faster crisp preset or a small soft landing bump. Enable Pane Animations first. Content keeps its final size; Reduce Motion still snaps.",
+        default: .standard, code: "LayoutTunables.paneMotionVariant")
     public static let prototypeDockEdge = Tunable<LayoutPrototypeDockEdge>.choice(
         "layout.prototype.dockEdge", .panes, "Prototype dock edge", help: "Frame prototype: the edge the right docked column sits on.",
         default: .bottom, code: "LayoutTunables.prototypeDockEdge")
@@ -144,7 +149,8 @@ public nonisolated enum LayoutTunables {
         default: .pinned, code: "LayoutTunables.prototypeDockMode")
 
     public static var all: [TunableDescriptor] {
-        [prototypeModel.descriptor, prototypeDockEdge.descriptor, prototypeOrientation.descriptor, prototypeDockMode.descriptor] + DropOverlayTunables.all + [dropEdgeFraction, dropEdgeMinimum, dropEdgeMaximum, dropZoneHysteresis, newColumnDropWidth, inactivePaneDimming,
+        [prototypeModel.descriptor, prototypeDockEdge.descriptor, prototypeOrientation.descriptor, prototypeDockMode.descriptor,
+         paneMotionVariant.descriptor] + DropOverlayTunables.all + [dropEdgeFraction, dropEdgeMinimum, dropEdgeMaximum, dropZoneHysteresis, newColumnDropWidth, inactivePaneDimming,
                                    minimumContentWidth, minimumContentHeight, focusRingAlpha, focusGlowAlpha, focusGlowRadiusFactor].map(\.descriptor)
     }
 }

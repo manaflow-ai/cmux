@@ -3,6 +3,9 @@ import { conversation as homeConversation, invites, user as homeUser } from "@cm
 import type { OutboxItem, ReduceContext, ReduceResult } from "@cmux/ownership"
 import type { UserState } from "./user.ts"
 
+/** A chief's main conversation id: derived from the chief id (one place per chief). */
+export const chiefMainConversation = (chief: string): string => `conv_${invites.crockford(createHash("sha256").update(`chief-main\u0000${chief}`).digest(), 26)}`
+
 /**
  * Chief records in UserDO (plans/cmux-next/chief-mac.md section 9). The user's principal is
  * the only writer, through chief.create, chief.update and chief.archive. Exactly one active
@@ -186,7 +189,7 @@ export const reduceChief = (stateIn: UserState, op: string, params: Params, ctx:
         is_default: isDefault,
         brain: "cloud",
         brain_place: place,
-        main_conversation: `conv_${invites.crockford(createHash("sha256").update(`chief-main\u0000${id}`).digest(), 26)}`,
+        main_conversation: chiefMainConversation(id),
         harness: null,
         rev: 1,
         created_at: now,

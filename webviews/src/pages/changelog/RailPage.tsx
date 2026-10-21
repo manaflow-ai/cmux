@@ -49,7 +49,12 @@ export function RailPage({ store, strings, s }: { store: ChangelogStore; strings
             <div className="clr-groups">
               <Groups view={view} ctx={ctx} />
             </div>
-            <ChangesFold changes={view.changes} strings={strings} open={view.count === 0} />
+            <ChangesFold
+              changes={view.changes}
+              internal={view.internalChanges}
+              strings={strings}
+              open={view.count === 0}
+            />
           </>
         )}
       </article>

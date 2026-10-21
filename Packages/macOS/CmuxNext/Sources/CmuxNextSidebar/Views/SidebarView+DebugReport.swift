@@ -2,7 +2,7 @@ import AppKit
 
 /// `debug.sidebar_rows` as a JSONSerialization object graph (nil is NSNull),
 /// so the app adds only its window fields. Rects are {x, y, width, height}.
-extension SidebarView {
+extension SidebarViewComponents {
     /// One window's sidebar: rows, selection, drag and drop state, paging,
     /// section headers and arrangements, status glyphs, layout items, + button.
     public func debugReport() -> [String: Any] {
@@ -44,8 +44,8 @@ extension SidebarView {
     private static func row(_ row: SidebarDebugRow) -> [String: Any] {
         [
             "key": row.key, "title": opt(row.title), "frame": rect(row.frame), "window_frame": rect(row.windowFrame),
-            "view_frame": row.viewFrame.map(rect) ?? NSNull(), "view_alpha": opt(row.viewAlpha.map(Double.init)),
-            "in_list": row.inList, "suppressed": row.suppressed, "selected": row.selected, "muted": row.muted, "activity": opt(row.activity),
+            "view_frame": row.viewFrame.map(rect) ?? NSNull(), "view_alpha": opt(row.viewAlpha.map(Double.init)), "row_state": opt(row.rowState),
+            "directory": opt(row.directory), "in_list": row.inList, "suppressed": row.suppressed, "selected": row.selected, "muted": row.muted, "activity": opt(row.activity),
             "icon": opt(row.icon), "icon_address": opt(row.iconAddress), "shown_frame": row.shownFrame.map(rect) ?? NSNull(), "clips": row.clips,
             "group": opt(row.group), "item": opt(row.item), "kind": opt(row.itemKind), "detail": opt(row.detail), "unread": opt(row.unread),
             "progress": row.progress, "shows_working": row.showsWorking, "fill": row.fill, "hovered": row.hovered,

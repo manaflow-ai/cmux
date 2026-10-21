@@ -492,6 +492,36 @@ def test_nightly_next_publishes_its_own_track() -> None:
                                        tag_sha=HEAD_SHA, extra_env=NEXT_ENV))
 
 
+def test_nightly_next_summary_explains_active_hold_and_notary_exemption() -> None:
+    held = run_decide(
+        event="push",
+        ref="refs/heads/nightly-next",
+        extra_env={
+            **NEXT_ENV,
+            "NIGHTLY_NEXT_HOLD": "1",
+            "NIGHTLY_NEXT_BROWSER_DATA_IMPORT": "compiled-out",
+        },
+    )
+    assert not should_build(held)
+    held_summary = summary_values(held)
+    assert "69be4c7e0c5" in held_summary["publication hold"]
+    assert "15 seconds" in held_summary["required hold smoke"]
+    assert "SIGTRAP" in held["warnings"][0]
+
+    compiled_out = run_decide(
+        event="push",
+        ref="refs/heads/nightly-next",
+        extra_env={
+            **NEXT_ENV,
+            "NIGHTLY_NEXT_NOTARY_PAUSED": "1",
+            "NIGHTLY_NEXT_BROWSER_DATA_IMPORT": "compiled-out",
+        },
+    )
+    assert should_build(compiled_out)
+    assert compiled_out["outputs"]["notary_paused"] == "false"
+    assert "bypassed" in summary_values(compiled_out)["NIGHTLY_NEXT_NOTARY_PAUSED"]
+
+
 def test_main_and_rc_keep_the_release_environment_and_feeds() -> None:
     main_outputs = run_decide(event="push", tag_age_hours=2.5, extra_env=NEXT_ENV)["outputs"]
     assert main_outputs["track"] == "nightly"

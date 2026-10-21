@@ -9,7 +9,6 @@ use cmux_pty::PtyOpenError;
 use ghostty_vt::CursorShape;
 
 use super::super::*;
-use super::host_state::pty_size;
 
 pub(crate) fn encode_snapshot(snapshot: &HostSnapshot) -> anyhow::Result<Vec<u8>> {
     encode_snapshot_for_version(snapshot, PROTOCOL_VERSION, false)
@@ -190,7 +189,6 @@ pub(crate) fn decode_snapshot_with_program_status(
     } else {
         None
     };
-    pty_size(cols, rows, cell_pixels)?;
     decoder.finish()?;
     Ok(HostSnapshot {
         cols,
@@ -379,7 +377,6 @@ pub(crate) fn encode_resize(
         .validate_for_replay(replay.len())
         .map_err(|_| anyhow::anyhow!("terminal-host Kitty replay offset is invalid"))?;
     let cell_pixels = (cell_pixels.0.max(1), cell_pixels.1.max(1));
-    pty_size(cols, rows, cell_pixels)?;
     if replay.len() > crate::surface::VT_REPLAY_MAX_BYTES {
         anyhow::bail!("terminal-host resize replay is too large");
     }
@@ -445,7 +442,6 @@ pub(crate) fn decode_host_resize_payload_for_version(
     } else {
         KittyReplayState::disabled()
     };
-    pty_size(cols, rows, cell_pixels)?;
     decoder.finish()?;
     Ok(DecodedHostResize { cols, rows, cell_pixels, replay, kitty_image_aliases, kitty_state })
 }
@@ -689,7 +685,6 @@ impl HostLaunch {
         }
         let (cols, rows) = normalize_terminal_geometry(self.cols, self.rows)?;
         let cell_pixels = (self.cell_pixels.0.max(1), self.cell_pixels.1.max(1));
-        pty_size(cols, rows, cell_pixels)?;
         let mut output = Vec::new();
         put_string(&mut output, &self.endpoint)?;
         put_string(&mut output, &self.record_path)?;
@@ -750,7 +745,6 @@ impl HostLaunch {
         }
         let default_colors = decode_default_colors(&mut decoder)?;
         let cell_pixels = (decoder.u16()?.max(1), decoder.u16()?.max(1));
-        pty_size(cols, rows, cell_pixels)?;
         let kitty_graphics_limits = decode_kitty_graphics_limits(&mut decoder)?;
         anyhow::ensure!(decoder.offset <= MAX_LAUNCH_PAYLOAD, "launch is too large");
         let seed = if decoder.has_remaining() { decoder.blob()?.to_vec() } else { Vec::new() };

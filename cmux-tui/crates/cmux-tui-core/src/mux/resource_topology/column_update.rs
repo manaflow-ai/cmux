@@ -13,6 +13,11 @@ struct ColumnUpdate {
     /// `Some(None)` unpins, `Some(Some(_))` pins, `None` leaves the flag.
     dock: Option<Option<ColumnDock>>,
     width: Option<f32>,
+    /// `pinned-dock-v1`: `Some(true)` makes the docked column pinned (one
+    /// way: `false` is refused at parse).
+    pinned: Option<bool>,
+    /// `pinned-dock-v1`: whether a pinned column takes more tabs.
+    allow_tabs: Option<bool>,
 }
 
 fn invalid(field: &str, reason: impl Into<String>) -> anyhow::Error {
@@ -56,10 +61,15 @@ impl ColumnUpdate {
         {
             return Err(invalid("width", "width must be from 0.1 through 1"));
         }
-        if dock.is_none() && width.is_none() {
-            return Err(invalid("dock", "column.update needs dock or width"));
+        let pinned = typed(fields, "pinned", Value::as_bool, "a boolean")?;
+        if pinned == Some(false) {
+            return Err(invalid("pinned", "a pinned column stays pinned"));
         }
-        Ok(Self { column, dock, width })
+        let allow_tabs = typed(fields, "allow_tabs", Value::as_bool, "a boolean")?;
+        if dock.is_none() && width.is_none() && pinned.is_none() && allow_tabs.is_none() {
+            return Err(invalid("dock", "column.update needs dock, width, pinned or allow_tabs"));
+        }
+        Ok(Self { column, dock, width, pinned, allow_tabs })
     }
 }
 
@@ -75,6 +85,21 @@ fn reduce_column_update(
     if let Some(dock) = update.dock {
         apply_column_dock(&mut next.layout_columns, index, dock)
             .map_err(|error| invalid("dock", error.to_string()))?;
+    }
+    if update.pinned.is_some() || update.allow_tabs.is_some() {
+        let flag = next.layout_columns[index]
+            .dock
+            .as_mut()
+            .ok_or_else(|| invalid("pinned", "only a docked column can be pinned"))?;
+        if update.pinned == Some(true) {
+            flag.pinned = true;
+        }
+        if let Some(allow_tabs) = update.allow_tabs {
+            if !flag.pinned {
+                return Err(invalid("allow_tabs", "allow_tabs needs a pinned column"));
+            }
+            flag.allow_tabs = allow_tabs;
+        }
     }
     if let Some(width) = update.width {
         next.layout_columns[index].width = width;
@@ -207,6 +232,19 @@ mod tests {
             let error = parse(fields.clone()).err().unwrap_or_else(|| panic!("{fields} parsed"));
             assert_eq!(code(error), "validation.invalid", "{fields}");
         }
+    }
+
+    #[test]
+    fn column_update_parse_reads_pinned_and_allow_tabs() {
+        let update =
+            parse(serde_json::json!({"column": COLUMN, "pinned": true, "allow_tabs": false}))
+                .unwrap();
+        assert_eq!((update.pinned, update.allow_tabs), (Some(true), Some(false)));
+        let unpin = parse(serde_json::json!({"column": COLUMN, "pinned": false})).err().unwrap();
+        assert_eq!(code(unpin), "validation.invalid", "a pinned column stays pinned");
+        let typed =
+            parse(serde_json::json!({"column": COLUMN, "allow_tabs": "yes"})).err().unwrap();
+        assert_eq!(code(typed), "validation.invalid");
     }
 
     #[test]

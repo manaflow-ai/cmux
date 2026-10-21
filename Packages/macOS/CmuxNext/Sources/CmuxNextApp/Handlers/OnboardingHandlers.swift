@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCookieImport
 import CmuxNextDesign
 import CmuxNextOnboarding
 
@@ -19,12 +20,39 @@ enum OnboardingHandlers {
         registry.bind("browser.importFromFiles", run: { invocation in
             BrowserFileImport(services: services).run(profile: BookmarkResolver(services: services).profile(invocation))
         })
-        // A toast, never a sheet: the person can keep working while it runs.
+        // Cookies of one browser profile, for the CLI and agents: an agent's run asks the person first.
+        let cef = services.cache.cef
+        let cookieImports = CookieImportService(host: CookieImportHost(
+            requester: { invocation in
+                let agentTabs = services.agentTabs
+                let tabs = services.daemon.store.workspaces.flatMap { workspace in
+                    workspace.screens.flatMap(\.panes).flatMap(\.tabs).map { tab in
+                        CookieImportCandidate(tabID: tab.id, title: tab.displayTitle, workspace: workspace.displayName,
+                                              agentSession: agentTabs.sessions[agentTabs.resolve(tab.id)] ?? tab.agentSession?.session,
+                                              terminalIDs: [tab.terminalID?.rawValue, tab.terminalResourceID?.rawValue].compactMap(\.self))
+                    }
+                }
+                return CookieImportRequester(invocation, among: tabs) { session in
+                    services.chatsFeed?.chats.first { $0.sessionID == session }.map { ($0.title, $0.preview) }
+                }
+            },
+            target: { invocation in
+                let id = BookmarkResolver(services: services).profile(invocation)
+                return (id, services.browserProfiles.record(id)?.name ?? id)
+            },
+            window: { services.windows.active?.window ?? NSApp.mainWindow ?? NSApp.windows.first(where: \.isVisible) },
+            reveal: { tab in _ = registry.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab), origin: .user)) },
+            track: { registry.track($0) },
+            destination: ChromiumCookieDestination { writes, profile in try await cef.importCookies(writes, into: profile) }))
+        registry.bind("browser.importCookies", run: { invocation in try cookieImports.run(invocation) })
+        // Every entrypoint previews the exact snapshot and waits for the
+        // person's answer before any browser, SSH host or agent is restored.
         registry.bind("workspace.importClassic", run: { _ in
             let window = NSApp.keyWindow ?? NSApp.mainWindow
             registry.track(Task { @MainActor in
                 do {
-                    let summary = try await AppOnboardingServices(owner: services.onboarding).importClassicSessions()
+                    let importer = AppOnboardingServices(owner: services.onboarding)
+                    guard let summary = try await importer.importClassicSessions() else { return nil }
                     let notice = ClassicImportStrings.notice(summary)
                     services.onboarding.classicImportNotice = notice
                     ClassicImportStrings.toast(notice, in: window)
@@ -63,8 +91,39 @@ enum OnboardingHandlers {
 }
 
 enum ClassicImportStrings {
+    static var previewTitle: String {
+        String(localized: "classicImport.preview.title", defaultValue: "Import these classic workspaces?", bundle: .module)
+    }
+    static var previewButton: String {
+        String(localized: "classicImport.preview.button", defaultValue: "Import", bundle: .module)
+    }
+    static func previewLines(_ plan: ClassicImportPlan) -> [String] {
+        let format = String(
+            localized: "classicImport.preview.summary",
+            defaultValue: "Source: %1$@\nWorkspaces: %2$@\nBrowser tabs: %3$@\nLocal file pages: %4$@\nSSH workspaces: %5$@\nAgent chats: %6$@\nCloud VM workspaces skipped: %7$@\nImporting loads saved browser pages, connects to saved SSH hosts, and resumes saved agent chats.",
+            bundle: .module
+        )
+        // The localized text uses fixed field labels; only the values vary.
+        // Format those numbers for the person's locale before substitution.
+        let text = String(
+            format: format, plan.source.fileName, plan.workspaces.count.formatted(.number),
+            plan.browserTabs.formatted(.number), plan.localFilePages.formatted(.number),
+            plan.sshWorkspaces.formatted(.number), plan.agentChats.formatted(.number),
+            plan.skippedCloudVMs.formatted(.number)
+        )
+        let cleanupFormat = String(
+            localized: "classicImport.preview.cleanup",
+            defaultValue: "Interrupted workspaces to replace (their terminals will end): %1$@",
+            bundle: .module
+        )
+        let cleanup = String(format: cleanupFormat, plan.cleanupWorkspaces.formatted(.number))
+        return text.components(separatedBy: "\n") + [cleanup]
+    }
     static var imported: String {
         String(localized: "classicImport.toast.imported", defaultValue: "Workspaces from classic cmux are open.", bundle: .module)
+    }
+    static var allHere: String {
+        String(localized: "classicImport.toast.allHere", defaultValue: "Every workspace from classic cmux is already open here.", bundle: .module)
     }
     static var nothingSaved: String {
         String(localized: "classicImport.toast.none", defaultValue: "Classic cmux has no saved workspaces to import.", bundle: .module)
@@ -93,7 +152,7 @@ enum ClassicImportStrings {
     static func notice(_ summary: ClassicImportSummary) -> String {
         let stayed = (summary.leftCloudVMs ? [cloudVMsStay] : []) + (summary.leftSSH ? [sshStays] : [])
             + (summary.leftSSHScrollback ? [sshScrollbackStays] : []) + (summary.leftTabs ? [tabsStay] : [])
-        let opened = summary.opened > 0 ? [imported] : stayed.isEmpty ? [nothingSaved] : []
+        let opened = summary.opened > 0 ? [imported] : summary.alreadyHere > 0 ? [allHere] : stayed.isEmpty ? [nothingSaved] : []
         return (opened + stayed).joined(separator: " ")
     }
 
