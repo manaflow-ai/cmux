@@ -677,9 +677,17 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
           const current = view.current;
           if (!current) return;
           if (beforeInput(current, text, true)) return;
-          // A paste event with no clipboard data, as ProseMirror's own; jsdom has no ClipboardEvent.
-          const win = current.dom.ownerDocument.defaultView;
-          const event = win && "ClipboardEvent" in win ? new win.ClipboardEvent("paste") : new Event("paste");
+          // A paste event that carries `text` as the clipboard's plain text, so the paste takes the
+          // path a person's does (Milkdown's markdown paste: blank lines kept, lines not split into
+          // paragraphs). Plain data, not a DataTransfer: jsdom has neither it nor ClipboardEvent.
+          const event = new Event("paste");
+          Object.defineProperty(event, "clipboardData", {
+            value: {
+              types: ["text/plain"],
+              files: [],
+              getData: (type: string) => (type === "text/plain" || type === "Text" ? text : ""),
+            },
+          });
           current.pasteText(text, event as ClipboardEvent);
         },
         reset: (markdown = "") => {

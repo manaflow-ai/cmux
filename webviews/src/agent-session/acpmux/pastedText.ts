@@ -54,3 +54,19 @@ export function pastedTextBlocks(attachments: readonly ComposerAttachment[]): Pr
       : [],
   );
 }
+
+/// What a prompt's bubble and queue row show before acpmux's echo: its text `body` (the typed text
+/// with text files) and each paste, joined as the echo joins a prompt's text blocks (a newline,
+/// acpmux hub/session.rs `prompt_text`), so a send of only a paste shows it and nothing jumps.
+export function shownPromptText(body: string, attachments: readonly ComposerAttachment[]): string {
+  const pastes = attachments.flatMap((attachment) =>
+    attachment.kind === "pasted" && attachment.text ? [attachment.text] : [],
+  );
+  return [body, ...pastes].filter(Boolean).join("\n");
+}
+
+/// The chips Retry and Edit send again with a prompt's text: that text is acpmux's echo, which
+/// already holds each paste, so a pasted chip would send it twice.
+export function resentAttachments(attachments: readonly ComposerAttachment[]): ComposerAttachment[] {
+  return attachments.filter((attachment) => attachment.kind !== "pasted");
+}

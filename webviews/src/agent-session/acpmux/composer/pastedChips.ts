@@ -1,6 +1,6 @@
 // The composer's side of a huge paste (pastedText.ts): it becomes a chip, unless Paste as Plain
 // Text just ran (⌘⇧V or the prompt's menu), and a chip's click puts its text back in the prompt.
-import { type RefObject, useRef } from "react";
+import { type RefObject, useEffect, useRef } from "react";
 import { MAX_ATTACHMENTS, type ComposerAttachment } from "../attachments";
 import type { MarkdownFieldHandle } from "../MarkdownField";
 import { isLargePaste, pastedTextAttachment } from "../pastedText";
@@ -11,9 +11,16 @@ const PLAIN_PASTE_MS = 2000;
 
 /// Paste and Match Style's key (⌘⇧V, the app's Edit menu, MainMenu.swift). A system menu key
 /// equivalent, not an app action: the bridge sends no keycap for it (shortcuts.ts), and the page
-/// sees the key just before the web view's paste it starts.
+/// sees the key just before the web view's paste it starts. By the key's position too, so a
+/// non-Latin layout (whose V key types another letter) counts.
 export function isPasteAsPlainTextKey(event: KeyboardEvent): boolean {
-  return event.key.toLowerCase() === "v" && event.metaKey && event.shiftKey && !event.altKey && !event.ctrlKey;
+  return (
+    (event.key.toLowerCase() === "v" || event.code === "KeyV") &&
+    event.metaKey &&
+    event.shiftKey &&
+    !event.altKey &&
+    !event.ctrlKey
+  );
 }
 
 export function usePastedChips(
@@ -25,6 +32,15 @@ export function usePastedChips(
   const plainUntil = useRef(0);
   /// Set while a chip's text goes back into the prompt: that paste is never a chip.
   const expanding = useRef(false);
+  // Any paste ends Paste as Plain Text's turn, one of only files or images too (the field took a
+  // text paste before this, at the document, hears it).
+  useEffect(() => {
+    const ended = () => {
+      plainUntil.current = 0;
+    };
+    document.addEventListener("paste", ended);
+    return () => document.removeEventListener("paste", ended);
+  }, []);
   /// Whether this paste goes in raw. Paste as Plain Text covers its one paste: the flag goes once
   /// the paste's task is done (a paste can ask twice, MarkdownField's pasteText).
   const raw = () => {
