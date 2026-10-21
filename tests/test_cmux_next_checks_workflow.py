@@ -650,6 +650,10 @@ class PathRoutingStructure(unittest.TestCase):
             with self.subTest(job=job_id):
                 self.assertIn("push-head-preflight", needs)
                 self.assertIn("needs.push-head-preflight.outputs.current == 'true'", job["if"])
+        # The Release compile is the base's compile check: a superseded feat-cmux-next push still
+        # compiles (ReleaseCompileRouting covers it); its job group keeps one running, the newest waiting.
+        self.assertIn("|| github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')",
+                      jobs["release-compile"]["if"])
 
     def test_bot_attempt_three_drops_stale_owned_pool_placement(self):
         """Rescue attempt 3 must use the Blacksmith fallback instead of a stale mini label."""
@@ -1669,6 +1673,24 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
 
     def runs(self, context: dict) -> bool:
         return bool(evaluate(self.job()["if"], context))
+
+    def test_a_superseded_base_push_still_compiles_one_at_a_time(self):
+        """Merges land about once a minute, so nearly every feat-cmux-next push is superseded before its
+        preflight runs; it still compiles, one running and the newest waiting (2026-10-21: 0 of 40 compiled)."""
+        context = self.context([], event="push")
+        context["needs.push-head-preflight.outputs.current"] = "false"
+        self.assertTrue(self.runs(context))
+        self.assertEqual(evaluate(self.job()["runs-on"], context), "reserved-promotion-runner")
+        group = self.job()["concurrency"]
+        self.assertEqual(evaluate(group["group"], context), "cmux-next-push-refs/heads/feat-cmux-next-release-compile")
+        self.assertIs(group["cancel-in-progress"], False)
+        # A superseded pull request run is still skipped (its run is cancelled anyway), and so is a main push.
+        for event, ref in (("pull_request", "refs/pull/1/merge"), ("push", "refs/heads/main")):
+            with self.subTest(event=event, ref=ref):
+                other = self.context(["Packages/macOS/CmuxNext/Sources/CmuxNextApp/WorkspaceSpawn.swift"], event=event)
+                other["github.ref"] = ref
+                other["needs.push-head-preflight.outputs.current"] = "false"
+                self.assertFalse(self.runs(other))
 
     def test_a_cmuxnext_swift_pr_runs_the_release_compile_on_the_shared_route(self):
         context = self.context(["Packages/macOS/CmuxNext/Sources/CmuxNextApp/WorkspaceSpawn.swift"])
