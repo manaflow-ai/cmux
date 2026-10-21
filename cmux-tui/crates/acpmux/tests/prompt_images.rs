@@ -200,7 +200,7 @@ async fn echo(c: &mut Client, session: &str) -> String {
     let events = page["result"]["events"].as_array().cloned().unwrap_or_default();
     let texts =
         events.iter().filter_map(|e| e["msg"]["params"]["update"]["content"]["text"].as_str());
-    texts.filter(|t| t.starts_with("echo: ")).last().unwrap_or_default().to_owned()
+    texts.filter(|t| t.starts_with("echo: ")).next_back().unwrap_or_default().to_owned()
 }
 
 /// The session's queue, as every client's list shows it.
