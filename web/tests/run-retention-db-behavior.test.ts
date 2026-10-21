@@ -177,6 +177,80 @@ describe("cloud Run terminal retention and cancellation", () => {
     }
   });
 
+  dbTest("schedules cleanup for a VM whose create outlived its lease after a replacement failed the attempt", async () => {
+    const userId = `replaced-during-create-${randomUUID()}`;
+    try {
+      const created = await repo().createRun(input(userId));
+      const attempt = created.attempts[0];
+      if (!attempt) throw new Error("run did not create an attempt");
+      const first = await repo().claimAttemptLease({ runId: created.run.id, attemptId: attempt.id, workerId: "slow-create-worker" });
+      // createVm can outlast the lease, which is not renewed during the create.
+      await sql!`update run_attempts set lease_expires_at = now() - interval '1 second' where id = ${attempt.id}`;
+      const replacement = await repo().claimAttemptLease({ runId: created.run.id, attemptId: attempt.id, workerId: "replacement-worker" });
+      // The replacement fails the attempt before recording any VM, then hands
+      // off retention: the row is failed, has no VM id, and has a deadline.
+      await repo().ingestRunEvent({
+        runId: created.run.id,
+        attemptId: attempt.id,
+        leaseToken: replacement.leaseToken,
+        leaseGeneration: replacement.leaseGeneration,
+        externalId: "replacement-failed",
+        attemptSequence: 0,
+        kind: "attempt.failed",
+        payload: { error: "replacement gave up" },
+      });
+      await repo().scheduleAttemptRetention({
+        runId: created.run.id,
+        attemptId: attempt.id,
+        leaseToken: replacement.leaseToken,
+        leaseGeneration: replacement.leaseGeneration,
+      });
+      const failed = (await repo().getRun(created.run.id, userId)).attempts[0];
+      expect(failed?.status).toBe("failed");
+      expect(failed?.providerVmId).toBeNull();
+      expect(failed?.terminalRetainUntil).not.toBeNull();
+
+      // The first worker's create returns. Its writes are fenced, and its
+      // finally block hands the VM to retention.
+      await expect(repo().ingestRunEvent({
+        runId: created.run.id,
+        attemptId: attempt.id,
+        leaseToken: first.leaseToken,
+        leaseGeneration: first.leaseGeneration,
+        externalId: "attempt-started",
+        attemptSequence: 1,
+        kind: "attempt.started",
+        payload: { providerVmId: "vm-outlived-lease" },
+      })).rejects.toBeInstanceOf(repo().RunLeaseConflictError);
+      const handoff = {
+        runId: created.run.id,
+        attemptId: attempt.id,
+        leaseToken: first.leaseToken,
+        leaseGeneration: first.leaseGeneration,
+        providerVmId: "vm-outlived-lease",
+      };
+      await repo().scheduleAttemptRetention(handoff);
+
+      const adopted = (await repo().getRun(created.run.id, userId)).attempts[0];
+      expect(adopted?.status).toBe("failed");
+      expect(adopted?.providerVmId).toBe("vm-outlived-lease");
+      const claims = await repo().claimExpiredAttemptCleanups({ now: new Date(Date.now() + 60 * 60 * 1000), limit: 100 });
+      const claim = claims.find((candidate) => candidate.attempt.id === attempt.id);
+      expect(claim?.attempt.providerVmId).toBe("vm-outlived-lease");
+      for (const other of claims) {
+        await repo().finishAttemptCleanup({ attemptId: other.attempt.id, cleanupLeaseToken: other.cleanupLeaseToken, succeeded: other === claim });
+      }
+
+      // The reaper destroyed the adopted VM; a repeated handoff cannot adopt it again.
+      await expect(repo().scheduleAttemptRetention(handoff)).rejects.toBeInstanceOf(repo().RunLeaseConflictError);
+      const reaped = (await repo().getRun(created.run.id, userId)).attempts[0];
+      expect(reaped?.providerVmId).toBeNull();
+      expect(reaped?.terminalRetainUntil).toBeNull();
+    } finally {
+      await removeRuns(userId);
+    }
+  });
+
   dbTest("does not hand a stale worker's VM back to retention after the reaper destroyed it", async () => {
     const userId = `cancel-after-reap-${randomUUID()}`;
     try {

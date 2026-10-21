@@ -23,6 +23,10 @@ public final class SessionStateStore {
     /// stored value: written only when the closed list changed, so its
     /// observers do not run on every status tick.
     public private(set) var closedItems: [ClosedItem] = []
+    /// Counts stash changes (`stash-v1`) on this connection, and each fresh
+    /// snapshot (changes in the gap were lost). Its readers (the Stashed
+    /// page) list the stashes again when it moves; the mirror keeps none.
+    public private(set) var stashChanges = 0
 
     /// Sidebar document batches (`sidebar-doc-v1`), in stream order; the
     /// sidebar's document store applies them to its mirror.
@@ -48,6 +52,7 @@ public final class SessionStateStore {
             if mirror != snapshot { mirror = snapshot }
             if !known { known = true }
             publishClosed()
+            stashChanges &+= 1
             onSidebarResync?()
             overlay(store.workspaces)
         case .delta(let changes):
@@ -86,6 +91,8 @@ public final class SessionStateStore {
             if let tab = store.index.tabsByTerminalResource[id] { Self.lay(mirror, over: tab) }
         case .closed:
             publishClosed()
+        case .stash:
+            stashChanges &+= 1
         }
     }
 
@@ -117,7 +124,9 @@ public final class SessionStateStore {
         let groups = state.flatMap { state in id.map { Self.screenGroups(state, workspace: $0, screens: workspace.screens) } }
         workspace.applyState(ephemeral: id.map { state?.ephemeralWorkspaces.contains($0) ?? false } ?? false,
                              agentFolder: id.flatMap { state?.agentFolders[$0] },
-                             status: id.flatMap { state?.workspaceStatus[$0] }, screenGroups: groups)
+                             notes: id.flatMap { state?.workspaceNotes[$0] } ?? .init(),
+                             status: id.flatMap { state?.workspaceStatus[$0] },
+                             checklist: id.flatMap { state?.workspaceChecklists[$0]?.items } ?? [], screenGroups: groups)
     }
 
     /// Lays `state`'s tab record and terminal records over `tab` (`overlay`'s tab step).

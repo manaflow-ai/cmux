@@ -13,12 +13,13 @@ private typealias JSON = CmuxNextSettings.JSONValue
 /// window, rects, anchor or reason), `placements` (what each window's cursor
 /// host would draw, in window content-view coordinates (flipped): visible / hidden / elsewhere with rects) and
 /// `snapshot_json` (the resolver input, the same shape as
-/// schemas/agent-cursor-visibility/vectors.json). Read-only.
+/// schemas/agent-cursor-visibility/vectors.json), plus `cursors`: what each
+/// window draws now (session, tip, name tag, caption). Read-only.
 enum DebugAgentCursor {
     static func report(_ params: [String: CmuxNextSettings.JSONValue], services: AppServices) -> CmuxNextSettings.JSONValue {
         let targets = params["target"]?.stringValue.map { [$0] } ?? browserTabs(services)
         let builder = AgentCursorSnapshotBuilder(services: services)
-        return .object(["targets": .array(targets.map { target in
+        return .object(["cursors": cursors(services), "targets": .array(targets.map { target in
             let snapshot = builder.snapshot(forTarget: target)
             let result = AgentCursorVisibilityResolver.resolve(target: target, in: snapshot)
             let json = (try? JSONEncoder().encode(snapshot)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
@@ -32,6 +33,27 @@ enum DebugAgentCursor {
                 "snapshot_json": .string(json),
             ])
         })])
+    }
+
+    /// Every window's drawn cursors: session, tip position (window
+    /// content-view points, y-down), hidden, paused, name tag, last caption.
+    private static func cursors(_ services: AppServices) -> JSON {
+        .array(services.windows.controllers.flatMap { controller -> [JSON] in
+            guard let host = controller.agentCursor.stack?.host else { return [] }
+            return host.sessions.compactMap { session -> JSON? in
+                guard let cursor = host.cursorLayer(for: session) else { return nil }
+                let position = cursor.root.position
+                return .object([
+                    "window": .string(controller.state.id), "session": .string(session),
+                    "x": .number(position.x), "y": .number(position.y), "hidden": .bool(cursor.root.isHidden),
+                    "paused": .bool(cursor.isPaused), "tag": cursor.tagText.map(JSON.string) ?? .null,
+                    "caption": cursor.captionString.map(JSON.string) ?? .null,
+                    "link": controller.agentCursorTags.agentCursorTags().first { $0.id == session }.map { tag -> JSON in
+                        .object(["help": .string(tag.help), "frame": rect(tag.frame)])
+                    } ?? .null,
+                ])
+            }
+        })
     }
 
     private static func browserTabs(_ services: AppServices) -> [String] {

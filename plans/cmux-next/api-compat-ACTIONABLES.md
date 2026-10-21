@@ -55,6 +55,8 @@ Done (on `feat-cmux-next`):
 3. Rex-shape bench: 4 pathological 10k-revision scenarios on a ~20 KB body, plus broadcast.
 4. Daemon: revision in `identify` and `set-client-info`, request upgrade, response and event downgrade.
 5. CI guard and surface snapshot (641 message kinds, 4,500+ members).
+6. Version handshake with a158's install facts (`cmux_tui_core::release`): `identify` reports the release `version`, `install` and `update_command`. `set-client-info` takes `version` and `install`. A too-old client gets "To fix it, run `npm install --global cmux@latest`" (or the PyPI or app hint); the CLI names the server's own command when the server is the old side.
+7. Rule fixtures for the cross-version matrix: `spec/api-compat-fixtures.json`. `api-compat-check` fails a rule that has no case crossing it in both directions.
 
 Next (in priority order):
 1. **Clients send their revision.** The Swift app (`DaemonHandshake.swift`), the Rust CLI (`session/remote.rs`, `local_owner.rs`) and the generated SDKs must send `api_revision` in `set-client-info`. They must also replace `protocol == 12` with "`api_revision` within `[min_api_revision, ours]`, otherwise translate as the newer side". Until then every client counts as revision 12, which is correct today because no revision exists yet.

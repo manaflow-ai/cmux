@@ -24,6 +24,7 @@ import {
   vmActiveLimitExceededResponse,
   vmErrorResponse,
   resolveVmProvisioningAccountScope,
+  vmCreateCreditsCheckoutExtra,
   reverifyVmRequestForTeam,
   type VmWorkflowErrorOverrides,
 } from "../../../../services/vms/routeHelpers";
@@ -34,6 +35,7 @@ import {
   openBaseVm,
   resetBaseVm,
 } from "../../../../services/vms/workflows";
+import { enforceVmAllocationRateLimit } from "../../../../services/vms/allocationRateLimit";
 
 type BaseOperation = "open" | "reset";
 
@@ -62,6 +64,12 @@ export async function runBaseRoute(input: {
   const account = await resolveVmProvisioningAccountScope(user, input.request, { requestedBillingTeamId });
   if (!account.ok) return account.response;
   const entitlements = account.entitlements;
+  const limited = await enforceVmAllocationRateLimit({
+    request: input.request,
+    route: `vm.base.${input.operation}`,
+    billingTeamId: entitlements.billingTeamId,
+  });
+  if (limited) return limited;
 
   // Same provider inference as POST /api/vm: an explicit manifest image
   // names its own provider even when the deployment default disagrees.
@@ -196,9 +204,9 @@ function baseWorkflowErrorResponders(operation: BaseOperation, planId: string): 
         status: 402,
         message: "This team has no Cloud VM create credits left.",
         action: operation === "reset"
-          ? "Upgrade the team's plan or ask an admin for more create credits before resetting Base. The current Base is unchanged."
-          : "Upgrade the team's plan or ask an admin for more create credits, then retry.",
-        extra: { amount: error.amount },
+          ? `Get more Cloud VM credits at ${vmCreateCreditsCheckoutExtra(error.amount, planId).upgradeUrl} before resetting Base. The current Base is unchanged.`
+          : `Get more Cloud VM credits at ${vmCreateCreditsCheckoutExtra(error.amount, planId).upgradeUrl}, then retry.`,
+        extra: vmCreateCreditsCheckoutExtra(error.amount, planId),
         details: { amount: error.amount },
         phase: "billing",
       }),

@@ -25,7 +25,7 @@ enum FirstPartyPageSchemes {
     @MainActor static func bundledRoots() -> [String: URL] {
         var roots: [String: URL] = [:]
         roots[PageDescriptor.agent.id] = agentPaneRoot
-        for page in [PageDescriptor.history, PageDescriptor.cloud] { roots[page.id] = page.pagesBundleRoot }
+        for page in descriptors where page != .agent { roots[page.id] = page.pagesBundleRoot }
         return roots.filter { PageID.isFirstParty($0.key) }
     }
 
@@ -42,8 +42,13 @@ enum FirstPartyPageSchemes {
         roots.filter { refusal(id: $0.key, root: $0.value, bundleResources: bundleResources) == nil }
     }
 
-    /// The first-party descriptors whose pages ship a bundled root.
-    static let descriptors: [PageDescriptor] = [.agent, .history, .cloud]
+    /// The first-party descriptors whose pages ship a bundled root: every page of
+    /// `FirstPartyPages.ids`, so each can show in Chromium (`PageEnginePolicy` still keeps a page
+    /// that cannot on WebKit, with its reason).
+    static let descriptors: [PageDescriptor] = [
+        .agent, .history, .cloud, .apps, .settings, .keybindings, .diff, .markdown, .iconPicker, .passwords, .editor,
+        .chiefInspector, .debugSettings, .homeChannels,
+    ]
 
     /// The accepted entries of `roots`, each with its page's own CSP.
     static func entries(roots: [String: URL], bundleResources: URL) -> [String: CEFPageSchemes.Entry] {

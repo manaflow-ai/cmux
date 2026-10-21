@@ -67,6 +67,7 @@ export type CreateDecision<C, K extends ResourceKind> =
 export const tenantMayCreate = <C, const K extends "vm" | "snapshot">(
   caller: Named<C, Principal>,
   kind: K,
+  resume?: { readonly key: string; readonly vmId: string } | { readonly snapshotId: import("../lib/ids.ts").SnapshotId },
 ): Effect.Effect<
   CreateDecision<C, K>,
   EntitlementUnavailable | StoreError | LimitsUnavailable,
@@ -77,6 +78,29 @@ export const tenantMayCreate = <C, const K extends "vm" | "snapshot">(
     const entitlements = yield* Entitlements;
     if (!(yield* entitlements.mayCreate(tenantId, kind))) return { _tag: "not_entitled" };
     const policy = yield* TenantPolicy;
+    if (resume !== undefined && "key" in resume && kind === "vm") {
+      const limits = yield* TenantLimits;
+      let reservationId = yield* limits.creationReservation(tenantId, resume.key, resume.vmId);
+      if (reservationId === null) {
+        // A provider-rejected send freed its slot; retrying the same intent takes one again under quota.
+        const limit = policy.maxVms(tenantId);
+        const readmit = yield* limits.readmitCreation(tenantId, resume.key, resume.vmId, limit, yield* (yield* OwnershipStore).countLive(tenantId, "vm"));
+        if (readmit === "over_quota") return { _tag: "over_quota", limit };
+        if (readmit === "readmitted") reservationId = yield* limits.creationReservation(tenantId, resume.key, resume.vmId);
+      }
+      if (reservationId === null) return yield* Effect.fail(new EntitlementUnavailable({ cause: "the retained allocation has no quota reservation" }));
+      const TenantMayCreate = defineProof(`TenantMayCreate:${kind}`);
+      const proof: TenantMayCreate<C, K> = Object.freeze({ ...TenantMayCreate.prove(caller), reservationId });
+      return { _tag: "granted", proof };
+    }
+    if (resume !== undefined && "snapshotId" in resume && kind === "snapshot") {
+      const result = yield* (yield* TenantLimits).snapshotCapture(tenantId, { op: "reservation", id: resume.snapshotId });
+      if (result.state !== "record" || !result.granted || result.record.reservationId === undefined)
+        return yield* Effect.fail(new EntitlementUnavailable({ cause: "the retained capture has no quota reservation" }));
+      const TenantMayCreate = defineProof(`TenantMayCreate:${kind}`);
+      const proof: TenantMayCreate<C, K> = Object.freeze({ ...TenantMayCreate.prove(caller), reservationId: result.record.reservationId });
+      return { _tag: "granted", proof };
+    }
     // Each kind has its own budget: snapshots never consume the VM limit.
     const limit = kind === "snapshot" ? policy.maxSnapshots(tenantId) : policy.maxVms(tenantId);
     const live = yield* (yield* OwnershipStore).countLive(tenantId, kind);

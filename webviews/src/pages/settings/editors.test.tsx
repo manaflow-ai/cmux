@@ -1,6 +1,7 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { mockManagedKey } from "./mockProvider";
 import { categories } from "./categories";
+import { DENSITY_ROWS } from "./density";
 import type { SchemaRow } from "./schema";
 import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
@@ -35,6 +36,7 @@ function editorProblem(row: SchemaRow, control: Element): string | null {
     case "color":
       return has('input[type="color"]') && has("input.hex") ? null : "no swatch + hex field";
     case "theme":
+      return has("[data-theme-picker]") ? null : "no theme picker";
     case "font_family":
       return has("button.domain-button") ? null : "no searchable list";
     case "sound":
@@ -74,14 +76,32 @@ describe("editors", () => {
           if (!page.container.querySelector("[data-theme-picker]")) failures.push(`${row.key}: no theme picker`);
           continue;
         }
+        // The Theme section draws appearance.accent as its swatch popup.
+        if (row.key === "appearance.accent") {
+          if (!page.container.querySelector('[data-card="theme"] [data-accent-picker]'))
+            failures.push(`${row.key}: no accent picker`);
+          continue;
+        }
         // Change Background…'s art picker draws appearance.background as its tiles.
         if (row.key === "appearance.background") {
           if (!page.container.querySelector('[data-card="backdrop"] .backdrop-tile'))
             failures.push(`${row.key}: no art picker`);
           continue;
         }
-        // appearance.themeEdits is the pickers' "(custom)" themes, edited in the Theme section, not a row.
-        if (row.key === "appearance.themeEdits") {
+        // The Chief Pet card draws home.chiefPetEnabled (Show/Hide Pet, None) and home.chiefPetMascot (its grid).
+        if (row.key === "home.chiefPetEnabled" || row.key === "home.chiefPetMascot") {
+          if (!page.container.querySelector('[data-card="chief-pet"] .chief-pet-choice[data-pet="none"]'))
+            failures.push(`${row.key}: no Chief Pet card`);
+          continue;
+        }
+        // The density card draws appearance.density and the custom density keys (SectionView).
+        if (DENSITY_ROWS.has(row.key)) {
+          if (!page.container.querySelector('[data-card="density"]')) failures.push(`${row.key}: no density card`);
+          continue;
+        }
+        // appearance.themeEdits is the pickers' "(custom)" themes, edited in the Theme section, not a row;
+        // the page has no editor for any string_map (browser.siteEngines is edited in cmux.json).
+        if (row.key === "appearance.themeEdits" || row.kind === "string_map") {
           if (page.container.querySelector(`[data-row-key="${row.key}"]`)) failures.push(`${row.key}: drawn as a row`);
           continue;
         }

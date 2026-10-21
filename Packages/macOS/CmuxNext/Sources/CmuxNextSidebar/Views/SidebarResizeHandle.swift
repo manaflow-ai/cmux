@@ -5,6 +5,10 @@ import CmuxNextCompat
 /// Strip on the sidebar's edge facing the content that resizes it. Invisible until
 /// the pointer is over it; then a hairline fades in (and stays while
 /// dragging), so the edge never shows as a seam at rest.
+///
+/// The strip is wider than the line and lies across the edge (`SidebarResizeBand`), so the
+/// container mounts it in its superview: inside the container AppKit would clip the outer part
+/// out of hit testing, cursor rects and hover (u2255).
 final class SidebarResizeHandle: NSView {
     enum Phase {
         case began
@@ -22,6 +26,11 @@ final class SidebarResizeHandle: NSView {
 
     /// Width of the line at rest (`sidebar.border`); 0 shows it only on
     /// hover or while dragging.
+    /// Where the sidebar's edge is, from the strip's minX: the line is drawn centered on it.
+    var edgeOffset: CGFloat = 0 {
+        didSet { if edgeOffset != oldValue { needsLayout = true } }
+    }
+
     var restingLineWidth: CGFloat = 0 {
         didSet {
             guard restingLineWidth != oldValue else { return }
@@ -47,6 +56,7 @@ final class SidebarResizeHandle: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.splitter)
         setAccessibilityLabel(Strings.resize)
+        setAccessibilityIdentifier("cmux.sidebar.resize")
         pointerHover = PointerHover(self) { [weak self] hovering in self?.setHovered(hovering) }
     }
 
@@ -66,7 +76,7 @@ final class SidebarResizeHandle: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         let width = lineWidth
-        line.frame = CGRect(x: (bounds.width - width) / 2, y: 0, width: width, height: bounds.height)
+        line.frame = CGRect(x: edgeOffset - width / 2, y: 0, width: width, height: bounds.height)
         CATransaction.commit()
     }
 
@@ -90,6 +100,15 @@ final class SidebarResizeHandle: NSView {
 
     func setHovered(_ hovered: Bool) { isHovered = hovered }
 
+    /// Windows above this one that pass hover through: the catcher panels over pages
+    /// (`DividerMouseCatchers`). They cover the band, so without them the hover reads as occluded.
+    var hoverPassThroughWindows: () -> Set<Int> = { [] } {
+        didSet { pointerHover?.passThroughWindows = hoverPassThroughWindows }
+    }
+
+    /// Recomputes the hover now (the catcher panels moved under a still pointer).
+    func refreshHover() { pointerHover?.refresh() }
+
     /// Hidden with the sidebar under a still pointer: no exit comes.
     override func viewDidHide() {
         super.viewDidHide()
@@ -104,12 +123,16 @@ final class SidebarResizeHandle: NSView {
     private func updateLine() {
         let target: Float = isLineVisible ? 1 : 0
         guard line.opacity != target else { return }
-        Motion.set(line, "opacity", to: target, fade: .hover)
+        Motion.sidebar.set(line, "opacity", to: target, fade: .hover)
     }
 
     /// A press here resizes the sidebar, also in the titlebar band: it never moves the window
     /// (`TitlebarDragPolicy`).
     override var mouseDownCanMoveWindow: Bool { false }
+
+    /// The press that takes key back from a focused Chromium page (a child window) starts the
+    /// drag, as on a pane divider; otherwise it only brought this window forward.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func mouseDown(with event: NSEvent) {
         isDragging = true

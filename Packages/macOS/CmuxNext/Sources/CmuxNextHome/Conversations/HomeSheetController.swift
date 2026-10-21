@@ -95,7 +95,7 @@ public class HomeSheetController: NSViewController {
 
     /// Runs `action`: an opened conversation or a sent invite closes the
     /// sheet; anything else stays and says why.
-    func run(_ action: @escaping @MainActor () async -> HomeComposeOutcome) {
+    final func run(_ action: @escaping @MainActor () async -> HomeComposeOutcome) {
         guard !isRunning else { return }
         isRunning = true
         show(nil)

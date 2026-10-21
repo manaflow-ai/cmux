@@ -86,6 +86,11 @@ UNGATED_BLACKSMITH_ALLOWED = {
     ("ci-repo-variables.yml", "MACOS_RUNNER_BACKGROUND=${{ vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}"): (
         "report text that prints the lane's effective label, not a runs-on value"
     ),
+    ("cmux-next-fast-tier-seed.yml",
+     '{"pool": "blacksmith", "runner": "blacksmith-6vcpu-macos-26", "workspace": "/Users/runner/_work/cmux/cmux", "timeout": 30}]'): (
+        "a seed pool row in the `due` job, which runs only when github.repository == 'manaflow-ai/cmux' "
+        "(stricter than the owner check); the seed job reading it has the same gate"
+    ),
 }
 # (workflow, dispatch input) -> why its Blacksmith default and choices may be
 # read before the fork branch.
@@ -185,6 +190,11 @@ OWNED_RUNNER_SELECTOR = re.compile(
 )
 # (workflow, stripped line) -> why a runner variable read there picks no runner.
 FORK_GATE_EXEMPT = {
+    ("cmux-next.yml", "vars.CI_FAST_LANE_RUNNER == '' && ((github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) && 'fast-tier' || '',"): (
+        "a continuation line of the side-lane placement step's CASCADE_RUNS list: "
+        "it compares the fast-lane variable with '' to name the fast-tier job, "
+        "selects no runner, and the placement step itself is gated to glaeda routes"
+    ),
     ("ci.yml", "DEFAULT_RUNNER: ${{ vars.MACOS_RUNNER_PR }}"): (
         "pr_runner_pool.py's input: it compares the lane with its default and "
         "ignores it for a fork head, and every runs-on reading its output takes "

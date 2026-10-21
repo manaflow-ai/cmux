@@ -136,7 +136,6 @@ impl Surface {
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
                 journal_capture_open: AtomicBool::new(true),
-                journal_capture_disabled: AtomicBool::new(false),
                 journal_capture_reserved: AtomicBool::new(false),
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
@@ -333,9 +332,14 @@ impl Surface {
                                 }
                             }
                             if title_changed.swap(false, Ordering::Relaxed) {
-                                let title = term.title().unwrap_or_default();
-                                *pty.title.lock().unwrap() = title.clone();
-                                title_update = Some(title);
+                                // A program that rewrites the same title (a spinner's
+                                // resting frame, a prompt redraw) announces nothing.
+                                let title = crate::terminal_title::read(&term);
+                                let mut stored = pty.title.lock().unwrap();
+                                if *stored != title {
+                                    *stored = title.clone();
+                                    title_update = Some(title);
+                                }
                             }
                             pty.record_directory(term.pwd());
                             if before != after {
@@ -360,7 +364,7 @@ impl Surface {
                         if let (Some(journal_target), Some(journal_output)) =
                             (journal_target, journal_output)
                         {
-                            pty.journal_output_if_open(journal_target, journal_output.into_owned());
+                            pty.record_output(journal_target, journal_output.as_ref());
                         }
                         drop(journal_update);
                         surface.publish_pending_directory();

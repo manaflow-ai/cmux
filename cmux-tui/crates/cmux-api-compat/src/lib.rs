@@ -33,6 +33,7 @@
 mod change;
 mod compat;
 pub mod coverage;
+pub mod fixtures;
 pub mod handshake;
 pub mod pointer;
 mod schema;
