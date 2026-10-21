@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import Testing
+@testable import CmuxNextAgentPane
 @testable import CmuxNextHomeEngine
 
 /// The user, 2026-10-20: updates must never cut the Chief. An update that must hand the Chief's
@@ -56,6 +57,29 @@ struct ChiefHostIdleHandoffTests {
     @Test func noRunningHostIsNotAsked() throws {
         let home = try home(lockPID: 4242, handoffPID: 4242)
         let asked = ChiefHostStop.askToHandOffWhenIdle(home: home, isChiefHost: { _ in false }) { _, _ in true }
+        #expect(!asked)
+    }
+
+    // 15:41 and 16:57 PT, 2026-10-20: a Chief chat the peer check refused healed by stopping the
+    // Chief host at once (ChiefAcpmuxHeal), so its running turn was cut ("the acpmux connection
+    // was lost during the turn"). The heal must wait for the turn like a relaunch does.
+    @Test func theHealWaitsForAHostThatHandsOffWhenIdle() async {
+        let action = await AcpmuxChiefHandoff.replacedAction(replaced: true, agentHosts: true, hostWaits: { true })
+        #expect(action == .waitForHost)
+    }
+
+    @Test func theHealHandsOffAtOnceWhenTheHostCannotWait() async {
+        let action = await AcpmuxChiefHandoff.replacedAction(replaced: true, agentHosts: true, hostWaits: { false })
+        #expect(action == .handOff)
+    }
+
+    @Test func theHealNeverAsksTheHostWhenNothingIsStale() async {
+        var asked = false
+        let action = await AcpmuxChiefHandoff.replacedAction(replaced: false, agentHosts: true, hostWaits: { asked = true; return true })
+        #expect(action == .keep)
+        #expect(!asked)
+        let noHosts = await AcpmuxChiefHandoff.replacedAction(replaced: true, agentHosts: false, hostWaits: { asked = true; return true })
+        #expect(noHosts == .keep)
         #expect(!asked)
     }
 }

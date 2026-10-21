@@ -80,13 +80,20 @@ export function createDrizzleHexclaveInboxStore(db: () => InboxDb = cloudDb): He
       const at = timestamp(now);
       const result = await db().execute(sql`
         with picked as (
-          select entity_kind, entity_id
-          from ${inbox}
-          where dead_lettered_at is null
-            and next_attempt_at <= ${at}
-            and (claimed_until is null or claimed_until <= ${at})
-          group by entity_kind, entity_id
-          order by min(received_at), entity_kind, entity_id
+          select candidate.entity_kind, candidate.entity_id
+          from ${inbox} as candidate
+          where candidate.dead_lettered_at is null
+            and candidate.next_attempt_at <= ${at}
+            and (candidate.claimed_until is null or candidate.claimed_until <= ${at})
+            and not exists (
+              select 1 from ${inbox} as active
+              where active.entity_kind = candidate.entity_kind
+                and active.entity_id = candidate.entity_id
+                and active.dead_lettered_at is null
+                and active.claimed_until > ${at}
+            )
+          group by candidate.entity_kind, candidate.entity_id
+          order by min(candidate.received_at), candidate.entity_kind, candidate.entity_id
           limit ${entityLimit}
         )
         update ${inbox} as entry

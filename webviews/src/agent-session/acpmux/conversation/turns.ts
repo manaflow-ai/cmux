@@ -8,7 +8,7 @@
 // acpmux serves turn-structured rows (`acp.view.subscribe`, `_acpmux/view`), `turnView` becomes
 // a field-for-field mapping of them and nothing else in the pane changes.
 import type { AcpmuxRow } from "../model";
-import { turnPreviewUrl } from "./previewUrl";
+import { turnPreviewCardsOn, turnPreviewUrl } from "./previewUrl";
 import { renderCall } from "./renderCall";
 import { showsTimestamp, type TurnTimes } from "./timestamps";
 import { isSubagentGroup } from "../subagents/subagentRows";
@@ -33,7 +33,8 @@ export const WORKING = "working";
 /// cx-ncc.102): what the agent is doing now and how long the turn has run.
 export const ACTIVITY_LINE = "activityLine";
 /// A row added for an ended turn that started or mentioned a local web page (previewUrl.ts): its
-/// preview card, with the page's address as its text.
+/// preview card, with the page's address as its text. Only with the Debug toggle
+/// `agentPane.debug.turnPreviewCards` (`turnPreviewCardsOn`).
 export const PREVIEW = "preview";
 /// A row added for each render call of an ended turn (renderCall.ts), above its answer: the
 /// render card, with the call as its one item.
@@ -350,7 +351,7 @@ function shapeTurn(
   shaped.push(...groups.map(endedPlan), ...renderRows(body, version));
   if (answer) shaped.push(answer);
   shaped.push(...rest.map(endedPlan), ...editsCard(edits));
-  const preview = turnPreviewUrl(user, turn);
+  const preview = turnPreviewCardsOn() ? turnPreviewUrl(user, turn) : undefined;
   if (preview) shaped.push({ id: `${PREVIEW}-${user.id}`, version, at: summary.at, kind: PREVIEW, text: preview });
   // The footer copies the answer, so it carries the answer's text; the last turn's also retries
   // its prompt, and stops offering to once a later prompt goes (or waits to).
@@ -564,7 +565,7 @@ function codexRuns(rows: AcpmuxRow[]): AcpmuxRow[] {
     if (row.kind !== "activity" || isEdit(row)) return row;
     return index === latest
       ? { ...row, inFlight: true, version: row.version * 4 + 1 }
-      : { ...row, settled: true, version: row.version * 4 + 2 };
+      : { ...row, settled: true, foldRun: true, version: row.version * 4 + 2 };
   });
 }
 
