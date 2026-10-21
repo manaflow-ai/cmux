@@ -167,9 +167,13 @@ export function decodeText(bytes: Uint8Array): string | undefined {
 /// A thumbnail of an image attachment `height`px tall (as a data: URL), in the image's own shape
 /// between 0.7:1 and 2:1, its center cropped only past those bounds, so a wide screenshot shows as
 /// itself rather than a sliver of its text (Leo, 2026-10-14) and a chip never hands a
-/// multi-megabyte image to a small <img>. Undefined when the engine cannot decode the image or has
-/// no OffscreenCanvas; the chip then draws the image itself.
-export async function thumbnail(image: { mimeType: string; data: string }, height = 160): Promise<string | undefined> {
+/// multi-megabyte image to a small <img>, with the image's natural size (its hover name says it).
+/// Undefined when the engine cannot decode the image or has no OffscreenCanvas; the chip then draws
+/// the image itself.
+export async function thumbnail(
+  image: { mimeType: string; data: string },
+  height = 160,
+): Promise<{ url: string; width: number; height: number } | undefined> {
   if (typeof createImageBitmap !== "function" || typeof OffscreenCanvas !== "function") return undefined;
   try {
     const bytes = Uint8Array.from(atob(image.data), (char) => char.charCodeAt(0));
@@ -200,9 +204,10 @@ export async function thumbnail(image: { mimeType: string; data: string }, heigh
       canvas.width,
       canvas.height,
     );
+    const natural = { width: bitmap.width, height: bitmap.height };
     bitmap.close();
     const blob = await canvas.convertToBlob({ type: "image/png" });
-    return `data:image/png;base64,${base64(new Uint8Array(await blob.arrayBuffer()))}`;
+    return { url: `data:image/png;base64,${base64(new Uint8Array(await blob.arrayBuffer()))}`, ...natural };
   } catch {
     return undefined;
   }
