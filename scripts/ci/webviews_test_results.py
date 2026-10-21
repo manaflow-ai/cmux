@@ -6,8 +6,8 @@
 
 SUMMARY has a `RESULT FILE LOG` line per file. A failed file lists each of its `(fail)` tests as
 `FILE > TEST: false`. A file that timed out, or failed without naming a test (it did not load),
-is `FILE: false`; a passing file is `FILE: true`. A test a file does not name passed, so the base's
-`FILE: false` (it never got to its tests) makes every red of that file a base red too.
+is `FILE: false`; a passing file is `FILE: true`. Results compare by exact name, so a base file
+that crashed or hung says nothing about the tests it never reached: their reds stay the change's.
 """
 from __future__ import annotations
 

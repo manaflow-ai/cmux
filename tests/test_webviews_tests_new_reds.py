@@ -5,7 +5,9 @@ About 25 browser tests were red on feat-cmux-next for every pull request, so #23
 2 new reds unseen among them: agent-pane-peer-chat and agent-pane-working-counts, fixed by #23164.
 scripts/ci/webviews-tests-new-reds.sh runs each file red on the head again in a checkout of the base
 and compares per test name (scripts/ci/guards_new_reds.py). A fake `bun` stands in for the real one:
-a test file's `FAIL <name>` lines are the tests it fails, `CRASH` makes it fail before naming any.
+a test file's `FAIL <name>` lines are the tests it fails, `CRASH` makes it fail before naming any,
+`HANG` makes it time out, and `SCOPED` crashes it like prScope.ts does when CMUX_PR_CHANGED_FILES is
+set and HEAD^1 is missing (the base checkout: the job fetched only the merge commit and its parents).
 """
 import json
 import os
@@ -25,6 +27,10 @@ FAKE_BUN = """#!/usr/bin/env bash
 if [ "$1" = install ]; then exit "${FAKE_BUN_INSTALL_STATUS:-0}"; fi
 [ "$1" = test ] || exit 9
 if grep -q '^CRASH' "$2"; then echo "error: Cannot find module './gone'"; exit 1; fi
+if grep -q '^HANG' "$2"; then sleep 30; fi
+if grep -q '^SCOPED' "$2" && [ -n "${CMUX_PR_CHANGED_FILES:-}" ] && ! git rev-parse -q --verify HEAD^1 > /dev/null; then
+  echo "error: git diff HEAD^1 HEAD"; exit 1
+fi
 status=0
 while read -r word name; do
   if [ "$word" = FAIL ]; then echo "(fail) $name [12.50ms]"; status=1; fi
@@ -57,7 +63,7 @@ def body(fails):
 
 
 class Wrapper(unittest.TestCase):
-    def run_pr(self, base_files, head_files, base_ref="HEAD^1", install_status=0):
+    def run_pr(self, base_files, head_files, base_ref="HEAD^1", install_status=0, extra_env=None, file_timeout="10"):
         """A base commit and the change on top; the wrapper runs from the head's webviews/."""
         temp = Path(self.enterContext(tempfile.TemporaryDirectory()))
         repo = temp / "repo"
@@ -83,8 +89,8 @@ class Wrapper(unittest.TestCase):
         (bin_dir / "bun").write_text(FAKE_BUN)
         (bin_dir / "bun").chmod(0o755)
         env = {k: v for k, v in os.environ.items() if k not in ("CMUX_BROWSER_TESTS", "GITHUB_ACTIONS")}
-        env.update(PATH=f"{bin_dir}:{os.environ['PATH']}", CMUX_WEB_TEST_FILE_TIMEOUT="10", CMUX_WEB_TEST_JOBS="4",
-                   FAKE_BUN_INSTALL_STATUS=str(install_status), TMPDIR=str(temp))
+        env.update(PATH=f"{bin_dir}:{os.environ['PATH']}", CMUX_WEB_TEST_FILE_TIMEOUT=file_timeout, CMUX_WEB_TEST_JOBS="4",
+                   FAKE_BUN_INSTALL_STATUS=str(install_status), TMPDIR=str(temp), **(extra_env or {}))
         args = ["bash", str(WRAPPER)] + ([base_ref] if base_ref else [])
         done = subprocess.run(args, cwd=repo / "webviews", env=env, capture_output=True, text=True, timeout=60)
         self.assertEqual(sorted(p.name for p in temp.iterdir()), ["bin", "repo"], "left scratch behind")
@@ -121,10 +127,26 @@ class Wrapper(unittest.TestCase):
         self.assertIn("::error title=Webview test red on this change::test/a.test.ts > new red", out)
         self.assertIn("::warning title=Webview test red on the base too::test/a.test.ts > old red", out)
 
-    def test_a_file_that_never_got_to_its_tests_on_the_base_is_a_base_red(self):
-        done, out = self.run_pr({"test/a.test.ts": "CRASH\n"}, {"test/a.test.ts": body(["still red"])})
+    def test_a_file_that_never_got_to_its_tests_on_the_base_says_nothing_about_them(self):
+        for broken in ("CRASH\n", "HANG\n"):
+            with self.subTest(broken.strip()):
+                done, out = self.run_pr({"test/a.test.ts": broken}, {"test/a.test.ts": body(["new red"])}, file_timeout="2")
+                self.assertEqual(done.returncode, 1, out)
+                self.assertIn("::error title=Webview test red on this change::test/a.test.ts > new red", out)
+
+    def test_the_base_reruns_every_red_file_whatever_the_shard(self):
+        files = {f"test/{n}.test.ts": body(["old red"]) for n in "abcd"}
+        done, out = self.run_pr(files, dict(files),
+                                extra_env={"CMUX_WEB_TEST_SHARD": "1", "CMUX_WEB_TEST_SHARD_COUNT": "2"})
         self.assertEqual(done.returncode, 0, out)
-        self.assertIn("::warning title=Webview test red on the base too::test/a.test.ts > still red", out)
+        self.assertNotIn("::error", out)
+        self.assertEqual(out.count("::warning title=Webview test red on the base too::"), 2, out)
+
+    def test_the_changes_files_do_not_reach_the_base_run(self):
+        files = {"test/a.test.ts": "SCOPED\n" + body(["old red"])}
+        done, out = self.run_pr(files, dict(files), extra_env={"CMUX_PR_CHANGED_FILES": "webviews/src/x.gallery.tsx"})
+        self.assertEqual(done.returncode, 0, out)
+        self.assertIn("::warning title=Webview test red on the base too::test/a.test.ts > old red", out)
 
     def test_a_new_file_that_fails_is_the_changes(self):
         done, out = self.run_pr({"test/a.test.ts": body([])}, {"test/a.test.ts": body([]), "test/b.test.ts": body(["x"])})

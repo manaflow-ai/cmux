@@ -40,7 +40,10 @@ echo "::group::the red files again on the base ($base_ref)"
 if [ -s "$work/files" ] && git worktree add -q --detach "$base_tree" "$base_ref" > /dev/null &&
   (cd "$base_tree/$prefix" && bun install --frozen-lockfile &&
     "$base_tree/scripts/cmux-next/build-web-bundles.sh" --force); then
+  # Every red file runs, whatever this job's shard, and prScope.ts scopes nothing to the change's
+  # files (in the base checkout its `git diff HEAD^1` has no parent and would crash the file).
   (cd "$base_tree/$prefix" && CMUX_WEB_TEST_FILES="$(cat "$work/files")" CMUX_WEB_TEST_RESULTS="$work/base.json" \
+    env -u CMUX_WEB_TEST_SHARD -u CMUX_WEB_TEST_SHARD_COUNT -u CMUX_PR_CHANGED_FILES \
     bash "$here/run-webviews-tests.sh" > "$work/base.log" 2>&1) || true
   sed -n '/^### webviews tests:/,$p' "$work/base.log"
 elif [ -s "$work/files" ]; then
