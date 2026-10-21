@@ -288,6 +288,7 @@ def is_stateful(unit: Unit) -> bool:
     return any(
         step.working_directory
         or "git submodule" in step.run
+        or "init-submodule.sh" in step.run
         or "GITHUB_ENV" in step.run
         or "GITHUB_PATH" in step.run
         for step in unit.steps
