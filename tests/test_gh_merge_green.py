@@ -1676,6 +1676,10 @@ class WorkflowPresenceRegression(unittest.TestCase):
 class HelperCheckoutUpdateRegression(unittest.TestCase):
     """The symlinked helper refreshes only a clean main checkout."""
 
+    # The caller's settings that change what the helper does before it reads a PR: the installer's
+    # GH_MERGE_GREEN_NO_AUTO_UPDATE=1 skips this very update, and GH_REPO/GH_HOST point gh elsewhere.
+    CALLER = ("GH_MERGE_GREEN_NO_AUTO_UPDATE", "GH_MERGE_GREEN_HOME", "GH_REPO", "GH_HOST")
+
     def invoke(self, mode):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
@@ -1724,7 +1728,8 @@ class HelperCheckoutUpdateRegression(unittest.TestCase):
             fake_gh.chmod(0o755)
             result = subprocess.run(
                 [str(ROOT / "scripts/gh-merge-green"), "manaflow-ai/cmux#42"],
-                env={**os.environ, "PATH": str(directory) + os.pathsep + os.environ["PATH"],
+                env={**{k: v for k, v in os.environ.items() if k not in self.CALLER},
+                     "PATH": str(directory) + os.pathsep + os.environ["PATH"],
                      "CHECKOUT": str(checkout), "GIT_LOG": str(log), "MODE": mode,
                      "UPDATE_MARKER": str(directory / "updated")},
                 capture_output=True, text=True,
