@@ -16,7 +16,9 @@
 # from the action exports (the docs shortcuts, the app-host files) is made again on the tip only when
 # the tip's action exports are known current: none was held, and nothing after ACTIONS_MADE_AT moved
 # their inputs, so the tip holds the exports made there. The defaults snapshot, which reads both
-# exports, also needs the tip's settings stamp current (defaults_guard.py check-stamp). Otherwise,
+# exports, also needs the tip's settings stamp current: the tip has one, and the tip's own
+# defaults_guard.py check-stamp passes in the checkout of the tip (the guard finds the repository
+# from its own path, so a copy elsewhere reads nothing and passes). Otherwise,
 # and for the webviews formatting, a held file waits for the next run and the run fails.
 # A round that finds nothing left to repair on the tip ends the run.
 #
@@ -47,15 +49,10 @@ main() {
   work="$(mktemp -d)"
   trap 'rm -rf "${work:-}"' EXIT
   root="$(git rev-parse --show-toplevel)"
-  # The run's own push, area rules and defaults guard, copied before a checkout of the tip can change
-  # them. The repair on the tip is the tip's own (base-autofix-repair.sh in the checkout).
+  # The run's own push and area rules, copied before a checkout of the tip can change them. The repair
+  # and the defaults guard on the tip are the tip's own (in the checkout).
   cp "$here/autofix-areas.sh" "$work/autofix-areas.sh"
   areas_script="${CMUX_BASE_AUTOFIX_AREAS:-$work/autofix-areas.sh}"
-  guard=""
-  if [[ -f "$root/scripts/ci/defaults_guard.py" ]]; then
-    cp "$root/scripts/ci/defaults_guard.py" "$work/defaults_guard.py"
-    guard="$work/defaults_guard.py"
-  fi
   push_script="${CMUX_BASE_AUTOFIX_PUSH:-}"
   if [[ -z "$push_script" ]]; then
     cp "$here/base-autofix-push.sh" "$work/push.sh"
@@ -124,10 +121,16 @@ main() {
       exit 1
     }
     tip="$(git rev-parse FETCH_HEAD)"
+    git checkout --quiet --force --detach "$tip"
+    git clean --quiet -fd
     actions_current=0 settings_current=0
     if exports_current_on "$tip" "$held"$'\n'"$waits"; then
       actions_current=1
-      [[ -n "$guard" ]] && python3 "$guard" check-stamp --ref "$tip" >/dev/null 2>&1 && settings_current=1
+      if git cat-file -e "$tip:schemas/settings-export/settings-schema.sources.sha256" 2>/dev/null \
+        && [[ -f "$root/scripts/ci/defaults_guard.py" ]] \
+        && python3 "$root/scripts/ci/defaults_guard.py" check-stamp --ref "$tip" >/dev/null 2>&1; then
+        settings_current=1
+      fi
     fi
     again=""
     while IFS= read -r path; do
@@ -143,8 +146,6 @@ main() {
     fi
     round=$((round + 1))
     echo "Making the repair again on ${tip:0:12} (round $round of $rounds): $branch moved the inputs of $(printf '%s' "$again" | tr '\n' ' ')"
-    git checkout --quiet --force --detach "$tip"
-    git clean --quiet -fd
     CMUX_BASE_AUTOFIX_AGAIN=1 CMUX_BASE_AUTOFIX_ACTION_EXPORTS_CURRENT="$actions_current" \
       CMUX_BASE_AUTOFIX_SETTINGS_EXPORTS_CURRENT="$settings_current" "$repair_script" "$root" | tee "$work/repair.txt" || {
       echo "::error::making the repair again on ${tip:0:12} failed" >&2
