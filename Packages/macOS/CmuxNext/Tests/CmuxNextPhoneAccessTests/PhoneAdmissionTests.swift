@@ -175,4 +175,12 @@ struct PhoneAdmissionTests {
         #expect(!(await admission.decide(Self.phone)))
         #expect(admission.devices.isEmpty)
     }
+
+    /// Escape denies, and Allow has no key: a Return typed as the question opens lets no phone in.
+    @Test func theQuestionDeniesOnEscapeAndAllowHasNoKey() {
+        let spec = PhoneAccessStrings.allowSpec(name: "Leo’s iPhone")
+        #expect(spec.identifier == PhoneAdmission.allowDialogIdentifier)
+        #expect(spec.defaultButton == nil)
+        #expect(spec.buttons.first { $0.role == .cancel }?.id == PhoneAccessStrings.denyID)
+    }
 }

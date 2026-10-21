@@ -72,6 +72,8 @@ public final class PhoneAdmission {
     /// A Deny holds for this long, so a phone that keeps reconnecting does not
     /// keep asking.
     static let denialHold: Duration = .seconds(600)
+    /// The Allow question's dialog id: only the person answers it (`debug.dialog` refuses it).
+    public static let allowDialogIdentifier = "cmux.dialog.phoneAccessAllow"
     @ObservationIgnored private var denied: [String: ContinuousClock.Instant] = [:]
     /// One question per phone, however many connections it opens meanwhile.
     @ObservationIgnored private var asking: [String: Task<Bool, Never>] = [:]
@@ -134,7 +136,8 @@ public final class PhoneAdmission {
         let question = asking[id] ?? Task { await ask(device) }
         asking[id] = question
         let allowed = await question.value
-        asking[id] = nil
+        // A late waiter must not drop a newer question for this phone.
+        if asking[id] == question { asking[id] = nil }
         guard allowed else {
             denied[id] = clock()
             return false
@@ -189,6 +192,6 @@ enum PhoneAccessStrings {
         CmuxDialogSpec(title: title(name: name), lines: [message],
                        buttons: [CmuxDialogButton(id: denyID, title: deny, role: .cancel),
                                  CmuxDialogButton(id: allowID, title: allow, role: .normal)],
-                       identifier: "cmux.dialog.phoneAccessAllow")
+                       identifier: PhoneAdmission.allowDialogIdentifier)
     }
 }

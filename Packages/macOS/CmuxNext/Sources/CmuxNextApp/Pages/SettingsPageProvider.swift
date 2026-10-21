@@ -327,15 +327,14 @@ final class SettingsPageProvider: PageProvider {
         return value
     }
 
+    /// A host part the app wired, else the page's `cmux.page.unavailable` (tests without an app).
+    static func available<Part>(_ part: Part?, _ missing: String) throws -> Part {
+        if let part { return part } else { throw PageError(code: "cmux.page.unavailable", message: missing) } }
+
     /// SECURITY (agent_settable): the Settings page writes as the user only for a call backed by a
     /// real key or mouse event in its view (`context.userGesture`, the host's record) from the
     /// bundled cmux.settings page (the router admits only its trusted frame). A script write with
     /// no gesture is a page write and may change only agent-settable keys.
-    /// A host part the app wired, else the page's `cmux.page.unavailable` (tests without an app).
-    static func available<Part>(_ part: Part?, _ missing: String) throws -> Part {
-        if let part { return part } else { throw PageError(code: "cmux.page.unavailable", message: missing) }
-    }
-
     static func writer(_ context: PageCallContext) -> SettingWriter {
         context.page == PageDescriptor.settings.id && context.userGesture ? .user : .caller("page")
     }
