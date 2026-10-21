@@ -9,8 +9,10 @@ import Testing
 /// Leo 2026-10-21: a link clicked in a chat opened its github.com tab without the focus, so his
 /// Cmd-W closed the chat instead of the tab. As in Chrome: a plain click's tab takes the focus,
 /// Cmd-W closes that tab (the focused one), and closing it gives the focus back to where the link
-/// was clicked. Runs ``LinkOpener`` (every clicked link's path) and the app's Close Tab against a
-/// same-tree cmux-tui daemon; the page the link is clicked in is the window's first terminal.
+/// was clicked. Anything a person clicks takes the focus; only an agent's own open stays in the
+/// background. Runs ``LinkOpener`` (every clicked link's path), the chat header's beside opens and
+/// the app's Close Tab against a same-tree cmux-tui daemon; the page the link is clicked in is the
+/// window's first terminal.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct ClickedLinkFocusTests {
     static let link = URL(string: "https://github.com/manaflow-ai/cmux/pull/1")!
@@ -76,6 +78,62 @@ struct ClickedLinkFocusTests {
             #expect(store.tab(id: source) != nil, "Cmd-W closed the page the link was clicked in")
             try await PinnedPageTests.until({ content.focusedPane === pane },
                                             report: { "after the close: " + Self.describe(content, source) })
+        }
+    }
+
+    /// The chat header's Preview (Changes and Files take the same path): a person's click, so the
+    /// tab that opens in a new column right of the page takes the focus, unlike an agent's own
+    /// beside_caller open, and its close gives the focus back to the page it was clicked in.
+    @Test func theHeadersPreviewBesideThePageTakesTheFocusAndItsCloseGivesItBack() async throws {
+        try await PinnedPageTests.withApp { services, _ in
+            let store = services.daemon.store
+            let content = try #require(services.windows.active?.workspaceContent)
+            let model = try #require(store.workspaces.first?.screens.first?.panes.first)
+            let pane = try #require(services.paneController(for: model))
+            let source = try #require(model.tabs.first?.id)
+            PaneHandlers.focus(pane.layoutPaneID, in: content)
+            try await PinnedPageTests.until({ content.focusedPane === pane })
+            let before = Set(store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.id))
+
+            // A closed loopback port: the page never loads, and nothing leaves the machine.
+            AgentChatTabActions(tab: { source }, registry: { services.registry })
+                .runBeside("openBrowser", arguments: ["url": .string("http://127.0.0.1:9/")], on: nil)
+            @MainActor func opened() -> String? {
+                store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { !before.contains($0.id) }?.id
+            }
+            try await PinnedPageTests.until({ opened() != nil }, report: { "Preview opened no tab" })
+            let tab = try #require(opened())
+            try await PinnedPageTests.until({ content.focusedPane !== pane && content.focusedPane?.stripModel.selectedID?.rawValue == tab },
+                                            report: { Self.describe(content, tab) })
+
+            #expect(services.registry.perform("closeTab", invocation: ActionInvocation(origin: .user)))
+            try await PinnedPageTests.until({ store.tab(id: tab) == nil }, report: { "Preview's tab did not close" })
+            #expect(store.tab(id: source) != nil, "Cmd-W closed the page Preview was clicked in")
+            try await PinnedPageTests.until({ content.focusedPane === pane }, report: { "after the close: " + Self.describe(content, source) })
+        }
+    }
+
+    /// A file link or path chip in a chat (`link.openPath`, LinkOpener.openFile): its tab takes the focus.
+    @Test func aFileLinksTabTakesTheFocus() async throws {
+        try await PinnedPageTests.withApp { services, _ in
+            let store = services.daemon.store
+            let content = try #require(services.windows.active?.workspaceContent)
+            let model = try #require(store.workspaces.first?.screens.first?.panes.first)
+            let pane = try #require(services.paneController(for: model))
+            PaneHandlers.focus(pane.layoutPaneID, in: content)
+            try await PinnedPageTests.until({ content.focusedPane === pane })
+            let file = FileManager.default.temporaryDirectory.appendingPathComponent("clicked-link-\(UUID().uuidString).md")
+            try Data("# Notes\n".utf8).write(to: file)
+            defer { try? FileManager.default.removeItem(at: file) }
+            let before = Set(store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.id))
+
+            #expect(services.linkOpener.openFile(file, from: pane))
+            @MainActor func opened() -> String? {
+                store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { !before.contains($0.id) }?.id
+            }
+            try await PinnedPageTests.until({ opened() != nil }, report: { "the file link opened no tab" })
+            let tab = try #require(opened())
+            try await PinnedPageTests.until({ content.focusedPane?.stripModel.selectedID?.rawValue == tab }, report: { Self.describe(content, tab) })
         }
     }
 
