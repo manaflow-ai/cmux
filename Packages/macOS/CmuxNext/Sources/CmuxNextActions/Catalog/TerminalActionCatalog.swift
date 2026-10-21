@@ -157,7 +157,7 @@ nonisolated enum TerminalActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "palette.terminalOpenDirectory",
-                title: String(localized: "action.palette.terminalOpenDirectory", defaultValue: "Open Current Directory in…", bundle: .module),
+                title: String(localized: "action.palette.terminalOpenDirectory", defaultValue: "Open Current Directory In…", bundle: .module),
                 keywords: ["finder", "editor", "open in"], category: .terminal, symbol: "arrow.up.forward.app",
                 surfaces: [.palette], arguments: [CatalogArgument.appString], targets: [.pane],
                 cliName: "terminal open-current-directory-in"

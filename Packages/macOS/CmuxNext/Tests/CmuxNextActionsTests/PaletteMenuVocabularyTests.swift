@@ -22,6 +22,31 @@ struct PaletteMenuVocabularyTests {
         }
     }
 
+    /// Palette titles are menu titles, so they follow the macOS title style: the ellipsis is one
+    /// character ("…", never "..."), and every word is capitalized except a short article,
+    /// conjunction or preposition inside the title ("Move Tab to Workspace…"). The first and last
+    /// words are always capitalized ("Move Chief To…", "Swap with Session…"); cmux keeps its case.
+    @Test func paletteTitlesUseTitleCase() {
+        let minor: Set<String> = ["a", "an", "the", "and", "or", "nor", "but", "to", "in", "on", "of",
+                                  "for", "by", "at", "as", "from", "with", "into", "onto", "via", "vs", "per"]
+        let brands = ["cmux", "iPhone", "iPad", "iOS", "macOS"]
+        let trim = CharacterSet(charactersIn: "()\"“”,:.")
+        for descriptor in ActionCatalog.all where descriptor.isPaletteVisible {
+            let title = descriptor.title
+            #expect(!title.contains("..."), "\(descriptor.id) \(title): the ellipsis is one character, …")
+            let words = title.replacingOccurrences(of: "…", with: "").split(separator: " ")
+            for (index, word) in words.enumerated() {
+                for part in word.split(separator: "/") {
+                    let core = part.trimmingCharacters(in: trim)
+                    guard let first = core.unicodeScalars.first, CharacterSet.lowercaseLetters.contains(first),
+                          !brands.contains(where: { core.hasPrefix($0) }) else { continue }
+                    let inside = index > 0 && index < words.count - 1
+                    #expect(inside && minor.contains(core), "\(descriptor.id) \(title): \(core) is capitalized")
+                }
+            }
+        }
+    }
+
     /// A renamed row still answers the word it used to start with.
     @Test func renamedRowsKeepTheirOldWord() throws {
         let byID = Dictionary(ActionCatalog.all.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })

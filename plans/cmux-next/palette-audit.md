@@ -242,7 +242,7 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Workspace | `workspace.duplicateTerminalsOnly` | Duplicate Workspace Without Browser Tabs |  | c. family member | folded into Workspace: New or Duplicate… |
 | Workspace | `workspace.duplicateToSpace` | Duplicate Workspace into Space… |  | c. family member | folded into Workspace: New or Duplicate… |
 | Workspace | `workspace.importClassic` | Import Workspaces from Classic cmux |  | c. niche | last in its section, −120 while typing |
-| Workspace | `workspace.mergeInto` | Merge Workspace into… |  | b. standard | its section, catalog order |
+| Workspace | `workspace.mergeInto` | Merge Workspace Into… |  | b. standard | its section, catalog order |
 | Workspace | `workspace.moveToBottom` | Move Workspace to Bottom |  | c. family member | folded into Workspace: Move… |
 | Workspace | `workspace.moveToNewGroup` | Move Workspace to New Group |  | c. family member | folded into Workspace: Move… |
 | Workspace | `workspace.moveToSpace` | Move Workspace to Space… |  | c. family member | folded into Workspace: Move… |
@@ -361,7 +361,7 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Panes | `palette.openFilesPane` | Open Files as Pane |  | b. standard | its section, catalog order |
 | Panes | `palette.openFindPane` | Open Find as Pane |  | b. standard | its section, catalog order |
 | Panes | `palette.openVaultPane` | Open Vault as Pane |  | b. standard | its section, catalog order |
-| Panes | `palette.swapWithSession` | Swap With Session… |  | c. family member | folded into Pane: Swap… |
+| Panes | `palette.swapWithSession` | Swap with Session… |  | c. family member | folded into Pane: Swap… |
 | Panes | `pane.clearBackground` | Reset Pane Background |  | b. standard | its section, catalog order |
 | Panes | `pane.closeOthers` | Close Other Panes |  | b. standard | its section, catalog order |
 | Panes | `pane.focus` | Show Pane |  | b. standard | its section, catalog order |
@@ -418,7 +418,7 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Screens | `screen.moveToNewWorkspace` | Move Screen to New Workspace |  | c. family member | folded into Screen: Move… |
 | Screens | `screen.moveToWorkspace` | Move Screen to Workspace… |  | c. family member | folded into Screen: Move… |
 | Screens | `screen.new` | New Screen |  | b. standard | its section, catalog order |
-| Screens | `screen.newWith` | New Screen with… |  | b. standard | its section, catalog order |
+| Screens | `screen.newWith` | New Screen With… |  | b. standard | its section, catalog order |
 | Screens | `screen.next` | Next Screen |  | b. standard | its section, catalog order |
 | Screens | `screen.previous` | Previous Screen |  | b. standard | its section, catalog order |
 | Screens | `screen.rename` | Rename Screen… |  | b. standard | its section, catalog order |
@@ -563,7 +563,7 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Terminal | `findPrevious` | Find Previous | ⌥⌘G | b. standard | its section, catalog order |
 | Terminal | `focusTextBoxInput` | Focus TextBox | ⌥⌘A | b. standard | its section, catalog order |
 | Terminal | `hideFind` | Hide Find Bar | ⌥⇧⌘F | b. standard | its section, catalog order |
-| Terminal | `palette.terminalOpenDirectory` | Open Current Directory in… |  | b. standard | its section, catalog order |
+| Terminal | `palette.terminalOpenDirectory` | Open Current Directory In… |  | b. standard | its section, catalog order |
 | Terminal | `palette.terminalToggleTextBoxInput` | Toggle TextBox |  | b. standard | its section, catalog order |
 | Terminal | `pasteLastScreenshot` | Paste Last Screenshot |  | b. standard | its section, catalog order |
 | Terminal | `reconnectPane` | Reconnect Pane |  | b. standard | its section, catalog order |
@@ -925,7 +925,7 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Agents | `agentChat.copyIdentifier` | Copy Agent Identifier |  | c. niche | last in its section, −120 while typing |
 | Agents | `agentChat.toggleNotificationMute` | Mute/Unmute Chat Notifications |  | b. standard | its section, catalog order |
 | Agents | `agentPane.archiveChat` | Archive Chat | ⌃⌘A | b. standard | its section, catalog order |
-| Agents | `agentPane.continueIn` | Continue in… |  | b. standard | its section, catalog order |
+| Agents | `agentPane.continueIn` | Continue In… |  | b. standard | its section, catalog order |
 | Agents | `agentPane.copyLastCodeBlock` | Copy Last Code Block | ⌥⌘; | b. standard | its section, catalog order |
 | Agents | `agentPane.createCheckpoint` | Create Checkpoint |  | b. standard | its section, catalog order |
 | Agents | `agentPane.git.commit` | Commit Changes… |  | b. standard | its section, catalog order |
@@ -948,7 +948,7 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Agents | `agentPaneZoomIn` | Agent Chat: Zoom In | ⌘= | b. standard | its section, catalog order |
 | Agents | `agentPaneZoomOut` | Agent Chat: Zoom Out | ⌘- | b. standard | its section, catalog order |
 | Agents | `agentPaneZoomReset` | Agent Chat: Actual Size | ⌘0 | b. standard | its section, catalog order |
-| Agents | `chief.moveTo` | Move Chief to… |  | b. standard | its section, catalog order |
+| Agents | `chief.moveTo` | Move Chief To… |  | b. standard | its section, catalog order |
 | Agents | `chief.openMemoryInspector` | Chief: Open Memory Inspector |  | b. standard | its section, catalog order |
 | Agents | `chief.openUsage` | Chief Usage |  | b. standard | its section, catalog order |
 | Agents | `computerUseFocus` | Focus Computer Use |  | b. standard | its section, catalog order |
