@@ -72,7 +72,7 @@ public nonisolated enum AgentPaneHostError: Error, Equatable, Sendable {
 /// only looks; it never starts a daemon.
 public actor AcpmuxHost: AgentPaneHostProviding {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.acpmux")
-    private let resolveEnvironment: @Sendable () -> AcpmuxEnvironment?
+    let resolveEnvironment: @Sendable () -> AcpmuxEnvironment?
     /// The Computer Use socket and agent token now (`AcpmuxEnvironment.computerUse`),
     /// read at each daemon start, since Computer Use turns on and off while the app runs.
     private let computerUse: @Sendable () -> [String: String]
@@ -89,14 +89,16 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// the Computer Use helper v2 can register this daemon.
     private let daemonReady: @Sendable (String) async -> Void
     /// Kept only once found, so acpmux installed after the first chat is picked up.
-    private var environment: AcpmuxEnvironment?
+    var environment: AcpmuxEnvironment?
     /// The lookup in flight, by whether it may start a daemon.
     private var inFlight: [Bool: Task<AcpmuxWebEndpoint, any Error>] = [:]
+    /// Why the last restart's stop failed (``restartDaemon()``); its waiters still get an endpoint.
+    var restartFailure: (any Error)?
     /// False for a daemon this app does not own (the Chief home's, which the
     /// Chief host starts): every handshake then only looks, as a reconnect
     /// does. It never stops, hands off or starts that daemon, so a subagent
     /// tab never ends the Chief's acpmux under its host (cx-ebm.54).
-    private let startsDaemons: Bool
+    let startsDaemons: Bool
     /// Heals a daemon this app does not own that runs a replaced bundle: its
     /// owner hands it off and starts the bundled one (the Chief host,
     /// `ChiefAcpmuxHeal`). Returns whether it did. Nil: this host cannot heal.
@@ -163,12 +165,21 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         return try await AcpmuxStatusClient.sessionFolder(socketPath: environment.socketPath, sessionId: sessionId)
     }
 
-    private func endpoint(startsDaemon asked: Bool) async throws -> AcpmuxWebEndpoint {
+    /// - Parameter restart: Restart Background Services (``restartDaemon()``): the running daemon
+    ///   is stopped, keeping its agents, inside the same start task, so every handshake and
+    ///   reconnect meanwhile waits for the bundled daemon instead of reading the stopping one.
+    func endpoint(startsDaemon asked: Bool, restart: Bool = false) async throws -> AcpmuxWebEndpoint {
         let startsDaemon = asked && startsDaemons
-        if let task = inFlight[startsDaemon] { return try await task.value }
+        if !restart, let task = inFlight[startsDaemon] { return try await task.value }
         // A reconnect during a start waits for that daemon instead of
         // reporting it stopped.
         if !startsDaemon, let task = inFlight[true] { return try await task.value }
+        // A restart never stops a daemon while another start runs: that start finishes first.
+        // Its owner clears the slot only after `daemonReady`: a settled task still there ends the wait.
+        while restart, let task = inFlight[true] {
+            _ = try? await task.value
+            if inFlight[true] == task { break }
+        }
         if environment == nil { environment = resolveEnvironment() }
         guard var environment else {
             Self.logger.error("acpmux environment unresolved startsDaemon=\(startsDaemon, privacy: .public)")
@@ -186,7 +197,15 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         if let healReplaced {
             heal = { @Sendable (pid: Int32) async -> Bool in await self.healOnce(pid: pid, healReplaced) }
         }
-        let task = Task { try await Self.findOrStart(environment, startsDaemon: startsDaemon, owned: owned, heal: heal) }
+        if restart { restartFailure = nil }
+        let task = Task {
+            // A stop that fails leaves the old daemon serving: the handshakes waiting on this task
+            // still get an endpoint, and only the restart reports the failure.
+            if restart {
+                do { _ = try await AcpmuxServiceRestart(environment: environment).stop() } catch { restartFailure = error }
+            }
+            return try await Self.findOrStart(environment, startsDaemon: startsDaemon, owned: owned, heal: heal)
+        }
         inFlight[startsDaemon] = task
         defer { if inFlight[startsDaemon] == task { inFlight[startsDaemon] = nil } }
         let endpoint = try await task.value
