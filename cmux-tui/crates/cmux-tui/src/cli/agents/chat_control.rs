@@ -314,7 +314,7 @@ pub(in crate::cli) fn new(global: &GlobalArgs, chat: &NewChat, origin: &str) -> 
     }
 
     if let Some(prompt) = &chat.prompt {
-        let send = ChatCommand::Send { target: session.clone(), text: prompt.clone() };
+        let send = ChatCommand::Send { target: session, text: prompt.clone() };
         match chat::run(global, &send, None, origin) {
             Ok(receipt) => result["prompt"] = receipt["result"].clone(),
             Err(failure) => result["prompt"] = json!({"state": "failed", "error": failure.error}),
