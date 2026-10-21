@@ -135,8 +135,8 @@ export default componentEntry<UrlChipProps>({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-pr-card__kinds"));
       },
     },
-    // A red the base branch already has: the card says how many of the failures are not this pull
-    // request's, and the line reads muted with a hollow dot when none of them are.
+    // A red the base branch already has: the compact ✓/✗ count says how many of the failures are not
+    // this pull request's, and the ✗ reads muted when none of them are.
     "pull-request-base-reds": {
       chipHost: prHost({
         pullRequest: pullRequest({
@@ -199,9 +199,9 @@ export default componentEntry<UrlChipProps>({
       props: { href: PULL_REQUEST, children: "manaflow-ai/cmux#22777" },
       play: openCard,
     },
-    // Merged, with every red also red on the base branch: the merged pill, and a muted checks line
-    // with a hollow dot rather than this pull request's failures.
-    "pull-request-merged-base-reds": {
+    // Merged: the pull request glyph in purple, no state word, and no checks line (a merged pull
+    // request's reds no longer matter), however red its last run was.
+    "pull-request-merged": {
       chipHost: prHost({
         pullRequest: pullRequest({
           state: "merged",
@@ -220,6 +220,7 @@ export default componentEntry<UrlChipProps>({
       props: { href: PULL_REQUEST, children: "#22777" },
       play: openCard,
     },
+    // Closed: the glyph in red, and no checks line either.
     "pull-request-closed": {
       chipHost: prHost({
         pullRequest: pullRequest({

@@ -282,3 +282,18 @@ test("the preview card masks its address's secrets and draws on an opaque surfac
   for (const selector of [".acpmux-turn-preview", ".acpmux-turn-preview-frame"])
     expect(rule(selector)).toContain("var(--cmux-surface-solid");
 });
+
+test("a web card's head names the site; its address shows only when it says more than the host", async () => {
+  const root = await renderChip("https://example.test/", "https://example.test/");
+  const rootCard = await root.hover();
+  expect(rootCard.querySelector(".cv-link-preview__site")?.textContent).toBe("example.test");
+  expect(rootCard.querySelector(".cv-link-preview__target")).toBeNull();
+  await root.done();
+  const deep = await renderChip("https://example.test/docs/start", "https://example.test/docs/start");
+  const deepCard = await deep.hover();
+  expect(deepCard.querySelector(".cv-link-preview__site")?.textContent).toBe("example.test");
+  expect(deepCard.querySelector(".cv-link-preview__target")?.textContent).toBe("https://example.test/docs/start");
+  // No "host · address" footer: the address sits under the title, inside the head.
+  expect(deepCard.querySelector(".cv-link-preview__head .cv-link-preview__target")).not.toBeNull();
+  await deep.done();
+});

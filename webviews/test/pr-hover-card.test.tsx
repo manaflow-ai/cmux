@@ -92,9 +92,21 @@ function expectFullCard(card: HTMLElement | null) {
   const text = card!.textContent ?? "";
   expect(text).toContain(TITLE);
   expect(text).toContain("manaflow-ai/leo-workspace#634");
-  expect(text).toContain("Draft");
+  // The state is the glyph's colour, named for screen readers: no "Draft" word on the card.
+  expect(card!.querySelector(".acpmux-pr-card__glyph svg")?.getAttribute("aria-label")).toBe("Draft");
+  expect(shownText(card!)).not.toContain("Draft");
   expect(text).toContain("teamleaderleo");
-  expect(text).toContain("7 of 9 checks passed, 2 failing");
+  expect(card!.querySelector(".acpmux-pr-card__checks .acpmux-pr-card__sr")?.textContent).toBe(
+    "7 of 9 checks passed, 2 failing",
+  );
+  expect(card!.querySelector(".acpmux-pr-card__failed")?.textContent).toBe("✗ 2");
+}
+
+/** The card's text as it shows: no svg titles and no screen-reader-only words. */
+function shownText(element: Element): string {
+  const copy = element.cloneNode(true) as Element;
+  for (const hidden of copy.querySelectorAll("title, .acpmux-pr-card__sr")) hidden.remove();
+  return copy.textContent ?? "";
 }
 
 test("a pull request bar opens the pull request card", async () => {
@@ -152,7 +164,8 @@ test("a pull request chip in a reply opens the same card", async () => {
   // It keeps the link card's Open, and its title sits in the head beside the GitHub mark.
   expect(card!.querySelector("button")?.textContent).toContain("Open");
   const head = card!.querySelector<HTMLElement>(".cv-link-preview__head")!;
-  expect(head.querySelector(".cv-link-preview__icon svg")).not.toBeNull();
+  // The head's icon is the pull request glyph in its state's colour (draft here).
+  expect(head.querySelector('.cv-link-preview__icon .acpmux-pr-card__glyph[data-state="draft"] svg')).not.toBeNull();
   expect(head.querySelector(".cv-link-preview__site")?.textContent).toBe(TITLE);
   // No address line: the head and owner/repo#N already say where it is (Leo 2026-10-21).
   expect(card!.querySelector(".cv-link-preview__target")).toBeNull();
@@ -195,4 +208,26 @@ test("an inline link opens the same card: favicon, page title, host, the address
   expect(host.calls.some((call) => call.method === "pr.inspect")).toBe(false);
   await act(async () => root.unmount());
   host.done();
+});
+
+// Leo 2026-10-21: quiet borderless Open and Open in, tight spacing with no divider under the head,
+// "+905 −50" with no dotted underline, and glass rather than a solid card.
+test("the card's chrome is quiet: borderless buttons, no divider, no underline, a glass surface", async () => {
+  const { readFileSync } = await import("node:fs");
+  const path = await import("node:path");
+  const styles = readFileSync(path.join(import.meta.dir, "../src/agent-session/acpmux/styles.css"), "utf8");
+  const rule = (selector: string) =>
+    new RegExp(`(?:^|\\})${selector.replace(/[[\]().:]/g, "\\$&")}\\{([^}]*)\\}`, "m").exec(styles)?.[1] ?? "";
+  const open = rule(".cv-link-preview__open");
+  expect(open).toContain("border:0");
+  expect(open).toContain("background:transparent");
+  expect(open).not.toContain("box-shadow");
+  expect(rule(".cv-link-preview .acpmux-open-in")).toContain("box-shadow:none");
+  expect(rule(".cv-link-preview__head")).not.toContain("border");
+  expect(rule(".acpmux-pr-card__lines:not(:disabled)")).not.toContain("text-decoration");
+  // Glass: the tooltip's tint and blur (opaque only under Reduce Transparency, via the tokens).
+  expect(rule(".cv-link-preview")).toContain("background:var(--tooltip-tint");
+  const glass = rule(".cv-link-preview.ui-card");
+  expect(glass).toContain("background:var(--tooltip-tint");
+  expect(glass).toContain("backdrop-filter:var(--tooltip-blur");
 });

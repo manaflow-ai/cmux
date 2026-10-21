@@ -1,11 +1,12 @@
 // One hover card for every link in the transcript (Leo 2026-10-20): a reply's web link, a pull
 // request chip and the pull request bars above the composer. Its head is one compact row: the
-// site's icon or the GitHub mark inline beside the title (the page title cmux already has, else
-// the host; a pull request's own title), then Open (a cmux tab) and Open in. A web link adds its
-// address with secret-looking values as ••• (linkDisplay.ts); a pull request adds its state,
-// author, checks and files instead (PullRequestCard.tsx), and no address line: its head and
-// `owner/repo#N` already say where it is (Leo 2026-10-21, "the styling/layout/spacing could be a bit
-// better"). It sits on the tooltip's frosted glass (styles.css .cv-link-preview).
+// site's icon (a pull request's glyph in its state's colour) inline beside the title (the page
+// title cmux already has, else the host; a pull request's own title), then Open (a cmux tab) and
+// Open in as quiet borderless buttons. A web link's address, with secret-looking values as •••
+// (linkDisplay.ts), sits under its title when it says more than the host already does; a pull
+// request has no address line, and adds its author, checks and files (PullRequestCard.tsx). Tight
+// spacing, no dividers, on the tooltip's frosted glass (styles.css .cv-link-preview; Leo
+// 2026-10-21: "the styling/layout/spacing could be a bit better").
 import type { PointerEvent, ReactNode } from "react";
 import { AnchoredCard } from "../../../ui/Tooltip";
 import { OpenInMenu } from "../previewCard/OpenInMenu";
@@ -22,6 +23,12 @@ export function linkHost(href: string): string {
   } catch {
     return href;
   }
+}
+
+/// `href` with its secrets masked, unless it says no more than `host` (the head names the host).
+function addressBeyond(href: string, host: string): string | undefined {
+  const address = redactUrlText(href);
+  return address.replace(/^[a-z][\w+.-]*:\/\//i, "").replace(/\/$/, "") === host ? undefined : address;
 }
 
 export function LinkHoverCard({
@@ -57,10 +64,13 @@ export function LinkHoverCard({
     event.stopPropagation();
     openInCmux(href);
   };
-  const head = (title: string) => (
+  const head = (title: string, glyph: ReactNode = mark, address?: string) => (
     <div className="cv-link-preview__head">
-      <span className="cv-link-preview__icon">{mark}</span>
-      <span className="cv-link-preview__site">{title}</span>
+      <span className="cv-link-preview__icon">{glyph}</span>
+      <span className="cv-link-preview__titles">
+        <span className="cv-link-preview__site">{title}</span>
+        {address && <span className="cv-link-preview__target">{address}</span>}
+      </span>
       <button type="button" className="cv-link-preview__open" onClick={onOpen}>
         {t("image.open")}
         <span aria-hidden="true">↗</span>
@@ -82,10 +92,7 @@ export function LinkHoverCard({
         {pullRequest ? (
           <PullRequestCardBody url={href} known={pullRequest} open={hover.open} head={head} />
         ) : (
-          <>
-            {head(siteTitle ?? host)}
-            <div className="cv-link-preview__target">{redactUrlText(href)}</div>
-          </>
+          head(siteTitle ?? host, mark, addressBeyond(href, host))
         )}
       </div>
     </AnchoredCard>
