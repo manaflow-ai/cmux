@@ -182,6 +182,13 @@ codegen-units = 1
 # code, full for dependencies (ratatui/crossterm do the heavy lifting).
 [profile.dev]
 opt-level = 1
+# Line tables keep file:line in panics, backtraces and profiles; full DWARF made
+# each worktree's target about twice the size (feat-cmux-next #22193, Huge Blue
+# 10-19: 11 GB -> 5.4 GB cold, cold builds 360 s -> 251 s). `[profile.test]`
+# inherits these settings, so test and dev builds keep sharing dependency
+# artifacts. Use `debug = true` locally to step through locals in a debugger.
+debug = "line-tables-only"
 
 [profile.dev.package."*"]
 opt-level = 3
+debug = false
