@@ -58,7 +58,7 @@ fn tools() -> Value {
         },
         {
             "name": "list_sessions",
-            "description": "List your sub-sessions with their live state (state working, input, failed or idle; doing: one line of what a working one does right now, its plan step and latest tool; queued: messages waiting for its turn to end; the last turn's outcome; open children) and your own limits: depth, open sub-sessions, maxChildren and maxDepth. Report a sub-session's progress from doing, not from status alone.",
+            "description": "List your sub-sessions with their live state (state working, input, failed or idle; doing: one line of what a working one does right now, its plan step and latest tool; queued: messages waiting for its turn to end; the last turn's outcome; open children) and your own limits: depth, open sub-sessions, maxChildren and maxDepth. Report a sub-session's progress from doing, not from status alone. waitingOn question or permission means it waits on the user: only the user answers it, in the app; you cannot, so tell the user what it asks.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -68,7 +68,7 @@ fn tools() -> Value {
         },
         {
             "name": "get_session",
-            "description": "Read one of your sub-sessions (or your parent session): its state, doing (what it does right now, while a turn runs), queued messages and the text of its last reply.",
+            "description": "Read one of your sub-sessions (or your parent session): its state, doing (what it does right now, while a turn runs, or what it waits on the user for), waitingOn (question or permission: only the user answers it, in the app), queued messages and the text of its last reply.",
             "inputSchema": {
                 "type": "object",
                 "properties": {"sessionId": {"type": "string"}},

@@ -126,14 +126,45 @@ pub(super) fn family_role(from: &SessionMeta, to: &SessionMeta) -> &'static str 
     }
 }
 
-/// A sub-session's "currently doing" line for its parent: while a turn runs,
+/// What a sub-session waits on the person for, when it does: `question`
+/// (an agent question, with its first prompt) or `permission`. Only the
+/// person answers either (`questions.rs`, `person.rs`), in the app's card
+/// or with `acpmux answer`/`allow` from their own terminal; a parent agent
+/// cannot, so its tools say so instead of offering an answer.
+pub(super) fn waiting_on(s: &Session) -> Option<(&'static str, Option<String>)> {
+    let pending = s.pending_permissions();
+    let question = pending.iter().find(|(_, r)| super::questions::needs_person(r));
+    match (question, pending.first()) {
+        (Some((_, r)), _) => {
+            let prompt = super::questions::question(r)
+                .and_then(|q| q.pointer("/items/0/prompt"))
+                .and_then(Value::as_str)
+                .map(|p| short_text(p, 120));
+            Some(("question", prompt))
+        }
+        (None, Some(_)) => Some(("permission", None)),
+        (None, None) => None,
+    }
+}
+
+/// A sub-session's "currently doing" line for its parent: while it waits on
+/// the person, what for (`waiting`, from [`waiting_on`]); while a turn runs,
 /// its plan step and latest tool (`activity.rs`), else what the turn was
-/// asked; while it waits on the person, that; else null (its `state` and
-/// `lastReply` say the rest).
-pub(super) fn doing(summary: &Value) -> Value {
+/// asked; else null (its `state` and `lastReply` say the rest).
+pub(super) fn doing(summary: &Value, waiting: Option<&(&str, Option<String>)>) -> Value {
     let turn = &summary["turn"];
-    if summary["lane"]["state"] == "input" {
-        return json!("Waiting for the user to answer it");
+    match waiting {
+        Some(("question", Some(prompt))) => {
+            return json!(format!("Waiting for the user to answer, in the app: {prompt}"));
+        }
+        Some(("question", None)) => {
+            return json!("Waiting for the user to answer a question, in the app");
+        }
+        Some(_) => return json!("Waiting for the user to allow a tool, in the app"),
+        None if summary["lane"]["state"] == "input" => {
+            return json!("Waiting for the user to answer it");
+        }
+        None => {}
     }
     if turn.is_null() {
         return Value::Null;
@@ -141,4 +172,25 @@ pub(super) fn doing(summary: &Value) -> Value {
     let line = super::activity::doing_line(turn["planStep"].as_str(), turn["activity"].as_str())
         .or_else(|| turn["prompt"].as_str().map(|p| format!("Working on: {}", short_text(p, 120))));
     line.map_or(Value::Null, Value::String)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_child_waiting_on_the_user_says_what_for() {
+        let summary = json!({"lane": {"state": "input"}, "turn": {"prompt": "fix it"}});
+        let q = ("question", Some("Which branch?".to_owned()));
+        assert_eq!(
+            doing(&summary, Some(&q)),
+            "Waiting for the user to answer, in the app: Which branch?"
+        );
+        let p = ("permission", None);
+        assert_eq!(doing(&summary, Some(&p)), "Waiting for the user to allow a tool, in the app");
+        assert_eq!(doing(&summary, None), "Waiting for the user to answer it");
+        let working = json!({"lane": {"state": "working"}, "turn": {"activity": "Run cargo test"}});
+        assert_eq!(doing(&working, None), "Run cargo test");
+        assert_eq!(doing(&json!({"lane": {"state": "idle"}, "turn": null}), None), Value::Null);
+    }
 }

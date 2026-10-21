@@ -755,6 +755,7 @@ impl Hub {
     pub fn subsession_row(&self, s: &Session, with_reply: bool) -> Value {
         let summary = self.session_summary(s);
         let pick = |k: &str| summary.get(k).cloned().unwrap_or(Value::Null);
+        let waiting = super::subsession_send::waiting_on(s);
         let mut row = json!({
             "sessionId": s.id,
             "name": pick("name"),
@@ -775,7 +776,9 @@ impl Hub {
             // working, input, failed, lost or idle, and since when (`views::lane`).
             "state": summary["lane"]["state"].clone(),
             "stateSince": summary["lane"]["since"].clone(),
-            "doing": super::subsession_send::doing(&summary),
+            "doing": super::subsession_send::doing(&summary, waiting.as_ref()),
+            // question or permission: only the person answers it, in the app.
+            "waitingOn": waiting.as_ref().map(|w| w.0),
         });
         if with_reply {
             row["lastReply"] = json!(self.last_reply(s));
