@@ -120,7 +120,7 @@ class ClaudeHookAnswerResumesTests(unittest.TestCase):
             [self.cli, "hooks", "claude", "inject-settings"], env=self.env,
             capture_output=True, text=True, timeout=30, check=True,
         )
-        self.assertEqual(json.loads(result.stdout), json.loads(generated_claude_hook_settings()))
+        self.assertEqual(result.stdout, generated_claude_hook_settings())
         groups = json.loads(result.stdout)["hooks"]["PostToolUse"]
         completions = [group for group in groups
                        if group.get("matcher") == "AskUserQuestion|ExitPlanMode"]
