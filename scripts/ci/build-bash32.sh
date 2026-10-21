@@ -19,7 +19,13 @@ fi
 work="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/bash32.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 archive="$work/bash-$version.tar.gz"
-for url in "https://ftpmirror.gnu.org/bash/bash-$version.tar.gz" "https://ftp.gnu.org/gnu/bash/bash-$version.tar.gz"; do
+# Blacksmith runners time out connecting to the gnu.org hosts (2026-10-21), so
+# the kernel.org and Berkeley GNU mirrors come first; the SHA-256 pin is the check.
+for url in \
+  "https://mirrors.kernel.org/gnu/bash/bash-$version.tar.gz" \
+  "https://mirrors.ocf.berkeley.edu/gnu/bash/bash-$version.tar.gz" \
+  "https://ftpmirror.gnu.org/bash/bash-$version.tar.gz" \
+  "https://ftp.gnu.org/gnu/bash/bash-$version.tar.gz"; do
   if curl --proto '=https' --fail --silent --show-error --location --connect-timeout 10 --max-time 120 \
     --retry 3 --retry-delay 2 --output "$archive" "$url"; then
     break
