@@ -5,4 +5,6 @@
 # Raised from 111502 on 2026-10-20 to the count at 2cd6ae166f69: the growth
 # accumulated while the absolute cap ran at batch cadence only, and the raise
 # stops the base red. The App still only shrinks from here.
-128658
+# Raised by 9 on 2026-10-21 (Lawrence: "get ci fixes in faster"): the growth is
+# e03ef3e (#22686), which replaced unowned with weak + guard for crash safety.
+128667

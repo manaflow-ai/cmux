@@ -214,7 +214,7 @@ impl Hub {
     /// Whether `token` is the caller token session `session_id`'s adopted
     /// host started its harness with under an earlier daemon run (constant time).
     fn adopted_caller_proves(&self, session_id: &str, token: &str) -> bool {
-        let adopted = adopted_callers().lock().unwrap();
+        let adopted = adopted_callers().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         adopted
             .get(session_id)
             .is_some_and(|known| valid_key(token) && cmux_local_auth::tokens_match(token, known))
@@ -225,7 +225,8 @@ impl Hub {
     /// record, so this run knows the session by that token too. A token of
     /// this run, a malformed one or none (a host of an older build) records nothing.
     pub(super) fn adopt_caller_token(&self, session_id: &str, token: Option<String>) {
-        let mut adopted = adopted_callers().lock().unwrap();
+        let mut adopted =
+            adopted_callers().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         match token.filter(|t| valid_key(t) && !caller_proves(session_id, t)) {
             Some(token) => adopted.insert(session_id.to_owned(), token),
             None => adopted.remove(session_id),
@@ -235,7 +236,10 @@ impl Hub {
     /// A new host of session `session_id` started: its harness has this
     /// run's token, and the adopted one's process group is gone.
     pub(super) fn forget_adopted_caller(&self, session_id: &str) {
-        adopted_callers().lock().unwrap().remove(session_id);
+        adopted_callers()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(session_id);
     }
 
     /// A `session/new` without the person (module docs, (a), (b)): a mode
