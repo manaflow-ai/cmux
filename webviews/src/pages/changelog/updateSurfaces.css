@@ -4,12 +4,16 @@
 /* The composer's surface (--acpmux-composer-bg/-edge, agent-session/acpmux/styles.css), as every
    sidebar card's (CardSurfaceView in Swift, Leo 2026-10-13): the text at 13% over the wallpaper
    (this page is transparent), a one-device-pixel edge (--cmux-hairline) at 18%, no shadow. Opaque
-   under Reduce Transparency. */
+   under Reduce Transparency. The tint lies on the elevated surface at 94% (2026-10-20: over a
+   translucent window the last sidebar rows showed through the 13% tint and neither read), so the
+   card reads at any window opacity or blur. */
 .wn-card {
   position: relative;
   padding: 10px 12px;
   border-radius: 12px;
-  background: color-mix(in srgb, var(--page-text) 13%, transparent);
+  background:
+    linear-gradient(color-mix(in srgb, var(--page-text) 13%, transparent), color-mix(in srgb, var(--page-text) 13%, transparent)),
+    color-mix(in srgb, var(--page-elevated) 94%, transparent);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--page-text) 18%, transparent);
   color: var(--page-text);
   font-size: var(--text-body);

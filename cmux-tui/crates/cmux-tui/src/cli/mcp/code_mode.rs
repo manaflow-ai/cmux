@@ -95,7 +95,9 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
             "description": format!(
                 "Find the cmux tools a cmux_exec script can call, with their input schemas. \
                  Pass query (words such as \"pane split\" or \"browser screenshot\"), or names \
-                 for exact tools, or nothing for every tool name by family. Families: \
+                 for exact tools, or nothing for every tool name by family. A query about a \
+                 task, such as \"show the user\", also returns guides that name its tools. \
+                 Families: \
                  {families}."
             ),
             "inputSchema": {
@@ -238,12 +240,18 @@ fn search(tools: &[Value], query: &str, limit: usize) -> Value {
         .take(DOCS_MORE_NAMES)
         .filter_map(|(_, tool)| tool["name"].as_str())
         .collect::<Vec<_>>();
-    json!({
+    let mut answer = json!({
         "query": query,
         "matches": scored.len(),
         "tools": scored.iter().take(limit).map(|(_, tool)| (*tool).clone()).collect::<Vec<_>>(),
         "more": more,
-    })
+    });
+    // A task no one tool answers (`cmux docs search` returns the same).
+    let guides = super::super::docs::guides(query);
+    if !guides.is_empty() {
+        answer["guides"] = json!(guides);
+    }
+    answer
 }
 
 /// What a script asks the server for while it runs.
