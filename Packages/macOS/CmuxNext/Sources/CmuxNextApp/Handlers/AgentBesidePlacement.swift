@@ -43,6 +43,7 @@ enum AgentBesidePlacement {
         // the column right of the chat is always in view; else the tab moves out.
         let lone = controller.flatMap { ChatColumnPlacement.resolve(from: $0, services: services) == .dockChat ? $0 : nil }
         let chat = lone?.pane.tabs.first { ChatColumnPlacement.isChat($0, services: services) }
+        let newTabPages = ChatColumnPlacement.newTabPages(in: anchor.tabs) { services.agentTabs.isNewTabPage($0.id) }
         let chatHadFocus = lone.map { $0.workspace?.focusedPane === $0 } ?? false
         let (surfaces, sink) = AsyncStream<SurfaceID>.makeStream(bufferingPolicy: .bufferingNewest(1))
         services.registry.track(Task { @MainActor in
@@ -74,30 +75,15 @@ enum AgentBesidePlacement {
                     }
                 }
                 guard docked else { return "beside-caller: the chat did not dock (see the app log)" }
-                // Keyboard focus stays in the chat, now in its dock.
-                if chatHadFocus || content.focusedPane?.pane === anchor {
-                    let chatID = chat.id
-                    let listed = Task { @MainActor () -> Bool in
-                        // The store lists the chat in its new dock pane (the window's controller may come later;
-                        // focus goes by the pane's id, which the window applies when it shows the pane).
-                        for await moved in ObservationStream({ services.locateTab(chatID).map { $0.1 !== anchor } ?? false }) where moved {
-                            return true
-                        }
-                        return false
-                    }
-                    let bound = DemandTimer(owner: "AgentBesidePlacement.chatDock")
-                    bound.schedule(after: openLimit) { @MainActor in
-                        listed.cancel()
-                    }
-                    let moved = await listed.value
-                    bound.cancel()
-                    if moved, let pane = services.locateTab(chatID)?.1 {
-                        // Not a view change of the run: the run moved the focused chat out of its
-                        // pane, and focus follows the chat back to where the person had it (as
-                        // FocusCoordinator.followMovedTab does for a person's move).
-                        ActionRunScope.carrying(ActionRunScope(origin: .script, allowsViewChange: true)) {
-                            PaneHandlers.focus(LayoutPaneID(pane.id), in: content)
-                        }
+                await ChatColumnPlacement.moveNewTabPages(newTabPages, with: chat, from: anchor,
+                                                          in: content, services: services) { dock in
+                    // Keyboard focus stays in the chat before any New Tab pages follow it.
+                    guard chatHadFocus || content.focusedPane?.pane === anchor else { return }
+                    // Not a view change of the run: the run moved the focused chat out of its
+                    // pane, and focus follows the chat back to where the person had it (as
+                    // FocusCoordinator.followMovedTab does for a person's move).
+                    ActionRunScope.carrying(ActionRunScope(origin: .script, allowsViewChange: true)) {
+                        PaneHandlers.focus(LayoutPaneID(dock.id), in: content)
                     }
                 }
                 services.paneController(for: anchor)?.selectWhenReportedKeepingFocus(surface: surface)

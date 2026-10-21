@@ -42,8 +42,8 @@ extension ChatColumnPlacement {
     /// Where a person's new tab from `controller`'s pane opens: the pane
     /// to open it in (`controller` itself, or the strip pane, focused), or
     /// nil when it is already open. A lone chat moves into a new left dock
-    /// with the agent chat role, leaving `respawn` in its pane, in one daemon
-    /// commit, whether or not it shows its tab bar (cx-v4dmy: every chat shows
+    /// with the agent chat role, leaving `respawn` in its pane, then its New Tab pages
+    /// follow it, whether or not it shows its tab bar (cx-v4dmy: every chat shows
     /// it by default). Without `respawn` (a New Tab page, which is not a daemon
     /// tab) it stays in `controller`.
     @MainActor static func route(from controller: PaneController, respawn: SplitRespawn?,
@@ -63,15 +63,30 @@ extension ChatColumnPlacement {
                                       isNewTabPage: { services.agentTabs.isNewTabPage($0.id) }) else { return controller }
             // The new tab left in the pane takes focus, not the docked chat.
             let pane = controller.layoutPaneID
-            TabMoves.toNewDockColumn(chat, anchor: controller.pane, edge: .left, role: .agentChat,
-                                     respawn: respawn, services: services) { [weak content, weak controller] moved in
-                if moved, let content { PaneHandlers.focus(pane, in: content) }
+            let source = controller.pane
+            let originalSurfaces = Set(source.tabs.map(\.surface))
+            let pages = newTabPages(in: source.tabs) { services.agentTabs.isNewTabPage($0.id) }
+            services.registry.track(Task { @MainActor [weak content, weak controller] in
+                let moved = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+                    TabMoves.toNewDockColumn(chat, anchor: source, edge: .left, role: .agentChat,
+                                             respawn: respawn, services: services) { done.resume(returning: $0) }
+                }
+                guard moved else { return "move-tab-to-column failed (see the app log)" }
+                if let content {
+                    await moveNewTabPages(pages, with: chat, from: source, in: content, services: services)
+                    // A page whose optional move failed must not stay selected over the respawn.
+                    if let respawned = source.tabs.first(where: { !originalSurfaces.contains($0.surface) }) {
+                        controller?.selectWhenReportedKeepingFocus(surface: respawned.surface)
+                    }
+                    PaneHandlers.focus(pane, in: content)
+                }
                 // A hidden tab bar was the chat's choice: the tab left in the pane shows its tab bar again.
-                if moved, let controller, services.paneTabBars.choice(for: controller.paneKey) == false {
+                if let controller, services.paneTabBars.choice(for: controller.paneKey) == false {
                     services.paneTabBars.set(nil, for: controller.paneKey)
                     controller.apply(controller.snapshot())
                 }
-            }
+                return nil
+            })
             return nil
         case .besideDock:
             openBesideDock(controller, respawn: respawn, services: services)
