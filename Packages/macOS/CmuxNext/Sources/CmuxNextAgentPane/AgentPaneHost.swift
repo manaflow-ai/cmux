@@ -218,8 +218,11 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         let upkeep = makeUpkeep(environment, owned: owned)
         let task = Task { try await Self.findOrStart(environment, startsDaemon: startsDaemon, owned: owned, heal: heal, upkeep: upkeep) }
         inFlight[startsDaemon] = task
-        defer { if inFlight[startsDaemon] == task { inFlight[startsDaemon] = nil } }
-        let endpoint = try await task.value
+        // Cleared as soon as the lookup settles, not after `daemonReady`: a recheck that comes
+        // during it needs a fresh lookup, not this one's sessions read.
+        let result = await task.result
+        if inFlight[startsDaemon] == task { inFlight[startsDaemon] = nil }
+        let endpoint = try result.get()
         await daemonReady(daemonSocket)
         return endpoint
     }
