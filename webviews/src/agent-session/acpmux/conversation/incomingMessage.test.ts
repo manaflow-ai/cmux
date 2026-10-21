@@ -224,8 +224,45 @@ test("another session's prompt to this one is that session's message, and opens 
     kind: "message",
     message: { name: "app-store-features", sessionId: "lane-7", text: "PR #22761 merged.", raw: "PR #22761 merged." },
   });
-  // The same client with no provenance is the person (the acpmux TUI, or `acpmux send` at a shell).
+  // The same client with no provenance and no name first is the person (the acpmux TUI, or
+  // `acpmux send` at a shell).
   expect(incomingPrompt("PR #22761 merged.", { client: "acpmux-cli#a1b2c3" })).toBeUndefined();
+});
+
+test("`acpmux send` from a shell is the message of the agent named first in brackets", () => {
+  const sent = "[coord-deputy] Merged #1";
+  for (const client of ["acpmux-cli#a1b2c3", "acpmux-peer#huge-blue"]) {
+    expect(incomingPrompt(sent, { client })).toEqual({
+      kind: "message",
+      message: { name: "coord-deputy", text: "Merged #1", raw: sent },
+    });
+  }
+  // The body may start on the next line and run over several.
+  const long = "[claude-sr2/coordinator]\nTwo merged:\n- #1\n- #2\n";
+  expect(incomingPrompt(long, { client: "acpmux-cli#a1b2c3" })).toEqual({
+    kind: "message",
+    message: { name: "claude-sr2/coordinator", text: "Two merged:\n- #1\n- #2", raw: long },
+  });
+  // Another client's bracketed prompt is the person's.
+  expect(incomingPrompt(sent, undefined)).toBeUndefined();
+  expect(incomingPrompt(sent, { client: "web" })).toBeUndefined();
+  expect(incomingPrompt(sent, adopted)).toBeUndefined();
+  // Brackets that are no sender: Claude Code's interruption note, a sentence, cmux's own header,
+  // a name with nothing after it.
+  for (const text of [
+    "[Request interrupted by user for tool use]",
+    "[Request interrupted by user] carry on",
+    "[see the failing test in the log] then fix it",
+    "[cmux agent message] from lane-a\nhi",
+    "[coord-deputy]",
+  ])
+    expect(incomingPrompt(text, { client: "acpmux-cli#a1b2c3" })).toBeUndefined();
+  // Provenance, when the record has it, names the sender instead.
+  const provenance = { kind: "session_message", from: "lane-7", fromName: "app-store-features", to: "coordinator-1" };
+  expect(incomingPrompt(sent, { _meta: { provenance }, client: "acpmux-cli#a1b2c3" })).toEqual({
+    kind: "message",
+    message: { name: "app-store-features", sessionId: "lane-7", text: sent, raw: sent },
+  });
 });
 
 // Agent messages that waited for a busy chat go in as one turn (acpmux hub/digest.rs): the card

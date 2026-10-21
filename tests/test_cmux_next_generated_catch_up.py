@@ -25,7 +25,8 @@ def load():
 
 def pr(number, **overrides):
     value = {"number": number, "headRefName": f"lane-{number}", "headRefOid": f"{number:040d}",
-             "isDraft": False, "isCrossRepository": False, "mergeable": "CONFLICTING"}
+             "isDraft": False, "isCrossRepository": False, "mergeable": "CONFLICTING",
+             "author": {"login": "teamleaderleo"}, "labels": []}
     value.update(overrides)
     return value
 
@@ -78,6 +79,33 @@ class Selection(unittest.TestCase):
 
     def test_main_is_never_a_head(self):
         self.assertEqual(self.catch_up.select([pr(1, headRefName="main")], limit=10), [])
+
+    def test_only_leos_agent_prs_or_an_opted_in_pr_are_pushed_to(self):
+        # The rulebook: never push to a teammate's PR without Leo's OK (2026-10-21). Leo's agents act as
+        # teamleaderleo; anyone else opts in with the generated-catch-up label.
+        prs = [pr(1), pr(2, author={"login": "lawrencecchen"}), pr(3, author={"login": "austinywang"},
+               labels=[{"name": "generated-catch-up"}]), pr(4, author=None), pr(5, author={"login": "TeamLeaderLeo"})]
+        self.assertEqual([item["number"] for item in self.catch_up.select(prs, limit=10)], [1, 3, 5])
+
+    def test_the_listing_reads_author_and_labels(self):
+        calls = []
+
+        class Done:
+            stdout = "[]"
+
+        def run(args, **kwargs):
+            calls.append(args)
+            return Done()
+
+        original = self.catch_up.subprocess.run
+        self.catch_up.subprocess.run = run
+        try:
+            self.catch_up._list("manaflow-ai/cmux", "feat-cmux-next")
+        finally:
+            self.catch_up.subprocess.run = original
+        fields = calls[0][calls[0].index("--json") + 1].split(",")
+        self.assertIn("author", fields)
+        self.assertIn("labels", fields)
 
 
 class Workflow(unittest.TestCase):
