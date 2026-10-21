@@ -167,6 +167,8 @@ config.textContent = JSON.stringify({
     layout: "unified",
     layoutSource: "explicit",
     labels: diffViewerLabelsFor("en"),
+    // cmux NEXT's default (state.ts defaultDiffViewerOptions); an embedded config starts with it off.
+    viewerOptions: { wordDiffs: true },
   },
 });
 document.head.append(config);

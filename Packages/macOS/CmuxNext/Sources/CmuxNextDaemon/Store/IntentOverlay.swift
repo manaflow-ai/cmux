@@ -112,8 +112,10 @@ import Foundation
         if let created = pending.createdSurface, store.tabsBySurface[created] != nil {
             guard !pending.createdConfirmed else {
                 // A split's tab is confirmed with its pane, before the layout that places the
-                // pane: the split still places the daemon's pane until then (cx-ry0y).
-                guard case .splitPane = pending.kind else { return nil }
+                // pane: the split still places the daemon's pane until then (cx-ry0y), and only
+                // while the records hold that pane (its tab may move out and the pane close first).
+                guard case .splitPane(_, _, _, let provisional) = pending.kind,
+                      ProvisionalSplit.daemonPane(provisional, in: store) != nil else { return nil }
                 return apply(pending.kind, to: store)
             }
             // A guess: the daemon's tab stays out of sight and the stand-in keeps its place, so
