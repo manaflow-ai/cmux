@@ -63,6 +63,9 @@ struct ClickedLinkFocusTests {
             try await PinnedPageTests.until({ content.panes.keys.contains { !panes.contains($0) } })
             let right = try #require(content.panes.first { !panes.contains($0.key) }?.value)
             try await PinnedPageTests.until({ !right.pane.tabs.isEmpty })
+            // The split shows a provisional pane at once; the daemon refuses a tab aimed at it
+            // ("unknown pane") until it confirms the split, which swaps in its own handle and tab.
+            try await PinnedPageTests.until({ right.pane.tabs.contains { !ProvisionalTab.isProvisional(surface: $0.surface) } })
             PaneHandlers.focus(pane.layoutPaneID, in: content)
             try await PinnedPageTests.until({ content.focusedPane === pane })
             services.linkOpener.placement = { .splitRight }
@@ -95,6 +98,9 @@ struct ClickedLinkFocusTests {
             try await PinnedPageTests.until({ content.panes.keys.contains { !panes.contains($0) } })
             let right = try #require(content.panes.first { !panes.contains($0.key) }?.value)
             try await PinnedPageTests.until({ !right.pane.tabs.isEmpty })
+            // The split shows a provisional pane at once; the daemon refuses a tab aimed at it
+            // ("unknown pane") until it confirms the split, which swaps in its own handle and tab.
+            try await PinnedPageTests.until({ right.pane.tabs.contains { !ProvisionalTab.isProvisional(surface: $0.surface) } })
             // The agent's tab, made in the column right of its chat and not reported to the placement yet.
             let agents = try await connection.newFrontendBrowserTab(url: "https://example.com/agent", engine: .webkit,
                                                                     in: right.pane.handle, activate: false)
