@@ -146,6 +146,8 @@ on:
       - scripts/cmux-next/skew-matrix*
       - scripts/cmux-next/check-capability-text.py
       - scripts/cmux-next/check-single-omnibar.py
+      - scripts/cmux-next/check-perf-source-guard.py
+      - tests/test_cmux_next_perf_source_guard.py
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
       - scripts/cmux-next/gen-settings-sources.py
@@ -363,6 +365,8 @@ on:
       - scripts/cmux-next/skew-matrix*
       - scripts/cmux-next/check-capability-text.py
       - scripts/cmux-next/check-single-omnibar.py
+      - scripts/cmux-next/check-perf-source-guard.py
+      - tests/test_cmux_next_perf_source_guard.py
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
       - scripts/cmux-next/gen-settings-sources.py
@@ -1426,7 +1430,9 @@ jobs:
       - name: Perf source guard (no window capture or CATransaction.flush)
         id: perf-source-guard
         continue-on-error: true
-        run: python3 -I scripts/cmux-next/check-perf-source-guard.py
+        run: |
+          python3 tests/test_cmux_next_perf_source_guard.py
+          python3 -I scripts/cmux-next/check-perf-source-guard.py
 
       - name: Checks job structure
         id: checks-structure
