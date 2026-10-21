@@ -97,6 +97,13 @@ public nonisolated enum SidebarTunables {
         help: "A workspace row says needs you, done, failed or lost at the right of its name, in the Priority view's words, for the most urgent agent chat in it on this Mac.",
         default: true, code: "SidebarTunables.rowStatus")
 
+    /// A working row's second line says what its agent does right now (`SidebarLaneStatus`). On
+    /// by default; a row without a second line keeps its one line (the hover card says it).
+    public static let nowLine = Tunable<Bool>.toggle(
+        "sidebar.nowLine", .sidebar, "Rows say what their agent does now",
+        help: "While an agent chat in a workspace works, the row's second line reads \"Now:\" and what the agent is doing. A one-line row stays one line.",
+        default: true, code: "SidebarTunables.nowLine")
+
     /// Sample agent lanes on every row (`SidebarLaneFixture`), for captures on a slot with no agents.
     public static let laneFixture = Tunable<Bool>.toggle(
         "sidebar.laneFixture", .sidebar, "Sample agent states on rows",
@@ -151,6 +158,7 @@ public nonisolated enum SidebarTunables {
             laneStatus.descriptor,
             rowStatus.descriptor,
             laneFixture.descriptor,
+            nowLine.descriptor,
             NotificationBadgeLook.tunable.descriptor,
             NotificationIconLook.tunable.descriptor,
             presenceDots.descriptor,

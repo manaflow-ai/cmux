@@ -31,11 +31,13 @@ enum SidebarLaneStatus {
             let merged: SidebarRowFeed.Make = {
                 var row = make()
                 let mergesState = SidebarTunables.laneStatus.value, namesState = SidebarTunables.rowStatus.value
-                guard mergesState || namesState else { return row }
+                let saysStep = SidebarTunables.nowLine.value
+                guard mergesState || namesState || saysStep else { return row }
                 let local = SidebarTunables.laneFixture.value ? SidebarLaneFixture.lanes(workspace)
                     : SidebarLocalLanes.lanes(workspace, lanes: lanes, turns: turns)
                 if mergesState { merge(local, into: &row) }
                 if namesState { row.agentChip = chip(local, marks: marks.state) }
+                if saysStep { row.agentStep = step(local) }
                 return row
             }
             return rows?(workspace, machine, merged) ?? merged()
@@ -61,6 +63,12 @@ enum SidebarLaneStatus {
         lanes.map { AgentPriorityRanking.state($0, read: marks.read[$0.id] == AgentPriorityMarks.stamp($0)) }
             .filter { if case .working = $0 { false } else { $0 != .idle } }
             .min { AgentPriorityRanking.tier($0) < AgentPriorityRanking.tier($1) }
+    }
+
+    /// The step of the working lane that started last, nil when none works or says what it does.
+    static func step(_ lanes: [AgentActivityLane]) -> String? {
+        lanes.filter { $0.state == .working && $0.step?.isEmpty == false }
+            .max { ($0.since ?? .distantPast) < ($1.since ?? .distantPast) }?.step
     }
 
     /// A lane state as the row's status mark.
