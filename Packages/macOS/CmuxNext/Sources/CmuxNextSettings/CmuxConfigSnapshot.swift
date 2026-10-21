@@ -118,6 +118,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var tileBrowsers: Bool = CmuxConfigSnapshot.tileBrowsersFallback
     /// `layout.linkPlacement`: where an opened link or path lands (``LinkPlacement``).
     public var linkPlacement: LinkPlacement = .fallback
+    /// `layout.mainPane`: whether an agent chat is its screen's main pane (``MainPaneSetting``).
+    public var mainPane: MainPaneSetting = .fallback
     /// `workspaces.newPlacement` (`WorkspaceListSettings`).
     public var newWorkspacePlacement: NewWorkspacePlacement = CmuxConfigSnapshot.newWorkspacePlacementFallback
     /// `layout.closeFocus`; "previousNeighbor" when unset or invalid.
