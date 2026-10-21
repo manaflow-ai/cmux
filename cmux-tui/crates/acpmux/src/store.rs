@@ -853,8 +853,63 @@ fn for_each_line_rev_from(
     Ok(())
 }
 
+/// Where a forward read past `after` can start in segment `path`: the start of a line at or
+/// before the segment's first record past `after`, found like [`offset_of_seq`] by a binary
+/// search on line headers. Every line skipped holds a record at or before `after`, so a read
+/// from here misses nothing; 0 when no probe lands on a readable header (an older field order,
+/// a line over 64 KiB), which reads the segment whole as before. A live tail costs the bytes
+/// near the segment's end, not the segment (an 8 MiB read per page before).
+fn start_after_seq(path: &Path, after: u64) -> Result<u64> {
+    use std::io::{Seek, SeekFrom};
+    const PROBE: usize = 64 * 1024;
+    let mut file = crate::config::private_state_file(path)?;
+    let len = file.seek(SeekFrom::End(0))?;
+    let mut buf = vec![0u8; PROBE];
+    let (mut lo, mut hi, mut start) = (0u64, len, 0u64);
+    while hi - lo > PROBE as u64 {
+        let mid = lo + (hi - lo) / 2;
+        file.seek(SeekFrom::Start(mid))?;
+        let mut filled = 0;
+        while filled < PROBE {
+            let n = file.read(&mut buf[filled..])?;
+            if n == 0 {
+                break;
+            }
+            filled += n;
+        }
+        let data = &buf[..filled];
+        let Some(nl) = data.iter().position(|&b| b == b'\n') else { return Ok(start) };
+        let Some(seq) = record_seq(&data[nl + 1..]) else { return Ok(start) };
+        if seq > after {
+            hi = mid;
+        } else {
+            lo = mid;
+            start = mid + nl as u64 + 1;
+        }
+    }
+    Ok(start)
+}
+
+/// The `seq` of a segment's first record. The 32-byte header answers for a line in the daemon's
+/// field order without reading the line: a segment's first line can be a tool result of
+/// megabytes (5.2 MB on cosmic-gray, 2026-10-21), and every page asked once per segment.
 fn first_seq(path: &Path) -> Result<Option<u64>> {
-    let mut reader = BufReader::new(crate::config::private_state_file(path)?);
+    use std::io::{Seek, SeekFrom};
+    let mut file = crate::config::private_state_file(path)?;
+    let mut head = [0u8; 32];
+    let mut filled = 0;
+    while filled < head.len() {
+        let n = file.read(&mut head[filled..])?;
+        if n == 0 {
+            break;
+        }
+        filled += n;
+    }
+    if let Some(seq) = record_seq(&head[..filled]) {
+        return Ok(Some(seq));
+    }
+    file.seek(SeekFrom::Start(0))?;
+    let mut reader = BufReader::new(file);
     let mut line = Vec::new();
     loop {
         line.clear();
@@ -964,18 +1019,29 @@ impl Store for LocalStore {
     /// on its `seq` alone, unparsed. A forward page of a long log costs its own records,
     /// not the log's prefix (perf100: a 70 MB log read in 10,000-record pages parsed
     /// every earlier record again on each page).
+    ///
+    /// The first segment read is the newest one that starts at or before `after + 1`, found from
+    /// the end (one header read for a live tail, not one per segment), and the read starts inside
+    /// it near `after` (`start_after_seq`).
     fn scan(&self, id: &str, after: u64, visit: &mut dyn FnMut(EventRecord) -> bool) -> Result<()> {
+        use std::io::{Seek, SeekFrom};
         let segments = self.segments(id)?;
-        let mut line = Vec::new();
-        for (index, (_, path)) in segments.iter().enumerate() {
-            if after > 0
-                && let Some((_, next)) = segments.get(index + 1)
-                && first_seq(next)?.is_some_and(|first| first <= after.saturating_add(1))
-            {
-                continue;
+        let mut from = 0;
+        if after > 0 {
+            for (index, (_, path)) in segments.iter().enumerate().rev() {
+                if first_seq(path)?.is_some_and(|first| first <= after.saturating_add(1)) {
+                    from = index;
+                    break;
+                }
             }
-            let mut reader =
-                BufReader::with_capacity(256 * 1024, crate::config::private_state_file(path)?);
+        }
+        let mut line = Vec::new();
+        for (index, (_, path)) in segments.iter().enumerate().skip(from) {
+            let mut file = crate::config::private_state_file(path)?;
+            if after > 0 && index == from {
+                file.seek(SeekFrom::Start(start_after_seq(path, after)?))?;
+            }
+            let mut reader = BufReader::with_capacity(256 * 1024, file);
             loop {
                 line.clear();
                 if reader.read_until(b'\n', &mut line)? == 0 {
@@ -1311,5 +1377,58 @@ mod line_rev_tests {
         let want: Vec<String> = lines.iter().rev().filter(|l| !l.is_empty()).cloned().collect();
         assert_eq!(seen.len(), want.len());
         assert!(seen == want, "lines came back changed or out of order");
+    }
+}
+
+#[cfg(all(test, unix))]
+mod forward_scan_tests {
+    use super::*;
+
+    /// A forward page starts at the newest segment that can hold `after + 1` and seeks inside
+    /// it, yet returns exactly the records past `after`: across segment ends, from inside a
+    /// segment, past a first line too long for the header probe, and past the end.
+    #[test]
+    fn a_forward_page_returns_every_record_past_after_and_nothing_else() {
+        let root = std::env::temp_dir().join(format!(
+            "acpmux-forward-scan-{}-{}",
+            std::process::id(),
+            uuid::Uuid::now_v7()
+        ));
+        let store = LocalStore::new(root.clone(), 64 * 1024).unwrap();
+        let id = "s";
+        let mut last = 0;
+        for seq in 1..=2_000u64 {
+            // Every 300th record is 200 KB: some segments start with a line longer than a probe.
+            let text = if seq % 300 == 0 { "x".repeat(200_000) } else { format!("record {seq}") };
+            let record = EventRecord {
+                seq,
+                at: seq,
+                dir: "in".into(),
+                kind: "k".into(),
+                msg: serde_json::json!({"text": text}),
+                host_seq: None,
+            };
+            store.append(id, &record).unwrap();
+            last = seq;
+        }
+        let segments = store.segments(id).unwrap();
+        assert!(segments.len() > 10, "{} segments", segments.len());
+        let mut afters = vec![0, 1, 2, 299, 300, 301, 999, 1_500, last - 1, last, last + 5];
+        for (_, path) in &segments {
+            let first = first_seq(path).unwrap().unwrap();
+            afters.extend([first.saturating_sub(2), first - 1, first, first + 1]);
+        }
+        for after in afters {
+            let mut seen = Vec::new();
+            store
+                .scan(id, after, &mut |rec| {
+                    seen.push(rec.seq);
+                    true
+                })
+                .unwrap();
+            let want: Vec<u64> = (after + 1..=last).collect();
+            assert!(seen == want, "after {after}: {} records, want {}", seen.len(), want.len());
+        }
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
