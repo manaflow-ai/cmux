@@ -46,6 +46,8 @@ public final class UpdaterService {
     public internal(set) var updateSnooze = UpdateSnooze()
     /// The pending reminder's end, on the injected clock (one-shot; re-armed at launch).
     @ObservationIgnored let snoozeTimer: DemandTimer
+    /// The pulled-build banner (made on first use; it needs `self`).
+    @ObservationIgnored public private(set) lazy var pulledWatch = PulledBuildWatch(updater: self)
     /// The notice whose timeout is pending, and its one-shot deadline on the
     /// injected clock (no `asyncAfter`).
     @ObservationIgnored var expiringCard: UpdateCard?
@@ -125,7 +127,8 @@ public final class UpdaterService {
     public var preferences = UpdatePreferences.defaults
     /// Sparkle's staged install and its cancel (replaced by tests).
     @ObservationIgnored var installStaged: () -> Void = {}
-    @ObservationIgnored var cancelStaged: () -> Void = {}
+    /// The cancel returns whether an installer was held and is now cancelled.
+    @ObservationIgnored var cancelStaged: () -> Bool = { false }
     @ObservationIgnored var acceptAvailable: () -> Void = {}
     @ObservationIgnored var phaseObservation: Task<Void, Never>?
     @ObservationIgnored var pathMonitor: NWPathMonitor?
@@ -139,11 +142,9 @@ public final class UpdaterService {
     @ObservationIgnored var markedCardKind: String?
     #endif
 
-    /// Asks the App to show the update sheet (set by the App): a failure's
-    /// details only.
+    /// Asks the App to show the update sheet (set by the App): a failure's details only.
     @ObservationIgnored public var presentUpdateUI: (() -> Void)?
-    /// Sparkle is about to relaunch into the update (set by the App: the quit
-    /// keeps every terminal).
+    /// Sparkle is about to relaunch into the update (set by the App: the quit keeps every terminal).
     @ObservationIgnored public var willRelaunch: (() -> Void)?
     /// Whether a window shows the update notice (the sidebar footer's
     /// pill). Without it, checks and installs open the update sheet.
@@ -198,6 +199,10 @@ public final class UpdaterService {
             // Set on this updater only; no defaults change, so the legacy app
             // sharing the domain keeps its own behavior.
             controller.installsUpdatesInBackground = true
+            // The nightly feed lists each build's deltas minutes after its DMG
+            // (nightly.yml generate-nightly-deltas); a scheduled check in that gap
+            // waits once instead of downloading the full DMG.
+            if identity.track == .nightly { controller.pendingDeltaWindow = 45 * 60 }
             self.controller = controller
         } else {
             #if DEBUG
@@ -208,7 +213,7 @@ public final class UpdaterService {
         }
         if let controller {
             installStaged = { [weak controller] in controller?.installStagedUpdate() }
-            cancelStaged = { [weak controller] in controller?.cancelStagedUpdate() }
+            cancelStaged = { [weak controller] in controller?.cancelStagedUpdate() ?? false }
             acceptAvailable = { [weak controller] in controller?.acceptAvailableUpdate() }
             stagedBuild = { [weak controller] in controller?.stagedUpdate?.versionString }
         }
@@ -226,8 +231,7 @@ public final class UpdaterService {
         return policy.disablesUpdates ? .managedPolicy : nil
     }
 
-    /// Starts Sparkle (scheduled checks and the launch probe honor
-    /// `SUEnableAutomaticChecks`). Idempotent; no-op without a driver.
+    /// Starts Sparkle (its checks honor `SUEnableAutomaticChecks`). Idempotent; no-op without a driver.
     public func start() {
         guard !started else { return }
         started = true
@@ -240,6 +244,7 @@ public final class UpdaterService {
             return
         }
         controller.actionDelegate = self
+        pulledWatch.start(controller: controller)
         controller.startUpdaterIfNeeded()
         #if DEBUG
         if UpdateHarness.current?.backgroundCheck == true {

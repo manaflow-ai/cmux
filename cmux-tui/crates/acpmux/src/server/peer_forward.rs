@@ -42,6 +42,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     crate::catalog::RPC_GET,
     crate::catalog::RPC_REFRESH,
     "_acpmux/peer_add",
+    "_acpmux/peer_lease",
     "_acpmux/peer_remove",
     "_acpmux/peer_reconnect",
 ];
@@ -144,6 +145,15 @@ async fn forward_inner(
             obj.insert("peer".into(), Value::String(peer.name.clone()));
         }
         return Ok(Some(result));
+    }
+    // `PEER/name` for a peer that is down and lists no such session: say
+    // the peer is unreachable, not that the session does not exist.
+    if !SESSION_SCOPED_EXCLUDED.contains(&m)
+        && let Ok(key) = session_key(params)
+        && hub.resolve(key).is_err()
+        && let Some(e) = hub.peer_down_for(key)
+    {
+        return Err(e);
     }
     Ok(None)
 }

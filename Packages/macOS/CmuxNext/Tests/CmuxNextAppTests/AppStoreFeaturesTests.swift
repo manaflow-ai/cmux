@@ -1,7 +1,9 @@
 import CmuxNextActions
+@testable import CmuxNextAgentLanes
 @testable import CmuxNextApps
 import CmuxNextDesign
 @testable import CmuxNextSettings
+import CmuxNextSidebar
 import Foundation
 import Testing
 @testable import CmuxNextApp
@@ -35,6 +37,14 @@ import Testing
     @Test func everyFeatureIsAnExistingSettingWithAValidOnValue() {
         #expect(Set(AppFeature.catalog.map(\.id)).count == AppFeature.catalog.count, "feature ids are unique")
         for feature in AppFeature.catalog {
+            // A sidebar item is a built-in the default layout does not show, so Get adds it.
+            if let item = feature.sidebarItem {
+                let builtIn = SidebarBuiltIn(rawValue: item)
+                #expect(builtIn != nil, "\(item) is not a sidebar item")
+                #expect(builtIn.flatMap { SidebarLayoutDocument.defaults.firstItem(with: .builtIn($0)) } == nil, "\(feature.id) is on by default")
+                #expect(!feature.name.isEmpty && !feature.summary.isEmpty)
+                continue
+            }
             guard let descriptor = SettingsSchema.descriptor(for: feature.path) else {
                 #expect(Self.pendingKeys.contains(feature.setting), "\(feature.setting) is not a setting")
                 continue
@@ -42,6 +52,7 @@ import Testing
             switch feature.on {
             case .toggle: #expect(descriptor.kind == .toggle, "\(feature.setting) is not on/off")
             case .choice: #expect(descriptor.accepts(SettingsAppFeatures.onValue(feature)), "\(feature.setting) refuses \(feature.id)'s value")
+            case .sidebarItem: break // above
             }
             #expect(!feature.name.isEmpty && !feature.summary.isEmpty)
             // A choice that is on by default could not be turned off by Remove (it clears the key);
@@ -78,6 +89,50 @@ import Testing
         try await bridge.set(paintings, on: false)
         #expect(settings.fileRoot.value(at: ["appearance", "background"]) == nil)
         #expect(!bridge.isOn(paintings))
+    }
+
+    /// Chief in Sidebar: listed once the sidebar binds its side, on while the layout shows the
+    /// Chief item, and Get / Remove run the sidebar's edit; a refused edit says so on the card.
+    @Test func aSidebarItemCardAddsAndRemovesTheItem() async throws {
+        final class Sidebar { var shown = false, refuses = false, edits: [String] = [] }
+        let saved = SettingsAppFeatures.sidebarItems
+        defer { SettingsAppFeatures.sidebarItems = saved }
+        let bridge = SettingsAppFeatures(settings: { nil })
+        let card = try Self.feature("chief.sidebarItem")
+        SettingsAppFeatures.sidebarItems = nil
+        #expect(!bridge.isAvailable(card))
+        let sidebar = Sidebar()
+        SettingsAppFeatures.sidebarItems = .init(names: ["chief"], isShown: { _ in sidebar.shown }, set: { name, on in
+            sidebar.edits.append("\(on ? "add" : "remove") \(name)")
+            guard !sidebar.refuses else { return false }
+            sidebar.shown = on
+            return true
+        })
+        #expect(bridge.isAvailable(card))
+        #expect(!bridge.isOn(card))
+        #expect(!bridge.isManaged(card))
+        try await bridge.set(card, on: true)
+        #expect(bridge.isOn(card))
+        try await bridge.set(card, on: false)
+        #expect(!bridge.isOn(card))
+        sidebar.refuses = true
+        await #expect(throws: SettingRefused.self) { try await bridge.set(card, on: true) }
+        #expect(sidebar.edits == ["add chief", "remove chief", "add chief"])
+    }
+
+    /// The Chief card's edits are the sidebar's own actions: Add to Sidebar with the item's name,
+    /// Remove from Sidebar on the item, both as the person's.
+    @Test func theChiefCardRunsTheSidebarsAddAndRemove() {
+        let registry = ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases)
+        var runs: [String] = []
+        registry.bind("sidebar.item.add", invoke: { runs.append("add \($0["item"]?.stringValue ?? "") \($0.origin == .user)") })
+        registry.bind("sidebar.item.removeEverywhere", invoke: {
+            runs.append("remove \($0.target?.kind == .sidebarItem ? $0.target?.id ?? "" : "") \($0.origin == .user)")
+        })
+        #expect(ChiefSidebar.setPlaced("chief", true, registry: registry))
+        #expect(ChiefSidebar.setPlaced("chief", false, registry: registry))
+        #expect(!ChiefSidebar.setPlaced("chief", true, registry: nil))
+        #expect(runs == ["add chief true", "remove chief true"])
     }
 
     @Test func removeWritesFalseForAFeatureThatIsOnByDefault() async throws {

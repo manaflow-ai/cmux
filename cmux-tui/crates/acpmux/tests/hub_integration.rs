@@ -35,6 +35,8 @@ mod prompt_context;
 mod prompt_provenance;
 #[path = "hub_integration/prompt_withdraw.rs"]
 mod prompt_withdraw;
+#[path = "hub_integration/protocol_serve.rs"]
+mod protocol_serve;
 #[path = "hub_integration/purged_stays_purged.rs"]
 mod purged_stays_purged;
 #[path = "hub_integration/questions.rs"]
@@ -1327,6 +1329,8 @@ mod session_git_state;
 #[cfg(unix)]
 #[path = "hub_integration/session_list_order.rs"]
 mod session_list_order;
+#[path = "hub_integration/session_pull_requests.rs"]
+mod session_pull_requests;
 #[path = "hub_integration/transfer.rs"]
 mod transfer;
 #[path = "hub_integration/transfer_guard.rs"]
