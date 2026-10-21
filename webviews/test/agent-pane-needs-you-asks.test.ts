@@ -4,8 +4,16 @@
 // an answer rereads `_acpmux/info`, and a read that predates a newer ask or a newer read is dropped,
 // so a slow read never brings back an answered ask or drops a new one.
 import { expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import type { AcpmuxPermission } from "../src/agent-session/acpmux/model";
-import { AskTracker, type PendingEntry } from "../src/agent-session/acpmux/needsYou/asks";
+import {
+  AskTracker,
+  PENDING_ASKS_OP,
+  pendingReader,
+  SIDE_SESSION_METHOD,
+  type PendingEntry,
+} from "../src/agent-session/acpmux/needsYou/asks";
 
 const parse = (message: unknown, sessionId: string): AcpmuxPermission | undefined => {
   const id = (message as { permissionId?: unknown }).permissionId;
@@ -130,4 +138,111 @@ test("a read that fails, or a chat that cannot be read, keeps what the page hold
   expect(ids(asks)).toEqual(["p1"]);
   asks.forget("s1");
   expect(ids(asks)).toEqual([]);
+});
+
+test("after a lag every chat with open requests is read again, and a chat no longer listed is dropped", async () => {
+  const { asks, reads } = tracker();
+  asks.sessions([
+    { sessionId: "s1", pendingPermissions: 1 },
+    { sessionId: "gone", pendingPermissions: 1 },
+  ]);
+  reads[0]!.resolve([{ permissionId: "p1" }]);
+  reads[1]!.resolve([{ permissionId: "p-gone" }]);
+  await settle();
+  expect(ids(asks)).toEqual(["p1", "p-gone"]);
+  // The lag may have hidden p1's answer and a new ask, with the count unchanged; "gone" was purged.
+  asks.resync([
+    { sessionId: "s1", pendingPermissions: 1 },
+    { sessionId: "idle", pendingPermissions: 0 },
+  ]);
+  expect(ids(asks)).toEqual(["p1"]);
+  expect(reads.slice(2).map((read) => read.sessionId)).toEqual(["s1"]);
+  reads[2]!.resolve([{ permissionId: "p2" }]);
+  await settle();
+  expect(ids(asks)).toEqual(["p2"]);
+});
+
+test("a lag on named chats rereads only those and drops no other chat", () => {
+  const { asks, reads } = tracker();
+  asks.pending({ sessionId: "s1", permissionId: "p1" });
+  asks.pending({ sessionId: "s2", permissionId: "p2" });
+  asks.resync([{ sessionId: "s2", pendingPermissions: 1 }], new Set(["s2"]));
+  expect(reads.map((read) => read.sessionId)).toEqual(["s2"]);
+  expect(ids(asks)).toEqual(["p1", "p2"]);
+});
+
+test("a read still out for a chat that is dropped never brings its asks back", async () => {
+  const { asks, reads } = tracker();
+  asks.sessions([{ sessionId: "s1", pendingPermissions: 1 }]);
+  asks.resync([]);
+  reads[0]!.resolve([{ permissionId: "late" }]);
+  await settle();
+  expect(ids(asks)).toEqual([]);
+});
+
+// The read path, against the real allowlists rather than a stand-in: the pane's relay sends only
+// the methods in AcpmuxPaneMethods.requests (Swift), so `_acpmux/info` there is refused and every
+// read fails, leaving answered asks listed (PR #22646 review). In the app the read is the page op
+// the host serves (AgentPageOps), and Ask about this sends a relay method the allowlist takes, with
+// params its knownParams take.
+const repo = path.resolve(import.meta.dir, "../..");
+const swift = (file: string) =>
+  readFileSync(path.join(repo, "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane", file), "utf8");
+const literals = (text: string) => [...text.matchAll(/"([^"\\]+)"/g)].map((match) => match[1]!);
+function swiftSet(text: string, name: string): string[] {
+  const start = text.indexOf(`static let ${name}: Set<String> = [`);
+  expect(start).toBeGreaterThan(-1);
+  const body = text.slice(start, text.indexOf("\n    ]", start));
+  // String literals outside `//` comments.
+  return literals(body.replace(/\/\/.*$/gm, ""));
+}
+
+test("in the app a chat's open requests are read through the host op, never the relay", async () => {
+  const relay = swiftSet(swift("AcpmuxPaneMethods.swift"), "requests");
+  const ops = literals(swift("AgentPageProvider.swift").slice(0, swift("AgentPageProvider.swift").indexOf("].map")));
+  expect(ops).toContain(PENDING_ASKS_OP);
+  const host: string[] = [];
+  const daemon: string[] = [];
+  const read = pendingReader(
+    () => true,
+    async (op, params) => {
+      host.push(`${op}:${String(params.sessionId)}`);
+      return { pending: [{ permissionId: "p1" }] };
+    },
+    async (method) => {
+      daemon.push(method);
+      // The relay answers what it does not allow with a refusal.
+      if (!relay.includes(method)) throw new Error("Refused by the cmux host");
+      return { pending: [] };
+    },
+  );
+  expect(await read("s1")).toEqual([{ permissionId: "p1" }]);
+  expect(host).toEqual([`${PENDING_ASKS_OP}:s1`]);
+  expect(daemon).toEqual([]);
+  // In mock mode (an in-page daemon, no relay) it asks the daemon itself.
+  const mock = pendingReader(
+    () => false,
+    async () => undefined,
+    async (method, params) => (method === "_acpmux/info" && params.sessionId === "s1" ? { pending: [] } : undefined),
+  );
+  expect(await mock("s1")).toEqual([]);
+  // A host that cannot read the chat answers null: the page keeps what it holds.
+  expect(
+    await pendingReader(
+      () => true,
+      async () => null,
+      async () => undefined,
+    )("s1"),
+  ).toBeUndefined();
+});
+
+test("Ask about this sends a relay method the pane's allowlist takes, with params it knows", () => {
+  const relay = swiftSet(swift("AcpmuxPaneMethods.swift"), "requests");
+  expect(relay).toContain(SIDE_SESSION_METHOD);
+  const params = swift("AcpmuxPaneMethods+Params.swift");
+  const line = params.split("\n").find((text) => text.includes(`"${SIDE_SESSION_METHOD}": (`));
+  expect(line).toBeDefined();
+  const known = literals(line!.slice(line!.indexOf("(")));
+  // direct.ts `btw` sends exactly these.
+  for (const key of ["sessionId", "question"]) expect(known).toContain(key);
 });

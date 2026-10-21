@@ -267,17 +267,14 @@ test("the Debug Settings attributes pick the list's mode", () => {
   expect(needsYouMode(root("bogus"))).toBe("pinned");
 });
 
-test("the side question carries the ask, its choices and earlier answers", () => {
+test("the side question carries the ask and its choices", () => {
   const [item] = needsYouItems({
     sessions: [session("s-q")],
     asks: [ask("s-q", permission({ permissionId: "q-perm", question: question() }), 1)],
   });
-  const prompt = sideQuestionPrompt(item!, "Which is safer?", [
-    { question: "What is this?", answer: "A login choice." },
-  ]);
+  const prompt = sideQuestionPrompt(item!, "Which is safer?");
   expect(prompt).toContain("Which login should the app use?");
   expect(prompt).toContain("Choices: OAuth / Passkeys");
-  expect(prompt).toContain("You said: A login choice.");
   expect(prompt).toContain("My question: Which is safer?");
 });
 
@@ -367,6 +364,39 @@ test("a refused answer stays in the list and says so; the empty list says nothin
   expect(host.textContent).toContain(translate("needsYou.empty"));
 });
 
+test("Ask about this opens a side session seeded with the ask, then closes; a refusal says so", async () => {
+  const host = installDom();
+  const items = needsYouItems({ sessions: [session("s1")], asks: [ask("s1", permission({ title: "Run it" }), 1)] });
+  const asked: string[] = [];
+  let refuse = true;
+  const actions: NeedsYouActions = {
+    answer: async () => undefined,
+    goTo: () => undefined,
+    ask: async (item, question) => {
+      asked.push(`${item.sessionId}:${question.includes("Run it")}`);
+      if (refuse) throw new Error("no read-only mode");
+    },
+  };
+  root = createRoot(host);
+  await act(async () => root!.render(<NeedsYouPanel items={items} actions={actions} />));
+  const open = () => click(host.querySelector(".acpmux-needs-you-ask-about")!);
+  const submit = () =>
+    host
+      .querySelector(".acpmux-needs-you-side-form")!
+      .dispatchEvent(new dom!.window.Event("submit", { bubbles: true, cancelable: true }));
+  await act(async () => open());
+  expect((host.querySelector(".acpmux-needs-you-side-field") as HTMLInputElement).value).toBe(
+    translate("needsYou.askSeed"),
+  );
+  await act(async () => submit());
+  expect(asked).toEqual(["s1:true"]);
+  expect(host.textContent).toContain(translate("needsYou.askFailedReason", { reason: "no read-only mode" }));
+  refuse = false;
+  await act(async () => submit());
+  expect(asked).toHaveLength(2);
+  expect(host.querySelector(".acpmux-needs-you-side")).toBeNull();
+});
+
 test("compact mode lists asks without answers", () => {
   const items = needsYouItems({ sessions: [session("s1")], asks: [ask("s1", permission({ title: "Run it" }), 1)] });
   const html = renderToStaticMarkup(
@@ -401,7 +431,7 @@ test("answering another chat's ask opens that chat first, so the relay lets the 
         ],
       },
       callNative,
-      ask: async () => "",
+      sideSession: async (sessionId, question) => void calls.push(`btw:${sessionId}:${question}`),
     });
     actions = needsYou.actions;
     items = needsYou.items;
@@ -418,4 +448,12 @@ test("answering another chat's ask opens that chat first, so the relay lets the 
   expect(calls).toEqual(["chat.select:other", "chat.permission:other"]);
   // A refused question answer rejects instead of throwing out of the click.
   await expect(actions!.answer({ ...other, permissionId: undefined }, other.answers[0]!)).rejects.toThrow();
+  // Ask about this starts a side session (`_acpmux/btw`), which the relay also scopes to a chat the
+  // pane shows: another chat's ask opens that chat first; this chat's goes out at once.
+  calls.length = 0;
+  await actions!.ask(here, "Why?");
+  expect(calls).toEqual(["btw:here:Why?"]);
+  calls.length = 0;
+  await actions!.ask(other, "Why?");
+  expect(calls).toEqual(["chat.select:other", "btw:other:Why?"]);
 });
