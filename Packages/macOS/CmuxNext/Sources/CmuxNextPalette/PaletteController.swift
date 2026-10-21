@@ -119,7 +119,12 @@ public final class PaletteController {
             // the CLI) it switches to it; without one it opens the page.
             registry.bind("goToWorkspace", invoke: { [weak self] invocation in
                 if let workspace = invocation["workspace"]?.targetValue?.id ?? invocation["workspace"]?.stringValue {
-                    self?.sources.workspaces?.selectWorkspace(id: workspace)
+                    guard let self, let source = self.sources.workspaces else { return }
+                    // An id that names no workspace is refused, never a silent success.
+                    guard source.workspaces.contains(where: { $0.id == workspace }) else {
+                        return self.registry.refuseNotFound(PaletteStrings.workspaceNotFound(workspace))
+                    }
+                    source.selectWorkspace(id: workspace)
                 } else if self?.show(scope: PaletteScopeID.workspaces) != true {
                     // Cmd-P lists only what is open: workspaces, then their groups, panes and tabs.
                     self?.show(.workspaces)
@@ -128,6 +133,9 @@ public final class PaletteController {
         }
         registry.argumentCollector = { [weak self] id, invocation in
             self?.collectArguments(for: id, invocation: invocation)
+        }
+        registry.argumentAsker = { [weak self] id, invocation, ask in
+            self?.collectArguments(for: id, invocation: invocation, asking: ask)
         }
     }
 
@@ -205,15 +213,18 @@ public final class PaletteController {
 
     /// Opens the palette to collect the missing arguments of `id`, then runs
     /// it. Installed as the registry's `argumentCollector`, so a menu item or
-    /// shortcut for an argument-taking action asks inline.
-    public func collectArguments(for id: ActionID, invocation: ActionInvocation, relativeTo window: NSWindow? = nil) {
+    /// shortcut for an argument-taking action asks inline. `ask` also asks for
+    /// one optional argument (``ActionRegistry/ask(_:_:_:)``: a menu Rename with
+    /// no name asks for it here instead of in a separate dialog).
+    public func collectArguments(for id: ActionID, invocation: ActionInvocation, asking ask: ActionArgumentAsk? = nil,
+                                 relativeTo window: NSWindow? = nil) {
         guard let descriptor = registry.descriptor(for: id) else { return }
         // Without its arguments, an action that opens a scope opens it, as its palette row does.
-        if invocation.arguments.isEmpty, let scope = scope(openedBy: id), show(scope: scope, relativeTo: window) { return }
+        if ask == nil, invocation.arguments.isEmpty, let scope = scope(openedBy: id), show(scope: scope, relativeTo: window) { return }
         captureContext()
         let flow = PaletteArgumentFlow(registry: registry, descriptor: descriptor, targets: sources.targets,
                                        captured: capturedTargets, preview: sources.argumentPreview,
-                                       swatches: sources.argumentSwatches)
+                                       swatches: sources.argumentSwatches, ask: ask)
         let effect = flow.effect(collected: invocation)
         if case .perform(let handler) = effect {
             // Nothing left to ask.

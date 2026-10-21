@@ -68,7 +68,8 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
       }),
     ],
     ...call("c3", "Read build-acpmux.sh", "read", { locations: [{ path: "/home/dev/cmux/scripts/build-acpmux.sh" }] }),
-    // The turn is still running: a live turn lists each step instead of folding them.
+    // The turn is still running. Its finished steps fold under their run's line (Debug toggle
+    // agentPane.debug.codexToolRuns, on by default), which the tests open (`openRun`).
   ];
   const events = steps.map(([dir, kind, msg], index) => ({
     sessionId: CHAT,
@@ -120,6 +121,14 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
     await page.waitForTimeout(300);
     return page;
   };
+  /// Opens the run of the first two commands and the thought between them ("Ran commands",
+  /// conversation/ToolRun.tsx), so each step in it draws its own row.
+  const openRun = async (page: Page) => {
+    await page.locator(".acpmux-row button.cv-tool", { hasText: "Ran commands" }).click();
+    await page.locator(".cv-thought").waitFor();
+    // The fold plays, then the rows below it place by their drawn heights.
+    await page.waitForTimeout(500);
+  };
   beforeAll(async () => {
     daemon = Bun.serve({
       port: 0,
@@ -165,6 +174,7 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
 
   test("every step is one 26px row on one rhythm, across transcript rows", async () => {
     const page = await open();
+    await openRun(page);
     const rows = await page.locator(".acpmux-row .cv-tool").evaluateAll((nodes) =>
       nodes.map((node) => {
         const box = node.getBoundingClientRect();
@@ -191,12 +201,13 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
 
   test("a finished thought is one quiet row that opens to its full text, wrapped, with no tooltip", async () => {
     const page = await open();
+    await openRun(page);
     const toggle = page.locator("button.cv-thought");
     expect((await toggle.innerText()).trim()).toBe("Thought");
-    expect(await page.locator(".acpmux-row").filter({ hasText: "arm64 slice" }).count()).toBe(0);
+    expect(await page.locator(".cv-thought__body, .cv-thought__text").count()).toBe(0);
     await toggle.click();
-    // The opening slides the text's height for 200 ms.
-    await page.waitForTimeout(300);
+    // The fold plays, then the text has its height.
+    await page.waitForTimeout(500);
     const thought = page.locator(".cv-thought__body");
     expect((await thought.innerText()).replace(/\s+/g, " ")).toContain(THOUGHT);
     expect(await thought.evaluate((node) => node.closest("[title]") === null && !node.querySelector("[title]"))).toBe(

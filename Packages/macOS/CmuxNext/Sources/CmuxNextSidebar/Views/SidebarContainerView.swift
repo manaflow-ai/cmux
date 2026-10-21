@@ -190,6 +190,13 @@ public final class SidebarContainerView: NSView {
         sidebarView.beginRename(group: id)
     }
 
+    /// Turns the sidebar's edit mode on or off (`SidebarView+EditItems`), showing a hidden sidebar first.
+    public func toggleEditingItems() {
+        let on = !sidebarView.isEditingItems
+        if on { revealForEditing() }
+        sidebarView.setEditingItems(on)
+    }
+
     /// Shows a hidden sidebar and lays its rows out now, so a rename field
     /// can attach to a row in the same turn. The width still animates.
     private func revealForEditing() {
