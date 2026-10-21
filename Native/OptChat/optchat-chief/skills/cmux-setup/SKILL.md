@@ -96,11 +96,30 @@ one.
   `"mcp": {"enabled": true}` in the settings file the text names; hand them
   that line, do not edit the file. Kind `conflict` means their own server
   is named `cmux`: ask before removing it. `undo` is the shell line that
-  puts each changed config back.
+  puts each changed config back. With neither installed it is `ok`:
+  nothing to wire, and the switch is not needed.
 - Computer Use: `cmux setup computer-use` turns it on: cmux shows the user
   a sheet to allow it (tell them to click Allow), then each missing macOS
   grant comes back as `user_action` kind `grant`; run its `command` to
   open the System Settings pane and tell them which switch to turn on.
   Kind `wait` means it is starting: run the task again in a few seconds.
-  Kind `declined` means it was not allowed (they said no, or cmux had no
-  window to show the sheet in): ask them before running it again.
+  Kind `declined` means it was not allowed (they said no, did not answer
+  the sheet in time, or cmux had no window to show the sheet in): ask them
+  before running it again.
+- Cloud machine: ask the user first (it costs money every hour it runs and
+  does not pause by itself), then run `cmux setup cloud-machine`. Signed
+  out is kind `sign_in`: run its `command` and the user signs in in the
+  browser. Otherwise cmux shows the user a card to allow the new machine
+  (tell them to click it); the result names the `machine` and the `undo`
+  that kills it and makes setup forget it. With `inferred: true` setup
+  guessed which machine is its own: read `undo_note` and check with the
+  user before running that undo. A machine they already have is `ok`, and
+  a paused one has a `note` with the command that resumes it. Kind `wait`
+  means cmux is still loading its machines or a machine is on its way: run
+  the task again in a minute; it never makes a second machine. Kind
+  `declined` means it was not allowed: ask before running it again. Kind
+  `many_machines` means more than one new machine appeared and setup claims
+  none: ask the user which is theirs. Kind `app` is cmux's own refusal, such as a plan with no room for another
+  machine: tell the user what its text says. Run `cmux setup cloud-machine
+  --forget` only after the machine was killed, or once the user says no
+  machine is on its way (a `wait` on an empty list ends that way).

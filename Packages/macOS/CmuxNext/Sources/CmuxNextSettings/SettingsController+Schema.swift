@@ -45,6 +45,7 @@ extension SettingsController {
             } else {
                 try await file.set(value, at: descriptor.path)
             }
+            if descriptor.kind == .fontFamily, let family = value.stringValue { recentFonts.record(family) }
             await reloadAfterWrite()
         } else {
             if let legacy { try await file.remove(legacy) }

@@ -747,6 +747,12 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": msg}})
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32000, "message": msg}})
         return
+    # "mute" says nothing for 2 s, then answers: a model that stalls (`hub/silent_turn.rs`).
+    if text == "mute":
+        time.sleep(2)
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "late"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "hang" starts a turn that never ends: a busy agent.
     if text == "hang":
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "working"}})

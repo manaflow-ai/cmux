@@ -293,6 +293,42 @@ jobs:
           python3 scripts/ci/crash_ratchet_compare.py --script scripts/cmux-next/crash_ratchet.py \
             --head "$GITHUB_WORKSPACE" --base "$base_dir"
 
+  # cmux NEXT's catalogs hold translation debt from before the parity check covered them
+  # (42,072 errors in 118 catalogs on 2026-10-21). scripts/localization-debt-baseline.json
+  # records each catalog's counts; this fails when a change adds debt anywhere or raises the
+  # baseline above the base's copy, so the debt only goes down (scripts/localization_catalog.py).
+  localization-ratchet:
+    name: cmux-next localization debt ratchet
+    # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          # A pull request's merge commit and its first parent (the base).
+          fetch-depth: 2
+
+      - name: No new localization debt, and a baseline that only goes down
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          base_ref=""
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            base_ref=HEAD^1
+          elif [[ "$BEFORE" =~ ^[0-9a-f]{40}$ && ! "$BEFORE" =~ ^0+$ ]] \
+            && git fetch --no-tags --depth=1 origin "$BEFORE"; then
+            base_ref="$BEFORE"
+          fi
+          args=()
+          base_baseline="$RUNNER_TEMP/localization-debt-baseline.base.json"
+          if [[ -n "$base_ref" ]] && git show "$base_ref:scripts/localization-debt-baseline.json" > "$base_baseline" 2>/dev/null; then
+            args=(--base-baseline "$base_baseline")
+          fi
+          python3 scripts/localization_catalog.py check "${args[@]}"
+
   # A red size cap, crash ratchet or page strings on a pull request into feat-cmux-next gets the same "red: <check>" comment as a
   # red web check (chief 2026-10-12): ci.yml calls this workflow after `web`; both callers update
   # one comment, recomputed from all check runs of the head commit.
@@ -382,6 +418,12 @@ jobs:
 
       - name: The crash-class rules fast gate fails only on findings the pull request adds
         run: python3 tests/test_crash_class_fast_gate.py
+
+      - name: The localization debt ratchet
+        run: python3 tests/test_localization_catalog.py
+
+      - name: A stacked cmux NEXT pull request skips ci.yml's legacy lanes
+        run: python3 tests/test_next_line.py
 
       # web-validation.yml ran this only on main pushes, so a2d6b35 broke the runner's test on
       # feat-cmux-next unseen (#23430). A fake bun stands in; no web test runs.
