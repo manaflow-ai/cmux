@@ -61,7 +61,11 @@ describe("Cloud VM allocation rate limit", () => {
     });
     expect(calls).toEqual([[
       "rule-allocation",
-      { request: expect.any(Request), rateLimitKey: "vm-allocation:team-1" },
+      {
+        request: expect.any(Request),
+        rateLimitKey: "vm-allocation:team-1",
+        signal: expect.any(AbortSignal),
+      },
     ]]);
     expect(response?.status).toBe(429);
     expect(response?.headers.get("retry-after")).toBe("60");

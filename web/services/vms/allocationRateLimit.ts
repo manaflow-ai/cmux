@@ -3,10 +3,11 @@ import { reportMissingRateLimitRule } from "../rateLimitObservability";
 import { vmErrorResponse } from "./routeHelpers";
 
 const VM_ALLOCATION_RETRY_AFTER_SECONDS = 60;
+const VM_ALLOCATION_RATE_LIMIT_TIMEOUT_MS = 1_000;
 
 export type VmAllocationRateLimitCheck = (
   id: string,
-  options: { request: Request; rateLimitKey?: string },
+  options: { request: Request; rateLimitKey?: string; signal: AbortSignal },
 ) => Promise<{ rateLimited: boolean; error?: string | null }>;
 
 /**
@@ -21,6 +22,7 @@ export async function enforceVmAllocationRateLimit(input: {
   readonly ruleId?: string | undefined;
   readonly check?: VmAllocationRateLimitCheck;
   readonly isVercel?: boolean;
+  readonly timeoutMs?: number;
 }): Promise<Response | null> {
   if (!(input.isVercel ?? process.env.VERCEL === "1")) return null;
   const ruleId = (input.ruleId ?? process.env.CMUX_VM_ALLOCATION_RATE_LIMIT_ID)?.trim();
@@ -34,6 +36,7 @@ export async function enforceVmAllocationRateLimit(input: {
     result = await (input.check ?? checkRateLimit)(ruleId, {
       request: input.request,
       rateLimitKey: `vm-allocation:${input.billingTeamId}`,
+      signal: AbortSignal.timeout(input.timeoutMs ?? VM_ALLOCATION_RATE_LIMIT_TIMEOUT_MS),
     });
   } catch {
     console.error("vm allocation rate-limit unavailable", {
