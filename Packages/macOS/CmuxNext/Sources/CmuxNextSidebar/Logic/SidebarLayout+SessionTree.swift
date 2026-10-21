@@ -33,14 +33,13 @@ nonisolated extension SidebarLayout {
         func reachesRoot(_ id: WorkspaceID) -> Bool {
             var path: [WorkspaceID] = []
             var onPath: Set<WorkspaceID> = []
-            var current = id
+            var next: WorkspaceID? = id
             var answer = true
-            while true {
+            while let current = next {
                 if let known = rooted[current] { answer = known; break }
                 guard onPath.insert(current).inserted else { answer = false; break } // a cycle
                 path.append(current)
-                guard let parent = parents[current], present.contains(parent) else { break } // a root
-                current = parent
+                next = parents[current].flatMap { present.contains($0) ? $0 : nil } // nil: a root
             }
             for node in path { rooted[node] = answer }
             return answer
