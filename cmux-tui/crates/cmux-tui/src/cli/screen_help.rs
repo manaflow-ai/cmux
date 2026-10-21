@@ -3,7 +3,8 @@
 pub(super) const SCREEN_HELP: &str = "\
 USAGE
   cmux screen list
-  cmux screen create [--correlation-key <value>]
+  cmux screen create [--name <value>] [--correlation-key <value>]
+    [--shell <script> | -- <argv...>]
   cmux screen <selector> show|focus|close
   cmux screen <selector> close --others|--to-right|--to-left|--all [--include-pinned]
   cmux screen <selector> rename <name>|--name <name>

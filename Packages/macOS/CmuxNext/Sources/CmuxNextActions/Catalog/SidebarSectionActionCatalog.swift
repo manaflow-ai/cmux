@@ -38,6 +38,12 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                              keywords: ["chief", "subagent", "agent", "open", "show", "chat"], category: .agents, symbol: "person.2",
                              surfaces: [.keyboard], targets: [.sidebarItem],
                              surfacePlan: plan(cli: .exempt(.focusMove), exemption: .focusMove, palette: .exempt(.focusMove))),
+            // Pins or unpins a session tree history chat (target: sidebar-item:<chat key>), as its row's
+            // right-click menu does (`SidebarChatHistory`); the row retitles it Pin or Unpin.
+            ActionDescriptor(id: "sidebar.chat.togglePin", title: t("action.sidebar.chat.togglePin", "Pin or Unpin Chat"),
+                             keywords: ["sidebar", "chat", "history", "earlier", "pin", "unpin"], category: .sidebar, symbol: "pin",
+                             surfaces: [.keyboard], targets: [.sidebarItem],
+                             surfacePlan: plan(cli: .exempt(.guiOnly), exemption: .liveInput, palette: .exempt(.liveInput))),
             ActionDescriptor(
                 id: "sidebar.item.add", title: t("action.sidebar.item.add", "Add to Sidebar…"),
                 keywords: ["sidebar", "section", "pin", "settings", "account", "history", "bookmarks", "notifications"],
@@ -104,12 +110,8 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .keyboard, .contextMenu], targets: section, cliName: "sidebar move-section-scrolling",
                 surfacePlan: plan(menus: [p(.sidebarSection, .move, 110, folder: .move)])
             ),
-            ActionDescriptor(
-                id: "sidebar.section.moveToBottom", title: t("action.sidebar.section.moveToBottom", "Move Section to Bottom"),
-                keywords: ["sidebar", "section", "move", "bottom", "pinned"], category: .sidebar, symbol: "arrow.down.to.line",
-                surfaces: [.palette, .keyboard, .contextMenu], targets: section, cliName: "sidebar move-section-bottom",
-                surfacePlan: plan(menus: [p(.sidebarSection, .move, 120, folder: .move)])
-            ),
+            // No Move Section to Bottom: the sidebar has no bottom area (cx-n0i9), so a section
+            // after the workspaces would not draw; Move to Top and Move to Scrolling Area are the moves.
             ActionDescriptor(
                 id: "sidebar.section.useBuiltInLook", title: t("action.sidebar.section.useBuiltInLook", "Built-in Look"),
                 keywords: ["sidebar", "section", "look", "style", "chrome", "built-in"], category: .sidebar, symbol: "house",
@@ -272,8 +274,10 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .organize, 111, folder: .group)])
             ),
             // cx-13w3: compact (one line), comfortable (one line, taller) or expanded
-            // (T3 Code / Codex style) workspace rows (`sidebar.density`); the sidebar's
-            // Options offers the ones that do not apply now. The app density
+            // (T3 Code / Codex style) workspace rows (`sidebar.density`); the Options of the
+            // sidebar's menu and of a row's ⋮ offer the ones that do not apply now (not a group's:
+            // every group menu row is a palette row, and Compact is not one)
+            // (Leo 2026-10-21: view toggles should not need the palette to find). The app density
             // (`appearance.density`, DensityActionCatalog) owns the palette's density rows.
             ActionDescriptor(
                 id: "sidebar.density.compact", title: t("action.sidebar.density.compact", "Sidebar Density: Compact"),
@@ -281,14 +285,18 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 // Not in the palette: "Density: Compact" (appearance.density.compact) is the one
                 // palette row for "compact" (Lawrence 2026-10-20: two rows, and Enter did nothing).
                 surfaces: [.keyboard, .contextMenu],
-                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 132, folder: .options, label: ObjectMenuLabels.densityCompact)],
+                surfacePlan: plan(cli: .exempt(.guiOnly),
+                                  menus: [p(.sidebarBackground, .view, 132, folder: .options, label: ObjectMenuLabels.densityCompact),
+                                          p(.workspaceRow, .view, 101, folder: .options, label: ObjectMenuLabels.densityCompact)],
                                   palette: .exempt(.familyMember))
             ),
             ActionDescriptor(
                 id: "sidebar.density.comfortable", title: t("action.sidebar.density.comfortable", "Sidebar Density: Comfortable"),
                 keywords: ["sidebar", "density", "comfortable", "rows", "one line", "taller", "spacious", "medium", "roomy"],
                 category: .sidebar, symbol: "list.bullet", surfaces: [.keyboard, .contextMenu],
-                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 133, folder: .options, label: ObjectMenuLabels.densityComfortable)],
+                surfacePlan: plan(cli: .exempt(.guiOnly),
+                                  menus: [p(.sidebarBackground, .view, 133, folder: .options, label: ObjectMenuLabels.densityComfortable),
+                                          p(.workspaceRow, .view, 102, folder: .options, label: ObjectMenuLabels.densityComfortable)],
                                   palette: .exempt(.familyMember))
             ),
             ActionDescriptor(
@@ -296,12 +304,12 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 keywords: ["sidebar", "density", "expanded", "rows", "preview", "two lines", "t3", "codex"], category: .sidebar,
                 symbol: "list.bullet.below.rectangle", surfaces: [.palette, .keyboard, .contextMenu],
                 surfacePlan: plan(cli: .exempt(.guiOnly),
-                                  menus: [p(.sidebarBackground, .view, 134, folder: .options, label: ObjectMenuLabels.densityExpanded)])
+                                  menus: [p(.sidebarBackground, .view, 134, folder: .options, label: ObjectMenuLabels.densityExpanded),
+                                          p(.workspaceRow, .view, 103, folder: .options, label: ObjectMenuLabels.densityExpanded)])
             ),
             // Leo (2026-10-09): the sidebar's menu checks Show Tabs Under
             // Workspaces (`sidebar.showWorkspaceTabs`; scripts set that), in
-            // Options. A sidebar-wide setting, so not on each workspace row's
-            // menu (cmuxterm-hq#2015).
+            // Options, and a workspace row's ⋮ offers it under More ▸ Options.
             ActionDescriptor(
                 id: "sidebar.workspaceTabs.toggle", title: t("action.sidebar.workspaceTabs.toggle", "Show Tabs Under Workspaces"),
                 keywords: ["sidebar", "tabs", "workspace", "show", "list", "nested", "children"], category: .sidebar, symbol: "list.bullet.indent",

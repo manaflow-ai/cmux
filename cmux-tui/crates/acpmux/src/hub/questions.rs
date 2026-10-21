@@ -10,7 +10,8 @@
 //!
 //! A question is never answered by policy: approve-all, approve rules and
 //! the chat allowance do not apply to it (only deny-all and deny rules may
-//! decline it), so an answer always comes from a person.
+//! decline it), so an answer always comes from a person, or, for a
+//! sub-session, from a session above it (`subsession_answer.rs`).
 
 use crate::rpc::RpcError;
 use serde_json::{Map, Value, json};
@@ -36,6 +37,28 @@ pub(super) fn needs_person(request: &Value) -> bool {
             request.pointer("/toolCall/_meta/claude/tool").and_then(Value::as_str),
             Some("AskUserQuestion")
         )
+}
+
+/// Whether a session above the asking one may answer `request`
+/// (`subsession_answer.rs`): a question by a signal the agent's tool input
+/// cannot forge, with a one-time allow. `from_agent` is false for a request
+/// acpmux builds itself from Grok's or Cursor's own ask kinds (`xai.rs`,
+/// `cursor_ext.rs`); an agent's `session/request_permission` counts only as
+/// Claude Code's AskUserQuestion (`_meta.claude.tool`, which the adapter
+/// writes from the tool's name). Any other tool whose input holds
+/// `questions` (an MCP tool, ExitPlanMode), a writer's own
+/// `_meta.acpmux.question`, a Codex user-input request (its adapter's
+/// shape is unverified) and the folder-trust card (`trust_cwd`) stay the person's.
+pub(super) fn ancestor_answerable(request: &Value, from_agent: bool) -> bool {
+    let asks = question(request).is_some()
+        && trust_cwd(request).is_none()
+        && (!from_agent
+            || request.pointer("/toolCall/_meta/claude/tool").and_then(Value::as_str)
+                == Some("AskUserQuestion"));
+    let allow_once = request["options"]
+        .as_array()
+        .is_some_and(|options| options.iter().any(|o| o["kind"] == "allow_once"));
+    asks && allow_once
 }
 
 /// Checks a reply to `request`: answers go only with an allow option, and a

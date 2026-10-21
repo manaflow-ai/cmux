@@ -1228,8 +1228,12 @@
 }
 .acpmux-env-row .acpmux-env-status[data-connected="true"] { background: var(--agent-success, var(--acpmux-add, currentColor)); }
 .acpmux-env-row .acpmux-env-status[data-connected="false"] { border: 1px solid var(--agent-muted); }
-/* New Cloud Machine: its name, then one quiet line of what a cloud machine gives. */
-.acpmux-env-new[data-kind="cloud"] .acpmux-menu-text { display: flex; flex-direction: column; min-width: 0; }
+/* New Cloud Machine, Move to Cloud and Bring Back Local: the name, then one quiet line of what it does. */
+.acpmux-env-new:is([data-kind="cloud"], [data-kind="local"]) .acpmux-menu-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
 .acpmux-env-new .acpmux-env-detail {
   color: var(--agent-muted);
   font-size: var(--text-caption);
