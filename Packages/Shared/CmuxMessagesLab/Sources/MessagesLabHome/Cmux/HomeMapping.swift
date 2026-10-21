@@ -86,8 +86,9 @@ enum HomeMapping {
 
     /// An edited message's edit as MessagesLab's `Message.edits`, so it shows "Edited" under it when it loads
     /// already edited (a snapshot, a rebuild, an older page), as MessagesLab does: before, only a live edit
-    /// (HomeDiff `.edit`) added the label, and the next rebuild lost it. HomeStore keeps no earlier text, so the
-    /// edit holds the current text (MessagesLab reads only that an edit exists, and ComposerHistory its text).
+    /// (HomeDiff `.edit`) added the label, and the next rebuild lost it. MessagesLab's `Edit.text` is the text
+    /// before the edit; HomeStore keeps no earlier text, so the edit holds the current text (the transcript reads
+    /// only that an edit exists; ComposerHistory reads the parts).
     static func edits(_ item: TranscriptItem) -> [Message.Edit]? {
         guard let at = item.editedAt, !item.isRetracted else { return nil }
         let text = item.parts.compactMap { if case .text(let t, _) = $0 { t } else { nil } }.joined(separator: "\n")
