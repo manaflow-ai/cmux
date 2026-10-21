@@ -1274,6 +1274,61 @@ async fn queued_prompts_survive_a_quit_that_ends_the_agent() {
     queue_survives_restart(&mut daemon, Daemon::sigterm, false).await;
 }
 
+/// A queued prompt's images come back with the queue after an update restart (Leo, 2026-10-21):
+/// its row lists them and reads them back, and the agent gets them when it runs.
+#[tokio::test]
+async fn a_queued_prompts_images_survive_an_update_restart() {
+    use base64::Engine;
+    let mut daemon = Daemon::new("qimg", "approve-all");
+    let (session, gate, mut client) = gated_turn_without_host(&daemon).await;
+    let shots: Vec<(Value, String)> = [b"first shot".as_slice(), b"second shot".as_slice()]
+        .iter()
+        .enumerate()
+        .map(|(i, bytes)| {
+            let data = base64::engine::general_purpose::STANDARD.encode(bytes);
+            let block = json!({"type": "image", "mimeType": "image/png", "data": data, "name": format!("shot{i}.png")});
+            let id: String = <sha2::Sha256 as sha2::Digest>::digest(bytes)
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect();
+            (block, id)
+        })
+        .collect();
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "two shots"}, shots[0].0, shots[1].0], "_meta": {"acpmux": {"promptId": "q-img"}}}),
+        )
+        .await;
+    daemon.wait_event(&session, "queued record", |e| {
+        e["kind"] == "queued" && e["msg"]["promptId"] == "q-img"
+    });
+
+    daemon.sigterm();
+    drop(client);
+    daemon.start();
+
+    let mut rpc = daemon.rpc().await;
+    let attached = rpc.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
+    let names: Vec<Value> = shots
+        .iter()
+        .enumerate()
+        .map(|(i, (_, id))| json!({"id": id, "mimeType": "image/png", "name": format!("shot{i}.png")}))
+        .collect();
+    assert_eq!(attached["session"]["queue"][0]["images"], json!(names), "{attached:#}");
+    let read =
+        rpc.call("_acpmux/attachment", json!({"sessionId": session, "id": shots[1].1})).await;
+    assert_eq!(read["data"], shots[1].0["data"], "{read}");
+
+    let _ = std::fs::OpenOptions::new()
+        .write(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(&gate)
+        .and_then(|mut f| std::io::Write::write_all(&mut f, b"go"));
+    let echo = format!("echo: two shots image:{} image:{}", shots[0].1, shots[1].1);
+    daemon.wait_event(&session, "the queued prompt's answer", |e| chunk(e, &echo));
+}
+
 /// A queue reordered and edited (`_acpmux/queue_edit`) comes back that way after a crash.
 #[tokio::test]
 async fn queue_ops_edits_survive_a_daemon_crash() {
