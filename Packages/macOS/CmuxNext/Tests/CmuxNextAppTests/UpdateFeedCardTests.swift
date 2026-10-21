@@ -1,6 +1,6 @@
 @testable import CmuxNextApp
 @testable import CmuxNextFeed
-import CmuxNextUpdater
+@testable import CmuxNextUpdater
 import Foundation
 import Testing
 
@@ -92,5 +92,34 @@ import Testing
         #expect(UpdateFeedPosting.step(updated, posted: "1.0.0-nightly.200", at: at) == .done, "a version posted its card twice")
         #expect(UpdateFeedPosting.step(loading, posted: nil, at: at) == .wait, "the card posted before its notes loaded")
         #expect(UpdateFeedPosting.step(nil, posted: nil, at: at) == .wait)
+    }
+
+    /// Review of #22701: one change left over read "1 more changes".
+    @Test func theRestCountsInItsPlural() {
+        let one = UpdateFeedCard(subject: .app, from: nil, to: "2.0.0", changes: (1...6).map { "Change \($0)" }, at: at)
+        #expect(one.body.components(separatedBy: "\n").last == "1 more change")
+        let two = UpdateFeedCard(subject: .app, from: nil, to: "2.0.0", changes: (1...7).map { "Change \($0)" }, at: at)
+        #expect(two.body.components(separatedBy: "\n").last == "2 more changes")
+    }
+
+    /// Review of #22701: the Updated card's x before this build's notes loaded cleared both
+    /// highlight sources, so the Feed never got this version's card. The x hides the sidebar
+    /// card; the Feed still posts once the notes arrive.
+    @Test func dismissingTheUpdatedCardBeforeItsNotesLoadStillPostsTheFeedCard() async throws {
+        let updater = UpdatedCardCurrentBuildNotesTests.updater { _ in UpdatedCardCurrentBuildNotesTests.notes() }
+        let first = UpdateFeedPosting.highlights(updater, held: nil)
+        #expect(UpdateFeedPosting.step(first, posted: nil, at: at) == .wait, "the card posted before its notes loaded")
+        let loading = try #require(updater.loadCurrentBuildNotesIfNeeded())
+        updater.whatsNew.dismissUpdated()
+        await loading.value
+
+        let now = UpdateFeedPosting.highlights(updater, held: first)
+        guard case let .post(card) = UpdateFeedPosting.step(now, posted: nil, at: at) else {
+            Issue.record("dismissing the Updated card early dropped this version's Feed card")
+            return
+        }
+        #expect(card.to == UpdatedCardCurrentBuildNotesTests.version)
+        #expect(card.from == "1.0.0-nightly.3938998689001")
+        #expect(card.changes == ["Pinned avatars match row avatars in the compact rail", "A Chief with no avatar of its own shows 🫡"])
     }
 }
