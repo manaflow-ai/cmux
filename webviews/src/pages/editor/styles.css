@@ -156,8 +156,8 @@ body {
 }
 
 /* Cmd-F: the shared find pill (ui/findPill.css) at the top right, where every pane's sits. The
-   left inset bounds it too, so in a narrow editor its fields give way instead of the pill running
-   off the left edge (with Replace open it wants about 400px). The band between is click-through. */
+   left inset bounds it too: it wants about 390px, so in a narrower editor its rows and fields give
+   way instead of the pill running off the left edge. The band beside it is click-through. */
 .ed-find {
   position: absolute;
   top: var(--find-pill-inset, 10px);
@@ -168,7 +168,8 @@ body {
   justify-content: flex-end;
   pointer-events: none;
 }
-.ed-find > .find-pill {
+.ed-find > .find-pill,
+.ed-find .find-pill__row {
   min-width: 0;
 }
 
