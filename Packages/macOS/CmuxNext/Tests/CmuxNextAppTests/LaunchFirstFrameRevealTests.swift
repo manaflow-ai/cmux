@@ -53,7 +53,9 @@ import Testing
         #expect(launch.drawsAtOnce(launch.pane.contentHost), "the first frame drew the pane clear, then faded it in")
     }
 
-    @Test(.enabled("animation speed is off on this host") { await MainActor.run { Motion.speed != .off } })
+    /// A host with no screen commits no frame (the layer gets no presentation copy).
+    @Test(.enabled("a window with no screen draws no frame") { await MainActor.run { !NSScreen.screens.isEmpty } },
+          .enabled("animation speed is off on this host") { await MainActor.run { Motion.speed != .off } })
     func dataThatArrivesAfterTheFirstFrameFadesIn() throws {
         let launch = LaunchWindow()
         defer { launch.tearDown() }
