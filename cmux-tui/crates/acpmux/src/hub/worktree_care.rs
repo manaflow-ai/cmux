@@ -266,16 +266,21 @@ impl Hub {
     /// Before a session's harness starts: its folder back, when cleanup
     /// reclaimed the worktree it is in. Logged as `worktree_restored`, or
     /// `worktree_restore_failed` (the start goes on). A folder still gone is
-    /// added back from its branch, or the start fails (`revive.rs`).
-    pub(super) async fn ready_to_start(&self, session: &Arc<Session>) -> Result<(), RpcError> {
-        self.care_restore_for(session).await;
-        self.revive_worktree(session, &CARE.restoring).await?;
+    /// added back from its branch, or the session moves above it (`revive.rs`).
+    pub(super) async fn ready_to_start(&self, session: &Arc<Session>) {
+        self.ready_folder(session, true).await;
         // A stopped session reopens on demand. Only a purge is final.
         if session.status() == SessionStatus::Closed {
             self.append(session, "mux", "reopened", json!({}));
             self.set_status(session, SessionStatus::Idle);
         }
-        Ok(())
+    }
+
+    /// The session's folder there before its agent or a turn starts (`run_prompt`): restored
+    /// from cleanup's archive, else added back or moved from (`revive.rs`).
+    pub(super) async fn ready_folder(&self, session: &Arc<Session>, refresh: bool) {
+        self.care_restore_for(session).await;
+        self.revive_folder(session, &CARE.restoring, refresh).await;
     }
 
     async fn care_restore_for(&self, session: &Arc<Session>) {

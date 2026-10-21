@@ -25,6 +25,9 @@ pub struct WorktreeOrigin {
     pub common_dir: PathBuf,
     /// The branch checked out there.
     pub branch: String,
+    /// Its commit then: a worktree whose branch is gone comes back there.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub head: Option<String>,
 }
 
 /// The git state of a folder at one moment.

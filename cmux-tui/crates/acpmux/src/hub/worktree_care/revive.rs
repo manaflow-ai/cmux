@@ -1,93 +1,159 @@
-//! A session whose worktree was deleted gets it back from its branch before its agent starts
-//! (2026-10-20: a reclaim job deleted the worktrees of three lanes whose agents had died, so
-//! even a respawn had no folder to start in).
+//! A session whose folder was deleted does not die with it (2026-10-20: a reclaim job deleted
+//! the worktrees of three lanes whose agents had died, and lanes that removed their own worktree
+//! after their pull request merged could not start their agent again).
 //!
 //! Each agent start in an existing folder, and each turn's end (`turn_git.rs`), records the
 //! linked worktree the folder is in (`SessionMeta::worktree`: its top folder, the repository's
-//! common git directory and the branch checked out). A start whose folder is gone, and that
-//! cleanup's archive did not bring back (`worktree_care.rs`), adds the worktree back:
-//! `git --git-dir <common> worktree prune`, then `worktree add <root> <branch>`, or, when the
-//! local branch is gone too, `worktree add -B <branch> <root> origin/<branch>`. Nothing is
-//! forced or overwritten: a branch checked out elsewhere, a folder that exists, a missing
-//! repository or branch fail the start, naming the folder and why. Logged as
-//! `worktree_recreated` or `worktree_recreate_failed`.
+//! common git directory, the branch checked out and its commit). Before the agent starts, and
+//! before each turn, a folder that is gone and that cleanup's archive did not bring back
+//! (`worktree_care.rs`) is added back with `git --git-dir <common> worktree prune`, then
+//! `worktree add`: on its branch; else `-B <branch>` from `origin/<branch>`; else, the branch
+//! gone, `--detach` at its last recorded commit, or at `origin/HEAD`. Nothing is forced or
+//! overwritten (a branch checked out elsewhere fails it). Logged as `worktree_recreated`.
 //!
-//! A missing folder with no record (not a linked worktree, or never started here) is left as it
-//! was: acpmux never makes a folder that git did not.
+//! When there is no record (the folder was not a linked worktree) or the worktree cannot be
+//! added back (`worktree_recreate_failed`), the session moves to the nearest folder above it
+//! that exists (`cwd_fallback`): its agent starts there, a live one restarted. acpmux never
+//! makes a folder git did not. A remote chain (`remote_origin`) is left as it was: its sandbox
+//! allows writes in its own folder only. Either way the agent's next prompt starts with a line that says
+//! what happened (`[acpmux] your cwd ... was missing; ...`).
 
 use crate::git_state::{GitState, WorktreeOrigin, linked_worktree};
 use crate::hub::{Hub, Session};
-use crate::rpc::RpcError;
 use serde_json::json;
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock, Mutex};
 
-/// The worktree record for `cwd` on `branch`, read from the folder (blocking).
-pub(in crate::hub) fn origin_of(cwd: &Path, branch: Option<&str>) -> Option<WorktreeOrigin> {
+/// What acpmux did about a missing folder, for each session's next prompt. Per process: a
+/// daemon restart forgets it.
+static NOTICES: LazyLock<Mutex<HashMap<String, String>>> = LazyLock::new(Default::default);
+
+/// The worktree record for `cwd` in the state `git` read there (blocking).
+pub(in crate::hub) fn origin_of(cwd: &Path, git: &GitState) -> Option<WorktreeOrigin> {
     let (root, common_dir) = linked_worktree(cwd)?;
-    let branch = branch?.to_owned();
-    Some(WorktreeOrigin { cwd: cwd.to_path_buf(), root, common_dir, branch })
+    let branch = git.branch.clone()?;
+    let head = git.head.clone();
+    Some(WorktreeOrigin { cwd: cwd.to_path_buf(), root, common_dir, branch, head })
+}
+
+/// The line the session's next prompt starts with, once (`run_prompt`).
+pub(in crate::hub) fn take_notice(session_id: &str) -> Option<String> {
+    NOTICES.lock().unwrap_or_else(|e| e.into_inner()).remove(session_id)
+}
+
+/// How a missing folder came back.
+enum Revived {
+    /// It is there (another start brought it back).
+    There,
+    /// Its worktree was added back: from where, and the commit it is on.
+    Made(&'static str, String),
+    /// The session moves to this folder above it, for this reason.
+    Moved(PathBuf, String),
 }
 
 impl Hub {
-    /// Before the agent starts (`ready_to_start`; `one` is the machine's one-restore-at-a-time
-    /// lock): an existing folder refreshes the session's record; a missing one with a record
-    /// gets its worktree back, or the start fails.
-    pub(super) async fn revive_worktree(
+    /// The session's folder before its agent or a turn starts (`one` is the machine's
+    /// one-restore-at-a-time lock): there, it refreshes the record when `refresh`; gone, it
+    /// comes back or the session moves (module doc).
+    pub(super) async fn revive_folder(
         &self,
         session: &Arc<Session>,
         one: &tokio::sync::Mutex<()>,
-    ) -> Result<(), RpcError> {
+        refresh: bool,
+    ) {
         let meta = session.meta();
         let cwd = meta.cwd.clone();
+        // A remote chain's sandbox allows writes in its folder only: it never moves above it,
+        // nor runs git on a repository its agent could have written (`remote_sandbox.rs`).
+        if meta.remote_origin {
+            return;
+        }
         if tokio::fs::try_exists(&cwd).await.unwrap_or(true) {
-            let read = tokio::task::spawn_blocking(move || {
-                origin_of(&cwd, GitState::read(&cwd).branch.as_deref())
-            });
+            if !refresh {
+                return;
+            }
+            let read = tokio::task::spawn_blocking(move || origin_of(&cwd, &GitState::read(&cwd)));
             if let Ok(Some(found)) = read.await
                 && meta.worktree.as_ref() != Some(&found)
             {
                 session.meta.lock().unwrap_or_else(|e| e.into_inner()).worktree = Some(found);
                 self.save_meta(session);
             }
-            return Ok(());
+            return;
         }
-        let Some(origin) = meta.worktree.filter(|w| w.cwd == cwd) else { return Ok(()) };
         let _one = one.lock().await;
-        let job = origin.clone();
-        let made = tokio::task::spawn_blocking(move || recreate(&job))
+        let origin = meta.worktree.filter(|w| w.cwd == cwd);
+        let (job, folder) = (origin.clone(), cwd.clone());
+        let revived = tokio::task::spawn_blocking(move || revive(job.as_ref(), &folder))
             .await
-            .unwrap_or_else(|e| Err(format!("the recreate stopped: {e}")));
-        let (branch, root) = (&origin.branch, &origin.root);
-        match made {
-            Ok(None) => Ok(()),
-            Ok(Some(from)) => {
-                let msg = json!({"branch": branch, "cwd": cwd, "root": root, "from": from});
+            .unwrap_or_else(|e| fallback(&cwd, format!("the recreate stopped: {e}")));
+        let shown = cwd.display();
+        let notice = match revived {
+            Revived::There => return,
+            Revived::Made(from, at) => {
+                let w = origin.as_ref().expect("made from its record");
+                let b = &w.branch;
+                let msg = json!({"branch": b, "cwd": cwd, "root": w.root, "from": from, "at": at});
                 self.append(session, "mux", "worktree_recreated", msg);
-                Ok(())
-            }
-            Err(why) => {
-                let msg = json!({"branch": branch, "cwd": cwd, "root": root, "error": why});
-                self.append(session, "mux", "worktree_recreate_failed", msg);
-                Err(RpcError::new(
-                    -32000,
-                    format!(
-                        "the session's folder {} is gone and acpmux could not add its worktree back from branch {branch}: {why}",
-                        cwd.display()
+                match from {
+                    "branch" => format!("recreated it from branch {b}"),
+                    "origin" => format!("recreated it from origin/{b} as branch {b}"),
+                    _ => format!(
+                        "branch {b} is gone, so recreated it at {from} {at} (detached HEAD)"
                     ),
-                )
-                .with_data(json!({"reason": "worktree_missing", "cwd": cwd, "branch": branch})))
+                }
             }
-        }
+            Revived::Moved(to, why) => {
+                if let Some(w) = &origin {
+                    let msg = json!({"branch": w.branch, "cwd": cwd, "root": w.root, "error": why});
+                    self.append(session, "mux", "worktree_recreate_failed", msg);
+                }
+                session.meta.lock().unwrap_or_else(|e| e.into_inner()).cwd = to.clone();
+                self.save_meta(session);
+                self.append(
+                    session,
+                    "mux",
+                    "cwd_fallback",
+                    json!({"from": cwd, "to": to, "reason": why}),
+                );
+                // A live agent still runs in the folder that is gone: it starts again here.
+                if session.child.lock().await.is_some() {
+                    self.detach_child(session).await;
+                }
+                format!("{why}; running in {} instead", to.display())
+            }
+        };
+        let notice = format!("[acpmux] your cwd {shown} was missing; {notice}.");
+        NOTICES.lock().unwrap_or_else(|e| e.into_inner()).insert(session.id.clone(), notice);
     }
 }
 
-/// Adds `w`'s worktree back (blocking): `Some` with where its branch came from, `None` when
-/// there is nothing to do (the folder or the worktree's top folder exists).
-fn recreate(w: &WorktreeOrigin) -> Result<Option<&'static str>, String> {
-    if w.cwd.exists() || w.root.exists() {
-        return Ok(None);
+/// Brings `cwd` back from its worktree record, else names the folder above it (blocking).
+fn revive(origin: Option<&WorktreeOrigin>, cwd: &Path) -> Revived {
+    if cwd.exists() {
+        return Revived::There;
+    }
+    let why = match origin.map(recreate) {
+        Some(Ok((from, at))) if cwd.exists() => return Revived::Made(from, at),
+        Some(Ok((_, at))) => format!("its worktree came back at {at} without this folder"),
+        Some(Err(why)) => format!("its worktree could not be added back ({why})"),
+        None => "it was not a git worktree acpmux knew".to_owned(),
+    };
+    fallback(cwd, why)
+}
+
+/// The nearest folder above `cwd` that exists (the root at worst).
+fn fallback(cwd: &Path, why: String) -> Revived {
+    let to = cwd.ancestors().skip(1).find(|p| p.is_dir()).unwrap_or(Path::new("/"));
+    Revived::Moved(to.to_path_buf(), why)
+}
+
+/// Adds `w`'s worktree back (blocking): where it came from and the commit it is on.
+fn recreate(w: &WorktreeOrigin) -> Result<(&'static str, String), String> {
+    if w.root.exists() {
+        return Err(format!("its top folder {} is there", w.root.display()));
     }
     if !w.common_dir.is_dir() {
         return Err(format!("its repository {} is gone too", w.common_dir.display()));
@@ -98,27 +164,35 @@ fn recreate(w: &WorktreeOrigin) -> Result<Option<&'static str>, String> {
     let git = |args: &[&str]| git(&w.common_dir, args);
     git(&["worktree", "prune"])?;
     let root = w.root.to_string_lossy();
-    let has = |r: &str| git(&["rev-parse", "--verify", "--quiet", r]).is_ok();
-    let from = if has(&format!("refs/heads/{}", w.branch)) {
+    let commit = |r: &str| git(&["rev-parse", "--verify", "--quiet", &format!("{r}^{{commit}}")]);
+    let (local, remote) = (format!("refs/heads/{}", w.branch), format!("origin/{}", w.branch));
+    let (from, at) = if let Ok(at) = commit(&local) {
         git(&["worktree", "add", &root, &w.branch])?;
-        "branch"
-    } else if has(&format!("refs/remotes/origin/{}", w.branch)) {
-        git(&["worktree", "add", "-B", &w.branch, &root, &format!("origin/{}", w.branch)])?;
-        "origin"
+        ("branch", at)
+    } else if let Ok(at) = commit(&format!("refs/remotes/{remote}")) {
+        git(&["worktree", "add", "-B", &w.branch, &root, &remote])?;
+        ("origin", at)
+    } else if let Some((head, at)) =
+        w.head.as_deref().and_then(|h| commit(h).ok().map(|at| (h, at)))
+    {
+        git(&["worktree", "add", "--detach", &root, head])?;
+        ("its last commit", at)
+    } else if let Ok(at) = commit("refs/remotes/origin/HEAD") {
+        git(&["worktree", "add", "--detach", &root, "origin/HEAD"])?;
+        ("origin/HEAD", at)
     } else {
-        return Err(format!("neither branch {0} nor origin/{0} exists any more", w.branch));
+        return Err(format!("neither branch {0} nor origin/{0} nor origin/HEAD exists", w.branch));
     };
-    if !w.cwd.exists() {
-        return Err(format!("branch {} has no folder {}", w.branch, w.cwd.display()));
-    }
-    Ok(Some(from))
+    Ok((from, at.chars().take(12).collect()))
 }
 
-/// Runs git on the repository at `common` (its common git directory), never asking for input.
+/// Runs git on the repository at `common` (its common git directory), never asking for input
+/// and running none of the repository's hooks.
 fn git(common: &Path, args: &[&str]) -> Result<String, String> {
     let out = Command::new("git")
         .arg("--git-dir")
         .arg(common)
+        .args(["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"])
         .args(args)
         .current_dir(std::env::temp_dir())
         .env_remove("GIT_DIR")

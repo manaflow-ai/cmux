@@ -206,36 +206,45 @@ async fn reclaim(hub: &Arc<Hub>, id: &str, wt: &Path) {
     std::fs::remove_dir_all(wt).unwrap();
 }
 
+/// What the agent replied in the session's last turn.
+fn reply(hub: &Hub, id: &str) -> String {
+    hub.resolve(id).unwrap().meta().preview.unwrap_or_default()
+}
+
 #[tokio::test]
-async fn a_deleted_worktree_is_added_back_from_its_branch_before_the_agent_starts() {
+async fn a_deleted_worktree_is_added_back_before_the_agent_starts_and_the_agent_is_told() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     let dir = scratch("worktree");
-    let (repo, wt) = (dir.join("repo"), dir.join("lanes").join("lane"));
+    let (repo, lanes) = (dir.join("repo"), dir.join("lanes"));
+    let wt = lanes.join("lane");
     std::fs::create_dir_all(&repo).unwrap();
     git(&repo, &["init", "-q", "-b", "main"]);
     std::fs::write(repo.join("README"), "hello\n").unwrap();
     git(&repo, &["add", "README"]);
     git(&repo, &["commit", "-q", "-m", "init"]);
     git(&repo, &["worktree", "add", "-q", "-b", "lane", wt.to_str().unwrap()]);
+    let head = git(&wt, &["rev-parse", "HEAD"]);
     let s = c.request(method::SESSION_NEW, json!({"cwd": wt, "mcpServers": []})).await.unwrap();
     let id = s["sessionId"].as_str().unwrap().to_owned();
     c.request(method::SESSION_PROMPT, prompt(&id, "hello", None)).await.unwrap();
+    assert!(!reply(&hub, &id).contains("[acpmux]"), "{}", reply(&hub, &id));
     let saved = hub.resolve(&id).unwrap().meta().worktree.expect("the worktree is recorded");
-    assert_eq!(saved.branch, "lane");
-    assert_eq!(saved.root, wt);
+    assert_eq!((saved.branch.as_str(), &saved.root), ("lane", &wt));
+    let shown = wt.display().to_string();
 
     // The local branch is there: the worktree comes back on it.
     reclaim(&hub, &id, &wt).await;
     c.request(method::SESSION_PROMPT, prompt(&id, "hello again", None)).await.unwrap();
     let made = records(&hub, &id, "worktree_recreated");
     assert_eq!(made.len(), 1, "{:?}", kinds(&hub, &id));
-    assert_eq!(made[0]["branch"], "lane");
-    assert_eq!(made[0]["from"], "branch");
+    assert_eq!((&made[0]["branch"], &made[0]["from"]), (&json!("lane"), &json!("branch")));
     assert_eq!(git(&wt, &["rev-parse", "--abbrev-ref", "HEAD"]), "lane");
     assert_eq!(std::fs::read_to_string(wt.join("README")).unwrap(), "hello\n");
+    let told = format!("[acpmux] your cwd {shown} was missing; recreated it from branch lane.");
+    assert!(reply(&hub, &id).contains(&told), "{}", reply(&hub, &id));
 
-    // Only origin/<branch> is left: the branch is made again from it.
-    reclaim(&hub, &id, &wt).await;
+    // A live agent whose folder went: the turn brings it back before the prompt.
+    std::fs::remove_dir_all(&wt).unwrap();
     git(&repo, &["worktree", "prune"]);
     git(&repo, &["update-ref", "refs/remotes/origin/lane", "lane"]);
     git(&repo, &["branch", "-q", "-D", "lane"]);
@@ -244,35 +253,76 @@ async fn a_deleted_worktree_is_added_back_from_its_branch_before_the_agent_start
     assert_eq!(made.len(), 2, "{:?}", kinds(&hub, &id));
     assert_eq!(made[1]["from"], "origin");
     assert_eq!(git(&wt, &["rev-parse", "--abbrev-ref", "HEAD"]), "lane");
+    assert!(reply(&hub, &id).contains("recreated it from origin/lane as branch lane."));
 
-    // Nothing to make it from: the turn fails, naming the folder and why, and no folder is made.
+    // The branch is gone everywhere (merged and deleted): back at its last commit, detached.
     reclaim(&hub, &id, &wt).await;
     git(&repo, &["worktree", "prune"]);
     git(&repo, &["update-ref", "-d", "refs/remotes/origin/lane"]);
     git(&repo, &["branch", "-q", "-D", "lane"]);
-    let err = c.request(method::SESSION_PROMPT, prompt(&id, "once more", None)).await.unwrap_err();
-    assert!(err.contains(wt.to_str().unwrap()), "{err}");
-    assert!(err.contains("neither branch lane nor origin/lane exists"), "{err}");
-    assert_eq!(records(&hub, &id, "worktree_recreate_failed").len(), 1);
+    c.request(method::SESSION_PROMPT, prompt(&id, "once more", None)).await.unwrap();
+    let made = records(&hub, &id, "worktree_recreated");
+    assert_eq!(made.len(), 3, "{:?}", kinds(&hub, &id));
+    assert_eq!(made[2]["from"], "its last commit");
+    assert_eq!(git(&wt, &["rev-parse", "HEAD"]), head);
+    assert_eq!(git(&wt, &["rev-parse", "--abbrev-ref", "HEAD"]), "HEAD");
+    assert!(reply(&hub, &id).contains("branch lane is gone, so recreated it at its last commit"));
+
+    // It cannot be added back (its repository is gone too): the session moves to the folder
+    // above, and the agent is told.
+    reclaim(&hub, &id, &wt).await;
+    std::fs::remove_dir_all(&repo).unwrap();
+    c.request(method::SESSION_PROMPT, prompt(&id, "cwd-probe", None)).await.unwrap();
+    assert_eq!(records(&hub, &id, "worktree_recreate_failed").len(), 1, "{:?}", kinds(&hub, &id));
+    let moved = records(&hub, &id, "cwd_fallback");
+    assert_eq!(moved.len(), 1, "{:?}", kinds(&hub, &id));
+    assert_eq!(moved[0]["to"], json!(lanes));
+    assert_eq!(hub.resolve(&id).unwrap().meta().cwd, lanes);
+    let said = reply(&hub, &id);
+    assert!(said.starts_with(&format!("cwd: {}", lanes.display())), "{said}");
+    assert!(
+        said.contains(&format!(
+            "[acpmux] your cwd {shown} was missing; its worktree could not be added back"
+        )),
+        "{said}"
+    );
+    assert!(said.contains(&format!("running in {} instead.", lanes.display())), "{said}");
     assert!(!wt.exists());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// A missing folder that was never a linked worktree is not made: acpmux makes no folder git
-/// did not.
+/// A missing folder that was never a linked worktree is not made (acpmux makes no folder git
+/// did not): the session moves to the folder above it, and the agent is told.
 #[tokio::test]
-async fn a_missing_plain_folder_is_never_made() {
+async fn a_missing_plain_folder_moves_the_session_to_its_parent_and_the_agent_is_told() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     let dir = scratch("plain");
-    let folder = dir.join("plain");
+    let folder = dir.join("plain").join("deeper");
     std::fs::create_dir_all(&folder).unwrap();
     let s = c.request(method::SESSION_NEW, json!({"cwd": folder, "mcpServers": []})).await.unwrap();
     let id = s["sessionId"].as_str().unwrap().to_owned();
+    let sid = agent_sid(&hub, &id);
     c.request(method::SESSION_PROMPT, prompt(&id, "hello", None)).await.unwrap();
     assert!(hub.resolve(&id).unwrap().meta().worktree.is_none());
-    reclaim(&hub, &id, &folder).await;
-    let _ = c.request(method::SESSION_PROMPT, prompt(&id, "hello again", None)).await;
-    assert!(!folder.exists());
+    hub.detach_child(&hub.resolve(&id).unwrap()).await;
+    std::fs::remove_dir_all(dir.join("plain")).unwrap();
+    c.request(method::SESSION_PROMPT, prompt(&id, "cwd-probe", None)).await.unwrap();
+    assert!(!folder.exists() && !dir.join("plain").exists());
     assert!(records(&hub, &id, "worktree_recreated").is_empty());
+    let moved = records(&hub, &id, "cwd_fallback");
+    assert_eq!(moved.len(), 1, "{:?}", kinds(&hub, &id));
+    assert_eq!(moved[0]["to"], json!(dir));
+    let said = reply(&hub, &id);
+    assert!(said.starts_with(&format!("cwd: {}", dir.display())), "{said}");
+    let told = format!(
+        "[acpmux] your cwd {} was missing; it was not a git worktree acpmux knew; running in {} instead.",
+        folder.display(),
+        dir.display()
+    );
+    assert!(said.contains(&told), "{said}");
+    // Told once: the next turn's prompt is the person's own.
+    c.request(method::SESSION_PROMPT, prompt(&id, "hello", None)).await.unwrap();
+    assert!(!reply(&hub, &id).contains("[acpmux]"), "{}", reply(&hub, &id));
+    assert_eq!(agent_sid(&hub, &id), sid);
     let _ = std::fs::remove_dir_all(&dir);
 }

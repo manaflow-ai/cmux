@@ -277,6 +277,8 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
+        // Its folder back if it is gone, or the one above it (`worktree_care/revive.rs`).
+        self.ready_folder(session, false).await;
         // What its queue entry holds now (`queue_edit.rs` may edit a prompt that waited).
         let (mut blocks, control, trust_gate) = (run.blocks.clone(), run.control, run.trust_gate);
         let text = prompt_text(&blocks);
@@ -346,6 +348,10 @@ impl Hub {
                     0,
                     json!({"type": "text", "text": format!("<restored_transcript note=\"acpmux restored this conversation on a new agent session; tool state was not restored\">\n{transcript}\n</restored_transcript>\n")}),
                 );
+        }
+        // The agent hears what became of a missing folder (`worktree_care/revive.rs`).
+        if let Some(notice) = super::worktree_care::revive::take_notice(&session.id) {
+            blocks.insert(0, json!({"type": "text", "text": format!("{notice}\n\n")}));
         }
         session.stderr_tail.lock().unwrap().clear();
         let turn_seq = self
