@@ -64,8 +64,8 @@ final class RowBuilder {
                 gap = 0
             }
             let startsRun = prev.map { !Self.sameSender($0, item) || item.createdAt.timeIntervalSince($0.createdAt) >= Self.groupGap } ?? true
-            let afterVoice = prev.map { $0.author == item.author && $0.key.voice != nil } ?? false
-            let label = item.key.voice.map(HomeStrings.voice) ?? (ctx.showsNames || afterVoice ? ctx.names[item.author] : nil)
+            let afterVoice = prev.map { $0.author == item.author && Self.voice($0) != nil } ?? false
+            let label = Self.voice(item).map(HomeStrings.voice) ?? (ctx.showsNames || afterVoice ? ctx.names[item.author] : nil)
             if !outgoing, startsRun, !item.isRetracted, let name = label, !name.isEmpty {
                 rows.append(RowSpec(key: "name:\(item.key.rawValue)", kind: .senderName(name), gap: gap, height: 14))
                 gap = 1
@@ -107,7 +107,13 @@ final class RowBuilder {
 
     /// One author in one voice: a front desk receipt and the Chief's reply are two runs.
     static func sameSender(_ a: TranscriptItem, _ b: TranscriptItem) -> Bool {
-        a.author == b.author && a.key.voice == b.key.voice
+        a.author == b.author && voice(a) == voice(b)
+    }
+
+    /// The voice an agent's message speaks in (`IdempotencyKey.voice`). A
+    /// person picks their own client_msg_id, so theirs never has one.
+    static func voice(_ item: TranscriptItem) -> String? {
+        item.author.rawValue.hasPrefix("agent_") ? item.key.voice : nil
     }
 
     /// Attachments always show; other parts when they have text.

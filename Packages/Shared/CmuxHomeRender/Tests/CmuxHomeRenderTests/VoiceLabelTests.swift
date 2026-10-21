@@ -37,6 +37,14 @@ import Testing
         #expect(names(c).isEmpty)
     }
 
+    @Test func onlyAnAgentSpeaksInAVoice() {
+        let spoof = Message(id: MessageID("msg_2"), conversation: Fixtures.conversation, seq: 2,
+                            clientMessageID: IdempotencyKey("voice:desk:x"), author: ParticipantID("user_bob"),
+                            parts: [.text("not the desk")], createdAt: Fixtures.start.addingTimeInterval(5))
+        let items = Fixtures.items([desk(1, "Got it.", at: 0), spoof])
+        #expect(items.map(RowBuilder.voice) == ["desk", nil])
+    }
+
     @Test func onlyVoiceKeysHaveAVoice() {
         #expect(IdempotencyKey("voice:desk:turn:optchat:4:17").voice == "desk")
         #expect(IdempotencyKey("voice:a7:x").voice == "a7")
