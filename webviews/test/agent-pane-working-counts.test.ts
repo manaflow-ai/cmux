@@ -272,7 +272,17 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
         const box = node.getBoundingClientRect();
         return box.top >= 0 && box.bottom <= window.innerHeight;
       });
-    for (let tries = 0; tries < 50 && !(await inView()); tries++) await page.waitForTimeout(100);
+    // The scroll can glide: wait for the row to come into view, then check it is.
+    await page
+      .waitForFunction(
+        (node) => {
+          const box = node!.getBoundingClientRect();
+          return box.top >= 0 && box.bottom <= window.innerHeight;
+        },
+        await row.elementHandle(),
+        { timeout: 5_000 },
+      )
+      .catch(() => undefined);
     expect(await inView()).toBe(true);
     await page.close();
   });

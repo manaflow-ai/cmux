@@ -6783,7 +6783,9 @@ function AcpmuxPane() {
                                                 }
                                                 canLoadOlder={!childRows && snapshot.canLoadOlder}
                                                 historyFrom={childRows ? undefined : snapshot.historyFrom}
-                                                onLoadOlder={() => directClient.current?.loadOlder() ?? Promise.resolve()}
+                                                onLoadOlder={() =>
+                                                  directClient.current?.loadOlder() ?? Promise.resolve()
+                                                }
                                                 openAt={
                                                   !childRows &&
                                                   shownSessionId &&
