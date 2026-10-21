@@ -108,6 +108,9 @@ follow-up).
 - **Nightly channel**: `ota/nightly.json` is read but nothing writes it. The nightly train would
   sign it for the promoted commit's key with the same script. The release-rings lane owns
   `updates.channel`; the `updates.web` default will follow it (dev to every merge, stable to off).
+- **Signing key custody**: the private key exists only in the `CMUX_WEB_OTA_SIGNING_KEY` secret
+  (no backup; losing it costs one nightly without web updates, never trust). Rotate, as above, to a
+  key generated where the Sparkle and notary keys are kept, once that place is named.
 - **Push hint**: the app polls a small cached file. A push (the existing notification path, or a
   long poll on a presence worker) can call `updates.web.check` instead.
 

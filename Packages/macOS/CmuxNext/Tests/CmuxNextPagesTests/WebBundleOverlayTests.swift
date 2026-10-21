@@ -50,9 +50,10 @@ struct WebBundleOverlayTests {
     @Test func aRequestDuringTheLaunchCheckWaitsForIt() async {
         let overlay = Self.overlay()
         let (gate, open) = AsyncStream<Void>.makeStream()
+        let tree = Self.tree
         overlay.load {
             for await _ in gate { break }
-            return Self.tree
+            return tree
         }
         // task-owner: the test's one waiting request
         let request = Task { await overlay.root(for: Self.bundledPane) }

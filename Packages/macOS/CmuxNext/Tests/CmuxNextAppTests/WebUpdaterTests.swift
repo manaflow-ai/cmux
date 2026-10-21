@@ -8,7 +8,7 @@ import Testing
 /// conditional read.
 @Suite(.serialized) @MainActor struct WebUpdaterTests {
     /// What the fake server serves and saw.
-    final class Server: @unchecked Sendable {
+    nonisolated final class Server: @unchecked Sendable {
         var pointer = Data()
         var archive: URL?
         var etag = "\"1\""
