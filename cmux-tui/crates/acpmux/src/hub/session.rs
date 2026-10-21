@@ -112,9 +112,12 @@ pub struct Session {
     /// The seq of the last record that shows the agent doing work: a tool call that is not
     /// messaging, or a file write (`agent_pairs.rs` `progress_record`). 0: none since load.
     pub(super) last_progress: AtomicU64,
-    /// How many messages the agent sent (updates, requests, answers; not its
-    /// host's stderr or exit); a turn that hears none is silent (`silent_turn.rs`).
+    /// How many signs of its model at work the agent sent (what it says or does, its
+    /// requests, its harness's model lines; not its own bookkeeping, `tap.rs`
+    /// `from_the_model`); a turn that hears none is silent (`silent_turn.rs`).
     pub(super) heard: AtomicU64,
+    /// The turn that logged `turn_silent` and has not heard its model since (`silent_turn.rs`).
+    pub(super) silent_turn: StdMutex<Option<String>>,
     /// The hub clock's time (`Hub::clock_now`) of the last record or
     /// attach change; the idle harness exit counts from it (`idle.rs`).
     pub(super) last_active: AtomicU64,

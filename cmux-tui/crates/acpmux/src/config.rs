@@ -799,9 +799,11 @@ pub struct Config {
     /// ended. Default 90000.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_start_timeout_ms: Option<u64>,
-    /// `silentTurnMs`: how long a turn may go with nothing from its agent (no
-    /// update, request or answer) before the chat logs `turn_silent`, so a
-    /// client can say the model has not answered (`hub/silent_turn.rs`).
+    /// `silentTurnMs`: how long a turn may go with no sign of its model at work
+    /// (no message, thought, tool call, plan, request or model harness line;
+    /// the agent's own bookkeeping does not count) before the chat logs
+    /// `turn_silent`, so a client can say the model has not answered
+    /// (`hub/silent_turn.rs`).
     /// Default 90000; 0 turns it off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub silent_turn_ms: Option<u64>,
