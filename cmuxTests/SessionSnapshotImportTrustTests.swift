@@ -320,6 +320,81 @@ struct SessionSnapshotImportTrustTests {
         #expect(invocation.arguments == ["sr", "claude", "proxy", "--resume", sessionId])
     }
 
+    @Test("a legacy Claude Subrouter agent-hook binding supplies missing launch identity")
+    func fileImportLegacyClaudeProviderIdentityFallsBackToAgentHookBinding() throws {
+        let sessionId = "a22293b7-bcef-4707-8439-2f538c8517a4"
+        let project = try Self.makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: project) }
+        let launch = AgentLaunchCommandSnapshot(
+            launcher: "claude",
+            executablePath: "/tmp/evil/claude",
+            arguments: ["/tmp/evil/claude", "--settings", "/tmp/old-subrouter-settings.json"],
+            workingDirectory: project.path,
+            environment: [
+                "CLAUDE_CONFIG_DIR": "/Users/example/.subrouter/codex/claude-proxy/account-a",
+                "ANTHROPIC_BASE_URL": "http://127.0.0.1:31415",
+            ],
+            capturedAt: 1,
+            source: "agent-hook"
+        )
+        let terminal = SessionTerminalPanelSnapshot(
+            workingDirectory: project.path,
+            agent: SessionRestorableAgentSnapshot(
+                kind: .claude,
+                sessionId: sessionId,
+                workingDirectory: project.path,
+                launchCommand: nil
+            ),
+            resumeBinding: SurfaceResumeBindingSnapshot(
+                kind: "claude",
+                command: "claude --resume \(sessionId)",
+                checkpointId: sessionId,
+                source: "agent-hook",
+                launchCommand: launch,
+                autoResume: true
+            ),
+            wasAgentRunning: true
+        )
+
+        let (restored, _) = SessionSnapshotImportTrust.snapshotForRestore(
+            Self.snapshot(terminal: terminal),
+            source: Self.fileImport
+        )
+        let restoredTerminal = try #require(
+            restored.windows.first?.tabManager.workspaces.first?.panels.first?.terminal
+        )
+        let agent = try #require(restoredTerminal.agent)
+        let preserved = try #require(agent.launchCommand)
+        let marker = "sr claude proxy --resume"
+        #expect(preserved.environment?[SubrouterClaudeResumeRouting.environmentKey] == marker)
+        #expect(preserved.environment?[SubrouterClaudeResumeRouting.launchBoundEnvironmentKey] == marker)
+        #expect(restoredTerminal.resumeBinding == nil)
+
+        let invocation = try #require(
+            AgentRestorePlanner(isExecutableFile: { _ in true }).invocation(
+                for: AgentRestoreRequest(
+                    mode: .resumeAgent,
+                    kind: "claude",
+                    checkpointID: sessionId,
+                    source: "session-import",
+                    workingDirectory: project.path,
+                    environment: preserved.environment ?? [:],
+                    launchCommand: AgentLaunchCommand(
+                        launcher: preserved.launcher,
+                        executablePath: preserved.executablePath,
+                        arguments: preserved.arguments,
+                        workingDirectory: preserved.workingDirectory,
+                        environment: preserved.environment
+                    ),
+                    preparedArguments: nil,
+                    observedPermissionMode: nil
+                ),
+                ambientEnvironment: ["PATH": "/usr/bin:/bin"]
+            )
+        )
+        #expect(invocation.arguments == ["sr", "claude", "proxy", "--resume", sessionId])
+    }
+
     @Test("a built-in Vault registration from the file is replaced by cmux's own definition")
     func builtInRegistrationIsReplaced() throws {
         var forgedAmp = CmuxVaultAgentRegistration.builtInAmp
