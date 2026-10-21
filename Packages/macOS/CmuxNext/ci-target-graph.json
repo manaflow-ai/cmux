@@ -96,9 +96,11 @@
       "targets": [
         "CmuxNextActions",
         "CmuxNextAgentActivity",
+        "CmuxNextApps",
         "CmuxNextBridge",
         "CmuxNextCompat",
         "CmuxNextDesign",
+        "CmuxNextHome",
         "CmuxNextHomeEngine",
         "CmuxNextSidebar",
         "CmuxNextWakeups"
@@ -465,7 +467,8 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport",
       "targets": [
-        "CmuxNextCompat"
+        "CmuxNextCompat",
+        "CmuxNextWakeups"
       ],
       "packages": []
     },

@@ -79,6 +79,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var animationKinds = AnimationKindsSetting()
     /// `ui.animations.enabled` and `ui.animations.<category>` (``MotionCategoriesSetting``).
     public var motionCategories = MotionCategoriesSetting()
+    /// `ui.calm`; off when unset or invalid.
+    public var calmMode: CalmMode = CalmModeSetting.fallback
     /// `ui.paneAnimations`; on when unset or invalid.
     public var paneAnimations: Bool = PaneAnimationsSetting.fallback
     /// `layout.centerFocusedColumn`; "never" when unset or invalid.
@@ -286,6 +288,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(AnimationKindsSetting.parse(root), \.animationKinds)
         snapshot.take(MotionCategoriesSetting.parse(root), \.motionCategories)
         snapshot.take(PaneAnimationsSetting.parse(root), \.paneAnimations)
+        snapshot.take(CalmModeSetting.parse(root), \.calmMode)
         let (centering, centeringDiagnostic) = CenterFocusedColumnSetting.parse(root)
         snapshot.centerFocusedColumn = centering
         if let centeringDiagnostic { snapshot.diagnostics.append(centeringDiagnostic) }
