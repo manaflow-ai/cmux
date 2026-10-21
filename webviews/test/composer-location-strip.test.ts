@@ -336,7 +336,7 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       ),
       // The Claude desktop box (composerLocation.css): + and the trailing actions sit beside the
       // prompt, so the box's columns are the + glyph's 16 px box and the last action's glyph: the
-      // mic in this empty new chat (no Send until there is a draft, Leo 2026-10-20), Send with one.
+      // mic, with or without a draft (Send takes Stop's slot left of it; Leo 2026-10-20).
       plusGlyph: rect(document.querySelector(".acpmux-composer-inner .acpmux-composer-plus .acpmux-icon")),
       trailGlyph: rect(
         [...document.querySelectorAll(".acpmux-composer-inner .acpmux-composer-actions .acpmux-icon")].at(-1),

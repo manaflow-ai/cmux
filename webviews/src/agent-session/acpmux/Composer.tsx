@@ -1288,6 +1288,37 @@ export function Composer({
       {escapeStop.armed ? <span className="acpmux-escape-key">{t(COMPOSER_LABELS.escapeKey)}</span> : <StopIcon />}
     </button>
   ) : null;
+  // Claude desktop's box (Leo 2026-10-20): no Send until there is a draft. Its slot is Stop's, left of
+  // the mic, there from the start, hidden and inert, so the first letter and a starting turn move
+  // nothing (the mic keeps the right edge). Mid-turn it queues the draft, unless the ↵ control is
+  // there to put it into the turn; then it comes in at the cluster's leading edge, as ↵ does.
+  const sendControl = remote.canSend ? (
+    <button
+      key="send"
+      ref={sendButton}
+      type="submit"
+      disabled={Boolean(blocked) && !shell}
+      inert={!sendShown}
+      aria-hidden={sendShown ? undefined : true}
+      className={`acpmux-send${(shell ? shellText.trim() : !blocked && hasDraft) ? " acpmux-send-ready" : ""}${sendShown ? "" : " acpmux-send-reserved"}`}
+      aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
+      title={
+        shell
+          ? t("composer.shellRun")
+          : blocked?.reason
+            ? t(blocked.reason)
+            : t(
+                !snapshot.isWorking
+                  ? "composer.sendTooltip"
+                  : returnSteers
+                    ? "composer.queueLaterTooltip"
+                    : "composer.queueTooltip",
+              )
+      }
+    >
+      <ArrowUpIcon />
+    </button>
+  ) : null;
   return (
     <form
       ref={form}
@@ -1580,46 +1611,15 @@ export function Composer({
                 </button>
               )}
               {!plainFooter && speed && <FastToggle speed={speed} />}
-              {plainFooter && stopButton}
+              {plainFooter && running && sendShown && sendControl}
+              {plainFooter && (running ? stopButton : sendControl)}
               {/* The mic stays at every width; the prompt shrinks instead (composerRowFit.ts). */}
               {accessory && (
                 <span className="acpmux-fit-mic" data-fit-part="mic" data-fit-forms="full">
                   {accessory}
                 </span>
               )}
-              {!plainFooter && stop ? (
-                stopButton
-              ) : remote.canSend ? (
-                // Claude desktop's box (Leo 2026-10-20): no Send until there is a draft; Send shows
-                // after the mic with the first letter. Mid-turn it queues the draft, unless the ↵
-                // control is there to put it into the turn. Its slot is there from the start, hidden
-                // and inert, so the first letter moves nothing (the mic keeps its place).
-                <button
-                  key="send"
-                  ref={sendButton}
-                  type="submit"
-                  disabled={Boolean(blocked) && !shell}
-                  inert={!sendShown}
-                  aria-hidden={sendShown ? undefined : true}
-                  className={`acpmux-send${(shell ? shellText.trim() : !blocked && hasDraft) ? " acpmux-send-ready" : ""}${sendShown ? "" : " acpmux-send-reserved"}`}
-                  aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
-                  title={
-                    shell
-                      ? t("composer.shellRun")
-                      : blocked?.reason
-                        ? t(blocked.reason)
-                        : t(
-                            !snapshot.isWorking
-                              ? "composer.sendTooltip"
-                              : returnSteers
-                                ? "composer.queueLaterTooltip"
-                                : "composer.queueTooltip",
-                          )
-                  }
-                >
-                  <ArrowUpIcon />
-                </button>
-              ) : null}
+              {!plainFooter && (stop ? stopButton : sendControl)}
             </span>
           </div>
         </ChromeArea>
