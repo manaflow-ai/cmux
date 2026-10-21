@@ -39,6 +39,10 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     public let harness: String?
     /// What it is doing now, one line (hq#2509): the lane's `step`, which acpmux masks secrets in.
     public let step: String?
+    /// A turn ended while no client showed the chat (the summary's `unread`); showing it clears it.
+    public let unread: Bool
+    /// The session folder's name (the last part of `cwd`), the Priority view's project tag.
+    public let project: String?
     /// The session whose agent started this one (acpmux `spawnedBy`, one level): the sidebar's
     /// session tree lists its workspace under that session's.
     public let spawnedBy: String?
@@ -49,8 +53,8 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     public let pullRequests: [String]
 
     public init(id: String, name: String, title: String, peer: String?, parent: String?, state: State, since: Date?, error: String?,
-                workspaceID: String? = nil, harness: String? = nil, step: String? = nil, spawnedBy: String? = nil, cwd: String? = nil,
-                pullRequests: [String] = []) {
+                workspaceID: String? = nil, harness: String? = nil, step: String? = nil, unread: Bool = false, project: String? = nil,
+                spawnedBy: String? = nil, cwd: String? = nil, pullRequests: [String] = []) {
         self.id = id
         self.name = name
         self.title = title
@@ -62,6 +66,8 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
         self.error = error
         self.harness = harness
         self.step = step
+        self.unread = unread
+        self.project = project
         self.spawnedBy = spawnedBy
         self.cwd = cwd
         self.pullRequests = pullRequests
@@ -90,10 +96,12 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
         // Never the raw prompt beside it: only acpmux's masked step and title are shown.
         let step = (lane["step"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         let title = (lane["title"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let unread = (summary["unread"] as? Bool) ?? false
+        let project = (summary["cwd"] as? String).map { URL(fileURLWithPath: $0).lastPathComponent }.flatMap { $0.isEmpty || $0 == "/" ? nil : $0 }
         return AgentActivityLane(id: id, name: name, title: title ?? name, peer: summary["peer"] as? String, parent: parent,
                                  state: state, since: since, error: error, workspaceID: workspaceID,
-                                 harness: harness, step: step, spawnedBy: nonEmpty(summary["spawnedBy"]),
-                                 cwd: nonEmpty(summary["cwd"]),
+                                 harness: harness, step: step, unread: unread, project: project,
+                                 spawnedBy: nonEmpty(summary["spawnedBy"]), cwd: nonEmpty(summary["cwd"]),
                                  pullRequests: (summary["pullRequests"] as? [Any] ?? []).compactMap { nonEmpty($0) })
     }
 

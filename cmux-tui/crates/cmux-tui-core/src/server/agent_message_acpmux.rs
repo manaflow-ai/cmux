@@ -62,8 +62,10 @@ impl crate::mux::Mux {
             link.close();
             return Handover::Unreachable;
         }
-        // Steered into a running turn when the agent steers, so a busy recipient reads it now
-        // instead of after its turn; acpmux queues it for an agent that does not.
+        // Steered into a running turn when the agent steers, so a busy recipient reads it at its
+        // next tool boundary instead of after its turn; acpmux queues it for an agent that does
+        // not. A steer without `interrupt` never stops the turn; only an explicit interrupt
+        // (`_meta.acpmux.interrupt`, or a queue "Send now", `queue_edit.rs`) does.
         let mut meta = json!({"steer": true, "promptId": id, "resend": true});
         if let Some(provenance) = provenance(message, recipient) {
             meta["provenance"] = provenance;
