@@ -52,26 +52,31 @@ export type AttachmentIntakeOptions = {
   localPaths?(kind: DroppedKind, files: File[]): Promise<LinkItem[] | undefined>;
 };
 
-/** Append a batch while collapsing repeated local path links (for example, dropping the same
- * folder twice). Other attachments keep their ids and remain independent. */
+/** Append a batch while replacing the same attachment id and collapsing repeated local path links
+ * (for example, highlighting the same element or dropping the same folder twice). */
 export function appendAttachments(
   current: readonly ComposerAttachment[],
   added: readonly ComposerAttachment[],
 ): ComposerAttachment[] {
   const result = [...current];
+  const ids = new Map<string, number>();
   const links = new Map<string, number>();
   result.forEach((attachment, index) => {
+    ids.set(attachment.id, index);
     if (attachment.kind === "link" && attachment.path) links.set(attachment.path, index);
   });
   for (const attachment of added) {
-    if (attachment.kind === "link" && attachment.path) {
-      const previous = links.get(attachment.path);
-      if (previous !== undefined) {
-        result[previous] = attachment;
-        continue;
-      }
-      links.set(attachment.path, result.length);
+    const previous =
+      ids.get(attachment.id) ??
+      (attachment.kind === "link" && attachment.path ? links.get(attachment.path) : undefined);
+    if (previous !== undefined) {
+      result[previous] = attachment;
+      ids.set(attachment.id, previous);
+      if (attachment.kind === "link" && attachment.path) links.set(attachment.path, previous);
+      continue;
     }
+    ids.set(attachment.id, result.length);
+    if (attachment.kind === "link" && attachment.path) links.set(attachment.path, result.length);
     result.push(attachment);
   }
   return result;

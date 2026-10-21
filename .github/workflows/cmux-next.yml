@@ -1007,12 +1007,17 @@ jobs:
           echo '{}' > "$marker"
           echo "path=$marker" >> "$GITHUB_OUTPUT"
 
+      # With no free overflow slot a bot re-run takes the same side label
+      # (retry_runner is empty), so the rescue's cancel and re-run would only
+      # send the run to the back of that queue: run 39615562861 went round
+      # twice on 2026-10-21. The refusals marker has the sweeper re-run what a
+      # mini refuses and leave a long queue alone.
       - name: Upload the owned-pool watch marker
         if: ${{ steps.marker.outputs.path != '' }}
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: owned-pool-watch
+          name: ${{ steps.place.outputs.free_retry_runner == '' && 'owned-pool-watch-refusals' || 'owned-pool-watch' }}
           path: ${{ steps.marker.outputs.path }}
           retention-days: 1
 
@@ -1224,6 +1229,13 @@ jobs:
           python3 -I scripts/cmux-next/gen-type-scale.py --check
           python3 -I scripts/cmux-next/check-swift-type-scale.py
 
+      # The one motion duration scale (schemas/motion-scale/motion-scale.json): its Swift, CSS and
+      # TypeScript copies (Leo 2026-10-20: one token file both sides read).
+      - name: Motion scale
+        id: motion-scale
+        continue-on-error: true
+        run: python3 -I scripts/cmux-next/gen-motion-scale.py --check
+
       # LAUNCH-NO-TCC-PROMPTS: the Swift and TypeScript copies of the one
       # protected-folder list (cmux-tui/crates/acpmux/data/protected-folders.json).
       - name: Protected-folder copies
@@ -1324,6 +1336,9 @@ jobs:
             bash scripts/cmux-next/tests/ublock-pin.test.sh
             bash scripts/cmux-next/tests/base-autofix-push.test.sh
             bash scripts/cmux-next/tests/base-autofix-land.test.sh
+            bash scripts/cmux-next/tests/base-autofix-action-exports.test.sh
+            bash scripts/cmux-next/tests/base-autofix-changed.test.sh
+            bash scripts/cmux-next/tests/base-autofix-settings-landed.test.sh
             bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh
             bash scripts/cmux-next/tests/app-ffi-release-paths.test.sh
             bash scripts/cmux-next/tests/stamp-app-ffi-mtimes.test.sh
@@ -1640,6 +1655,7 @@ jobs:
             ${{ steps.scrollbars.outcome }}|Scrollbars thin, one style
             ${{ steps.motion.outcome }}|Motion tokens
             ${{ steps.type-scale.outcome }}|Type scale
+            ${{ steps.motion-scale.outcome }}|Motion scale
             ${{ steps.protected-folders.outcome }}|Protected-folder copies
             ${{ steps.settings-sources.outcome }}|Settings source copies
             ${{ steps.phone-lane-fields.outcome }}|Phone lane field allowlist

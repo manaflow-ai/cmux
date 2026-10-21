@@ -405,7 +405,7 @@
     "setting.diff.layout": "unified",
     "setting.diff.lineNumbers": true,
     "setting.diff.showBackgrounds": true,
-    "setting.diff.wordDiffs": false,
+    "setting.diff.wordDiffs": true,
     "setting.diff.wordWrap": false,
     "setting.editor.acceptSuggestionOnEnter": "on",
     "setting.editor.autoClosingBrackets": true,

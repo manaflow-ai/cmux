@@ -393,6 +393,7 @@ impl Hub {
             return Err(e);
         }
         self.set_status(session, SessionStatus::Running);
+        self.watch_silent_turn(session, &turn_id).await;
         let mut result = super::steer_end::agent_prompt(
             session,
             &child,
@@ -1037,17 +1038,24 @@ impl Hub {
         if purge {
             session.purged.store(true, Ordering::SeqCst);
             self.sessions.lock().unwrap().remove(&session.id);
+            // Its temporary folder goes with it (`agent/session_tmp.rs`).
+            #[cfg(unix)]
+            {
+                let id = session.id.clone();
+                tokio::task::spawn_blocking(move || crate::agent::session_tmp::remove_session(&id));
+            }
+            self.git_branch_forget(&session.id);
             // Tell watchers (peers, TUIs) the session is gone.
             let _ = self.events.send(HubEvent {
                 session_id: session.id.clone(),
-                record: EventRecord {
+                record: Arc::new(EventRecord {
                     seq: session.meta().last_seq + 1,
                     at: now_ms(),
                     dir: "mux".into(),
                     kind: "purged".into(),
                     msg: json!({"sessionId": session.id}),
                     host_seq: None,
-                },
+                }),
                 remote: None,
             });
             self.store.delete(&session.id).map_err(|e| RpcError::internal(e.to_string()))?;

@@ -35,6 +35,7 @@ import {
   type AcpmuxSnapshot,
   type QueueEdit,
   nextDrawnRow,
+  isBeforeFooter,
   isLastFooter,
   TRANSCRIPT_RUNWAY,
 } from "./model";
@@ -47,6 +48,8 @@ import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabHost } from ".
 import { setDeviceChats } from "./newtab/deviceChats";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
+import { setImportCards } from "./importCards";
+import { NewTabImportCards } from "./NewTabImportCards";
 import { NewTabScreen, type NewTabScreenActions } from "./newtab/NewTabScreen";
 import { HistoryScreen } from "./newtab/HistoryScreen";
 import type { AllChatsPage } from "./newtab/AllChatsList";
@@ -128,8 +131,6 @@ import { SummaryButton } from "./summary/SummaryButton";
 import { SummaryCard } from "./summary/SummaryCard";
 import { runningBackgroundTasks } from "./summary/sessionSummary";
 import { useChatInspector } from "./inspector/ChatInspector";
-import { BACKGROUND_WORK, type BackgroundCounts, backgroundRowShown } from "./conversation/backgroundWork";
-import { BackgroundWorkLine } from "./conversation/BackgroundWorkRow";
 import {
   type BackgroundCommand,
   backgroundCommands,
@@ -138,8 +139,18 @@ import {
   useProcessRegistry,
 } from "./inspector/processes";
 import { useInspectorOpen } from "./inspector/inspectorState";
+import { openProcessTerminal } from "./processTerminal";
 import { pendingToolCalls, waitingSubagents } from "./summary/SubagentStatusList";
 import { AgentsPill } from "./subagents/AgentsPill";
+import { SubagentTray } from "./subagents/SubagentTray";
+import { SubagentDoneLine } from "./subagents/SubagentDoneLine";
+import {
+  type DoneLineCache,
+  configureSubagentTray,
+  trayItems,
+  useSubagentTray,
+  withSubagentLines,
+} from "./subagents/runningTray";
 import { AgentTonesContext, agentTones } from "./subagents/agentTones";
 import { useSummaryCard, useSummaryColumn } from "./summary/cardState";
 import { chatHasSummaryContent } from "./summary/summaryContent";
@@ -173,6 +184,7 @@ import { transcriptRepositories, type RepositoryCache } from "./conversation/tra
 import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { PromptActions, ReceivedActions } from "./conversation/MessageActions";
+import { stopReadingAloud } from "./conversation/readAloud";
 import { foldToggleAt, holdFold, keepFold, type FoldAnchor } from "./conversation/foldAnchor";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { loadHighlightedCode } from "./conversation/CodeBlock";
@@ -180,6 +192,7 @@ import { loadEditDiffHunks } from "./conversation/EditDiff";
 import { PlanList } from "./conversation/PlanList";
 import { ActivityLine } from "./conversation/ActivityLine";
 import { BackgroundTaskNote } from "./conversation/BackgroundTaskNote";
+import { BackgroundTaskOutputContext, type BackgroundTaskOutputReader } from "./conversation/backgroundTaskOutput";
 import { IncomingMessageLine, IncomingNotice } from "./conversation/IncomingMessageCard";
 import type { IncomingMessage } from "./conversation/incomingMessage";
 import { CompactionNote, FailoverNote } from "./conversation/CompactionNote";
@@ -260,6 +273,9 @@ import {
   revealTurnWhenShown,
   setLinkScheme,
 } from "./links";
+import { NeedsYouButton } from "./needsYou/NeedsYou";
+import { NeedsYouPill, type TranscriptNeedsYou } from "./needsYou/JumpPill";
+import { useNeedsYou } from "./needsYou/useNeedsYou";
 import { copyText, copyTextResult } from "./conversation/clipboard";
 import { lastCodeBlock } from "./conversation/lastCodeBlock";
 import { hasTranscriptCopyText, transcriptRangeText } from "./conversation/transcriptCopy";
@@ -301,6 +317,7 @@ import { HostError } from "./HostError";
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
 import {
+  SUBAGENT_DONE,
   SUBAGENT_OF,
   SUBAGENT_ROW,
   type SubagentRows,
@@ -339,6 +356,7 @@ import { importedPrompt, parseImportedSession } from "./importSession";
 import { useCheckpoints } from "./checkpoints/controller";
 import { PermissionPanel } from "./permissions/Panel";
 import { groupAskedCalls, withoutAskedCalls } from "./permissions/askRows";
+import { withoutQuietThoughts } from "./conversation/thoughts";
 import type { PermissionDecision } from "./permissions/protocol";
 import { checkpointStrings } from "./checkpoints/strings";
 import { QUICK_MESSAGES, readSurface, useEscapeToDismiss, type PaneSurface } from "./paneSurface";
@@ -362,6 +380,7 @@ import {
 } from "./started/StartedSessionCard";
 import { type SessionHover, SessionHoverContext } from "./started/SessionHoverCard";
 import { SessionHoverStore, withSessionIds } from "./started/sessionHover";
+import { SubsessionContext, SubsessionStore, type Subsessions, subsessionRows } from "./subagents/subsessions";
 import {
   STARTED_SESSIONS,
   type StartedCache,
@@ -375,6 +394,7 @@ import {
 } from "./started/startedSessions";
 import { experimentArm } from "../../experiments/experiment";
 import { setSessionStatus, useSessionStatus } from "./sessionStatus";
+import { MOTION_MS } from "../../motion/scale.generated";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -439,6 +459,8 @@ declare global {
       applyRecentlyClosed?(items: unknown): void;
       /// What plays, for the New Tab page's player (newtab/nowPlaying.ts); null while nothing does.
       applyNowPlaying?(track: unknown): void;
+      /// The New Tab page's import suggestion cards (importCards.ts); null while there are none.
+      applyImportCards?(cards: unknown): void;
       /// Scrolls to a turn a `cmux://session/<id>#turn-<turnId>` link names (links.ts), once its row
       /// renders; gives up quietly after a few seconds.
       revealTurn?(turnId: string): void;
@@ -511,7 +533,9 @@ function cachedSnapshot(): AcpmuxSnapshot {
     const value = JSON.parse(sessionStorage.getItem("cmux.acpmux.snapshot") ?? "null");
     if (value?.type === "snapshot" && Array.isArray(value.rows) && Array.isArray(value.sessions)) {
       acpmuxPerf.markAgent("snapshotPaint");
-      return { ...emptySnapshot(), ...value, connection: "connecting" };
+      // `connection` and `drewKeptTail` are facts about a live client, and this one is restored:
+      // no client has drawn anything yet, so this document's first paint is its own to report.
+      return { ...emptySnapshot(), ...value, connection: "connecting", drewKeptTail: undefined };
     }
   } catch {
     // A corrupt or unavailable session store must never block the pane.
@@ -953,14 +977,6 @@ const BackgroundTaskRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
-/// "Running in background · 2 commands" at the transcript's end between turns
-/// (conversation/BackgroundWorkRow.tsx); its counts come from BackgroundWorkContext.
-const BackgroundWorkRow = memo(
-  function BackgroundWorkRow(_: RowProps) {
-    return <BackgroundWorkLine />;
-  },
-  (a, b) => a.row.id === b.row.id,
-);
 const CompactionRow = memo(
   function CompactionRow({ row }: RowProps) {
     return row.compaction ? <CompactionNote compaction={row.compaction} /> : null;
@@ -1048,6 +1064,13 @@ const SubagentRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
+/// Where a subagent ended, while running ones sit in the tray (subagents/SubagentDoneLine.tsx).
+const SubagentDoneRow = memo(
+  function SubagentDoneRow({ row }: RowProps) {
+    return <SubagentDoneLine row={row} />;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
 /// The child view's "Subagent of" pill; a click goes back to the parent's view.
 const SubagentOfPillRow = memo(
   function SubagentOfPillRow({ row }: RowProps) {
@@ -1102,6 +1125,7 @@ const OfferResultRow = memo(
 );
 
 const NO_STARTED: readonly StartedSession[] = [];
+const NO_EXPANDED: ReadonlySet<string> = new Set();
 const NO_SPAWNED: readonly AcpmuxSessionEntry[] = [];
 const NO_COMMANDS: readonly BackgroundCommand[] = [];
 const NO_AGENTS: readonly Subagent[] = [];
@@ -1132,7 +1156,6 @@ const defaultRegistry: NativeRegistry = {
   notice: NoticeRow,
   plan: PlanRow,
   backgroundTask: BackgroundTaskRow,
-  [BACKGROUND_WORK]: BackgroundWorkRow,
   compaction: CompactionRow,
   failover: FailoverRow,
   agentPair: AgentPairRow,
@@ -1147,6 +1170,7 @@ const defaultRegistry: NativeRegistry = {
   [SHELL_ROW]: ShellRow,
   [SUBAGENTS]: SubagentGroupRow,
   [SUBAGENT_ROW]: SubagentRow,
+  [SUBAGENT_DONE]: SubagentDoneRow,
   [SUBAGENT_OF]: SubagentOfPillRow,
 };
 
@@ -1172,7 +1196,7 @@ const transcriptHasFloatingCopy = (row: AcpmuxRow) =>
   rowKind(row) !== "editedFiles" &&
   hasTranscriptCopyText(row);
 
-/// Slides the thread from `step` px below (above, when negative) to its place over 180 ms, so
+/// Slides the thread from `step` px below (above, when negative) to its place over GLIDE_MS, so
 /// content that grew at the latest row glides in. Glides stack (`composite: "add"`): two started
 /// before one paint move the text by their sum. None under Reduce Motion (undefined).
 function glide(node: HTMLElement | null, step: number): Animation | undefined {
@@ -1185,7 +1209,7 @@ function glide(node: HTMLElement | null, step: number): Animation | undefined {
     composite: "add",
   });
 }
-const GLIDE_MS = 180;
+const GLIDE_MS = MOTION_MS.standard;
 /// How many rows from the end a glide looks for the row it holds.
 const FOLLOWED_ROW_SEARCH = 64;
 
@@ -1385,11 +1409,12 @@ const RowFrame = React.memo(function RowFrame({
 const speaker = (kind: string, t: Translate) =>
   kind === "user" ? t("transcript.you") : kind === "assistant" ? t("transcript.agent") : undefined;
 const rowKind = (row: AcpmuxRow) => (isEditRow(row) ? "editedFiles" : row.kind);
-/// A row drawn as tool rows: tool calls and thoughts, a background task's end, a compaction, a
-/// failover or a session start note.
+/// A row drawn as tool rows: tool calls and thoughts, a background task's or a subagent's end, a
+/// compaction, a failover or a session start note.
 const isStepRow = (row: AcpmuxRow | undefined) =>
   row !== undefined &&
   (row.kind === "backgroundTask" ||
+    row.kind === SUBAGENT_DONE ||
     row.kind === "compaction" ||
     row.kind === "failover" ||
     row.kind === "agentPair" ||
@@ -1585,15 +1610,19 @@ function JumpToLatest({
   working,
   onJump,
   lift,
+  needsYou,
 }: {
   shown: boolean;
   working: boolean;
+  /// Open asks (needsYou/JumpPill.ts): the button becomes the Needs your input pill.
+  needsYou?: TranscriptNeedsYou;
   /// The bottom stack's height over the transcript's foot: the button sits above it.
   lift: number;
   /// `focused`: the button had keyboard focus, which it loses when it hides at the latest message.
   onJump: (focused: boolean) => void;
 }) {
   const t = useT();
+  if (needsYou && needsYou.count > 0) return <NeedsYouPill {...needsYou} shown={shown} lift={lift} onJump={onJump} />;
   const label = t(working ? "transcript.jumpLatestWorking" : "transcript.jumpLatest");
   return (
     <button
@@ -1656,6 +1685,7 @@ export function VirtualTranscript({
   reveal,
   working = false,
   jumpButton = false,
+  needsYou,
   dock,
   queueWithdrawn,
   focusComposer,
@@ -1677,6 +1707,8 @@ export function VirtualTranscript({
   working?: boolean;
   /// Draw Jump to latest: the chat's own stage only, which positions it above the composer.
   jumpButton?: boolean;
+  /// Open asks: Jump to latest becomes the Needs your input pill (needsYou/JumpPill.tsx).
+  needsYou?: TranscriptNeedsYou;
   /// The chat's bottom stack, laid over the transcript's foot (bottomStack.css): the view runs under
   /// it, the scrollbar's track to the pane's bottom as in the Claude and Codex apps, and its end sits
   /// above it. Its height is room under the last row, followed as it changes before the frame paints.
@@ -1730,6 +1762,9 @@ export function VirtualTranscript({
     setFollowing(next);
   };
   const settle = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  /// Where Jump to latest's glide is headed while it is in flight: its steps are the view following,
+  /// not the reader's scroll, and nothing snaps it to the end before it arrives.
+  const jumpTarget = useRef<number | undefined>(undefined);
   // The last transcript box on this page until this one is measured (before its first paint, below).
   const [height, setHeight] = useState(() => lastTranscriptBox.height);
   const ref = useRef<HTMLDivElement>(null);
@@ -1737,6 +1772,10 @@ export function VirtualTranscript({
   const [dockSpace, setDockSpace] = useState(0);
   const dockSpaceRef = useRef(0);
   dockSpaceRef.current = dockSpace;
+  /// The composer card's height, in that stack: what grows a line at a time (Shift-Return, a wrap).
+  const [dockCard, setDockCard] = useState(0);
+  const dockCardRef = useRef(0);
+  dockCardRef.current = dockCard;
   /// A queued prompt left the bottom stack this frame: a sent one is about to come in as the latest
   /// row; a withdrawn one (deleted from the queue) never does.
   const queueLeft = useRef(false);
@@ -1768,6 +1807,7 @@ export function VirtualTranscript({
   useLayoutEffect(() => {
     if (!dock) {
       setDockSpace(0);
+      setDockCard(0);
       return;
     }
     // Before the frame paints, as the viewport's own size is: a composer that grew a line, or a
@@ -1779,14 +1819,24 @@ export function VirtualTranscript({
       const view = ref.current?.getBoundingClientRect();
       return stack.height > 0 && view ? Math.max(0, Math.min(stack.height, view.bottom - stack.top)) : 0;
     };
+    // The composer card's height, while the stack reaches over the view.
+    const card = (space: number) =>
+      space > 0 ? (dock.querySelector(".acpmux-composer-box")?.getBoundingClientRect().height ?? 0) : 0;
     const observer = new ResizeObserver(() => {
       noteQueue();
       const next = over();
-      if (Math.abs(next - dockSpaceRef.current) >= 0.5) flushSync(() => setDockSpace(next));
+      const nextCard = card(next);
+      if (Math.abs(next - dockSpaceRef.current) >= 0.5 || Math.abs(nextCard - dockCardRef.current) >= 0.5)
+        flushSync(() => {
+          setDockSpace(next);
+          setDockCard(nextCard);
+        });
     });
     observer.observe(dock);
     noteQueue();
-    setDockSpace(over());
+    const space = over();
+    setDockSpace(space);
+    setDockCard(card(space));
     return () => observer.disconnect();
   }, [dock, noteQueue]);
   const [width, setWidth] = useState(() => lastTranscriptBox.width);
@@ -1995,6 +2045,9 @@ export function VirtualTranscript({
     seekFirstRow.current = undefined;
   };
   useEffect(() => () => clearTimeout(seekTimer.current), []);
+  // Read aloud speaks one of this chat's answers: moving to another session (or closing the
+  // transcript) stops it, so it neither talks over the next chat nor says Stop reading on return.
+  useEffect(() => () => stopReadingAloud(), [sessionId]);
   const previousSession = useRef(sessionId);
   // A layout effect: the first measure lands before the first paint, so a mounted transcript (a page
   // load, a new chat's first send, back from Harnesses) never draws a frame at a guessed size.
@@ -2023,6 +2076,28 @@ export function VirtualTranscript({
   const previousViewport = useRef({ height, width, dockSpace });
   /// The room kept under the last row (`room` below) as of the last placement pass.
   const heldRoom = useRef(dockSpace);
+  /// The composer card's height the room under the last row was last made for (`grown` below).
+  const cardRest = useRef(0);
+  /// How far the rows were drawn up by the composer's growth (`lift` below) as of the last pass.
+  const appliedLift = useRef(0);
+  /// The composer's growth kept out of the room under the last row (`lifted` below) as of that pass.
+  const liftedBefore = useRef(0);
+  /// Before the offset is written where rows lay out (a row's place), not where a lift draws them:
+  /// the view stops following, and the commit that follows (from an event or a layout effect,
+  /// before the frame paints) drops the lift without moving the offset by it.
+  const unlift = () => {
+    if (!appliedLift.current) return;
+    appliedLift.current = 0;
+    follow(false);
+  };
+  const [, roomTaken] = useReducer((count: number) => count + 1, 0);
+  /// Gives the room under the last row the stack's height again, at once, before Jump to latest
+  /// follows again (`room` below).
+  const takeRoom = useCallback(() => {
+    if (Math.abs(heldRoom.current - dockSpaceRef.current) <= 0.5) return;
+    heldRoom.current = dockSpaceRef.current;
+    flushSync(roomTaken);
+  }, []);
   /// The pane's width changed and no new content has come since: rows settling to their drawn
   /// heights at the new width are that resize, not growth, and never glide.
   const reflowing = useRef(false);
@@ -2166,39 +2241,76 @@ export function VirtualTranscript({
   const kept = following && keptFor && floor.current.width === width && floor.current.sessionId === sessionId;
   const box = previousViewport.current;
   const footDropped = height - dockSpace > box.height - box.dockSpace;
+  // Held as the end the view would have with all the stack's room (the composer's growth not taken
+  // out, `lifted` below): the content end the reader sees is that less the lift on screen.
   const floorHeight = !kept
     ? 0
     : queueLeft.current && footDropped && previousLayout.current
-      ? Math.max(floor.current.height, previousLayout.current.totalHeight - box.height + height)
+      ? Math.max(floor.current.height, previousLayout.current.totalHeight + liftedBefore.current - box.height + height)
       : floor.current.height;
   // The room under the last row is the stack's height while the view follows the latest row, so
   // the latest row ends above a composer that grows. Scrolled up, nothing under the stack is in view:
   // the room stays as it was, and a composer that grows or shrinks a line (Shift-Return, a wrap)
   // leaves the scroller's height, offset and scrollbar where they were (Leo 2026-10-20: a newline
   // made the transcript's scrollbar jump). Back at the latest row, the room is the stack's again.
+  // Followed, the composer card's own growth since the view began following stays out of the room
+  // too (`lifted` of it): the rows are drawn up by it instead (`lift`), so the latest row still ends
+  // above the card while the scroller's height, offset and scrollbar stay as they were. The rest of
+  // the stack (a queue, an ask) still makes room as before.
   const sessionSwitched = previousSession.current !== sessionId;
-  const room = sessionSwitched || following ? dockSpace : heldRoom.current;
-  const rowsHeight = measured.layout.totalHeight + THREAD_TOP + TRANSCRIPT_RUNWAY + room;
-  const layout = useMemo(
-    () => ({ ...measured.layout, totalHeight: Math.max(floorHeight, rowsHeight) }),
-    [measured, rowsHeight, floorHeight],
+  const lifting =
+    following && !sessionSwitched && didOpenAtLatest.current && dockSpace > 0 && dockCard > 0 && cardRest.current > 0;
+  const grown = lifting ? Math.min(dockSpace, dockCard - cardRest.current) : 0;
+  // The content's end with all the stack's height as room, as the view would hold it unlifted.
+  const rowsAtDock = measured.layout.totalHeight + THREAD_TOP + TRANSCRIPT_RUNWAY + dockSpace;
+  const atDock = Math.max(floorHeight, rowsAtDock);
+  // A card that grew is drawn up by at most what the offset can take back: the view keeps more than
+  // the follow deadband to scroll, so the reader's scroll up still leaves the latest row (and the
+  // lift with it) in a transcript about a screen tall; the rest of the growth is room. While a room
+  // held for a sent prompt (`floor`) reaches past the rows, it already covers the card: the lift on
+  // screen stays as it is (shrinking it drew every row down by the queue card that left, and up
+  // again as its prompt came), and growth meanwhile never adds to it. A card shorter than it was
+  // draws the rows down within the room it left. Whole pixels, as the offset.
+  const floorHolds = floorHeight > rowsAtDock;
+  const lifted = Math.round(
+    grown > 0
+      ? Math.max(
+          0,
+          Math.min(grown, atDock - height - FOLLOW_BOTTOM_DEADBAND_PX - 1, floorHolds ? liftedBefore.current : grown),
+        )
+      : grown,
   );
+  const room = sessionSwitched || following ? dockSpace - lifted : heldRoom.current;
+  const rowsHeight = measured.layout.totalHeight + THREAD_TOP + TRANSCRIPT_RUNWAY + room;
+  // The held room less the lift, as the rows' end is: what the reader sees stays where it was drawn.
+  const layout = useMemo(
+    () => ({ ...measured.layout, totalHeight: Math.max(floorHeight - lifted, rowsHeight) }),
+    [measured, rowsHeight, floorHeight, lifted],
+  );
+  // Where the rows draw against where they lay out: the followed offset of this layout against the
+  // one the unlifted layout would hold. Negative draws them up, positive down.
+  const lift = lifted ? Math.round(Math.max(0, layout.totalHeight - height) - Math.max(0, atDock - height)) : 0;
+  const liftRef = useRef(lift);
+  liftRef.current = lift;
   const reportedLayout = useRef<typeof measured | null>(null);
   const reportedEstimate = useRef<typeof estimated | null>(null);
   // The old scroll state remains in React until the transition layout effect runs. Render the
   // new session from the top once so its first paint cannot reuse the previous chat's mounted rows.
   const renderScroll = sessionSwitched ? { top: 0, delta: 0 } : scroll;
   const renderFollowing = sessionSwitched || following;
+  // The content in view starts at the offset less `lift`: rows drawn up by it show content that much
+  // further down.
+  const shownTop = renderScroll.top - lift;
   const ahead = scrollLeadRanges(
     layout,
-    renderScroll.top,
+    shownTop,
     renderScroll.delta,
     height,
     SCROLL_LEAD_STEPS,
     height * MAX_SCROLL_LEAD_VIEWPORTS,
   );
   // The run of mounted rows the reader sees.
-  const view = visibleLayoutRange(layout, renderScroll.top, height);
+  const view = visibleLayoutRange(layout, shownTop, height);
   const range = ahead.find((each) => each.first <= view.first && view.first < each.last) ?? view;
   // The rows a viewport either side of where the reader was also mount, in a deferred render
   // between frames: a scroll then finds the rows it brings in already drawn and measured instead
@@ -2250,6 +2362,7 @@ export function VirtualTranscript({
         pendingFocus.current = undefined;
         return;
       }
+      unlift();
       const top = layout.tops[nextIndex] ?? 0;
       const maximum = Math.max(0, layout.totalHeight - node.clientHeight);
       const nextTop = Math.max(0, Math.min(maximum, top));
@@ -2379,12 +2492,23 @@ export function VirtualTranscript({
       seenAnchor.current = undefined;
       clearTimeout(settle.current);
       settle.current = undefined;
+      jumpTarget.current = undefined;
       setScroll({ top: 0, delta: 0 });
       follow(true);
     }
     const old = switched ? null : previousLayout.current;
     const oldRows = previousRows.current;
     const node = ref.current;
+    // The view stopped following with its rows drawn up by the composer's growth (`lift`): that
+    // growth is room now (`heldRoom`), and the offset moves by it in this same frame, so nothing the
+    // reader sees moves.
+    if (old && node && !following && appliedLift.current) {
+      node.scrollTop -= appliedLift.current;
+      scrolledTo.current = { ...scrolledTo.current, top: scrolledTo.current.top - appliedLift.current };
+      // The rows mounted for this frame read the offset too, before its scroll event comes.
+      const moved = node.scrollTop;
+      setScroll((current) => ({ top: moved, delta: moved - current.top }));
+    }
     const rewrapped = width !== previousViewport.current.width;
     // The bottom stack's room changing (a composer line, a queue) is the view's foot moving, as a
     // resize is: a followed view moves its offset at once and nothing glides.
@@ -2441,7 +2565,13 @@ export function VirtualTranscript({
         const latest = Math.max(0, layout.totalHeight - node.clientHeight);
         // A clamp moved the offset already (content that shrank under the view): from where it was.
         const before = top;
-        const settled = settleFollowBottom(node, latest) || clamped;
+        // Jump to latest's glide in flight heads for the new end instead of snapping there.
+        const jumping = jumpTarget.current !== undefined;
+        if (jumping && Math.abs(latest - jumpTarget.current!) > 0.5) {
+          jumpTarget.current = latest;
+          node.scrollTo({ top: latest, behavior: "smooth" });
+        }
+        const settled = jumping ? clamped : settleFollowBottom(node, latest) || clamped;
         // The glide holds the latest row the reader saw where it was painted, then slides it to its
         // place. Gliding by the offset's step alone also moved it by what grew above it (a working
         // line opening over a turn's first tool call), and by layouts of the same frame that never
@@ -2540,9 +2670,14 @@ export function VirtualTranscript({
     previousLayout.current = layout;
     previousRows.current = rows;
     previousViewport.current = { height, width, dockSpace };
-    heldRoom.current = room;
+    // With the composer's growth, which is room again once the view stops following.
+    heldRoom.current = room + lifted;
+    appliedLift.current = lift;
+    liftedBefore.current = lifted;
+    // A view that follows keeps the card height it began following at; any other takes the card's.
+    if (!lifting) cardRest.current = dockCard;
     // The room a followed view keeps (`floor` above), until the rows fill it or it stops following.
-    const holding = didOpenAtLatest.current && followingRef.current && floorHeight > rowsHeight;
+    const holding = didOpenAtLatest.current && followingRef.current && floorHeight - lifted > rowsHeight;
     // Held for a sent prompt: once, for the prompt to arrive. Held only for a withdrawn one (the
     // reply was working): again at each pass, so it lasts while the reply grows and goes soon after.
     const forSent = [...heldFor.current].some((id) => !withdrawn.current.has(id));
@@ -2566,7 +2701,7 @@ export function VirtualTranscript({
     // The minimap's band reads the offset this pass settled on.
     minimapPlaced.current?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- openAt is read once, at the first open
-  }, [layout, rows, range.first, height, width, dockSpace, room, sessionId, seekExpired, canLoadOlder]);
+  }, [layout, rows, range.first, height, width, dockSpace, room, lift, sessionId, seekExpired, canLoadOlder]);
   // Commit before this frame paints; deferring to the next animation frame left the edge blank.
   // The page picks adaptive rendering; the host supplies the display interval and applies it.
   const renderRate = useMemo(() => new AdaptiveRenderRate(), []);
@@ -2614,6 +2749,10 @@ export function VirtualTranscript({
   const findTotalHeight = useRef(layout.totalHeight);
   findTotalHeight.current = layout.totalHeight;
   const findMoved = useCallback((node: HTMLDivElement) => {
+    // A Find match moved the view: a Jump to latest in flight ends here, not at the latest row.
+    jumpTarget.current = undefined;
+    clearTimeout(settle.current);
+    settle.current = undefined;
     scrolledTo.current = scrollPosition(node, findTotalHeight.current);
     followingRef.current = scrolledTo.current.atLatest;
     setFollowing(scrolledTo.current.atLatest);
@@ -2628,7 +2767,10 @@ export function VirtualTranscript({
     if (!node || !findTarget || !targetKey) return;
     const top = layout.tops[findIndex];
     const bottom = top + layout.heights[findIndex];
-    if (top >= node.scrollTop && bottom <= node.scrollTop + node.clientHeight - dockSpaceRef.current) return;
+    // In view where it draws (`lift` from its place while the rows follow a grown composer).
+    const drawn = node.scrollTop - liftRef.current;
+    if (top >= drawn && bottom <= drawn + node.clientHeight - dockSpaceRef.current) return;
+    unlift();
     node.scrollTop = Math.max(0, top - node.clientHeight / 3);
     findMoved(node);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new target scrolls, not a layout change
@@ -2649,10 +2791,16 @@ export function VirtualTranscript({
     if (!node || revealIndex < 0) return;
     const top = layout.tops[revealIndex];
     const bottom = top + layout.heights[revealIndex];
-    if (top >= node.scrollTop && bottom <= node.scrollTop + node.clientHeight - dockSpaceRef.current) return;
+    // In view where it draws (`lift` from its place while the rows follow a grown composer).
+    const drawn = node.scrollTop - liftRef.current;
+    if (top >= drawn && bottom <= drawn + node.clientHeight - dockSpaceRef.current) return;
+    unlift();
     // The reader asked for this row: the view stops following the reply, or the run opening below
     // would pull it back to the latest line.
     const next = Math.max(0, top - node.clientHeight / 3);
+    jumpTarget.current = undefined;
+    clearTimeout(settle.current);
+    settle.current = undefined;
     scrolledTo.current = { top: next, atLatest: false };
     follow(false);
     node.scrollTop = next;
@@ -2780,6 +2928,26 @@ export function VirtualTranscript({
     checkOlderNow.current();
     const node = event.currentTarget;
     const next = node.scrollTop;
+    // A step of Jump to latest's glide: the view is following on its way to the end, not snapped
+    // there (a first step inside the deadband read as layout work), and not stopped (a longer one
+    // read as the reader's scroll up).
+    if (jumpTarget.current !== undefined) {
+      // WebKit keeps the offset to whole pixels: within one of the end is there.
+      if (next >= jumpTarget.current - 1) jumpTarget.current = undefined;
+      scrolledTo.current = { top: next, atLatest: true };
+      seenAnchor.current = null;
+      followTrace.set(next);
+      acpmuxPerf.timed("flush.scroll", () =>
+        flushSync(() => setScroll((current) => ({ top: next, delta: next - current.top }))),
+      );
+      // The kept place is the latest message again (a reopened chat opens there, not where the
+      // reader was before the jump).
+      if (onAnchor) {
+        clearTimeout(anchorTimer.current);
+        anchorTimer.current = setTimeout(reportAnchor, SCROLL_ANCHOR_SETTLE_MS);
+      }
+      return;
+    }
     const programmatic = performance.now() - readerAt.current > READER_SCROLL_MS;
     // ResizeObserver/layout work can emit a scroll event after the stack below the transcript
     // changes. While the reader is following, keep the viewport at the new end and do not let
@@ -2844,16 +3012,22 @@ export function VirtualTranscript({
     // view back to the match and stops following again.
     revealing.current = undefined;
     revealWindow.current = 0;
+    // The room the stack grew while scrolled up comes first, out of view, so following again moves
+    // nothing and the glide runs to the end above the card instead of snapping there.
+    takeRoom();
     follow(true);
     if (focused) focusComposer?.();
     const reduce = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    const target = Math.max(0, layout.totalHeight - node.clientHeight);
+    // The layout the room just taken committed (flushSync above), not the one this render closed over.
+    const target = Math.max(0, latestLayout.current.layout.totalHeight - node.clientHeight);
+    jumpTarget.current = reduce || target - node.scrollTop <= 0.5 ? undefined : target;
     node.scrollTo({ top: target, behavior: reduce ? "auto" : "smooth" });
     // The landing: whether the smooth scroll arrived, was cut short as rows above settled, or the
     // reply grew past it. Only the reader's own scroll meanwhile cancels it.
     clearTimeout(settle.current);
     settle.current = setTimeout(() => {
       settle.current = undefined;
+      jumpTarget.current = undefined;
       const scroller = ref.current;
       if (scroller) scroller.scrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
     }, JUMP_LATEST_SETTLE_MS);
@@ -2865,6 +3039,7 @@ export function VirtualTranscript({
       followTrace.input();
       clearTimeout(settle.current);
       settle.current = undefined;
+      jumpTarget.current = undefined;
     };
     const inputs = ["wheel", "pointerdown", "touchstart", "keydown"] as const;
     for (const name of inputs) node?.addEventListener(name, reader, { passive: true });
@@ -3010,6 +3185,7 @@ export function VirtualTranscript({
             <div
               ref={thread}
               className="acpmux-thread"
+              style={lift ? { transform: `translateY(${lift}px)` } : undefined}
               onPointerOver={(event) => pointAt(event.target)}
               onPointerLeave={() => pointAt(null)}
             >
@@ -3028,9 +3204,7 @@ export function VirtualTranscript({
                       kind={kind}
                       joinsPrevious={isStepRow(row) && isStepRow(rows[absoluteIndex - 1])}
                       joinsNext={isStepRow(row) && isStepRow(rows[absoluteIndex + 1])}
-                      beforeFooter={
-                        row.kind === "assistant" && nextDrawnRow(rows, absoluteIndex)?.kind === "turnSummary"
-                      }
+                      beforeFooter={isBeforeFooter(row, nextDrawnRow(rows, absoluteIndex))}
                       lastFooter={isLastFooter(row, nextDrawnRow(rows, absoluteIndex))}
                       index={absoluteIndex}
                       setSize={canLoadOlder ? -1 : rows.length}
@@ -3073,7 +3247,25 @@ export function VirtualTranscript({
           </div>
         </TranscriptContext>
       </div>
-      {jumpButton && <JumpToLatest shown={behind} working={working} onJump={jumpToLatest} lift={dockSpace} />}
+      {jumpButton && (
+        <JumpToLatest
+          // The pill also shows at the latest message while asks wait in other chats: it cycles to them.
+          shown={behind || (needsYou?.elsewhere ?? 0) > 0}
+          working={working}
+          onJump={(focused) => {
+            // One press, one move: to the latest message when this chat's ask waits there (or no
+            // ask is open), else straight to the next chat's ask.
+            // With no ask open it is Jump to latest, whatever the last render read for `behind`.
+            const asks = needsYou?.count ?? 0;
+            const here = asks - (needsYou?.elsewhere ?? 0);
+            const scroll = asks === 0 || (behind && here > 0);
+            if (scroll) jumpToLatest(focused);
+            if (needsYou && asks > 0) needsYou.next(scroll);
+          }}
+          lift={dockSpace}
+          needsYou={needsYou}
+        />
+      )}
     </>
   );
 }
@@ -3722,11 +3914,18 @@ function AcpmuxPane() {
   // A subagent's "Subagent of" pill names the chat as the chat list does: never acpmux's generated
   // name (`claude-2`), and "New chat" before it has a title, never nothing.
   const chatName = snapshot.summary ? sessionTitle(snapshot.summary, t) : t("sidebar.newChat");
-  const childRows = useMemo(
-    () =>
-      subagentView ? childView(subagentView, snapshot.rows, snapshot.subagentViews, expanded, chatName) : undefined,
-    [subagentView, snapshot.rows, snapshot.subagentViews, expanded, chatName],
-  );
+  // Running subagents sit in the tray above the composer, and one that ended leaves a line where it
+  // ended (subagents/runningTray.ts); Debug Settings agentPane.debug.subagentTray off keeps the
+  // transcript's group cards and the agents pill.
+  const subagentTray = useSubagentTray();
+  const doneLines = useRef<DoneLineCache>(new Map());
+  const childDoneLines = useRef<DoneLineCache>(new Map());
+  const childRows = useMemo(() => {
+    if (!subagentView) return undefined;
+    if (!subagentTray) return childView(subagentView, snapshot.rows, snapshot.subagentViews, expanded, chatName);
+    const view = childView(subagentView, snapshot.rows, snapshot.subagentViews, NO_EXPANDED, chatName);
+    return view && (withSubagentLines(view, childDoneLines.current) as AcpmuxRow[]);
+  }, [subagentView, snapshot.rows, snapshot.subagentViews, expanded, chatName, subagentTray]);
   // The session's edit rows for the edited-files card, the same array while they are the same rows.
   const lastEditRows = useRef<SessionEdits | undefined>(undefined);
   const editRows = useMemo(() => {
@@ -3754,8 +3953,9 @@ function AcpmuxPane() {
       : individualPermission
         ? snapshot.rows.filter((row) => row.permission?.permissionId !== individualPermission.permissionId)
         : snapshot.rows;
-    return rows;
-  }, [snapshot.rows, snapshot.permissionGroups, individualPermission]);
+    // Each step's consecutive thoughts as one, and none that says nothing (conversation/thoughts.ts).
+    return withoutQuietThoughts(rows, snapshot.isWorking);
+  }, [snapshot.rows, snapshot.permissionGroups, individualPermission, snapshot.isWorking]);
   // A call the permission panel asks about is drawn by the panel's row while it waits
   // (withoutAskedCalls); with the panel hidden behind folder trust, it stays in the transcript.
   const trustBlocked = trustAsk.holdsAsks;
@@ -3781,7 +3981,7 @@ function AcpmuxPane() {
   if (!sameItems(spawnedKept.current, spawnedFresh)) spawnedKept.current = spawnedFresh;
   const spawned = spawnedKept.current;
   // Every chat it started, offers' included, with its live state: the rows under the Inspector's
-  // Subagents (the summary card's with it off) and the background counts (conversation/backgroundWork.ts).
+  // Subagents (the summary card's with it off), the tray and the running line's counts.
   // A chat on a Cloud VM or another machine lists the children its daemon reports with its own
   // session (RemoteAcpmuxWire `_acpmux/watch`). A new list only when an entry changes.
   const childSessions = useMemo(
@@ -3843,13 +4043,22 @@ function AcpmuxPane() {
     () => (startedOn ? { store: hoverStore.current!, open: openOfferChat } : null),
     [startedOn],
   );
+  // The transcript's sub-session cards read each sub-session's state from one store, so a session
+  // changing never redraws a turn (subagents/subsessions.ts); a name opens its chat beside this one.
+  const subsessionStore = useRef<SubsessionStore | null>(null);
+  subsessionStore.current ??= new SubsessionStore();
+  useLayoutEffect(() => {
+    subsessionStore.current!.set(snapshot.sessions);
+  }, [snapshot.sessions]);
+  const subsessions = useMemo<Subsessions>(() => ({ store: subsessionStore.current!, open: openOfferChat }), []);
   // The last snapshot's turns and subagent rows: the next builds on them (turnViewFrom).
   const lastTurns = useRef<{ turns: TurnView; subagents: SubagentRows } | undefined>(undefined);
   /// Debug Settings `agent.sessionStatus`: a running turn's activity line under its todo list.
   const sessionStatus = useSessionStatus();
   const transcriptRows = useMemo(() => {
-    if (childRows) return withoutAskedCalls(childRows, panelAsks);
-    const rows = withStartedSessions(sourceRows, started, startedCache.current);
+    if (childRows) return withoutAskedCalls(withoutQuietThoughts(childRows), panelAsks);
+    const startedRows = withStartedSessions(sourceRows, started, startedCache.current);
+    const rows = subagentTray ? withSubagentLines(startedRows, doneLines.current) : startedRows;
     return acpmuxPerf.timed("app.rows", () => {
       const last = lastTurns.current;
       const turns = turnViewFrom(
@@ -3881,6 +4090,7 @@ function AcpmuxPane() {
     lineBelow,
     chatShellRuns,
     panelAsks,
+    subagentTray,
   ]);
   // A wide pane reserves a right-side summary column; a narrow pane keeps the summary as a
   // popover under the header button so it never covers the composer controls.
@@ -3900,7 +4110,15 @@ function AcpmuxPane() {
   useLayoutEffect(() => {
     shownView.current = shownSubagent === undefined ? shownSessionId : `${shownSessionId}:subagent:${shownSubagent}`;
   }, [shownSessionId, shownSubagent]);
-  const summaryHasContent = useMemo(() => chatHasSummaryContent(snapshot.rows), [snapshot.rows]);
+  // The sub-sessions this chat's agent started, and theirs, for the summary card's Subagents list.
+  const chatSubsessions = useMemo(
+    () => ({ rows: subsessionRows(snapshot.sessions, shownSessionId), onOpen: openOfferChat }),
+    [snapshot.sessions, shownSessionId],
+  );
+  const summaryHasContent = useMemo(
+    () => chatHasSummaryContent(snapshot.rows) || chatSubsessions.rows.length > 0,
+    [snapshot.rows, chatSubsessions],
+  );
   const [shell, setShell] = useState<HTMLElement | null>(null);
   /// The chat's bottom stack (bottomStack.css): the transcript runs under it and keeps its end above it.
   const [dock, setDock] = useState<HTMLElement | null>(null);
@@ -4046,10 +4264,28 @@ function AcpmuxPane() {
     (id: string) => directClient.current?.killProcess(id) ?? Promise.reject(new Error()),
     [],
   );
+  // An opened background task note reads the end of the task's output from the same registry
+  // (conversation/backgroundTaskOutput.ts), once, when it opens.
+  const backgroundTaskOutput = useMemo<BackgroundTaskOutputReader | undefined>(
+    () =>
+      shownSessionId
+        ? {
+            sessionId: shownSessionId,
+            source: {
+              listProcesses: processSource.listProcesses,
+              tailProcess: (processId, maxBytes) =>
+                directClient.current?.tailProcess(processId, maxBytes) ?? Promise.reject(new Error()),
+            },
+          }
+        : undefined,
+    [processSource, shownSessionId],
+  );
   // The chat's background commands (inspector/processes.ts `backgroundCommands`): the transcript's
   // still running, and the registry's, read while the Inspector or the summary card shows, a turn
   // runs or a command is known to run (the hook stays on while one it knows runs, so its end
-  // arrives). The one registry for the pane: the Inspector, the card and the counts all read it.
+  // arrives). The one registry for the pane: the Inspector, the card, the tray and the counts all
+  // read it. The tray shows a registry command between turns while the hook knows it runs; a quiet
+  // chat sends no `_acpmux/process/list`.
   const transcriptRunning = useMemo(() => runningBackgroundTasks(snapshot.rows), [snapshot.rows]);
   const inspectorOn = useHeaderState().inspector;
   const inspectorOpened = useInspectorOpen();
@@ -4312,6 +4548,11 @@ function AcpmuxPane() {
     else setImageView({ images: images.map((image, i) => (i === index && path ? { ...image, path } : image)), index });
   }, []);
   useEffect(() => setImageView(undefined), [snapshot.sessionId]);
+  // A queued prompt's image, read from acpmux by its id (ComposerQueue's thumbnails).
+  const readQueuedImage = useCallback(
+    (id: string) => directClient.current?.promptImage(id) ?? Promise.resolve(undefined),
+    [],
+  );
   const readTurn = useCallback(
     ({ rowId }: { rowId: string }) => readTurnFromRows(turnRowsRef.current, rowId, checkpointDiff),
     [],
@@ -4566,21 +4807,29 @@ function AcpmuxPane() {
     subagents: cardSubagents,
     sessions: cardSessions,
   });
-  // The running line's counts (conversation/WorkingFor.tsx): the subagents still running, the
-  // background commands that have not ended and the started chats that run. A count of one opens its
-  // subagent, the command's row or the chat; of several, the Inspector's section that lists them all
-  // (the summary card with the Inspector off).
-  // Between turns the same work is the transcript's last row (BackgroundWorkRow.tsx).
+  // The running line's counts (conversation/WorkingFor.tsx), with the tray off (Debug Settings):
+  // the subagents still running, the background commands that have not ended and the started chats
+  // that run. A count of one opens its subagent, the command's row or the chat; of several, the
+  // Inspector's section that lists them all (the summary card with the Inspector off). With the tray
+  // on (the default) the tray is the count, in a turn and between turns, so the line counts nothing.
   const [revealRow, setRevealRow] = useState<{ rowId: string; key: number; toolId: string }>();
+  const counting = snapshot.isWorking && !subagentTray;
   // chatAgents already lists every subagent and changes when one's state does.
-  const liveAgents = useMemo(() => chatAgents.filter(running), [chatAgents]);
-  const runningAgents = snapshot.isWorking ? liveAgents : NO_AGENTS;
-  const runningCommands = snapshot.isWorking ? runningCommandList : NO_COMMANDS;
-  const runningSessions = snapshot.isWorking ? runningChildSessions : NO_STARTED;
-  // Between turns, what still runs: the transcript's last row while there is any (BackgroundWorkRow.tsx).
-  const backgroundCounts = useMemo<BackgroundCounts>(
-    () => ({ commands: runningCommandList.length, sessions: runningChildSessions.length, agents: liveAgents.length }),
-    [runningCommandList.length, runningChildSessions.length, liveAgents.length],
+  const runningAgents = useMemo(() => (counting ? chatAgents.filter(running) : NO_AGENTS), [counting, chatAgents]);
+  const runningCommands = counting ? runningCommandList : NO_COMMANDS;
+  const runningSessions = counting ? runningChildSessions : NO_STARTED;
+  // The tray's lines (subagents/runningTray.ts): the subagents, the background commands
+  // (inspector/processes.ts `backgroundCommands`, the registry's merged with the transcript's) and
+  // the started chats that run. A new list only when what it shows changes, so streamed text never redraws the tray.
+  const commandsKey = runningCommandList
+    .map((task) =>
+      [task.id, task.command, task.startedAt ?? "", task.processId ?? "", task.toolCallId ?? ""].join("\u0000"),
+    )
+    .join("\u0001");
+  const trayList = useMemo(
+    () => (subagentTray ? trayItems(chatAgents, runningCommandList, runningChildSessions, snapshot.isWorking) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runningCommandList is new on every snapshot; its key is not
+    [subagentTray, chatAgents, commandsKey, runningChildSessions, snapshot.isWorking],
   );
   // The turn's tokens so far, said after its time (direct.ts `turnTokens`).
   const turnTokens = snapshot.isWorking ? snapshot.turnTokens : undefined;
@@ -4646,14 +4895,6 @@ function AcpmuxPane() {
       commands: runningCommands.length,
       sessions: runningSessions.length,
       tokens: turnTokens,
-      background: backgroundCounts,
-      openBackground: () => {
-        const { backgroundCommandList: commands, processes, summaryCard: card, inspector: panel } = counted.current;
-        // The section that lists what runs, by the Inspector's own split (processes.ts
-        // `backgroundSection`): dev servers alone open Servers; no command, Subagents.
-        if (panel.reveal) panel.reveal(backgroundSection(processes, commands));
-        else card.show();
-      },
       openAgents: () => {
         const { runningAgents: agents, summaryCard: card, inspector: panel } = counted.current;
         if (agents.length === 1) showSubagent(agents[0]!.id);
@@ -4674,21 +4915,22 @@ function AcpmuxPane() {
         else card.show();
       },
     };
-  }, [
-    runningAgents.length,
-    runningCommands.length,
-    runningSessions.length,
-    turnTokens,
-    backgroundCounts,
-    showSubagent,
-    openFold,
-  ]);
-  const backgroundShown = !quick && !childRows && backgroundRowShown(snapshot.isWorking, backgroundCounts);
-  const drawnRows = useMemo(() => {
-    const last = transcriptRows.at(-1);
-    if (!backgroundShown || !last) return transcriptRows;
-    return [...transcriptRows, { id: BACKGROUND_WORK, version: 1, at: last.at, kind: BACKGROUND_WORK }];
-  }, [transcriptRows, backgroundShown]);
+  }, [runningAgents.length, runningCommands.length, runningSessions.length, turnTokens, showSubagent, openFold]);
+  // A tray command opens its terminal beside the chat; where none opens (a peer's chat, or a
+  // command only the transcript knows), the summary card, which lists it, or, while the Inspector
+  // takes the card's place, its section that lists it (Background tasks, or Servers for a dev server).
+  const openTrayCommand = useCallback((command: BackgroundCommand) => {
+    const showCard = () => {
+      const { processes, summaryCard: card, inspector: panel } = counted.current;
+      // The section that lists it, by the Inspector's own split (processes.ts `backgroundSection`).
+      if (panel.reveal) panel.reveal(backgroundSection(processes, [command]));
+      else card.show();
+    };
+    if (!command.toolCallId) return showCard();
+    void openProcessTerminal(command.toolCallId).then((opened) => {
+      if (!opened) showCard();
+    });
+  }, []);
   // The Quick Composer cannot show the Harnesses page: it registers no opener, so its + hides.
   useEffect(() => (quick ? undefined : registerHarnessesPage(() => setHarnessesOpen(true))), [quick]);
   // `/btw` opens a side session beside the chat, behind its gate; the Quick Composer has none.
@@ -4843,18 +5085,23 @@ function AcpmuxPane() {
     const timer = window.setTimeout(() => setAwaitsChat(false), CHAT_DRAW_HOLD_MS);
     return () => window.clearTimeout(timer);
   }, [handshaken, chatDrawn]);
+  // What this frame drew, not only that it drew: a chat taken from a kept tail is on screen in the
+  // frame the open landed on, so the host shows the page instead of fading it in (tailCache.ts,
+  // AgentPaneView+Loading.swift). A kept tail is drawn before the frame that shows what the pane
+  // is, so it is known by the time this reports; the report happens once either way.
+  const drewKeptTail = clientSnapshot.drewKeptTail === true;
   useEffect(() => {
     if (!showsWhatItIs || paintReported.current) return;
     paintReported.current = true;
     requestAnimationFrame(() =>
       setTimeout(() => {
-        void callNative("pane.painted").catch(() => undefined);
+        void callNative("pane.painted", { drewKeptTail }).catch(() => undefined);
         void loadDiffPanel();
         void loadHighlightedCode();
         void loadEditDiffHunks();
       }, 0),
     );
-  }, [showsWhatItIs]);
+  }, [showsWhatItIs, drewKeptTail]);
   const composerSnapshot = useMemo(() => {
     const enabledCmuxActions = new Set<CmuxCommand["action"]>(["import"]);
     if (forkable && forkSeq !== undefined) enabledCmuxActions.add("fork");
@@ -5041,6 +5288,7 @@ function AcpmuxPane() {
         configureCodexToolRuns(theme.codexToolRuns);
         configureLiveLineBelow(theme.liveLineBelow);
         configureTurnActionsPlacement(theme.turnActionsPlacement);
+        configureSubagentTray(theme.subagentTray);
       },
       applyShortcuts(labels) {
         setShortcuts(readShortcuts(labels));
@@ -5075,6 +5323,9 @@ function AcpmuxPane() {
       },
       applyNowPlaying(track) {
         setNowPlaying(track);
+      },
+      applyImportCards(cards) {
+        setImportCards(cards);
       },
       revealTurn(turnId) {
         revealRef.current(turnId);
@@ -5489,11 +5740,13 @@ function AcpmuxPane() {
           "chat.queue.edit": ({ promptId, ...edit }) => client.editQueued(String(promptId), edit as QueueEdit),
           "chat.secret": ({ secretId, value }) =>
             client.secret(String(secretId), typeof value === "string" ? value : undefined),
-          "chat.permission": ({ permissionId, optionId, answers }) =>
+          "chat.permission": ({ permissionId, optionId, answers, sessionId }) =>
             client.permission(
               String(permissionId),
               optionId === undefined || optionId === null ? undefined : String(optionId),
               answers && typeof answers === "object" ? (answers as Record<string, unknown>) : undefined,
+              // The Needs you list answers asks of other chats too.
+              typeof sessionId === "string" && sessionId ? sessionId : undefined,
             ),
           "chat.permission_group.respond": ({ groupId, revision, decision }) =>
             client.permissionGroup(String(groupId), Number(revision), decision as PermissionDecision),
@@ -5749,12 +6002,20 @@ function AcpmuxPane() {
             const [to, id, thread] = [str(sessionId), str(msgId), str(threadId)];
             await client.reply({ sessionId: to, msgId: id, threadId: thread }, String(text ?? ""));
           },
-          // Open on a started offer: beside this chat, as a side chat opens; else here.
+          // Open a started offer or a sub-session: the app shows its tab or opens it beside this
+          // chat (AgentPaneOfferOpen); a host without that opens it as a side chat; else here.
           "chat.offer.open": async ({ sessionId }) => {
+            const id = String(sessionId);
             try {
-              await postNative("chat.sideChat", { sessionId: String(sessionId) });
-            } catch {
-              await persistSession(await client.select(String(sessionId)));
+              await postNative("chat.offer.open", { sessionId: id });
+            } catch (error) {
+              // The app refused a session outside this chat's family: nothing opens, not even here.
+              if (error instanceof NativeError && error.code === "chat.offer.refused") return;
+              try {
+                await postNative("chat.sideChat", { sessionId: id });
+              } catch {
+                await persistSession(await client.select(id));
+              }
             }
           },
           // The review shows in this tab while the tab stays the chat's; Start opens the new chat in
@@ -6089,6 +6350,16 @@ function AcpmuxPane() {
         .then(setFloatingState)
         .catch(() => undefined);
   }, [quick]);
+  // Needs you (needsYou/): the header's badge and list, and the transcript's Needs your input pill.
+  const needsYou = useNeedsYou({
+    snapshot,
+    callNative,
+    sideSession: async (sessionId, question) => {
+      const client = directClient.current;
+      if (!client) throw new Error(translate("needsYou.askFailed"));
+      await postNative("chat.sideChat", { sessionId: await client.btw(question, sessionId) });
+    },
+  });
   const lastForkSeq = latestForkSeq(snapshot.rows);
   const sideChat = sideChatRow(
     // Quick Chat's panel is not a tab: there is no split to open beside it.
@@ -6488,6 +6759,7 @@ function AcpmuxPane() {
     permissionGroups: snapshot.permissionGroups?.supported ? snapshot.permissionGroups.groups : undefined,
     secret: Boolean(snapshot.secret),
     cards: toolCards,
+    silent: snapshot.silentTurn,
   });
   const transcript = (
     // Quick Chat's panel has no room beside it: its fences have no Open preview.
@@ -6510,57 +6782,62 @@ function AcpmuxPane() {
                                     value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}
                                   >
                                     <SessionHoverContext.Provider value={sessionHover}>
-                                      <StartedMentionsContext.Provider value={startedMentions}>
-                                        <ChatFindScope
-                                          rows={childRows ?? sourceRows}
-                                          shown={childRows ? undefined : transcriptRows}
-                                          openFold={openFold}
-                                          findRef={findRef}
-                                        >
-                                          {(find) => (
-                                            <VirtualTranscript
-                                              rows={drawnRows}
-                                              working={snapshot.isWorking}
-                                              // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
-                                              jumpButton={!quick}
-                                              focusComposer={() => composerHandle.current?.focus()}
-                                              // Quick Chat's panel stacks its composer below the transcript.
-                                              dock={quick ? undefined : dock}
-                                              queueWithdrawn={snapshot.queueWithdrawn}
-                                              find={quick ? undefined : find}
-                                              sessionId={
-                                                childRows
-                                                  ? `${shownSessionId}:subagent:${subagentView}`
-                                                  : shownSessionId
-                                              }
-                                              canLoadOlder={!childRows && snapshot.canLoadOlder}
-                                              historyFrom={childRows ? undefined : snapshot.historyFrom}
-                                              onLoadOlder={() => directClient.current?.loadOlder() ?? Promise.resolve()}
-                                              openAt={
-                                                !childRows &&
-                                                shownSessionId &&
-                                                scrollAnchor?.sessionId === shownSessionId
-                                                  ? scrollAnchor
-                                                  : undefined
-                                              }
-                                              anchorNow={quick || childRows ? undefined : transcriptAnchor}
-                                              onAnchor={
-                                                quick || childRows || !shownSessionId
-                                                  ? undefined
-                                                  : (anchor) => postScrollAnchor(shownSessionId, anchor)
-                                              }
-                                              expanded={expanded}
-                                              reveal={childRows ? undefined : revealRow}
-                                              registry={registry}
-                                              githubRepository={githubRepository}
-                                              fallbackRepository={pullRequestRef(headerPullRequest?.url ?? "")?.repo}
-                                              // The Quick Composer has no room for the changes view; its file rows stay plain.
-                                              onOpenDiff={quick ? undefined : openDiff}
-                                              onToggleActivity={toggleActivity}
-                                            />
-                                          )}
-                                        </ChatFindScope>
-                                      </StartedMentionsContext.Provider>
+                                      <SubsessionContext.Provider value={subsessions}>
+                                        <StartedMentionsContext.Provider value={startedMentions}>
+                                          <ChatFindScope
+                                            rows={childRows ?? sourceRows}
+                                            shown={childRows ? undefined : transcriptRows}
+                                            openFold={openFold}
+                                            findRef={findRef}
+                                          >
+                                            {(find) => (
+                                              <VirtualTranscript
+                                                rows={transcriptRows}
+                                                working={snapshot.isWorking}
+                                                // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
+                                                jumpButton={!quick}
+                                                needsYou={needsYou.pill}
+                                                focusComposer={() => composerHandle.current?.focus()}
+                                                // Quick Chat's panel stacks its composer below the transcript.
+                                                dock={quick ? undefined : dock}
+                                                queueWithdrawn={snapshot.queueWithdrawn}
+                                                find={quick ? undefined : find}
+                                                sessionId={
+                                                  childRows
+                                                    ? `${shownSessionId}:subagent:${subagentView}`
+                                                    : shownSessionId
+                                                }
+                                                canLoadOlder={!childRows && snapshot.canLoadOlder}
+                                                historyFrom={childRows ? undefined : snapshot.historyFrom}
+                                                onLoadOlder={() =>
+                                                  directClient.current?.loadOlder() ?? Promise.resolve()
+                                                }
+                                                openAt={
+                                                  !childRows &&
+                                                  shownSessionId &&
+                                                  scrollAnchor?.sessionId === shownSessionId
+                                                    ? scrollAnchor
+                                                    : undefined
+                                                }
+                                                anchorNow={quick || childRows ? undefined : transcriptAnchor}
+                                                onAnchor={
+                                                  quick || childRows || !shownSessionId
+                                                    ? undefined
+                                                    : (anchor) => postScrollAnchor(shownSessionId, anchor)
+                                                }
+                                                expanded={expanded}
+                                                reveal={childRows ? undefined : revealRow}
+                                                registry={registry}
+                                                githubRepository={githubRepository}
+                                                fallbackRepository={pullRequestRef(headerPullRequest?.url ?? "")?.repo}
+                                                // The Quick Composer has no room for the changes view; its file rows stay plain.
+                                                onOpenDiff={quick ? undefined : openDiff}
+                                                onToggleActivity={toggleActivity}
+                                              />
+                                            )}
+                                          </ChatFindScope>
+                                        </StartedMentionsContext.Provider>
+                                      </SubsessionContext.Provider>
                                     </SessionHoverContext.Provider>
                                   </SubagentHarnessContext.Provider>
                                 </SubagentClockContext.Provider>
@@ -6889,9 +7166,27 @@ function AcpmuxPane() {
             </button>
           </output>
         </Notice>
-        {/* The agents pill (subagents/AgentsPill.tsx): in the bottom stack, right above the composer,
-          while the turn works; an agent a cancel or a reconnect left "running" shows none. */}
-        {!quick && !freshView && snapshot.isWorking && chatTones && chatAgents.some(running) && (
+        {/* The tray (subagents/SubagentTray.tsx): in the bottom stack, right above the composer, every
+          running subagent, background command and started chat, one line each. */}
+        {!quick && !freshView && trayList.length > 0 && (
+          <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
+            <SubagentTray
+              key={shownSessionId}
+              items={trayList}
+              working={snapshot.isWorking}
+              waiting={waitingAgents}
+              onOpen={showSubagent}
+              onOpenCommand={openTrayCommand}
+              onOpenSession={openOfferChat}
+              stop={stopSubagent}
+              stopProcess={stopProcess}
+            />
+          </SubagentClockContext.Provider>
+        )}
+        {/* The agents pill (subagents/AgentsPill.tsx), with the tray off (Debug Settings): in the bottom
+          stack, right above the composer, while the turn works; an agent a cancel or a reconnect left
+          "running" shows none. */}
+        {!subagentTray && !quick && !freshView && snapshot.isWorking && chatTones && chatAgents.some(running) && (
           <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
             <AgentsPill
               key={shownSessionId}
@@ -7020,6 +7315,7 @@ function AcpmuxPane() {
             onQueueChange={editQueued}
             // A prompt that started while it was edited comes back to the prompt, so the edit is kept.
             onQueueLost={(text) => composerHandle.current?.restore(text, [])}
+            queueImage={readQueuedImage}
             onProject={chooseProject}
             onNewWorktree={freshChat && !quick && !remoteChat ? startInWorktree : undefined}
             onConnect={connectMachine}
@@ -7216,6 +7512,7 @@ function AcpmuxPane() {
             onOpenOutput={quick ? undefined : openOutput}
             onOpenImage={quick ? undefined : openImage}
             subagents={cardSubagents}
+            subsessions={chatSubsessions}
             background={cardBackground}
             sessions={cardSessions}
             // The picks are this computer's files: only a chat whose folder is here (not a peer's or
@@ -7292,7 +7589,14 @@ function AcpmuxPane() {
               accessory={<DictationMic dictation={dictation} />}
               dictating={isWaitingForWords(dictation.state)}
               dictationField={newTabDictationField}
-              notice={<DictationNotice dictation={dictation} />}
+              notice={
+                <>
+                  <DictationNotice dictation={dictation} />
+                  <NewTabImportCards
+                    onAction={(id, action) => void callNative("importCards.act", { id, action }).catch(() => undefined)}
+                  />
+                </>
+              }
               // The host answers only for a page on this Mac; another machine's keeps the refusal.
               {...(!quick ? { localPaths } : {})}
               template={screenTemplate(shownTemplate(newTab))}
@@ -7416,6 +7720,7 @@ function AcpmuxPane() {
                         {snapshot.summary?.enforcement ? handoffLabels.nativePolicy : handoffLabels.unverified}
                       </span>
                     )}
+                    <NeedsYouButton items={needsYou.items} mode={needsYou.mode} actions={needsYou.actions} />
                     <ChatHeaderTools
                       tabTools={!quick}
                       pullRequestChip={!readOnlySubagent}
@@ -7493,8 +7798,9 @@ function AcpmuxPane() {
                 </header>
                 {!inspector.on && !summaryCard.column && summaryPanel}
                 {!diffView && checkpoints.review}
+                {/* The lines under the header drop in from the top (ui/popupSurface.css `data-enter`). */}
                 {snapshot.missingSession && (
-                  <p className="acpmux-link-missing" role="alert">
+                  <p className="acpmux-link-missing" role="alert" data-enter="top">
                     {t("link.sessionMissing")}
                   </p>
                 )}
@@ -7518,7 +7824,7 @@ function AcpmuxPane() {
                   />
                 )}
                 {!reviewing && snapshot.handoff?.error && (
-                  <p className="acpmux-handoff-error" role="alert">
+                  <p className="acpmux-handoff-error" role="alert" data-enter="top">
                     {snapshot.handoff.error}
                   </p>
                 )}
@@ -7541,7 +7847,11 @@ function AcpmuxPane() {
                 ) : freshView ? (
                   <EmptyState project={projectName(composerSnapshot.summary?.cwd)} picker={heroPicker} />
                 ) : (
-                  <AgentTonesContext.Provider value={chatTones}>{transcript}</AgentTonesContext.Provider>
+                  <AgentTonesContext.Provider value={chatTones}>
+                    <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
+                      {transcript}
+                    </BackgroundTaskOutputContext.Provider>
+                  </AgentTonesContext.Provider>
                 )}
                 {displayAnchor && (
                   <ChatDisplaySettings

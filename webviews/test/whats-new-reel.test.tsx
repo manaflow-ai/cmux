@@ -49,26 +49,49 @@ function notes(build: string, reel?: string) {
   };
 }
 
-async function mount(list: ReturnType<typeof notes>[]) {
+/// Mounts the page and yields until it has asked for the reels of the span's `fresh` builds and
+/// every call it made is answered.
+async function mount(list: ReturnType<typeof notes>[], fresh: number) {
   const { MockChangelogProvider } = await import("../src/pages/changelog/mockProvider");
   const { mountChangelogPage } = await import("../src/pages/changelog/main");
+  const { ChangelogOps } = await import("../src/pages/changelog/types");
+  let open = 0;
+  let reels = 0;
+  class Counted extends MockChangelogProvider {
+    override async call<R>(op: string, params: unknown): Promise<R> {
+      open += 1;
+      try {
+        return await super.call<R>(op, params);
+      } finally {
+        open -= 1;
+        if (op === ChangelogOps.reel) reels += 1;
+      }
+    }
+  }
   const root = dom.window.document.createElement("div");
   dom.window.document.body.append(root);
   await act(async () => {
-    mountChangelogPage(root, new MockChangelogProvider(list as never, list[0]!.build) as never);
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    mountChangelogPage(root, new Counted(list as never, list[0]!.build) as never);
   });
+  const deadline = performance.now() + 2_000;
+  do {
+    if (performance.now() > deadline) throw new Error(`the page asked for ${reels} of ${fresh} reels`);
+    await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+  } while (reels < fresh || open > 0);
   return root.querySelector('[data-testid="changelog.sinceLastUpdate"]');
 }
 
 test("Since your last update starts with a card for each reel of the span, newest first", async () => {
-  const section = await mount([
-    notes("3940400000000", video("3940400000000")),
-    notes("3940300000000"),
-    notes("3940200000000", video("3940200000000")),
-    // The installed build's reel is not part of the update.
-    notes("3940100000000", video("3940100000000")),
-  ]);
+  const section = await mount(
+    [
+      notes("3940400000000", video("3940400000000")),
+      notes("3940300000000"),
+      notes("3940200000000", video("3940200000000")),
+      // The installed build's reel is not part of the update.
+      notes("3940100000000", video("3940100000000")),
+    ],
+    3,
+  );
   const cards = [...(section?.querySelectorAll<HTMLAnchorElement>("a.cl-reel") ?? [])];
   expect(cards.map((a) => a.href)).toEqual([video("3940400000000"), video("3940200000000")]);
   expect(cards.map((a) => a.textContent)).toEqual([
@@ -81,10 +104,9 @@ test("Since your last update starts with a card for each reel of the span, newes
 });
 
 test("a span without a reel shows no card, and a reel that is not an https link is never shown", async () => {
-  const section = await mount([
-    notes("3940400000000", "javascript:alert(1)"),
-    notes("3940300000000"),
-    notes("3940100000000"),
-  ]);
+  const section = await mount(
+    [notes("3940400000000", "javascript:alert(1)"), notes("3940300000000"), notes("3940100000000")],
+    2,
+  );
   expect(section?.querySelectorAll("a.cl-reel").length).toBe(0);
 });
