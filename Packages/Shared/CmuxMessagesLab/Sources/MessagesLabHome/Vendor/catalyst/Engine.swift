@@ -190,9 +190,13 @@ enum Reducer {
         case .send:
             let d = s.ui.draft
             guard canSend(d) else { return nil }
-            let text = d.plainText.trimmingCharacters(in: .whitespacesAndNewlines)  // cmux: without the attachment marks
-            var parts = d.attachments.map { Part.attachment($0) }
-            if !text.isEmpty { parts += TextParts.parts(for: text) }
+            // cmux: the text and the attachments in the field's order (Draft+InlineMarks.swift)
+            let parts = d.pieces.flatMap { piece -> [Part] in
+                switch piece {
+                case let .text(t): TextParts.parts(for: t)
+                case let .attachment(a): [.attachment(a)]
+                }
+            }
             var m = Message(id: newID(), senderId: s.me, sentAt: stamp, parts: parts,
                             replyTo: d.replyTo ?? s.ui.openThread, status: .sending, edits: nil, retractedAt: nil, reactions: [])
             // Tree mode: a reply in a drilled branch answers the branch's message (nil: the root).
