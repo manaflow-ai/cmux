@@ -16,7 +16,9 @@ import Foundation
 /// Arguments: `session` (required, the acpmux session id), `name` (the
 /// workspace name), `key` (a caller-chosen workspace key, a lowercase UUID,
 /// so the caller can rename the workspace later), `cwd` (the terminal's), `host`
-/// (`chief:<home id>`: the session runs in this app's Chief home's acpmux).
+/// (`chief:<home id>`: the session runs in this app's Chief home's acpmux), `pane` (a pane of
+/// any workspace, shown or not: the tab opens there instead of in a new workspace), `workspace`
+/// (an existing workspace, shown or not: the tab opens in its last focused pane).
 enum AgentSessionWorkspace {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("agent.openSessionWorkspace", run: { invocation in
@@ -33,6 +35,20 @@ enum AgentSessionWorkspace {
         let cwd = invocation["cwd"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         // The Chief host's own acpmux runs the session (`chief:<home id>`); absent: this Mac's.
         let host = invocation["host"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        // `pane` (`cmux agents chat new --pane`, #23016): a tab in that pane of any workspace,
+        // shown or not, instead of a new workspace. The run answers the tab's ids.
+        // `workspace`: that workspace's last focused pane.
+        let pane = invocation["pane"]?.stringValue.flatMap { $0.isEmpty ? nil : ActionTargetRef(kind: .pane, id: $0) }
+        let workspace = invocation["workspace"]?.stringValue.flatMap { $0.isEmpty ? nil : ActionTargetRef(kind: .workspace, id: $0) }
+        if let target = pane ?? workspace {
+            guard context.services.agentTabs.canHostChat else { throw ActionFailure(message: MiscHandlerStrings.quickChatUnavailable) }
+            guard let place = AgentChatPlacement.resolve(target, services: context.services) else {
+                let reason = target.kind == .pane ? RefusalStrings.noPaneID(target.id) : RefusalStrings.noWorkspace(target.id)
+                throw ActionFailure(message: reason, isNotFound: true)
+            }
+            context.services.registry.track(result: try place.openTab(session: session, host: host, services: context.services))
+            return
+        }
         let task = try open(session: session, name: name, key: key, cwd: cwd, host: host, services: context.services)
         context.services.registry.track(task)
     }

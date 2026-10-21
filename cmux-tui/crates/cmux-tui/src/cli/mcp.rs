@@ -66,6 +66,19 @@ pub(super) fn agent_app(
         .map_err(agent_failure_value)
 }
 
+/// An app request that changes app state (`action.run`), with the CLI's
+/// global options: a transport failure after sending is `in_progress`.
+#[cfg(unix)]
+pub(super) fn agent_app_change(
+    global: &GlobalArgs,
+    method: &str,
+    params: Value,
+    timeout: Duration,
+    idempotency_key: Option<&str>,
+) -> Result<Value, CallFailure> {
+    transport::app_method(global, method, params, timeout, idempotency_key, true)
+}
+
 /// The CLI's transport as a `Backend`, so the agent composite surface runs
 /// one code path for the CLI and for MCP tools.
 pub(super) fn cli_backend(global: GlobalArgs) -> impl Backend {

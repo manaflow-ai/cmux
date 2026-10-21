@@ -39,6 +39,34 @@ extension AgentHandlers {
         })
     }
 
+    /// New Agent Chat that names a pane or a workspace (the CLI, MCP, a script; #23016). A pane no
+    /// window shows gets the chat tab on the workspace store: no window, workspace or focus
+    /// changes, and the run answers the tab, pane and workspace ids. A workspace that is shown
+    /// gets it in its most recently focused pane, never in the focused window's pane. False when
+    /// the run names neither (or a shown pane), so the focused-pane path runs.
+    static func openTargetedChat(_ invocation: ActionInvocation, context: AppActionContext) -> Bool {
+        guard let target = invocation.target, target.kind == .pane || target.kind == .workspace else { return false }
+        let services = context.services
+        guard let place = AgentChatPlacement.resolve(target, services: services) else {
+            services.registry.refuseNotFound(target.kind == .pane ? RefusalStrings.noPaneID(target.id) : RefusalStrings.noWorkspace(target.id))
+            return true
+        }
+        if let controller = services.paneController(for: place.pane) {
+            guard target.kind == .workspace else { return false }
+            openNewAgentChat(in: controller, invocation: invocation, context: context)
+            return true
+        }
+        let seed = AgentPaneSeed(cwd: place.cwd(invocation["cwd"]?.stringValue))
+        do {
+            services.registry.track(result: try place.openTab(seed: seed, services: services))
+        } catch let failure as ActionFailure {
+            services.registry.refuse(failure.message)
+        } catch {
+            services.registry.refuse(RefusalStrings.agentTabCreateFailed)
+        }
+        return true
+    }
+
     /// A new workspace in the active window with the chat as its only tab, when that window shows
     /// a top page: the workspace under the page stays parked, and its panes never mount for a
     /// chat to open in. False when the daemon cannot hold a chat.

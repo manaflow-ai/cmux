@@ -1,6 +1,16 @@
-//! `cmux agents chat send|read` and the `agents_chat_send` and
-//! `agents_chat_read` tools (bead cx-ncc.96): one agent prompts another
-//! agent chat and reads its transcript.
+//! `cmux agents chat new|send|read` and the `agents_chat_new`,
+//! `agents_chat_send` and `agents_chat_read` tools (bead cx-ncc.96): one
+//! agent starts a chat the app shows, prompts another agent chat and reads
+//! its transcript.
+//!
+//! A new chat (#23016) is an acpmux session started with the harness, model,
+//! effort, permission policy and mode the caller names (acpmux applies its
+//! own rules: a mode that does not ask needs the person), whose
+//! `CMUX_WORKSPACE_ID` names the workspace it shows in, then shown by the app
+//! as a tab of that workspace (`agent.openSessionWorkspace`): in the pane the
+//! caller names, shown or not, else in a new workspace. Nothing takes focus.
+//! A first prompt goes as a send (below). When the app cannot show it, the
+//! session is ended again, so no chat is left that no tab shows.
 //!
 //! A send is an agent message (agent_message.rs): the daemon stores it
 //! under its policy and limits (sender, workspace rule, burst, duplicates),
@@ -40,14 +50,113 @@ const MAX_EVENT_PAGES: usize = 20;
 /// One `cmux agents chat` verb.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::cli) enum ChatCommand {
+    New(NewChat),
     Send { target: String, text: String },
     Read { target: String, after: u64, limit: usize },
 }
 
-/// `chat send <chat> [--] <text>` and `chat read <chat> [--after N]
-/// [--limit N]` (the words after `agents`).
+/// What `chat new` starts: where the app shows it, and the session's
+/// settings, each passed to acpmux as `cmux acp new` passes it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(in crate::cli) struct NewChat {
+    /// A workspace (`ws_…`): the chat opens in its last focused pane.
+    pub workspace: Option<String>,
+    /// A pane (`pane_…`) of any workspace, shown or not.
+    pub pane: Option<String>,
+    /// `HARNESS[/MODEL]`, as `cmux acp new -m`.
+    pub model: Option<String>,
+    pub effort: Option<String>,
+    pub policy: Option<String>,
+    pub mode: Option<String>,
+    pub preset: Option<String>,
+    pub cwd: Option<String>,
+    pub name: Option<String>,
+    /// Sent once the tab exists, as `chat send` sends.
+    pub prompt: Option<String>,
+}
+
+/// `chat new [--workspace WS | --pane PANE] [--model H[/M]] [--effort E]
+/// [--policy P] [--mode M] [--preset P] [--cwd DIR] [--name N] [[--] PROMPT]`.
+fn parse_new(rest: &[&str]) -> Result<NewChat, UsageError> {
+    let mut chat = NewChat::default();
+    let mut index = 0;
+    while index < rest.len() {
+        let word = rest[index];
+        if word == "--" {
+            match &rest[index + 1..] {
+                [text] => chat.prompt = Some((*text).to_owned()),
+                [] => {}
+                _ => {
+                    return Err(UsageError::new(
+                        "agents chat new: give the prompt as one quoted argument after --",
+                    ));
+                }
+            }
+            break;
+        }
+        if !word.starts_with('-') {
+            if index + 1 != rest.len() {
+                return Err(UsageError::new(
+                    "agents chat new: give the prompt as one quoted argument, last",
+                ));
+            }
+            chat.prompt = Some(word.to_owned());
+            break;
+        }
+        let (flag, inline) = match word.split_once('=') {
+            Some((flag, value)) => (flag, Some(value)),
+            None => (word, None),
+        };
+        let value = match inline {
+            Some(value) => value,
+            None => {
+                index += 1;
+                rest.get(index).copied().filter(|value| !value.is_empty()).ok_or_else(|| {
+                    UsageError::new(format!("agents chat new: {flag} needs a value"))
+                })?
+            }
+        };
+        if value.is_empty() || (inline.is_none() && value.starts_with('-')) {
+            return Err(UsageError::new(format!("agents chat new: {flag} needs a value")));
+        }
+        let slot = match flag {
+            "--workspace" => &mut chat.workspace,
+            "--pane" | "--surface" => &mut chat.pane,
+            "-m" | "--model" | "--harness" => &mut chat.model,
+            "-e" | "--effort" => &mut chat.effort,
+            "--policy" => &mut chat.policy,
+            "--mode" => &mut chat.mode,
+            "-p" | "--preset" => &mut chat.preset,
+            "--cwd" => &mut chat.cwd,
+            "-n" | "--name" => &mut chat.name,
+            other => {
+                return Err(UsageError::new(format!(
+                    "agents chat new: unexpected argument {other:?}"
+                )));
+            }
+        };
+        if slot.replace(value.to_owned()).is_some() {
+            return Err(UsageError::new(format!("agents chat new: {flag} given twice")));
+        }
+        index += 1;
+    }
+    if chat.workspace.is_some() && chat.pane.is_some() {
+        return Err(UsageError::new("agents chat new: name a --workspace or a --pane, not both"));
+    }
+    if let Some(prompt) = chat.prompt.take() {
+        // The body rules of `cmux agent message`: not empty, at most 32 KiB.
+        let text = agent_message::read_body(Body::Text(prompt))
+            .map_err(|error| UsageError::new(format!("agents chat new: {}", error.0)))?;
+        chat.prompt = Some(text);
+    }
+    Ok(chat)
+}
+
+/// `chat new …` (``parse_new``), `chat send <chat> [--] <text>` and
+/// `chat read <chat> [--after N] [--limit N]` (the words after `agents`).
 pub(in crate::cli) fn parse(words: &[&str]) -> Result<ChatCommand, UsageError> {
     match words {
+        ["new", rest @ ..] => parse_new(rest).map(ChatCommand::New),
         ["send", target, rest @ ..] => {
             let target = chat_word(target)?;
             // One argument: cmux reads its own flags (`--session`, `--json`)
@@ -118,7 +227,7 @@ pub(in crate::cli) fn parse(words: &[&str]) -> Result<ChatCommand, UsageError> {
             Ok(ChatCommand::Read { target, after, limit })
         }
         _ => Err(UsageError::new(
-            "agents chat: use `chat send <chat> <text>` or `chat read <chat> [--after N] [--limit N]`",
+            "agents chat: use `chat new [--workspace WS | --pane PANE] [--model H[/M]] [PROMPT]`, `chat send <chat> <text>` or `chat read <chat> [--after N] [--limit N]`",
         )),
     }
 }
@@ -139,6 +248,7 @@ pub(in crate::cli) fn run(
     origin: &str,
 ) -> Result<Value, CallFailure> {
     match command {
+        ChatCommand::New(chat) => new_chat(global, chat, idempotency_key, origin),
         ChatCommand::Send { target, text } => send(global, target, text, idempotency_key, origin),
         ChatCommand::Read { target, after, limit } => read(global, target, *after, *limit),
     }
@@ -286,10 +396,187 @@ fn send(
     }))
 }
 
+/// Where a new chat shows: the workspace key its session names
+/// (`CMUX_WORKSPACE_ID`) and the app's placement arguments.
+struct Placement {
+    /// The key in the UUID form the app hands chats.
+    key: String,
+    workspace: Option<String>,
+    pane: Option<String>,
+}
+
+/// The workspace the caller's `--workspace` or `--pane` names in this cmux
+/// session (a new one when neither is given).
+fn placement(global: &GlobalArgs, chat: &NewChat) -> Result<Placement, CallFailure> {
+    let not_found = |scope: &str, selector: &str| {
+        not_run(
+            "selector.not_found",
+            format!("no {scope} {selector:?} in this cmux session"),
+            json!({"scope": scope, "selector": selector}),
+        )
+    };
+    if chat.workspace.is_none() && chat.pane.is_none() {
+        return Ok(Placement {
+            key: uuid::Uuid::new_v4().hyphenated().to_string().to_uppercase(),
+            workspace: None,
+            pane: None,
+        });
+    }
+    let snapshot = mcp::agent_resource(global, super::snapshot_plan())
+        .map_err(|error| CallFailure { kind: FailureKind::NotRun, error, idempotency_key: None })?;
+    let list = |name: &str| snapshot[name].as_array().cloned().unwrap_or_default();
+    let workspace_id = match (&chat.workspace, &chat.pane) {
+        (Some(workspace), _) => workspace.clone(),
+        (None, Some(pane)) => {
+            let screen = list("panes")
+                .into_iter()
+                .find(|item| item["id"] == pane.as_str())
+                .and_then(|item| item["screen_id"].as_str().map(str::to_owned))
+                .ok_or_else(|| not_found("pane", pane))?;
+            list("screens")
+                .into_iter()
+                .find(|item| item["id"] == screen.as_str())
+                .and_then(|item| item["workspace_id"].as_str().map(str::to_owned))
+                .ok_or_else(|| not_found("pane", pane))?
+        }
+        (None, None) => unreachable!("handled above"),
+    };
+    let key = list("workspaces")
+        .into_iter()
+        .find(|item| item["id"] == workspace_id.as_str())
+        .and_then(|item| item["extra"]["key"].as_str().map(uuid_form))
+        .ok_or_else(|| match &chat.pane {
+            Some(pane) => not_found("pane", pane),
+            None => not_found("workspace", &workspace_id),
+        })?;
+    Ok(Placement { key, workspace: Some(workspace_id), pane: chat.pane.clone() })
+}
+
+/// A workspace key in the uppercase UUID form the app hands chats.
+fn uuid_form(key: &str) -> String {
+    let hex = workspace_key(key).to_uppercase();
+    if hex.len() != 32 {
+        return key.to_uppercase();
+    }
+    [&hex[0..8], &hex[8..12], &hex[12..16], &hex[16..20], &hex[20..32]].join("-")
+}
+
+/// `session/new` params for `chat` in `key`'s workspace, as `cmux acp new`
+/// builds them.
+fn session_params(chat: &NewChat, key: &str, cwd: &str) -> Value {
+    let mut meta = json!({"env": {"CMUX_WORKSPACE_ID": key}});
+    if let Some(spec) = &chat.model {
+        let (harness, model) = match spec.split_once('/') {
+            Some((harness, model)) => (harness, Some(model)),
+            None => (spec.as_str(), None),
+        };
+        meta["harness"] = json!(harness);
+        if let Some(model) = model {
+            meta["model"] = json!(model);
+        }
+    }
+    for (name, value) in [
+        ("effort", &chat.effort),
+        ("policy", &chat.policy),
+        ("mode", &chat.mode),
+        ("preset", &chat.preset),
+        ("name", &chat.name),
+    ] {
+        if let Some(value) = value {
+            meta[name] = json!(value);
+        }
+    }
+    json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": meta}})
+}
+
+fn new_chat(
+    global: &GlobalArgs,
+    chat: &NewChat,
+    idempotency_key: Option<&str>,
+    origin: &str,
+) -> Result<Value, CallFailure> {
+    let place = placement(global, chat)?;
+    let cwd = match &chat.cwd {
+        Some(cwd) => cwd.clone(),
+        None => std::env::current_dir()
+            .map(|dir| dir.to_string_lossy().into_owned())
+            .map_err(|error| not_run("usage.invalid", format!("no folder: {error}"), json!({})))?,
+    };
+    let (session, name) = acp::create(session_params(chat, &place.key, &cwd)).map_err(|error| {
+        not_run("chat.not_started", format!("the chat did not start: {error}"), json!({}))
+    })?;
+    let key = match idempotency_key {
+        Some(key) => key.to_owned(),
+        None => wire::random_idempotency_key()
+            .map_err(|error| not_run("usage.invalid", error.0, json!({})))?,
+    };
+    // A pane, else a workspace (its last focused pane), else a new workspace
+    // under the key the session already names.
+    let mut args = json!({"session": session, "cwd": cwd});
+    match (&place.pane, &place.workspace) {
+        (Some(pane), _) => args["pane"] = json!(pane),
+        (None, Some(workspace)) => args["workspace"] = json!(workspace),
+        (None, None) => {
+            args["key"] = json!(place.key.to_lowercase());
+            if let Some(name) = &chat.name {
+                args["name"] = json!(name);
+            }
+        }
+    }
+    let mut params = super::super::app::action_run_params(
+        "agent.openSessionWorkspace",
+        super::super::app::ActionName::Any,
+        origin,
+    );
+    params.insert("args".into(), args);
+    let shown = mcp::agent_app_change(
+        global,
+        "action.run",
+        Value::Object(params),
+        super::super::app::WAITING_RUN_TIMEOUT,
+        Some(&key),
+    );
+    let shown = match shown {
+        Ok(reply) => reply,
+        Err(failure) => {
+            // No tab shows it: end the session, so no hidden chat is left.
+            acp::end(&session);
+            return Err(failure);
+        }
+    };
+    let fields = shown.get("result").cloned().unwrap_or(Value::Null);
+    let mut result = json!({
+        "chat": session,
+        "name": name,
+        "workspace": fields
+            .get("workspace")
+            .cloned()
+            .or(place.workspace.map(Value::from))
+            .unwrap_or(Value::Null),
+        "workspace_key": place.key.to_lowercase(),
+        "pane": fields.get("pane").cloned().unwrap_or(Value::Null),
+        "tab": fields.get("tab").cloned().unwrap_or(Value::Null),
+    });
+    if let Some(prompt) = &chat.prompt {
+        match send(global, &session, prompt, None, origin) {
+            Ok(receipt) => result["message"] = receipt["result"].clone(),
+            Err(failure) => result["message"] = json!({"state": "failed", "error": failure.error}),
+        }
+    }
+    Ok(json!({
+        "schema_version": 1,
+        "action": "chat.new",
+        "origin": origin,
+        "result": result,
+        "idempotency_key": key,
+    }))
+}
+
 /// Whether a `chat.send` receipt reports a message that was stored but
 /// could not be handed to its chat.
 pub(in crate::cli) fn delivery_failed(receipt: &Value) -> bool {
-    receipt["action"] == "chat.send" && receipt["result"]["state"] == "failed"
+    (receipt["action"] == "chat.send" && receipt["result"]["state"] == "failed")
+        || (receipt["action"] == "chat.new" && receipt["result"]["message"]["state"] == "failed")
 }
 
 fn read(global: &GlobalArgs, target: &str, after: u64, limit: usize) -> Result<Value, CallFailure> {
@@ -565,6 +852,33 @@ mod acp {
                 client.request(acpmux::rpc::method::MUX_INFO, json!({"sessionId": id})).await?;
             Ok((id, info))
         })
+    }
+
+    /// Starts a session (`session/new` with `params`); its id and name.
+    pub(super) fn create(params: Value) -> Result<(String, String), String> {
+        block_on(async {
+            let client = acpmux::deliver::connect().await?;
+            let created = client.request(acpmux::rpc::method::SESSION_NEW, params).await?;
+            let id = created["sessionId"]
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("acpmux returned no session id"))?
+                .to_owned();
+            let name = created
+                .pointer("/_meta/acpmux/name")
+                .and_then(Value::as_str)
+                .unwrap_or(&id)
+                .to_owned();
+            Ok((id, name))
+        })
+    }
+
+    /// Ends and removes a session this call started (best effort).
+    pub(super) fn end(session: &str) {
+        let _ = block_on(async {
+            let client = acpmux::deliver::connect().await?;
+            let params = json!({"sessionId": session, "purge": true});
+            client.request(acpmux::rpc::method::MUX_KILL, params).await
+        });
     }
 
     /// One page of the session's events after `after_seq`.
