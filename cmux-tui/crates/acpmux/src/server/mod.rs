@@ -959,6 +959,7 @@ mod harness_admin;
 mod harness_enable;
 mod inventory_watch;
 pub mod local_app;
+mod new_worktree;
 pub mod peer_auth;
 mod peer_forward;
 pub mod peer_text;
