@@ -490,7 +490,7 @@ jobs:
             echo
             echo "Repairs: artifact \`pr-autofix-patch\`. A same-repo branch gets them as a commit from the push job; on a fork, download the artifact and run:"
             echo
-            echo "    git apply pr-autofix.patch && git commit -am 'chore(next): PR autofix' && git push   # on $HEAD_REF"
+            echo "    git apply --index pr-autofix.patch && git commit -m 'chore(next): PR autofix' && git push   # on $HEAD_REF (--index stages new files too)"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

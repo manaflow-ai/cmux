@@ -47,6 +47,45 @@ jobs:
       linux_guard_cli: ${{ 'false' }}
       linux_guard_source: ${{ 'false' }}
 
+  # ci-guards.yml's `ci` group (workflow lints, hook trust, runner and cache policy: scripts/ci/guards-local.sh's
+  # default set) ran only in ci.yml's "CI fast guards", which skips feat-cmux-next pull requests, and ci.yml never
+  # runs on its pushes. Nothing ran it for the branch: tests/test_preflight_trust.py errored there unseen until
+  # #23006 (tests/test_feat_ci_guard_group.py).
+  ci-guard-group:
+    name: cmux-next CI guard group
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      # The branch had 24 of the group's 134 steps red before this job ran there (2026-10-21), so the job fails
+      # only on a step red on this change but not on its base; the base's reds are warnings
+      # (scripts/ci/guards_new_reds.py). The base's steps run with this checkout's runner (--root).
+      - name: Checkout the base
+        if: (github.event.pull_request.base.sha || github.event.before || '') != '' && (github.event.pull_request.base.sha || github.event.before) != '0000000000000000000000000000000000000000'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.event.before }}
+          path: .guard-base
+          persist-credentials: false
+
+      - name: Run the ci guard group
+        env:
+          CMUX_GUARDS_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
+        run: |
+          scripts/ci/guards-local.sh --no-stamp --keep-going --jobs 8 --results "$RUNNER_TEMP/guards-head.json" || true
+          if [ -d .guard-base ]; then
+            scripts/ci/guards-local.sh --no-stamp --keep-going --jobs 8 --root .guard-base \
+              --results "$RUNNER_TEMP/guards-base.json" > "$RUNNER_TEMP/guards-base.log" 2>&1 || true
+            tail -1 "$RUNNER_TEMP/guards-base.log"
+          fi
+          python3 scripts/ci/guards_new_reds.py "$RUNNER_TEMP/guards-head.json" "$RUNNER_TEMP/guards-base.json"
+
   vt-link-graph:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
@@ -211,9 +250,9 @@ jobs:
       pull-requests: write
     uses: ./.github/workflows/pr-red-checks-comment.yml
 
-  # The defaults guard's tests, and schemas/defaults/cmux-next.json matching the
-  # action and settings exports, in seconds; cmux-next-defaults-guard.yml judges
-  # the changes and the approval.
+  # The defaults guard's tests and the settings export stamp, in seconds (the
+  # defaults snapshot is bot-only); cmux-next-defaults-guard.yml judges the changes and
+  # the approval from each tree's sources.
   defaults-snapshot:
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -223,12 +262,20 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          # HEAD^1: the base tip of a pull request's merge commit, or the
+          # previous commit of a push.
+          fetch-depth: 2
 
       - name: The defaults guard judges changes and approvals
         run: python3 tests/test_defaults_guard.py
 
-      - name: The defaults snapshot matches the exports
-        run: python3 scripts/ci/defaults_guard.py check-fresh
+      # The snapshot is bot-only (#21946): it is stale on every event between a
+      # merge and the base autofix's commit, so this checks only that the
+      # settings exports match their sources (check-stamp). The exports go stale
+      # the same way, so only the sources this event changed fail; the rest is a
+      # warning (10-21: stale on the base, red on every pull request for hours).
+      - name: The settings exports match their sources
+        run: python3 scripts/ci/defaults_guard.py check-stamp --base "$(git rev-parse HEAD^1)"
 
       # PR #19754 moved the workspace and tab menus' group rows into More and
       # nothing failed (Lawrence 2026-10-14: "my groups UI is lost").

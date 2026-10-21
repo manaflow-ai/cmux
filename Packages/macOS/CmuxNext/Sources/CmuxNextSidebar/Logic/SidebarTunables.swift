@@ -83,6 +83,13 @@ public nonisolated enum SidebarTunables {
         help: "A round dot per agent acting right now, in the agent's theme color: on its workspace row (hover lists what each one touches) and on its tab chip (prototype).",
         default: false, code: "SidebarTunables.presenceDots")
 
+    /// Rows show their agent sessions' acpmux lane state (`SidebarLaneStatus`): working, waiting
+    /// on you, failed, idle, even when no turn state reached the row. Off by default.
+    public static let laneStatus = Tunable<Bool>.toggle(
+        "sidebar.laneStatus", .sidebar, "Rows show acpmux lane status",
+        help: "A workspace row's status mark also follows the acpmux lane of each agent chat in it on this Mac: waiting on you or failed wins, then working, then the row's own status.",
+        default: false, code: "SidebarTunables.laneStatus")
+
     /// The pull requests' hover card on a row's pull request badge (`SidebarPullRequestCard`,
     /// `sidebar.sessionTree`); on by default.
     public static let pullRequestCard = Tunable<Bool>.toggle(
@@ -128,6 +135,7 @@ public nonisolated enum SidebarTunables {
             evenRowText.descriptor,
             groupEdgeFraction.descriptor,
             groupExitFraction.descriptor,
+            laneStatus.descriptor,
             NotificationBadgeLook.tunable.descriptor,
             NotificationIconLook.tunable.descriptor,
             presenceDots.descriptor,

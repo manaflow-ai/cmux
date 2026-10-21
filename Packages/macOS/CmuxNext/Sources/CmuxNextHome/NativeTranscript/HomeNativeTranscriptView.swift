@@ -295,7 +295,7 @@ public final class HomeNativeTranscriptView: NSView {
         }
     }
 
-    /// Settings > Agents > Chief Chat > Bubble Style: iMessage's colours or the theme's, live.
+    /// Settings > Chief > Chief Chat > Bubble Style: iMessage's colours or the theme's, live.
     private func followBubbleStyle() {
         withObservationTracking {
             bubbleStyle = DesignSettings.shared.homeChiefBubblesThemed ? .theme : .iMessage
@@ -401,25 +401,16 @@ public final class HomeNativeTranscriptView: NSView {
         transcript.isVisibleToUser = window.map { $0.isKeyWindow && $0.occlusionState.contains(.visible) } ?? false
     }
 
-    /// The header band's fade in or out, in seconds. Reduce Motion keeps it, at the crossfade length
-    /// (motion.md rule 7): turned off there, the band appeared and left in one frame.
-    static func headerFadeDuration(shown: Bool) -> TimeInterval {
-        Motion.home.duration(shown ? .fadeIn : .fadeOut)
-    }
-
-    /// The theme's palettes (key and non-key window) for the MessagesLab
+    /// The theme's palette (the key window's, for every window) for the MessagesLab
     /// Fixture colours, and the first-run panel's colours.
     private func applyTheme() {
         let accent = accentOverride, style = bubbleStyle
         let active = performWithTheme { HomeThemePalette.resolveInScope(active: true, style: style, accentOverride: accent) }
-        let inactive = performWithTheme { HomeThemePalette.resolveInScope(active: false, style: style, accentOverride: accent) }
         let measured = performWithTheme { HomeThemePalette.usesMessagesBlueInScope(style: style, accentOverride: accent) }
-        transcript.applyTheme(active: active, inactive: inactive, measuredAccent: measured)
-        // The header's band: a light fade of the window background, shown only
-        // near the top; the design system's fades.
-        let (fade, maxAlpha) = performWithTheme { (Palette.surfaceBackground.withAlphaComponent(1), Palette.legibilityScrimOpacity) }
-        transcript.setHeaderPillBacking(performWithTheme { Palette.capsuleScrim })
-        transcript.setHeaderFade(color: fade, maxAlpha: maxAlpha) { shown in Self.headerFadeDuration(shown: shown) }
+        transcript.applyTheme(active: active, measuredAccent: measured)
+        // The header: a thin glass band over the transcript and a glass name pill, as
+        // Messages on macOS 26 (HeaderGlass.swift).
+        transcript.setHeaderGlass()
         performWithTheme {
             firstRun.applyColors(primary: Palette.textPrimary, secondary: Palette.textSecondary, tertiary: Palette.textTertiary, fill: Palette.elevatedBackground,
                                  hover: Palette.hoverFill, border: Palette.separator, attention: Palette.attention,

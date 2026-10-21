@@ -468,27 +468,27 @@
         {
           "id": "search.chats",
           "title": {
-            "en": "Search Chats & Agents…",
-            "ar": "البحث في الدردشات والوكلاء…",
-            "bs": "Pretraži razgovore i agente…",
-            "da": "Søg i chats og agenter…",
-            "de": "Chats und Agenten durchsuchen…",
-            "es": "Buscar en chats y agentes…",
-            "fr": "Rechercher dans les discussions et les agents…",
-            "it": "Cerca in chat e agenti…",
-            "ja": "チャットとエージェントを検索…",
-            "km": "ស្វែងរកការជជែក និងភ្នាក់ងារ…",
-            "ko": "채팅 및 에이전트 검색…",
-            "no": "Søk i chatter og agenter…",
-            "pl": "Szukaj w czatach i agentach…",
-            "pt-BR": "Pesquisar chats e agentes…",
-            "ru": "Искать в чатах и агентах…",
-            "th": "ค้นหาแชทและเอเจนต์…",
-            "tr": "Sohbetlerde ve ajanlarda ara…",
-            "uk": "Шукати в чатах і агентах…",
-            "vi": "Tìm trong trò chuyện và tác tử…",
-            "zh-CN": "搜索聊天和智能体…",
-            "zh-TW": "搜尋聊天與代理程式…"
+            "en": "Search Everything…",
+            "ar": "البحث في كل شيء…",
+            "bs": "Pretraži sve…",
+            "da": "Søg overalt…",
+            "de": "Alles durchsuchen…",
+            "es": "Buscar en todo…",
+            "fr": "Tout rechercher…",
+            "it": "Cerca ovunque…",
+            "ja": "すべてを検索…",
+            "km": "ស្វែងរកគ្រប់យ៉ាង…",
+            "ko": "모두 검색…",
+            "no": "Søk overalt…",
+            "pl": "Szukaj wszędzie…",
+            "pt-BR": "Pesquisar tudo…",
+            "ru": "Искать везде…",
+            "th": "ค้นหาทุกอย่าง…",
+            "tr": "Her şeyde ara…",
+            "uk": "Шукати всюди…",
+            "vi": "Tìm kiếm mọi thứ…",
+            "zh-CN": "搜索全部…",
+            "zh-TW": "搜尋全部…"
           },
           "shortcut": {
             "key": "a",
@@ -2327,7 +2327,7 @@
         {
           "id": "toggleFocusedWorkspaceGroupCollapsed",
           "title": {
-            "en": "Toggle Group Collapse",
+            "en": "Collapse/Expand Workspace Group",
             "ar": "تبديل طي المجموعة",
             "bs": "Prebaci sažimanje grupe",
             "da": "Skjul/udvid gruppe",
@@ -6671,7 +6671,27 @@
         {
           "id": "browserShowHistory",
           "title": {
-            "en": "Show History"
+            "en": "Show Browser History",
+            "ar": "إظهار سجل المتصفح",
+            "bs": "Prikaži historiju preglednika",
+            "da": "Vis browserhistorik",
+            "de": "Browserverlauf anzeigen",
+            "es": "Mostrar historial del navegador",
+            "fr": "Afficher l’historique du navigateur",
+            "it": "Mostra cronologia del browser",
+            "ja": "ブラウザの履歴を表示",
+            "km": "បង្ហាញប្រវត្តិកម្មវិធីរុករក",
+            "ko": "브라우저 기록 보기",
+            "no": "Vis nettleserhistorikk",
+            "pl": "Pokaż historię przeglądarki",
+            "pt-BR": "Mostrar histórico do navegador",
+            "ru": "Показать историю браузера",
+            "th": "แสดงประวัติเบราว์เซอร์",
+            "tr": "Tarayıcı geçmişini göster",
+            "uk": "Показати історію браузера",
+            "vi": "Hiện lịch sử trình duyệt",
+            "zh-CN": "显示浏览器历史记录",
+            "zh-TW": "顯示瀏覽器記錄"
           },
           "shortcut": {
             "key": "y",
@@ -6847,6 +6867,40 @@
           },
           "shortcut": {
             "key": "]",
+            "modifiers": [
+              "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
+          "id": "markdownReload",
+          "title": {
+            "en": "Markdown: Reload",
+            "ar": "Markdown: إعادة التحميل",
+            "bs": "Markdown: Ponovo učitaj",
+            "da": "Markdown: Genindlæs",
+            "de": "Markdown: Neu laden",
+            "es": "Markdown: Recargar",
+            "fr": "Markdown : Recharger",
+            "it": "Markdown: Ricarica",
+            "ja": "Markdown: 再読み込み",
+            "km": "Markdown: ផ្ទុកឡើងវិញ",
+            "ko": "Markdown: 새로고침",
+            "no": "Markdown: Last inn på nytt",
+            "pl": "Markdown: Odśwież",
+            "pt-BR": "Markdown: Recarregar",
+            "ru": "Markdown: Перезагрузить",
+            "th": "Markdown: โหลดใหม่",
+            "tr": "Markdown: Yeniden Yükle",
+            "uk": "Markdown: Перезавантажити",
+            "vi": "Markdown: Tải lại",
+            "zh-CN": "Markdown：重新加载",
+            "zh-TW": "Markdown：重新載入"
+          },
+          "shortcut": {
+            "key": "r",
             "modifiers": [
               "cmd"
             ]
@@ -7082,6 +7136,41 @@
           "shortcut": {
             "key": "",
             "modifiers": [
+              "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
+          "id": "sidebar.priorityView.toggle",
+          "title": {
+            "en": "Toggle Priority View",
+            "ar": "تبديل عرض الأولوية",
+            "bs": "Uključi/isključi prikaz prioriteta",
+            "da": "Slå prioritetsvisning til/fra",
+            "de": "Prioritätsansicht ein-/ausblenden",
+            "es": "Alternar vista de prioridad",
+            "fr": "Afficher/masquer la vue Priorité",
+            "it": "Attiva/disattiva vista Priorità",
+            "ja": "優先ビューの切り替え",
+            "km": "បិទ/បើកទិដ្ឋភាពអាទិភាព",
+            "ko": "우선순위 보기 전환",
+            "no": "Slå prioritetsvisning av/på",
+            "pl": "Przełącz widok priorytetów",
+            "pt-BR": "Alternar visualização de prioridade",
+            "ru": "Показать/скрыть вид «Приоритет»",
+            "th": "สลับมุมมองลำดับความสำคัญ",
+            "tr": "Öncelik görünümünü aç/kapat",
+            "uk": "Перемкнути вигляд «Пріоритет»",
+            "vi": "Bật/tắt chế độ xem ưu tiên",
+            "zh-CN": "切换优先视图",
+            "zh-TW": "切換優先檢視"
+          },
+          "shortcut": {
+            "key": "k",
+            "modifiers": [
+              "opt",
               "cmd"
             ]
           },

@@ -14,6 +14,7 @@ import CmuxNextDesign
 import CmuxNextMobileHost
 import CmuxNextDaemon
 import CmuxNextFeed
+import CmuxNextHomeEngine
 import CmuxNextIcons
 import CmuxNextPalette
 import CmuxNextPages
@@ -199,6 +200,8 @@ final class AppServices {
     let paneMounts = PaneMounts()
     /// The new tab screen's Search | Ask mode and last agent, and what `!` typed ahead.
     let newTabChoices = NewTabChoiceMemory()
+    /// The models picked per harness in the Chief card's Model menu (its Recent section).
+    let chiefModelRecents = HomeChiefModelRecents(defaults: .standard)
     let newTabTypeAhead = NewTabTypeAhead()
     /// Home's first-run Switching card: Hide memory and the Mission Control check.
     let homeSwitchKeys = HomeSwitchKeysSource()
@@ -270,6 +273,8 @@ final class AppServices {
     var chromiumLikelyObservations: [Task<Void, Never>] = []
     /// Repaints on `appearance.borders` changes (`observeBorders`).
     var borderObservation: Task<Void, Never>?
+    /// Posts this launch's installed-update Feed card once (`UpdateFeedPosting.follow`).
+    var updateFeedObservation: Task<Void, Never>?
     /// Page menus and the open-menu diagnostic shared by browser hosts.
     let contextMenus: BrowserContextMenuBuilder
     /// Sized browser popups (OAuth, payment), each in its own Chrome-style popup window.
@@ -386,7 +391,10 @@ final class AppServices {
         cache.profileBadgeMenu = { [weak self] key in
             guard let self, let tab = cache.tabModel(key) else { return nil }
             let target = ActionTargetRef(kind: .browserProfile, id: browserProfiles.profileID(ofTab: tab))
-            return self.registry.makeContextMenu(for: .browserProfile, target: target)
+            // The badge's tab names the place: New Tab with Browser Profile and Manage Extensions
+            // open in that tab's pane, not in whichever pane has the focus (on Home, the chat dock).
+            return self.registry.makeContextMenu(for: .browserProfile, target: target,
+                                                 arguments: ["tab": .target(ActionTargetRef(kind: .tab, id: tab.id))])
         }
         cache.browserTabs.browserEnabled = { [weak self] in self?.settings?.snapshot.linkRouting.browserEnabled ?? true }
         cache.browserTabs.resolveProfile = { [weak self] pane, explicit in
@@ -471,7 +479,7 @@ final class AppServices {
         notifications.start(services: self)
         keyRouter.onTyping = { [weak self] window in self?.notifications.noteTyping(in: window) }
         (NSApp as? CmuxApplication)?.mouseDownObserver = { [weak self] event in
-            self?.notifications.noteMouseDown(in: event.window)
+            self?.notifications.noteMouseDown(in: event.window, at: event.locationInWindow)
             self?.browserHost?.noteInput(event)
             // A click anywhere ends link hints and a waiting chord (it may move the keyboard).
             self?.linkHints.cancel()

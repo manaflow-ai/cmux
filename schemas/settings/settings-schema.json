@@ -32,6 +32,7 @@
               "tabs.newTabPosition",
               "tabs.plusButton",
               "tabs.barPosition",
+              "browser.toolbarPosition",
               "tabs.barOrder",
               "tabs.overflow",
               "appearance.metrics.tabMaxWidth",
@@ -410,6 +411,7 @@
               "sidebar.pinnedBandsScroll",
               "sidebar.showWorkspaceTabs",
               "sidebar.showChats",
+              "sidebar.sessionTree",
               "sidebar.showProjects",
               "sidebar.groupBy",
               "sidebar.showSpaces",
@@ -747,16 +749,6 @@
             }
           },
           {
-            "key" : "settings.group.chiefChat",
-            "rows" : [
-              "home.chiefBubbleStyle"
-            ],
-            "title" : {
-              "key" : "settings.group.chiefChat",
-              "text" : "Chief Chat"
-            }
-          },
-          {
             "key" : "settings.group.computerUse",
             "rows" : [
               "computerUse.enabled",
@@ -800,6 +792,18 @@
               "key" : "settings.group.subsessions",
               "text" : "Sub-sessions"
             }
+          },
+          {
+            "key" : "settings.group.folderTrust",
+            "rows" : [
+              "agents.trust.autoTrust",
+              "agents.trust.projectRoots",
+              "agents.trust.ownOrgs"
+            ],
+            "title" : {
+              "key" : "settings.group.folderTrust",
+              "text" : "Folder Trust"
+            }
           }
         ],
         "id" : "agents",
@@ -814,7 +818,6 @@
         "trail" : [
           "harnesses",
           "agentHarnesses",
-          "chiefs",
           "computerUse"
         ]
       },
@@ -827,6 +830,16 @@
         ],
         "groups" : [
           {
+            "key" : "settings.group.chiefChat",
+            "rows" : [
+              "home.chiefBubbleStyle"
+            ],
+            "title" : {
+              "key" : "settings.group.chiefChat",
+              "text" : "Chief Chat"
+            }
+          },
+          {
             "key" : "settings.group.chiefPet",
             "rows" : [
               "home.chiefPetEnabled",
@@ -838,14 +851,15 @@
             }
           }
         ],
-        "id" : "chief-pet",
+        "id" : "chief",
         "lead" : [
+          "chiefs",
           "chiefPet"
         ],
-        "symbol" : "pawprint",
+        "symbol" : "crown",
         "title" : {
-          "key" : "settings.category.chiefPet",
-          "text" : "Chief Pet"
+          "key" : "settings.category.chief",
+          "text" : "Chief"
         },
         "trail" : [
 
@@ -2329,6 +2343,75 @@
     },
     {
       "accepts" : [
+        "top",
+        "bottom"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.top",
+            "text" : "Top"
+          },
+          "value" : "top"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.bottom",
+            "text" : "Bottom"
+          },
+          "value" : "bottom"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "top",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.browser.toolbarPosition.help",
+        "text" : "Where the address bar row of browser and Markdown panes sits. At the bottom, its suggestions and menus open upward."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.toolbarPosition",
+      "keywords" : [
+        "omnibar",
+        "address bar",
+        "toolbar",
+        "url bar",
+        "browser",
+        "markdown",
+        "top",
+        "bottom",
+        "position",
+        "layout"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "toolbarPosition"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.toolbarPosition",
+        "text" : "Browser Toolbar Position"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "aboveToolbar",
         "belowToolbar"
       ],
@@ -2361,7 +2444,7 @@
       },
       "help" : {
         "key" : "settings.tabs.barOrder.help",
-        "text" : "In a browser pane with the tab bar at the top: the tab bar above the address bar, or below it."
+        "text" : "In a browser pane with the tab bar and the address bar on the same edge: the tab bar above the address bar, or below it."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.barOrder",
@@ -4794,6 +4877,179 @@
       "title" : {
         "key" : "settings.agents.subsessions.maxDepth",
         "text" : "Deepest Nesting"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.folderTrust",
+        "text" : "Folder Trust"
+      },
+      "help" : {
+        "key" : "settings.agents.trust.autoTrust.help",
+        "text" : "Agents start in folders under your project roots, and in repositories owned by your organizations, without asking. Other folders ask first."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.trust.autoTrust",
+      "keywords" : [
+        "trust",
+        "folder",
+        "repository",
+        "prompt",
+        "agents"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "trust",
+        "autoTrust"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agents.trust.autoTrust",
+        "text" : "Trust My Own Folders Without Asking"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "/Users/ada/src",
+          "~/notes"
+        ]
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.folderTrust",
+        "text" : "Folder Trust"
+      },
+      "help" : {
+        "key" : "settings.agents.trust.projectRoots.help",
+        "text" : "Everything inside these folders is trusted. Use full paths or ~/ paths."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.trust.projectRoots",
+      "keywords" : [
+        "trust",
+        "project",
+        "roots",
+        "folders",
+        "workspace"
+      ],
+      "kind" : "folder_list",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "trust",
+        "projectRoots"
+      ],
+      "refuses" : [
+        "/Users/ada/src",
+        [
+          "relative/path"
+        ],
+        [
+          1
+        ]
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agents.trust.projectRoots",
+        "text" : "Trusted Project Roots"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "ws-1",
+          "2B7F0C3A-workspace"
+        ]
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.folderTrust",
+        "text" : "Folder Trust"
+      },
+      "help" : {
+        "key" : "settings.agents.trust.ownOrgs.help",
+        "text" : "A repository is trusted when all of its GitHub remotes belong to these users or organizations."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.trust.ownOrgs",
+      "keywords" : [
+        "trust",
+        "github",
+        "organization",
+        "owner",
+        "remote",
+        "repository"
+      ],
+      "kind" : "string_list",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "trust",
+        "ownOrgs"
+      ],
+      "refuses" : [
+        "ws-1",
+        [
+          1
+        ],
+        [
+          ""
+        ],
+        {
+
+        }
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agents.trust.ownOrgs",
+        "text" : "Trusted GitHub Owners"
       },
       "validation" : "portable"
     },
@@ -11889,7 +12145,7 @@
       },
       "help" : {
         "key" : "settings.focus.inactiveTabStyle.help",
-        "text" : "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet drops the selected pill."
+        "text" : "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet keeps only a faint selected pill."
       },
       "kept_on_reset_all" : false,
       "key" : "focus.inactiveTabStyle",
@@ -20629,6 +20885,57 @@
       "title" : {
         "key" : "settings.sidebar.showChats",
         "text" : "Show All Chats"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.sessionTree.help",
+        "text" : "Lists a workspace that another workspace's agent started under it, and shows each row's pull requests and the first rows' Command-number keys."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.sessionTree",
+      "keywords" : [
+        "sidebar",
+        "tree",
+        "nested",
+        "parent",
+        "child",
+        "pull request",
+        "keycap",
+        "sessions"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "sessionTree"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.sessionTree",
+        "text" : "Session Tree"
       },
       "validation" : "portable"
     },
@@ -30690,7 +30997,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "focus",
+      "default" : "click",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.dismissal",
@@ -31698,7 +32005,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "blink",
+      "default" : "steady",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.attention",
@@ -32065,7 +32372,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.attention",

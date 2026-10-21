@@ -63,6 +63,9 @@ final class HoverCardPanel: NSPanel {
     var activeMorph: HoverCardMorph?
     /// The card takes clicks and scrolls (the update highlights' "See all changes").
     private(set) var isInteractive = false
+    /// The current press began in the clear band around the card: it and its drags and release
+    /// go to the parent window (`HoverCardPanel+ClickThrough.swift`).
+    var forwardsPress = false
     /// A `.beside` card sits left of its target (no room on its right: a sidebar on the right).
     private(set) var isLeading = false
     /// The card's frame on screen at rest, while a morph lays the window out larger.

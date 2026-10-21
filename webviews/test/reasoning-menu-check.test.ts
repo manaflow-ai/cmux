@@ -1,7 +1,8 @@
 // cmux-web-test-timeout: 300
-// The reasoning menu marks the chosen level with a check at the row's trailing edge, as Claude's
-// model list does, never in a leading gutter that indents every label (Leo 2026-10-18): each label
-// starts at the row's own inset, and the section title lines up with them.
+// The effort levels mark the chosen one with a check at the row's trailing edge, as Claude's model
+// list does, never in a leading gutter that indents every label (Leo 2026-10-18): each label starts
+// at the row's own inset. The levels are the Effort submenu of the model button's menu (Leo
+// 2026-10-20: one model button, no separate Reasoning chip).
 // Real Chromium and WebKit (the app's engine) on the gallery stage. CI fails the file when it cannot
 // launch them (requireBrowserLane). Locally: CMUX_BROWSER_TESTS=1 bun test test/reasoning-menu-check.test.ts
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -88,10 +89,14 @@ await requireBrowserLane("reasoning-menu-check.test.ts", async () => {
   for (const [engine] of engines)
     test(`${engine}: the check trails the chosen row; labels start at the row's inset`, async () => {
       const page = await open(engine);
-      await press(page, chip("Effort"));
-      await page.locator(".acpmux-effort-menu [role=menuitemradio][aria-checked=true]").waitFor();
+      await press(page, chip("Model"));
+      await page.locator(".acpmux-quick-menu").first().waitFor();
+      await page.getByRole("menuitem", { name: /^Effort/ }).click();
+      await page.waitForFunction(() => document.querySelectorAll(".acpmux-quick-menu").length >= 2);
+      await page.locator(".acpmux-quick-menu").last().locator("[role=menuitemradio][aria-checked=true]").waitFor();
       const geometry = await page.evaluate(() => {
-        const menu = document.querySelector(".acpmux-effort-menu")!;
+        const menus = document.querySelectorAll(".acpmux-quick-menu");
+        const menu = menus[menus.length - 1]!;
         const rows = [...menu.querySelectorAll<HTMLElement>("[role=menuitemradio]")].map((row) => {
           const box = row.getBoundingClientRect();
           const label = row.querySelector(".acpmux-menu-label")!.getBoundingClientRect();
@@ -103,19 +108,13 @@ await requireBrowserLane("reasoning-menu-check.test.ts", async () => {
             checkAfterLabel: check.left >= label.right,
           };
         });
-        const title = menu.querySelector(".ui-menu-group-label")!;
-        const titleInset =
-          title.getBoundingClientRect().left +
-          parseFloat(getComputedStyle(title).paddingLeft) -
-          menu.querySelector("[role=menuitemradio]")!.getBoundingClientRect().left;
-        return { rows, titleInset: Math.round(titleInset) };
+        return { rows };
       });
       const chosen = geometry.rows.find((row) => row.checked)!;
       expect(chosen.checkAfterLabel, "the check sits after the label").toBe(true);
       expect(chosen.checkFromEnd, "the check sits at the row's trailing edge").toBeLessThanOrEqual(12);
       for (const row of geometry.rows) expect(row.inset, "no leading check gutter").toBeLessThanOrEqual(12);
       expect(new Set(geometry.rows.map((row) => row.inset)).size, "every label starts at the same x").toBe(1);
-      expect(geometry.titleInset, "the section title lines up with the labels").toBe(geometry.rows[0]!.inset);
       await page.close();
     });
 });

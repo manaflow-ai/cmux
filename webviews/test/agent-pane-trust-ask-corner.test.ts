@@ -47,7 +47,9 @@ await requireBrowserLane("agent-pane-trust-ask-corner.test.ts", async () => {
       });
       const corners = await page.evaluate(() => ({
         bar: getComputedStyle(document.querySelector(".acpmux-trust-ask")!).borderTopLeftRadius,
-        card: getComputedStyle(document.querySelector(".acpmux-composer-box")!).borderTopLeftRadius,
+        // The card's own corner: its top corners square off under a queue or strip standing on it
+        // (composerLocation.css), so read a bottom one.
+        card: getComputedStyle(document.querySelector(".acpmux-composer-box")!).borderBottomLeftRadius,
       }));
       await page.close();
       if (corners.bar !== corners.card) found.push(`@${width}: bar ${corners.bar}, card ${corners.card}`);
@@ -68,7 +70,13 @@ await requireBrowserLane("agent-pane-trust-ask-corner.test.ts", async () => {
       timeout: 30_000,
     });
     expect(await page.locator(".acpmux-composer-remote-note").count()).toBe(0);
-    expect(await page.locator(".acpmux-send").first().getAttribute("title")).toBe("Answer the trust question first");
+    // Send comes in with the draft's first letter (Claude desktop's box), next to Stop mid-turn.
+    await page.locator(".acpmux-composer .ProseMirror").first().click();
+    await page.keyboard.type("next step");
+    const send = page.locator(".acpmux-send:not(.acpmux-cancel)").first();
+    await send.waitFor({ timeout: 10_000 });
+    expect(await send.getAttribute("title")).toBe("Answer the trust question first");
+    expect(await send.isDisabled()).toBe(true);
     await page.close();
   });
 });

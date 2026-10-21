@@ -1,7 +1,9 @@
-// Claude's reasoning chip on the agent's own level (cx-ervhd, Leo 2026-10-13: a new chat read "Low"
-// with nothing checked). A chat whose effort is "default" names the level that resolves to, the
-// running model's default effort, even on a context variant id ("claude-opus-5-5[1m]"); the menu
-// checks it with a Default hint, and Ultrathink (a prompt keyword) is not a level.
+// Claude's effort on the agent's own level (cx-ervhd, Leo 2026-10-13: a new chat read "Low" with
+// nothing checked). The effort is named inside the one model button (Leo 2026-10-20: "Opus 5.5
+// Medium", no separate Reasoning chip). A chat whose effort is "default" names the level that
+// resolves to, the running model's default effort, even on a context variant id
+// ("claude-opus-5-5[1m]"); the menu's Effort row checks it, and Ultrathink (a prompt keyword) is not
+// a level.
 // Before its session reports, a new chat names the level acpmux starts it on, not nothing.
 // The composer gallery's plays drive the real pane in Chromium.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -61,7 +63,7 @@ await requireBrowserLane("claude-reasoning-default.test.ts", async () => {
     expect(playFailures(await play("reasoning-claude-default"))).toEqual([]);
   });
 
-  // Lawrence 2026-10-14, "we lost effort": a New Tab chat showed the model chip alone.
+  // Lawrence 2026-10-14, "we lost effort": a New Tab chat showed the model's name alone.
   test("a new chat names the level acpmux starts it on before its session reports", async () => {
     expect(playFailures(await play("new-chat-reasoning"))).toEqual([]);
   });

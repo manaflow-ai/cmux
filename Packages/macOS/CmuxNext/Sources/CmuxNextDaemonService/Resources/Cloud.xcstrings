@@ -1,6 +1,137 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "cloud.failed.noSuchTeam": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No team named “%@” in this account."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアカウントに「%@」というチームはありません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يوجد فريق باسم “%@” في هذا الحساب."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "U ovom računu nema tima “%@”."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der er intet team med navnet “%@” på denne konto."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In diesem Konto gibt es kein Team „%@“."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay ningún equipo llamado “%@” en esta cuenta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune équipe nommée « %@ » dans ce compte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun team chiamato “%@” in questo account."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មានក្រុមឈ្មោះ “%@” ក្នុងគណនីនេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 계정에 “%@” 팀이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det finnes ikke noe team med navnet “%@” på denne kontoen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Na tym koncie nie ma zespołu „%@”."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não há nenhuma equipe chamada “%@” nesta conta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В этой учётной записи нет команды «%@»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีทีมชื่อ “%@” ในบัญชีนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu hesapta “%@” adlı ekip yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У цьому обліковому записі немає команди «%@»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không có nhóm nào tên “%@” trong tài khoản này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此账户中没有名为“%@”的团队。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此帳號中沒有名為「%@」的團隊。"
+          }
+        }
+      }
+    },
     "cloud.button.cancel": {
       "extractionState": "manual",
       "localizations": {
@@ -2355,137 +2486,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "重新命名機器"
-          }
-        }
-      }
-    },
-    "cloud.prompt.teamPicker": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Choose a Team"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "チームを選択"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "اختيار فريق"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Odaberite tim"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vælg et team"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Team auswählen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Elige un equipo"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Choisir une équipe"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Scegli un team"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ជ្រើសក្រុម"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "팀 선택"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Velg et team"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Wybierz zespół"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Escolha uma Equipe"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Выберите команду"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เลือกทีม"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ekip Seçin"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Виберіть команду"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chọn nhóm"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "选择团队"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "選擇團隊"
           }
         }
       }
@@ -8250,6 +8250,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "此 Mac 上未執行 Cloud 連線輔助程式。按一下「連線」以啟動它。"
+          }
+        }
+      }
+    },
+    "cloud.workspace.closeNotConnected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is not connected. Resume or reconnect it to close its workspace."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ غير متصل. استأنفه أو أعد توصيله لإغلاق مساحة عمله."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ nije povezan. Nastavite ga ili ga ponovo povežite da zatvorite njegov radni prostor."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ er ikke forbundet. Genoptag eller forbind den igen for at lukke dens arbejdsområde."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ist nicht verbunden. Setze es fort oder verbinde es erneut, um seinen Workspace zu schließen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ no está conectado. Reanúdalo o vuelve a conectarlo para cerrar su espacio de trabajo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ n’est pas connecté. Reprenez-le ou reconnectez-le pour fermer son espace de travail."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ non è connesso. Riprendilo o ricollegalo per chiudere il suo spazio di lavoro."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ は接続されていません。ワークスペースを閉じるには、再開または再接続してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ មិនបានភ្ជាប់ទេ។ បន្ត ឬភ្ជាប់វាម្ដងទៀតដើម្បីបិទកន្លែងធ្វើការរបស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@이(가) 연결되어 있지 않습니다. 작업 공간을 닫으려면 다시 시작하거나 다시 연결하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ er ikke tilkoblet. Gjenoppta eller koble til igjen for å lukke arbeidsområdet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ nie jest połączony. Wznów go lub połącz ponownie, aby zamknąć jego obszar roboczy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ não está conectado. Retome-o ou reconecte-o para fechar o espaço de trabalho dele."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ не подключён. Возобновите или подключите его снова, чтобы закрыть его рабочее пространство."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ไม่ได้เชื่อมต่อ ดำเนินการต่อหรือเชื่อมต่อใหม่เพื่อปิดพื้นที่ทำงานของเครื่องนั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ bağlı değil. Çalışma alanını kapatmak için sürdürün veya yeniden bağlayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ не під’єднано. Відновіть або під’єднайте його знову, щоб закрити його робочий простір."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ chưa được kết nối. Hãy tiếp tục hoặc kết nối lại để đóng không gian làm việc của máy đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 未连接。请恢复或重新连接，以关闭其工作区。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 未連線。請恢復或重新連線，以關閉其工作區。"
           }
         }
       }

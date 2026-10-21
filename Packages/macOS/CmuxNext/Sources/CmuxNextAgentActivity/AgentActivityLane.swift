@@ -1,8 +1,8 @@
 public import Foundation
 
-/// One acpmux session in the lanes view (cx-v9k2f): every agent chat on this Mac and on the
-/// acpmux peers it mirrors, with the lane acpmux decided for it (the summary's `lane`). The app
-/// only reads it; acpmux owns the decision.
+/// One acpmux session's lane (cx-v9k2f): an agent chat on this Mac or on an acpmux peer it
+/// mirrors, with the state acpmux decided for it (the summary's `lane`). The Priority view, the
+/// Chief item and the session tree read it; acpmux owns the decision.
 public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     /// What the session is doing, as acpmux decided it.
     public enum State: String, Sendable {
@@ -78,8 +78,6 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
 
     /// The `mux.parent` tag acpmux sessions started by a coordinator carry.
     public static let parentTag = "mux.parent"
-    /// "Lanes", the view's name (the sidebar item's title too).
-    public static var lanesTitle: String { AgentActivityStrings.lanes }
 
     /// The lane of one `_acpmux/watch` / `session_changed` summary; nil when acpmux decided none
     /// (a closed session, or an acpmux from before `lane`). `id` names the session when the

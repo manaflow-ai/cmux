@@ -136,3 +136,49 @@
   border: 0;
   background: color-mix(in srgb, currentColor 12%, transparent);
 }
+
+/* Menu rows look the same in every host too (Leo 2026-10-20: Retry's model menu in the agent pane was
+   a raw column in the browser's font, the check run into each name, no insets or hover, because the
+   pane does not load ui.css and that menu named no class of the pane's; the composer model menu's
+   submenu chevrons drew nothing for the same reason). Zero-specificity copies of ui.css's menu rules,
+   so a ui.css host draws exactly what it drew, and a menu, row, check or chevron that names no look of
+   its own still gets this one; a feature's own rules still win. A host maps --ui-row to its row wash. */
+:where(.ui-popup.ui-menu) {
+  padding: var(--ui-popup-padding);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
+  outline: none;
+}
+:where(.ui-menu-item) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--ui-row-height);
+  padding: 2px var(--ui-row-padding-inline);
+  border-radius: var(--ui-row-radius);
+  outline: none;
+}
+:where(.ui-menu-item[data-highlighted]) {
+  background: var(--ui-row, color-mix(in srgb, currentColor 10%, transparent));
+}
+:where(.ui-menu-check) {
+  display: inline-flex;
+  width: 12px;
+  justify-content: center;
+}
+:where(.ui-submenu-chevron) {
+  margin-inline-start: auto;
+  width: 6px;
+  height: 6px;
+  border-block-start: 1.5px solid currentColor;
+  border-inline-end: 1.5px solid currentColor;
+  transform: rotate(45deg);
+  opacity: 0.6;
+}
+:where(.ui-submenu-chevron:dir(rtl)) {
+  transform: rotate(-45deg);
+}

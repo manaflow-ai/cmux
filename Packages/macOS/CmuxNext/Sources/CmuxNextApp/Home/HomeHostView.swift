@@ -31,9 +31,6 @@ final class HomeHostView: NSView {
     private var engineWatch: Task<Void, Never>?
     private var agentsWatch: Task<Void, Never>?
     private var shortcutsWatch: Task<Void, Never>?
-    private var toggleObserver: (any NSObjectProtocol)?
-    /// `home.toggleChiefSettings` (palette, `cmux action run`, preflight).
-    static let toggleSettings = Notification.Name("HomeHostView.toggleChiefSettings")
     /// The Chief's avatar when its profile sets none: the pet character `mascot` picks
     /// (`home.chiefPetMascot`; Leo 2026-10-20: one of the nine characters, never a plain circle),
     /// else 🫡 if its picture is missing from the bundle.
@@ -41,7 +38,6 @@ final class HomeHostView: NSView {
     private var firstPage: Task<Void, Never>?
     /// Which brain answers this conversation (this Mac's or a paired server's).
     private var control: HomeChiefControl
-    private var stopObserver: (any NSObjectProtocol)?
     /// The settings panel shows a cloud Chief's brain, and whether the Cloud service hosts it
     /// (else a paired server runs it).
     private var showsCloud = false
@@ -106,6 +102,12 @@ final class HomeHostView: NSView {
             }
             _ = services?.registry.perform(ChiefInspectorHandlers.actionID, invocation: invocation)
         }
+        settingsView.recents = services.chiefModelRecents
+        // All Chief Settings…: Settings > Chief, the page with every Chief setting.
+        settingsView.onAllSettings = { [weak self, weak services] in
+            self?.settings.close()
+            try? services?.settingsWindow.show(section: nil, focus: true, route: "#/settings/chief")
+        }
         settingsView.checkHarness = { [weak services] id in (try? await services?.agentHarnesses.doctor(id: id))?["ok"]?.boolValue == true }
         settingsView.onRename = { [weak service] name in
             // One op; the daemon refusing it (or no daemon, or one without the op) is false, and the card says so.
@@ -113,10 +115,6 @@ final class HomeHostView: NSView {
             let key = "home-chief-rename-\(UUID().uuidString.lowercased())"
             return (try? await CmuxNextDaemon.ConversationClient(connection).op(
                 CmuxNextDaemon.ConversationOpRequest(conversation: conversation, idempotencyKey: key, transaction: nil, op: .setTitle(name)))) != nil
-        }
-        toggleObserver = NotificationCenter.default.addObserver(forName: Self.toggleSettings, object: nil, queue: .main) { [weak self] note in
-            // task-owner: one hop to the main actor for the toggle; only the front window's Home answers (the posted window)
-            Task { @MainActor [target = (note.object as? NSWindow).map(ObjectIdentifier.init)] in if let self, HomeChiefSettingsPopover.answersToggle(for: target, in: self.window) { self.toggleChiefSettings() } }
         }
         // The shared stop action (palette, the stop button, Esc and Cmd-.): the key window's Home stops its Chief.
         let registry = services.registry
@@ -143,10 +141,6 @@ final class HomeHostView: NSView {
         transcript.onForward = { text in
             _ = registry.perform("home.sendSelectionTo", invocation: ActionInvocation(arguments: ["text": .string(text)], origin: .user))
         }
-        stopObserver = NotificationCenter.default.addObserver(forName: HomeChiefControl.stopNotification, object: nil, queue: .main) { [weak self] _ in
-            // task-owner: one hop to the main actor for the stop
-            Task { @MainActor in self?.stopIfFront() }
-        }
         let store = service.homeStore
         // task-owner: lives as long as this view; event-driven (Observation):
         // whether this is the Chief conversation, and a refresh of the
@@ -170,6 +164,7 @@ final class HomeHostView: NSView {
                     loadAvatar()
                 }
                 self.isChief = isChief
+                openPendingSettings()
                 // The Chief types while its turn runs: the compose bar offers Stop.
                 isWorking = isChief && typing
                 transcript.isWorking = isWorking
@@ -283,8 +278,6 @@ final class HomeHostView: NSView {
             agentsWatch?.cancel()
             shortcutsWatch?.cancel()
             settings.close()
-            if let toggleObserver { NotificationCenter.default.removeObserver(toggleObserver) }
-            if let stopObserver { NotificationCenter.default.removeObserver(stopObserver) }
             firstPage?.cancel()
             transcript.stop()
         }
@@ -327,20 +320,31 @@ final class HomeHostView: NSView {
         if newWindow !== window { settings.close() }
     }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        openPendingSettings()
+    }
+
     override func viewDidHide() {
         super.viewDidHide()
         settings.close()
     }
 
-    /// The shared stop action reached this view: only the Home in the key
-    /// window stops its Chief, and only while it works.
-    private func stopIfFront() {
-        guard isChief, isWorking, window?.isKeyWindow == true, !isHiddenOrHasHiddenAncestor else { return }
-        let control = control
-        // task-owner: one chief.stop; ends with its answer
-        Task {
-            if await control.stop() != nil { NSSound.beep() }
-        }
+    /// This view shows a Chief conversation on screen: the front window's Home that
+    /// `home.stopChief` and `home.toggleChiefSettings` act on (`HomeChiefActions`).
+    var showsChiefOnScreen: Bool { isChief && window != nil && !isHiddenOrHasHiddenAncestor }
+    /// The shown Chief's turn runs.
+    var chiefIsWorking: Bool { isWorking }
+    /// The shown Chief's control (`chief.stop`).
+    var chiefControl: HomeChiefControl { control }
+
+    /// Opens the settings `HomeChiefActions` asked for once this view shows its Chief (Toggle Chief
+    /// Settings with no Home in front brought Home forward at this conversation).
+    private func openPendingSettings() {
+        let home = control.services.home
+        guard showsChiefOnScreen, home.pendingChiefSettings == control.conversation else { return }
+        home.pendingChiefSettings = nil
+        toggleChiefSettings(openOnly: true)
     }
 
     /// Where this Chief's picture is kept: the daemon's Chief registry for a Chief of this Mac

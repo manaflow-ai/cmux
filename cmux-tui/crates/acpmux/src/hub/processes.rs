@@ -12,6 +12,9 @@
 //! (`hosts.rs`); a harness that exited or was replaced took its processes
 //! with it, so those still running then are `lost`.
 //!
+//! `_acpmux/process/background` is Ctrl-B: Claude Code moves the chat's
+//! foreground work to the background, which then arrives here as above.
+//!
 //! Claude Code writes each shell's output to a file it names
 //! (`output_file`), which `_acpmux/process/tail` reads. The agent host runs
 //! on this machine, so the daemon reads the file itself.
@@ -22,8 +25,9 @@ use serde::{Deserialize, Serialize};
 /// The reason of a process that ended with its harness.
 pub(super) const HARNESS_EXIT: &str = "harness_exit";
 
-/// How long a kill waits for Claude Code's `stop_task` or Codex's terminate.
-const STOP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+/// How long a kill waits for Claude Code's `stop_task` or Codex's terminate,
+/// and Ctrl-B for Claude Code's `background_tasks` (`Hub::set_background_timeout`).
+pub(super) const STOP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// What a tail without `maxBytes` reads: the last 64 KiB.
 const TAIL_DEFAULT: u64 = 64 << 10;
@@ -71,7 +75,8 @@ pub(super) struct Process {
     reason: Option<String>,
     /// The harness's own words on its end (Claude's reason or summary).
     detail: Option<String>,
-    /// `background` (started there) or `auto_backgrounded` (moved there).
+    /// `background` (started there), `auto_backgrounded` (Claude Code moved
+    /// it there) or `user_backgrounded` (the person did, Ctrl-B).
     origin: String,
     /// The length of its output file when it was listed; null while
     /// Claude Code has named no file.
@@ -524,6 +529,65 @@ impl Hub {
         }
         Err(refused)
     }
+
+    /// How long Ctrl-B waits for Claude Code's `background_tasks` answer
+    /// (`STOP_TIMEOUT` until set; tests shorten it).
+    pub fn set_background_timeout(&self, timeout: std::time::Duration) {
+        *self.background_timeout.lock().unwrap_or_else(|e| e.into_inner()) = timeout;
+    }
+
+    /// `_acpmux/process/background` (Ctrl-B): asks Claude Code to move the
+    /// chat's running work to the background (`background_tasks`): the task
+    /// tool call `tool` started, or every foreground task. What moved
+    /// arrives as `process_update`s with origin `user_backgrounded`. Codex
+    /// moves long commands there itself, and other agents have no such
+    /// request: refused. With no turn running, nothing runs in the
+    /// foreground: `backgrounded: false`, and Claude Code is not asked.
+    pub async fn background_work(&self, key: &str, tool: Option<&str>) -> Result<Value, RpcError> {
+        let session = self.resolve(key)?;
+        let harness = session.meta().harness;
+        if !backgrounds_work(&*self.config.read().await, &harness) {
+            return Err(RpcError::invalid_params(
+                "only Claude Code can move running work to the background",
+            ));
+        }
+        let nothing = json!({"backgrounded": false});
+        if session.turn().is_none() {
+            return Ok(nothing);
+        }
+        let child = session.child.lock().await.clone();
+        let alive = match &child {
+            Some(child) => child.is_alive().await,
+            None => false,
+        };
+        let Some(child) = child.filter(|_| alive) else { return Ok(nothing) };
+        let timeout = *self.background_timeout.lock().unwrap_or_else(|e| e.into_inner());
+        // The translator drops the request's marks when this wait ends (`timeoutMs`).
+        let params = json!({
+            "sessionId": session.meta().agent_session_id,
+            "toolCallId": tool,
+            "timeoutMs": u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX),
+        });
+        let ask = child.request(crate::claude_stdio::BACKGROUND_TASKS, params);
+        match tokio::time::timeout(timeout, ask).await {
+            Ok(Ok(answer)) => {
+                let moved = answer.get("backgrounded").and_then(Value::as_bool).unwrap_or(true);
+                Ok(json!({"backgrounded": moved}))
+            }
+            Ok(Err(e)) => Err(e),
+            Err(_) => {
+                Err(RpcError::internal("Claude Code did not answer background_tasks in time"))
+            }
+        }
+    }
+}
+
+/// Whether `_acpmux/process/background` moves the foreground work of a
+/// chat on `harness`: a Claude Code (claude-stdio) profile, whatever its
+/// name (the `cmux` model router's too). Every session summary says it
+/// (`backgroundsWork`), so a client offers Ctrl-B exactly where this takes it.
+pub(super) fn backgrounds_work(cfg: &crate::config::Config, harness: &str) -> bool {
+    cfg.profile(harness).is_some_and(|p| p.kind == crate::config::HarnessKind::ClaudeStdio)
 }
 
 /// No process has the id.

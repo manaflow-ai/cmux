@@ -139,6 +139,21 @@ const openGroupedShells = async (ctx: PlayContext) => {
   await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-shell__exit")));
 };
 
+/// Clicks the disclosure line `selector` finds and fails when the line moved once its fold settled:
+/// opening or closing never moves the reader's view (foldAnchor.ts, Leo 2026-10-20).
+const clickHoldsLine = async (ctx: PlayContext, selector: string, expanded: boolean) => {
+  const top = () => ctx.find({ selector }).getBoundingClientRect().top;
+  const before = top();
+  await ctx.click({ selector });
+  await ctx.waitFor(
+    () =>
+      ctx.find({ selector }).getAttribute("aria-expanded") === String(expanded) &&
+      [...ctx.document.querySelectorAll(".cv-fold")].every((fold) => fold.getAnimations().length === 0),
+  );
+  const moved = top() - before;
+  if (Math.abs(moved) > 1) throw new Error(`the clicked line moved ${moved.toFixed(1)}px`);
+};
+
 const shellDisclosureChecks = {
   layoutShiftMax: {
     value: 0.25,
@@ -368,6 +383,20 @@ const footerActionsPlacement = (placement: "left" | "right") => async (ctx: Play
     throw new Error(`turn footer actions are not ${placement}-aligned`);
 };
 
+/// The running line ("Thinking", "Working for") holds still: no mark blinks before its words and
+/// nothing on it loops (Leo, 2026-10-20, "the blinking ascii").
+const runningLineStill = (label: RegExp) => async (ctx: PlayContext) => {
+  await ctx.waitFor(() => label.test(ctx.document.querySelector(".cv-worked")?.textContent ?? ""));
+  const line = ctx.document.querySelector<HTMLElement>(".cv-worked")!;
+  if (line.querySelector(".cv-working-mark, .cv-activity__dots")) throw new Error("a working mark draws on the line");
+  const first = line.firstElementChild?.textContent?.trim() ?? "";
+  if (!label.test(first)) throw new Error(`the line starts with ${JSON.stringify(first)}, not its words`);
+  const loops = line
+    .getAnimations({ subtree: true })
+    .filter((animation) => animation.effect?.getTiming().iterations === Infinity);
+  if (loops.length > 0) throw new Error(`${loops.length} animations loop on the running line`);
+};
+
 /// A run of commands longer than a group shows at once (ToolGroupRow.tsx GROUP_TAIL).
 const DENSE_COMMANDS = [
   "cd ~/Projects/cmux && git log --oneline -5 -- Sources/Sidebar",
@@ -440,7 +469,6 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/ChatFindScope.tsx#ChatFindScope",
     "agent-session/acpmux/conversation/MessageCard.tsx",
     "agent-session/acpmux/conversation/ThoughtRow.tsx#ThoughtRow",
-    "agent-session/acpmux/conversation/WorkingMark.tsx#WorkingMark",
     "agent-session/acpmux/conversation/Markdown.tsx",
     "agent-session/acpmux/conversation/RevealedMarkdown.tsx",
     "agent-session/acpmux/conversation/CodeBlock.tsx",
@@ -470,6 +498,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/PromptDelivery.tsx#DeliveryFailure",
     "agent-session/acpmux/conversation/PromptDelivery.tsx#DeliveryMark",
     "agent-session/acpmux/conversation/icons.tsx#Clock",
+    "agent-session/acpmux/conversation/icons.tsx#DoubleCheck",
     "agent-session/acpmux/PermissionCard.tsx",
   ],
   variants: {
@@ -507,8 +536,9 @@ export default agentPaneEntry({
       snapshot: chat([user("Review the release checklist", 4), assistant(TASKS_REPLY, 3)]),
     },
     thinking: {
-      note: "A turn that started and has no output yet.",
+      note: "A turn that started and has no output yet: Thinking alone, with no blinking dots before it. Play: the line holds still.",
       snapshot: chat([user(prompt, 0.2)], { isWorking: true }),
+      play: runningLineStill(/^Thinking/),
     },
     streaming: {
       note: "A reply still streaming (its last block still open).",
@@ -818,7 +848,7 @@ export default agentPaneEntry({
       ),
     },
     "working-tokens": {
-      note: "A live Claude turn says its tokens so far after its time, as Claude desktop does: the working dots, then Working for 5m 54s · 2.1M tokens. A harness that does not report each call shows the time alone.",
+      note: "A live Claude turn says its tokens so far after its time, as Claude desktop does: Working for 5m 54s · 2.1M tokens, with no blinking dots before it. A harness that does not report each call shows the time alone. Play: the line holds still.",
       snapshot: chat(
         [
           user(prompt, 5.9),
@@ -836,6 +866,7 @@ export default agentPaneEntry({
         ],
         { isWorking: true, turnTokens: 2_140_000 },
       ),
+      play: runningLineStill(/^Working for/),
     },
     "working-counts": {
       note: "A live turn with background work: the line counts the two agents still running and the dev server still up, not the agent that finished. A count opens what it counts.",
@@ -892,6 +923,46 @@ export default agentPaneEntry({
         ],
         { isWorking: true },
       ),
+    },
+    "agent-messages": {
+      note: "Messages to other agents say how far they got (Sending…, Sent, Delivered to …) without the receipt's id; a shell call reads without its leading cd and, opened, names its folder beside Shell.",
+      snapshot: chat(
+        [
+          user("Tell the coordinator the fix is pushed, then check the branch.", 2),
+          activity(
+            [
+              tool("Run", "execute", "completed", {
+                command: 'tell-coordinator "sidebar-drag: fix pushed as #22990, review next"',
+                output: "delivered to leoli-24 (id 9defc4d0ed87)\n",
+              }),
+            ],
+            1.9,
+          ),
+          activity(
+            [
+              tool("Run", "execute", "completed", {
+                command: 'cmux send --surface reviewer "sidebar-drag: CI green, merging"',
+                output: "",
+              }),
+            ],
+            1.8,
+          ),
+          activity(
+            [
+              tool("Run", "execute", "in_progress", {
+                command: 'tell-coordinator "sidebar-drag: merged, cleaning up"',
+              }),
+            ],
+            1.7,
+          ),
+          activity([shellTool("cd ~/wt/lanes/sidebar-drag && git status --short && git log --oneline -3")], 1.6),
+        ],
+        { isWorking: true },
+      ),
+      play: async (ctx: PlayContext) => {
+        await ctx.click({ selector: ".cv-tool.is-toggle" });
+        await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-shell__folder")));
+      },
     },
     "dense-ended-run": {
       note: "An ended turn folds under Worked for; opened, its commentary, each group and each call keep their own lines, with no Used tools summary to click through.",
@@ -1558,6 +1629,18 @@ export default agentPaneEntry({
       checks: shellDisclosureChecks,
       snapshot: chat(groupedShellRows),
       play: openGroupedShells,
+    },
+    "fold-holds-clicked-line": {
+      note: "Play: at the latest row, open Worked for, then a command, then close it; each line stays where it was clicked while its fold plays (height and opacity, the chevron turning).",
+      checks: shellDisclosureChecks,
+      snapshot: chat([...longChatRows.slice(-12), ...groupedShellRows]),
+      play: async (ctx) => {
+        await clickHoldsLine(ctx, ".cv-worked", true);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-command").length === 2);
+        await clickHoldsLine(ctx, ".cv-command", true);
+        await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-shell__command")));
+        await clickHoldsLine(ctx, ".cv-command", false);
+      },
     },
   },
 });

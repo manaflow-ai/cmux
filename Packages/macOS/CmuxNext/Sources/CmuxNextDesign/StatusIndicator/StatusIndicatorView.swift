@@ -98,7 +98,8 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
         let visible = isWindowVisible || window?.occlusionState.contains(.visible) == true
         let animates = window != nil && visible && config.animatesLoops
         let plan = StatusIndicatorPlan.make(state, style: config.style(hint: styleHint), animates: animates, set: config.iconSet,
-                                            isStatic: config.isStatic, staticShapes: config.staticShapes)
+                                            isStatic: config.isStatic, staticShapes: config.staticShapes,
+                                            working: config.workingLook)
         let showed = showsGlyph
         nameState()
         indicator.apply(plan, config: config)

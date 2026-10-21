@@ -62,6 +62,14 @@ jobs:
         with:
           node-version: "24.11.1"
 
+      # This job checks out the pull request head, which has no copy of the action until it
+      # merges a base that does; a missing cache must not cost the receipt.
+      - name: Cache Playwright's apt packages
+        continue-on-error: true
+        uses: ./.github/actions/playwright-apt-cache
+        with:
+          engines: chromium
+
       - name: Capture a bounded before/after receipt
         continue-on-error: true
         env:

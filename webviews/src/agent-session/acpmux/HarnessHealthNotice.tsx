@@ -271,7 +271,7 @@ export function HarnessHealthNotice({
     >
       <div className="acpmux-host-error-card">
         <p className="acpmux-host-error-message">
-          {busy && <Spinner size={12} className="acpmux-harness-spinner" />}
+          {busy && <Spinner size={12} className="acpmux-harness-spinner" loading />}
           {text}
         </p>
         <div className="acpmux-host-error-actions">

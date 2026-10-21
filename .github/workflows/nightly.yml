@@ -6467,74 +6467,18 @@ jobs:
           name: cmux-nightly-variant-${{ matrix.variant }}
           path: nightly-delta/input
 
-      - name: Fetch one previous track archive
+      - name: Generate deltas and revised appcast
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          python3 scripts/ci/fetch-previous-nightly-dmgs.py \
-            --repo manaflow-ai/cmux \
-            --release-tag "$CHANNEL_RELEASE_TAG" \
-            --name-prefix "${CHANNEL_DMG_PREFIX}-" \
-            --variant "$NIGHTLY_VARIANT" \
-            --exclude-build "$NIGHTLY_BUILD" \
-            --count 1 \
-            --out nightly-delta/previous
-
-      - name: Generate one from-version delta and revised appcast
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          mkdir -p nightly-delta/output
-          dmg="nightly-delta/input/${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-${NIGHTLY_BUILD}.dmg"
           feed="appcast.xml"
           if [ "$NIGHTLY_VARIANT" != "universal" ]; then
             feed="appcast-${NIGHTLY_VARIANT}.xml"
           fi
-          test -s "$dmg"
-          if ! compgen -G 'nightly-delta/previous/*.dmg' >/dev/null; then
-            echo "No previous $NIGHTLY_VARIANT archive; retaining the full-only appcast"
-            cp "nightly-delta/input/$feed" "nightly-delta/output/$feed"
-            exit 0
-          fi
-          SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"
-          export SPARKLE_PRIVATE_KEY
-          SPARKLE_PUBLIC_KEY="$(
-            printf '%s' "$SPARKLE_PRIVATE_KEY" |
-              env -u SPARKLE_PRIVATE_KEY \
-                -u SHARED_SPARKLE_PRIVATE_KEY \
-                -u NIGHTLY_SPARKLE_PRIVATE_KEY \
-                -u NEXT_SPARKLE_PRIVATE_KEY \
-                swift scripts/derive_sparkle_public_key.swift --stdin
-          )"
-          export SPARKLE_PUBLIC_KEY
-          ./scripts/ci/drop-previous-nightlies-with-other-sparkle-key.sh \
-            nightly-delta/previous "$SPARKLE_PUBLIC_KEY"
-          # The full feed's item for this DMG already carries the bundle's
-          # macOS floor (appcast_minimum_system_version.py floor); keep it.
-          SPARKLE_MINIMUM_SYSTEM_VERSION="$(python3 - "nightly-delta/input/$feed" "$(basename "$dmg")" <<'PY'
-          import re, sys
-          feed, archive = sys.argv[1], sys.argv[2]
-          for item in re.findall(r"<item>.*?</item>", open(feed, encoding="utf-8").read(), re.S):
-              if archive in item:
-                  m = re.search(r"<sparkle:minimumSystemVersion>\s*([^<]*?)\s*</sparkle:minimumSystemVersion>", item)
-                  if m:
-                      print(m.group(1))
-                      sys.exit(0)
-          sys.exit(f"no sparkle:minimumSystemVersion for {archive} in {feed}")
-          PY
-          )"
-          export SPARKLE_MINIMUM_SYSTEM_VERSION
-          SPARKLE_PREVIOUS_ARCHIVES_DIR=nightly-delta/previous \
-          SPARKLE_MAXIMUM_DELTAS=1 \
-          SPARKLE_DELTA_NAME_PREFIX="${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-" \
-            ./scripts/sparkle_generate_appcast.sh \
-              "$dmg" "$CHANNEL_RELEASE_TAG" "nightly-delta/output/$feed"
-          # generate_appcast rewrites the items; keep the full feed's changelog
-          # <description> for this build (cx-lntk).
-          python3 scripts/ci/appcast_carry_description.py \
-            "nightly-delta/input/$feed" "nightly-delta/output/$feed" "$NIGHTLY_BUILD"
+          ./scripts/ci/generate-nightly-deltas.sh \
+            "nightly-delta/input/${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-${NIGHTLY_BUILD}.dmg" \
+            "nightly-delta/input/$feed" nightly-delta/output
           ls -l nightly-delta/output
 
       - name: Upload delta result

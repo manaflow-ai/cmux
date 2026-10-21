@@ -238,6 +238,11 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-chromium-${{ runner.os }}-${{ hashFiles('web/bun.lock') }}
 
+      - name: Cache Playwright's apt packages
+        uses: ./.github/actions/playwright-apt-cache
+        with:
+          engines: chromium
+
       - name: Install browser for instant navigation tests
         run: bunx playwright install --with-deps chromium
 
@@ -343,6 +348,13 @@ jobs:
         continue-on-error: true
         run: python3 tests/test_install_git_hooks.py
 
+      # Runs after the webviews install, so the real-vp case runs too.
+      - name: Post-edit formatting hook
+        id: post-edit-format
+        if: matrix.shard == 1
+        continue-on-error: true
+        run: python3 tests/test_format_post_edit.py
+
       - name: Check diff viewer eager JS budget
         id: eager-js-budget
         if: matrix.shard == 1
@@ -357,8 +369,8 @@ jobs:
 
       # For feat-cmux-next (CMUX_NEXT_STYLE_GUARDS=warn, Leo 2026-10-19) the lint, format,
       # layer, type-scale, glyph, system-blue, text-focus, dialog-key and switch-fetch checks each
-      # run and only warn; the type check, the browser test-lane check and the
-      # protocol codegen check still fail.
+      # run and only warn; the type check, the browser test-lane check, the
+      # protocol codegen check and the string catalog key check still fail.
       # Elsewhere `bun run check` gates as before.
       - name: Check webviews (Oxlint, Oxfmt, type check)
         id: webviews-check
@@ -376,6 +388,8 @@ jobs:
           bun run typecheck || status=1
           # The generated protocol must match the daemon's IR: a wire-format check, not style.
           bun run acpmux-protocol:check || status=1
+          # A key named twice in a string catalog silently drops one of its texts: data, not style.
+          bun run check:catalog-keys || status=1
           for check in check:layers check:type-scale check:status-glyphs check:system-blue check:text-focus check:dialog-keys check:switch-fetches; do
             bun run "$check" || echo "::warning title=webviews $check (warn-only)::see the step log"
           done
@@ -385,6 +399,11 @@ jobs:
 
       # The browser-lane suites (test/support/requireBrowserLane.ts) fail in CI
       # without these engines; before, they skipped themselves and passed.
+      - name: Cache Playwright's apt packages
+        uses: ./.github/actions/playwright-apt-cache
+        with:
+          engines: chromium-webkit
+
       - name: Install headless engines
         working-directory: webviews
         run: ./node_modules/.bin/playwright install --with-deps --only-shell chromium webkit
@@ -412,6 +431,7 @@ jobs:
         if: ${{ !cancelled() }}
         env:
           MERGE_DRIVER: ${{ steps.merge-driver.outcome }}
+          POST_EDIT_FORMAT: ${{ steps.post-edit-format.outcome }}
           EAGER_JS_BUDGET: ${{ steps.eager-js-budget.outcome }}
           REACT_COMPILER: ${{ steps.react-compiler.outcome }}
           WEBVIEWS_CHECK: ${{ steps.webviews-check.outcome }}
@@ -424,6 +444,7 @@ jobs:
           failed=0
           for gate in \
             "MERGE_DRIVER|Generated bundle merge driver" \
+            "POST_EDIT_FORMAT|Post-edit formatting hook" \
             "EAGER_JS_BUDGET|Check diff viewer eager JS budget" \
             "REACT_COMPILER|Verify React Compiler for webviews" \
             "WEBVIEWS_CHECK|Check webviews (Oxlint, Oxfmt, type check)" \

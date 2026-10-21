@@ -51,14 +51,28 @@ enum WorkspaceBulkClose {
             let target = try context.workspace(invocation).model
             let owner = windows.registry.value.owner(of: target.id).flatMap(windows.controller(for:)) ?? context.activeWindow
             let order = owner?.sidebar.model.selectableWorkspaces.map(\.id.rawValue) ?? context.sidebarOrder.map(\.id)
-            guard let index = order.firstIndex(of: target.id) else { throw ActionFailure.invalidTarget(RefusalStrings.workspaceNotInSidebar) }
-            closing = id == "palette.closeOtherWorkspaces" ? order.filter { $0 != target.id }
-                : id == "palette.closeWorkspacesBelow" ? Array(order[(index + 1)...]) : Array(order[..<index])
+            guard order.contains(target.id) else { throw ActionFailure.invalidTarget(RefusalStrings.workspaceNotInSidebar) }
+            // A person's run on one of several selected rows keeps the whole selection, as Chrome's
+            // Close Other Tabs and Close Tabs Below do: the rows outside it, below its last, above its first.
+            let kept = try WindowMembershipHandlers.rowTargets(invocation, context).map(\.id)
+            closing = keeping(Set(kept), id: id, order: order)
         }
         // The store's home workspace never closes (`home_not_closable`, HomeRules), and a
         // workspace with no key cannot (WorkspaceClose): they neither count nor leave.
         let members = closing.compactMap { context.services.machines.workspace(id: $0) }.filter { $0.0.key != nil && !HomeRules.isHome($0.0) }
         return (members, survivor(closing: members.map(\.0.id), context))
+    }
+
+    /// What Close Other Workspaces, Close Workspaces Below and Close Workspaces Above (`id`)
+    /// close of `order` (a sidebar's rows) around the rows `kept`: every other row, the rows
+    /// below the last kept one, or the rows above the first.
+    nonisolated static func keeping(_ kept: Set<String>, id: ActionID, order: [String]) -> [String] {
+        guard let first = order.firstIndex(where: kept.contains), let last = order.lastIndex(where: kept.contains) else { return [] }
+        switch id {
+        case "palette.closeOtherWorkspaces": return order.filter { !kept.contains($0) }
+        case "palette.closeWorkspacesBelow": return Array(order[(last + 1)...])
+        default: return Array(order[..<first])
+        }
     }
 
     /// An open window that keeps a workspace after `closing` closes (the

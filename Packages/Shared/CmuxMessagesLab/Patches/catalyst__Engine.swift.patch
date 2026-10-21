@@ -44,16 +44,24 @@
      }
      /// Pure state transition. `now` stamps new records; `newID` names them.
      static func reduce(_ s: inout AppState, _ action: Action, now: Date, newID: () -> ID) -> Message? {
-@@ -176,7 +190,7 @@
+@@ -176,9 +190,13 @@
          case .send:
              let d = s.ui.draft
              guard canSend(d) else { return nil }
 -            let text = d.text.trimmingCharacters(in: .whitespacesAndNewlines)
-+            let text = d.plainText.trimmingCharacters(in: .whitespacesAndNewlines)  // cmux: without the attachment marks
-             var parts = d.attachments.map { Part.attachment($0) }
-             if !text.isEmpty { parts += TextParts.parts(for: text) }
+-            var parts = d.attachments.map { Part.attachment($0) }
+-            if !text.isEmpty { parts += TextParts.parts(for: text) }
++            // cmux: the text and the attachments in the field's order (Draft+InlineMarks.swift)
++            let parts = d.pieces.flatMap { piece -> [Part] in
++                switch piece {
++                case let .text(t): TextParts.parts(for: t)
++                case let .attachment(a): [.attachment(a)]
++                }
++            }
              var m = Message(id: newID(), senderId: s.me, sentAt: stamp, parts: parts,
-@@ -254,9 +268,11 @@
+                             replyTo: d.replyTo ?? s.ui.openThread, status: .sending, edits: nil, retractedAt: nil, reactions: [])
+             // Tree mode: a reply in a drilled branch answers the branch's message (nil: the root).
+@@ -254,9 +272,11 @@
              // Tree mode: a deleted branch closes back to its parent's branch.
              if let k = s.ui.threadPath.firstIndex(where: { $0.messageId == id }) { s.ui.threadPath = Array(s.ui.threadPath.prefix(k)) }
          case let .attach(a):
@@ -67,7 +75,7 @@
          case let .typing(who, on):
              s.ui.typing.removeAll { $0 == who }
              if on { s.ui.typing.append(who) }
-@@ -308,6 +324,17 @@
+@@ -308,6 +328,17 @@
              break
          case let .setNotice(text):
              s.ui.notice = text
@@ -85,7 +93,7 @@
          case let .streamBegin(id, sender, format):
              guard !s.ui.streams.contains(where: { $0.id == id }) else { break }
              s.ui.streams.append(StreamBubble(id: id, sender: sender, format: format, updatedAt: stamp))
-@@ -432,8 +459,8 @@
+@@ -432,8 +463,8 @@
      }
  }
  

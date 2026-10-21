@@ -40,6 +40,12 @@ final class SidebarRegionView: NSView {
     /// A press the list's drag ended early (a cancel): it drags nothing more until its release.
     var docSpentPress: LayoutItemID?
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?
+    /// The sidebar's edit mode (`SidebarView.isEditingItems`): every item but a client-only one
+    /// wiggles and shows its ✕, which asks `onRemoveItem` to take it out.
+    var isEditing = false {
+        didSet { if isEditing != oldValue { for (id, view) in itemViews { edit(view, id) } } }
+    }
+    var onRemoveItem: ((LayoutItemID) -> Void)?
     /// The region's height changed outside its host's layout (a drag's
     /// preview, a landed drop): the host lays its bands out again.
     var onHeightChange: (() -> Void)?
@@ -207,24 +213,6 @@ final class SidebarRegionView: NSView {
         if animatesFrames, !new { view.animator().frame = frame } else if springsFrames { Motion.withoutAnimation { view.frame = frame } } else { view.frame = frame }
     }
 
-    /// Icon + label width of every item of an inline section. The profile
-    /// control is the avatar alone, never a labeled chip (Leo and Lawrence 2026-10-20).
-    private static func labelWidths(_ content: Content, width: CGFloat) -> [LayoutItemID: CGFloat] {
-        var widths: [LayoutItemID: CGFloat] = [:]
-        let font = SidebarStyle.titleFont
-        // Inline lines and span grids (R53) draw labeled items with icon and label.
-        for section in content.sections where section.arrangement.layout == .inline
-            || (section.arrangement.layout == .grid && section.items.contains { $0.span != nil }) {
-            for item in section.items {
-                let info = content.infos[item.id] ?? .fallback(for: item)
-                if info.avatar == nil, item.showsLabel {
-                    widths[item.id] = SidebarItemRowView.chipWidth(title: info.title, font: font, badge: info.badge, activity: info.activity != .idle)
-                }
-            }
-        }
-        return widths
-    }
-
     private func apply(_ content: Content) {
         let sections = Dictionary(content.sections.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         var liveItems = Set<LayoutItemID>(), liveHeaders = Set<LayoutSectionID>(), liveApps = Set<LayoutSectionID>()
@@ -274,6 +262,7 @@ final class SidebarRegionView: NSView {
                 view.activatesOnPress = item.ref.activatesOnPress
                 place(view, row.frame, new: new)
                 if id == SidebarListBlocks.gapID { view.alphaValue = 0 } // a drag's gap: the slot the others make way for
+                edit(view, id)
             }
         }
         // A dragged item's view owns the press (AppKit sends it the drags
@@ -359,6 +348,7 @@ final class SidebarRegionView: NSView {
         guard !id.isTransient else { return view }
         view.onDragged = { [weak self] start, event in self?.dragMoved(.item(id), from: start, event) ?? false }
         view.onDragEnded = { [weak self] in self?.finishDrag() }
+        view.onRemove = { [weak self] in self?.onRemoveItem?(id) }
         view.onContextMenu = { [weak self] event, view in
             guard let menu = self?.contextMenuProvider?(.layoutItem(id)) else { return }
             NSMenu.popUpContextMenu(menu, with: event, for: view)

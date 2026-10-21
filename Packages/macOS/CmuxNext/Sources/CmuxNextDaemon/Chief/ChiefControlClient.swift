@@ -11,11 +11,14 @@ public struct ChiefEngineReport: Decodable, Sendable, Equatable {
         public var harness: String?
         public var model: String?
         public var effort: String?
+        /// `fast` (the harness's priority tier), else nil or `default`: the harness's own.
+        public var speed: String?
 
-        public init(harness: String? = nil, model: String? = nil, effort: String? = nil) {
+        public init(harness: String? = nil, model: String? = nil, effort: String? = nil, speed: String? = nil) {
             self.harness = harness
             self.model = model
             self.effort = effort
+            self.speed = speed
         }
     }
 
@@ -50,22 +53,72 @@ public struct ChiefEngineReport: Decodable, Sendable, Equatable {
         }
     }
 
-    /// A model acpmux offers for the engine's harness.
+    /// A model acpmux offers for the engine's harness, with the catalog metadata acpmux attached
+    /// (nil from an older brain, or for a model the catalog does not describe).
     public struct Model: Decodable, Sendable, Equatable {
         public var id: String
         public var name: String
+        /// The catalog family ("Opus", "Sol"), or the provider for a gateway's models.
+        public var family: String?
+        public var provider: String?
+        /// The name without the vendor word ("Opus 5.5").
+        public var shortName: String?
+        /// The efforts the model takes, in order; nil when the catalog does not say.
+        public var efforts: [String]?
+        public var defaultEffort: String?
+        /// Whether the model runs the fast tier; nil when the catalog does not say.
+        public var fast: Bool?
+        /// The harness aliases that run this release (`opus` for Claude Opus 5.5).
+        public var aliases: [String]?
+        /// The release an alias runs, as the harness reported it (Claude Code's `resolvedModel`).
+        public var resolvedModel: String?
+        public var contextWindow: Int?
+        /// The release date (`YYYY-MM-DD`), which orders a family's versions.
+        public var releaseDate: String?
+        public var description: String?
 
-        public init(id: String, name: String) {
+        public init(id: String, name: String, family: String? = nil, provider: String? = nil, shortName: String? = nil,
+                    efforts: [String]? = nil, defaultEffort: String? = nil, fast: Bool? = nil, aliases: [String]? = nil,
+                    resolvedModel: String? = nil, contextWindow: Int? = nil, releaseDate: String? = nil,
+                    description: String? = nil) {
             self.id = id
             self.name = name
+            self.family = family
+            self.provider = provider
+            self.shortName = shortName
+            self.efforts = efforts
+            self.defaultEffort = defaultEffort
+            self.fast = fast
+            self.aliases = aliases
+            self.resolvedModel = resolvedModel
+            self.contextWindow = contextWindow
+            self.releaseDate = releaseDate
+            self.description = description
         }
     }
 
-    /// What a set may pick: acpmux's models for the engine's harness and the
-    /// efforts the brain takes (empty from an older brain).
+    /// What a set may pick: acpmux's models for the engine's harness, the
+    /// efforts the brain takes and the speeds the turns' harness runs (each
+    /// empty from an older brain).
     public struct Offered: Decodable, Sendable, Equatable {
         public var models: [Model] = []
         public var efforts: [String] = []
+        public var speeds: [String] = []
+
+        public init(models: [Model] = [], efforts: [String] = [], speeds: [String] = []) {
+            self.models = models
+            self.efforts = efforts
+            self.speeds = speeds
+        }
+
+        enum CodingKeys: String, CodingKey { case models, efforts, speeds }
+
+        public init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            models = try c.decodeIfPresent([Model].self, forKey: .models) ?? []
+            efforts = try c.decodeIfPresent([String].self, forKey: .efforts) ?? []
+            speeds = try c.decodeIfPresent([String].self, forKey: .speeds) ?? []
+        }
     }
 
     /// What the turns run on (engine.json over the brain's defaults).
@@ -150,9 +203,9 @@ public struct ChiefControlClient: Sendable {
 
     /// `chief.engine.set`: absent fields stay, "default" clears one; the
     /// report after the write. `chief` as in `chiefEngine(chief:)`.
-    public func setChiefEngine(harness: String? = nil, model: String? = nil,
-                               effort: String? = nil, chief: String? = nil) async throws(ChiefControlError) -> ChiefEngineReport {
-        let fields = [("harness", harness), ("model", model), ("effort", effort)]
+    public func setChiefEngine(harness: String? = nil, model: String? = nil, effort: String? = nil,
+                               speed: String? = nil, chief: String? = nil) async throws(ChiefControlError) -> ChiefEngineReport {
+        let fields = [("harness", harness), ("model", model), ("effort", effort), ("speed", speed)]
         let params = Self.naming(chief, Dictionary(uniqueKeysWithValues: fields.compactMap { key, value in value.map { (key, JSONValue.string($0)) } }))
         let key = "cmux-next-chief-engine-" + UUID().uuidString.lowercased()
         do {

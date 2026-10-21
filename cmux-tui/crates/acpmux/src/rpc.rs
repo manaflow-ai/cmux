@@ -287,6 +287,8 @@ pub mod method {
     /// cheap model, sent the question; answers with its session id at once.
     pub const MUX_BTW: &str = "_acpmux/btw";
     pub const MUX_SCHEMA: &str = "_acpmux/schema";
+    /// The protocol IR this daemon was built with (`protocol::ir()`).
+    pub const MUX_PROTOCOL: &str = "_acpmux/protocol";
     pub const MUX_EXPORT: &str = "_acpmux/export";
     pub const MUX_IMPORT: &str = "_acpmux/import";
     pub const MUX_SHUTDOWN: &str = "_acpmux/shutdown";
@@ -379,6 +381,9 @@ pub mod method {
     pub const MUX_PROCESS_LIST: &str = "_acpmux/process/list";
     pub const MUX_PROCESS_TAIL: &str = "_acpmux/process/tail";
     pub const MUX_PROCESS_KILL: &str = "_acpmux/process/kill";
+    /// Ctrl-B: move a chat's running work to the background, `{sessionId,
+    /// toolCallId?}` -> `{backgrounded}`. Claude Code only.
+    pub const MUX_PROCESS_BACKGROUND: &str = "_acpmux/process/background";
     /// Worktree cleanup (`server/worktrees.rs`).
     pub const MUX_WORKTREE_REPORT: &str = "_acpmux/worktree/report";
     pub const MUX_WORKTREE_CLEAN: &str = "_acpmux/worktree/clean";

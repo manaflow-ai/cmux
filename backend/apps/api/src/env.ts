@@ -323,6 +323,12 @@ export interface Env {
   readonly CHIEF_CC_FREESTYLE_API_URL?: string
   /** Secret: {"client_id","client_secret"} of the Tailscale OAuth client that mints one-use tag:agent-cloud keys (scope auth_keys). */
   readonly CHIEF_CC_TS_OAUTH?: string
+  /** The tag of each turn machine's tailnet node (default tag:agent-cloud); the OAuth client above must own it. Production: tag:lawrence-chief. */
+  readonly CHIEF_CC_TS_TAG?: string
+  /** Secret: JSON {"path under /home/chief": "content"}, the Chief's tool files (Mac gate and hub tokens) written for the agent user each turn (mode 600). */
+  readonly CHIEF_CC_TURN_FILES?: string
+  /** Secret: the GitHub token the agent user's gh and git use on each turn machine (fine-grained, the Chief's repos only). */
+  readonly CHIEF_CC_GITHUB_TOKEN?: string
   /** The host model gateway's Anthropic Messages base URL for O brains (default: O's own stub route). */
   readonly CHIEF_OPENCODE_GATEWAY_URL?: string
   /** One AddressDO per invited address (HMAC id): suppression, limits, provider sends. */

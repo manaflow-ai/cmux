@@ -130,9 +130,11 @@ export function toolGroupLabel(
 }
 
 /// A finished call's run time, from its first event to the one that ended it: "840ms", "4.2s", "2m 5s".
+/// A shell that went on in the background ran until it ended there, and has no time while it runs.
 export function toolDuration(t: Translate, tool: Tool): string | undefined {
-  if (tool.startedAt === undefined || tool.endedAt === undefined) return undefined;
-  const ms = Math.max(0, tool.endedAt - tool.startedAt);
+  const end = tool.background ? tool.background.endedAt : tool.endedAt;
+  if (tool.startedAt === undefined || end === undefined) return undefined;
+  const ms = Math.max(0, end - tool.startedAt);
   if (ms < 1000) return t("duration.ms", { n: ms });
   if (ms < 60_000) return t("duration.s", { n: (ms / 1000).toFixed(1) });
   const seconds = Math.round(ms / 1000);

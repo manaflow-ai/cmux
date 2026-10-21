@@ -127,6 +127,10 @@ public final class LayoutModel {
     /// Panes that need attention (an unread notification), with the mark
     /// the overlay draws. Set by the App from daemon unread state.
     public var attention: [PaneID: AttentionMark] = [:]
+    /// Panes whose mark the last `attention` change removed because the person
+    /// went into the pane (a click, a key, an open): their ring blinks out, as
+    /// cmux classic's dismiss flash did. Set by the App just before `attention`.
+    public var attentionReadByEntry: Set<PaneID> = []
 
     /// Panes whose frame currently intersects the visible viewport of the
     /// active screen. Hosted views stay alive while not visible; use this to

@@ -27,12 +27,16 @@ enum SidebarContextMenus {
             guard let first = ids.first, !ids.contains(where: { model.isPlaceholder($0) || CloudCreationRows.isRow($0, services) }) else { return nil }
             // Dismiss Highlight shows only while the row's workspace draws an attention ring (cx-epgo).
             let highlighted = services.daemon.store.workspaces.first { $0.id == first.rawValue }.map(services.notifications.hasHighlight) ?? false
-            let entries = highlighted ? nil : ContextMenuCatalog.shared.entries(for: .workspaceRow, removing: ["notifications.dismissHighlight"])
+            // Several selected rows get Chrome's menu for several tabs (ContextMenuEssentials.selectionMenus).
+            let catalog = ContextMenuCatalog.shared, selection = ids.count > 1
+            let all = selection ? catalog.selectionEntries(for: .workspaceRow) : catalog.entries(for: .workspaceRow)
+            let entries = highlighted ? all : ContextMenuCatalog.removing(["notifications.dismissHighlight"], from: all)
             let target = ActionTargetRef(kind: .workspace, id: first.rawValue)
             let menu = registry.makeContextMenu(for: .workspaceRow, target: target, entries: entries)
             // The name field renames the clicked row only, so a multi-row selection gets just the swatches.
-            MenuIdentityHeader.install(in: menu, registry: registry, target: target, name: ids.count == 1 ? model.workspace(first)?.title ?? "" : nil,
+            MenuIdentityHeader.install(in: menu, registry: registry, target: target, name: selection ? nil : model.workspace(first)?.title ?? "",
                                        rename: "renameWorkspace")
+            if selection { nameSelection(menu, ids, services) }
             menu.themeRows(in: scope)
             return menu
         case .group(let id):
@@ -65,6 +69,15 @@ enum SidebarContextMenus {
         case .layoutItem, .layoutSection:
             return nil
         }
+    }
+
+    /// A multi-selection's menu says what its rows do to every selected row: Pin pins them when
+    /// the menu's target (the first selected row) is unpinned, as the pin action decides, and Mute
+    /// mutes them while one plays.
+    private static func nameSelection(_ menu: NSMenu, _ ids: [CmuxNextSidebar.WorkspaceID], _ services: AppServices) {
+        let workspaces = ids.compactMap { services.workspace(id: $0.rawValue) }
+        let pins = workspaces.first.map { !PinCommands(context: AppActionContext(services: services)).isWorkspacePinned($0) } ?? true
+        menu.namingWorkspaceSelection(pins: pins, mutes: BrowserTabAudio.audio(of: workspaces, cache: services.cache) != .muted)
     }
 
     /// The most top-level rows a right-click menu shows (ActionSurfaceParityTests).

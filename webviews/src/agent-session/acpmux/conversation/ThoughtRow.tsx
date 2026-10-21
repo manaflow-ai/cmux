@@ -3,7 +3,7 @@ import type { AcpmuxActivity } from "../model";
 import { useT } from "../i18n";
 import { useFindReveal } from "./chatFind";
 import { ChevronRight } from "./icons";
-import { isAgentMotionOff } from "../../shared/motion";
+import { useFold } from "./fold";
 import { formatDuration } from "./turns";
 
 /// With the live viewport off, a done thought folds once it is taller than the transcript's
@@ -14,8 +14,6 @@ export const THOUGHT_FOLD_MIN_PX = 400;
 /// A long thought still streaming holds a viewport this tall: seven of its 20px lines, the 8.75rem
 /// Codex gives a live reasoning trace. conversation.css caps `.is-live` at the same.
 export const THOUGHT_LIVE_PX = 140;
-/// How long the reader's open or close takes (AI Elements' Trace: `transition-[height] duration-200`).
-export const THOUGHT_FOLD_MS = 200;
 
 /// What the row reads from the page; tests swap these.
 export const thoughtLayout = {
@@ -44,8 +42,6 @@ export const thoughtLayout = {
   contentHeight: (node: HTMLElement) => node.scrollHeight,
   /// The transcript scroller's height (VirtualTranscript's `.acpmux-scroll`).
   viewport: (node: HTMLElement) => node.closest<HTMLElement>(".acpmux-scroll")?.clientHeight ?? 0,
-  reducedMotion: () =>
-    typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true,
 };
 
 export type ThoughtHeader = "duration" | "preview";
@@ -77,7 +73,7 @@ export function thoughtPreview(text: string): string {
 /// folded line reads "Thought for 12s" (an undated thought, or one under a second, reads
 /// "Thought"), or with the Debug choice "preview", "Thought" and its first line. The reader's
 /// toggle always wins over the fold (`choice ?? !folds`). The fold snaps; the reader's toggle
-/// animates the height, except under Reduce Motion.
+/// plays the transcript's fold (fold.ts), except under Reduce Motion.
 export function ThoughtRow({
   item,
   id,
@@ -92,9 +88,7 @@ export function ThoughtRow({
   const enabled = thoughtLayout.enabled();
   const [long, setLong] = useState(false);
   const [choice, setChoice] = useState<boolean | undefined>(() => (id ? choices.get(id) : undefined));
-  const [closing, setClosing] = useState(false);
   const full = useRef<HTMLSpanElement>(null);
-  const body = useRef<HTMLDivElement>(null);
   const toggled = useRef(false);
   const bodyId = useId();
   const folds = enabled && long && !streaming;
@@ -102,6 +96,8 @@ export function ThoughtRow({
   const [tall, setTall] = useState(false);
   const clipped = liveViewport && tall;
   const open = choice ?? !folds;
+  // Only the reader's toggle plays the fold; the automatic fold, and Find opening it, snap.
+  const fold = useFold(open, () => toggled.current);
   const choose = (next: boolean) => {
     setChoice(next);
     if (id) choices.set(id, next);
@@ -128,21 +124,9 @@ export function ThoughtRow({
     setLong(drawn > limit);
     if (liveViewport) setTall(drawn > THOUGHT_LIVE_PX);
   }, [enabled, text, liveViewport]);
+  // After the fold's own layout effect has read it.
   useLayoutEffect(() => {
-    if (!toggled.current) return;
     toggled.current = false;
-    const node = body.current;
-    if (isAgentMotionOff() || !node || typeof node.animate !== "function" || thoughtLayout.reducedMotion()) {
-      setClosing(false);
-      return;
-    }
-    for (const running of node.getAnimations?.() ?? []) running.cancel();
-    const height = `${node.scrollHeight}px`;
-    const animation = node.animate(open ? [{ height: "0px" }, { height }] : [{ height }, { height: "0px" }], {
-      duration: THOUGHT_FOLD_MS,
-      easing: "ease-out",
-    });
-    if (!open) animation.onfinish = () => setClosing(false);
   }, [open]);
   if (!text) return null;
   if (!folds)
@@ -162,7 +146,6 @@ export function ThoughtRow({
     ms !== undefined && ms >= 1000 ? t("tools.thoughtFor", { time: formatDuration(ms) }) : t("tools.thought");
   const toggle = () => {
     toggled.current = true;
-    if (open && !thoughtLayout.reducedMotion() && !isAgentMotionOff()) setClosing(true);
     choose(!open);
   };
   return (
@@ -188,9 +171,11 @@ export function ThoughtRow({
           className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
         />
       </button>
-      {(open || closing) && (
-        <div ref={body} id={bodyId} className="cv-thought__text cv-thought__body selectable" dir="auto">
-          {text}
+      {fold.present && (
+        <div ref={fold.ref} className="cv-fold">
+          <div id={bodyId} className="cv-thought__text cv-thought__body selectable" dir="auto">
+            {text}
+          </div>
         </div>
       )}
     </>

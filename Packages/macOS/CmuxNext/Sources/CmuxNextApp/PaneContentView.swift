@@ -57,6 +57,17 @@ final class PaneContentView: NSView, PaneContentChrome {
     var barOrder: TabBarOrder = .aboveToolbar {
         didSet { if barOrder != oldValue { updateBand() } }
     }
+    /// The edge a browser's or page's omnibar row sits on (`browser.toolbarPosition`); the
+    /// pane hands it to what it shows. Follows `DesignSettings` (`observePlacement`).
+    var toolbarPosition: ToolbarPosition = .top {
+        didSet {
+            guard toolbarPosition != oldValue else { return }
+            // Pinned to the same browser, the pins and VoiceOver order are made again for the new edge.
+            releaseBand()
+            applyToolbarPosition()
+            updateBand()
+        }
+    }
     /// The browser whose header band the strip uses (`PaneContentView+Band`).
     weak var bandHost: (any PaneHeaderBandHosting)?
     /// The strip's constraints to that band; empty while it is not pinned.
@@ -84,6 +95,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         super.init(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         barPosition = DesignSettings.shared.tabBarPosition
         barOrder = DesignSettings.shared.tabBarOrder
+        toolbarPosition = DesignSettings.shared.browserToolbarPosition
         wantsLayer = true
         contentHost.wantsLayer = true
         contentHost.layer?.masksToBounds = true
@@ -105,9 +117,12 @@ final class PaneContentView: NSView, PaneContentChrome {
             for await _ in ObservationStream({ DesignSettings.shared.paneBackgrounds }) { self?.paintPaneBackdrop() }
         }
         placementObservation = Task { [weak self] in
-            for await (position, order) in ObservationStream({ (DesignSettings.shared.tabBarPosition, DesignSettings.shared.tabBarOrder) }) {
+            for await (position, order, toolbar) in ObservationStream({
+                (DesignSettings.shared.tabBarPosition, DesignSettings.shared.tabBarOrder, DesignSettings.shared.browserToolbarPosition)
+            }) {
                 self?.barPosition = position
                 self?.barOrder = order
+                self?.toolbarPosition = toolbar
             }
         }
     }
@@ -173,8 +188,9 @@ final class PaneContentView: NSView, PaneContentChrome {
         (barPosition == .top && !isBandActive ? shownStripHeight : 0) + (innerChrome?.paneHeaderHeight ?? 0)
     }
 
-    /// The strip below the content (`tabs.barPosition` bottom); else 0.
-    var paneFooterHeight: CGFloat { barPosition == .bottom ? shownStripHeight : 0 }
+    /// The strip below the content (`tabs.barPosition` bottom); else 0. In a browser's band
+    /// (between its page and a bottom toolbar) it is inside the content area.
+    var paneFooterHeight: CGFloat { barPosition == .bottom && !isBandActive ? shownStripHeight : 0 }
 
     /// The strip's height: its tabs sit with equal gaps above (from the
     /// pane cell's top, through the pane padding) and below (to the content
@@ -247,6 +263,8 @@ final class PaneContentView: NSView, PaneContentChrome {
             endPaintHold()
         }
         let leaving = hosted !== view && !holds ? hosted : nil
+        // Its omnibar row on this pane's edge before it lays out here.
+        (view as? any ToolbarEdgeHosting)?.toolbarPosition = toolbarPosition
         if let view { install(view, replacing: leaving) }
         if holds, let shown, let view { beginPaintHold(outgoing: shown, incoming: view) }
         // A terminal's theme scope inherits this pane's workspace theme.
