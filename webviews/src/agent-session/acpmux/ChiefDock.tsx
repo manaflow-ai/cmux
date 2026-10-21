@@ -4,6 +4,7 @@ import { type StringKey, useT } from "./i18n";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { KeyboardScope } from "../../ui/KeyboardScope";
 import {
+  activityTime,
   listed,
   sessionTitle,
   sessionMark,
@@ -114,7 +115,7 @@ export function ChiefDock({
       withoutChildren(sessions.filter(listed)).sort(
         (left, right) =>
           urgency(right, right.sessionId === currentId) - urgency(left, left.sessionId === currentId) ||
-          (right.updatedAt ?? 0) - (left.updatedAt ?? 0),
+          (activityTime(right) ?? 0) - (activityTime(left) ?? 0),
       ),
     [currentId, sessions],
   );
