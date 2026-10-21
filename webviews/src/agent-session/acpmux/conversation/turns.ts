@@ -341,13 +341,17 @@ const isWork = (row: AcpmuxRow) =>
   row.kind === "activity" &&
   (row.items ?? []).some((item) => item.tool && !isEditTool(item.tool) && !renderCall(item.tool));
 
-/// Where a finished turn's answer is in `rows`: the last text, unless the turn went on to work
-/// after it (-1: no answer, so all of it folds, as the Codex and Claude desktop apps fold it).
+/// Where a finished turn's answer is in `rows`: its last reply. A reply is never folded away, also
+/// when the turn ran a tool after it (Leo, 2026-10-21: "Those replies should never be collapsed";
+/// the work after a reply used to fold the reply with it). Only a short interim note the turn
+/// worked on after ("Checking the tests next.") is status, not a reply, and folds with the work.
+/// -1: no reply, so all of it folds, as the Codex and Claude desktop apps fold it.
 function answerAt(rows: readonly AcpmuxRow[]): number {
+  let worked = false;
   for (let at = rows.length - 1; at >= 0; at -= 1) {
     const row = rows[at]!;
-    if (isAnswer(row)) return at;
-    if (isWork(row)) return -1;
+    if (isAnswer(row) && !(worked && isShortNote(row))) return at;
+    if (isWork(row)) worked = true;
   }
   return -1;
 }
@@ -386,9 +390,13 @@ function shapeTurn(
   const work = before.filter((row) => !staysOut(row) && !answered.has(row));
   const groups = before.filter((row) => staysOut(row) || answered.has(row));
   const after = final >= 0 ? body.slice(final + 1) : [];
-  // Edits after the answer join the card too, so its Undo covers the whole turn.
+  // Work after the answer (a tool it ran once it had replied, and its interim notes) folds with
+  // the rest, so the answer stays the turn's last words. Edits after it join the card too, so its
+  // Undo covers the whole turn.
+  const later = after.filter((row) => row.kind !== "typing" && !isEdit(row) && !staysOut(row));
+  work.push(...later);
   const edits = [...work.filter(isEdit), ...after.filter(isEdit)];
-  const rest = after.filter((row) => !isEdit(row));
+  const rest = after.filter((row) => !isEdit(row) && !later.includes(row));
   const shaped: AcpmuxRow[] = [];
   // A derived row's version must change whenever what it draws does: the memoized rows and the
   // height cache compare versions only. Answer versions stay far below VERSION_SPAN.
@@ -403,7 +411,10 @@ function shapeTurn(
       kind: WORKED,
       status: summary.status,
       toolCount: summary.toolCount,
-      durationMs: answer ? Math.max(0, answer.at - user.at) : (summary.durationMs ?? Math.max(0, summary.at - user.at)),
+      durationMs:
+        answer && !later.length
+          ? Math.max(0, answer.at - user.at)
+          : (summary.durationMs ?? Math.max(0, summary.at - user.at)),
     });
     // Open, each run of its work folds into its summary line between the commentary, as in a
     // running turn (codexRuns).
