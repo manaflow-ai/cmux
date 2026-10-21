@@ -4363,14 +4363,16 @@ function AcpmuxPane() {
   counted.current = { runningAgents, runningCommands, runningSessions, sourceRows, transcriptRows, summaryCard };
   // A `?message=<id>` link's row (links.ts `revealMessageWhenShown`): the transcript scrolls it in
   // by its place in the chat, so a message far above the view works, where its element does not
-  // exist yet. One message can span several rows (a tool call splits it); `messageRevealTarget`
-  // picks the one to scroll to. The reveal lets go after a moment, as a count's does: it stands in
+  // exist yet. One message can span several rows (a tool call splits it): `messageRevealTarget`
+  // takes a drawn one, and opens the turn's "Worked for" when the fold hides them all, the way a
+  // running line's count does. The reveal lets go after a moment, as a count's does: it stands in
   // for Find's own target while it is set, and a target that never let go would scroll back to
   // this row whenever its id is drawn again.
   showMessage.current = (messageId) => {
     const { sourceRows: rows, transcriptRows: shown } = counted.current;
     const target = messageRevealTarget(rows, shown, directClient.current?.rowsOfMessage(messageId) ?? []);
     if (target === undefined) return undefined;
+    if (target.fold !== undefined) openFold(target.fold);
     const key = Date.now();
     setRevealRow({ rowId: target.rowId, key, toolId: "" });
     setTimeout(() => setRevealRow((current) => (current?.key === key ? undefined : current)), REVEAL_HOLD_MS);

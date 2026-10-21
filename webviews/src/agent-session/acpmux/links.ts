@@ -68,10 +68,11 @@ export function scrollToTurn(turnId: string, root: ParentNode = document): boole
 }
 
 /// Scrolls the transcript row `rowId` (`data-row-id`) into view and marks it briefly. False, and
-/// nothing moves, when the row is not on screen.
+/// nothing moves, when the row is not on screen. The copy a "Worked for" fold draws of the row
+/// wears the same id with `:fold` after it (turns.ts), and is the same row to a reader.
 export function scrollToRow(rowId: string, root: ParentNode = document): boolean {
   for (const row of root.querySelectorAll<HTMLElement>("[data-row-id]")) {
-    if (row.dataset.rowId !== rowId) continue;
+    if (row.dataset.rowId !== rowId && row.dataset.rowId !== `${rowId}:fold`) continue;
     return markRow(row);
   }
   return false;
