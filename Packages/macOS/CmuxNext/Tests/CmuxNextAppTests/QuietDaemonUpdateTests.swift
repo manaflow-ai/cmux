@@ -15,7 +15,7 @@ import Testing
 struct QuietDaemonUpdateTests {
     /// What the update reads and asks, shared with its closures.
     private nonisolated final class World: Sendable {
-        private let state = Mutex((personIdle: false, ownerIdle: true, accepts: true, restarts: [Int32](), reconnects: 0))
+        private let state = Mutex((personIdle: false, ownerIdle: true, probes: 0, accepts: true, restarts: [Int32](), reconnects: 0))
         var personIdle: Bool {
             get { state.withLock { $0.personIdle } }
             set { state.withLock { $0.personIdle = newValue } }
@@ -23,6 +23,14 @@ struct QuietDaemonUpdateTests {
         var ownerIdle: Bool {
             get { state.withLock { $0.ownerIdle } }
             set { state.withLock { $0.ownerIdle = newValue } }
+        }
+        /// The owner probes so far.
+        var probes: Int { state.withLock { $0.probes } }
+        func probeOwner() -> Bool {
+            state.withLock { state -> Bool in
+                state.probes += 1
+                return state.ownerIdle
+            }
         }
         var accepts: Bool {
             get { state.withLock { $0.accepts } }
@@ -46,7 +54,7 @@ struct QuietDaemonUpdateTests {
     private static func update(_ world: World, clock: ManualClock = ManualClock(),
                                pacing: QuietDaemonUpdate.Pacing = .standard) -> QuietDaemonUpdate {
         QuietDaemonUpdate(pacing: pacing, clock: clock, isEnabled: { true }, userIsIdle: { world.personIdle },
-                          ownerIsIdle: { _ in world.ownerIdle }, restart: { world.restart($0) }, reconnect: { world.reconnect() })
+                          ownerIsIdle: { _ in world.probeOwner() }, restart: { world.restart($0) }, reconnect: { world.reconnect() })
     }
 
     private static func daemon(pid: Int32, build: String? = "a1a1a1a", capabilities: [String] = []) -> DaemonIdentity {
@@ -100,6 +108,8 @@ struct QuietDaemonUpdateTests {
         world.ownerIdle = false
         let update = Self.update(world)
         update.consider(Self.daemon(pid: 11), bundledBuild: Self.bundled, appCapabilities: [])
+        // The first try found the owner busy (under load it can start late: then it would see the idle owner below).
+        for _ in 0..<400 where world.probes < 1 { try? await Task.sleep(for: .milliseconds(5)) }  // test harness poll
         try? await Task.sleep(for: .milliseconds(50))  // let a wrongly started restart show
         #expect(world.restarts.isEmpty, "it restarted under a CLI call or a chat")
 
