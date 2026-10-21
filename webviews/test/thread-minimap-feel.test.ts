@@ -279,7 +279,7 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
       });
       for (let index = 0; index < 80; index += 1) {
         await page.mouse.wheel(0, index < 40 ? 60 : -60);
-        await page.waitForTimeout(8);
+        await page.evaluate(() => window.cmuxPaintFrame());
       }
       await page.evaluate(() => (window as any).__still(10));
       const frames = await page.evaluate(() => {

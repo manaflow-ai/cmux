@@ -237,6 +237,17 @@ public final class HomeNativeTranscriptView: NSView {
         set { transcript.avatarPicture = newValue }
     }
 
+    /// Each Chief's avatar by participant id (``HomeChiefAvatar/bubbleAvatars(for:own:fallback:)``),
+    /// beside a group's bubbles; a new value redraws them.
+    public func setChiefBubbleAvatars(_ avatars: [String: HomeChiefAvatar]) {
+        transcript.setSenderAvatars(avatars.mapValues {
+            switch $0 {
+            case .picture(let url): .picture(url)
+            case .text(let text): .text(text)
+            }
+        })
+    }
+
     /// The name pill's VoiceOver help.
     public func setNamePillHelp(_ help: String) { transcript.setNamePillHelp(help) }
 
@@ -338,8 +349,9 @@ public final class HomeNativeTranscriptView: NSView {
             if resized { transcript.layoutSubtreeIfNeeded() }
         }
         // Every pass: the field can grow (a multi-line draft) without a size
-        // change, and the first-run panel fits its agent rows above it.
-        let top = transcript.headerHeight
+        // change, and the first-run panel fits its agent rows above it, under any overlay over
+        // the column's top (Home's import cards).
+        let top = max(transcript.headerHeight, ColumnTopOverlays.shared.reach(over: self).map { $0 + 8 } ?? 0)
         let panel = CGRect(x: 0, y: top, width: bounds.width, height: max(0, transcript.fieldTop - top))
         if firstRun.frame != panel { firstRun.frame = panel }
         layoutNotice()
@@ -419,6 +431,9 @@ public final class HomeNativeTranscriptView: NSView {
                 MainActor.assumeIsolated { self?.windowStateChanged() } // main-proof: observer on queue: .main
             })
         }
+        observers.append(nc.addObserver(forName: .cmuxColumnTopOverlayDidChange, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.needsLayout = true } // main-proof: observer on queue: .main
+        })
         windowStateChanged()
         // A theme change while the tab was hidden (equal palettes return early).
         applyTheme()

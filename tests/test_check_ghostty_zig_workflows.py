@@ -201,7 +201,9 @@ def test_one_step_initializing_both_ghostty_sources_is_one_init() -> None:
                   bash scripts/ci/init-submodule.sh ghostty-next
               - name: Resolve Zig
                 id: ghostty-zig-version
-                run: echo "version=$(bash ./scripts/ghostty-zig-version.sh)" >> "$GITHUB_OUTPUT"
+                run: |
+                  version="$(bash ./scripts/ghostty-zig-version.sh)"
+                  echo "version=$version" >> "$GITHUB_OUTPUT"
               - name: Install zig
                 uses: mlugg/setup-zig@v2
                 with:

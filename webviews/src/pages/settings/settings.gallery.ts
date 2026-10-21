@@ -726,6 +726,11 @@ Object.assign(variants, {
     steps: [click('[data-chief="agent_release"]'), wait('[data-card="chiefs"] section.chief-editor')],
     note: "A Chief row opens its editor in the card: backend, lock and history, never a dialog.",
   }),
+  // Settings > Chief > Chief Pet with the pet off (the default): the Chief's character stays checked.
+  "chief-pet-off": variant("chief", {
+    focus: "home.chiefPetMascot",
+    note: "Chief Pet, pet off: the chosen character (Orb) is checked; Show Pet floats it.",
+  }),
   "agents-add-custom": variant("agents", {
     focus: "agents.add",
     steps: [wait("[data-agents-custom]")],
