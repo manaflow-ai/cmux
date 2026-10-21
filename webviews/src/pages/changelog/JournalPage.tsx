@@ -16,7 +16,7 @@ import { KeyboardScope } from "../../ui/KeyboardScope";
 import type { Strings } from "../shared/i18n";
 import { dayLabel, groupByDay, mergedView, releaseTitle } from "./model";
 import { cardVersion } from "./UpdateSurfaces";
-import { BuildNumbers, ChangesFold, Groups, Hero, Maintenance, ReelCards, type PartsContext } from "./ReleaseParts";
+import { BuildNumbers, ChangesFold, Groups, Hero, Maintenance, ReelPlayer, type PartsContext } from "./ReleaseParts";
 import type { ChangelogSnapshot, ChangelogStore } from "./store";
 import type { IndexEntry, ReleaseNotes } from "./types";
 
@@ -36,37 +36,52 @@ export function JournalPage({
   const fresh = s.builds.filter((b) => span.has(b.build));
   const earlier = s.span ? s.builds.filter((b) => !span.has(b.build)) : s.builds;
   return (
-    <KeyboardScope className={ledger ? "clj cll" : "clj"} handleKeyDown={journalKeys}>
+    <KeyboardScope className="clw" handleKeyDown={journalKeys}>
       <main aria-label={strings.t("changelog.page.title")}>
-        {s.failed && <p className="cl-error">{s.failed}</p>}
-        {s.span && <SpanSection s={s} fresh={fresh} ctx={ctx} />}
-        {!s.span && <h1 className="clj-title">{strings.t("changelog.page.title")}</h1>}
-        {!s.span && s.builds.length === 0 && <p className="cl-muted">{strings.t("changelog.page.noHistory")}</p>}
-        {s.span && earlier.length > 0 && <div className="clj-marker">{strings.t("changelog.page.earlier")}</div>}
-        {groupByDay(earlier).map((day) => (
-          <DaySection
-            key={day.day + day.builds[0]!.build}
-            day={day.day}
-            builds={day.builds}
-            s={s}
-            store={store}
-            ctx={ctx}
-            ledger={ledger}
-          />
-        ))}
+        {s.span && <SpanSection s={s} fresh={fresh} ctx={ctx} failed={s.failed} />}
+        <div className={ledger ? "clj cll" : "clj"}>
+          {!s.span && s.failed && <p className="cl-error">{s.failed}</p>}
+          {!s.span && <h1 className="clj-title">{strings.t("changelog.page.title")}</h1>}
+          {!s.span && s.builds.length === 0 && <p className="cl-muted">{strings.t("changelog.page.noHistory")}</p>}
+          {s.span && earlier.length > 0 && <div className="clj-marker">{strings.t("changelog.page.earlier")}</div>}
+          {groupByDay(earlier).map((day) => (
+            <DaySection
+              key={day.day + day.builds[0]!.build}
+              day={day.day}
+              builds={day.builds}
+              s={s}
+              store={store}
+              ctx={ctx}
+              ledger={ledger}
+            />
+          ))}
+        </div>
       </main>
     </KeyboardScope>
   );
 }
 
-/** The update's own section: what changed from the version before it to this one. */
-function SpanSection({ s, fresh, ctx }: { s: ChangelogSnapshot; fresh: IndexEntry[]; ctx: PartsContext }) {
+/** The update's own section: what changed from the version before it to this one. It spans the
+    tab's width up to a cap (Leo 2026-10-21: "how are you still going this narrow"), above the
+    narrower history. */
+function SpanSection({
+  s,
+  fresh,
+  ctx,
+  failed,
+}: {
+  s: ChangelogSnapshot;
+  fresh: IndexEntry[];
+  ctx: PartsContext;
+  failed?: string;
+}) {
   const loaded = fresh.map((b) => s.loaded[b.build]).filter((n): n is ReleaseNotes => !!n);
   const pending = fresh.some((b) => !s.loaded[b.build] && !s.unavailable[b.build]);
   const view = mergedView(loaded, ctx.strings.language);
   const span = s.span!;
   return (
     <section className="clj-section clj-span" data-testid="changelog.sinceLastUpdate" aria-labelledby="clj-span-title">
+      {failed && <p className="cl-error">{failed}</p>}
       <h1 className="clj-title" id="clj-span-title">
         {ctx.strings.t("changelog.page.sinceTitle")}
       </h1>
@@ -81,7 +96,7 @@ function SpanSection({ s, fresh, ctx }: { s: ChangelogSnapshot; fresh: IndexEntr
           {span.to}
         </span>
       </div>
-      <ReelCards builds={fresh} reels={s.reels} strings={ctx.strings} />
+      <ReelPlayer builds={fresh} reels={s.reels} strings={ctx.strings} />
       <SectionBody view={view} pending={pending} ctx={ctx} unpublished={fresh.length === 0} open />
     </section>
   );
