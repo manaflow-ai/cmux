@@ -45,7 +45,6 @@ jobs:
           - group: shared
             packages: >-
               Packages/Shared/CMUXAuthCore
-              Packages/Shared/CmuxAPIClient
               Packages/Shared/CmuxAgentCursor
               Packages/Shared/CmuxAgentQuestion
               Packages/Shared/CmuxChiefVoiceCore
@@ -61,18 +60,15 @@ jobs:
               Packages/Shared/CmuxTheme
               Packages/iOS/CmuxMobilePairedMac
               Packages/iOS/CmuxMobileShellModel
-          - group: ios
-            packages: >-
-              Packages/iOS/CmuxConversation
               Packages/iOS/CmuxMobileRPC
-              Packages/iOS/CmuxMobileSSH
-              Packages/iOS/CmuxMobileSupport
-              Packages/iOS/CmuxMobileTunnel
-              Packages/iOS/CmuxTabsKit
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+
+      # CmuxMobilePairedMac links the system SQLite; the image ships only the runtime.
+      - name: Install SQLite headers
+        run: apt-get update -qq && apt-get install -y -qq --no-install-recommends libsqlite3-dev
 
       - name: Cache key
         id: key

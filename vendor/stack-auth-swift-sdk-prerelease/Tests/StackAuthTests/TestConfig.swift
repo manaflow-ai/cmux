@@ -13,6 +13,12 @@ struct TestConfig {
     static let baseUrl = "http://localhost:\(portPrefix)02"
     static let skipE2E = ProcessInfo.processInfo.environment["STACK_SKIP_E2E_TESTS"] == "true"
 
+    #if os(Linux)
+    static let isLinux = true
+    #else
+    static let isLinux = false
+    #endif
+
     /// Whether tests that talk to the local backend run.
     #if os(Linux)
     // Linux runs them only against an explicitly configured backend.
