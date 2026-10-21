@@ -686,6 +686,7 @@
 		A5D41232A1B2C3D4E5F60718 /* ClaudeBackgroundWorkNotifyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41233A1B2C3D4E5F60718 /* ClaudeBackgroundWorkNotifyTests.swift */; };
 		C13519000000000000000007 /* ClaudeConfigDirectoryPathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13519000000000000000008 /* ClaudeConfigDirectoryPathTests.swift */; };
 		2C483F9C4DD9E531BFB70041 /* ClaudeConfigDirectorySaveCaptureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 116A20BE2E7DF60266E43B58 /* ClaudeConfigDirectorySaveCaptureTests.swift */; };
+		E9236F25EE4125B75E841254 /* ClaudeDroppedLaunchCaptureAccountTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4287F92FA9BEFC300BBCD4F /* ClaudeDroppedLaunchCaptureAccountTests.swift */; };
 		C7A534000000000000000002 /* ClaudeHookFeedTelemetrySwiftTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A534000000000000000001 /* ClaudeHookFeedTelemetrySwiftTests.swift */; };
 		A12123000000000000000009 /* ClaudeHookHibernationGenerationHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12123000000000000000010 /* ClaudeHookHibernationGenerationHistoryTests.swift */; };
 		A12123000000000000000011 /* ClaudeHookHibernationSessionEndPreservationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12123000000000000000012 /* ClaudeHookHibernationSessionEndPreservationTests.swift */; };
@@ -5527,6 +5528,7 @@
 		A5D41233A1B2C3D4E5F60718 /* ClaudeBackgroundWorkNotifyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeBackgroundWorkNotifyTests.swift; sourceTree = "<group>"; };
 		C13519000000000000000008 /* ClaudeConfigDirectoryPathTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeConfigDirectoryPathTests.swift; sourceTree = "<group>"; };
 		116A20BE2E7DF60266E43B58 /* ClaudeConfigDirectorySaveCaptureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ClaudeConfigDirectorySaveCaptureTests.swift"; sourceTree = "<group>"; };
+		E4287F92FA9BEFC300BBCD4F /* ClaudeDroppedLaunchCaptureAccountTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ClaudeDroppedLaunchCaptureAccountTests.swift"; sourceTree = "<group>"; };
 		C7A534000000000000000001 /* ClaudeHookFeedTelemetrySwiftTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeHookFeedTelemetrySwiftTests.swift; sourceTree = "<group>"; };
 		A12123000000000000000010 /* ClaudeHookHibernationGenerationHistoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeHookHibernationGenerationHistoryTests.swift; sourceTree = "<group>"; };
 		A12123000000000000000012 /* ClaudeHookHibernationSessionEndPreservationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeHookHibernationSessionEndPreservationTests.swift; sourceTree = "<group>"; };
@@ -14254,6 +14256,7 @@
 				ED0B9F5049CC27EC7AAA3419 /* CMUXCLIRestoreRecordRefreshTests.swift */,
 				25FD7520201E1CA17A64BAEE /* ClaudeRelaunchRestoresEveryWorkspaceTests.swift */,
 				116A20BE2E7DF60266E43B58 /* ClaudeConfigDirectorySaveCaptureTests.swift */,
+				E4287F92FA9BEFC300BBCD4F /* ClaudeDroppedLaunchCaptureAccountTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -18453,6 +18456,7 @@
 				A5D41232A1B2C3D4E5F60718 /* ClaudeBackgroundWorkNotifyTests.swift in Sources */,
 				C13519000000000000000007 /* ClaudeConfigDirectoryPathTests.swift in Sources */,
 				2C483F9C4DD9E531BFB70041 /* ClaudeConfigDirectorySaveCaptureTests.swift in Sources */,
+				E9236F25EE4125B75E841254 /* ClaudeDroppedLaunchCaptureAccountTests.swift in Sources */,
 				C7A534000000000000000002 /* ClaudeHookFeedTelemetrySwiftTests.swift in Sources */,
 				A12123000000000000000009 /* ClaudeHookHibernationGenerationHistoryTests.swift in Sources */,
 				A12123000000000000000011 /* ClaudeHookHibernationSessionEndPreservationTests.swift in Sources */,
