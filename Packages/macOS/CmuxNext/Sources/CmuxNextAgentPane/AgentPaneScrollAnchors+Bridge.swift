@@ -31,14 +31,15 @@ extension AgentPaneScrollAnchors {
     /// talks to the pane's own host, and `callNative` sends these there (cx-6bgzj). Served on only
     /// one path, a chat would reopen at its latest message for everyone with the setting off.
     ///
-    /// A chat's place is the chat's, not the pane's, so ``AgentPaneModel`` never sees these, as
-    /// with `chat.tail`.
+    /// A chat's place is the chat's, not the pane's, so ``AgentPaneModel`` never sees these. The
+    /// handler answers them before it decodes an `AgentPaneRequest` at all, the way it already
+    /// answers the `popup.` ops above this branch.
     static func reply(to method: String, params: [String: Any]?) -> [String: Any] {
         // An op this seam does not serve, before anything else, so that a refusal never depends on
         // whether a store happens to exist — as it would if this came after the `shared` guard two
-        // below. Both callers already filter by `handles`, so nothing in the app reaches it today;
-        // it is here so that a third caller, or one that stops filtering, is refused and not
-        // answered `ok`.
+        // below. The one caller in the app, `chatPlaceReply`, already filters by `handles`, so
+        // nothing reaches this today; it is here so that a second caller, or one that stops
+        // filtering, is refused and not answered `ok`.
         guard handles(method: method) else {
             return AgentPaneReply.failure(code: "native.invalid_request", message: "No such chat place request")
         }

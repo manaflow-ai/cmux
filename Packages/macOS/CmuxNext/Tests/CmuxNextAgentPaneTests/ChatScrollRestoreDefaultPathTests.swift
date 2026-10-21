@@ -127,7 +127,9 @@ struct ChatScrollRestoreDefaultPathTests {
         #expect((read["value"] as? [String: Any])?["rowId"] as? String == "user-3")
 
         // Anything else is the model's: the host passes it on rather than answering it here.
-        #expect(AgentPaneBridge.chatPlaceReply(for: ["method": "chat.tail", "params": ["sessionId": "s-6"]] as [String: Any]) == nil)
+        // `chat.unsentDraft` is a real op `AgentPaneRequest` decodes, so this says what it means to:
+        // an op the model owns passes through, rather than merely that an unknown name does.
+        #expect(AgentPaneBridge.chatPlaceReply(for: ["method": "chat.unsentDraft", "params": ["sessionId": "s-6"]] as [String: Any]) == nil)
         #expect(AgentPaneBridge.chatPlaceReply(for: ["method": "chat.scrollAnchor.forget"]) == nil)
         #expect(AgentPaneBridge.chatPlaceReply(for: "not a message") == nil)
 
@@ -158,7 +160,10 @@ struct ChatScrollRestoreDefaultPathTests {
             Issue.record("AgentPaneBridge no longer has a userContentController handler")
             return
         }
-        // Inside the handler, not merely somewhere in the file: the next declaration ends it.
+        // Inside the handler, not merely somewhere in the file: the next doc comment ends the slice,
+        // which today is the one on `reply(for:)`. Delete that doc comment and the slice widens to
+        // the rest of the file, so this would stop proving *where* the call is — it would still
+        // fail on the regression it exists for, since `chatPlaceReply` appears nowhere else here.
         let rest = source[handler.lowerBound...]
         let body = rest.range(of: "\n    /// ").map { String(rest[..<$0.lowerBound]) } ?? String(rest)
         #expect(body.contains("chatPlaceReply"),
