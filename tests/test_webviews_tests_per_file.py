@@ -73,7 +73,7 @@ def path_without_timeout(temp):
 
 
 class PerFileRunner(unittest.TestCase):
-    def run_runner(self, files, without_timeout=False, contents=None, shard=None, shard_count=None):
+    def run_runner(self, files, without_timeout=False, contents=None, shard=None, shard_count=None, extra_env=None):
         temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
         web = temp / "webviews"
         for name in files:
@@ -106,6 +106,7 @@ class PerFileRunner(unittest.TestCase):
         if shard is not None:
             env["CMUX_WEB_TEST_SHARD"] = str(shard)
             env["CMUX_WEB_TEST_SHARD_COUNT"] = str(shard_count)
+        env.update(extra_env or {})
         started = time.monotonic()
         result = subprocess.run(["bash", str(RUNNER)], cwd=web, env=env, capture_output=True, text=True, timeout=40)
         return result, time.monotonic() - started, sorted(calls.read_text(encoding="utf-8").split())
@@ -137,6 +138,20 @@ class PerFileRunner(unittest.TestCase):
         result, _, calls = self.run_runner(["test/a.test.ts", "src/b.test.tsx"])
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(calls, ["./src/b.test.tsx", "./test/a.test.ts"])
+
+    def test_a_focused_list_runs_only_those_files(self):
+        """scripts/ci/car_guards.py passes the focused tests a car selects."""
+        files = ["test/a.test.ts", "test/fail.test.ts", "src/b.test.tsx"]
+        result, _, calls = self.run_runner(files, extra_env={"CMUX_WEB_TEST_FILES": "src/b.test.tsx\ntest/a.test.ts\n"})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(calls, ["./src/b.test.tsx", "./test/a.test.ts"])
+
+    def test_a_focused_list_naming_no_test_file_fails(self):
+        """A stale selection (a moved or deleted test) must not pass by running nothing."""
+        result, _, calls = self.run_runner(["test/a.test.ts"], extra_env={"CMUX_WEB_TEST_FILES": "test/gone.test.ts"})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("test/gone.test.ts", result.stderr)
+        self.assertEqual(calls, [])
 
     def test_shards_cover_each_file_once(self):
         files = ["test/a.test.ts", "test/b.test.ts", "test/c.test.ts", "src/d.test.tsx", "src/e.test.tsx"]
@@ -181,6 +196,37 @@ class PerFileRunner(unittest.TestCase):
         # One file per config warms its cache first; every other file starts from a copy of it.
         self.assertEqual(sum(warm == "cold" for _, _, warm in runs), 4, runs)
         self.assertGreater(max(int(n) for n in self.peak.read_text(encoding="utf-8").split()), 1, output)
+
+    def test_a_failed_warming_file_hands_warming_to_the_next_file_of_its_config(self):
+        # One red pane file warmed first, and every other pane file then ran one at a time on a
+        # cold cache: about 7 minutes of a 13-minute shard (react-apps-check 4/4, job 118973285057).
+        pane_server = 'spawn(vp, ["dev", "--config", "vite.config.acpmux-pane.mjs", "--port", String(port)]);\n'
+        contents = {f"test/agent-{name}.test.ts": pane_server
+                    for name in ("a-fail", "history", "peer-chat", "steps", "subagents")}
+        result, _, calls = self.run_runner(list(contents), contents=contents)
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 1, output)
+        self.assertEqual(calls, sorted(f"./{name}" for name in contents), "each file runs once")
+        runs = [line.split() for line in self.dev.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual([warm for _, _, warm in runs].count("cold"), 2,
+                         f"the failed warmer and the one after it start cold, the rest warm: {runs}")
+        self.assertGreater(max(int(n) for n in self.peak.read_text(encoding="utf-8").split()), 1, output)
+
+    def test_warming_stops_after_the_attempt_limit_and_the_rest_run_one_at_a_time_cold(self):
+        # A config whose warmers all fail must not try every file as a warmer: after
+        # CMUX_WEB_TEST_WARM_ATTEMPTS failures its other files run one at a time on cold caches.
+        pane_server = 'spawn(vp, ["dev", "--config", "vite.config.acpmux-pane.mjs", "--port", String(port)]);\n'
+        contents = {f"test/agent-{name}-fail.test.ts": pane_server for name in ("a", "b", "c", "d")}
+        result, _, calls = self.run_runner(list(contents), contents=contents,
+                                           extra_env={"CMUX_WEB_TEST_WARM_ATTEMPTS": "2"})
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 1, output)
+        self.assertEqual(calls, sorted(f"./{name}" for name in contents), "each file runs once")
+        self.assertIn("4 failed or timed out", output)
+        runs = [line.split() for line in self.dev.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual([warm for _, _, warm in runs], ["cold"] * 4, runs)
+        self.assertEqual(self.overlaps.read_text(encoding="utf-8"), "", output)
+        self.assertEqual(max(int(n) for n in self.peak.read_text(encoding="utf-8").split()), 1, output)
 
     def test_a_file_can_declare_a_longer_limit_than_the_default(self):
         # editor-page runs 24 browser tests in two engines, about 115 s on the CI runner: the

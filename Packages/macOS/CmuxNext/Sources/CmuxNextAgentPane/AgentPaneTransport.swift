@@ -78,6 +78,9 @@ import CmuxNextCompat
     /// A trusting `acp.trust.set` on a remote wire took the person's Trust click: it also allows
     /// one `session/new` on that connection (the start the trust question held, cx-1bhjj).
     var remoteTrustCredit = AgentPaneGestureCredit()
+    /// A folder pick took the person's gesture (``grantPicked(_:)``): the next `session/new` on this
+    /// Mac on that connection carries it as its own (``startCredit``). Nothing else spends it.
+    var pickCredit = AgentPaneGestureCredit()
     /// Home folders of the chat's machine the person chose by Use Home Folder (cx-1bhjj): only
     /// these may be trusted or started in there. Never this Mac's roots (``addedRoots``).
     public internal(set) var remoteHomeChosen: Set<String> = []
@@ -105,6 +108,15 @@ import CmuxNextCompat
     func grant(_ folder: String) {
         if !addedRoots.contains(folder) { addedRoots.append(folder) }
     }
+
+    /// `folder` the person's gesture picked (`workspace.useFolder`): made a root, and the gesture it
+    /// spent goes on to the chat that starts there (``pickCredit``), then its first prompt. The New
+    /// Tab page asks for the folder in the same turn as the Send, so the pick took the Send's only
+    /// gesture and the chat's first prompt was refused ("Not sent. Press Retry to send it.").
+    func grantPicked(_ folder: String) {
+        grant(folder)
+        if socket != nil { pickCredit.give(connection: current, at: gestures.uptime) }
+    }
     /// Whether the daemon's asking table (acpmux `web_modes.rs`) lists `mode` for the session's
     /// family: true or false, nil when it cannot tell (which needs the confirmation, fail closed).
     /// The host's default asks the daemon over its unix socket (`_acpmux/web_modes`).
@@ -114,6 +126,8 @@ import CmuxNextCompat
     public private(set) var modeFields: Set<String>?
     /// Shows the native sheet that confirms a mode which does not ask; Cancel answers false.
     public var requestModeConfirmation: (@MainActor (_ asked: AgentPaneModeConfirmation, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
+    /// `sessions.allowFullAccess`, read per frame: off, a switch into a full-access mode is refused.
+    public var allowsFullAccess: @MainActor () -> Bool = { true }
     /// The app-wide gate: one mode confirmation open at a time, across all panes and windows.
     public var confirmationGate = AgentPaneConfirmationGate.shared
     /// acpmux's Enable harness prompt for `id` in `folder` (`_acpmux/harness_enable` without
@@ -176,6 +190,7 @@ import CmuxNextCompat
         remoteWire = connection.remote != nil
         if !remoteWire { remoteHomeChosen = [] }
         startCredit.clear()
+        pickCredit.clear()
         decisions.reset()
         sentFirst = false
         let ids = AcpmuxRequestIds()

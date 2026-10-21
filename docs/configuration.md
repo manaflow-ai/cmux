@@ -130,14 +130,14 @@ What Cmd-W does on a pinned tab.
 
 ```json
 {
-  "tabs": { "cmdWClosesPinnedTabs": true }
+  "tabs": { "cmdWClosesPinnedTabs": false }
 }
 ```
 
-- `false` (default): Cmd-W on a pinned tab selects the next tab and keeps the pinned tab, as in Chrome. When the pinned tab is the only tab in its pane, Cmd-W keeps it and shows a short notice. Close a pinned tab from its right-click menu.
-- `true`: Cmd-W closes a pinned tab like any other tab.
+- `true` (default): Cmd-W closes a pinned tab like any other tab, as in Chrome.
+- `false`: Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. When the pinned tab is the only tab in its pane, Cmd-W keeps it and shows a short notice. Close a pinned tab from its right-click menu.
 
-A tab closed by name (its menu, `cmux tab close`, MCP) closes with either value. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.cmdWClosesPinnedTabs true`.
+A tab closed by name (its menu, `cmux tab close`, MCP) closes with either value. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.cmdWClosesPinnedTabs false`.
 
 ## `tabs.swapCmdTAndCmdN`
 
@@ -544,7 +544,7 @@ Turn it on in Settings > General > Start Agent from Any App. Its key is a separa
 
 ## Message the Chief from any app
 
-Message the Chief (command palette) shows the floating Chief pet with its reply box open, turning the pet on first when it is off. Its system-wide key is a separate Keyboard Shortcuts row, Message the Chief from Any App (default Ctrl+Option+Cmd+C), rebound with `shortcuts.bindings["home.messageChiefFromAnyApp"]`. It works from any app, cmux included, while the Chief pet is on (`home.chiefPetEnabled`, Settings > Home > Show Chief Pet or View > Show Chief Pet). With the pet off, cmux leaves the key to other apps; use Message the Chief in the command palette, which turns the pet on. When another app already holds the key, the Keyboard Shortcuts row shows a warning and the key works only inside cmux.
+Message the Chief (command palette) shows the floating Chief pet with its reply box open. With the pet off, it shows the pet for that message only and hides it again when the box closes; `home.chiefPetEnabled` stays off. Its system-wide key is a separate Keyboard Shortcuts row, Message the Chief from Any App (default Ctrl+Option+Cmd+C), rebound with `shortcuts.bindings["home.messageChiefFromAnyApp"]`. It works from any app, cmux included, while the Chief pet is on (`home.chiefPetEnabled`, Settings > Home > Show Chief Pet or View > Show Chief Pet). With the pet off, cmux leaves the key to other apps; use Message the Chief in the command palette. When another app already holds the key, the Keyboard Shortcuts row shows a warning and the key works only inside cmux.
 
 ## `palette.scopes.<scope>.prefix`
 

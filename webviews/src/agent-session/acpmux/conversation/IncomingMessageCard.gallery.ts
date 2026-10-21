@@ -1,7 +1,8 @@
 // l10n-allow-file: gallery fixtures (sample messages and replies), not shipped UI.
-// Another agent's message to this chat as a card from it, and a Claude Code task notification as
-// one quiet line (IncomingMessageCard.tsx, incomingMessage.ts). A message from a chat here also
-// has Reply (R with the card focused), which answers in place in the sender's chat and thread.
+// Another agent's message to this chat as one quiet "Received message from <sender> ›" line, as
+// Claude desktop draws it, and a Claude Code task notification as one quiet line
+// (IncomingMessageCard.tsx, incomingMessage.ts). A message from a chat here also has Reply (R with
+// the line focused), which answers in place in the sender's chat and thread.
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
 
@@ -26,7 +27,7 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/conversation/IncomingMessageCard.tsx"],
   variants: {
     messages: {
-      note: "A chat here sends a short message (Open names it); a Claude Code session sends a long one, its envelope folded.",
+      note: "A chat here sends a message (its name links to that chat); a Claude Code session sends one from outside cmux (its name is plain). Each is one line; › opens it.",
       snapshot: chat([
         user("Split the grid fix into its own chat and report back", 9),
         assistant("Started Grid fix; it will message this chat when done.", 8.5),
@@ -49,8 +50,49 @@ export default agentPaneEntry({
         summary(3.5, { status: "completed" }),
       ]),
     },
+    opened: {
+      note: "› opens the message under its line, set off by a hairline.",
+      snapshot: chat([
+        user("Split the grid fix into its own chat and report back", 9),
+        assistant("Started Grid fix; it will message this chat when done.", 8.5),
+        summary(8.5, { status: "completed" }),
+        user("The grid fix is on cmux/grid-fix; tests pass.", 6, {
+          incoming: message(
+            "Grid fix",
+            "The grid fix is on cmux/grid-fix; tests pass.\n\nThe grid now reserves its height before the images load, so nothing below it moves.",
+            undefined,
+            "child-3",
+          ),
+          untyped: true,
+        }),
+        assistant("Merged cmux/grid-fix into this branch.", 5.5),
+        summary(5.5, { status: "completed" }),
+      ]),
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cv-received__toggle" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-received__body"));
+      },
+    },
+    "mid-turn": {
+      note: 'Messages that arrive while the agent works: each is its own line in place, and the agent\'s earlier replies stay open (no "2 previous messages" fold).',
+      snapshot: chat([
+        user("Coordinate the three lanes and tell me when they land", 9),
+        assistant("Messaged the lanes; waiting for their reports.", 8.8),
+        user("composer-caret is merged as #2210.", 8.5, {
+          incoming: message("composer-caret", "composer-caret is merged as #2210.", undefined, "child-1"),
+          untyped: true,
+        }),
+        assistant("composer-caret landed. Two lanes to go.", 8.3),
+        user("sidebar-cleanup is in review.", 8, {
+          incoming: message("sidebar-cleanup", "sidebar-cleanup is in review.", undefined, "child-2"),
+          untyped: true,
+        }),
+        assistant("sidebar-cleanup is in review; I'll merge it when the review passes.", 7.8),
+        summary(7.8, { status: "completed" }),
+      ]),
+    },
     reply: {
-      note: "A message from a chat here, with its id and thread: Open beside, and Reply to answer in its thread.",
+      note: "A message from a chat here, with its id and thread: its name opens it beside, and Reply answers in its thread.",
       snapshot: chat([
         user("Split the grid fix out to its own chat and tell me when tests pass", 9, { seq: 1 }),
         assistant("Started Grid fix; I'll hand back here when it reports.", 8.5),

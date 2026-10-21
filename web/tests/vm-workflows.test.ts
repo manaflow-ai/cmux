@@ -1162,12 +1162,24 @@ describe("VM Effect workflows", () => {
     const source = testCloudVmRow({
       userId: "user-fork-team", billingTeamId: "team-fork", billingPlanId: "pro",
       providerVmId: "source-fork-team", status: "running",
-      providerMetadata: { cmuxResourceReservation: { vcpus: 2, memoryMb: 4096, diskMb: 32768 } },
+      providerMetadata: {
+        cmuxResourceReservation: { vcpus: 2, memoryMb: 4096, diskMb: 32768 },
+        cmuxRemoteAuth: "client-grant",
+      },
     });
-    const pending = testCloudVmRow({ ...source, id: "00000000-0000-4000-8000-000000000162", providerVmId: null, status: "provisioning" });
+    const pending = testCloudVmRow({
+      ...source,
+      id: "00000000-0000-4000-8000-000000000162",
+      providerVmId: null,
+      status: "provisioning",
+      providerMetadata: {},
+    });
     let createdNetwork: unknown;
+    let createdProviderMetadata: Record<string, unknown> | undefined;
     const repo: VmRepositoryShape = {
       ...testWorkflowRepo({ vm: source }),
+      beginSnapshotRequest: () => Effect.succeed({ kind: "started" }),
+      finishSnapshotRequest: () => Effect.void,
       beginCreate: () => Effect.succeed({ inserted: true, vm: pending }),
       markCreateRunning: ({ providerVmId }) => Effect.succeed({ ...pending, providerVmId, status: "running" }),
     };
@@ -1178,6 +1190,7 @@ describe("VM Effect workflows", () => {
       snapshot: () => Effect.succeed({ id: "snapshot-fork-team", createdAt: Date.now() }),
       create: (_provider, options) => {
         createdNetwork = options.network;
+        createdProviderMetadata = options.providerMetadata;
         return Effect.succeed(testVmHandle({ providerVmId: "new-fork-team" }));
       },
       exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
@@ -1189,6 +1202,7 @@ describe("VM Effect workflows", () => {
       teamDirectory: { listMemberIds: async () => [source.userId, "teammate"] },
     }).pipe(Effect.provide(workflowLayer(repo, provider))));
     expect(createdNetwork).toEqual({ id: "vpc-team", memberIngress: true });
+    expect(createdProviderMetadata).toMatchObject({ cmuxRemoteAuth: "client-grant" });
   });
 
   test("restores a captured small snapshot at the provider's effective target", async () => {
@@ -1201,7 +1215,7 @@ describe("VM Effect workflows", () => {
       status: "provisioning",
     });
     let beginInput: { resourceReservation?: unknown } | undefined;
-    let createOptions: { memoryMb?: number; network?: unknown } | undefined;
+    let createOptions: { memoryMb?: number; network?: unknown; providerMetadata?: Record<string, unknown> } | undefined;
     const repo = {
       ...testWorkflowRepo({ vm: provisioning }),
       pendingSnapshotDeletions: () => Effect.succeed([]),
@@ -1211,6 +1225,7 @@ describe("VM Effect workflows", () => {
         memoryMb: 4096,
         diskMb: 16384,
       }),
+      ownedSnapshotRemoteAuthMode: () => Effect.succeed("client-grant" as const),
       beginCreate: (input: { resourceReservation?: unknown }) => {
         beginInput = input;
         return Effect.succeed({ inserted: true, vm: provisioning });
@@ -1251,6 +1266,7 @@ describe("VM Effect workflows", () => {
     });
     expect(createOptions?.memoryMb).toBe(4096);
     expect(createOptions?.network).toEqual({ id: "vpc-team", memberIngress: true });
+    expect(createOptions?.providerMetadata).toMatchObject({ cmuxRemoteAuth: "client-grant" });
   });
 
   test("resizes a running VM disk, records the change, and returns provider-confirmed stats", async () => {
@@ -9463,6 +9479,9 @@ describe("Cloud snapshot idempotency", () => {
   function snapshotRequestRepo(source: CloudVmRow, usageEvents: RecordedUsageEvent[], requests: Map<string, SnapshotRequest>): VmRepositoryShape {
     return {
       ...testWorkflowRepo({ vm: source, usageEvents }),
+      hasOwnedSnapshot: ({ snapshotId }) => Effect.succeed(usageEvents.some((event) =>
+        event.eventType === "vm.snapshot.created" && event.metadata?.snapshotId === snapshotId
+      )),
       beginSnapshotRequest: ({ vmId, idempotencyKey, name }) => Effect.sync(() => {
         const key = `${vmId}/${idempotencyKey}`;
         const existing = requests.get(key);
@@ -9476,7 +9495,7 @@ describe("Cloud snapshot idempotency", () => {
       }),
       finishSnapshotRequest: ({ vmId, idempotencyKey, outcome }) => Effect.sync(() => {
         const key = `${vmId}/${idempotencyKey}`;
-        if (outcome.kind === "failed") {
+        if (outcome.kind === "rejected") {
           requests.delete(key);
           return;
         }
@@ -9550,7 +9569,7 @@ describe("Cloud snapshot idempotency", () => {
     expect(error._tag).toBe("VmSnapshotIdempotencyConflictError");
   });
 
-  test("a failed attempt frees the key so a retry takes the snapshot", async () => {
+  test("an ambiguous provider failure keeps the key pending so a retry cannot duplicate the snapshot", async () => {
     const source = snapshotSource("00000000-0000-4000-8000-000000000174");
     const requests = new Map<string, SnapshotRequest>();
     const repo = snapshotRequestRepo(source, [], requests);
@@ -9560,7 +9579,7 @@ describe("Cloud snapshot idempotency", () => {
       snapshot: () => {
         providerCalls += 1;
         return providerCalls === 1
-          ? Effect.fail(new VmProviderOperationError({ provider: "freestyle", operation: "snapshot", cause: new Error("boom") }))
+          ? Effect.fail(new VmProviderOperationError({ provider: "freestyle", operation: "snapshot", cause: { cause: { status: 408 } } }))
           : Effect.succeed({ id: "snap-after-retry", createdAt: 2 });
       },
     };
@@ -9572,10 +9591,139 @@ describe("Cloud snapshot idempotency", () => {
     }).pipe(Effect.either, Effect.provide(workflowLayer(repo, provider))));
     const first = await run();
     expect(first._tag).toBe("Left");
-    expect(requests.size).toBe(0);
+    expect(requests.size).toBe(1);
     const second = await run();
-    expect(second._tag).toBe("Right");
+    expect(second._tag).toBe("Left");
+    if (second._tag === "Left") expect(second.left._tag).toBe("VmSnapshotInProgressError");
+    expect(providerCalls).toBe(1);
+  });
+
+  test("a definitive provider rejection releases the key for a corrected retry", async () => {
+    const source = snapshotSource("00000000-0000-4000-8000-000000000177");
+    const requests = new Map<string, SnapshotRequest>();
+    const repo = snapshotRequestRepo(source, [], requests);
+    let providerCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      snapshot: () => {
+        providerCalls += 1;
+        return providerCalls === 1
+          ? Effect.fail(new VmProviderOperationError({ provider: "freestyle", operation: "snapshot", cause: { cause: { status: 400 } } }))
+          : Effect.succeed({ id: "snap-after-rejection", createdAt: 7 });
+      },
+    };
+    const run = () => Effect.runPromise(snapshotVm({
+      userId: source.userId,
+      teamIds: [source.billingTeamId!],
+      providerVmId: source.providerVmId!,
+      idempotencyKey: "snap-key-rejected",
+    }).pipe(Effect.either, Effect.provide(workflowLayer(repo, provider))));
+
+    expect((await run())._tag).toBe("Left");
+    expect(requests.size).toBe(0);
+    expect((await run())._tag).toBe("Right");
     expect(providerCalls).toBe(2);
+  });
+
+  test("a transient rejected-key cleanup is retried before returning the provider refusal", async () => {
+    const source = snapshotSource("00000000-0000-4000-8000-000000000178");
+    const requests = new Map<string, SnapshotRequest>();
+    const base = snapshotRequestRepo(source, [], requests);
+    const finish = base.finishSnapshotRequest!;
+    let cleanupCalls = 0;
+    const repo: VmRepositoryShape = {
+      ...base,
+      finishSnapshotRequest: (input) => {
+        if (input.outcome.kind === "rejected" && ++cleanupCalls === 1) {
+          return Effect.fail(new VmDatabaseError({ operation: "finishSnapshotRequest", cause: new Error("transient") }));
+        }
+        return finish(input);
+      },
+    };
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      snapshot: () => Effect.fail(new VmProviderOperationError({
+        provider: "freestyle",
+        operation: "snapshot",
+        cause: { cause: { status: 400 } },
+      })),
+    };
+
+    const result = await Effect.runPromise(snapshotVm({
+      userId: source.userId,
+      teamIds: [source.billingTeamId!],
+      providerVmId: source.providerVmId!,
+      idempotencyKey: "snap-key-cleanup-retry",
+    }).pipe(Effect.either, Effect.provide(workflowLayer(repo, provider))));
+
+    expect(result._tag).toBe("Left");
+    expect(cleanupCalls).toBe(2);
+    expect(requests.size).toBe(0);
+  });
+
+  test("a transient success-ledger failure is retried before ownership is recorded", async () => {
+    const source = snapshotSource("00000000-0000-4000-8000-000000000179");
+    const usageEvents: RecordedUsageEvent[] = [];
+    const requests = new Map<string, SnapshotRequest>();
+    const base = snapshotRequestRepo(source, usageEvents, requests);
+    const finish = base.finishSnapshotRequest!;
+    let finishCalls = 0;
+    const repo: VmRepositoryShape = {
+      ...base,
+      finishSnapshotRequest: (input) => {
+        if (input.outcome.kind === "succeeded" && ++finishCalls === 1) {
+          return Effect.fail(new VmDatabaseError({ operation: "finishSnapshotRequest", cause: new Error("transient") }));
+        }
+        return finish(input);
+      },
+    };
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      snapshot: () => Effect.succeed({ id: "snap-finish-retry", createdAt: 9 }),
+    };
+
+    const result = await Effect.runPromise(snapshotVm({
+      userId: source.userId,
+      teamIds: [source.billingTeamId!],
+      providerVmId: source.providerVmId!,
+      idempotencyKey: "snap-key-finish-retry",
+    }).pipe(Effect.provide(workflowLayer(repo, provider))));
+
+    expect(result.id).toBe("snap-finish-retry");
+    expect(finishCalls).toBe(2);
+    expect(requests.get(`${source.id}/snap-key-finish-retry`)?.status).toBe("succeeded");
+    expect(usageEvents.filter((event) => event.eventType === "vm.snapshot.created")).toHaveLength(1);
+  });
+
+  test("a succeeded request replay repairs a missing ownership event without another provider snapshot", async () => {
+    const source = snapshotSource("00000000-0000-4000-8000-000000000176");
+    const usageEvents: RecordedUsageEvent[] = [];
+    const requests = new Map<string, SnapshotRequest>([[`${source.id}/snap-key-5`, {
+      name: "nightly",
+      status: "succeeded",
+      snapshot: { id: "snap-repair", createdAt: 5, name: "nightly" },
+    }]]);
+    const repo = snapshotRequestRepo(source, usageEvents, requests);
+    let providerCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      snapshot: () => Effect.sync(() => {
+        providerCalls += 1;
+        return { id: "duplicate", createdAt: 6 };
+      }),
+    };
+
+    const replay = await Effect.runPromise(snapshotVm({
+      userId: source.userId,
+      teamIds: [source.billingTeamId!],
+      providerVmId: source.providerVmId!,
+      name: "nightly",
+      idempotencyKey: "snap-key-5",
+    }).pipe(Effect.provide(workflowLayer(repo, provider))));
+
+    expect(replay.id).toBe("snap-repair");
+    expect(providerCalls).toBe(0);
+    expect(usageEvents.filter((event) => event.eventType === "vm.snapshot.created")).toHaveLength(1);
   });
 
   test("a snapshot without a key keeps the old behavior and stores no request", async () => {
@@ -9597,7 +9745,7 @@ describe("Cloud snapshot idempotency", () => {
 });
 
 describe("Cloud snapshot request ledger (Postgres)", () => {
-  dbTest("claims a key once, replays success, frees it on failure and takes over a stale attempt", async () => {
+  dbTest("claims a key once, replays success, and fences failed or stale attempts", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_snapshot_requests, cloud_vms restart identity cascade`;
     const [vm] = await sql<{ id: string }[]>`
@@ -9606,8 +9754,8 @@ describe("Cloud snapshot request ledger (Postgres)", () => {
       returning id
     `;
     const repo = vmRepositoryLiveShape;
-    const begin = (key: string, name: string | null, staleBefore = new Date(0)) =>
-      Effect.runPromise(repo.beginSnapshotRequest!({ vmId: vm.id, idempotencyKey: key, name, staleBefore }));
+    const begin = (key: string, name: string | null, maxSnapshots = 10) =>
+      Effect.runPromise(repo.beginSnapshotRequest!({ vmId: vm.id, idempotencyKey: key, name, maxSnapshots }));
 
     expect(await begin("k1", "nightly")).toEqual({ kind: "started" });
     expect(await begin("k1", "nightly")).toEqual({ kind: "in_progress" });
@@ -9618,16 +9766,119 @@ describe("Cloud snapshot request ledger (Postgres)", () => {
     expect(await begin("k1", "nightly")).toEqual({ kind: "succeeded", snapshot: { id: "snap-1", createdAt: 1234, name: "nightly" } });
 
     expect(await begin("k2", null)).toEqual({ kind: "started" });
-    await Effect.runPromise(repo.finishSnapshotRequest!({ vmId: vm.id, idempotencyKey: "k2", outcome: { kind: "failed" } }));
+    await Effect.runPromise(repo.finishSnapshotRequest!({ vmId: vm.id, idempotencyKey: "k2", outcome: { kind: "rejected" } }));
     expect(await begin("k2", null)).toEqual({ kind: "started" });
 
-    // A pending attempt that is older than the stale bound is taken over once.
-    expect(await begin("k2", null, new Date(Date.now() + 60_000))).toEqual({ kind: "started" });
-    expect(await begin("k2", null, new Date(0))).toEqual({ kind: "in_progress" });
+    // An old pending attempt can represent a provider success whose response
+    // was lost, so time alone never makes the same key safe to replay.
+    expect(await begin("k3", null)).toEqual({ kind: "started" });
+    await sql`update cloud_vm_snapshot_requests set updated_at = now() - interval '20 minutes' where vm_id = ${vm.id}`;
+    expect(await begin("k3", null)).toEqual({ kind: "in_progress" });
+    expect(await begin("k3", null)).toEqual({ kind: "in_progress" });
 
     // Deleting the machine row deletes its requests.
     await sql`delete from cloud_vms where id = ${vm.id}`;
     const [{ count }] = await sql<{ count: string }[]>`select count(*)::text as count from cloud_vm_snapshot_requests`;
     expect(count).toBe("0");
+  });
+
+  dbTest("serializes the last quota slot and retains ambiguous reservations until deletion", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_snapshot_requests, cloud_vm_usage_events, cloud_vms restart identity cascade`;
+    const [vm] = await sql<{ id: string }[]>`
+      insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, image_id, status, provider_metadata)
+      values ('user-snapshot-quota', 'team-snapshot-quota', 'pro', 'freestyle', 'image-snapshot-quota', 'running', '{}'::jsonb)
+      returning id
+    `;
+    for (let index = 0; index < 9; index += 1) {
+      await sql`
+        insert into cloud_vm_usage_events (user_id, billing_team_id, billing_plan_id, vm_id, event_type, provider, image_id, metadata)
+        values ('user-snapshot-quota', 'team-snapshot-quota', 'pro', ${vm.id}, 'vm.snapshot.created', 'freestyle', 'image-snapshot-quota', ${sql.json({ snapshotId: `snap-${index}` })})
+      `;
+    }
+    const repo = vmRepositoryLiveShape;
+    const claim = (key: string) => Effect.runPromise(repo.beginSnapshotRequest!({
+      vmId: vm.id,
+      idempotencyKey: key,
+      name: null,
+      maxSnapshots: 10,
+    }));
+
+    const concurrent = await Promise.all([claim("last-a"), claim("last-b")]);
+    expect(concurrent.map((result) => result.kind).sort()).toEqual(["quota_exceeded", "started"]);
+    const startedKey = concurrent[0]?.kind === "started" ? "last-a" : "last-b";
+    const refusedKey = startedKey === "last-a" ? "last-b" : "last-a";
+
+    // The caller lost the provider outcome, so the started reservation stays
+    // pending and continues to occupy the final quota slot.
+    expect(await claim(refusedKey)).toEqual({ kind: "quota_exceeded", limit: 10 });
+
+    await sql`update cloud_vm_snapshot_requests set updated_at = now() - interval '20 minutes' where vm_id = ${vm.id}`;
+    expect(await claim("after-stale")).toEqual({ kind: "quota_exceeded", limit: 10 });
+
+    await sql`delete from cloud_vm_snapshot_requests where vm_id = ${vm.id}`;
+    await sql`
+      insert into cloud_vm_usage_events (user_id, billing_team_id, billing_plan_id, vm_id, event_type, provider, image_id, metadata)
+      values ('user-snapshot-quota', 'team-snapshot-quota', 'pro', ${vm.id}, 'vm.snapshot.created', 'freestyle', 'image-snapshot-quota', ${sql.json({ snapshotId: "snap-last" })})
+    `;
+    expect(await claim("full")).toEqual({ kind: "quota_exceeded", limit: 10 });
+    await sql`
+      insert into cloud_vm_usage_events (user_id, billing_team_id, billing_plan_id, vm_id, event_type, provider, image_id, metadata)
+      values ('user-snapshot-quota', 'team-snapshot-quota', 'pro', ${vm.id}, 'vm.snapshot.deleted', 'freestyle', 'image-snapshot-quota', ${sql.json({ snapshotId: "snap-last" })})
+    `;
+    expect(await claim("after-delete")).toEqual({ kind: "started" });
+
+    // The succeeded request bridges the provider result to the usage-event
+    // write. Once both exist they describe one snapshot, not two quota slots.
+    await sql`truncate cloud_vm_snapshot_requests, cloud_vm_usage_events`;
+    expect(await claim("deduped-first")).toEqual({ kind: "started" });
+    await Effect.runPromise(repo.finishSnapshotRequest!({
+      vmId: vm.id,
+      idempotencyKey: "deduped-first",
+      outcome: { kind: "succeeded", snapshot: { id: "snap-deduped", createdAt: 1234 } },
+    }));
+    await sql`
+      insert into cloud_vm_usage_events (user_id, billing_team_id, billing_plan_id, vm_id, event_type, provider, image_id, metadata)
+      values ('user-snapshot-quota', 'team-snapshot-quota', 'pro', ${vm.id}, 'vm.snapshot.created', 'freestyle', 'image-snapshot-quota', ${sql.json({ snapshotId: "snap-deduped" })})
+    `;
+    const second = await Effect.runPromise(repo.beginSnapshotRequest!({
+      vmId: vm.id,
+      idempotencyKey: "deduped-second",
+      name: null,
+      maxSnapshots: 2,
+    }));
+    expect(second).toEqual({ kind: "started" });
+  });
+
+  dbTest("records snapshot ownership once across concurrent succeeded replays", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_snapshot_requests, cloud_vm_usage_events, cloud_vms restart identity cascade`;
+    const [vm] = await sql<{ id: string }[]>`
+      insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, image_id, status, provider_metadata)
+      values ('user-snapshot-event', 'team-snapshot-event', 'pro', 'freestyle', 'image-snapshot-event', 'running', '{}'::jsonb)
+      returning id
+    `;
+    const event = {
+      userId: "user-snapshot-event",
+      billingTeamId: "team-snapshot-event",
+      billingPlanId: "pro",
+      vmId: vm.id,
+      eventType: "vm.snapshot.created",
+      provider: "freestyle" as const,
+      imageId: "image-snapshot-event",
+      metadata: { snapshotId: "snap-event-once", named: false, name: null, vcpus: 1, memoryMb: 4096, diskMb: 16384 },
+    };
+
+    await Promise.all([
+      Effect.runPromise(vmRepositoryLiveShape.recordSnapshotUsageEventIfMissing!(event)),
+      Effect.runPromise(vmRepositoryLiveShape.recordSnapshotUsageEventIfMissing!(event)),
+    ]);
+
+    const [{ count }] = await sql<{ count: string }[]>`
+      select count(*)::text as count from cloud_vm_usage_events
+      where vm_id = ${vm.id} and event_type = 'vm.snapshot.created'
+        and metadata->>'snapshotId' = 'snap-event-once'
+    `;
+    expect(count).toBe("1");
   });
 });

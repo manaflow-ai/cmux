@@ -307,6 +307,26 @@
             }
           },
           {
+            "key" : "settings.group.motion",
+            "rows" : [
+              "ui.animations.enabled",
+              "ui.animations.sidebar",
+              "ui.animations.tabs",
+              "ui.animations.panes",
+              "ui.animations.overlays",
+              "ui.animations.hoverCards",
+              "ui.animations.home",
+              "ui.animations.cursor",
+              "ui.animations.indicators",
+              "ui.animations.feedback",
+              "ui.animations.web"
+            ],
+            "title" : {
+              "key" : "settings.group.motion",
+              "text" : "Motion"
+            }
+          },
+          {
             "key" : "settings.group.colorTransition",
             "rows" : [
               "appearance.colorTransition.enabled",
@@ -330,6 +350,7 @@
             "key" : "settings.group.windowBackground",
             "rows" : [
               "appearance.background",
+              "appearance.backgroundRotation",
               "appearance.paneBackgrounds",
               "appearance.backgroundOpacity",
               "appearance.backgroundBlur"
@@ -753,7 +774,8 @@
           {
             "key" : "settings.group.sessions",
             "rows" : [
-              "sessions.keepAwake"
+              "sessions.keepAwake",
+              "sessions.resumeAgents"
             ],
             "title" : {
               "key" : "settings.group.sessions",
@@ -4118,6 +4140,57 @@
       "title" : {
         "key" : "settings.sessions.keepAwake",
         "text" : "Keep Mac Awake While Agents Work"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sessions",
+        "text" : "Agent Sessions"
+      },
+      "help" : {
+        "key" : "settings.sessions.resumeAgents.help",
+        "text" : "Terminal agents reopen their session after a crash or restart."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sessions.resumeAgents",
+      "keywords" : [
+        "resume",
+        "restore",
+        "restart",
+        "reboot",
+        "crash",
+        "claude",
+        "codex",
+        "agents"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sessions",
+        "resumeAgents"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sessions.resumeAgents",
+        "text" : "Resume Agents After Restart"
       },
       "validation" : "portable"
     },
@@ -8988,7 +9061,8 @@
         "dore-empyrean",
         "dore-raven",
         "system:/System/Library/Desktop Pictures/Solid Colors/Blue.heic",
-        "file:/Users/Shared/Harbor.png"
+        "file:/Users/Shared/Harbor.png",
+        "folder:/Users/Shared/Wallpapers"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -9002,8 +9076,8 @@
         },
         {
           "title" : {
-            "key" : "settings.choice.shuffleDaily",
-            "text" : "Shuffle Daily"
+            "key" : "settings.choice.shufflePaintings",
+            "text" : "Shuffle Paintings"
           },
           "value" : "daily"
         },
@@ -10257,7 +10331,9 @@
         "attribution",
         "museum",
         "dark",
-        "doré"
+        "doré",
+        "shuffle",
+        "folder"
       ],
       "kind" : "choice",
       "page_hidden" : false,
@@ -10270,6 +10346,8 @@
         "system:",
         "file:relative.png",
         "file:",
+        "folder:relative",
+        "folder:",
         "__not_a_backdrop__",
         1,
         true
@@ -10284,6 +10362,83 @@
         "text" : "Background"
       },
       "validation" : "domain:backdrop_selection"
+    },
+    {
+      "accepts" : [
+        "15m",
+        "hourly",
+        "daily"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.every15Minutes",
+            "text" : "Every 15 Minutes"
+          },
+          "value" : "15m"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.everyHour",
+            "text" : "Every Hour"
+          },
+          "value" : "hourly"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.everyDay",
+            "text" : "Every Day"
+          },
+          "value" : "daily"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "daily",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.backgroundRotation.help",
+        "text" : "How often a shuffled background turns to its next picture."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.backgroundRotation",
+      "keywords" : [
+        "shuffle",
+        "rotate",
+        "rotating",
+        "wallpaper",
+        "interval",
+        "change picture",
+        "background"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "backgroundRotation"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.appearance.backgroundRotation.summary",
+        "text" : "How often Shuffle changes the picture"
+      },
+      "title" : {
+        "key" : "settings.appearance.backgroundRotation",
+        "text" : "Change Picture"
+      },
+      "validation" : "portable"
     },
     {
       "accepts" : [
