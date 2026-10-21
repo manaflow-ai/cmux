@@ -508,7 +508,8 @@ export function ThreadMinimap({
       event.currentTarget.releasePointerCapture(state.pointer);
   };
   const railTop = Math.round((viewportHeight - height) / 2);
-  const active = hovered ?? focused;
+  // The previewed prompt stays lit while the pointer is on its card, as ChatGPT's rail does.
+  const active = hovered ?? focused ?? (showCard ? cardRow : undefined);
   const cardMarked = cardTurn ? marks.has(cardTurn) : false;
   const cardTop =
     cardRow === undefined
