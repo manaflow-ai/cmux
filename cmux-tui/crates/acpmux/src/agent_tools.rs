@@ -191,6 +191,12 @@ pub struct Inputs {
     pub cua_v2: Option<PathBuf>,
     /// This acpmux executable (the `cua-mcp` bridge command).
     pub acpmux: Option<PathBuf>,
+    /// The arguments before an acpmux command word when [`Self::acpmux`]
+    /// is the cmux multicall binary: this daemon's own prefix
+    /// (`daemon::daemon_prefix`, `acp` there). On Linux `current_exe`
+    /// resolves an `acpmux` symlink to `cmux-tui`, which runs acpmux only
+    /// as `cmux-tui acp …`, so `<cmux-tui> subsession-mcp` would not start.
+    pub acpmux_prefix: Vec<String>,
     /// The app shows the secret card ([`SECRET_TOOLS_ENV`] is `1`): sessions
     /// get `request_secret` (`secret_mcp.rs`). Without the card an ask would
     /// wait with nothing to answer it.
@@ -206,6 +212,9 @@ pub struct Inputs {
     /// per-workspace displays (`agent_displays.rs`), else `None`.
     pub displays: Option<PathBuf>,
 }
+
+/// The acpmux command word of the helper v2 bridge (`acpmux cua-mcp`).
+const CUA_BRIDGE_ARG: &str = "cua-mcp";
 
 /// Set to `1` by an app that shows the secret card (cx-ncc.42).
 pub const SECRET_TOOLS_ENV: &str = "ACPMUX_SECRET_TOOLS";
@@ -233,6 +242,10 @@ impl Inputs {
             cua: crate::cua_socket::from_env(),
             cua_v2: crate::cua_v2::active_dir(crate::cua_v2::dir_from_env()),
             acpmux: std::env::current_exe().ok(),
+            acpmux_prefix: crate::daemon::daemon_prefix()
+                .into_iter()
+                .map(|arg| arg.to_string_lossy().into_owned())
+                .collect(),
             secrets: var(SECRET_TOOLS_ENV).is_some_and(|v| v == "1"),
             offers: var(OFFER_TOOLS_ENV).is_some_and(|v| v == "1"),
             subsessions: crate::hub::subsessions::enabled(),
@@ -435,6 +448,10 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
     let executable = |name: &str| {
         inputs.bin_dir.as_ref().map(|dir| dir.join(name)).filter(|path| is_executable(path))
     };
+    // `<acpmux> [prefix…] <word>`: this acpmux's own MCP servers.
+    let acpmux_args = |word: &str| -> Vec<String> {
+        inputs.acpmux_prefix.iter().cloned().chain([word.to_owned()]).collect()
+    };
     if let (Some(dir), Some(acpmux)) = (&inputs.cua_v2, &inputs.acpmux) {
         // The helper v2: this acpmux as the agent's MCP server. Only the
         // folder goes in its env; the bridge reads the socket and secret
@@ -442,7 +459,7 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
         servers.push(McpServer {
             name: crate::cua_v2::SERVER_NAME.into(),
             command: acpmux.clone(),
-            args: vec!["cua-mcp".into()],
+            args: acpmux_args(CUA_BRIDGE_ARG),
             env: vec![(crate::cua_v2::ENDPOINT_DIR_ENV.into(), dir.to_string_lossy().into_owned())],
         });
     } else if let Some(cua) = executable("cmux-cua").or_else(|| nested_cua_helper(inputs)) {
@@ -481,7 +498,7 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
         servers.push(McpServer {
             name: crate::secret_mcp::SERVER_NAME.into(),
             command: acpmux.clone(),
-            args: vec!["secret-mcp".into()],
+            args: acpmux_args("secret-mcp"),
             env: vec![],
         });
     }
@@ -490,7 +507,7 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
         servers.push(McpServer {
             name: crate::offer_mcp::SERVER_NAME.into(),
             command: acpmux.clone(),
-            args: vec!["offer-mcp".into()],
+            args: acpmux_args("offer-mcp"),
             env: vec![],
         });
     }
@@ -500,7 +517,7 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
         servers.push(McpServer {
             name: crate::subsession_mcp::SERVER_NAME.into(),
             command: acpmux.clone(),
-            args: vec!["subsession-mcp".into()],
+            args: acpmux_args("subsession-mcp"),
             env: vec![],
         });
     }
@@ -586,7 +603,7 @@ impl AgentTools {
         };
         // The helper v2 bridge (`acpmux cua-mcp`, same server name) cannot be
         // pinned to a display: never in this mode.
-        self.servers.retain(|s| s.args.first().is_none_or(|a| a != "cua-mcp"));
+        self.servers.retain(|s| !s.args.iter().any(|a| a == CUA_BRIDGE_ARG));
         match display {
             Some(n) => {
                 for server in self.servers.iter_mut().filter(|s| s.name == "cmux-cua") {
