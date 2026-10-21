@@ -20,7 +20,7 @@ enum FindInDirectoryHandlers {
             guard let root = tab.cwd ?? ctx.refuse(RefusalStrings.noWorkingDirectory) else { return }
             guard let rg = RipgrepSearch.executable() ?? ctx.refuse(FindInDirectoryStrings.ripgrepMissing) else { return }
             let target = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id))
-            let page = FindInDirectoryPage.page(query: query, root: root, rg: rg) { text in
+            let page = FindInDirectoryPage.page(query: query, root: root, rg: rg, effects: ctx.services.fileExplorers.effects) { text in
                 TerminalHandlers.send(text, paste: true, target, ctx)
             }
             ctx.services.palette.show(page: page, relativeTo: ctx.activeWindow?.window)

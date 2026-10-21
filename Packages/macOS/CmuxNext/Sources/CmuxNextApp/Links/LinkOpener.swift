@@ -168,11 +168,12 @@ final class LinkOpener {
 
     /// A file: the Markdown page, the code editor or the browser tab's preview (``FilePageOpener``).
     /// A tab that already shows the file is selected where it is. False when it did not open (the
-    /// refusal shows).
+    /// refusal shows). `position` (a Find result): the code editor opens with the cursor there.
     @discardableResult
-    func openFile(_ file: URL, from source: PaneController?, markdown: Bool = false, cmdClick: Bool = false) -> Bool {
+    func openFile(_ file: URL, from source: PaneController?, markdown: Bool = false, cmdClick: Bool = false,
+                  at position: FilePosition? = nil) -> Bool {
         open(from: source, cmdClick: cmdClick) { pane, placed in
-            pane.services.viewers.openFile(file, in: pane, markdown: markdown, placed: placed)
+            pane.services.viewers.openFile(file, in: pane, markdown: markdown, at: position, placed: placed)
         }
     }
 
