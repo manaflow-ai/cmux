@@ -77,7 +77,7 @@ PAGES = {
     "loading": "<title>loading</title><body><h1>This load never ends</h1><img src='/never'>"
                "<script>fetch('/loaded/loading',{{method:'POST'}})</script>",
     "chatty": "<title>chatty</title><body><h1>Console chatter</h1><script>let i=0;"
-              "setInterval(()=>{console.log('" + MARKER + " ' + (i++));if(i%4==0)fetch('/tick',{{method:'POST'}})}, 250);fetch('/loaded/chatty',{{method:'POST'}})</script>",
+              "setInterval(()=>{{console.log('" + MARKER + " ' + (i++));if(i%4==0)fetch('/tick',{{method:'POST'}})}}, 250);fetch('/loaded/chatty',{{method:'POST'}})</script>",
 }
 
 
