@@ -7,7 +7,12 @@
 # Environment: CHANNEL_RELEASE_TAG, CHANNEL_DMG_PREFIX, NIGHTLY_VARIANT,
 # NIGHTLY_BUILD, GH_TOKEN, the key variables scripts/ci/nightly-sparkle-key.sh
 # reads, and optionally SPARKLE_CHANNEL and GITHUB_REPOSITORY.
-# NIGHTLY_DELTA_BASES is how many earlier builds get a delta.
+#
+# A Mac downloads a delta only when its installed build is a delta base; any
+# other Mac downloads the full DMG. Macs check hourly and nightly-next ships
+# every 20-40 minutes, so a running Mac is usually 1-3 builds behind and a Mac
+# that slept is a day or more behind. The bases are the three newest earlier
+# builds plus the newest ones at least 24 and 72 hours old.
 #
 # <out-dir> receives the revised feed (named like <full-feed.xml>) and one
 # "<prefix>-<variant>-<new>-<old>.delta" per base. With no earlier build to
@@ -22,8 +27,8 @@ DMG="$1"
 FULL_FEED="$2"
 OUT_DIR="$3"
 : "${CHANNEL_RELEASE_TAG:?}" "${CHANNEL_DMG_PREFIX:?}" "${NIGHTLY_VARIANT:?}" "${NIGHTLY_BUILD:?}"
-BASES="${NIGHTLY_DELTA_BASES:-1}"
-[[ "$BASES" =~ ^[1-9][0-9]*$ ]] || { echo "NIGHTLY_DELTA_BASES must be a positive integer, got: $BASES" >&2; exit 2; }
+RECENT_BASES=3
+OLDER_BASE_HOURS=(24 72)
 
 scripts_dir="$(cd "$(dirname "$0")/.." && pwd)"
 feed="$(basename "$FULL_FEED")"
@@ -38,7 +43,8 @@ python3 "$scripts_dir/ci/fetch-previous-nightly-dmgs.py" \
   --name-prefix "${CHANNEL_DMG_PREFIX}-" \
   --variant "$NIGHTLY_VARIANT" \
   --exclude-build "$NIGHTLY_BUILD" \
-  --count "$BASES" \
+  --count "$RECENT_BASES" \
+  $(printf -- '--older-than-hours %s ' "${OLDER_BASE_HOURS[@]}") \
   --out "$previous"
 
 if ! compgen -G "$previous/*.dmg" >/dev/null; then
@@ -74,7 +80,7 @@ PY
 )"
 export SPARKLE_MINIMUM_SYSTEM_VERSION
 SPARKLE_PREVIOUS_ARCHIVES_DIR="$previous" \
-SPARKLE_MAXIMUM_DELTAS="$BASES" \
+SPARKLE_MAXIMUM_DELTAS="$(find "$previous" -maxdepth 1 -name '*.dmg' | wc -l | tr -d ' ')" \
 SPARKLE_DELTA_NAME_PREFIX="${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-" \
   "$scripts_dir/sparkle_generate_appcast.sh" "$DMG" "$CHANNEL_RELEASE_TAG" "$OUT_DIR/$feed"
 # generate_appcast rewrites the items; keep the full feed's changelog
