@@ -1050,7 +1050,14 @@ export class AcpmuxDirectClient {
         const page = await this.attach(sessionId, generation);
         const oldest = page.length > 0 ? Math.min(...page.map((event) => event.seq)) : 0;
         if (resumeAfter > 0 && oldest > resumeAfter + 1)
-          await this.fetchMissedEvents(sessionId, generation, resumeAfter, false);
+          await this.fetchMissedEvents(sessionId, generation, resumeAfter, false).catch((error: unknown) => {
+            // The gap stays: usage before the new page is no longer whole (the turn's tokens hide).
+            if (generation === this.selectionGeneration && this.selectedSessionId === sessionId) {
+              this.usageFromSeq = Math.max(this.usageFromSeq, oldest);
+              this.rebuildKeepingLiveState();
+            }
+            throw error;
+          });
       } else if (this.host.adopt) {
         await this.adoptChat(this.host.adopt);
       }
@@ -1595,7 +1602,11 @@ export class AcpmuxDirectClient {
     this.syncView();
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
     const page: EventRecord[] = result?.events ?? [];
-    this.usageFromSeq = result?.hasMore === true ? (page[0]?.seq ?? 0) : 0;
+    // A reconnect to the same session keeps its events, and open() fills the gap to the new page
+    // (every kind, usage included): the client still holds what it held. A fresh attach holds the
+    // page only.
+    const usageFrom = result?.hasMore === true && page.length > 0 ? Math.min(...page.map((event) => event.seq)) : 0;
+    this.usageFromSeq = this.events.length > 0 ? Math.min(this.usageFromSeq, usageFrom) : usageFrom;
     // An agent usually lists its commands once, at start, which is older than the page.
     if (
       !page.some((event) => event.kind === COMMANDS_KIND) &&
