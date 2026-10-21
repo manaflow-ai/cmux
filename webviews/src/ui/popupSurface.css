@@ -182,16 +182,25 @@
   opacity: 0;
   translate: var(--ui-enter-x, 0) var(--ui-enter-y, 0);
 }
+/* Custom properties inherit: each edge sets both axes, and a surface inside another entering one (a
+   new row in a card that slid in) starts from the default distance, not its container's. */
+:where([data-enter] [data-enter]) {
+  --ui-enter-distance: 8px;
+}
 :where([data-enter="right"]) {
   --ui-enter-x: var(--ui-enter-distance);
+  --ui-enter-y: 0;
 }
 :where([data-enter="left"]) {
   --ui-enter-x: calc(-1 * var(--ui-enter-distance));
+  --ui-enter-y: 0;
 }
 :where([data-enter="bottom"]) {
+  --ui-enter-x: 0;
   --ui-enter-y: var(--ui-enter-distance);
 }
 :where([data-enter="top"]) {
+  --ui-enter-x: 0;
   --ui-enter-y: calc(-1 * var(--ui-enter-distance));
 }
 @media (prefers-reduced-motion: reduce) {
