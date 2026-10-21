@@ -7926,7 +7926,7 @@
         "keywords": ["notifications", "read"],
         "rankBias": 0,
         "sectionIndex": 8,
-        "title": "Toggle Unread",
+        "title": "Mark Tab Read/Unread",
         "typingSectionIndex": 16
       },
       "id": "action:toggleUnread"
