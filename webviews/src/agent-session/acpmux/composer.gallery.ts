@@ -231,6 +231,8 @@ export default agentPaneEntry({
     "agent-session/acpmux/Composer.tsx#Composer",
     "agent-session/acpmux/ComposerFoot.tsx#ComposerFoot",
     "agent-session/acpmux/conversation/SteerMark.tsx#SteerMark",
+    "agent-session/acpmux/conversation/PendingSteer.tsx#PendingSteer",
+    "agent-session/acpmux/conversation/icons.tsx#Clock",
     "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
     "agent-session/acpmux/ComposerPickers.tsx#Picker",
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
@@ -676,7 +678,7 @@ export default agentPaneEntry({
       }),
     },
     "steer-marks": {
-      note: "Under a steer's bubble: Steering while the agent has not read it, Steered once it has, and Sent now for a prompt that stopped a turn of an agent that cannot steer.",
+      note: "Under a steer's bubble: while the agent has not read it, no label (it shows as any sent prompt), only a faint clock and Send now (stops the agent's current step so it reads the steer at once; the turn goes on); Steered once it has, and Sent now for a prompt that stopped a turn of an agent that cannot steer.",
       snapshot: chat(
         [
           user("Add retries", 6),
@@ -684,7 +686,7 @@ export default agentPaneEntry({
           assistant("Using the cache dir now.", 4),
           user("Stop and fix the space thing first", 3, { steer: "stopped" }),
           assistant("Fixing the space handling…", 2),
-          user("Also keep the old flag working", 1, { steer: "waiting" }),
+          user("Also keep the old flag working", 1, { steer: "waiting", steerPromptId: "p-steer" }),
           assistant("Reading the flag parser…", 0.5, { streaming: true }),
         ],
         { isWorking: true },

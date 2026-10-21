@@ -679,6 +679,46 @@ impl Brain {
         }
     }
 
+    /// Re-arms the automatic continues a stopped host planned but never
+    /// sent ([`crate::state::HostState::pending_auto_resumes`]). Each waits
+    /// until the model endpoint answers, so a restart while offline still
+    /// waits for the network, then continues as planned.
+    pub(super) fn rearm_auto_resumes(&mut self) {
+        let Some(policy) = self.resume_policy else {
+            return;
+        };
+        for (id, attempt) in self.state.pending_auto_resumes() {
+            (self.log)(&format!(
+                "subagent {id}: auto-resume {attempt} re-armed after a host restart"
+            ));
+            self.trace.emit(
+                "subagent.auto_resume.rearm",
+                json!({"id": id, "attempt": attempt}),
+            );
+            let (tx, reach) = (self.tx.clone(), self.reach.clone());
+            let settle = policy.backoff(1).min(std::time::Duration::from_secs(15));
+            std::thread::spawn(move || {
+                let online = crate::auto_resume::wait_online(
+                    &*reach,
+                    crate::auto_resume::NETWORK_POLL,
+                    crate::auto_resume::NETWORK_WAIT_MAX,
+                    std::thread::sleep,
+                );
+                if online {
+                    // A bounded pause so a restart loop does not hammer the model.
+                    std::thread::sleep(settle);
+                }
+                let _ = tx.send(super::Input::AutoResume {
+                    id,
+                    attempt,
+                    reason: String::new(),
+                    after_network: false,
+                    online,
+                });
+            });
+        }
+    }
+
     /// An auto-resume of `id` is due: it is told to continue (its chat shows
     /// the `[auto-resume N]` message), unless it runs again already, a newer
     /// stop replaced this one, or the network never came back (then the
@@ -1514,8 +1554,21 @@ impl Brain {
         json!({"stopped": true, "subagents": stopped, "note": format!("Stopped by the user: {}.", stopped.join(", "))})
     }
 
+    /// A background shell (Claude Code's run_in_background) outlives the
+    /// turn that started it: a stop or cancel of the subagent ends it too.
+    pub(super) fn end_background_processes(&self, id: &str, session: &str) {
+        match self.agents.kill_processes(session) {
+            Ok(0) => {}
+            Ok(n) => (self.log)(&format!("subagent {id}: ended {n} background process(es)")),
+            Err(e) => (self.log)(&format!(
+                "subagent {id}: ending its background processes: {e}"
+            )),
+        }
+    }
+
     /// chief.stop: every subagent at work stops (`session/cancel`; its
-    /// report comes quiet) and every queued one is dropped. Their ids.
+    /// report comes quiet), with the background processes its runs left
+    /// running, and every queued one is dropped. Their ids.
     pub(super) fn stop_subagents(&mut self) -> Vec<String> {
         self.stop_subagents_where(|_| true)
     }
@@ -1553,6 +1606,7 @@ impl Brain {
                         (self.log)(&format!("subagent {id}: stopping it: {e}"));
                         continue;
                     }
+                    self.end_background_processes(&id, &session);
                 }
                 // Its session is not made yet: nothing to stop.
                 (_, None) => continue,
