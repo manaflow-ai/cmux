@@ -32,6 +32,10 @@ cmux tab tab_… move --workspace ws_… --screen screen_… --pane pane_… --i
 cmux pane flash-focused                            # attention cue (app action)
 ```
 
+## Show UI in a chat reply
+
+Embed screenshots instead of describing a UI change: a cmux chat draws `![alt](/abs/path.png)`, a bare image path, a `file://` URL or an https image address (PR media) as a thumbnail that opens full size on click. Put a before/after pair in one paragraph (`![Before](/tmp/a.png) ![After](/tmp/b.png)`, or `Before: /tmp/a.png` and `After: /tmp/b.png` on two lines) and it draws side by side. `#N`, `owner/repo#N`, `hq#N`, commit SHAs and `path/to/file.ts:42` become links.
+
 ## Which `cmux` to run
 
 Inside a cmux terminal, `$CMUX_BUNDLED_CLI_PATH` is the CLI that ships with the running app. A login shell (`zsh -lc`, which Codex and other agents use) can put an older `cmux` first on `PATH`, for example a `uv tool` or `pipx` install of the PyPI `cmux` package. That CLI can lack verbs such as `browser page`. When a verb or flag that this skill documents is missing, run `"$CMUX_BUNDLED_CLI_PATH"` instead, or define `cmux() { "${CMUX_BUNDLED_CLI_PATH:-cmux}" "$@"; }` once per shell. Do not run `cmux daemon stop` to cure a version mismatch: it stops the user's session.
@@ -42,7 +46,7 @@ Every instance selector is a public id (`ws_…`, `pane_…`, `tab_…`, `term_�
 
 ## Running a command in a new terminal
 
-`cmux pane <sel> run -- <argv…>` opens a tab in that pane running the exact argv; `run shell '<script>'` passes a script to the shell. `--on-exit close|keep` controls the tab after the process exits, and `--cwd`/`--name` set its directory and title. `cmux workspace <sel> run` does the same in a workspace. The app action `cmux workspace new --command "…"` types the command into a new workspace's shell.
+`cmux pane <sel> run -- <argv…>` opens a tab in that pane running the exact argv; `run shell '<script>'` passes a script to the shell. `--on-exit close|keep|shell` controls the tab after the process exits (`shell` drops it into a new shell), and `--cwd`/`--name` set its directory and title. `cmux workspace <sel> run` does the same in a workspace. The app action `cmux workspace new --command "…"` types the command into a new workspace's shell.
 
 ## App actions
 
@@ -53,11 +57,13 @@ Every action in the app's registry is also a verb: `cmux action list --noun work
 None of these moves the person's focus; `cmux docs search "show the user"` prints the same guide.
 
 ```bash
-cmux agent open SESSION_ID                             # that agent session's chat, in a new workspace
+cmux agent open SESSION_ID [--group G]                # that agent session's chat, in a new workspace (in sidebar group G)
 cmux workspace ws_… status set build "tests passing"   # a status line on the workspace's sidebar row (--state, --ttl…)
 cmux workspace ws_… progress set 0.4 --label "3 of 8"
 cmux notify --title "Review ready" --body "PR #123"    # --desktop false: sidebar marker only
 ```
+
+To start another agent on a task and show it, use one command, `acpmux new -n NAME --worktree REPO@BASE --prompt-file BRIEF.md --report-to ME --group G -d` (the `acpmux` skill): it makes the worktree, starts the session, sends the brief and opens its chat in group G; running it again changes nothing.
 
 To open a link, the MCP tool `workspace_open_url` loads it on the workspace's right side, but it navigates a browser tab already there; `cmux browser profile open URL --profile default --background true` (MCP `browser_profile_open` with `activate: false`) adds a tab and keeps the pane's selected tab. `tab focus`, `workspace focus`, `agents tab select` and `focus: true` do move the person's focus: use them only when asked. `current` is the workspace the person looks at, not yours: from a cmux terminal `status set` without a selector targets that terminal's workspace, but an agent chat has no terminal, so name the workspace (`$CMUX_WORKSPACE_ID` when set).
 

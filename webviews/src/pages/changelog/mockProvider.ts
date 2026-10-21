@@ -56,6 +56,11 @@ export class MockChangelogProvider implements PageClient {
       if (!found) throw pageError("cmux.changelog.not_found", "No verified notes for this build", true);
       return found as R;
     }
+    if (op === ChangelogOps.reel) {
+      // A fixture names a build's reel on its notes (`reel`); the host reads the build's reel.json.
+      const found = this.notes.find((n) => n.build === p.build) as (ReleaseNotes & { reel?: string }) | undefined;
+      return { url: found?.reel ?? null } as R;
+    }
     if (op === ACTION_RUN) {
       this.ran.push(String(p.action));
       return {} as R;

@@ -89,6 +89,10 @@ const table: [group: string, input: string, action: OmniboxAction][] = [
   ["command", "move it up", ask("move it up")],
   ["command", "summarize this page", ask("summarize this page")],
   ["command", "help me write an email", ask("help me write an email")],
+  ["command", "run the tests", ask("run the tests")],
+  ["command", "tail the logs", ask("tail the logs")],
+  ["command", "check the logs", ask("check the logs")],
+  ["command", "update the readme", ask("update the readme")],
   // Plain keywords: a web search.
   ["keyword", "weather", search("weather")],
   ["keyword", "rust serde", search("rust serde")],
@@ -126,6 +130,11 @@ const table: [group: string, input: string, action: OmniboxAction][] = [
   ["keyword", "shake it off", search("shake it off")],
   ["keyword", "let it be", search("let it be")],
   ["keyword", "kill this love", search("kill this love")],
+  ["keyword", "under the tuscan sun", search("under the tuscan sun")],
+  ["keyword", "around the world in 80 days", search("around the world in 80 days")],
+  ["keyword", "over the garden wall", search("over the garden wall")],
+  ["keyword", "the a team movie", search("the a team movie")],
+  ["keyword", "tail recursion", search("tail recursion")],
   // Neither.
   ["none", "", { kind: "none" }],
   ["none", "   ", { kind: "none" }],

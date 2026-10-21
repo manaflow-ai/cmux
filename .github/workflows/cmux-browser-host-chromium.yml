@@ -47,6 +47,11 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Cache Playwright's apt packages
+        uses: ./.github/actions/playwright-apt-cache
+        with:
+          engines: chromium
+
       - name: Install pinned Playwright Chromium
         working-directory: tests/browser-parity
         env:

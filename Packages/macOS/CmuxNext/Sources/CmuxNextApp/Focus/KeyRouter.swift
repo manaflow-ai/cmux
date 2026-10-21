@@ -260,7 +260,8 @@ final class KeyRouter: BrowserKeyRouting {
     /// A bare key in a page that owns bare keys (KeyRouter+BareKeys): a sequence step, else its binding.
     func dispatchBare(_ event: NSEvent, in window: NSWindow, controller: WindowController, context: KeyContext, facts: Facts) -> Bool {
         if let consumed = routeChord(event, in: window, controller: controller, context: context, facts: facts) { return consumed }
-        guard let winner = bareKeyWinner(event, context: context) else { return false }
+        // `routesBareKey` checked the key is bare and the page owns bare keys.
+        guard let winner = resolve(event, context: context) else { return false }
         decided.add(event)
         run(Candidate(id: winner.command, tier: registry.keyTier(for: winner.command), source: .registry(argument: winner.argument),
                       arguments: winner.arguments), context: context, window: controller.state.id)

@@ -1,3 +1,4 @@
+public import CmuxNextDesign
 public import CmuxNextIcons
 public import Foundation
 
@@ -14,6 +15,10 @@ public nonisolated struct AppFeature: Sendable, Hashable, Identifiable {
         case toggle
         /// A choice key: on is this choice. Remove clears the key, so its default applies.
         case choice(String)
+        /// A sidebar item (the `SidebarBuiltIn` name; its `setting` is `sidebar.layout`, where the
+        /// item lives): on while the sidebar shows it. Get adds it, Remove takes every copy out,
+        /// both as the person's edit (Undo takes it back).
+        case sidebarItem(String)
     }
 
     public enum Category: String, Sendable, Hashable, CaseIterable {
@@ -23,6 +28,7 @@ public nonisolated struct AppFeature: Sendable, Hashable, Identifiable {
         case sidebar
         case media
         case browser
+        case layout
     }
 
     /// What the card shows above its name.
@@ -30,6 +36,8 @@ public nonisolated struct AppFeature: Sendable, Hashable, Identifiable {
         case icon(IconName)
         /// One of the bundled paintings' thumbnails (`BackdropArt.thumbnailURL`).
         case painting
+        /// A few sidebar rows drawn at this density, so a view toggle shows what it changes.
+        case sidebarRows(SidebarDensity)
     }
 
     /// Stable id (`appStore.feature.<id>` in accessibility and tests).
@@ -44,9 +52,12 @@ public nonisolated struct AppFeature: Sendable, Hashable, Identifiable {
     public var summary: String
     /// Search words beyond the name and summary.
     public var keywords: [String]
+    /// The key whose rows Settings shows from the card's Settings… link (the feature's own
+    /// options, as the Chief Pet card opens Settings > Chief Pet); nil: the card has no link.
+    public var settingsLink: String?
 
     public init(id: String, setting: String, on: Switch, category: Category, preview: Preview,
-                name: String, summary: String, keywords: [String] = []) {
+                name: String, summary: String, keywords: [String] = [], settingsLink: String? = nil) {
         self.id = id
         self.setting = setting
         self.on = on
@@ -55,6 +66,13 @@ public nonisolated struct AppFeature: Sendable, Hashable, Identifiable {
         self.name = name
         self.summary = summary
         self.keywords = keywords
+        self.settingsLink = settingsLink
+    }
+
+    /// The sidebar item a `.sidebarItem` feature shows; nil for a settings key.
+    public var sidebarItem: String? {
+        if case .sidebarItem(let name) = on { return name }
+        return nil
     }
 
     /// The key as a path (`["home", "chiefPetEnabled"]`).
@@ -83,4 +101,8 @@ public protocol AppFeatureSettings: AnyObject {
     func isManaged(_ feature: AppFeature) -> Bool
     /// Writes the key with the person's authority (a button press on this page).
     func set(_ feature: AppFeature, on: Bool) async throws
+    /// Whether the card links to Settings: the feature names rows and Settings can show them.
+    func hasSettings(_ feature: AppFeature) -> Bool
+    /// Opens Settings on `feature`'s ``AppFeature/settingsLink`` rows.
+    func openSettings(_ feature: AppFeature)
 }

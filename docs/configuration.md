@@ -139,6 +139,21 @@ What Cmd-W does on a pinned tab.
 
 A tab closed by name (its menu, `cmux tab close`, MCP) closes with either value. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.cmdWClosesPinnedTabs false`.
 
+## `tabs.terminalFirst`
+
+What Cmd-T, Cmd-D and Cmd-Shift-D open.
+
+```json
+{
+  "tabs": { "terminalFirst": true }
+}
+```
+
+- `false` (default): Cmd-T opens the New Tab page, and a split from a browser tab, the New Tab page or an agent chat opens the New Tab page in the new pane.
+- `true`: Cmd-T opens a terminal tab and Cmd-D and Cmd-Shift-D open a terminal in the new pane, as in cmux classic.
+
+With it on, Cmd-T always opens a tab in the focused pane, even with `newTerminal.opensWorkspace` or `layout.newPanePlacement: split`. A new workspace still starts on the New Tab page. Scripts (`cmux tab new`, `cmux pane split-right`, MCP) are not affected. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.terminalFirst true`.
+
 ## `tabs.swapCmdTAndCmdN`
 
 Which of Cmd-T and Cmd-N opens a tab and which opens a workspace.
@@ -227,7 +242,7 @@ The `minimal` template, the default, shows a short greeting and the composer, wh
 | `chats` | `false` | The recent chats, as rows under the composer. |
 | `styleDots` | `false` | The template dots under the page. |
 
-With every widget off the page still does everything: type an address, a question or search words and press Return (the first suggestion is what Return does; Down picks another), and find any chat with the palette (Cmd-P). Change them in **Settings > General > Tabs** or with `cmux settings set tabs.newTabWidgets.chats true`.
+With every widget off the page still does everything: type a URL or a prompt, and find any chat with the palette (Cmd-P). Change them in **Settings > General > Tabs** or with `cmux settings set tabs.newTabWidgets.chats true`.
 
 ## `app.forkConversationDefaultDestination`
 
@@ -361,8 +376,8 @@ Where a new workspace goes in the sidebar when you do not pick a place: Cmd-N, N
 }
 ```
 
-- `"top"` (default): first in the group of the workspace the window shows. When that workspace is not in a group, first in the workspace list, above every group. Pinned workspaces stay above it in the Pinned section, and it goes below the Home row when the list shows one.
-- `"afterCurrent"`: right after the workspace the window shows, inside that workspace's group when it has one. When that workspace is pinned, is Home, or is on another machine, the new one goes to the top.
+- `"top"` (default): right below the workspace the window shows, inside its group, when that workspace is in a group. When it is not in a group, first in the workspace list, above every group. Pinned workspaces stay above it in the Pinned section, and it goes below the Home row when the list shows one.
+- `"afterCurrent"` (cmux classic's default): right after the workspace the window shows, inside that workspace's group when it has one. When that workspace is pinned, is Home, or is on another machine, the new one goes to the top.
 - `"bottom"`: last in the group of the workspace the window shows. When that workspace is not in a group, after the last workspace that is not in a group.
 
 So under every value, a new workspace opened while you are in a group stays in that group.
@@ -562,6 +577,20 @@ The panel can also open while another app is in front. This system-wide key is o
 ```
 
 Turn it on in Settings > General > Start Agent from Any App. Its key is a separate row, Start Agent from Any App (default Ctrl+Option+Cmd+Space), rebound from Settings > Keyboard Shortcuts or with `shortcuts.bindings["palette.startAgentFromAnyApp"]`. When another app (or another cmux global key) already holds the key, the Keyboard Shortcuts row shows a warning and the key works only inside cmux.
+
+## Background mode and `app.hideDockIconWithoutWindows`
+
+When you close the last cmux window, cmux keeps running, and so do your terminals and agents. By default it then leaves the Dock and the app switcher (Cmd-Tab) and shows a cmux item in the menu bar instead, with Show cmux, New Window, Settings and Quit. Opening any window brings the Dock icon back: the menu bar item, opening cmux again from Finder or Spotlight, a notification, a link, or the `cmux` CLI. To keep the Dock icon while no window is open:
+
+```json
+{
+  "app": {
+    "hideDockIconWithoutWindows": false
+  }
+}
+```
+
+Or turn off Settings > General > Hide Dock Icon When No Windows Are Open.
 
 ## Message the Chief from any app
 
@@ -768,7 +797,7 @@ Three keyboard shortcuts drive the todo state, all editable in **Settings > Keyb
 
 - `markWorkspaceDone` (default `cmd+;`) pins the selected workspace's status to done.
 - `cycleWorkspaceStatus` (default `cmd+shift+;`) advances the status one lane forward (todo → working → needs-attention → review → done → todo).
-- `toggleChecklistItemComplete` (default `cmd+return`) toggles the highlighted checklist item in the focused todo pane or checklist popover.
+- `toggleChecklistItemComplete` (default `cmd+return`) toggles the highlighted checklist item in the focused todo pane or checklist popover. The default steps aside in a terminal, the code editor, an agent chat (where Cmd-Return steers the running turn) and a web page.
 
 cmux also posts a notification when a workspace's status first reaches done, and when its checklist first becomes fully complete, so you can watch agent progress without keeping the pane open.
 
@@ -865,15 +894,15 @@ server (`optchat-chief agent-memory mcp`) with `memory_search`, `memory_get` and
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `enabled` | `false` | Register the server for the agent sessions cmux starts. Only `true` turns it on; a settings file that cannot be read keeps it off. |
+| `enabled` | `false` | Register the server for the agent sessions cmux starts, and let the Agent Memory app's search use the index. Only `true` turns it on; a settings file that cannot be read keeps it off. |
 | `owner` | unset | The route of the machine that owns the index (`ssh://HOST` uses your ssh config; any `cmux remote` route works). Unset: this machine owns it. |
 | `ownerArgs` | `[]` | Extra `cmux remote rpc` options for that route, such as `--daemon FINGERPRINT` or `--ssh-arg ARG`. |
 | `ownerCommand` | unset | The owner's `optchat-chief`, as argv, when it is not in a cmux app bundle, on its `PATH` or in `~/.local/bin`. |
 | `remember` | `true` | Whether agents may save notes. `false` hides `memory_remember`. |
 | `sources` | `[]` | More folders whose `*.md` files are indexed (`~` expands). |
 
-acpmux reads `enabled` at each spawn; the server reads the other keys at each call, so a
-change applies to the next session or call.
+acpmux reads `enabled` at each spawn and the Mac app at each Agent Memory search; the server
+reads the other keys at each call, so a change applies to the next session or call.
 
 ## `browser.searchEngine`, `browser.customSearchEngine` and `browser.omnibar.*`
 
@@ -976,3 +1005,31 @@ Settings > General > Agent Chat shows the same keys.
   whole chat, at its latest edit.
 
 A value cmux does not know keeps that key's default and is reported as a diagnostic.
+
+## `home.server`
+
+Which server Home's direct messages and group chats use. Settings > Accounts > Messages Server
+edits it.
+
+- `"hosted"` (the default): cmux Cloud for this build, with your cmux sign-in.
+- `{"selfHosted": "<origin>"}`: your own `cmux-chat-server` (on a Mac mini or a Linux server),
+  reached over Tailscale.
+
+```json
+{ "home": { "server": "hosted" } }
+```
+
+```json
+{ "home": { "server": { "selfHosted": "http://mini.tail1234.ts.net:7320" } } }
+```
+
+The address is an origin: `http://` or `https://`, a host and an optional port, with no path,
+query or user name. Use the server's MagicDNS name (`<name>.<tailnet>.ts.net`) or its Tailscale
+address. The session daemon accepts a self-hosted server only when its host is a `*.ts.net` name,
+an address in `100.64.0.0/10` or an address in `fd7a:115c:a1e0::/48`, over http or https; it
+refuses any other host. No token or password is sent to a self-hosted server: it identifies you by
+your Tailscale login, and the cmux Cloud sign-in is not used for it. Plain http is fine on the
+tailnet, because WireGuard already encrypts and authenticates the connection.
+
+A value that is neither form falls back to cmux Cloud and shows a settings diagnostic. Agents
+cannot change this setting.

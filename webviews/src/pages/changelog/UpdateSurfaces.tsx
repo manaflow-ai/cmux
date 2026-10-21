@@ -71,7 +71,7 @@ export function UpdatedCard({
   const summary = span ? summarizeUpdate(span, strings.language) : summarizeHighlights(data);
   const empty = strings.t(span ? "changelog.page.maintenance" : "updates.card.whatsNewInBuild");
   return (
-    <section className="wn-card" aria-labelledby={titleId}>
+    <section className="ui-glass wn-card" aria-labelledby={titleId}>
       {/* tooltip-allow: the eyebrow says the version in words; the tooltip names the full build. */}
       <div className="wn-card-eyebrow" id={titleId} title={data.version}>
         {strings.format("updates.card.updatedTo", cardLabel(data.version, data.date, strings))}
@@ -81,7 +81,6 @@ export function UpdatedCard({
           type="button"
           className="wn-card-close"
           aria-label={strings.t("updates.card.dismiss")}
-          title={strings.t("updates.card.dismiss")}
           onClick={actions.dismiss}
         >
           <svg viewBox="0 0 10 10" aria-hidden="true">

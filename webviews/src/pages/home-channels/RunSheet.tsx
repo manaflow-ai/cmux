@@ -92,13 +92,7 @@ export function RunSheet({ entry, people, strings, place, asked, onClose, onLoad
             </span>
             <span className="lg-sheet-place">{place}</span>
             <span className="lg-spacer" />
-            <button
-              type="button"
-              className="hc-icon-button"
-              aria-label={t("run.close")}
-              title={t("run.close")}
-              onClick={onClose}
-            >
+            <button type="button" className="hc-icon-button" aria-label={t("run.close")} onClick={onClose}>
               <HomeIcon name="close" size={16} />
             </button>
           </div>

@@ -8,7 +8,9 @@
 import { Fragment, memo, useId, useMemo, useRef, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { appHref, safeHref } from "../model";
+import { needsYouTarget, openNeedsYou } from "../needsYou/links";
 import { CodeBlock } from "./CodeBlock";
+import { TableBlock } from "./TableBlock";
 import { DiagramBlock, isChart } from "./DiagramBlock";
 import { canRender, RenderCard } from "./RenderCard";
 import { renderFence } from "./renderCall";
@@ -20,11 +22,12 @@ import { MathDisplay, MathInline } from "./Math";
 import { normalizeMath } from "./mathDelimiters";
 import { IncrementalMarkdown, type KeyedBlock } from "./incrementalMarkdown";
 import { linkedText, PathChip, UrlChip } from "../chips/LinkChips";
-import { codePath, linkPath } from "../chips/paths";
+import { codePath, linkPath, pathName, textLinks } from "../chips/paths";
 import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
 import "../../../markdown-task-checkbox.css";
 import { TaskCheckbox } from "../../../ui/TaskCheckbox";
-import { githubReferences } from "../../../githubReferences";
+import { commitReferences, githubReferences } from "../../../githubReferences";
+import { imageOnlyItems, proseImages, type ThumbItem } from "./inlineMedia";
 import { acpmuxPerf } from "../perf";
 import { StartedSessionChip, useStartedMentions, type StartedMentions } from "../started/StartedSessionCard";
 import { splitMentions } from "../started/startedSessions";
@@ -365,9 +368,26 @@ export const linkIcon = (href: string) => {
   return <Globe size={16} strokeWidth={1.1} className="cv-link__icon" />;
 };
 
+/// `src/app.ts:12` keeps its line in the chip's label (the chip opens the file).
+function lineLabel(path: string, written: string): string | undefined {
+  const line = /:(\d+)(?::\d+)?$/.exec(written)?.[1];
+  return line ? `${pathName(path)}:${line}` : undefined;
+}
+
 function linkedGithubText(text: string, key: string, repository?: string, enabled = true): ReactNode[] {
   if (!enabled) return linkedText(text, key);
-  const refs = githubReferences(text, repository);
+  // A pull request address, so the chip opens the pull request card (an issue redirects there);
+  // a commit (`abc1234`, `owner/repo@abc1234`) opens its GitHub page. In reading order; a commit
+  // inside a reference, a URL or a path (`https://x.test/app.js?v=3a7bd3e2`) is part of it.
+  const issues = githubReferences(text, repository, "pull", true);
+  const commits = commitReferences(text, repository);
+  const spans = commits.length ? textLinks(text) : [];
+  const refs = [
+    ...issues,
+    ...commits.filter((commit) => !spans.some((span) => commit.start < span.end && span.start < commit.end)),
+  ]
+    .sort((a, b) => a.start - b.start)
+    .filter((ref, index, all) => index === 0 || ref.start >= all[index - 1]!.end);
   if (!refs.length) return linkedText(text, key);
   const out: ReactNode[] = [];
   let at = 0;
@@ -432,7 +452,7 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
       const path = codePath(t.slice(1, -1));
       out.push(
         path ? (
-          <PathChip key={k++} path={path} written={t.slice(1, -1)} />
+          <PathChip key={k++} path={path} written={t.slice(1, -1)} label={lineLabel(path, t.slice(1, -1))} />
         ) : (
           <code key={k++} className="cv-code">
             {t.slice(1, -1)}
@@ -454,7 +474,18 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
       const linked = /^[a-z][\w+.-]*:\/\/session\/([\w-]+)$/i.exec(lm[2])?.[1];
       const named = linked ? opts.started?.mentions.find((mention) => mention.sessionId === linked) : undefined;
       const app = href ? undefined : appHref(lm[2]);
-      if (named) out.push(<StartedSessionChip key={k++} mention={named} text={lm[1]} onOpen={opts.started!.open} />);
+      // An agent pointing at an open ask (`cmux://needs-you/<permissionId>`, needsYou/links.ts):
+      // a chip that opens the header's Needs you list on it, so the ask is never restated.
+      const ask = href ? undefined : needsYouTarget(lm[2]);
+      if (ask)
+        out.push(
+          <button key={k++} type="button" className="cv-link is-needs-you" onClick={() => openNeedsYou(ask)}>
+            <span className="acpmux-needs-you-dot" aria-hidden="true" />
+            {renderInline(lm[1], labelOpts)}
+          </button>,
+        );
+      else if (named)
+        out.push(<StartedSessionChip key={k++} mention={named} text={lm[1]} onOpen={opts.started!.open} />);
       else if (path) out.push(<PathChip key={k++} path={path} label={renderInline(lm[1], labelOpts)} />);
       else if (app)
         // A cmux app link: a plain anchor, so the click takes the host's link path (opened in the app).
@@ -544,7 +575,7 @@ function InlineImage({ source, opts }: { source: string; opts: InlineOptions }) 
   if (opts.overBudget?.has(src)) return <OversizedImage alt={alt} opts={opts} />;
   if (src === OVERSIZED_DATA_URL || (INLINE_IMAGE.test(src) && src.length > MAX_DATA_URL_LENGTH))
     return <OversizedImage alt={alt} opts={opts} />;
-  if (INLINE_IMAGE.test(src)) return <OpenableImage src={src} alt={alt} />;
+  if (INLINE_IMAGE.test(src)) return <OpenableImage src={src} alt={alt} thumb />;
   const name = alt || src.split(/[?#]/)[0]!.split("/").filter(Boolean).at(-1) || src;
   const labelOpts = { ...opts, githubRepository: undefined, linkGithubReferences: false, started: undefined };
   const href = safeHref(src);
@@ -560,7 +591,27 @@ function InlineImage({ source, opts }: { source: string; opts: InlineOptions }) 
     </a>
   );
   // A file inside the session's folders, or a web image, loads through the host (D5).
-  return <ReplyImage src={src} alt={alt} fallback={fallback} />;
+  return <ReplyImage src={src} alt={alt} fallback={fallback} thumb />;
+}
+
+/// Thumbnails of `items` (inlineMedia.ts): one alone, or a row where each has the same share of
+/// the width, so a before/after pair sits side by side, captioned by its label or alt text.
+/// A written label (`Before:`) is always its caption; an alt text is one only in a row.
+function Thumbs({ items, opts }: { items: ThumbItem[]; opts: InlineOptions }) {
+  const row = items.length > 1;
+  return (
+    <span className={`cv-thumbs${row ? " is-row" : ""}`} data-count={items.length}>
+      {items.map((item, index) => {
+        const caption = item.label ?? (row ? item.alt : "");
+        return (
+          <span key={index} className="cv-thumbs__item">
+            <InlineImage source={`![${item.alt}](${item.src})`} opts={opts} />
+            {caption && <span className="cv-thumbs__caption">{caption}</span>}
+          </span>
+        );
+      })}
+    </span>
+  );
 }
 
 /// A data URL image over MAX_DATA_URL_LENGTH: its alt text (or "Image too large to show") with the
@@ -618,7 +669,28 @@ function Block({
             <RemoteMedia url={link} alt="" fallback={inline(block.text)} />
           </p>
         );
-      return <p className={`cv-p${motion}`}>{inline(block.text)}</p>;
+      // Only images (a before/after pair, a screenshot alone on its line): a row of thumbnails, once
+      // the paragraph has finished arriving (a half-written line may still turn into prose).
+      const images = tail ? undefined : imageOnlyItems(block.text);
+      if (images)
+        return (
+          <p className={`cv-p cv-p--images${motion}`}>
+            <Thumbs items={images} opts={opts} />
+          </p>
+        );
+      // An image path in a sentence stays its chip there; its thumbnail draws under the paragraph,
+      // once the paragraph has finished arriving.
+      const named = tail ? [] : proseImages(block.text);
+      return (
+        <>
+          <p className={`cv-p${motion}`}>{inline(block.text)}</p>
+          {named.length > 0 && (
+            <p className={`cv-p cv-p--images${motion}`}>
+              <Thumbs items={named} opts={opts} />
+            </p>
+          )}
+        </>
+      );
     }
     case "hr":
       return <hr className={`cv-hr${motion}`} />;
@@ -645,43 +717,15 @@ function Block({
               <span className="cv-li__text">
                 {i === block.items.length - 1 && !it.children.length ? inline(it.text) : renderInline(it.text, opts)}
               </span>
+              <ItemThumbs text={it.text} opts={opts} streaming={Boolean(tail) && i === block.items.length - 1} />
               {it.children.length > 0 && <Blocks blocks={it.children} opts={opts} depth={depth + 1} />}
             </li>
           ))}
         </L>
       );
     }
-    case "table": {
-      // Long-text columns get a 256px minimum and the rest 128px.
-      const plain = (t: string) => t.replace(/[`*_~]|\[|\]\([^)]*\)/g, "");
-      const wide = block.header.map((_, i) => block.rows.some((r) => plain(r[i] ?? "").length > 40));
-      return (
-        <div className={`cv-table-wrap${motion}`}>
-          <table className="cv-table">
-            <thead>
-              <tr>
-                {block.header.map((c, i) => (
-                  <th key={i} style={{ textAlign: block.align[i] ?? "left", width: wide[i] ? 256 : 128 }}>
-                    {renderInline(c, opts)}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {block.rows.map((r, ri) => (
-                <tr key={ri}>
-                  {r.map((c, i) => (
-                    <td key={i} style={{ textAlign: block.align[i] ?? "left" }}>
-                      {renderInline(c, opts)}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      );
-    }
+    case "table":
+      return <TableBlock table={block} cell={(text) => renderInline(text, opts)} className={motion} />;
     case "code": {
       if (code === "open") return <PlainCode code={block.code} lang={block.lang} open />;
       if (code === "plain") return <PlainCode code={block.code} lang={block.lang} />;
@@ -705,6 +749,16 @@ function Block({
       );
     }
   }
+}
+
+/// A list item's image paths, as thumbnails under its text (a last item still arriving has none yet).
+function ItemThumbs({ text, opts, streaming }: { text: string; opts: InlineOptions; streaming: boolean }) {
+  const named = streaming ? [] : proseImages(text);
+  return named.length ? (
+    <span className="cv-li__images">
+      <Thumbs items={named} opts={opts} />
+    </span>
+  ) : null;
 }
 
 function Blocks({ blocks, opts, depth }: { blocks: MdBlock[]; opts: InlineOptions; depth: number }) {
@@ -815,9 +869,6 @@ export function Markdown({
     streaming && fresh
       ? { steps: fresh, text: freshChars ? children.slice(children.length - freshChars) : "", now }
       : undefined;
-  // An odd number of fence lines: the last block is a fence still arriving. The parser counts
-  // only the text it has not closed yet, so a reveal frame does not scan the whole reply.
-  const openFence = streaming && parser.current.fenceOpen;
   // A block that streamed in while the chat was hidden, or that lands before its first frame back,
   // came while the user was away: it never enters (WebKit would play its suspended entrance on
   // return, shared/pageReveal.ts). It still hands its code over like any live block.
@@ -825,7 +876,11 @@ export function Markdown({
   const draw = (entry: KeyedBlock, index: number) => {
     const live = !atMount.current!.has(entry.key);
     if (live && away) awayBlocks.current.add(entry.key);
-    const open = openFence && index === blocks.length - 1;
+    // The last block is a fence still arriving. Read from the parsed (safe) tail, not the raw
+    // fence count: a closer still being typed is held back (safeTail.ts), so the card stays open
+    // until the closed one draws the same lines, and an opener held back after a closed fence does
+    // not turn that fence back into an open one.
+    const open = streaming && index === blocks.length - 1 && entry.block.type === "code" && entry.block.open === true;
     if (open) streamedFences.current.add(entry.key);
     return (
       <BlockView

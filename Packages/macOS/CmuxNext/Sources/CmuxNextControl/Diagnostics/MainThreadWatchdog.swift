@@ -73,6 +73,10 @@ public final class MainThreadWatchdog: Sendable {
     public struct Hang: Sendable {
         public var duration: Duration
         public var addresses: [UInt]
+        /// Every other thread's stack, sampled right after the main thread's: a main thread
+        /// that waits on a lock or a reply shows only the wait, and the holder is in here
+        /// (``ThreadStackSampler/sampleOtherThreads(excluding:maxFrames:)``).
+        public var otherThreads: [ThreadSample] = []
     }
 
     public let configuration: Configuration
@@ -349,7 +353,9 @@ public final class MainThreadWatchdog: Sendable {
             if due, let sink = onHang {
                 state.lastReportNanos = now
                 // A fresh sample: the stall sample is from the first threshold, this one from the hang.
-                sink(Hang(duration: duration, addresses: sampler?.sample() ?? []))
+                let addresses = sampler?.sample() ?? []
+                let others = sampler.map { ThreadStackSampler.sampleOtherThreads(excluding: $0.thread) } ?? []
+                sink(Hang(duration: duration, addresses: addresses, otherThreads: others))
             }
         }
         if let hangAssertNanos, elapsed >= hangAssertNanos, state.assertedBeat != beat,

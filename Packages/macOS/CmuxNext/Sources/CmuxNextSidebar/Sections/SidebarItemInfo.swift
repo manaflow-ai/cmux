@@ -45,6 +45,9 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     public var activity: StatusIndicatorState = .idle
     /// The winning report's style hint; nil uses `appearance.statusIndicator.style`.
     public var activityStyle: StatusIndicatorStyle?
+    /// Levels the row's glyph and title step in under the item before it (a Chief subagent under
+    /// the Chief entry); the inline, tile and icon-only looks ignore it.
+    public var indent = 0
 
     public init(title: String, symbol: String, icon: IconName? = nil, color: GroupColor? = nil, badge: Int? = nil, isActive: Bool = false,
                 isMissing: Bool = false, isHidden: Bool = false, caption: String? = nil, shortcut: String? = nil, brand: String? = nil,
@@ -71,10 +74,15 @@ public nonisolated struct SidebarAvatar: Hashable, Sendable {
     /// What the circle draws without a picture: the profile's initial, or up to
     /// two initials for the signed-in user.
     public var initial: String
-    /// The profile's color; nil draws the neutral text color.
+    /// The profile's color; nil draws the theme accent.
     public var color: GroupColor?
     /// The signed-in user's picture (PNG, JPEG), drawn round in place of the initial.
     public var imageData: Data?
+    /// The signed-in user's email: the control's tooltip, where it shows the avatar alone (Leo 2026-10-21).
+    public var email: String?
+
+    /// What hovering the control says: the email, else the name.
+    public var toolTip: String { email ?? name }
 
     public init(name: String, color: GroupColor? = nil) {
         self.name = name
@@ -83,10 +91,11 @@ public nonisolated struct SidebarAvatar: Hashable, Sendable {
     }
 
     /// The signed-in cmux user: their picture, else their initials.
-    public static func account(name: String, imageData: Data? = nil) -> SidebarAvatar {
+    public static func account(name: String, email: String? = nil, imageData: Data? = nil) -> SidebarAvatar {
         var avatar = SidebarAvatar(name: name)
         avatar.initial = initials(for: name)
         avatar.imageData = imageData
+        avatar.email = email ?? (name.contains("@") ? name : nil)
         return avatar
     }
 
@@ -123,6 +132,7 @@ extension SidebarBuiltIn {
         case .newAgentChat: "bubble.left.and.text.bubble.right"
         case .customize: "paintbrush"
         case .searchChats: "magnifyingglass"
+        case .chief: "sparkles"
         }
     }
 
@@ -141,6 +151,7 @@ extension SidebarBuiltIn {
         case .newAgentChat: .agentChatNew
         case .customize: .theme
         case .searchChats: .search
+        case .chief: .agentChief
         }
     }
 
@@ -164,6 +175,7 @@ extension SidebarBuiltIn {
         case .newAgentChat: SectionStrings.newAgentChat
         case .customize: SectionStrings.customize
         case .searchChats: SectionStrings.searchChats
+        case .chief: SectionStrings.chief
         }
     }
 

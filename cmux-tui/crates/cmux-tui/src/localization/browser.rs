@@ -20,6 +20,9 @@ pub(crate) struct BrowserMessages {
     pub no_active_surface: &'static str,
     pub not_browser: &'static str,
     pub unknown_surface: &'static str,
+    /// A browser effect the daemon refused for a browser the cmux app draws,
+    /// with no app method to run it; `{tab}` is the page's tab.
+    pub rendered_by_app: &'static str,
 }
 
 impl BrowserMessages {
@@ -67,6 +70,7 @@ pub(super) const ENGLISH: BrowserMessages = BrowserMessages {
     no_active_surface: "no active surface",
     not_browser: "active surface is not a browser",
     unknown_surface: "unknown browser surface",
+    rendered_by_app: "The cmux app draws this browser, so the session cannot drive it here. Use `cmux browser {tab} press|type|click|scroll`, or run this command in a shell of the app's session.",
 };
 
 pub(super) const JAPANESE: BrowserMessages = BrowserMessages {
@@ -86,4 +90,5 @@ pub(super) const JAPANESE: BrowserMessages = BrowserMessages {
     no_active_surface: "アクティブなサーフェスがありません",
     not_browser: "アクティブなサーフェスはブラウザではありません",
     unknown_surface: "不明なブラウザサーフェスです",
+    rendered_by_app: "このブラウザは cmux アプリが描画しているため、ここではセッションから操作できません。`cmux browser {tab} press|type|click|scroll` を使うか、アプリのセッションのシェルでこのコマンドを実行してください。",
 };

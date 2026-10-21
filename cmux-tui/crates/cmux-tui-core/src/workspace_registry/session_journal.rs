@@ -141,7 +141,9 @@ pub(crate) struct SessionJournalSubjectPage {
     pub(crate) records: Vec<SessionJournalRecord>,
 }
 
-/// One retained `terminal.output` record's content and stream coverage.
+/// One retained `terminal.output` record's content and stream coverage
+/// (test-only: shipped builds read output from output_store.rs).
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct TerminalOutputChunk {
     pub(crate) stream_offset_start: u64,
@@ -150,6 +152,7 @@ pub(crate) struct TerminalOutputChunk {
 }
 
 /// A record-boundary window over one terminal generation's output stream.
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct TerminalOutputRecordsWindow {
     pub(crate) chunks: Vec<TerminalOutputChunk>,
@@ -1243,6 +1246,7 @@ impl WorkspaceRegistry {
 
     /// The most recently started journal output stream for one terminal:
     /// its generation and the exclusive end offset of its journaled bytes.
+    #[cfg(test)]
     pub(crate) fn terminal_stream_latest(
         &self,
         terminal_id: &str,
@@ -1276,6 +1280,7 @@ impl WorkspaceRegistry {
     /// retained vt-replay snapshot (a checkpoint blob for live terminals, the
     /// terminal exit snapshot for exited ones) and readers see the coverage
     /// clamp through the window's start offset.
+    #[cfg(test)]
     pub(crate) fn terminal_output_records_after(
         &self,
         terminal_id: &str,

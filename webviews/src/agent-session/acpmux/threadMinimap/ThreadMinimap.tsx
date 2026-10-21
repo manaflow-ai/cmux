@@ -86,6 +86,7 @@ export function ThreadMinimap({
   scroller,
   scrollTop,
   viewportHeight,
+  scrolls,
   width,
   placed,
 }: {
@@ -95,14 +96,18 @@ export function ThreadMinimap({
   scroller: React.RefObject<HTMLElement | null>;
   scrollTop: number;
   viewportHeight: number;
+  /// Whether the transcript scrolls at all (its layout, dock space included, is taller than it).
+  scrolls: boolean;
   width: number;
   /// The transcript calls what the rail puts here once each commit's placement pass has set its
   /// offset (VirtualTranscript), so the band reads where the transcript put the reader.
   placed?: React.MutableRefObject<(() => void) | undefined>;
 }) {
   const t = useT();
-  /// The full-height map (ScrollMap.tsx) or the compact Codex rail below, read once per pane.
-  const [full] = useState(() => experimentArm(threadMinimapLayout) === "full");
+  /// The full-height map (ScrollMap.tsx), the compact Codex rail below, or none (`off`, the
+  /// default: the turn steps below still run), read once per pane.
+  const [arm] = useState(() => experimentArm(threadMinimapLayout));
+  const full = arm === "full";
   const marks = usePromptMarks(sessionId);
   const lastTurns = useRef<MinimapTurns | undefined>(undefined);
   const turns = useMemo(() => {
@@ -156,7 +161,7 @@ export function ThreadMinimap({
   const shift = restoring.current && restoring.current.from === seen ? restoring.current.by : 0;
   const top = (seen ?? scrollTop) + shift;
   const onScreen = visibleTurns(turns, layout.tops, layout.totalHeight, top, viewportHeight);
-  const shown = !full && turns.length >= MIN_PROMPTS && gutter(width) >= MIN_GUTTER;
+  const shown = arm === "compact" && turns.length >= MIN_PROMPTS && gutter(width) >= MIN_GUTTER;
   const height = railHeight(turns.length, windowHeight, viewportHeight);
   const overflow = turns.length * ROW_PITCH > height;
 
@@ -479,6 +484,7 @@ export function ThreadMinimap({
         layout={layout}
         scroller={scroller}
         viewportHeight={viewportHeight}
+        scrolls={scrolls}
         width={width}
         marks={marks}
         jump={jump}
@@ -504,7 +510,8 @@ export function ThreadMinimap({
       event.currentTarget.releasePointerCapture(state.pointer);
   };
   const railTop = Math.round((viewportHeight - height) / 2);
-  const active = hovered ?? focused;
+  // The previewed prompt stays lit while the pointer is on its card, as ChatGPT's rail does.
+  const active = hovered ?? focused ?? (showCard ? cardRow : undefined);
   const cardMarked = cardTurn ? marks.has(cardTurn) : false;
   const cardTop =
     cardRow === undefined

@@ -109,6 +109,7 @@ const WEAK_LEADS = new Set([
   "run",
   "set",
   "show",
+  "tail",
   "test",
   "update",
   "upgrade",
@@ -141,6 +142,57 @@ const OBJECTS = new Set([
   "those",
   "some",
   "all",
+]);
+
+/// First words that are not a verb, so "the" or "a" second is a title, not an object: "under the
+/// tuscan sun", "around the world in 80 days".
+const NOT_VERBS = new Set([
+  "a",
+  "an",
+  "the",
+  "about",
+  "above",
+  "across",
+  "after",
+  "against",
+  "along",
+  "among",
+  "around",
+  "at",
+  "before",
+  "behind",
+  "below",
+  "beneath",
+  "beside",
+  "between",
+  "beyond",
+  "by",
+  "down",
+  "for",
+  "from",
+  "in",
+  "inside",
+  "into",
+  "near",
+  "of",
+  "off",
+  "on",
+  "out",
+  "outside",
+  "over",
+  "past",
+  "since",
+  "through",
+  "to",
+  "toward",
+  "towards",
+  "under",
+  "until",
+  "up",
+  "upon",
+  "with",
+  "within",
+  "without",
 ]);
 
 /// Pointing words after a request word: "make this faster", "move it up". Only after a lead the
@@ -179,7 +231,9 @@ export function readsAsRequest(text: string): boolean {
   if (lead && LEADS.has(lead) && words.length >= 2) return true;
   if (lead && WEAK_LEADS.has(lead) && words.length >= 4) return true;
   // An imperative: a verb, then its object ("open the voice settings").
-  if (second && OBJECTS.has(second) && words.length >= 4) return true;
+  if (lead && second && OBJECTS.has(second) && !NOT_VERBS.has(lead) && words.length >= 4) return true;
+  // A known request word and "the": "run the tests", "tail the logs" ("build a bear" stays a title).
+  if (lead && second === "the" && WEAK_LEADS.has(lead) && words.length >= 3) return true;
   if (lead && second && POINTERS.has(second) && WEAK_LEADS.has(lead) && !OBJECTS.has(lead) && words.length >= 3)
     return true;
   // "It broke. Fix it": a word's sentence end, then a new sentence ("St. Louis" stays a name).

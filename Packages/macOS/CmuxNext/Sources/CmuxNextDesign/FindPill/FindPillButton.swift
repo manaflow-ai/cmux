@@ -62,11 +62,11 @@ final class FindPillButton: NSButton {
         applyColors()
     }
 
-    /// Re-reads the theme's inks: secondary at rest, primary under the pointer, accent while on.
+    /// Re-reads the theme's inks: secondary at rest, primary under the pointer, the lit glyph while on.
     func applyColors() {
         performWithTheme {
             let on = state == .on
-            let ink = on ? Palette.accent : (hovering && isEnabled ? Palette.textPrimary : Palette.textSecondary)
+            let ink = on ? Palette.litGlyph : (hovering && isEnabled ? Palette.textPrimary : Palette.textSecondary)
             contentTintColor = ink
             if !title.isEmpty {
                 attributedTitle = NSAttributedString(string: title, attributes: [
@@ -74,7 +74,7 @@ final class FindPillButton: NSButton {
                     .foregroundColor: ink,
                 ])
             }
-            let fill: NSColor = on ? Palette.accent.withAlphaComponent(0.2) : (hovering && isEnabled ? Palette.hoverFill : .clear)
+            let fill: NSColor = on ? Palette.accent.withAlphaComponent(0.2) : (hovering && isEnabled && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : .clear)
             layer?.backgroundColor = fill.cgColor
             alphaValue = isEnabled ? 1 : 0.4
         }

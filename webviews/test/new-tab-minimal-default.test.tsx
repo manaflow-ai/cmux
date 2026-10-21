@@ -1,7 +1,8 @@
 // New Tab opens on Minimal (Leo 2026-10-20: "only do the composer for the default"), a layout of
 // its own beside the others: a quiet greeting and the composer, which keeps its project strip. The
 // project card, the quick actions, the recent chats and the template dots are Minimal's widgets
-// (`tabs.newTabWidgets.*`, newtab/pageWidgets.ts), off until the user turns them on. The other
+// (`tabs.newTabWidgets.*`, newtab/pageWidgets.ts), off until the user turns them on. The page has
+// no Search | Ask switch (new-tab-auto-action.test.tsx), with or without the widgets. The other
 // layouts draw what they always drew.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
@@ -133,8 +134,6 @@ test("Minimal is the greeting and the composer, with its project strip", async (
       chats: 0,
       strip: 1,
     });
-    // No Search | Ask switch on any page (#22816): Return does what the text reads as.
-    expect(host.querySelector(".nt-mode")).toBeNull();
   } finally {
     await act(async () => root.unmount());
   }
