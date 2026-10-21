@@ -115,7 +115,12 @@ fn idle(session: &str, harness: &str) -> cmux_chief::acp::SessionSummary {
 /// Spawns a1 on `sub_harness` and steps the brain until `done` holds (or
 /// 20 s pass); each subagent session that got its prompt goes idle, as
 /// acpmux reports it.
-fn run_until(h: &mut Harness, sub_harness: &str, done: impl Fn(&Harness) -> bool) {
+fn run_until(
+    h: &mut Harness,
+    lines: &Mutex<Vec<String>>,
+    sub_harness: &str,
+    done: impl Fn(&Harness) -> bool,
+) {
     let sp = spawner(h, sub_harness);
     h.brain.set_sub_starter(Some(sp.queue_starter()));
     h.connect();
@@ -124,7 +129,13 @@ fn run_until(h: &mut Harness, sub_harness: &str, done: impl Fn(&Harness) -> bool
     let deadline = Instant::now() + Duration::from_secs(20);
     let mut idled: Vec<String> = Vec::new();
     while !done(h) {
-        assert!(Instant::now() < deadline, "timed out: {:?}", h.log());
+        assert!(
+            Instant::now() < deadline,
+            "timed out: {:?}; host.log: {:?}; sessions: {:?}",
+            h.log(),
+            lines.lock().unwrap(),
+            sub_sessions(h)
+        );
         if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(20)) {
             h.brain.step(input);
             continue;
@@ -145,7 +156,7 @@ fn run_until(h: &mut Harness, sub_harness: &str, done: impl Fn(&Harness) -> bool
 fn a_subagent_out_of_usage_continues_on_the_chiefs_harness() {
     // The Chief's turns run on claude-sr (settings), its subagent on claude.
     let (mut h, lines) = harness();
-    run_until(&mut h, "claude", |h| {
+    run_until(&mut h, &lines, "claude", |h| {
         sub_sessions(h).len() >= 2 && !prompts_of(h, &sub_sessions(h)[1].0).is_empty()
     });
     let sessions = sub_sessions(&h);
@@ -185,8 +196,8 @@ fn a_subagent_out_of_usage_continues_on_the_chiefs_harness() {
 
 #[test]
 fn a_subagent_out_of_usage_on_the_chiefs_own_harness_is_reported() {
-    let (mut h, _) = harness();
-    run_until(&mut h, "claude-sr", |h| {
+    let (mut h, lines) = harness();
+    run_until(&mut h, &lines, "claude-sr", |h| {
         h.log().iter().any(|(_, t)| t.starts_with("[a1]"))
     });
     assert_eq!(sub_sessions(&h).len(), 1, "no other harness to move it to");
