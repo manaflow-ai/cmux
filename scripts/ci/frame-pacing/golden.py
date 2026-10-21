@@ -512,6 +512,9 @@ def markdown(out: Path, verdicts: dict[str, dict]) -> str:
         if name == "browser_resize":
             lines.append(browser_resize.markdown_row(verdict))
             continue
+        if name == "dark_load_flash":
+            lines.append(dark_load_flash.markdown_row(verdict))
+            continue
         limits = THRESHOLDS[name]
         bound = f"≥ {limits['min_intermediate']:g}" if "min_intermediate" in limits else f"≤ {limits['max_intermediate']:g}"
         step = f"{verdict['max_step']:.0%}" if "max_step" in verdict else ""

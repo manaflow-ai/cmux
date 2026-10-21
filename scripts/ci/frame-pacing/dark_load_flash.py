@@ -157,3 +157,16 @@ def judge(data: dict, refresh: float) -> dict:
     verdict["problems"] = problems
     verdict["ok"] = not problems
     return verdict
+
+
+def markdown_row(verdict: dict) -> str:
+    """The scenario's row of golden.py's table."""
+    problems = verdict.get("problems") or []
+    peak, mean = verdict.get("peak") or {}, verdict.get("luminance") or {}
+    notes = list(problems) or [f"no frame brighter than the window at rest (theme luminance "
+                               f"{verdict.get('theme_luminance', 0):.3f})"]
+    brightness = ""
+    if peak and mean:
+        brightness = (f"peak {peak['rest']:.3f} → {peak['worst']:.3f}, "
+                      f"mean {mean['rest']:.3f} → {mean['worst']:.3f}")
+    return f"| dark_load_flash | {'ok' if verdict.get('ok') else 'FAIL'} | {brightness} |  |  | {'; '.join(notes)} |"
