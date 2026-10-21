@@ -74,6 +74,30 @@ describe("Hexclave mirror backfill", () => {
     expect(mirror.pendingRevocations).toContain(`${TEAM_ID}:${USER_ID}`);
   });
 
+  test("the prune point-read cannot re-add membership while its revocation is pending", async () => {
+    const mirror = new MemoryMirror();
+    mirror.clock = () => Date.now() - 60_000;
+    const initial = world();
+    await mirror.reconcileUser(USER_ID, () => readUser(initial, USER_ID));
+    initial.removeMember(TEAM_ID, USER_ID);
+    await mirror.reconcileUser(USER_ID, () => readUser(initial, USER_ID));
+    expect(mirror.pendingRevocations).toContain(`${TEAM_ID}:${USER_ID}`);
+
+    const bulk = world();
+    bulk.users.delete(USER_ID);
+    const pointRead = world();
+    const summary = await backfillHexclaveMirror({
+      source: bulk,
+      reconcileSource: pointRead,
+      store: mirror,
+      concurrency: 1,
+      pageSize: 50,
+    });
+    expect(summary.skippedFresher).toBe(1);
+    expect(mirror.teamIdsFor(USER_ID)).toEqual([]);
+    expect(mirror.pendingRevocations).toContain(`${TEAM_ID}:${USER_ID}`);
+  });
+
   test("pages everything into the mirror and a rerun changes nothing", async () => {
     const hexclave = world();
     const mirror = new MemoryMirror();
