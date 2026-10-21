@@ -73314,6 +73314,268 @@
         }
       }
     },
+    "settings.tabs.terminalFirst": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Tabs and Splits Open a Terminal"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "علامات التبويب والتقسيمات الجديدة تفتح طرفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nove kartice i podjele otvaraju terminal"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nye faner og opdelinger åbner en terminal"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neue Tabs und Teilungen öffnen ein Terminal"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las pestañas y divisiones nuevas abren una terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les nouveaux onglets et divisions ouvrent un terminal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuove schede e divisioni aprono un terminale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいタブと分割でターミナルを開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំង និងការបំបែកថ្មីបើកទែមីណាល់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 탭과 분할에서 터미널 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nye faner og delinger åpner en terminal"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nowe karty i podziały otwierają terminal"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Novas abas e divisões abrem um terminal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новые вкладки и разделения открывают терминал"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แท็บและการแบ่งใหม่เปิดเทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni Sekmeler ve Bölmeler Terminal Açar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нові вкладки й поділи відкривають термінал"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thẻ và vùng chia mới mở terminal"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新标签页和拆分打开终端"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新分頁和分割開啟終端機"
+          }
+        }
+      }
+    },
+    "settings.tabs.terminalFirst.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When on, Cmd-T, Cmd-D and Cmd-Shift-D open a terminal, as in cmux classic, instead of the New Tab page."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند التشغيل، تفتح Cmd-T وCmd-D وCmd-Shift-D طرفية كما في cmux classic بدلاً من صفحة علامة التبويب الجديدة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada je uključeno, Cmd-T, Cmd-D i Cmd-Shift-D otvaraju terminal, kao u cmux classic, umjesto stranice nove kartice."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når den er slået til, åbner Cmd-T, Cmd-D og Cmd-Shift-D en terminal som i cmux classic i stedet for siden Ny fane."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn an, öffnen Cmd-T, Cmd-D und Cmd-Shift-D ein Terminal wie in cmux classic statt der Seite „Neuer Tab“."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Si está activado, Cmd-T, Cmd-D y Cmd-Shift-D abren una terminal, como en cmux classic, en lugar de la página Nueva pestaña."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activé, Cmd-T, Cmd-D et Cmd-Shift-D ouvrent un terminal, comme dans cmux classic, au lieu de la page Nouvel onglet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se attivato, Cmd-T, Cmd-D e Cmd-Shift-D aprono un terminale, come in cmux classic, invece della pagina Nuova scheda."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オンのとき、Cmd-T、Cmd-D、Cmd-Shift-D は新規タブページではなく、cmux classic と同じようにターミナルを開きます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពេលបើក Cmd-T, Cmd-D និង Cmd-Shift-D បើកទែមីណាល់ ដូចក្នុង cmux classic ជំនួសឱ្យទំព័រផ្ទាំងថ្មី។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "켜면 Cmd-T, Cmd-D, Cmd-Shift-D가 새 탭 페이지 대신 cmux classic처럼 터미널을 엽니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når på, åpner Cmd-T, Cmd-D og Cmd-Shift-D en terminal som i cmux classic i stedet for Ny fane-siden."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdy włączone, Cmd-T, Cmd-D i Cmd-Shift-D otwierają terminal, jak w cmux classic, zamiast strony nowej karty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando ativado, Cmd-T, Cmd-D e Cmd-Shift-D abrem um terminal, como no cmux classic, em vez da página Nova Aba."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Если включено, Cmd-T, Cmd-D и Cmd-Shift-D открывают терминал, как в cmux classic, а не страницу новой вкладки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อเปิด Cmd-T, Cmd-D และ Cmd-Shift-D จะเปิดเทอร์มินัลเหมือนใน cmux classic แทนหน้าแท็บใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Açıkken Cmd-T, Cmd-D ve Cmd-Shift-D, Yeni Sekme sayfası yerine cmux classic'teki gibi bir terminal açar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Якщо ввімкнено, Cmd-T, Cmd-D і Cmd-Shift-D відкривають термінал, як у cmux classic, замість сторінки нової вкладки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi bật, Cmd-T, Cmd-D và Cmd-Shift-D mở terminal như trong cmux classic thay vì trang Thẻ mới."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开启时，Cmd-T、Cmd-D 和 Cmd-Shift-D 会像 cmux classic 一样打开终端，而不是新标签页页面。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟時，Cmd-T、Cmd-D 和 Cmd-Shift-D 會像 cmux classic 一樣開啟終端機，而不是新分頁頁面。"
+          }
+        }
+      }
+    },
     "settings.tabs.cmdWClosesPinnedTabs": {
       "extractionState": "manual",
       "localizations": {
