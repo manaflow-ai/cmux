@@ -6,33 +6,38 @@ import Foundation
 import Observation
 
 /// The signed-in cmux user on the sidebar's profile control (Leo 2026-10-06): their picture or
-/// initials on the control, and who is signed in with Sign Out in its menu.
+/// initials on the control, and who is signed in, on which team, with Sign Out in its menu.
 struct SidebarAccount: Hashable {
     /// The display name, else the email.
     var name: String
     var email: String?
     var imageData: Data?
+    /// The selected cmux team's name; its row opens the team picker.
+    var team: String?
 
     /// Nil without a name or email to show.
-    init?(name: String?, email: String?, imageData: Data? = nil) {
+    init?(name: String?, email: String?, imageData: Data? = nil, team: String? = nil) {
         let shown = [name, email].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }.first { !$0.isEmpty }
         guard let shown else { return nil }
         self.name = shown
         self.email = email.flatMap { $0 == shown || $0.isEmpty ? nil : $0 }
         self.imageData = imageData
+        self.team = team.flatMap { $0.isEmpty ? nil : $0 }
     }
 
     /// The signed-in user, with their picture once it has loaded.
     @MainActor init?(_ auth: CloudAuth?) {
         guard let auth, auth.isSignedIn, let user = auth.user else { return nil }
         let picture = user.profileImageURL.flatMap { AccountAvatarImages.shared.data[$0] }
-        self.init(name: user.displayName, email: user.primaryEmail, imageData: picture)
+        let team = auth.teams.first { $0.id == auth.teamID }?.displayName
+        self.init(name: user.displayName, email: user.primaryEmail, imageData: picture, team: team)
     }
 
     var avatar: SidebarAvatar { .account(name: name, imageData: imageData) }
 
     /// Adds the account rows to the profile menu: signed in, who it is (not a
-    /// command) on top and Sign Out at the end; signed out, Sign In at the end.
+    /// command) and the team (its row opens the team picker) on top and Sign Out
+    /// at the end; signed out, Sign In at the end.
     @MainActor static func addRows(to menu: NSMenu, account: SidebarAccount?, registry: ActionRegistry) {
         let action: ActionID = account == nil ? "palette.auth.signIn" : "palette.auth.signOut"
         if let item = registry.makeMenuItem(for: action) {
@@ -41,6 +46,12 @@ struct SidebarAccount: Hashable {
         }
         guard let account else { return }
         menu.insertItem(.separator(), at: 0)
+        if let team = account.team, let item = registry.makeMenuItem(for: "openTeamPicker") {
+            item.title = team
+            item.image = NSImage(systemSymbolName: "person.2", accessibilityDescription: team)
+            item.identifier = NSUserInterfaceItemIdentifier("profileMenu.team")
+            menu.insertItem(item, at: 0)
+        }
         for line in [account.email, account.name].compactMap(\.self) {
             let header = NSMenuItem(title: line, action: nil, keyEquivalent: "")
             header.isEnabled = false
