@@ -182,7 +182,7 @@ impl ConnectionOrigin {
                 LocalPeer::Terminal(id) => Actor::Terminal { id: id.clone() },
                 LocalPeer::Unknown | LocalPeer::Other => Actor::local_user(),
             },
-            RequestOrigin::Page => Actor::local_user(),
+            RequestOrigin::App | RequestOrigin::Page => Actor::local_user(),
         }
     }
 
