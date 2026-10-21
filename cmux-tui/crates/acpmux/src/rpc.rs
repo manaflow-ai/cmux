@@ -235,6 +235,8 @@ pub mod method {
     pub const MUX_MAIL_ACK: &str = "_acpmux/mail/ack";
     /// An image a session's prompt sent, by its id (`hub/prompt_images.rs`).
     pub const MUX_ATTACHMENT: &str = "_acpmux/attachment";
+    /// An image or a PDF kept ahead of the prompt that names it (`hub/prompt_images.rs`).
+    pub const MUX_ATTACHMENT_PUT: &str = "_acpmux/attachment_put";
     pub const MUX_PERMISSION_RESPOND: &str = "_acpmux/permission_respond";
     /// The signed app gives this launch's person key (`hub/person.rs`).
     pub const MUX_PERSON_ENROLL: &str = "_acpmux/person_enroll";
