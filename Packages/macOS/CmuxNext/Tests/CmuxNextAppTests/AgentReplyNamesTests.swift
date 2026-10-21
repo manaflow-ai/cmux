@@ -31,6 +31,23 @@ struct AgentReplyNamesTests {
         #expect(found["missing.py"]?.isEmpty ?? true)
     }
 
+    /// More matches than are returned: the shallowest still wins, even with a long folder name.
+    @Test func theCutComesAfterRankingAcrossAllMatches() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("reply-names-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        var files = ["a-very-long-folder-name-that-sorts-late/README.md"]
+        for i in 0..<30 { files.append("d\(i)/e/f/README.md") }
+        for file in files {
+            let url = root.appendingPathComponent(file)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data("x".utf8).write(to: url)
+        }
+        let found = await AgentReplyNames(home: "/nonexistent-home-\(UUID().uuidString)").find(["README.md"], in: [root.path])
+        let paths = found["README.md"] ?? []
+        #expect(paths.count == AgentReplyNames.hitsPerName)
+        #expect(paths.first?.hasSuffix("/a-very-long-folder-name-that-sorts-late/README.md") == true)
+    }
+
     @Test(arguments: [("/", true), ("/Users/me", true), ("/Users", true), ("/Users/me/project", false), ("/tmp/x", false)])
     func theHomeFolderAndAboveAreNeverWalked(root: String, broad: Bool) {
         #expect(AgentReplyNames.isTooBroad(root, home: "/Users/me") == broad)

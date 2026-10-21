@@ -219,12 +219,24 @@ for (const value of [
   "index.d.ts:3",
   "app.5a:42",
 ]) {
-  test(`file references remain chips: ${value}`, () => {
+  test(`file references remain chips: ${value}`, async () => {
+    const { resetLinkStore, seedLinkStore } = await import("../src/agent-session/acpmux/chips/linkStore");
+    const path = value.split(":")[0]!;
     expect(codeReplyPath(value)).toBeDefined();
-    for (const source of [value, `\`${value}\``, `[x](${value})`]) {
-      expect(renderToStaticMarkup(<>{renderInline(source)}</>)).toContain("cv-chip is-path");
+    resetLinkStore();
+    // A name with no folder is a chip only once the host has found it; a path with one at once.
+    if (!path.includes("/")) {
+      expect(renderToStaticMarkup(<>{renderInline(`\`${value}\``)}</>)).not.toContain("cv-chip is-path");
+      seedLinkStore({ paths: { [path]: { place: "root", folder: false } } });
     }
-    expect(linkReplyPath(value)?.path).toBe(value.split(":")[0]!);
+    try {
+      for (const source of [value, `\`${value}\``, `[x](${value})`]) {
+        expect(renderToStaticMarkup(<>{renderInline(source)}</>)).toContain("cv-chip is-path");
+      }
+    } finally {
+      resetLinkStore();
+    }
+    expect(linkReplyPath(value)?.path).toBe(path);
     expect(textLinks(value)).toHaveLength(1);
   });
 }
@@ -363,22 +375,30 @@ test("bare names are asked in their own call, so other chips never wait for the 
       for (const path of paths) places[path] = { place: "root", folder: false };
       const answer = { paths: places, sites: {}, policy: POLICY };
       // The name search is slow: hold its answer until the test lets it go.
-      if (paths.includes("next-sync.py")) return new Promise((resolve) => (finishNames = () => resolve(answer)));
+      if (paths.some((path) => !path.includes("/")))
+        return new Promise((resolve) => (finishNames = () => resolve(answer)));
       return answer;
     },
     async (root, container, act) => {
-      await act(async () => root.render(<>{renderInline("`src/app.ts:3` and `next-sync.py`")}</>));
+      // A bare code span, a name with a line and a link to a name all wait on the search alone.
+      await act(async () =>
+        root.render(<>{renderInline("`src/app.ts:3` and `next-sync.py` and `other.py:3` and [x](link.py)")}</>),
+      );
       await act(async () => {});
       await act(async () => {});
       expect(calls).toContainEqual(["src/app.ts"]);
-      expect(calls).toContainEqual(["next-sync.py"]);
+      expect(calls.find((call) => call.includes("next-sync.py"))?.sort()).toEqual([
+        "link.py",
+        "next-sync.py",
+        "other.py",
+      ]);
       // The folder path is a chip while the name search is still out; the bare name is code.
       expect(
         Array.from(container.querySelectorAll("button.cv-chip")).map((node) => (node as HTMLElement).dataset.path),
       ).toEqual(["src/app.ts"]);
       await act(async () => finishNames?.());
       await act(async () => {});
-      expect(container.querySelectorAll("button.cv-chip")).toHaveLength(2);
+      expect(container.querySelectorAll("button.cv-chip")).toHaveLength(4);
     },
   );
 });
