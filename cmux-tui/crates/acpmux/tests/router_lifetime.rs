@@ -368,3 +368,126 @@ async fn a_kept_agent_keeps_its_router_and_the_next_daemon_adopts_it() {
     assert!(gone_within(router_pid, Duration::from_secs(10)), "the router outlived its last agent");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Ended on every path: a router started by hand has no owner to outlive.
+struct Reaped(Child);
+
+impl Drop for Reaped {
+    fn drop(&mut self) {
+        if self.0.try_wait().ok().flatten().is_none() {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+}
+
+/// An update with a kept agent: a daemon of this build ran one agent and
+/// stopped keeping it (its host still holds the owner FIFO), and the router
+/// that runs now is one of an older build on that same owner FIFO. Returns
+/// the scratch folder, the kept session, its host pid and the old router.
+async fn kept_agent_and_an_older_router(tag: &str) -> (PathBuf, String, i32, Reaped, i32) {
+    let dir = scratch(tag);
+    let mut first = start_daemon(&dir);
+    let (router_pid, _held) = router(&dir);
+    let mut rpc = Rpc::connect(&dir).await;
+    let created = rpc.call("session/new", json!({"cwd": dir, "mcpServers": []})).await;
+    let session = created["sessionId"].as_str().unwrap().to_owned();
+    assert_eq!(rpc.prompt(&session, "hello").await, "echo: hello");
+    let record = std::fs::read(dir.join("hosts").join(format!("{session}.json"))).unwrap();
+    let record: Value = serde_json::from_slice(&record).unwrap();
+    let host_pid = i32::try_from(record["host_pid"].as_i64().unwrap()).unwrap();
+    drop(rpc);
+    cli_shutdown(&dir, &["--keep-agents"]);
+    wait_exit(&mut first, Duration::from_secs(15));
+    assert!(alive(host_pid), "--keep-agents ended the agent host");
+    assert_eq!(ask_router(&dir, json!({"op": "shutdown"}))["stopping"], json!(true));
+    assert!(gone_within(router_pid, Duration::from_secs(10)), "the router did not stop");
+    let old = Reaped(
+        daemon_env::acpmux(&dir)
+            .args(["router", "serve"])
+            .env("ACPMUX_HOME", &dir)
+            .env("CMUX_ROUTER_BUILD", "an-older-build")
+            .env("CMUX_ROUTER_OWNER_FIFO", dir.join("router").join("owner.fifo"))
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let (old_pid, _old_held) = router(&dir);
+    assert_eq!(u32::try_from(old_pid).unwrap(), old.0.id());
+    assert_eq!(ask_router(&dir, json!({"op": "status"}))["build"], json!("an-older-build"));
+    (dir, session, host_pid, old, old_pid)
+}
+
+/// cmux issue 23089: after an update, a kept agent that does not use the
+/// local router (its own subscription, an API key, the subrouter) must not
+/// keep the router of the old build alive forever. The next daemon replaces
+/// that router with one of its own build, and the kept agent still answers.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_router_of_another_build_is_replaced_when_no_kept_agent_uses_it() {
+    let (dir, session, host_pid, mut old, old_pid) = kept_agent_and_an_older_router("rold").await;
+    // The next daemon (this build) replaces it: no kept agent uses it.
+    let mut second = start_daemon(&dir);
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while old.0.try_wait().unwrap().is_none() {
+        assert!(
+            Instant::now() < deadline,
+            "the router of the older build still runs: the new daemon kept it for an agent that never used it"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let (new_pid, _new_held) = router(&dir);
+    assert_ne!(new_pid, old_pid);
+    let status = ask_router(&dir, json!({"op": "status"}));
+    assert_ne!(status["build"], json!("an-older-build"), "{status}");
+    assert!(status["port"].as_u64().is_some(), "{status}");
+
+    // Its host said so itself: its record says it does not use the router.
+    let record = std::fs::read(dir.join("hosts").join(format!("{session}.json"))).unwrap();
+    let record: Value = serde_json::from_slice(&record).unwrap();
+    assert_eq!(record["uses_local_router"], json!(false), "{record}");
+    // The kept agent was adopted and still answers.
+    assert!(alive(host_pid), "replacing the router ended the kept agent host");
+    let mut rpc = Rpc::connect(&dir).await;
+    assert_eq!(rpc.prompt(&session, "again").await, "echo: again");
+    drop(rpc);
+
+    cli_shutdown(&dir, &["--end-agents"]);
+    wait_exit(&mut second, Duration::from_secs(15));
+    assert!(gone_within(host_pid, Duration::from_secs(10)), "the agent host outlived the shutdown");
+    assert!(gone_within(new_pid, Duration::from_secs(10)), "the router outlived its last agent");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A kept agent whose host cannot say it does not use the router (a host
+/// of an older build has no `uses_local_router`) keeps the router of the
+/// older build: its harness may hold that router's port and key.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_router_of_another_build_stays_for_a_kept_agent_that_may_use_it() {
+    let (dir, session, host_pid, mut old, old_pid) = kept_agent_and_an_older_router("rkep").await;
+    let path = dir.join("hosts").join(format!("{session}.json"));
+    let mut record: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    record.as_object_mut().unwrap().remove("uses_local_router");
+    std::fs::write(&path, serde_json::to_vec(&record).unwrap()).unwrap();
+
+    let mut second = start_daemon(&dir);
+    assert!(old.0.try_wait().unwrap().is_none(), "the router a kept agent may use was stopped");
+    let status = ask_router(&dir, json!({"op": "status"}));
+    assert_eq!(status["pid"], json!(old_pid), "{status}");
+    assert_eq!(status["build"], json!("an-older-build"), "{status}");
+    let mut rpc = Rpc::connect(&dir).await;
+    assert_eq!(rpc.prompt(&session, "again").await, "echo: again");
+    drop(rpc);
+
+    cli_shutdown(&dir, &["--end-agents"]);
+    wait_exit(&mut second, Duration::from_secs(15));
+    assert!(gone_within(host_pid, Duration::from_secs(10)), "the agent host outlived the shutdown");
+    // The test started that router, so its exit is reaped here.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while old.0.try_wait().unwrap().is_none() {
+        assert!(Instant::now() < deadline, "the router outlived its last agent");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -66,18 +66,24 @@ impl RouterOwner for FifoOwner {
 /// - same build: this daemon opens the owner FIFO, then asks `adopt`. The
 ///   router refuses only when it is already stopping; then a new one starts
 ///   (it waits on router.lock for the old one).
-/// - another build: replaced (`shutdown`, then a new router) only when no
-///   kept agent host runs; while one runs, this daemon adopts it too, and a
-///   later daemon start replaces it.
+/// - another build: adopted only while a kept agent host may use it (its
+///   record says its harness got this router's URL, `users.rs`); else it is
+///   replaced (`shutdown`, then a new router of this build). Kept agents on
+///   other routes never pin an old router after an update (cmux issue 23089).
 fn start_or_adopt() -> Option<FifoOwner> {
     use std::os::unix::process::CommandExt;
     let fifo = router_owner_fifo();
     if let Ok(status) = ask_router(b"{\"op\":\"status\"}\n") {
         let same_build = status.get("build").and_then(Value::as_str) == Some(crate::hub::BUILD);
-        let kept_hosts = crate::agent_host::sweep::running_hosts(&crate::agent_host::hosts_dir())
-            .iter()
-            .any(|host| !host.pooled);
-        if same_build || kept_hosts {
+        let hosts = crate::agent_host::sweep::running_hosts(&crate::agent_host::hosts_dir());
+        let kept_hosts = hosts.iter().any(|host| !host.pooled);
+        // Only a router of another build is checked for users: a router of
+        // this build is adopted whoever uses it.
+        let users = if same_build { 0 } else { super::users::router_users(&hosts) };
+        if !same_build && kept_hosts && users == 0 {
+            tracing::info!("replacing the local router of another build: no kept agent uses it");
+        }
+        if same_build || users > 0 {
             // `stopping`: the router refused because its owners are gone.
             // Anything else that is not `adopted` (no FIFO, a timeout, an
             // older router) is unclear.
@@ -94,19 +100,19 @@ fn start_or_adopt() -> Option<FifoOwner> {
                 stopping = flag("stopping");
             }
             if kept_hosts && !stopping {
-                // Kept agents use it: never replaced on an unclear answer.
+                // Kept agents may use it: never replaced on an unclear answer.
                 tracing::warn!("the local router could not be adopted; it stays for kept agents");
                 return None;
             }
             if !same_build {
-                // A router of an older build that cannot be adopted (no
+                // A router of another build that cannot be adopted (no
                 // owner FIFO) and still serves kept agents: used as it is.
                 tracing::warn!("the local router of another build serves kept agents; it stays");
                 return None;
             }
         }
-        // Another build that no agent uses, or a router that is stopping:
-        // the new router waits on router.lock until it has exited.
+        // Another build that no kept agent uses, or a router that is
+        // stopping: the new router waits on router.lock until it has exited.
         let _ = ask_router(b"{\"op\":\"shutdown\"}\n");
     }
     let this = crate::self_command::SelfCommand::current().ok()?;
