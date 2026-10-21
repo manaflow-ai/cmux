@@ -450,16 +450,42 @@ fn with_resume_off_a_respawned_terminal_only_shows_the_resume_command() {
 #[cfg(unix)]
 #[test]
 fn a_respawned_terminal_does_not_resume_a_non_interactive_agent_run() {
+    non_interactive_run_is_not_resumed(
+        "print",
+        &[
+            ("SessionStart", r#"{"session_id":"abc-123"}"#),
+            ("UserPromptSubmit", r#"{"session_id":"abc-123","prompt":"hi"}"#),
+        ],
+    );
+}
+
+/// c1b. The first hook of a run that reaches the terminal is not always its
+/// session start: each hook is its own connection, so a later hook can be
+/// applied first and the start, now older than the terminal's hook fence, is
+/// dropped. How the run was started is read at whichever hook comes first.
+#[cfg(unix)]
+#[test]
+fn a_non_interactive_run_whose_first_applied_hook_is_a_prompt_is_not_resumed() {
+    non_interactive_run_is_not_resumed(
+        "prompt-first",
+        &[("UserPromptSubmit", r#"{"session_id":"abc-123","prompt":"hi"}"#)],
+    );
+}
+
+/// Runs a `claude -p` stand-in that reports `hooks` in order, kills the
+/// terminal's shell and host, and checks the respawn offers no agent command.
+#[cfg(unix)]
+fn non_interactive_run_is_not_resumed(name: &str, hooks: &[(&str, &str)]) {
     use std::os::unix::fs::PermissionsExt as _;
     let _exclusive = exclusive_process_test();
-    let harness = RecoveryHarness::start("respawn-print");
-    let (terminal_id, incarnation, surface) = start_default_shell(&harness, "print");
-    let public_id = tab_named(&harness, "print")["terminal_resource_id"]
+    let harness = RecoveryHarness::start(&format!("respawn-{name}"));
+    let (terminal_id, incarnation, surface) = start_default_shell(&harness, name);
+    let public_id = tab_named(&harness, name)["terminal_resource_id"]
         .as_str()
         .expect("tab has no public terminal id")
         .to_string();
-    // A `claude` that reports its session start and a prompt as the real
-    // hooks do, then keeps running in the foreground.
+    // A `claude` that reports its hooks as the real ones do, then keeps
+    // running in the foreground.
     let dir = tempfile::tempdir().expect("temp dir");
     let claude = dir.path().join("claude");
     let hook = |event: &str, payload: &str| {
@@ -471,15 +497,9 @@ fn a_respawned_terminal_does_not_resume_a_non_interactive_agent_run() {
             bin()
         )
     };
-    fs::write(
-        &claude,
-        format!(
-            "#!/bin/sh\n{}{}echo print-run-started\nsleep 600\n",
-            hook("SessionStart", r#"{"session_id":"abc-123"}"#),
-            hook("UserPromptSubmit", r#"{"session_id":"abc-123","prompt":"hi"}"#),
-        ),
-    )
-    .expect("write the claude stand-in");
+    let hooks: String = hooks.iter().map(|(event, payload)| hook(event, payload)).collect();
+    fs::write(&claude, format!("#!/bin/sh\n{hooks}echo print-run-started\nsleep 600\n"))
+        .expect("write the claude stand-in");
     fs::set_permissions(&claude, fs::Permissions::from_mode(0o755)).expect("chmod");
     send_line(&harness.socket, surface, &format!("'{}' -p hi", claude.display()));
     let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
@@ -487,7 +507,7 @@ fn a_respawned_terminal_does_not_resume_a_non_interactive_agent_run() {
         assert!(Instant::now() < deadline, "the run never started: {}", screen(&harness, surface));
         std::thread::sleep(Duration::from_millis(50));
     }
-    // Both hooks reached the terminal before its host dies.
+    // The hooks reached the terminal before its host dies.
     let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
     loop {
         let agents = request(&harness.socket, serde_json::json!({"cmd":"list-agents"}));
@@ -506,7 +526,7 @@ fn a_respawned_terminal_does_not_resume_a_non_interactive_agent_run() {
     wait_for_respawn(&harness, &terminal_id, &incarnation);
     let lines = wait_for_respawn_lines(&harness, &terminal_id, 1);
     assert_eq!(lines.first().map(|line| line["prefilled"].clone()), Some("none".into()));
-    let surface = tab_named(&harness, "print")["surface"].as_u64().expect("surface");
+    let surface = tab_named(&harness, name)["surface"].as_u64().expect("surface");
     std::thread::sleep(Duration::from_secs(1));
     let text = screen(&harness, surface);
     assert!(!text.split_whitespace().collect::<String>().contains("--resume"), "{text}");
