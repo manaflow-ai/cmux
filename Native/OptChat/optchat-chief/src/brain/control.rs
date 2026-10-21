@@ -272,7 +272,7 @@ impl Brain {
             .spawns
             .values()
             .flat_map(|r| r.subs.iter())
-            .filter(|s| matches!(s.status, SubStatus::Starting | SubStatus::Running))
+            .filter(|s| s.at_work())
         {
             *by_state.entry(self.state_of(sub, now)).or_default() += 1;
         }
@@ -729,6 +729,8 @@ impl Brain {
             s.after_stop = None;
         }
         self.save();
+        // No longer at work: its slot frees now, not when its turn ends.
+        self.start_queued();
         match sub.status {
             SubStatus::Queued => {
                 self.stop_subagent(id);

@@ -91,7 +91,8 @@ fn a_stopped_turn_that_closes_open_work_posts_no_done_marker() {
 /// 2026-10-20: after the owner stopped a19, a background shell its run had
 /// started (Claude Code's run_in_background, which acpmux tracks and lets
 /// outlive the turn) still ran `git fetch` in the shared checkout. The
-/// owner's stop ends each stopped subagent's background processes too.
+/// owner's stop of a subagent (chief.stop {name}) ends its background
+/// processes too.
 #[test]
 fn owner_stop_ends_the_background_processes_of_the_subagents_it_stops() {
     let mut h = Harness::new(default_script());
@@ -130,7 +131,15 @@ fn owner_stop_ends_the_background_processes_of_the_subagents_it_stops() {
             .expect("a1's session");
         format!("s{}", k + 1)
     };
-    owner_stop(&mut h);
+    let (reply, answer) = channel();
+    h.brain.step(Input::StopSubagent {
+        name: "a1".into(),
+        reply,
+    });
+    let answer = answer
+        .try_recv()
+        .expect("chief.stop {name} answers at once");
+    assert_eq!(answer["stopped"], true, "{answer}");
     let inner = h.agents.inner.lock().unwrap();
     assert!(inner.cancels.contains(&session), "{:?}", inner.cancels);
     assert_eq!(inner.killed_processes, vec![session]);
