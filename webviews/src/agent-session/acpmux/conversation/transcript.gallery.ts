@@ -1035,7 +1035,7 @@ export default agentPaneEntry({
       ),
     },
     "working-tokens": {
-      note: "A live Claude turn says its tokens so far after its time, as Claude desktop does: Working for 5m 54s · 2.1M tokens, with no blinking dots before it. A harness that does not report each call shows the time alone. Play: the line holds still.",
+      note: "A live Claude turn says its tokens so far after its time, as Claude desktop does, on its one live line at the bottom: Thinking 5m 54s · 2.1M tokens, with no blinking dots before it and no Working for over the turn. A harness that does not report each call shows the time alone. Play: the line holds still.",
       snapshot: chat(
         [
           user(prompt, 5.9),
@@ -1053,7 +1053,7 @@ export default agentPaneEntry({
         ],
         { isWorking: true, turnTokens: 2_140_000 },
       ),
-      play: runningLineStill(/^Working for/),
+      play: runningLineStill(/^Thinking/, true),
     },
     "working-counts": {
       note: "A live turn with background work: the line counts the two agents still running and the dev server still up, not the agent that finished. A count opens what it counts.",
@@ -1173,7 +1173,7 @@ export default agentPaneEntry({
       play: openWorked,
     },
     "codex-turn-live": {
-      note: "A running turn as the Codex app draws it: Working for over the turn, each finished run one summary line between the paragraphs (Read files, ran commands; Ran 3 commands), commands named by what they do, and the call in flight named on the live line instead of a growing stack.",
+      note: "A running turn as the Codex app draws it: one live block at the bottom and nothing over the turn, each finished run one summary line between the paragraphs (Read files, ran commands; Ran 3 commands), commands named by what they do, and the call in flight named on the live line instead of a growing stack.",
       snapshot: chat(
         [
           user("Check the retry regression and the macOS verification run.", 11.5),

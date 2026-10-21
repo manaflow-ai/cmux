@@ -11,9 +11,10 @@
 import { useContext, useEffect, useState } from "react";
 import { useT } from "../i18n";
 import { BackgroundHint } from "./BackgroundHint";
+import { usePaneLanguage } from "../i18n";
 import { formatDuration } from "./turns";
 import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
-import { useTicking } from "./WorkingFor";
+import { useTicking, WorkingCountsContext, workingTokens } from "./WorkingFor";
 
 /// How long streaming text must hold still before the live line comes back under it.
 export const QUIET_MS = 1200;
@@ -33,11 +34,13 @@ function useQuiet(key: string | undefined, ms = QUIET_MS): boolean {
   return quiet;
 }
 
-/// `doing`, `doingAt`, `doingShell`, `untimed`, `quietKey`: the Codex-style live line at the bottom
-/// of a running turn (conversation/turns.ts `codexLiveTurn`), which each step replaces in place:
-/// "Thinking", or the call in flight ("Running bun test 13s", or what it says it does, "Run the web
-/// tests 13s"), its time from the call's start. Both shimmer. While text streams (`quietKey` moves)
-/// the line keeps its height but draws nothing.
+/// `doing`, `doingAt`, `doingShell`, `draft`, `untimed`, `quietKey`: the Codex-style live line at the
+/// bottom of a running turn (conversation/turns.ts `codexLiveTurn`), the turn's one live block, which
+/// each step replaces in place: "Thinking 18s" (the turn's time, and its tokens when the harness
+/// reports them), or the call in flight ("Running bun test 13s", or what it says it does, "Run the
+/// web tests 13s"), its time from the call's start, or "Writing a command 9s" while the agent still
+/// writes the command (`draft`). All shimmer. While text streams (`quietKey` moves) the line keeps
+/// its height but draws nothing.
 export function Thinking({
   status,
   onCancel,
@@ -46,6 +49,7 @@ export function Thinking({
   doing,
   doingAt,
   doingShell = false,
+  draft = false,
   untimed = false,
   quietKey,
   below = false,
@@ -58,6 +62,7 @@ export function Thinking({
   doing?: string;
   doingAt?: number;
   doingShell?: boolean;
+  draft?: boolean;
   untimed?: boolean;
   quietKey?: string;
   /// The turn's last row (conversation/turns.ts): as tall as the footer that replaces it.
@@ -79,8 +84,14 @@ export function Thinking({
       : doingShell
         ? doing
           ? t("tools.runningCommand", { command: doing })
-          : t("tools.runningUnnamed")
+          : draft
+            ? t("tools.writingCommand")
+            : t("tools.runningUnnamed")
         : doing);
+  // The turn's tokens so far (WorkingFor.tsx), on the line while it times the turn.
+  const language = usePaneLanguage();
+  const tokens = useContext(WorkingCountsContext)?.tokens;
+  const showTokens = Boolean(tokens) && timed && doing === undefined;
   return (
     <div className={`cv-worked${below ? " is-below" : ""}${quiet ? "" : " is-quiet"}`} data-find-skip>
       {waiting ? (
@@ -91,6 +102,14 @@ export function Thinking({
         <output className={status ? "cv-thinking" : "cv-thinking is-shimmer"}>{label}</output>
       )}
       {timed && <span className="cv-worked__time">{formatDuration(Math.max(0, time - from))}</span>}
+      {showTokens && (
+        <span className="cv-worked__count">
+          <span className="cv-worked__sep" aria-hidden="true">
+            ·
+          </span>
+          <span className="cv-worked__tokens">{workingTokens(t, language, tokens!)}</span>
+        </span>
+      )}
       {/* Keyed by the call, so each command's hint waits its moment again. */}
       {command && !waiting && doing !== undefined && <BackgroundHint key={doingAt} />}
       {status && onCancel && (
