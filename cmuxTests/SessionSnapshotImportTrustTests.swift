@@ -889,6 +889,38 @@ struct SessionSnapshotImportTrustTests {
         #expect(Self.layoutPanelIDs(layout) == [panel.id])
     }
 
+    @Test("trusted restore deduplicates fallback panel IDs before layout construction")
+    func trustedRestoreDeduplicatesFallbackPanelIDs() throws {
+        let panel = Self.panel(terminal: SessionTerminalPanelSnapshot())
+        var workspace = SessionWorkspaceSnapshot(
+            processTitle: "Terminal",
+            customTitle: "Fallback duplicates",
+            customColor: nil,
+            isPinned: false,
+            currentDirectory: "/tmp/project",
+            focusedPanelId: panel.id,
+            layout: .split(SessionSplitLayoutSnapshot(
+                orientation: .horizontal,
+                dividerPosition: 0.5,
+                first: .pane(SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)),
+                second: .pane(SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil))
+            )),
+            panels: Array(repeating: panel, count: 64),
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil
+        )
+        let original = Self.finish(workspace: &workspace, workspaceHasRemote: false)
+
+        let (restored, _) = SessionSnapshotImportTrust.snapshotForRestore(
+            original,
+            source: Self.channelImport
+        )
+        let layout = try #require(restored.windows.first?.tabManager.workspaces.first?.layout)
+        #expect(Self.layoutPanelIDs(layout) == [panel.id])
+    }
+
     @Test("trusted restore bounds a skewed deep layout without overflowing the stack")
     func trustedRestoreBoundsSkewedDeepLayout() throws {
         let panel = Self.panel(terminal: SessionTerminalPanelSnapshot())

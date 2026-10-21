@@ -222,12 +222,18 @@ enum SessionSnapshotImportTrust {
         remainingNodes: inout Int,
         usedPanelIDs: inout Set<UUID>
     ) -> SessionWorkspaceLayoutSnapshot {
+        func unusedFallbackPanelIDs() -> [UUID] {
+            var result: [UUID] = []
+            result.reserveCapacity(fallbackPanelIDs.count)
+            for panelID in fallbackPanelIDs where allowedPanelIDs.contains(panelID) {
+                guard usedPanelIDs.insert(panelID).inserted else { continue }
+                result.append(panelID)
+            }
+            return result
+        }
         guard remainingNodes > 0,
               depth < SessionPersistencePolicy.maxLayoutDepth else {
-            let fallback = fallbackPanelIDs.filter {
-                allowedPanelIDs.contains($0) && !usedPanelIDs.contains($0)
-            }
-            usedPanelIDs.formUnion(fallback)
+            let fallback = unusedFallbackPanelIDs()
             return .pane(SessionPaneLayoutSnapshot(
                 panelIds: fallback,
                 selectedPanelId: fallback.first
@@ -268,10 +274,7 @@ enum SessionSnapshotImportTrust {
             let secondEmpty = second.isEmptyLayout
             switch (firstEmpty, secondEmpty) {
             case (true, true):
-                let fallback = fallbackPanelIDs.filter {
-                    allowedPanelIDs.contains($0) && !usedPanelIDs.contains($0)
-                }
-                usedPanelIDs.formUnion(fallback)
+                let fallback = unusedFallbackPanelIDs()
                 return .pane(SessionPaneLayoutSnapshot(
                     panelIds: fallback,
                     selectedPanelId: fallback.first
