@@ -125,10 +125,8 @@ const cycle: Play = async (ctx) => {
   if (!bridge) throw new Error("the pane bridge is not installed");
   for (const { snapshot } of TURN_CYCLE.slice(1)) {
     bridge.receive(structuredClone(snapshot));
-    // Stop while the turn runs, Send once it ends.
-    await ctx.waitFor(() =>
-      ctx.document.querySelector(snapshot.isWorking ? ".acpmux-cancel" : ".acpmux-send:not(.acpmux-cancel)"),
-    );
+    // Stop while the turn runs; once it ends Stop goes, and with no draft no Send takes its place.
+    await ctx.waitFor(() => Boolean(ctx.document.querySelector(".acpmux-cancel")) === Boolean(snapshot.isWorking));
   }
 };
 

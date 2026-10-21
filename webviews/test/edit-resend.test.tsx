@@ -69,20 +69,12 @@ test("a prompt edited in place forks the chat through the turn before it and sen
     );
 
   root = createRoot(host);
-  // The first prompt has no turn before it to fork through, and Copy is on the message's right-click
-  // menu (Copy Message; Leo dogfood 2026-10-13: one hover action): nothing shows under it.
+  // The first prompt has no turn before it to fork through: its row offers Copy (Claude Code desktop's
+  // row, GUI push 2026-10-20), but no Edit and no Fork.
   draw(rows[0]!);
-  expect(button("Copy")).toBeUndefined();
+  expect(button("Copy")).toBeDefined();
   expect(button("Edit")).toBeUndefined();
-  expect(host.querySelector(".cv-user__actions")).toBeNull();
-  // The `hover-actions` experiment's "all" arm keeps Copy under it.
-  (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "hover-actions": "all" };
-  try {
-    draw({ ...rows[0]! });
-    expect(button("Copy")).toBeDefined();
-  } finally {
-    delete (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments;
-  }
+  expect(button("Fork from here")).toBeUndefined();
 
   draw(rows[3]!);
   act(() => button("Edit")!.click());
