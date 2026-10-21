@@ -48,6 +48,18 @@ nonisolated enum NotificationSettingsSchema {
                 default: .string(defaults.desktop.rawValue)
             ),
             SettingDescriptor(
+                ["notifications", "showPreviews"], section: .notifications, group: banners,
+                title: SettingsText.keyed("settings.notifications.showPreviews", "Show Previews"),
+                help: SettingsText.keyed("settings.notifications.showPreviews.help",
+                                        "A finished turn's banner shows the agent's last message."),
+                kind: .choice([
+                    SettingChoice(NotificationPreviews.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
+                    SettingChoice(NotificationPreviews.whenUnlocked.rawValue, SettingsText.keyed("settings.choice.whenUnlocked", "When Unlocked")),
+                    SettingChoice(NotificationPreviews.never.rawValue, SettingsText.keyed("settings.choice.never", "Never")),
+                ]),
+                default: .string(defaults.previews.rawValue), keywords: ["preview", "message", "lock screen"]
+            ),
+            SettingDescriptor(
                 ["notifications", "sound"], section: .notifications, group: banners,
                 title: SettingsText.keyed("settings.notifications.sound", "Sound"),
                 kind: .sound, default: .string(defaults.sound)

@@ -23,7 +23,7 @@ extension NotificationCenterService {
         guard decision.alerts, let chiefPet, chiefPet.isOn else { return }
         chiefPet.arrive(ChiefPetNotice(notification, tab: located.tab, workspace: located.workspace.displayName,
                                             programTitle: program?.title(localizations: localizations),
-                                            body: notification.bannerBody(previews: previews, screenLocked: screenLocked())))
+                                            body: Self.bannerBody(notification, previews: preferences.previews, screenLocked: screenLocked())))
     }
 
     /// A tab read anywhere else (another client, the phone, a closed tab, a daemon restart) leaves the pet too.
