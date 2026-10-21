@@ -128,9 +128,16 @@ class GitHub:
             if not 200 <= status < 300:
                 # Name a quota 403 so gh-quota-retry.sh waits for the reset
                 # (nightly-next run 39536149802: "POST HTTP 403").
+                # Pass GitHub's own rate-limit message (primary or secondary)
+                # so gh-quota-retry.sh can see it (run 39536149802: "POST HTTP 403").
                 detail = ""
-                if status in (403, 429) and output.exists() and "rate limit" in output.read_text(errors="replace").lower():
-                    detail = ": API rate limit exceeded"
+                if status in (403, 429) and output.exists():
+                    try:
+                        message = str(json.loads(output.read_text(errors="replace")).get("message", ""))
+                    except (ValueError, AttributeError):
+                        message = ""
+                    if "rate limit" in message.lower():
+                        detail = f": {message[:200]}"
                 raise RequestError(f"{method} HTTP {status}{detail}", status=status)
             body = output.read_text()
             if not body:

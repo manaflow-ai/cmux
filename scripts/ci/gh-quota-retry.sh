@@ -5,37 +5,54 @@
 # On 2026-10-21 nightly-next runs 39535920020 and 39536149802 published the
 # feed, then failed release notes, deltas and the NIGHTLY-identity copy on
 # "API rate limit exceeded for installation" (HTTP 403): the feat-cmux-next
-# push flood had used the hour's GITHUB_TOKEN quota. A short retry does not
-# help a primary limit, so this waits until the reset GitHub reports
-# (`gh api rate_limit` costs no quota), capped by GH_QUOTA_MAX_WAIT seconds
-# (default 900) per wait, at most GH_QUOTA_ATTEMPTS runs (default 3). A
-# secondary limit ("secondary rate limit") waits 60 s. Any other failure
-# exits with the command's status at once. The command's stdout passes
-# through unchanged; its stderr is kept and replayed.
+# push flood had used the hour's GITHUB_TOKEN quota.
+#
+# A failure whose stderr names a rate limit is run again: after the core
+# quota's reset when `gh api rate_limit` (free) says none is left, otherwise
+# (a secondary limit, or the quota could not be read) after 60 s. One wait is
+# at most GH_QUOTA_MAX_WAIT seconds (default 600), and all waits of one call
+# end by GH_QUOTA_DEADLINE (epoch seconds, optional; a job sets it once so
+# several calls share one budget). GH_QUOTA_ATTEMPTS (default 2) runs at most.
+# Any other failure exits with the command's status at once.
+#
+# Output: each attempt's stdout is held and printed only for the attempt that
+# ends the call (success or the last failure), so `x="$(gh-quota-retry.sh gh
+# api ...)"` never captures the error body of a failed attempt (gh prints it
+# on stdout). stderr streams live and is also kept to match the limit text.
 set -uo pipefail
 
 [[ $# -gt 0 ]] || { echo "usage: gh-quota-retry.sh <command...>" >&2; exit 2; }
-max_wait="${GH_QUOTA_MAX_WAIT:-900}"
-attempts="${GH_QUOTA_ATTEMPTS:-3}"
-err="$(mktemp)"
-trap 'rm -f "$err"' EXIT
+max_wait="${GH_QUOTA_MAX_WAIT:-600}"
+attempts="${GH_QUOTA_ATTEMPTS:-2}"
+deadline="${GH_QUOTA_DEADLINE:-}"
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
 
 for ((attempt = 1; ; attempt++)); do
-  "$@" 2>"$err"
+  "$@" >"$tmp/out" 2> >(tee "$tmp/err" >&2)
   status=$?
-  cat "$err" >&2
-  [[ $status -ne 0 ]] || exit 0
-  if ! grep -qiE 'rate limit exceeded|secondary rate limit' "$err" || (( attempt >= attempts )); then
+  wait # the tee of this attempt has written all of stderr
+  if [[ $status -eq 0 ]] || ! grep -qiE 'rate limit' "$tmp/err" || (( attempt >= attempts )); then
+    cat "$tmp/out"
     exit "$status"
   fi
-  if grep -qi 'secondary rate limit' "$err"; then
-    wait_s=60
-  else
-    reset="$(gh api rate_limit --jq '.resources.core.reset' 2>/dev/null || echo 0)"
-    now="$(date +%s)"
-    wait_s=$(( reset > now ? reset - now + 5 : 60 ))
+  wait_s=60
+  remaining="$(gh api rate_limit --jq '.resources.core.remaining' 2>/dev/null)"
+  reset="$(gh api rate_limit --jq '.resources.core.reset' 2>/dev/null)"
+  now="$(date +%s)"
+  if [[ "$remaining" == 0 && "$reset" =~ ^[0-9]+$ ]] && (( reset > now )); then
+    wait_s=$(( reset - now + 5 ))
   fi
   (( wait_s <= max_wait )) || wait_s="$max_wait"
-  echo "::warning::GitHub API quota exhausted (attempt $attempt/$attempts); waiting ${wait_s}s before running again" >&2
+  if [[ "$deadline" =~ ^[0-9]+$ ]]; then
+    left=$(( deadline - now ))
+    if (( left <= 0 )); then
+      echo "::warning::GitHub API rate limit; the job's quota-wait budget is used up" >&2
+      cat "$tmp/out"
+      exit "$status"
+    fi
+    (( wait_s <= left )) || wait_s="$left"
+  fi
+  echo "::warning::GitHub API rate limit (attempt $attempt/$attempts); waiting ${wait_s}s before running again" >&2
   sleep "$wait_s" # bounded wait for GitHub's quota reset, not synchronization
 done
