@@ -6,7 +6,11 @@ against its first parent) and picks the tiers; the `cmux-next path routing`
 job's summary lists each tier and the reason for it.
 
 A same-repository pull request runs every tier the router picks on its own
-branch, with no label and no side `next-batch/*` push (#22303). A fork pull
+branch, with no label and no side `next-batch/*` push (#22303), except the two
+heavy app compiles: `cmux-next Release compile (Xcode 26)` and `cmux app scheme
+compile (Debug)` need `full-ci` again (2026-10-21, a ~350-job Mac queue); a
+MEMBER or OWNER `dev-build` PR keeps its scheme compile, and every
+`feat-cmux-next` push compiles both. A fork pull
 request runs `cmux-next checks`, the fast tier and, for a CmuxNext `.swift`
 change, the Release compile; the other Mac tiers wait for a maintainer's
 `full-ci`. It never gets an owned runner, a secret or a tree dispatch. To run
@@ -52,11 +56,11 @@ It builds only the affected CmuxNext production targets with `swift build
 It catches type-checking, dependency and module errors in those targets. It
 does not exercise optimizer-only behavior, Release compiler settings, Xcode
 scheme integration, signing or the CEF shim. So the Release compile runs on
-every pull request that changes a `.swift` file under `Packages/macOS/CmuxNext/`
+every fork pull request that changes a `.swift` file under `Packages/macOS/CmuxNext/`
 (Sources or Tests, whatever else it changes): a Release-only optimizer crash
 (cx-ebm.59.5) reached the base through a PR that only had the Debug tiers. A
-same-repository PR also runs it for its other native sources; a fork PR only
-with `full-ci`. Every `feat-cmux-next` push runs it.
+same-repository PR runs it only with `full-ci` (2026-10-21), as a fork PR does
+for its other native sources. Every `feat-cmux-next` push runs it.
 
 A CI-only change runs no Mac tier either: workflows, `scripts/ci/`, the router,
 `scripts/gh-merge-green` and their Python tests (alone or with web files). ci.yml's
@@ -258,8 +262,9 @@ A pull request's Mac jobs never share a concurrency group with a
 pull request's jobs are grouped by the pull request (`swift test`, the canary)
 or by their run. A newer push to the pull request cancels its older run. What
 a pull request can wait behind is runner capacity, and `macos-placement`
-decides that: an idle mini first, then Blacksmith for the fast tier, the canary
-and the scheme compile (`docs/ci/mac-fleet.md`). The tip's Release compile has
-its own reserved runner while `vars.CI_NEXT_PROMOTE_POOL` is set, so pull
-request jobs do not delay nightly-next promotion. This workflow sets no runner variable or
+decides that: an idle mini first, then Blacksmith for the fast tier, the canary,
+the scheme compile and the Release compile (`docs/ci/mac-fleet.md`). The tip's
+Release compile has its own reserved runner while `vars.CI_NEXT_PROMOTE_POOL` is
+set, so pull request jobs do not delay nightly-next promotion; while no runner
+there is idle it takes a free Blacksmith slot instead. This workflow sets no runner variable or
 capacity.
