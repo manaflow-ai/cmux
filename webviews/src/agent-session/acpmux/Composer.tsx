@@ -54,7 +54,6 @@ import {
   useDraftActionsVersion,
   writePersistedDraft,
 } from "./composerDraft";
-import { useDictationListening } from "./dictation";
 import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
 import { type StringKey, useT } from "./i18n";
 import { remoteComposer } from "./remoteEditing";
@@ -188,6 +187,8 @@ type Props = {
   permissionAccess?: ComposerPermissionAccess;
   /// Buttons before Send, such as the dictation mic.
   accessory?: React.ReactNode;
+  /// A dictation session is waiting for words: the empty prompt reads "Listening…" in italic.
+  dictating?: boolean;
   /// Also receives the prompt field's handle, for dictation, which writes into it as typing does.
   prompt?: React.RefObject<MarkdownFieldHandle | null>;
   /// Receives the composer's handle, which puts a prompt a harness switch held back (its text
@@ -280,6 +281,7 @@ export function Composer({
   leading,
   permissionAccess,
   accessory,
+  dictating = false,
   prompt,
   onEdit,
   onCmuxCommand,
@@ -1108,8 +1110,6 @@ export function Composer({
   // mid-turn and Esc hints still win, since they say what a key does now.
   const placeholderText =
     placeholder && placeholderKey === COMPOSER_LABELS.placeholder ? placeholder : t(placeholderKey);
-  // A dictation waiting for words says so in the empty prompt, in italic (dictation.css).
-  const dictating = useDictationListening();
   // An idle new chat suggests the open PR another chat in this checkout made, Tab to take it
   // (promptSuggestion.ts; Leo 2026-10-18). It never sends: Tab writes it, Return sends it.
   const cwd = snapshot.summary?.cwd;

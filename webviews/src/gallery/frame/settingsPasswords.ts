@@ -93,44 +93,8 @@ export async function mountSettingsPage(state: SettingsPageVariant, context: Sta
         : mock.client.call(op, params),
     subscribe: (stream, listener) => mock.client.subscribe(stream, listener),
   };
-  await bridge(
-    client,
-    [
-      "cmux.settings.list",
-      "cmux.settings.snapshot",
-      "cmux.settings.set",
-      "cmux.settings.reset",
-      "cmux.settings.reset_all",
-      "cmux.settings.preview",
-      "cmux.settings.preview.end",
-      "cmux.settings.sound.play",
-      "cmux.settings.host.lists",
-      "cmux.settings.accounts.state",
-      "cmux.settings.accounts.run",
-      "cmux.settings.agents.state",
-      "cmux.settings.agents.run",
-      "cmux.settings.harnesses.state",
-      "cmux.settings.harnesses.run",
-      "cmux.settings.theme.set",
-      "cmux.settings.theme.colors",
-      "cmux.settings.theme.save",
-      "cmux.settings.theme.import",
-      "cmux.settings.theme.accepts",
-      "cmux.settings.file.reveal",
-      "cmux.settings.folders.add",
-      "cmux.settings.section.actions",
-      "cmux.app.action.run",
-    ],
-    [
-      "cmux.settings.changed",
-      "cmux.page.connection",
-      "cmux.page.command",
-      "cmux.settings.host.changed",
-      "cmux.settings.accounts.changed",
-      "cmux.settings.agents.changed",
-      "cmux.settings.harnesses.changed",
-    ],
-  );
+  // Every op and stream the mock serves, so a card whose calls the mock answers renders here too.
+  await bridge(client, mock.provider.served.ops, mock.provider.served.streams);
   if (state.backdropImages) {
     const images = state.backdropImages;
     const replaceImages = () => {
