@@ -1,10 +1,11 @@
 //! Per-Chief settings, `$MUX_HOME/optchat/settings.json`
-//! (`{"remote": {"autoApprove": false}, "cache": {"ttl": "1h"}}`), shown later in the Chief settings
+//! (`{"cache": {"ttl": "1h"}}`), shown later in the Chief settings
 //! sidebar. The host reads the file once at start and owns the value after
-//! that: a change goes through the host (`Brain::set_setting`), which
-//! refuses to turn `remote.autoApprove` on during a remote-origin turn, and
-//! writes the file. An edit of the file by hand takes effect at the next
-//! host start (README "Remote-origin messages").
+//! that: a change goes through the host (`Brain::set_setting`), which writes
+//! the file. An edit of the file by hand takes effect at the next host start.
+//! No setting makes the Chief ask before it acts (Lawrence, 2026-10-20:
+//! "chief should never have to ask for approvals"); the old `remote.*` and
+//! `home.ask` keys are ignored when read and dropped at the next write.
 
 use std::path::Path;
 
@@ -15,10 +16,6 @@ use crate::prompt::CacheTtl;
 /// The settings this host knows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ChiefSettings {
-    /// A remote-origin turn (the owner's own paired device) runs with the
-    /// configured policy instead of `ask`. Default false; true is an explicit
-    /// opt-in that applies only to that owner's paired devices.
-    pub remote_auto_approve: bool,
     /// How long a turn's prompt cache entries live (`5m` or `1h`); None: the
     /// engine's default (1 hour on the Claude Code path, 5 minutes on the
     /// native engine). `OPTCHAT_CACHE_TTL` wins over it.
@@ -30,6 +27,10 @@ pub struct ChiefSettings {
     /// gets a `<show>` block for the Chief to open them in the column right of
     /// its chat (`show.afterReport`, crate::show). Default true.
     pub show_after_report: bool,
+    /// Seconds a cloud VM waits with no live cloud subagent before the host
+    /// pauses it (`cloud.autoPauseIdleSeconds`, cloud-subagents-DESIGN.md
+    /// B4). Default 60.
+    pub cloud_auto_pause_idle_secs: u64,
 }
 
 /// `replies.thread`: when a Chief reply in its DM is threaded under the user
@@ -69,16 +70,13 @@ impl ReplyThreads {
 impl Default for ChiefSettings {
     fn default() -> ChiefSettings {
         ChiefSettings {
-            remote_auto_approve: false,
             cache_ttl: None,
             reply_threads: ReplyThreads::Auto,
             show_after_report: true,
+            cloud_auto_pause_idle_secs: 60,
         }
     }
 }
-
-/// The key of `ChiefSettings::remote_auto_approve`.
-pub const REMOTE_AUTO_APPROVE: &str = "remote.autoApprove";
 
 /// The key of `ChiefSettings::cache_ttl`.
 pub const CACHE_TTL: &str = "cache.ttl";
@@ -89,6 +87,9 @@ pub const REPLY_THREADS: &str = "replies.thread";
 /// The key of `ChiefSettings::show_after_report`.
 pub const SHOW_AFTER_REPORT: &str = "show.afterReport";
 
+/// The key of `ChiefSettings::cloud_auto_pause_idle_secs`.
+pub const CLOUD_AUTO_PAUSE_IDLE_SECONDS: &str = "cloud.autoPauseIdleSeconds";
+
 impl ChiefSettings {
     /// The settings in `path`; a missing or unreadable file is the defaults.
     pub fn load(path: &Path) -> ChiefSettings {
@@ -97,23 +98,26 @@ impl ChiefSettings {
             .and_then(|t| serde_json::from_str(&t).ok())
             .unwrap_or(Value::Null);
         ChiefSettings {
-            remote_auto_approve: cmux_chief::policy::remote_auto_approve(&value),
             cache_ttl: value["cache"]["ttl"].as_str().and_then(CacheTtl::parse),
             reply_threads: value["replies"]["thread"]
                 .as_str()
                 .and_then(ReplyThreads::parse)
                 .unwrap_or_default(),
             show_after_report: value["show"]["afterReport"].as_bool().unwrap_or(true),
+            cloud_auto_pause_idle_secs: value["cloud"]["autoPauseIdleSeconds"]
+                .as_u64()
+                .unwrap_or(60),
         }
     }
 
     pub fn to_json(self) -> Value {
-        let mut value = json!({"remote": {"autoApprove": self.remote_auto_approve}});
+        let mut value = json!({});
         if let Some(ttl) = self.cache_ttl {
             value["cache"] = json!({"ttl": ttl.as_str()});
         }
         value["replies"] = json!({"thread": self.reply_threads.as_str()});
         value["show"] = json!({"afterReport": self.show_after_report});
+        value["cloud"] = json!({"autoPauseIdleSeconds": self.cloud_auto_pause_idle_secs});
         value
     }
 
@@ -135,6 +139,18 @@ impl ChiefSettings {
         file.sync_all()?;
         std::fs::rename(&tmp, path)
     }
+}
+
+/// A `cloud.autoPauseIdleSeconds` value: whole seconds, 0 to 86400.
+pub fn parse_idle_secs(value: &str) -> Result<u64, String> {
+    value
+        .trim()
+        .parse::<u64>()
+        .ok()
+        .filter(|n| *n <= 86_400)
+        .ok_or_else(|| {
+            format!("{CLOUD_AUTO_PAUSE_IDLE_SECONDS}: whole seconds 0..86400, not {value:?}")
+        })
 }
 
 /// A cache TTL setting value: `5m` or `1h`.

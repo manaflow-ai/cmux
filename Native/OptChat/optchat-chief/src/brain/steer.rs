@@ -12,7 +12,7 @@
 //! the next turn starts the moment this one ends. A message never stops a
 //! turn (decision 2026-10-09); only chief.stop does.
 
-use super::{Brain, Input, Phase, Queued, Source};
+use super::{Brain, Input, Phase, Queued};
 use crate::acpmux::Family;
 
 /// Most images one steer carries (the reference's PICS).
@@ -149,24 +149,13 @@ impl Brain {
         self.maybe_start_turn();
     }
 
-    /// Applies the strictest policy of a batch delivered to a running ask
-    /// turn. A paired device follows remote.autoApprove; a non-owner always
-    /// keeps the gate on.
+    /// Another person's text delivered to a running turn keeps that turn's
+    /// local effects refused until it ends.
     pub(super) fn taint_approval(&mut self, items: &[Queued]) {
-        let remote = items.iter().any(|i| {
-            matches!(
-                i.source,
-                Source::Message {
-                    remote: Some(_),
-                    ..
-                }
-            )
-        });
-        let non_owner = items.iter().any(Queued::requires_approval);
-        if remote || non_owner {
-            self.turn_remote |= remote;
-            self.turn_ask |= non_owner || (remote && !self.chief.remote_auto_approve);
-            self.interrupt.set_gate(self.turn_ask);
+        if items.iter().any(Queued::requires_approval) {
+            self.turn_ask = true;
+            self.last_turn_ask = true;
+            self.interrupt.set_gate(true);
         }
     }
 }

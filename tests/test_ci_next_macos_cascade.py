@@ -113,24 +113,31 @@ class Cascade(unittest.TestCase):
 
     def test_retry_goes_to_the_least_loaded_label(self):
         self.assertEqual(cascade.retry_label({LARGE: 5, SMALL: 4}, {LARGE: 6, SMALL: 3}), SMALL)
-        self.assertEqual(cascade.retry_label({LARGE: 5, SMALL: 10}, {LARGE: 6, SMALL: 0}), SMALL)
+        # No free slot anywhere: no Blacksmith label, so the overflow waits on the owned label.
+        self.assertEqual(cascade.retry_label({LARGE: 5, SMALL: 10}, {LARGE: 6, SMALL: 0}), "")
         self.assertEqual(cascade.retry_label({LARGE: 0, SMALL: 10}, {LARGE: 0, SMALL: 0}), LARGE)
 
     def test_a_full_fleet_overflows_to_6_vcpu_whose_slots_turn_over(self):
         # 2026-10-20 01:04-02:35Z: other workflows' long jobs held 12 vCPU's five slots. The
         # overflow sent 25 cmux-next jobs there by load ratio and none started (14 queued over
         # 15 minutes, up to 89, then cancelled) while 6 vCPU started 69 at a median 2.5 minutes.
-        self.assertEqual(cascade.retry_label({LARGE: 5, SMALL: 10}, {LARGE: 0, SMALL: 0}), SMALL)  # was a tie
+        # Both full: never a Blacksmith queue (5+ hour waits on 12 vCPU, 2026-10-20); the owned label.
+        self.assertEqual(cascade.retry_label({LARGE: 5, SMALL: 10}, {LARGE: 0, SMALL: 0}), "")
+        self.assertEqual(cascade.retry_label({LARGE: 5, SMALL: 9}, {LARGE: 0, SMALL: 0}), SMALL)
         # The placement log of run 39358219316: 12 vCPU 5 + 1 of 5, 6 vCPU 10 + 4 of 10.
-        self.assertEqual(cascade.retry_label({LARGE: 5, SMALL: 10}, {LARGE: 1, SMALL: 4}), SMALL)
-        self.assertEqual(cascade.retry_label({LARGE: 7, SMALL: 30}, {LARGE: 0, SMALL: 9}), SMALL)
+        self.assertEqual(cascade.retry_label({LARGE: 5, SMALL: 10}, {LARGE: 1, SMALL: 4}), "")
+        self.assertEqual(cascade.retry_label({LARGE: 7, SMALL: 30}, {LARGE: 0, SMALL: 9}), "")
+        # A stalled label is never the overflow, however free it looks.
+        self.assertEqual(cascade.retry_label({LARGE: 0, SMALL: 9}, {LARGE: 0, SMALL: 0}, (LARGE,)), SMALL)
+        self.assertEqual(cascade.retry_label({LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0}, (LARGE, SMALL)), "")
 
 
 class Place(unittest.TestCase):
     def test_jobs_an_idle_mini_took_and_gui_jobs_stay_off_blacksmith(self):
         result = cascade.place(env(), ("fast-tier",), {LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0})
         self.assertEqual(result.jobs, none_placed(**{LARGE: ("swift-canary", "cmux-scheme-compile")}))
-        self.assertEqual(result.retry_runner, LARGE)
+        # 12 vCPU is now 2 of 5 with this run's jobs, 6 vCPU 0 of 10.
+        self.assertEqual(result.retry_runner, SMALL)
 
     def test_an_idle_mini_given_a_job_that_does_not_run_still_takes_one_that_does(self):
         # fast-tier is on its fast-lane runner (not in CASCADE_RUNS), yet idle_placement named it for
@@ -154,11 +161,18 @@ class Place(unittest.TestCase):
         self.assertEqual(result.jobs, none_placed(**{LARGE: ("fast-tier",), SMALL: ("swift-canary",)}))
         self.assertIn("cmux-scheme-compile stay queued on the owned label", result.why)
 
+    def test_the_overflow_counts_the_slots_this_run_just_took(self):
+        # 6 vCPU had one free slot and this run's fast-tier took it: the overflow has none left.
+        result = cascade.place(env(), (), {LARGE: 5, SMALL: 9}, {LARGE: 0, SMALL: 0})
+        self.assertEqual(result.jobs, none_placed(**{SMALL: ("fast-tier",)}))
+        self.assertEqual(result.retry_runner, "")
+
     def test_unread_counts_place_nothing(self):
         self.assertEqual(cascade.place(env(), (), None, None).jobs, none_placed())
         result = cascade.place(env(), (), {LARGE: 0, SMALL: 0}, None)
         self.assertEqual(result.jobs, none_placed())
-        self.assertEqual(result.retry_runner, LARGE)
+        # Without the queue count no slot is known free: the overflow keeps the owned label.
+        self.assertEqual(result.retry_runner, "")
 
     def test_only_attempt_1_of_an_owned_side_label_cascades(self):
         free = {LARGE: 0, SMALL: 0}
@@ -337,11 +351,12 @@ class Stall(unittest.TestCase):
         live, waiting = {LARGE: 0, SMALL: 9}, {LARGE: 1, SMALL: 0}
         self.assertEqual(cascade.retry_label(live, waiting), LARGE)
         seen = cascade.Seen(waits={LARGE: 30.0, SMALL: 0.0}, hosted=0)
-        self.assertEqual(cascade.place(env(), (), live, waiting, seen).retry_runner, SMALL)
-        # Both stalled: the rule is unchanged.
+        self.assertEqual(cascade.place(env(), (), {LARGE: 0, SMALL: 5}, waiting, seen).retry_runner, SMALL)
+        # The one free 6 vCPU slot goes to this run's fast-tier, so no label is left for the overflow.
+        self.assertEqual(cascade.place(env(), (), live, waiting, seen).retry_runner, "")
+        # Both stalled: no Blacksmith label; the overflow waits on the owned label.
         both = cascade.Seen(waits={LARGE: 30.0, SMALL: 30.0}, hosted=0)
-        self.assertEqual(cascade.place(env(), (), live, {LARGE: 1, SMALL: 1}, both).retry_runner,
-                         cascade.retry_label(live, {LARGE: 1, SMALL: 1}))
+        self.assertEqual(cascade.place(env(), (), live, {LARGE: 1, SMALL: 1}, both).retry_runner, "")
 
     def test_only_the_hosted_jobs_read_the_hosted_route_and_get_more_time(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
@@ -439,13 +454,12 @@ class Wiring(unittest.TestCase):
             return set(evaluate(expression, context).split())
 
         self.assertEqual(runs(), set(CASCADED))
-        # An ordinary pull request (no full-ci) runs only the fast tier of these.
-        self.assertEqual(runs(labels=()), {"fast-tier"})
+        # A same-repository pull request runs its routed canary and scheme compile with no label (#22303).
+        self.assertEqual(runs(labels=()), set(CASCADED))
+        self.assertEqual(runs(labels=(), canary="false", scheme="false"), {"fast-tier"})
         self.assertEqual(runs(fast_lane="glaeda-fast-std-xcode-26.6"), {"swift-canary", "cmux-scheme-compile"})
         self.assertEqual(runs("push", labels=(), canary="false"), {"fast-tier", "cmux-scheme-compile"})
-        # A member's dev-build pull request compiles the scheme without full-ci; an outsider's does not.
-        self.assertEqual(runs(labels=("dev-build",)), {"fast-tier", "cmux-scheme-compile"})
-        self.assertEqual(runs(labels=("dev-build",), association="CONTRIBUTOR"), {"fast-tier"})
+        self.assertEqual(runs(labels=("dev-build",), association="CONTRIBUTOR"), set(CASCADED))
         # A same-tree dispatch asking for the scheme tier has no path routing output.
         self.assertEqual(runs("workflow_dispatch", labels=(), canary="", scheme="",
                               inputs={"same_tree_sha": "a" * 40, "same_tree_state": "ready",
@@ -457,8 +471,10 @@ class Wiring(unittest.TestCase):
             with self.subTest(job=name):
                 self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry=SMALL)), SMALL)
                 self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry=LARGE, small=f" {name} ")), LARGE)
-                # No placement output: today's configured overflow.
-                self.assertEqual(evaluate(runs_on, self.context("3", BOT)), LARGE)
+                # No free slot (an empty label), or no placement output: the owned side label, never
+                # vars.MACOS_RUNNER_26, a Blacksmith label with no free-slot check.
+                self.assertEqual(evaluate(runs_on, self.context("3", BOT)), SIDE)
+                self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry="")), SIDE)
 
     def test_gui_jobs_keep_their_route(self):
         for name in GUI_JOBS:
@@ -478,8 +494,11 @@ class Wiring(unittest.TestCase):
         self.assertEqual(job["permissions"].get("actions"), "read")
         place = next(step for step in job["steps"] if step.get("id") == "place")
         self.assertEqual(place["env"]["SNAPSHOT_TOKEN"], "${{ github.token }}")
-        for output in ("blacksmith_12_jobs", "blacksmith_6_jobs", "retry_runner", "hosted_jobs", "hosted_runner"):
+        for output in ("blacksmith_12_jobs", "blacksmith_6_jobs", "hosted_jobs", "hosted_runner"):
             self.assertEqual(job["outputs"][output], f"${{{{ steps.place.outputs.{output} }}}}")
+        # A placement script that predates the free-slot rule (a pull request's old base) writes only
+        # retry_runner, which may name a full label; the job reads the key only the new rule writes.
+        self.assertEqual(job["outputs"]["retry_runner"], "${{ steps.place.outputs.free_retry_runner }}")
         self.assertEqual(set(cascade.CASCADE_JOBS), set(CASCADED))
         self.assertTrue(set(cascade.CASCADE_JOBS) <= set(place["env"]["JOBS"].split()))
 

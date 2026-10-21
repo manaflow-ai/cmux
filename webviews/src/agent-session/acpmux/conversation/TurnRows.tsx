@@ -6,6 +6,8 @@ import { useContext, useMemo, useState, type ReactNode } from "react";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { copyText } from "./clipboard";
 import { MessageCard } from "./MessageCard";
+import { McpCallRows } from "./McpCallRows";
+import { mcpNames, McpNamesContext } from "./mcpCalls";
 import { ToolGroupRow } from "./ToolGroupRow";
 import { ToolRow } from "./ToolRow";
 import { ToolRun } from "./ToolRun";
@@ -14,9 +16,8 @@ import { toolGroups, type ToolGroup } from "./toolGroups";
 import { isFoldedRun } from "./toolRunSummary";
 import { TurnActionsContext } from "./turnActions";
 import { workedLabel } from "./turns";
-import { ChevronDown, ChevronRight, Copy, Retry, TurnFork } from "./icons";
-import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../../ui/Menu";
-import type { TurnActions } from "./turnActions";
+import { ChevronRight, Copy, Retry, TurnFork } from "./icons";
+import { RetryModelMenu } from "./RetryModelMenu";
 import { useT } from "../i18n";
 import { failureCopy, failureKind, type FailureRoute } from "../failureCopy";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
@@ -65,6 +66,14 @@ function groupNode(group: ToolGroup, index: number, rowId: string, live: boolean
           disclosureKey={`group:${group.kind}:${group.items[0]!.tool!.id || `${rowId}:${index}`}`}
         />
       );
+    case "mcp":
+      return (
+        <McpCallRows
+          key={group.items[0]!.tool!.id || index}
+          items={group.items}
+          disclosureKey={`group:mcp:${group.items[0]!.tool!.id || `${rowId}:${index}`}`}
+        />
+      );
     case "message":
       return <MessageCard key={group.item.tool!.id || index} item={group.item} message={group.message} />;
     case "item":
@@ -76,10 +85,11 @@ function groupNode(group: ToolGroup, index: number, rowId: string, live: boolean
   }
 }
 
-/// A run of tool calls and thoughts between two pieces of text, in groups (toolGroups.ts). In an
-/// ended turn's open "Worked for", a run of two or more entries folds under one summary line
-/// (toolRunSummary.ts); a run that is one group already has its line. A live turn lists each,
-/// unless the Codex-style runs (Debug toggle) settle it (`settled`) or show its newest entry (`inFlight`).
+/// A run of tool calls and thoughts between two pieces of text, in groups (toolGroups.ts). Each
+/// group and call keeps its own line, in a live turn and in an ended turn's open "Worked for"
+/// alike, so the work stays readable without a click. Only the Codex-style runs (Debug toggle)
+/// fold a run of two or more entries under one summary line (`foldRun`, toolRunSummary.ts) or
+/// show its newest entry alone (`inFlight`); a run that is one group already has its line.
 export function shouldFoldToolRun(
   row: AcpmuxRow,
   groups: readonly ToolGroup[],
@@ -88,7 +98,7 @@ export function shouldFoldToolRun(
   // Coordination cards stay visible beside tool calls so a settled run never hides the
   // agent-to-agent receipt inside the generic tool summary.
   return (
-    row.settled === true && groups.length > 1 && !groups.some((group) => group.type === "message") && isFoldedRun(items)
+    row.foldRun === true && groups.length > 1 && !groups.some((group) => group.type === "message") && isFoldedRun(items)
   );
 }
 export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: string }) {
@@ -101,19 +111,23 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
     .map((group, at) => groupNode(group, first + at, row.id, row.live === true && first + at === groups.length - 1));
   // Find opens what holds its current match in this row only (chatFind.ts).
   const reveal = useContext(FindReveal);
+  // Ids an MCP call names, to the titles the run's other calls give them ("Read Coordination hub").
+  const names = useMemo(() => mcpNames(items), [items]);
   return (
     <TranscriptDisclosureProvider sessionId={sessionId}>
-      <FindReveal.Provider value={reveal && isRevealRow(row, reveal) ? reveal : undefined}>
-        <div className="cv-tools">
-          {shouldFoldToolRun(row, groups, items ?? []) ? (
-            <ToolRun disclosureKey={`run:${row.id}`} items={items ?? []}>
-              {nodes}
-            </ToolRun>
-          ) : (
-            nodes
-          )}
-        </div>
-      </FindReveal.Provider>
+      <McpNamesContext.Provider value={names}>
+        <FindReveal.Provider value={reveal && isRevealRow(row, reveal) ? reveal : undefined}>
+          <div className="cv-tools">
+            {shouldFoldToolRun(row, groups, items ?? []) ? (
+              <ToolRun disclosureKey={`run:${row.id}`} items={items ?? []}>
+                {nodes}
+              </ToolRun>
+            ) : (
+              nodes
+            )}
+          </div>
+        </FindReveal.Provider>
+      </McpNamesContext.Provider>
     </TranscriptDisclosureProvider>
   );
 }
@@ -155,7 +169,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
               type="button"
               className="cv-iconbtn cv-iconbtn--compact"
               aria-label={copied ? t("turn.copied") : t("turn.copy")}
-              title={copied ? t("turn.copied") : t("turn.copy")}
               onClick={() =>
                 void copyText(text).then(
                   () => setCopied(true),
@@ -202,37 +215,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
         </span>
       </div>
     </>
-  );
-}
-
-/// Retry with another model (cx-ncc.62): the chat harness's models, the current one checked.
-function RetryModelMenu({
-  retryWith,
-  onPick,
-}: {
-  retryWith: NonNullable<TurnActions["retryWith"]>;
-  onPick(model: string): void;
-}) {
-  const t = useT();
-  return (
-    <Menu>
-      <MenuButton
-        className="cv-iconbtn cv-iconbtn--compact cv-turn-retry-menu"
-        label={t("turn.retryWith")}
-        title={t("turn.retryWith")}
-      >
-        <ChevronDown size={12} />
-      </MenuButton>
-      <MenuPopup label={t("turn.retryWith")} align="start">
-        <MenuRadioGroup value={retryWith.current ?? ""} onValueChange={onPick}>
-          {retryWith.models.map((model) => (
-            <MenuRadioItem key={model.id} value={model.id} closeOnClick>
-              {model.name}
-            </MenuRadioItem>
-          ))}
-        </MenuRadioGroup>
-      </MenuPopup>
-    </Menu>
   );
 }
 

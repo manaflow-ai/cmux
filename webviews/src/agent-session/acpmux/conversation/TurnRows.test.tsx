@@ -21,22 +21,31 @@ const message = (id: string): AcpmuxActivity => ({
   },
 });
 
-const row = (items: AcpmuxActivity[], settled = true): AcpmuxRow => ({
+const row = (items: AcpmuxActivity[], foldRun = true): AcpmuxRow => ({
   id: "activity",
   version: 1,
   at: 1,
   kind: "activity",
-  settled,
+  settled: true,
+  foldRun,
   items,
 });
 
-test("folds a settled run made only of tool groups", () => {
+test("folds a run the Codex-style runs settled, made only of tool groups", () => {
   const items: AcpmuxActivity[] = [
     command("one", "bun test one"),
     { kind: "tool", text: "Read config", tool: { id: "read", title: "Read", kind: "read", status: "completed" } },
   ];
   expect(toolGroups(items)).toHaveLength(2);
   expect(shouldFoldToolRun(row(items), toolGroups(items), items)).toBe(true);
+});
+
+test("keeps each group of an ended turn's run on its own line", () => {
+  const items: AcpmuxActivity[] = [
+    command("one", "bun test one"),
+    { kind: "tool", text: "Read config", tool: { id: "read", title: "Read", kind: "read", status: "completed" } },
+  ];
+  expect(shouldFoldToolRun(row(items, false), toolGroups(items), items)).toBe(false);
 });
 
 test("keeps a coordination message visible beside settled tool calls", () => {

@@ -177,6 +177,16 @@ final class PaneHostView: NSView, RestingPlacement {
     /// reaches (`StripClipMaskLayer.cutouts`).
     /// Returns true when the clip changed: a Chromium page in this pane then
     /// re-reads its clip shape, which carries this mask (`CEFClipShape`).
+    /// The part of this host (own coordinates) that takes clicks while it sits in a scroll area
+    /// (scroll-areas-DESIGN.md): what scrolled out of the area's window is masked away and must
+    /// not take clicks meant for the view beside the area. Nil outside an area.
+    var areaHitClip: CGRect?
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        if let areaHitClip, !areaHitClip.contains(convert(point, from: superview)) { return nil }
+        return super.hitTest(point)
+    }
+
     @discardableResult
     func setStripClip(_ rect: CGRect?, cutouts: [CGRect] = []) -> Bool {
         guard let layer else { return false }
@@ -201,10 +211,10 @@ final class PaneHostView: NSView, RestingPlacement {
 
     func setChrome(showsRing: Bool, dim: CGFloat, dimFill: PaneOverlayView.DimFill = .pane, focusRing: FocusRingSettings,
                    ringAlphaOverride: CGFloat? = nil, tabEmphasis: ChromeEmphasis = .full, border: PaneOverlayView.Border,
-                   attention: AttentionMark?, attentionSettings: AttentionSettings, animated: Bool) {
+                   attention: AttentionMark?, attentionSettings: AttentionSettings, readByEntry: Bool = false, animated: Bool) {
         reporter?.setChromeEmphasis(tabEmphasis, animated: animated)
         chrome.update(showsRing: showsRing, dim: dim, dimFill: dimFill, focusRing: focusRing, ringAlphaOverride: ringAlphaOverride, border: border,
-                      attention: attention, attentionSettings: attentionSettings, animated: animated)
+                      attention: attention, attentionSettings: attentionSettings, readByEntry: readByEntry, animated: animated)
     }
 }
 

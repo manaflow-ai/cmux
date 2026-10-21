@@ -1063,7 +1063,28 @@ jobs:
           KEY: ${{ needs.tree-preflight.outputs.key }}
           RUN_ID: ${{ github.run_id }}
           GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/ci/cmux_tui_superseded_push.py --event "$EVENT_NAME" --ref "$REF" --sha "$SHA" --key "$KEY" --run-id "$RUN_ID"
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/cmux_tui_superseded_push.py --event "$EVENT_NAME" --ref "$REF" --sha "$SHA" --key "$KEY" --run-id "$RUN_ID"
+          # The nightly gate tests only the newest tree: nightly-next-tick
+          # promotes the newest daemon-tested one. When feat-cmux-next's head
+          # has a different key whose tree is published, that head's run (or
+          # its marker path) tests it, so this older key skips its tests and
+          # frees the runner. On 2026-10-21, 26 such jobs queued for 2 h while
+          # nightly-next stalled. A rerun (attempt 2+) always tests, and any
+          # failure to read the head or the tree tests as before.
+          if [[ "$REF" == refs/heads/feat-cmux-next && "$RUN_ATTEMPT" == 1 ]] \
+             && git fetch --quiet --no-tags --depth=1 origin refs/heads/feat-cmux-next 2>/dev/null; then
+            head_sha="$(git rev-parse FETCH_HEAD)"
+            head_key="$(scripts/cmux-next/pin-cmux-tui.sh key --rev FETCH_HEAD 2>/dev/null || true)"
+            if [[ "$head_sha" != "$SHA" && "$head_key" =~ ^[0-9a-f]{40}$ && "$head_key" != "$KEY" ]] \
+               && curl -fsS --connect-timeout 5 --max-time 15 "https://files.cmux.com/cmux-tui/tree/$head_key/completion.json?gate=$RUN_ID" \
+                 | python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin).get("key") == sys.argv[1] else 1)' "$head_key" 2>/dev/null; then
+              echo "feat-cmux-next head ${head_sha:0:12} has published tree $head_key; its run tests it, so tree $KEY skips the nightly gate tests."
+              echo "stale=true" >> "$GITHUB_OUTPUT"
+            fi
+          fi
 
       - name: Tree key
         if: steps.current.outputs.stale != 'true'
@@ -1184,6 +1205,7 @@ jobs:
           echo "::notice title=publish skipped::${REF_NAME} is build-only. Use a cmux-tui-pin-* branch to publish: git push origin ${SHA}:refs/heads/cmux-tui-pin-${short}"
 
   sentry-dsyms:
+    environment: sentry-dsyms
     # The macOS client's debug symbols (cmux-tui, cmux-tui-host, acpmux, ...),
     # so Sentry symbolicates their crashes in the app bundle, where the
     # binaries are stripped. Never blocks a publish: a failed upload is a warning.

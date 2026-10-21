@@ -19,7 +19,8 @@ export default agentPaneEntry({
     { selector: ".acpmux-composer-bar" },
     { selector: ".acpmux-model" },
     { selector: ".acpmux-context" },
-    { selector: ".acpmux-send" },
+    // The mic keeps the right edge from the empty chat on; Send and Stop come and go left of it.
+    { selector: ".acpmux-fit-mic" },
   ],
   checks: {
     anchorMovePx: {

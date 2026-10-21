@@ -84,6 +84,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case useFolder(String, confirm: Bool)
     /// Choose Folder… for a chat whose folder is missing (`chat.folder.choose`, cx-nn3e.1).
     case chooseChatFolder
+    /// The summary panel's Attach files or folders (`chat.attach.choose`): the native open panel,
+    /// after a real gesture, for a chat on this Mac.
+    case chooseAttachments
     /// Returns bounded recent project paths for the new-tab picker.
     case listProjects(String?)
     /// `project.icon {cwd}`: the project's own favicon for its picker badge, as a small data URL.
@@ -95,6 +98,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case openChatInTerminal(String)
     /// `chats.page {query?, cursor?, limit?}`: one page of the New Tab page's All chats list.
     case chatsPage(AgentPaneChatsQuery)
+    /// `environment.list|save|remove`: the New Tab page's saved environments (``AgentPaneEnvironmentRequest``).
+    case environment(AgentPaneEnvironmentRequest)
     /// The new-tab omnibar invoked a host-owned action id.
     case appAction(String)
     /// The chat header's tools and "..." menu: run app action `id` (one of
