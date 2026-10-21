@@ -198,4 +198,22 @@ has the same choice.
 
 ## 7. Verification record
 
-(filled in as steps land)
+- 2026-10-20, hosted: H-1 red test `home-history-page.test.ts` (0da3acea717), fix 9c1e9d32091.
+  Hosted Workers-pool tests after the `acceptSubscriber` seam and `PROJECTION_PRIMARY=none`:
+  26 files, 165 tests green (`test/home-*`, `test/socket*`, `test/wire-ticket*`, `test/projection*`).
+- 2026-10-20, self-hosted server landed in a3d5d15c81b (`backend/apps/home-server`):
+  `bun test` 9/9 (DM, group, resend replay, reply, tapback, read cursor, unread, typing, resume
+  with `after_seq`, restart keeps data, alarm survives restart, admission refusals).
+- 2026-10-20, real tailnet (tail137216): binary built on macOS arm64 (64 MB), run on `cmux21`
+  (untagged node, owner `leoli.4u@gmail.com` via loopback) with `lawrence@manaflow.ai` allowed
+  and reaching it from a MacBook over MagicDNS `cmux21.tail137216.ts.net:7320`:
+  - both logins admitted by WhoIs/loopback; both `dm.open` give the same `conv_dm_…`;
+  - a message from cmux21 reached the MacBook's conversation socket as an event (171 ms
+    including an SSH hop); a resend with the same key replayed;
+  - reply, tapback, group create and send; the other person's inbox showed both rows with
+    `unread: 1` and previews;
+  - `deny` gave 403 at once; restart kept history; the LAN address (172.20.21.252:7320) does
+    not answer (only 127.0.0.1 and the tailnet addresses listen).
+  - Not possible: the controller Mac mini (`cmux-lawrences-mac-mini`) is a tagged node and the
+    tailnet ACL does not let other nodes reach it on 7320, so the two-person test ran on `cmux21`.
+    The ACL was not changed. On the mini, the binary served the owner (lawrence) over the tailnet.
