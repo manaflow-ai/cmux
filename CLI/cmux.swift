@@ -32673,7 +32673,7 @@ struct CMUXCLI {
                     defaultValue: "Running subagents"
                 )
             } else {
-                statusValue = "Running"
+                statusValue = String(localized: "agent.generic.status.running", defaultValue: "Running")
             }
             try setClaudeStatus(
                 client: client,
