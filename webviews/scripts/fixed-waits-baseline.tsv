@@ -82,7 +82,6 @@ test/reasoning-chip-steps.test.ts	2
 test/reopened-chat-history.test.ts	6
 test/retry-model-menu.test.ts	2
 test/session-hover-card.test.tsx	7
-test/session-sidebar-preview.test.tsx	6
 test/settings-scroll.test.ts	9
 test/settings-search-results.test.ts	1
 test/support/papercutChat.ts	2

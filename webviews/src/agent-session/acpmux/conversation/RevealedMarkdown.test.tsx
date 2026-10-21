@@ -42,6 +42,7 @@ afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
   Object.assign(revealFrames, savedFrames);
+  // fixed-wait: teardown only; React's scheduled work runs before its window closes
   await new Promise((resolve) => setTimeout(resolve, 20));
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
