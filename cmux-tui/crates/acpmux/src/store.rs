@@ -505,6 +505,11 @@ pub trait Store: Send + Sync {
     fn handoff_dir(&self) -> Option<PathBuf> {
         None
     }
+    /// Where each peer's last-known sessions are saved: `peers/` beside
+    /// `sessions/`, or none (in memory) for the memory store.
+    fn peer_cache_dir(&self) -> Option<PathBuf> {
+        None
+    }
 }
 
 pub fn open(config: &StoreConfig, root: &Path) -> Result<Box<dyn Store>> {
@@ -912,6 +917,10 @@ impl Store for LocalStore {
 
     fn handoff_dir(&self) -> Option<PathBuf> {
         self.root.parent().map(|home| home.join("handoffs"))
+    }
+
+    fn peer_cache_dir(&self) -> Option<PathBuf> {
+        self.root.parent().map(|home| home.join("peers"))
     }
 }
 
