@@ -1652,6 +1652,25 @@ pre.cv-math-source {
 .cv-tool:is(:hover, :focus-visible) :is(.cv-command__ok, .cv-command__time) {
   opacity: 1;
 }
+/* A lone shell row's background state (ToolRow.tsx, BackgroundMark.tsx) sits at its right edge. */
+.cv-tool__meta {
+  margin-left: auto;
+}
+.cv-command__bg-state {
+  display: flex;
+}
+/* Its words, for screen readers only (the pane does not load ui.css's .ui-sr-only). */
+.cv-command__bg-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.cv-command__stopped {
+  color: var(--cv-text-dim);
+}
 /* "⌃B to run in background" on a running command (BackgroundHint.tsx), at the row's right edge.
    It fades in after a moment, so a quick command never shows it; opacity only, so it runs under
    Reduce Motion too. */
@@ -3002,20 +3021,31 @@ button.cv-received__name:focus-visible {
 }
 
 /* ---------- Where a Claude Code session started (SessionStartNote.tsx) ---------- */
-/* The compaction note under the facts line: wraps (it is a sentence or three), indented to the
-   facts' text, quiet until dismissed. */
-.cv-session-start__compaction {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  padding-left: 22.5px;
+/* Two quiet tool-height lines: the short facts, then how the chat compacts with Learn more and
+   its dismiss. What either opens (the full facts, the explanation) wraps under it, indented to
+   the lines' text. */
+.cv-session-start__compaction .cv-tool__text {
+  flex: 1;
+}
+.cv-session-start__more {
+  all: unset;
+  cursor: pointer;
+  color: var(--cv-text-dim);
+}
+.cv-session-start__more:hover {
+  color: var(--agent-text);
+}
+.cv-session-start__more:focus-visible {
+  outline: 2px solid var(--agent-accent, currentColor);
+  outline-offset: 1px;
+  border-radius: 3px;
+}
+.cv-session-start__detail {
+  padding: 0 0 4px 22.5px;
   line-height: 18px;
   font-size: var(--text-detail);
   color: var(--cv-text-dim);
-}
-.cv-session-start__compaction-text {
-  min-width: 0;
-  flex: 1;
+  overflow-wrap: anywhere;
 }
 .cv-session-start__dismiss {
   all: unset;

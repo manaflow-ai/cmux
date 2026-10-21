@@ -18,11 +18,12 @@ import { hoverActions } from "../../../ui/hoverActions.experiment";
 import { menuPartRef } from "./menuParts";
 import { BackgroundHint } from "./BackgroundHint";
 import { ShellBlock } from "./ShellBlock";
+import { BackgroundMark } from "./BackgroundMark";
+import { toolDuration } from "./toolGroups";
 import { OutputMore, useOutput } from "./toolOutput";
 import { cleanText } from "./mcpCalls";
 import { useFold } from "./fold";
 import { Check, ChevronRight, Globe, Magnifier, OpenBook, Pencil, TerminalSquare, ToolGroup } from "./icons";
-import { toolDuration } from "./toolGroups";
 
 /// ACP tool kinds (`ToolKind`) to row glyphs.
 export function toolIcon(kind?: string): ReactNode {
@@ -67,18 +68,21 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
   // Diffed only while drawn (open, or closing): a closed edit row costs nothing on each transcript update.
   const files = useMemo(() => (fold.present && hasDiff ? toolFiles([tool]) : []), [fold.present, hasDiff, tool]);
   const cwd = useContext(SessionCwdContext);
-  const running = tool.status === "pending" || tool.status === "in_progress";
+  const foreground = tool.status === "pending" || tool.status === "in_progress";
+  const running = foreground || tool.background?.state === "running";
   const label = toolLabel(
     tool,
     item.text,
     (command) => t("tools.ranCommand", { command }),
     cwd,
-    t(running ? "tools.runningUnnamed" : "tools.ranUnnamed"),
+    t(foreground ? "tools.runningUnnamed" : "tools.ranUnnamed"),
   );
   const failed = tool.status === "failed";
+  // A shell that went on in the background says how it stands there, and its time once it ended.
+  const background = !failed && !foreground && tool.background;
   // A finished call's check and run time, at the row's right edge and only on hover
   // (conversation.css), as on a command row; its failure already says so in the label.
-  const duration = running ? undefined : toolDuration(t, tool);
+  const duration = foreground ? undefined : toolDuration(t, tool);
   // Only a call with a command line is a shell; an MCP call can also say "execute".
   const shell = tool.kind === "execute" && Boolean(tool.command);
   // Find counts a shell's whole line: a label that is its description or a shortened line is skipped.
@@ -96,11 +100,18 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
         {label}
         {failed && <span className="cv-tool__detail"> {t("tools.failed")}</span>}
       </span>
-      {!running && (
-        <span className="cv-command__meta">
-          {!failed && <Check size={14} className="cv-command__ok" />}
+      {background ? (
+        <span className="cv-command__meta cv-tool__meta">
+          <BackgroundMark background={background} />
           {duration && <span className="cv-command__time">{duration}</span>}
         </span>
+      ) : (
+        !foreground && (
+          <span className="cv-command__meta">
+            {!failed && <Check size={14} className="cv-command__ok" />}
+            {duration && <span className="cv-command__time">{duration}</span>}
+          </span>
+        )
       )}
     </>
   );
@@ -120,7 +131,7 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
             strokeWidth={1.2}
             className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
           />
-          {running && shell && <BackgroundHint />}
+          {foreground && shell && <BackgroundHint />}
         </button>
       ) : (
         <div className={`cv-tool${running ? " is-live" : " is-strong"}`}>{content}</div>

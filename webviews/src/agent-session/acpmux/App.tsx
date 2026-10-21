@@ -92,6 +92,7 @@ import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
 import { remoteComposer } from "./remoteEditing";
 import { Composer, type ComposerHandle, type ComposerWake } from "./Composer";
 import { audioAttachment, linkAttachment, type ComposerAttachment } from "./attachments";
+import type { KeptAttachments } from "./composer/keptAttachments";
 import { ComposerPickers, PICKER_LABELS, type ComposerPermissionAccess } from "./ComposerPickers";
 import { openPicker } from "./pickerOpeners";
 import { EmptyState, type EmptyStateProjects, isNewChat, projectName } from "./EmptyState";
@@ -532,6 +533,17 @@ const editQueued = (promptId: string, edit: QueueEdit) =>
 const reportTabRowTools = (width: number) => void callNative("pane.tabRowTools", { width }).catch(() => undefined);
 /// Hands the host a new chat's typed text, kept with its tab across a relaunch (cx-z5vd).
 const postUnsentDraft = (text: string) => void callNative("chat.unsentDraft", { text }).catch(() => undefined);
+/// Each chat's unsent chips, kept by the host so reopening or restoring the chat brings them back
+/// (AgentPaneDraftAttachments.swift). A host without the store (the gallery, an older app) keeps none.
+const keptAttachments: KeptAttachments = {
+  read: (sessionId) =>
+    callNative<unknown>("chat.draftAttachments.get", { sessionId }).then(
+      (kept) => (Array.isArray(kept) ? (kept as ComposerAttachment[]) : []),
+      () => [],
+    ),
+  write: (sessionId, attachments) =>
+    callNative<{ held?: unknown } | null>("chat.draftAttachments", { sessionId, attachments }),
+};
 /// Where chat `sessionId` rests, kept by its tab so a relaunch reopens it there (cx-6bgzj).
 const postScrollAnchor = (sessionId: string, anchor: ScrollAnchor | null) =>
   void callNative("chat.scrollAnchor", { sessionId, rowId: anchor?.rowId ?? null, offset: anchor?.offset ?? 0 }).catch(
@@ -6635,6 +6647,7 @@ function AcpmuxPane() {
             permissionAccess={permissionAccess}
             draft={draft}
             onUnsentDraft={quick ? undefined : postUnsentDraft}
+            keptAttachments={quick ? undefined : keptAttachments}
             onCmuxCommand={(command, args) => {
               if (command.action === "btw") {
                 const question = args?.trim();
