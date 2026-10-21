@@ -67,8 +67,6 @@ mod offers;
 mod secrets;
 mod seen;
 mod session;
-mod session_order;
-use session_order::newest_first;
 pub(crate) mod session_pages;
 mod settings_watch;
 mod silent_turn;
