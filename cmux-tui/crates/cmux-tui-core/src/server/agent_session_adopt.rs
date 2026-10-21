@@ -30,13 +30,63 @@ use serde_json::{Value, json};
 
 use super::agent_session_link::AcpmuxLink;
 use super::agent_session_start::{
-    AgentSessionStarts, CALL_TIMEOUT, THREAD_STACK_BYTES, asks, is_chief, startable,
+    AgentSessionStarts, CALL_TIMEOUT, THREAD_STACK_BYTES, is_chief, mode_facts, read_mode,
+    startable,
 };
 use super::{MessageWriter, Refusal, SurfaceId, ok, refuse};
 use crate::mux::Mux;
 use crate::state::conversation_tabs_store::{validate_harness, validate_session};
 
 pub const AGENT_SESSION_ADOPT_CAPABILITY: &str = "agent-session-adopt-v1";
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ModeParams {
+    surface: SurfaceId,
+}
+
+/// `agent-session-mode {surface}` of a trusted local connection (the parent
+/// checked trust and the acpmux socket): the mode of the chat the tab is bound
+/// to, `{surface, session, family, mode, asking}`, read from this machine's
+/// acpmux. Read-only: the app reads it once for each bound tab it lists at a
+/// connect (a restored tab it does not show), so the bypass badge never
+/// depends on what this app remembers.
+pub(super) fn mode(
+    mux: &Arc<Mux>,
+    id: Option<Value>,
+    socket: PathBuf,
+    params: ModeParams,
+    writer: &MessageWriter,
+) -> bool {
+    let Some(session) = super::tab_session(mux, params.surface) else {
+        return refuse(writer, id, Refusal::UnknownTab);
+    };
+    let worker_writer = writer.clone();
+    let worker_id = id.clone();
+    let spawned = std::thread::Builder::new()
+        .name("mux-agent-mode".into())
+        .stack_size(THREAD_STACK_BYTES)
+        .spawn(move || {
+            let read = AcpmuxLink::connect(&socket, |_| {})
+                .map_err(|_| Refusal::Unavailable)
+                .and_then(|link| {
+                    let read = read_mode(&link, &session).map_err(Refusal::of);
+                    link.close();
+                    read
+                });
+            match read {
+                Ok(mut facts) => {
+                    facts["surface"] = json!(params.surface);
+                    ok(&worker_writer, worker_id, facts)
+                }
+                Err(refusal) => refuse(&worker_writer, worker_id, refusal),
+            };
+        });
+    if spawned.is_err() {
+        return refuse(writer, id, Refusal::Limit);
+    }
+    true
+}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -111,9 +161,8 @@ fn adopt_and_bind(
     let table = link
         .call("_acpmux/web_modes", json!({"sessionId": params.session}), CALL_TIMEOUT)
         .map_err(Refusal::of)?;
-    let family = table.pointer("/session/family").and_then(Value::as_str).unwrap_or_default();
-    let mode = table.pointer("/session/mode").and_then(Value::as_str);
-    let (asking, _) = asks(&table);
+    let facts = mode_facts(&params.session, &table);
+    let family = facts["family"].as_str().unwrap_or_default();
     // The tab's brand mark: the agent acpmux runs (a profile by its last
     // part), else its family.
     let harness = [summary.get("harness").and_then(Value::as_str), Some(family)]
@@ -131,8 +180,8 @@ fn adopt_and_bind(
         "session": params.session,
         "conversation": record.wire(),
         "family": family,
-        "mode": mode,
-        "asking": asking,
+        "mode": facts["mode"],
+        "asking": facts["asking"],
     }))
 }
 

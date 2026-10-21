@@ -161,6 +161,12 @@ struct Attachment {
     permissions: Mutex<VecDeque<String>>,
     /// Prompt ids waiting for `_acpmux/prompt_accepted`, with their reply slot.
     prompts: Mutex<HashMap<String, std::sync::mpsc::SyncSender<Value>>>,
+    /// The attach asked for `agent-session-mode` pushes (`mode_events`).
+    mode_events: bool,
+    /// A mode read runs on a worker thread, and whether another change came
+    /// since it began (it reads again): one reader at a time, in order.
+    mode_reading: AtomicBool,
+    mode_again: AtomicBool,
 }
 
 impl Attachment {
@@ -231,6 +237,11 @@ struct PageParams {
     limit: Option<u64>,
     #[serde(default)]
     kinds: Option<Vec<String>>,
+    /// Attach only: the attachment also pushes `agent-session-mode` when the
+    /// chat's mode changes (an app that reads it asks; any other client would
+    /// not know the event).
+    #[serde(default)]
+    mode_events: bool,
 }
 
 enum AgentSessionCommand {
@@ -455,6 +466,9 @@ pub(super) fn try_handle(
     if cmd == "agent-session-adopt" {
         return Some(adopt(mux, client, id, object, writer));
     }
+    if cmd == "agent-session-mode" {
+        return Some(mode(mux, client, id, object, writer));
+    }
     let Some(command) = AgentSessionCommand::parse(&cmd, Value::Object(object)) else {
         return Some(refuse(writer, id, Refusal::BadRequest));
     };
@@ -525,6 +539,26 @@ fn adopt(
         return refuse(writer, id, Refusal::Unavailable);
     };
     agent_session_adopt::adopt(mux, client, id, socket, params, writer)
+}
+
+/// `agent-session-mode` (agent_session_adopt.rs), with the attach verbs' checks.
+fn mode(
+    mux: &Arc<Mux>,
+    client: u64,
+    id: Option<Value>,
+    params: serde_json::Map<String, Value>,
+    writer: &MessageWriter,
+) -> bool {
+    let Ok(params) = serde_json::from_value(Value::Object(params)) else {
+        return refuse(writer, id, Refusal::BadRequest);
+    };
+    if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
+        return refuse(writer, id, Refusal::NotTrusted);
+    }
+    let Some(socket) = mux.control_clients.agent_sessions.socket() else {
+        return refuse(writer, id, Refusal::Unavailable);
+    };
+    agent_session_adopt::mode(mux, id, socket, params, writer)
 }
 
 /// `agent-session-trust` (agent_session_trust.rs), with the same checks.
@@ -644,6 +678,7 @@ fn attach(
     let worker_writer = writer.clone();
     let worker_id = id.clone();
     let surface = params.surface;
+    let mode_events = params.mode_events;
     let spawned = std::thread::Builder::new()
         .name("mux-agent-attach".into())
         .stack_size(THREAD_STACK_BYTES)
@@ -657,6 +692,7 @@ fn attach(
                 record_session,
                 acpmux_params,
                 read_only,
+                mode_events,
                 worker_writer,
             );
         });
