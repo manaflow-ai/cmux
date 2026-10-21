@@ -12,7 +12,7 @@ import { cardVersion } from "./UpdateSurfaces";
 export interface PartsContext {
   strings: Strings;
   onTry: (action: string) => void;
-  /** Each change with a picture shows it under its row (the Ledger: a visual per feature). */
+  /** Each change is a wide row with its whole description and its picture beside it (the Ledger). */
   rowMedia?: boolean;
 }
 
@@ -69,11 +69,12 @@ export function ItemActions({ item, ctx }: { item: ReleaseItem; ctx: PartsContex
   );
 }
 
-/** Try it and Learn more for one grouped change, kept with its title and summary. */
+/** Try it and Learn more for one grouped change, kept with its title and summary. A span: the
+    Ledger puts it inside a paragraph, where a div is invalid. */
 export function RowActions({ item, ctx }: { item: ReleaseItem; ctx: PartsContext }) {
   if (!item.action && !item.docs) return null;
   return (
-    <div className="cl-row-actions">
+    <span className="cl-row-actions">
       {item.action && (
         <button type="button" className="cl-row-action" onClick={() => ctx.onTry(item.action!.id)}>
           {item.action.title || ctx.strings.t("changelog.page.tryIt")}
@@ -89,7 +90,7 @@ export function RowActions({ item, ctx }: { item: ReleaseItem; ctx: PartsContext
           {ctx.strings.t("changelog.page.learnMore")}
         </a>
       )}
-    </div>
+    </span>
   );
 }
 
@@ -149,16 +150,19 @@ function Group({ category, items, ctx }: { category: WhatsNewCategory; items: Re
     <section className="cl-group" aria-label={categoryLabel(ctx.strings, category)}>
       <h3>{categoryLabel(ctx.strings, category)}</h3>
       <ul>
-        {shown.map((item, index) => (
-          <li key={`${item.id}-${index}`}>
-            <span className="cl-row-text">
-              <span className="cl-row-title">{item.title}</span>
-              {item.summary && <span className="cl-row-summary"> {item.summary.split(/\n{2,}/)[0]}</span>}
-              {ctx.rowMedia && item.media && <Media media={item.media} className="cl-row-media" />}
-            </span>
-            <RowActions item={item} ctx={ctx} />
-          </li>
-        ))}
+        {shown.map((item, index) =>
+          ctx.rowMedia ? (
+            <WideRow key={`${item.id}-${index}`} item={item} ctx={ctx} />
+          ) : (
+            <li key={`${item.id}-${index}`}>
+              <span className="cl-row-text">
+                <span className="cl-row-title">{item.title}</span>
+                {item.summary && <span className="cl-row-summary"> {item.summary.split(/\n{2,}/)[0]}</span>}
+              </span>
+              <RowActions item={item} ctx={ctx} />
+            </li>
+          ),
+        )}
       </ul>
       {!all && items.length > GROUP_PAGE && (
         <button type="button" className="cl-more" onClick={() => setAll(true)}>
@@ -166,6 +170,29 @@ function Group({ category, items, ctx }: { category: WhatsNewCategory; items: Re
         </button>
       )}
     </section>
+  );
+}
+
+/** A change in the Ledger, which uses the pane's width: its title, then its whole description, and
+    its picture beside them when the pane has room (under them when it does not). Its actions end
+    the last line (#21185: a box of their own would leave an empty line under every row). */
+function WideRow({ item, ctx }: { item: ReleaseItem; ctx: PartsContext }) {
+  const paragraphs = item.summary.split(/\n{2,}/).filter(Boolean);
+  const actions = <RowActions item={item} ctx={ctx} />;
+  return (
+    <li className={item.media ? "cl-wide-row cl-has-media" : "cl-wide-row"}>
+      <div className="cl-row-text">
+        <span className="cl-row-title">{item.title}</span>
+        {paragraphs.length === 0 && actions}
+        {paragraphs.map((p, i) => (
+          <p key={i} className="cl-row-summary">
+            {p}
+            {i === paragraphs.length - 1 && actions}
+          </p>
+        ))}
+      </div>
+      {item.media && <Media media={item.media} className="cl-row-media" />}
+    </li>
   );
 }
 

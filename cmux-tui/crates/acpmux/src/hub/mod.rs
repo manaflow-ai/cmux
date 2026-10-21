@@ -51,6 +51,7 @@ mod policy_mode;
 mod pool;
 mod prompt_images;
 mod prompt_ledger;
+mod prompt_line;
 mod queue;
 mod queue_edit;
 pub use digest::declared_sender;
@@ -395,6 +396,8 @@ pub struct Hub {
     pub(super) trust_waits: trust_wait::Waits,
     /// Agent message pairs and their runaway guard (`agent_pairs.rs`).
     pub(super) agent_pairs: agent_pairs::AgentPairs,
+    /// Pairing tickets and paired machines (`crate::pairing`).
+    pub pairing: Arc<crate::pairing::Pairing>,
 }
 
 impl Hub {
@@ -479,6 +482,7 @@ impl Hub {
             secrets: Default::default(),
             trust_waits: Default::default(),
             agent_pairs: Default::default(),
+            pairing: Default::default(),
         });
         if let Ok(c) = hub.config.try_read() {
             hub.refresh_web_modes(&c);
