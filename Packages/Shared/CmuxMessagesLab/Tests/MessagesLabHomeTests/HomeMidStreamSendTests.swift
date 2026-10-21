@@ -67,13 +67,20 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 900), styleMask: [.titled], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
         defer { window.close() }
-        let view = MessagesLabHomeView(store: store, conversation: Self.conversation, me: me, wake: NoWake())
+        let view = MessagesLabHomeView(store: store, conversation: Self.conversation, me: me, wake: NoWake(), replies: .streaming)
         defer { view.stop() }
         view.frame = NSRect(x: 0, y: 0, width: 700, height: 900)
         window.contentView = view
         view.layoutSubtreeIfNeeded()
         let projection = view.projection
+        // The display frames: work the view schedules for the next frame runs at each frame's start
+        // (an offscreen window has no display link; the stream commits once per frame, HomeStreamPacer).
+        var pending: [() -> Void] = []
+        view.controller.nextFrame = { pending.append($0) }
         func frame() {
+            let due = pending
+            pending.removeAll()
+            for f in due { f() }
             projection.refresh()
             window.contentView?.layoutSubtreeIfNeeded()
             CATransaction.flush()
@@ -87,7 +94,7 @@ import Testing
             text += (text.isEmpty ? "" : " ") + word
             draft.segments[0] = text
             draft.lastSeq += 1
-            store.drafts[Self.conversation] = draft
+            store.showDraft(draft, turn: turn, author: chief, in: Self.conversation)
             frame()
         }
         Self.expectOneReply(view, Self.head, chief: chief, "before the send", sent: false)
@@ -106,14 +113,14 @@ import Testing
         let whole = Self.head + Self.tail
         draft.segments[0] = whole
         draft.lastSeq += 1
-        store.drafts[Self.conversation] = draft
+        store.showDraft(draft, turn: turn, author: chief, in: Self.conversation)
         frame()
         Self.expectOneReply(view, whole, chief: chief, "streaming after the send")
 
         // The owner posts the reply after my send; the stream ends in the same change.
         let summary = try #require(store.summary(Self.conversation))
         let rev = store.mirror.revision(of: .conversation(Self.conversation)) + 1
-        store.drafts[Self.conversation] = nil
+        store.showDraft(nil, turn: turn, author: chief, in: Self.conversation)
         store.handle(.message(CmuxHomeCore.Message(id: MessageID("msg_u2891"), conversation: Self.conversation, seq: summary.lastSeq + 1,
                                       clientMessageID: turn, author: chief, parts: [.text(whole)], createdAt: Date()), rev: rev))
         frame()

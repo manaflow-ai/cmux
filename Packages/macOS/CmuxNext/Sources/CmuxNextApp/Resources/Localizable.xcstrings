@@ -1841,6 +1841,138 @@
         }
       }
     },
+    "menu.edit.pasteAndMatchStyle": {
+      "comment": "Edit menu item (Cmd+Shift+V): pastes the clipboard as plain text, without its fonts, links or pictures.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paste and Match Style"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペーストしてスタイルを合わせる"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لصق ومطابقة النمط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zalijepi i uskladi stil"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indsæt og tilpas stil"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einsetzen und Stil anpassen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pegar con el mismo estilo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coller et adapter le style"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Incolla e adatta stile"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បិទភ្ជាប់ និងផ្គូផ្គងរចនាប័ទ្ម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "붙여넣고 스타일 일치시키기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lim inn og tilpass stil"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wklej i dopasuj styl"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colar e Manter Estilo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вставить и сохранить стиль"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "วางและจับคู่ลักษณะ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yapıştır ve Stili Eşleştir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вставити й узгодити стиль"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dán và khớp kiểu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "粘贴并匹配样式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "貼上並符合樣式"
+          }
+        }
+      }
+    },
     "menu.edit.paste": {
       "extractionState": "manual",
       "localizations": {
@@ -10385,6 +10517,1454 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Mọi không gian làm việc từ cmux cổ điển đều đã mở ở đây."
+          }
+        }
+      }
+    },
+    "browser.engine.fallback.downloading": {
+      "comment": "The one-time notice on a browser tab that opened in WebKit because the Chromium engine is still downloading (the app downloads Chromium on first use).",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يتم تنزيل Chromium، لذا تستخدم علامة التبويب هذه WebKit. ستستخدم علامات التبويب الجديدة Chromium عندما يصبح جاهزًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium se preuzima, pa ova kartica koristi WebKit. Nove kartice koriste Chromium kada bude spreman."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium hentes, så fanen bruger WebKit. Nye faner bruger Chromium, når det er klar."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium wird geladen, daher nutzt dieser Tab WebKit. Neue Tabs nutzen Chromium, sobald es bereit ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium is downloading, so this tab uses WebKit. New tabs use Chromium when it’s ready."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium se está descargando, así que esta pestaña usa WebKit. Las pestañas nuevas usarán Chromium cuando esté listo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium est en cours de téléchargement, cet onglet utilise donc WebKit. Les nouveaux onglets utiliseront Chromium dès qu’il sera prêt."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium è in download, quindi questa scheda usa WebKit. Le nuove schede useranno Chromium quando sarà pronto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium をダウンロード中のため、このタブは WebKit を使用します。準備ができると新しいタブで Chromium を使用します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium កំពុងទាញយក ដូច្នេះផ្ទាំងនេះប្រើ WebKit។ ផ្ទាំងថ្មីនឹងប្រើ Chromium នៅពេលវារួចរាល់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium을 다운로드하는 중이어서 이 탭은 WebKit을 사용합니다. 준비되면 새 탭은 Chromium을 사용합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium lastes ned, så denne fanen bruker WebKit. Nye faner bruker Chromium når det er klart."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium jest pobierany, więc ta karta używa WebKit. Nowe karty użyją Chromium, gdy będzie gotowy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O Chromium está sendo baixado, então esta aba usa o WebKit. Novas abas usarão o Chromium quando ele estiver pronto."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium загружается, поэтому эта вкладка использует WebKit. Новые вкладки будут использовать Chromium, когда он будет готов."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังดาวน์โหลด Chromium แท็บนี้จึงใช้ WebKit แท็บใหม่จะใช้ Chromium เมื่อพร้อม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium indiriliyor, bu yüzden bu sekme WebKit kullanıyor. Hazır olduğunda yeni sekmeler Chromium kullanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium завантажується, тому ця вкладка використовує WebKit. Нові вкладки використовуватимуть Chromium, коли він буде готовий."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium đang được tải xuống nên tab này dùng WebKit. Các tab mới sẽ dùng Chromium khi sẵn sàng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在下载 Chromium，因此此标签页使用 WebKit。准备就绪后，新标签页将使用 Chromium。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在下載 Chromium，因此此分頁使用 WebKit。準備就緒後，新分頁將使用 Chromium。"
+          }
+        }
+      }
+    },
+    "browser.engine.fallback.downloadFailed": {
+      "comment": "The one-time notice on a browser tab that opened in WebKit because the Chromium download failed; the app tries the download again by itself.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر تنزيل Chromium حتى الآن، لذا تستخدم علامة التبويب هذه WebKit. سيحاول cmux مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium se još nije mogao preuzeti, pa ova kartica koristi WebKit. cmux će pokušati ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium kunne ikke hentes endnu, så fanen bruger WebKit. cmux prøver igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium konnte noch nicht geladen werden, daher nutzt dieser Tab WebKit. cmux versucht es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium couldn’t download yet, so this tab uses WebKit. cmux will try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium aún no se pudo descargar, así que esta pestaña usa WebKit. cmux lo volverá a intentar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium n’a pas encore pu être téléchargé, cet onglet utilise donc WebKit. cmux va réessayer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non è stato ancora possibile scaricare Chromium, quindi questa scheda usa WebKit. cmux riproverà."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium をまだダウンロードできないため、このタブは WebKit を使用します。cmux が再試行します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនទាន់អាចទាញយក Chromium បានទេ ដូច្នេះផ្ទាំងនេះប្រើ WebKit។ cmux នឹងព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "아직 Chromium을 다운로드하지 못해 이 탭은 WebKit을 사용합니다. cmux가 다시 시도합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium kunne ikke lastes ned ennå, så denne fanen bruker WebKit. cmux prøver igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie udało się jeszcze pobrać Chromium, więc ta karta używa WebKit. cmux spróbuje ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ainda não foi possível baixar o Chromium, então esta aba usa o WebKit. O cmux tentará de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium пока не удалось загрузить, поэтому эта вкладка использует WebKit. cmux попробует снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังดาวน์โหลด Chromium ไม่ได้ แท็บนี้จึงใช้ WebKit cmux จะลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium henüz indirilemedi, bu yüzden bu sekme WebKit kullanıyor. cmux yeniden deneyecek."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium поки не вдалося завантажити, тому ця вкладка використовує WebKit. cmux спробує ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chưa tải xuống được Chromium nên tab này dùng WebKit. cmux sẽ thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "暂时无法下载 Chromium，因此此标签页使用 WebKit。cmux 将重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "暫時無法下載 Chromium，因此此分頁使用 WebKit。cmux 將重試。"
+          }
+        }
+      }
+    },
+    "browser.engine.downloading": {
+      "comment": "Shown when the user asks for a Chromium tab while the Chromium engine is still downloading. The argument is the download progress as a percentage, for example “42%”.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يتم تنزيل Chromium (%@). حاول مرة أخرى عندما يصبح جاهزًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium se preuzima (%@). Pokušajte ponovo kada bude spreman."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium hentes (%@). Prøv igen, når det er klar."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium wird geladen (%@). Versuche es erneut, sobald es bereit ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium is downloading (%@). Try again when it’s ready."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium se está descargando (%@). Vuelve a intentarlo cuando esté listo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium est en cours de téléchargement (%@). Réessayez quand il sera prêt."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium è in download (%@). Riprova quando sarà pronto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium をダウンロード中です（%@）。準備ができたらもう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium កំពុងទាញយក (%@)។ សូមព្យាយាមម្តងទៀតនៅពេលវារួចរាល់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium을 다운로드하는 중입니다(%@). 준비되면 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium lastes ned (%@). Prøv igjen når det er klart."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium jest pobierany (%@). Spróbuj ponownie, gdy będzie gotowy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O Chromium está sendo baixado (%@). Tente de novo quando ele estiver pronto."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium загружается (%@). Повторите попытку, когда он будет готов."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังดาวน์โหลด Chromium (%@) ลองอีกครั้งเมื่อพร้อม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium indiriliyor (%@). Hazır olduğunda yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium завантажується (%@). Спробуйте ще раз, коли він буде готовий."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium đang được tải xuống (%@). Hãy thử lại khi sẵn sàng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在下载 Chromium（%@）。准备就绪后请重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在下載 Chromium（%@）。準備就緒後請再試一次。"
+          }
+        }
+      }
+    },
+    "browser.engine.downloadFailed": {
+      "comment": "Shown when the user asks for a Chromium tab after the Chromium download failed; the app tries the download again by itself.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر تنزيل Chromium حتى الآن. سيحاول cmux مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium se još nije mogao preuzeti. cmux će pokušati ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium kunne ikke hentes endnu. cmux prøver igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium konnte noch nicht geladen werden. cmux versucht es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium couldn’t download yet. cmux will try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium aún no se pudo descargar. cmux lo volverá a intentar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium n’a pas encore pu être téléchargé. cmux va réessayer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non è stato ancora possibile scaricare Chromium. cmux riproverà."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium をまだダウンロードできません。cmux が再試行します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនទាន់អាចទាញយក Chromium បានទេ។ cmux នឹងព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "아직 Chromium을 다운로드하지 못했습니다. cmux가 다시 시도합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium kunne ikke lastes ned ennå. cmux prøver igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie udało się jeszcze pobrać Chromium. cmux spróbuje ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ainda não foi possível baixar o Chromium. O cmux tentará de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium пока не удалось загрузить. cmux попробует снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังดาวน์โหลด Chromium ไม่ได้ cmux จะลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium henüz indirilemedi. cmux yeniden deneyecek."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium поки не вдалося завантажити. cmux спробує ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chưa tải xuống được Chromium. cmux sẽ thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "暂时无法下载 Chromium。cmux 将重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "暫時無法下載 Chromium。cmux 將重試。"
+          }
+        }
+      }
+    },
+    "agentCursor.tag.chief": {
+      "comment": "Who drives an agent cursor when a Chief turn uses the browser: its tag reads \"Chief · <workspace>\". Chief is the name of the user's main agent.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        }
+      }
+    },
+    "agentCursor.tag.goTo": {
+      "comment": "Tooltip and VoiceOver help of an agent cursor's tag: a click shows the workspace the agent works in. %@ is the workspace name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go to %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الانتقال إلى %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Idi na %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gå til %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zu %@ wechseln"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ir a %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aller à %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vai a %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に移動"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទៅកាន់ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@(으)로 이동"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gå til %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przejdź do %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ir para %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перейти к %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไปที่ %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ konumuna git"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перейти до %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đi tới %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "前往 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "前往 %@"
+          }
+        }
+      }
+    },
+    "agentCursor.tag.accessibilityLabel": {
+      "comment": "VoiceOver label of an agent cursor's tag button. %@ is the tag text, who drives and where (\"a201 · cursor-gallery\").",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent cursor: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مؤشر الوكيل: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kursor agenta: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agentmarkør: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent-Zeiger: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cursor del agente: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Curseur de l’agent : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cursore dell’agente: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントのカーソル: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទស្សន៍ទ្រនិចភ្នាក់ងារ៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트 커서: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agentpeker: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kursor agenta: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cursor do agente: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Курсор агента: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เคอร์เซอร์ของเอเจนต์: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajan imleci: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Курсор агента: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Con trỏ của tác tử: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理光标：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理游標：%@"
+          }
+        }
+      }
+    },
+    "classicImport.preview.button": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استيراد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uvezi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importér"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importa"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インポート"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នាំចូល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가져오기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importuj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Импортировать"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "นำเข้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İçe Aktar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Імпортувати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhập"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导入"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匯入"
+          }
+        }
+      }
+    },
+    "classicImport.preview.cleanup": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مساحات العمل المتوقفة التي سيتم استبدالها (سيتم إنهاء محطاتها الطرفية): %1$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prekinuti radni prostori za zamjenu (njihovi terminali će se završiti): %1$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afbrudte arbejdsområder, der erstattes (deres terminaler afsluttes): %1$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zu ersetzende unterbrochene Arbeitsbereiche (ihre Terminals werden beendet): %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interrupted workspaces to replace (their terminals will end): %1$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espacios de trabajo interrumpidos que se reemplazarán (sus terminales finalizarán): %1$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espaces de travail interrompus à remplacer (leurs terminaux seront arrêtés) : %1$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spazi di lavoro interrotti da sostituire (i relativi terminali verranno terminati): %1$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "置き換える中断済みワークスペース（そのターミナルは終了します）：%1$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កន្លែងធ្វើការដែលបានផ្អាក និងត្រូវជំនួស (ស្ថានីយរបស់វានឹងបញ្ចប់)៖ %1$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "교체할 중단된 작업 공간(해당 터미널이 종료됨): %1$@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avbrutte arbeidsområder som erstattes (terminalene deres avsluttes): %1$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przerwane obszary robocze do zastąpienia (ich terminale zostaną zakończone): %1$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espaços de trabalho interrompidos a substituir (os terminais serão encerrados): %1$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прерванные рабочие пространства для замены (их терминалы будут завершены): %1$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พื้นที่ทำงานที่หยุดชะงักซึ่งจะแทนที่ (เทอร์มินัลของพื้นที่เหล่านี้จะสิ้นสุด): %1$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Değiştirilecek kesintiye uğramış çalışma alanları (terminalleri sonlandırılacak): %1$@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перервані робочі простори для заміни (їхні термінали буде завершено): %1$@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không gian làm việc bị gián đoạn sẽ được thay thế (các terminal của chúng sẽ kết thúc): %1$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要替换的中断工作区（其终端将结束）：%1$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要取代的中斷工作區（其終端將結束）：%1$@"
+          }
+        }
+      }
+    },
+    "classicImport.preview.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هل تريد استيراد مساحات العمل هذه من الإصدار الكلاسيكي؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uvesti ove klasične radne prostore?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importér disse klassiske arbejdsområder?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Arbeitsbereiche aus Classic importieren?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import these classic workspaces?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Importar estos espacios de trabajo de la versión clásica?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importer ces espaces de travail de la version classique ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importare questi spazi di lavoro della versione classica?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これらのクラシック版ワークスペースをインポートしますか？"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នាំចូលកន្លែងធ្វើការបែបចាស់ទាំងនេះ?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 클래식 작업 공간을 가져오시겠습니까?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importere disse klassiske arbeidsområdene?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaimportować te klasyczne obszary robocze?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importar estes espaços de trabalho do cmux clássico?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Импортировать эти рабочие пространства из классической версии?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "นำเข้าพื้นที่ทำงานแบบคลาสสิกเหล่านี้หรือไม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu klasik çalışma alanları içe aktarılsın mı?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Імпортувати ці робочі простори з класичної версії?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhập các không gian làm việc cổ điển này?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要导入这些经典版工作区吗？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要匯入這些經典版工作區嗎？"
+          }
+        }
+      }
+    },
+    "classicImport.preview.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المصدر: %1$@\nمساحات العمل: %2$@\nعلامات تبويب المتصفح: %3$@\nصفحات الملفات المحلية: %4$@\nمساحات عمل SSH: %5$@\nمحادثات الوكلاء: %6$@\nمساحات عمل الأجهزة الافتراضية السحابية التي تم تخطيها: %7$@\nيؤدي الاستيراد إلى تحميل صفحات المتصفح المحفوظة والاتصال بمضيفي SSH المحفوظين واستئناف محادثات الوكلاء المحفوظة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Izvor: %1$@\nRadni prostori: %2$@\nKartice preglednika: %3$@\nStranice lokalnih datoteka: %4$@\nSSH radni prostori: %5$@\nRazgovori agenata: %6$@\nPreskočeni Cloud VM radni prostori: %7$@\nUvoz učitava sačuvane stranice preglednika, povezuje se sa sačuvanim SSH hostovima i nastavlja sačuvane razgovore agenata."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kilde: %1$@\nArbejdsområder: %2$@\nBrowserfaner: %3$@\nLokale filsider: %4$@\nSSH-arbejdsområder: %5$@\nAgentchats: %6$@\nOversprungne Cloud VM-arbejdsområder: %7$@\nImporten indlæser gemte browsersider, opretter forbindelse til gemte SSH-værter og genoptager gemte agentchats."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quelle: %1$@\nArbeitsbereiche: %2$@\nBrowser-Tabs: %3$@\nLokale Dateiseiten: %4$@\nSSH-Arbeitsbereiche: %5$@\nAgent-Chats: %6$@\nÜbersprungene Cloud-VM-Arbeitsbereiche: %7$@\nBeim Importieren werden gespeicherte Browserseiten geladen, Verbindungen zu gespeicherten SSH-Hosts hergestellt und gespeicherte Agent-Chats fortgesetzt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source: %1$@\nWorkspaces: %2$@\nBrowser tabs: %3$@\nLocal file pages: %4$@\nSSH workspaces: %5$@\nAgent chats: %6$@\nCloud VM workspaces skipped: %7$@\nImporting loads saved browser pages, connects to saved SSH hosts, and resumes saved agent chats."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Origen: %1$@\nEspacios de trabajo: %2$@\nPestañas del navegador: %3$@\nPáginas de archivos locales: %4$@\nEspacios de trabajo SSH: %5$@\nChats de agentes: %6$@\nEspacios de trabajo de VM en la nube omitidos: %7$@\nAl importar, se cargan las páginas guardadas del navegador, se conectan los hosts SSH guardados y se reanudan los chats de agentes guardados."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source : %1$@\nEspaces de travail : %2$@\nOnglets du navigateur : %3$@\nPages de fichiers locaux : %4$@\nEspaces de travail SSH : %5$@\nDiscussions avec des agents : %6$@\nEspaces de travail de VM cloud ignorés : %7$@\nL’importation charge les pages de navigateur enregistrées, se connecte aux hôtes SSH enregistrés et reprend les discussions enregistrées avec les agents."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Origine: %1$@\nSpazi di lavoro: %2$@\nSchede del browser: %3$@\nPagine di file locali: %4$@\nSpazi di lavoro SSH: %5$@\nChat degli agenti: %6$@\nSpazi di lavoro VM cloud ignorati: %7$@\nL’importazione carica le pagine del browser salvate, si connette agli host SSH salvati e riprende le chat degli agenti salvate."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ソース：%1$@\nワークスペース：%2$@\nブラウザタブ：%3$@\nローカルファイルページ：%4$@\nSSH ワークスペース：%5$@\nエージェントチャット：%6$@\nスキップするクラウド VM ワークスペース：%7$@\nインポートすると、保存されたブラウザページを読み込み、保存された SSH ホストに接続し、保存されたエージェントチャットを再開します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រភព៖ %1$@\nកន្លែងធ្វើការ៖ %2$@\nផ្ទាំងកម្មវិធីរុករក៖ %3$@\nទំព័រឯកសារមូលដ្ឋាន៖ %4$@\nកន្លែងធ្វើការ SSH៖ %5$@\nការជជែករបស់ភ្នាក់ងារ៖ %6$@\nកន្លែងធ្វើការ Cloud VM ដែលបានរំលង៖ %7$@\nការនាំចូលនឹងផ្ទុកទំព័រកម្មវិធីរុករកដែលបានរក្សាទុក ភ្ជាប់ទៅម៉ាស៊ីន SSH ដែលបានរក្សាទុក និងបន្តការជជែករបស់ភ្នាក់ងារដែលបានរក្សាទុក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "소스: %1$@\n작업 공간: %2$@\n브라우저 탭: %3$@\n로컬 파일 페이지: %4$@\nSSH 작업 공간: %5$@\n에이전트 채팅: %6$@\n건너뛴 클라우드 VM 작업 공간: %7$@\n가져오면 저장된 브라우저 페이지를 불러오고, 저장된 SSH 호스트에 연결하고, 저장된 에이전트 채팅을 재개합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kilde: %1$@\nArbeidsområder: %2$@\nNettleserfaner: %3$@\nLokale filsider: %4$@\nSSH-arbeidsområder: %5$@\nAgentchatter: %6$@\nCloud VM-arbeidsområder som hoppes over: %7$@\nImportering laster inn lagrede nettlesersider, kobler til lagrede SSH-verter og gjenopptar lagrede agentchatter."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Źródło: %1$@\nObszary robocze: %2$@\nKarty przeglądarki: %3$@\nLokalne strony plików: %4$@\nObszary robocze SSH: %5$@\nCzaty agentów: %6$@\nPominięte obszary robocze maszyn wirtualnych w chmurze: %7$@\nImportowanie wczytuje zapisane strony przeglądarki, łączy się z zapisanymi hostami SSH i wznawia zapisane czaty agentów."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Origem: %1$@\nEspaços de trabalho: %2$@\nAbas do navegador: %3$@\nPáginas de arquivos locais: %4$@\nEspaços de trabalho SSH: %5$@\nChats de agentes: %6$@\nEspaços de trabalho de VM na nuvem ignorados: %7$@\nA importação carrega páginas salvas do navegador, conecta-se a hosts SSH salvos e retoma chats de agentes salvos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Источник: %1$@\nРабочие пространства: %2$@\nВкладки браузера: %3$@\nСтраницы локальных файлов: %4$@\nРабочие пространства SSH: %5$@\nЧаты агентов: %6$@\nПропущенные рабочие пространства облачных ВМ: %7$@\nПри импорте загружаются сохранённые страницы браузера, устанавливаются соединения с сохранёнными хостами SSH и возобновляются сохранённые чаты агентов."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แหล่งที่มา: %1$@\nพื้นที่ทำงาน: %2$@\nแท็บเบราว์เซอร์: %3$@\nหน้าไฟล์ในเครื่อง: %4$@\nพื้นที่ทำงาน SSH: %5$@\nแชทตัวแทน: %6$@\nพื้นที่ทำงาน Cloud VM ที่ข้าม: %7$@\nการนำเข้าจะโหลดหน้าเบราว์เซอร์ที่บันทึกไว้ เชื่อมต่อกับโฮสต์ SSH ที่บันทึกไว้ และทำงานต่อในแชทตัวแทนที่บันทึกไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kaynak: %1$@\nÇalışma alanları: %2$@\nTarayıcı sekmeleri: %3$@\nYerel dosya sayfaları: %4$@\nSSH çalışma alanları: %5$@\nAracı sohbetleri: %6$@\nAtlanan Bulut VM çalışma alanları: %7$@\nİçe aktarma kayıtlı tarayıcı sayfalarını yükler, kayıtlı SSH ana bilgisayarlarına bağlanır ve kayıtlı aracı sohbetlerini sürdürür."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Джерело: %1$@\nРобочі простори: %2$@\nВкладки браузера: %3$@\nСторінки локальних файлів: %4$@\nРобочі простори SSH: %5$@\nЧати агентів: %6$@\nПропущені робочі простори хмарних ВМ: %7$@\nІмпорт завантажує збережені сторінки браузера, підключається до збережених хостів SSH і відновлює збережені чати агентів."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nguồn: %1$@\nKhông gian làm việc: %2$@\nThẻ trình duyệt: %3$@\nTrang tệp cục bộ: %4$@\nKhông gian làm việc SSH: %5$@\nCuộc trò chuyện của tác nhân: %6$@\nKhông gian làm việc máy ảo đám mây bị bỏ qua: %7$@\nViệc nhập sẽ tải các trang trình duyệt đã lưu, kết nối với các máy chủ SSH đã lưu và tiếp tục các cuộc trò chuyện của tác nhân đã lưu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "来源：%1$@\n工作区：%2$@\n浏览器标签页：%3$@\n本地文件页面：%4$@\nSSH 工作区：%5$@\n智能体聊天：%6$@\n已跳过的云虚拟机工作区：%7$@\n导入会加载已保存的浏览器页面、连接到已保存的 SSH 主机，并恢复已保存的智能体聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "來源：%1$@\n工作區：%2$@\n瀏覽器分頁：%3$@\n本機檔案頁面：%4$@\nSSH 工作區：%5$@\n代理程式聊天：%6$@\n略過的雲端 VM 工作區：%7$@\n匯入會載入已儲存的瀏覽器頁面、連線至已儲存的 SSH 主機，並繼續已儲存的代理程式聊天。"
           }
         }
       }

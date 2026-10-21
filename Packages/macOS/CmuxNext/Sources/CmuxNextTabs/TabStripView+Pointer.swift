@@ -49,6 +49,7 @@ extension TabStripView {
         if let hoveredID { cells[hoveredID]?.isHovered = false }
         hoveredID = id
         if let id { cells[id]?.isHovered = true }
+        onHoverTab?(id)
         TabSeparatorVisibility.apply(to: self)
     }
 

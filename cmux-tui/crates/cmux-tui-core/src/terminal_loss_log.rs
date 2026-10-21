@@ -201,6 +201,9 @@ pub(crate) enum Prefilled {
     /// the shell's own empty prompt shows; skipped (and named on the marker
     /// line) when it does not.
     Harness,
+    /// The resume command a person set for the terminal (`resume-command`),
+    /// typed without Return.
+    Resume,
     None,
 }
 
@@ -208,6 +211,7 @@ impl Prefilled {
     fn as_str(self) -> &'static str {
         match self {
             Self::Harness => "harness",
+            Self::Resume => "resume",
             Self::None => "none",
         }
     }

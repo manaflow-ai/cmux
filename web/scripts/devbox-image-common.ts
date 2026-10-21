@@ -49,6 +49,7 @@ export const DEVBOX_TEMPLATE_FILES = [
   "chrome-managed-policy.json",
   "cmux-bashrc",
   "cmux-devbox-boot",
+  "cmux-vm-kind-sync",
   "cmux-tui-state-mount",
   "cmux-motd",
   "cmux-prompt.bash",
@@ -207,6 +208,8 @@ echo "websocket-smoke-ok marker=$MARKER through_sequence=$FIRST_SEQUENCE->$SECON
 export const devboxDesktopDir = path.join(devboxDir, "desktop");
 export const DEVBOX_DESKTOP_FILES = [
   "WALLPAPER.md",
+  "cmux-cloud-browser",
+  "cmux-cloud-browser.service",
   "cmux-desktop-boot",
   "cmux-desktop.service",
   "desktop-env.sh",
@@ -233,6 +236,8 @@ export type DevboxDesktopInstall = {
  * so a path can only change in one place.
  */
 export const DEVBOX_DESKTOP_INSTALLS: readonly DevboxDesktopInstall[] = [
+  { source: "desktop/cmux-cloud-browser", target: "/usr/local/bin/cmux-cloud-browser", mode: 0o755 },
+  { source: "desktop/cmux-cloud-browser.service", target: "/etc/systemd/system/cmux-cloud-browser.service", mode: 0o644 },
   { source: "desktop/google-chrome-cmux.desktop", target: "/etc/cmux/apps/google-chrome-cmux.desktop", mode: 0o644 },
   { source: "desktop/thunar-cmux.desktop", target: "/etc/cmux/apps/thunar-cmux.desktop", mode: 0o644 },
   { source: "desktop/ghostty-cmux.desktop", target: "/etc/cmux/apps/ghostty-cmux.desktop", mode: 0o644 },
@@ -966,6 +971,8 @@ export type DevboxManifestEntry = {
   /** The shape this snapshot boots at (Freestyle ladder). Size-less entries are pre-ladder bakes. */
   size?: DevboxImageSize;
   cmuxdRemoteCommit: string;
+  /** Authentication mode frozen into the image's cmux remote listener. */
+  cmuxRemoteAuth?: "trusted-carrier" | "client-grant";
   /** The cmux-tui build baked in the daemon user's home (files.cmux.com manifest pin at bake time). Absent on images that installed it at create time. */
   cmuxTuiCommit?: string;
   cmuxTuiSha256?: string;
@@ -1000,6 +1007,9 @@ export function manifestEntrySkeleton(
     // The session daemon is cmux-tui, installed at create time from the pinned
     // artifacts manifest; no cmuxd-remote build is baked.
     cmuxdRemoteCommit: "none-cmux-tui",
+    // This legacy image pipeline's frozen boot script starts the compatibility
+    // listener. A future grant image must override this in its bake result.
+    cmuxRemoteAuth: "trusted-carrier",
     repoCommit: metadata.repoCommit,
     epoch: metadata.epoch,
     devboxSource: metadata.devboxSource,
@@ -1523,7 +1533,7 @@ export const DEVBOX_AWAITING_REBAKE = [
     layers: "desktop",
     schema: 2,
     baked: "28fce1e49495",
-    current: "d77b614be8fb911bb4bb46e8c7801a1a72454b7738f83a5f0dfa947d6eb7514a",
+    current: "8fc6bdb6c96777ef0c304682b4170488d8baf60a9d673cec0408be5bbb299df7",
   },
 ] as const;
 

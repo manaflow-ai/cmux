@@ -39,15 +39,15 @@ public nonisolated struct BrowserDownloadPolicy: Sendable {
         return target.map { BrowserDownloadPlacement(finalURL: $0, chosen: chosen, reservations: reservations) }
     }
 
-    /// What happens to a finished file.
+    /// What happens to a complete temporary file before it is published.
     public enum CompletionStep: Equatable, Sendable {
         /// Mark `file` as downloaded from `source` (Gatekeeper asks before
         /// it first opens).
         case quarantine(file: URL, source: URL?)
     }
 
-    /// The steps for a finished download: quarantine only. Opening the
-    /// file is never a step.
+    /// The pre-publication steps for a complete download: quarantine only.
+    /// Opening the file is never a step.
     public static func completionSteps(destination: URL?, source: URL?) -> [CompletionStep] {
         destination.map { [.quarantine(file: $0, source: source)] } ?? []
     }
@@ -75,12 +75,13 @@ public nonisolated struct BrowserDownloadPolicy: Sendable {
         try target.setResourceValues(values)
     }
 
-    @MainActor
-    static func runCompletionSteps(for download: BrowserDownload) {
-        for step in completionSteps(destination: download.destination, source: download.sourceURL) {
+    /// Runs every required step on the owned temporary file. A failure is
+    /// propagated so the caller can discard it instead of publishing it.
+    static func prepareForLanding(_ file: URL, source: URL?, quarantine: (URL, URL?) throws -> Void) throws {
+        for step in completionSteps(destination: file, source: source) {
             switch step {
             case .quarantine(let file, let source):
-                try? quarantine(file, source: source)
+                try quarantine(file, source)
             }
         }
     }

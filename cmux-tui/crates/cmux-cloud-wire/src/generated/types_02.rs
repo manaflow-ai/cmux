@@ -349,6 +349,8 @@ pub struct Host {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tags: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network: Option<ServerNetworkState>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub orphaned: Option<HostOrphaned>,
 }
 
@@ -449,6 +451,12 @@ wire_enum! {
         ModelSpendUsd = "model.spend_usd",
     }
 }
+
+pub type NativeDeviceId = String;
+
+pub type NativeMeshId = String;
+
+pub type NativeTenantId = String;
 
 wire_enum! {
     OpClass {
@@ -701,6 +709,40 @@ pub struct RunWithBodyOutcome {
 
 pub type ServerCapability = String;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ServerNetworkBinding {
+    pub state: LitConfirmed,
+    pub tenant: NativeTenantId,
+    pub mesh: NativeMeshId,
+    pub device: NativeDeviceId,
+    pub confirmed_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ServerNetworkProof {
+    #[serde(rename = "signedAt")]
+    pub signed_at: i64,
+    pub nonce: String,
+    pub signature: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ServerNetworkReservation {
+    pub state: LitReserved,
+    pub tenant: NativeTenantId,
+    pub mesh: NativeMeshId,
+    pub device: NativeDeviceId,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum ServerNetworkState {
+    ServerNetworkReservation(ServerNetworkReservation),
+    ServerNetworkBinding(ServerNetworkBinding),
+    /// A member this build does not know (a newer backend), kept verbatim.
+    Unknown(Value),
+}
+
 /// A Cloud machine snapshot.
 pub type SnapshotId = String;
 
@@ -859,42 +901,4 @@ wire_enum! {
         Wait = "wait",
         Fail = "fail",
     }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TargetPolicyHost {
-    pub kind: LitHost,
-    pub host: HostId,
-    pub fallback: TargetPolicyHostFallback,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamAiLimitMember {
-    pub user: UserId,
-    pub display_name: String,
-    pub role: String,
-    pub limit_usd: WireNumber,
-    pub source: TeamAiLimitMemberSource,
-    pub spent_usd: WireNumber,
-}
-
-wire_enum! {
-    TeamAiLimitMemberSource {
-        Personal = "personal",
-        Team = "team",
-        Default = "default",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamAiUsageLine {
-    pub billed: bool,
-    pub included_usd: Option<WireNumber>,
-    pub per_seat: bool,
-    pub seats: i64,
-    pub spent_usd: WireNumber,
-    pub period_start: Option<i64>,
-    pub period_end: i64,
-    pub stop_applies: bool,
-    pub stopped: bool,
 }

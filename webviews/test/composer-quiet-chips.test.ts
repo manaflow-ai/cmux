@@ -83,13 +83,15 @@ await requireBrowserLane("composer-quiet-chips.test.ts", async () => {
   // A chip is named by its label, or by a selector (one that starts with ".").
   const STAGES = [
     { entry: "agent-pane.new-tab", variant: "reasoning-chip", chips: ["Model", "Effort"] },
+    // The Default template's stage layout: the same chips in the footer under the box.
+    { entry: "agent-pane.new-tab", variant: "reasoning-chip-stage", chips: ["Model", "Effort"] },
     { entry: "agent-pane.composer", variant: "new-chat-reasoning", chips: ["Effort"] },
     // The bolt on, so its resting look is asserted; + and the mode chip open menus.
     { entry: "agent-pane.composer", variant: "quiet-chips", chips: [BAR.plus, BAR.mode] },
   ];
   // Plan on (the picker rail's play turns it on): accent ink, no pill at rest.
   const REST_STAGES = [...STAGES, { entry: "agent-pane.composer-pickers", variant: "plan", chips: ["Model"] }];
-  const CONTROLS = ":is(.acpmux-picker-button, .acpmux-mic, .acpmux-plan, .acpmux-steer, .acpmux-fast)";
+  const CONTROLS = ":is(.acpmux-picker-button, .acpmux-mic, .acpmux-plan, .acpmux-fast)";
   const chip = (name: string) => (name.startsWith(".") ? name : `button[aria-haspopup][aria-label="${name}"]`);
 
   const open = async (engine: string, entry: string, variant: string) => {

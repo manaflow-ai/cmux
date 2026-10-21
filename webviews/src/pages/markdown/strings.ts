@@ -2,6 +2,8 @@
 // scripts/pages/gen-strings.mjs writes `generated/strings.json`.
 export const L = {
   title: "page.title",
+  comment: "comment.marker",
+  deleteComment: "comment.delete",
   loading: "page.loading",
   failed: "page.failed",
   disconnected: "page.disconnected",

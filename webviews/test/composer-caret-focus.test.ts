@@ -107,8 +107,19 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
       row: ":is(.nt-pickers, .acpmux-composer-foot)",
       foot: ".nt-composer .acpmux-composer-foot",
     },
+    // Default, the second dot: its own composer (the chips, the mic and Send in the box), placed at
+    // the foot of the stage layout's page.
+    {
+      name: "New Tab stage composer",
+      entry: "agent-pane.new-tab",
+      variant: "reasoning-chip-stage",
+      field: ".nt-field",
+      box: ".nt-box",
+      row: ".nt-box .nt-pickers",
+      foot: ".nt-box .nt-pickers",
+    },
   ];
-  const CONTROLS = ":is(.acpmux-picker-button, .acpmux-mic, .acpmux-plan, .acpmux-steer, .acpmux-fast)";
+  const CONTROLS = ":is(.acpmux-picker-button, .acpmux-mic, .acpmux-plan, .acpmux-fast)";
   const TRANSPARENT = "rgba(0, 0, 0, 0)";
 
   const open = async (engine: string, stage: Stage, { rest = true } = {}) => {

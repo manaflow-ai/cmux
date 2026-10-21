@@ -38,6 +38,8 @@ pub(crate) struct Forward {
     pub(crate) local_port: u16,
     pub(crate) generation: u64,
     pub(crate) down: Option<String>,
+    /// Present only for browser proxy routes; never logged or persisted.
+    pub(crate) proxy_credential: Option<String>,
 }
 
 impl Forward {

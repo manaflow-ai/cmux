@@ -42,7 +42,9 @@ type Row = {
   send: Rect | undefined;
   stop: Rect | undefined;
   stopGlyph: Rect | undefined;
-  /** Send's or Stop's fill and ink, whichever shows. */
+  /** The trailing cluster's controls, left to right by position (mic, Send or Stop, ↵). */
+  trailing: string[];
+  /** Send's or Stop's fill and ink, whichever shows; empty when neither does. */
   fill: string;
   ink: string;
   /** The theme's --agent-text and --acpmux-base, resolved in the bar. */
@@ -108,6 +110,20 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
       footer: footer && rect(footer),
       left,
       right: rect(bar.querySelector(".acpmux-composer-actions")!),
+      trailing: [...bar.querySelectorAll<HTMLElement>(".acpmux-composer-actions button")]
+        .filter(visible)
+        .sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left)
+        .map((button) =>
+          button.classList.contains("acpmux-mic")
+            ? "mic"
+            : button.classList.contains("acpmux-steer-now")
+              ? "steer"
+              : button.classList.contains("acpmux-cancel")
+                ? "stop"
+                : button.classList.contains("acpmux-send")
+                  ? "send"
+                  : button.className,
+        ),
       barGap: parseFloat(getComputedStyle(bar).columnGap) || 0,
       labels: {
         model: label(
@@ -133,8 +149,15 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
       stopGlyph: bar.querySelector(".acpmux-cancel svg rect")
         ? rect(bar.querySelector(".acpmux-cancel svg rect")!)
         : undefined,
-      fill: getComputedStyle(bar.querySelector(".acpmux-send")!).backgroundColor,
-      ink: getComputedStyle(bar.querySelector(".acpmux-send")!).color,
+      // Claude desktop's box: no Send until there is a draft (Leo 2026-10-20), so an idle row may have neither.
+      fill: (() => {
+        const shown = bar.querySelector(".acpmux-send");
+        return shown ? getComputedStyle(shown).backgroundColor : "";
+      })(),
+      ink: (() => {
+        const shown = bar.querySelector(".acpmux-send");
+        return shown ? getComputedStyle(shown).color : "";
+      })(),
       ...(() => {
         const probe = document.createElement("span");
         probe.style.color = "var(--agent-text)";
@@ -189,15 +212,18 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
     await vite?.close();
   });
 
-  const row = async (variant: string, width: number) => {
-    // 340 px tall: the split's quiet row (32 px) under the box must fit with a queued prompt's row
-    // above it. At 300 px the dock is already at its floor (the transcript keeps its 96 px), so the
-    // queued card ran 13 px past the pane's bottom; agent-pane-bottom-stack covers that short pane.
-    const page = await browser!.newPage({ viewport: { width, height: 340 } });
+  /** The row's geometry; `draft` is typed first, so an idle row draws its Send. */
+  const row = async (variant: string, width: number, draft?: string) => {
+    const page = await browser!.newPage({ viewport: { width, height: 300 } });
     await page.goto(stageURL(variant));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
     await page.locator(".acpmux-effort .acpmux-picker-button").waitFor();
     await page.evaluate(() => document.fonts.ready);
+    if (draft) {
+      await page.locator(".acpmux-composer-prompt [contenteditable]").click();
+      await page.keyboard.type(draft);
+      await page.locator(".acpmux-composer-bar .acpmux-send:not(.acpmux-cancel)").waitFor();
+    }
     const measured = await page.evaluate(measure);
     await page.close();
     return measured;
@@ -261,20 +287,65 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
         expect(problems).toEqual([]);
       });
 
+  // A short pane with a queued prompt (re-review of #22285): the queue's last row, the card and the
+  // split's quiet row (28 px and its 4 px gap) under it all stay inside the pane. The transcript
+  // gives up room for the quiet row, down to 64 px above the stack.
+  for (const height of [300, 285])
+    test(`queued in a ${height} px pane: the quiet row stays inside the pane`, async () => {
+      const page = await browser!.newPage({ viewport: { width: 720, height } });
+      await page.goto(stageURL("queued"));
+      await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+      await page.locator(".acpmux-composer-foot .acpmux-effort .acpmux-picker-button").waitFor();
+      const drawn = await page.evaluate(() => {
+        const rect = (selector: string) => document.querySelector(selector)?.getBoundingClientRect();
+        const main = rect(".acpmux-main")!;
+        const foot = rect(".acpmux-composer-foot")!;
+        const box = rect(".acpmux-composer-box")!;
+        const queue = rect(".acpmux-composer-queue");
+        const transcript = rect(".acpmux-main .acpmux-scroll")!;
+        const stack = rect(".acpmux-main > .acpmux-dock")!;
+        return {
+          footInside: foot.bottom <= main.bottom + 0.5,
+          footUnderBox: foot.top >= box.bottom - 0.5,
+          queueAboveBox: !queue || queue.bottom <= box.top + 0.5,
+          transcriptRoom: Math.round(stack.top - transcript.top),
+          footBottom: Math.round(foot.bottom),
+          paneBottom: Math.round(main.bottom),
+        };
+      });
+      await page.close();
+      console.log(`queued at ${height} px`, JSON.stringify(drawn));
+      expect({
+        footInside: drawn.footInside,
+        footUnderBox: drawn.footUnderBox,
+        queueAboveBox: drawn.queueAboveBox,
+      }).toEqual({
+        footInside: true,
+        footUnderBox: true,
+        queueAboveBox: true,
+      });
+      // The transcript keeps a row's worth above the stack.
+      expect(drawn.transcriptRoom).toBeGreaterThanOrEqual(64);
+    });
+
   for (const width of [420, 720, 1100])
-    test(`at ${width} px Stop takes Send's box as a solid, theme-inverted disc`, async () => {
-      const idle = await row("claude-auto", width);
+    test(`at ${width} px Stop has Send's footprint as a solid, theme-inverted disc`, async () => {
+      // Claude desktop's box (Leo 2026-10-20): no Send until there is a draft, so the idle row
+      // Stop is held against has a prompt typed; there Send comes after the mic. While a turn
+      // runs Stop comes before the mic, which keeps the right edge, so Stop matches Send's size
+      // and line, not its x.
+      const idle = await row("claude-auto", width, "Add a test for the 429 path");
       const running = await row("queued", width);
       const send = idle.send!;
       const stop = running.stop!;
       expect(stop).toBeDefined();
-      const off = (["left", "right", "top", "bottom"] as const).filter(
-        (side) => Math.abs(send[side] - stop[side]) > 0.5,
-      );
+      const off = (["width", "top", "bottom"] as const).filter((side) => Math.abs(send[side] - stop[side]) > 0.5);
       expect(off.map((side) => `${side} ${send[side].toFixed(1)} -> ${stop[side].toFixed(1)}`)).toEqual([]);
-      // A solid disc in the text color with a base-colored square, never the faint resting circle
-      // of an empty draft's Send (design panel Q4-B: that read as a disabled Send).
-      expect(running.fill).not.toBe(idle.fill);
+      expect(idle.trailing.slice(-2)).toEqual(["mic", "send"]);
+      expect(running.trailing.slice(-2)).toEqual(["stop", "mic"]);
+      // A solid disc in the text color with a base-colored square, never the faint off circle
+      // (design panel Q4-B: that read as a disabled Send). An empty draft draws no Send at all now,
+      // so the solid text fill is the check, not a difference from the idle row's ready Send.
       expect(running.fill).toBe(running.text);
       expect(running.ink).toBe(running.base);
       // The square sits in the disc's centre.

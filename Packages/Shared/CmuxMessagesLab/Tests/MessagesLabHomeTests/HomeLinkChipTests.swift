@@ -88,16 +88,42 @@ import Testing
         #expect(span.x1 >= b.width - 0.5)
     }
 
-    @Test func anAgentMessageMapsWithChips() {
+    /// Lawrence 2026-10-20 ("These pills are extremely ugly … the font size needs to be the same
+    /// … for now revert this change"): an agent's reply maps links with no chips. A subagent id
+    /// stays a plain inline link: same text, no icon pad, no chip style, the body font, and as
+    /// wide as the plain-link render.
+    @Test func anAgentMessageMapsLinksAsPlainText() throws {
         let people = [CmuxHomeCore.Participant(id: ParticipantID("agent_chief"), kind: .agent, displayName: "Chief", agentClass: .chief)]
         let base = Date(timeIntervalSince1970: 1_800_000_000)
         let summary = ConversationSummary(id: ConversationID("c"), title: "Chief", participants: people, lastSeq: 1,
                                           createdAt: base, updatedAt: base, readCursors: [:], readCursorTimes: [:])
-        let item = TranscriptItem(key: IdempotencyKey("k"), seq: Seq(1), author: ParticipantID("agent_chief"),
-                                  parts: [.text("Open [the tab](\(Self.tab)).")], createdAt: base, delivery: .committed, messageID: MessageID("m"))
-        let parts = HomeMapping.projectedParts(item, summary: summary).parts
-        guard case let .text(_, runs)? = parts.first else { Issue.record("no text part"); return }
-        #expect(runs.contains { $0.chipKind == .tab })
+        func mapped(_ text: String) throws -> (String, [TextRun]) {
+            let item = TranscriptItem(key: IdempotencyKey("k"), seq: Seq(1), author: ParticipantID("agent_chief"),
+                                      parts: [.text(text)], createdAt: base, delivery: .committed, messageID: MessageID("m"))
+            guard case let .text(shown, runs)? = HomeMapping.projectedParts(item, summary: summary).parts.first else {
+                Issue.record("no text part"); throw CancellationError()
+            }
+            return (shown, runs)
+        }
+        let (_, runs) = try mapped("a340: drag links to split; [the tab](\(Self.tab)).")
+        let (agent, agentRuns) = try mapped("[a340](cmux://chief/0123abcd/session/s-81) is on it.")
+        #expect(agent == "a340 is on it.")
+        let link = try #require(agentRuns.first { $0.link != nil })
+        #expect(link.link == "cmux://chief/0123abcd/session/s-81")
+        #expect(link.start == 0 && link.length == 4)
+        #expect((runs + agentRuns).allSatisfy { $0.chipKind == nil })
+        // As wide as the plain-link render: no icon slot, no trailing pad.
+        let (web, webRuns) = HomeMarkdown.render("[a340](cmux://chief/0123abcd/session/s-81) is on it.")
+        let a = TextLayout.make(agent, runs: agentRuns, maxWidth: 400)
+        let b = TextLayout.make(web, runs: webRuns, maxWidth: 400)
+        #expect(abs(a.width - b.width) < 0.5)
+        #expect(a.chipSpans(line: 0).isEmpty)
+        // The body font on the id, as on the words around it.
+        let attr = a.attributed(color: .white, linkColor: .white)
+        let idFont = attr.attribute(.font, at: 1, effectiveRange: nil) as? NSFont
+        let bodyFont = attr.attribute(.font, at: 6, effectiveRange: nil) as? NSFont
+        #expect(idFont?.pointSize == bodyFont?.pointSize)
+        #expect(attr.attribute(.kern, at: 0, effectiveRange: nil) as? CGFloat == attr.attribute(.kern, at: 6, effectiveRange: nil) as? CGFloat)
     }
 }
 
@@ -109,7 +135,9 @@ import Testing
         func cancel() {}
     }
 
-    @Test func theChipUnderThePointerIsFound() throws {
+    /// Chips are off in the transcript (Lawrence 2026-10-20, see anAgentMessageMapsLinksAsPlainText):
+    /// a workspace link in a loaded conversation has no chip anywhere under the pointer.
+    @Test func noChipIsUnderThePointer() throws {
         HomeMarkdownPolicy.install()
         let me = ParticipantID("user_me"), chief = ParticipantID("agent_chief")
         let people = [CmuxHomeCore.Participant(id: me, kind: .human, displayName: "Me"),
@@ -131,20 +159,13 @@ import Testing
         controller.demo?.layoutIfNeeded()
         controller.demo?.collection.layoutIfNeeded()
 
-        var found: HomeLinkChipHit?
         let b = controller.host.bounds
+        var found: HomeLinkChipHit?
         scan: for y in stride(from: b.minY, to: b.maxY, by: 2) {
             for x in stride(from: b.minX, to: b.maxX, by: 2) {
                 if let hit = controller.linkChip(at: CGPoint(x: x, y: y)) { found = hit; break scan }
             }
         }
-        let hit = try #require(found)
-        #expect(hit.url.absoluteString == HomeLinkChipTests.ws)
-        #expect(hit.kind == .workspace)
-        #expect(hit.rect.width > HomeLinkChip.iconSlot)
-        #expect(hit.rect.height > 10 && hit.rect.height < 24)
-        // Every point of the rect's middle row is on the same chip; a point left of it is not.
-        #expect(controller.linkChip(at: CGPoint(x: hit.rect.midX, y: hit.rect.midY))?.url == hit.url)
-        #expect(controller.linkChip(at: CGPoint(x: hit.rect.minX - 30, y: hit.rect.midY)) == nil)
+        #expect(found == nil)
     }
 }

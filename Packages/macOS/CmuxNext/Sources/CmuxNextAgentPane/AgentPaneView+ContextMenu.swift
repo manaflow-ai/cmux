@@ -6,6 +6,7 @@ import WebKit
 /// The agent pane's web view on the old host: WebKit's context menu goes through the pane
 /// (``AgentPaneView/editContextMenu(_:)``). On the page host the shared view's
 /// `contextMenuEditor` does the same.
+// webview-allow: agent chat needs WebKit (native context menu, file drops, input hooks)
 final class AgentPaneWKWebView: WKWebView {
     var contextMenuEditor: (@MainActor (NSMenu) -> Void)?
     /// Files the person dropped on the page: a real gesture page script can't make (``AgentPaneUpload``).

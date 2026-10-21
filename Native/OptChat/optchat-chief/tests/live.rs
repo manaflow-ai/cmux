@@ -45,6 +45,7 @@ fn start(chat: &optchat_host::OptChat, n: u64, text: &str) -> TurnStart {
         blocks: turn_blocks(&view.text, &[text.to_owned()]),
         limit: Some(Duration::from_secs(600)),
         idle_limit: None,
+        ..Default::default()
     }
 }
 
@@ -477,6 +478,7 @@ fn two_turns_and_two_nodes_through_local_acp() {
             system_prompt,
             limit: Some(Duration::from_secs(600)),
             idle_limit: None,
+            ..Default::default()
         };
         let started = std::time::Instant::now();
         let outcome = turn::run(

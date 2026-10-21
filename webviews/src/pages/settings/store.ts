@@ -338,6 +338,15 @@ export class SettingsStore {
     });
   }
 
+  /** Shuffle a Folder…: the app asks for a folder and shuffles its pictures (`folder:<path>`). */
+  async chooseBackdropFolder(): Promise<void> {
+    await this.trackAppearance([BACKGROUND], async () => {
+      const reply = await this.request("cmux.settings.backdrop.image.folder", {});
+      if (!reply.ok) this.setError(BACKGROUND, rowError(reply.error));
+      else await Promise.all([this.refresh(), this.refreshHost()]);
+    });
+  }
+
   /** Downloads the image or movie at `url` and sets it (backgrounds plan phase 3). Resolves to the
    * refusal code the picker words, or null once it is the background. */
   async addBackdropLink(url: string): Promise<string | null> {
@@ -362,10 +371,10 @@ export class SettingsStore {
     void this.request("cmux.settings.backdrop.image.reveal", id ? { id } : {});
   }
 
-  /** The bytes the person's own images take; null when the host cannot say. */
-  async backdropUsage(): Promise<number | null> {
+  /** The bytes the person's own images take and their folder; null when the host cannot say. */
+  async backdropUsage(): Promise<{ bytes: number; folder: string | null } | null> {
     const reply = await this.request("cmux.settings.backdrop.image.usage", {});
-    return reply.ok ? reply.value.bytes : null;
+    return reply.ok ? { bytes: reply.value.bytes, folder: reply.value.folder ?? null } : null;
   }
 
   /** Opens the Wallpaper pane of System Settings, where macOS downloads a wallpaper the picker
@@ -392,7 +401,7 @@ export class SettingsStore {
     return reply.ok;
   }
 
-  /** Saves the workspace `id`'s own glass tint over art; null follows the work's own tint. */
+  /** Saves the workspace `id`'s own glass tint over art; null follows All Workspaces' opacity. */
   async setWorkspaceOpacity(id: string, opacity: number | null): Promise<boolean> {
     const reply = await this.request("cmux.settings.backdrop.workspace.set", {
       workspace: id,
@@ -467,7 +476,7 @@ export class SettingsStore {
   /** The host's calls for Agents > Chiefs (`cmux.chief.profile.*`, `cmux.chief.backend.*`): the
    * Chief editor reaches the Chief owner through the host's page relay, as Home does. */
   readonly chiefCalls = {
-    call: <R,>(op: string, params: unknown): Promise<R> => this.client.call<R>(op, params),
+    call: <R>(op: string, params: unknown): Promise<R> => this.client.call<R>(op, params),
   };
 
   /** Settings > Agents' state; null when the host has no Agents part. */
@@ -574,7 +583,7 @@ export class SettingsStore {
    * Runs `work` (a write, a host op that sets the background, a theme level) as one step of
    * Appearance's undo stack: the states of `keys` (and the keys their writes also change, and with
    * `themes` the theme levels) are read before and after it, and what changed is recorded, named
-   * `label` or by the first change ("Background → Shuffle Daily"). Other parts of Appearance (the
+   * `label` or by the first change ("Background → Shuffle Paintings"). Other parts of Appearance (the
    * Theme pane's rotation) call it to make their changes undoable too.
    */
   async trackAppearance<T>(

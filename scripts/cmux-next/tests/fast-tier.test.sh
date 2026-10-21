@@ -27,6 +27,18 @@ EOF
 cat > "$tmp/root/bin/slow.sh" <<'EOF'
 sleep 5
 EOF
+# Like swift test: a child (xctest) that outlives its parent and keeps the
+# output pipe open. cmux19, run 39360407187: three entries timed out twice
+# each (the run and the classify run) and left six xctest processes behind.
+cat > "$tmp/root/bin/hang-child.sh" <<'EOF'
+sleep 30 &
+echo $! >> "$1"
+# SwiftPM starts xctest in a process group of its own: killing the entry's
+# group alone misses it.
+python3 -c 'import os, time; os.setpgid(0, 0); time.sleep(30)' &
+echo $! >> "$1"
+wait
+EOF
 
 registry() { printf '%s\n' "$1" > "$tmp/registry.json"; }
 quarantine() {
@@ -76,6 +88,22 @@ quarantine
 registry "{\"entries\": [$(entry stuck slow.sh)]}"
 run
 expect "an entry over its time cap fails" 1 "^FAST-TIER FAIL stuck .*timed out after 2s"
+
+registry "{\"entries\": [$(entry hung hang-child.sh "[\"$tmp/hung.pids\"]")]}"
+started=$SECONDS
+run
+expect "an entry whose child hangs fails at its cap" 1 "^FAST-TIER FAIL hung .*timed out after 2s"
+if [ $((SECONDS - started)) -ge 15 ]; then
+  echo "FAIL: a timed-out entry waited on its child's pipe ($((SECONDS - started)) s for two 2 s runs)" >&2
+  exit 1
+fi
+while read -r pid; do
+  if kill -0 "$pid" 2>/dev/null; then
+    kill "$pid" 2>/dev/null || true
+    echo "FAIL: a timed-out entry left its child $pid running" >&2
+    exit 1
+  fi
+done < "$tmp/hung.pids"
 
 registry '{"entries": [{"name": "orphan", "kind": "script", "path": "bin/pass.sh"}]}'
 run
@@ -150,5 +178,43 @@ expect "a cargo filter matching no test fails" 1 "^FAST-TIER FAIL core miss .*ma
 registry '{"entries": [{"name": "swift miss", "kind": "swift", "package": "Pkg", "filter": "Renamed", "owner": "op-test"}]}'
 PATH="$tmp/fakebin:$PATH" run
 expect "a swift filter matching no test fails" 1 "^FAST-TIER FAIL swift miss .*matched no test"
+
+# The Swift package builds and the cargo test build share no outputs, so they
+# run side by side: the build phase takes the longer of the two, not the sum.
+# Each fake build sleeps 3 s; one after the other would take at least 6 s.
+mkdir -p "$tmp/slowbin"
+cat > "$tmp/slowbin/cargo" <<'EOF2'
+#!/usr/bin/env bash
+case " $* " in *" --no-run "*) echo "cargo build output"; sleep 3; [ -z "${FAKE_CARGO_BUILD_FAILS:-}" ]; exit ;; esac
+echo "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.01s"
+EOF2
+cat > "$tmp/slowbin/swift" <<'EOF2'
+#!/usr/bin/env bash
+if [ "$1" = build ]; then echo "swift build output"; sleep 3; exit 0; fi
+echo "Test run with 3 tests in 1 suite passed after 0.010 seconds."
+EOF2
+chmod +x "$tmp/slowbin/cargo" "$tmp/slowbin/swift"
+registry '{"entries": [
+  {"name": "core hit", "kind": "cargo", "path": "crate", "package": "core", "filter": "matches", "owner": "op-test"},
+  {"name": "swift hit", "kind": "swift", "package": "Pkg", "filter": "Matches", "owner": "op-test"}]}'
+started=$(date +%s)
+PATH="$tmp/slowbin:$PATH" run --receipt "$tmp/receipt.json"
+elapsed=$(( $(date +%s) - started ))
+expect "concurrent builds still run every entry" 0 "^FAST-TIER PASS swift hit "
+expect "a build's output stays in the log, named by its build" 0 "^\[Pkg\] swift build output$"
+if [ "$elapsed" -ge 6 ]; then
+  echo "FAIL: the Swift and cargo builds ran one after the other (${elapsed}s, want under 6s)" >&2
+  printf '%s\n' "$out" >&2
+  exit 1
+fi
+python3 -I - "$tmp/receipt.json" <<'PY'
+import json, sys
+builds = json.load(open(sys.argv[1]))["builds"]
+assert [b["name"] for b in builds] == ["Pkg", "crate"], builds
+assert all(b["status"] == "pass" and b["seconds"] >= 2.5 for b in builds), builds
+PY
+FAKE_CARGO_BUILD_FAILS=1 PATH="$tmp/slowbin:$PATH" run
+expect "a cargo build failure fails the tier" 1 "^FAST-TIER FAIL build:crate: the tests do not build"
+if grep -q "^FAST-TIER PASS" <<<"$out"; then echo "FAIL: entries ran after a failed build" >&2; printf '%s\n' "$out" >&2; exit 1; fi
 
 echo "fast-tier.test: ok"

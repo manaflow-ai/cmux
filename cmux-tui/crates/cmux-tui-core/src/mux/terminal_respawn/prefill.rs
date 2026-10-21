@@ -1,5 +1,8 @@
 //! What a respawned terminal (cx-6so.49 L2) does with what it ran:
-//! - an agent session whose harness is known resumes, started as it was
+//! - the resume command a person set for the terminal (`resume-command`,
+//!   `terminal_resume_store`) wins over anything the daemon would offer. It
+//!   is typed without Return, so they decide whether to run it;
+//! - else an agent session whose harness is known resumes, started as it was
 //!   (its flags and account directory, `relaunch_store::agent_launch`):
 //!   `CLAUDE_CONFIG_DIR=<dir> claude --resume <id> <flags>` or
 //!   `CODEX_HOME=<dir> codex resume <id> <flags>`. It runs (Return after it)
@@ -8,6 +11,11 @@
 //!     "Resume Agents After Restart");
 //!   - the new shell is a POSIX shell (sh, bash, zsh, dash, ksh), the
 //!     quoting it is written in;
+//!   - its flags turn no approvals off (`--dangerously-skip-permissions`,
+//!     `--permission-mode bypassPermissions`, codex `--yolo`, a codex
+//!     profile, which may): a respawn never starts an agent with its
+//!     approvals off by itself (#22292). Such a resume is typed without
+//!     Return instead;
 //!   - when it is written, shell integration itself marks the prompt (OSC
 //!     133), the shell holds the terminal's foreground (no program its
 //!     startup files started, such as tmux or ssh) and nothing was typed on
@@ -33,15 +41,17 @@ const PROMPT_WAIT: Duration = Duration::from_secs(10);
 /// Output quiet this long after the first byte counts as a prompt.
 const QUIET: Duration = Duration::from_millis(400);
 
-/// An agent resume to run on the new prompt.
+/// A command to type on the new prompt.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::mux) struct Prefill {
     pub(in crate::mux) kind: Prefilled,
     text: String,
+    /// Return after the text: it runs. Else it waits for the person.
+    run: bool,
 }
 
 impl Prefill {
-    /// Wait for the new shell's prompt, then run the text there when the
+    /// Wait for the new shell's prompt, then write the text there when the
     /// prompt is the shell's own and empty; else write nothing.
     pub(in crate::mux) fn type_on_prompt(&self, surface: &Surface) {
         let deadline = Instant::now() + PROMPT_WAIT;
@@ -79,10 +89,12 @@ impl Prefill {
         }
         // The shell itself holds the terminal: not a job its startup files
         // started, nor a program one of them `exec`ed in its place (`exec ssh`).
+        // A person's own resume command is theirs to quote for their shell.
         let shell_foreground = surface.process_id().is_some_and(|pid| {
             crate::platform::shell_holds_foreground(pid)
-                && crate::platform::foreground_process_name(pid)
-                    .is_some_and(|name| posix_shell(&name))
+                && (self.kind == Prefilled::Resume
+                    || crate::platform::foreground_process_name(pid)
+                        .is_some_and(|name| posix_shell(&name)))
         });
         let Ok(Some(text)) = surface.try_with_terminal(|term| self.input(term, shell_foreground))
         else {
@@ -97,14 +109,15 @@ impl Prefill {
 }
 
 impl Prefill {
-    /// The bytes to write on screen `term`: the text and Return, only at the
-    /// shell's own empty prompt: marked by shell integration, the shell in
-    /// the foreground (`shell_foreground`), and no input on it (the person
-    /// typed during the shell's startup). Else none.
+    /// The bytes to write on screen `term`, only at the shell's own empty
+    /// prompt: marked by shell integration, the shell in the foreground
+    /// (`shell_foreground`), and no input on it (the person typed during the
+    /// shell's startup). The text, and Return when it runs. Else none.
     fn input(&self, term: &mut ghostty_vt::Terminal, shell_foreground: bool) -> Option<String> {
         let at_empty_prompt = term.prompt_is_marked()
             && term.latest_input_text(0).is_none_or(|input| input.trim().is_empty());
-        (shell_foreground && at_empty_prompt).then(|| format!("{}\r", self.text))
+        (shell_foreground && at_empty_prompt)
+            .then(|| if self.run { format!("{}\r", self.text) } else { self.text.clone() })
     }
 }
 
@@ -138,16 +151,91 @@ impl Mux {
             .map(RanText::Command)
     }
 
-    /// The agent resume respawned terminal `record` runs on its new prompt,
-    /// if any: only with `resume_agents` (the setting) and a POSIX shell.
+    /// What respawned terminal `terminal_id` types on its new prompt, if
+    /// anything: the resume command a person set for it, else its agent's
+    /// resume, only with `resume_agents` (the setting) and a POSIX shell.
     pub(in crate::mux) fn respawn_prefill(
+        &self,
+        terminal_id: &str,
         record: Option<&StoredRelaunch>,
         resume_agents: bool,
     ) -> Option<Prefill> {
-        let record = record?;
-        let text = agent_resume(record)?;
-        (resume_agents && posix_shell(&super::launch::respawn_shell(Some(record))))
-            .then_some(Prefill { kind: Prefilled::Harness, text })
+        match self.terminal_resume_command(terminal_id) {
+            Ok(Some(text)) => return Some(Prefill { kind: Prefilled::Resume, text, run: false }),
+            Ok(None) => {}
+            Err(error) => {
+                eprintln!(
+                    "cmux-tui: could not read the resume command of {terminal_id}: {error:#}"
+                );
+            }
+        }
+        agent_prefill(record?, resume_agents)
+    }
+
+    /// Set (`Some`) or clear (`None`) the resume command of one hosted
+    /// terminal (`terminal_id` is the stable host id) and return the stored
+    /// command. A respawn of the terminal types it on the new prompt.
+    pub fn set_terminal_resume_command(
+        &self,
+        terminal_id: &str,
+        command: Option<&str>,
+    ) -> anyhow::Result<Option<String>> {
+        self.workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .set_terminal_resume_command(terminal_id, command)
+    }
+
+    /// The resume command of one hosted terminal, if one is set.
+    pub fn terminal_resume_command(&self, terminal_id: &str) -> anyhow::Result<Option<String>> {
+        self.workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .terminal_resume_command(terminal_id)
+    }
+}
+
+/// The agent resume `record` types on its new prompt, if any: only with
+/// `resume_agents` and a POSIX shell; run unless its flags turn approvals off.
+fn agent_prefill(record: &StoredRelaunch, resume_agents: bool) -> Option<Prefill> {
+    let text = agent_resume(record)?;
+    let (harness, _) = record.agent.as_ref()?;
+    let flags = record.agent_launch.as_ref().map(|launch| launch.args.as_slice()).unwrap_or(&[]);
+    (resume_agents && posix_shell(&super::launch::respawn_shell(Some(record)))).then(|| Prefill {
+        kind: Prefilled::Harness,
+        text,
+        run: !turns_approvals_off(harness, flags),
+    })
+}
+
+/// Whether `flags` may start `harness` with its approvals off. A codex
+/// profile (`-p`) may set them, so it counts; an unknown harness counts.
+fn turns_approvals_off(harness: &str, flags: &[String]) -> bool {
+    let has = |names: &[&str]| {
+        flags.iter().any(|flag| {
+            names.contains(&flag.as_str())
+                || names.iter().any(|name| flag.starts_with(&format!("{name}=")))
+        })
+    };
+    let has_value = |names: &[&str], values: &[&str]| {
+        flags.windows(2).any(|pair| names.contains(&pair[0].as_str()) && values.contains(&pair[1].as_str()))
+            || flags.iter().any(|flag| {
+                flag.split_once('=').is_some_and(|(name, value)| {
+                    names.contains(&name) && values.contains(&value)
+                })
+            })
+    };
+    match harness {
+        "claude" => {
+            has(&["--dangerously-skip-permissions"])
+                || has_value(&["--permission-mode"], &["bypassPermissions"])
+        }
+        "codex" => {
+            has(&["--dangerously-bypass-approvals-and-sandbox", "--yolo", "-p", "--profile"])
+                || has_value(&["-s", "--sandbox"], &["danger-full-access"])
+                || has_value(&["-a", "--ask-for-approval"], &["never"])
+        }
+        _ => true,
     }
 }
 
@@ -227,6 +315,10 @@ pub(in crate::mux) fn shell_quoted(argv: &[String]) -> Option<String> {
 mod tests {
     use super::*;
 
+    fn strings(args: &[&str]) -> Vec<String> {
+        args.iter().map(|arg| arg.to_string()).collect()
+    }
+
     #[test]
     fn known_harnesses_resume_valid_sessions_only() {
         assert_eq!(
@@ -242,7 +334,7 @@ mod tests {
     #[test]
     fn a_resume_starts_the_cli_with_its_flags_and_account() {
         let launch = |args: &[&str], env: &[(&str, &str)]| AgentLaunch {
-            args: args.iter().map(|arg| arg.to_string()).collect(),
+            args: strings(args),
             env: env.iter().map(|(key, value)| (key.to_string(), value.to_string())).collect(),
         };
         let claude = launch(
@@ -263,6 +355,34 @@ mod tests {
         );
     }
 
+    /// #22292: a respawn never starts an agent with its approvals off by itself.
+    #[test]
+    fn flags_that_turn_approvals_off_are_known() {
+        for flags in [
+            &["--dangerously-skip-permissions"][..],
+            &["--model", "opus", "--permission-mode", "bypassPermissions"],
+            &["--permission-mode=bypassPermissions"],
+        ] {
+            assert!(turns_approvals_off("claude", &strings(flags)), "{flags:?}");
+        }
+        for flags in [&["--model", "opus"][..], &["--permission-mode", "acceptEdits"], &[]] {
+            assert!(!turns_approvals_off("claude", &strings(flags)), "{flags:?}");
+        }
+        for flags in [
+            &["--yolo"][..],
+            &["--dangerously-bypass-approvals-and-sandbox"],
+            &["-s", "danger-full-access"],
+            &["--sandbox=danger-full-access"],
+            &["-a", "never"],
+            &["-p", "work"],
+        ] {
+            assert!(turns_approvals_off("codex", &strings(flags)), "{flags:?}");
+        }
+        for flags in [&["-m", "gpt-5.5"][..], &["--full-auto"], &["-a", "on-request"]] {
+            assert!(!turns_approvals_off("codex", &strings(flags)), "{flags:?}");
+        }
+    }
+
     /// A 60-column screen that received `bytes`.
     fn screen(bytes: &[u8]) -> ghostty_vt::Terminal {
         let mut term = ghostty_vt::Terminal::new(60, 5, 1_000, Default::default()).unwrap();
@@ -270,27 +390,50 @@ mod tests {
         term
     }
 
+    const PROMPT: &[u8] = b"restored\r\n\x1b]133;A\x07user@host:~$ \x1b]133;B\x07";
+
     #[test]
     fn a_resume_runs_only_at_an_empty_marked_prompt_of_the_shell_itself() {
-        let prefill = Prefill { kind: Prefilled::Harness, text: "claude --resume a".into() };
-        let prompt: &[u8] = b"restored\r\n\x1b]133;A\x07user@host:~$ \x1b]133;B\x07";
+        let prefill =
+            Prefill { kind: Prefilled::Harness, text: "claude --resume a".into(), run: true };
         // The shell's own prompt, marked by shell integration, nothing typed on it.
         assert_eq!(
-            prefill.input(&mut screen(prompt), true).as_deref(),
+            prefill.input(&mut screen(PROMPT), true).as_deref(),
             Some("claude --resume a\r")
         );
         // Else nothing is written; the marker line shows the command.
         // A program the shell's startup files started holds the terminal (tmux, ssh, a question).
-        assert_eq!(prefill.input(&mut screen(prompt), false), None);
+        assert_eq!(prefill.input(&mut screen(PROMPT), false), None);
         // No mark: a startup question, or a shell without integration.
         let question: &[u8] = b"Update oh-my-zsh now? [Y/n] ";
         assert_eq!(prefill.input(&mut screen(question), true), None);
         // The person typed on the new prompt before it was written: never touch their line.
-        let typed = [prompt, b"git sta".as_slice()].concat();
+        let typed = [PROMPT, b"git sta".as_slice()].concat();
         assert_eq!(prefill.input(&mut screen(&typed), true), None);
         // The prompt went back to output (a command runs).
-        let running = [prompt, b"make\r\n\x1b]133;C\x07building".as_slice()].concat();
+        let running = [PROMPT, b"make\r\n\x1b]133;C\x07building".as_slice()].concat();
         assert_eq!(prefill.input(&mut screen(&running), true), None);
+    }
+
+    #[test]
+    fn what_does_not_run_by_itself_is_typed_without_return() {
+        let bypass = Prefill {
+            kind: Prefilled::Harness,
+            text: "claude --resume a --dangerously-skip-permissions".into(),
+            run: false,
+        };
+        assert_eq!(
+            bypass.input(&mut screen(PROMPT), true).as_deref(),
+            Some("claude --resume a --dangerously-skip-permissions")
+        );
+        let resume = Prefill { kind: Prefilled::Resume, text: "npm run dev".into(), run: false };
+        assert_eq!(
+            resume.input(&mut screen(PROMPT), true).as_deref(),
+            Some("npm run dev"),
+            "a person's resume command waits for Return"
+        );
+        let typed = [PROMPT, b"git sta".as_slice()].concat();
+        assert_eq!(resume.input(&mut screen(&typed), true), None);
     }
 
     #[test]

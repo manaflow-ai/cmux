@@ -30,6 +30,12 @@
   /* The gutters beside and under the card pass the wheel to the transcript under them. */
   pointer-events: none;
 }
+/* Claude Code's split adds the quiet row (28 px and its 4 px gap) under the card: the transcript
+   gives that up first, down to 64 px above the stack, so a short pane with a queued prompt keeps the
+   quiet row inside it (re-review of #22285). */
+.acpmux-main[data-dock="float"]:has(.acpmux-composer-foot) > .acpmux-dock {
+  max-height: calc(100% - 44px - max(64px, var(--acpmux-transcript-min, 96px) - 32px));
+}
 .acpmux-main[data-dock="float"] > .acpmux-dock > :not(.acpmux-composer),
 .acpmux-main[data-dock="float"] > .acpmux-dock > .acpmux-composer > * {
   pointer-events: auto;

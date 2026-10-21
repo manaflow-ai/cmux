@@ -141,7 +141,7 @@ final class ExtensionActionToolbar {
         let pinsChanged = actions.filter(\.isPinned).map(\.id) != lastActions.filter(\.isPinned).map(\.id)
         // Chrome animates a pin or an unpin (about 0.2 s): the icon fades and the neighbours
         // slide. Not on a tab's first render, not under Reduce Motion.
-        let animate = hasRendered && pinsChanged && Motion.animatesMovement && slot.window != nil
+        let animate = hasRendered && pinsChanged && Motion.overlays.animatesMovement && slot.window != nil
         hasRendered = true
         let update = { [self] () -> [() -> Void] in
             let pinnedBefore = pinnedCount
@@ -158,7 +158,7 @@ final class ExtensionActionToolbar {
         // Start from the frames on screen now.
         container.layoutSubtreeIfNeeded()
         // The toolbar's move token: about 0.2 s, like Chrome's toolbar icon animation.
-        Motion.animateTimed(.move, in: container, { [self] in
+        Motion.overlays.animateTimed(.move, in: container, { [self] in
             let before = Set(buttons.keys)
             pendingFinish += update()
             let after = Set(buttons.keys)
@@ -207,6 +207,7 @@ final class ExtensionActionToolbar {
             button.frame = frame
             container.addSubview(button)
             leaving[id] = button
+            // motion: allow place(animate: true) runs only inside render()'s Motion.overlays.animateTimed group
             button.animator().alphaValue = 0
             finish.append { [weak self, weak button] in
                 guard let button else { return }
@@ -222,6 +223,7 @@ final class ExtensionActionToolbar {
             if isNew, animate {
                 arriving.insert(action.id)
                 button.alphaValue = 0
+                // motion: allow place(animate: true) runs only inside render()'s Motion.overlays.animateTimed group
                 button.animator().alphaValue = 1
                 let id = action.id
                 finish.append { [weak self] in self?.arriving.remove(id) }
@@ -350,13 +352,13 @@ final class ExtensionActionToolbar {
     func dragTarget(_ id: String, dx: CGFloat) -> Int? {
         let shown = visibleIDs
         guard let from = shown.firstIndex(of: id) else { return nil }
-        let step = OmnibarStyle.buttonSize + BrowserMetrics.buttonSpacing
+        let step = OmnibarStyle.buttonSize + OmnibarStyle.buttonSpacing
         return min(max(from + Int((dx / step).rounded()), 0), shown.count - 1)
     }
 
     private func dragMoved(_ id: String, dx: CGFloat) {
         guard let target = dragTarget(id, dx: dx), let from = visibleIDs.firstIndex(of: id) else { return }
-        let step = OmnibarStyle.buttonSize + BrowserMetrics.buttonSpacing
+        let step = OmnibarStyle.buttonSize + OmnibarStyle.buttonSpacing
         for (index, other) in visibleIDs.enumerated() {
             var shift: CGFloat = 0
             if other == id {

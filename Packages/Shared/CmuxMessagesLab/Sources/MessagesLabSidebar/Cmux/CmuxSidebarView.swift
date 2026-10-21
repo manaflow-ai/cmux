@@ -218,6 +218,11 @@ public final class CmuxSidebarView: NSView {
         guard entries != self.entries || pinned != pinnedOrder else { return }
         self.entries = entries
         pinnedOrder = pinned
+        // The list's own reload motion (rows sliding to new places, a pin's fade) follows the
+        // same gate as the pin drag: under Reduce Motion or the host's gate it shows at once.
+        let listMotion = SidebarMotion.enabled
+        if !Self.animatesMovement { SidebarMotion.enabled = false }
+        defer { SidebarMotion.enabled = listMotion }
         controller.reloadData()
     }
 
