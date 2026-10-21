@@ -1,4 +1,4 @@
-import { listDurableObjectIds, runInDurableObject } from "cloudflare:test";
+import { listDurableObjectIds, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { mintTicket } from "../src/tickets";
 import { approvedSession, auditEvents, hubEnv, setup, waitFor } from "./helpers";
@@ -6,6 +6,16 @@ import { approvedSession, auditEvents, hubEnv, setup, waitFor } from "./helpers"
 async function sessionStorageKeys(sid: string): Promise<number> {
   const stub = hubEnv.SESSION_DO.get(hubEnv.SESSION_DO.idFromName(sid));
   return runInDurableObject(stub, (_i, state) => state.storage.sql.exec("SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table'").one().n as number);
+}
+
+/** What an ended Session DO keeps: its meta rows and the row counts of its other tables. */
+async function sessionLeftovers(sid: string): Promise<{ meta: string[]; jti: number; queue: number }> {
+  const stub = hubEnv.SESSION_DO.get(hubEnv.SESSION_DO.idFromName(sid));
+  return runInDurableObject(stub, (_i, state) => ({
+    meta: state.storage.sql.exec("SELECT k FROM meta").toArray().map((r) => r.k as string),
+    jti: state.storage.sql.exec("SELECT COUNT(*) AS n FROM jti").one().n as number,
+    queue: state.storage.sql.exec("SELECT COUNT(*) AS n FROM queue").one().n as number,
+  }));
 }
 
 describe("tickets", () => {
@@ -90,7 +100,9 @@ describe("signaling relay", () => {
     expect(ended).toMatchObject({ detail: "bye", scope: "view", viewerId: viewer.id, hostId: host.id });
     expect(typeof ended.durationS).toBe("number");
 
-    // The Session DO deleted its storage.
+    // The Session DO deleted its storage but a "closed" marker, which its alarm clears.
+    expect(await sessionLeftovers(sid)).toEqual({ meta: ["closed"], jti: 0, queue: 0 });
+    expect(await runDurableObjectAlarm(hubEnv.SESSION_DO.get(hubEnv.SESSION_DO.idFromName(sid)))).toBe(true);
     expect(await sessionStorageKeys(sid)).toBe(0);
     const ids = await listDurableObjectIds(hubEnv.SESSION_DO);
     expect(ids.length).toBeGreaterThan(0);

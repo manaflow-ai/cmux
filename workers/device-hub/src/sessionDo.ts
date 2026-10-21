@@ -23,13 +23,18 @@ CREATE TABLE IF NOT EXISTS jti(jti TEXT PRIMARY KEY, exp INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS queue(seq INTEGER PRIMARY KEY AUTOINCREMENT, to_role TEXT NOT NULL, msg TEXT NOT NULL);
 `;
 
+// A closed session keeps a "closed" marker this long, so an init that arrives
+// after its close (the User DO sends both without waiting) is refused.
+const CLOSED_TTL_MS = 10 * 60 * 1000;
+
 const other = (role: Role): Role => (role === "viewer" ? "host" : "viewer");
 
 /**
  * One per session (idFromName(sessionId)). Admits exactly one socket per role
  * with a single-use ticket plus the device's signature, relays signaling
  * verbatim, reports start and end to the user's User DO, and deletes its
- * storage when the session ends. Created by the User DO at approval.
+ * storage when the session ends, keeping only a "closed" marker for a while.
+ * Created by the User DO at approval.
  */
 export class SessionDO extends DurableObject<Env> {
   private sql: SqlStorage;
@@ -47,6 +52,12 @@ export class SessionDO extends DurableObject<Env> {
     return row ? (JSON.parse(row.v as string) as Meta) : null;
   }
 
+  /** True after a close, until the marker's alarm clears it. */
+  private closed(): boolean {
+    const exists = this.sql.exec("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta'").toArray().length > 0;
+    return exists && this.sql.exec("SELECT 1 FROM meta WHERE k = 'closed'").toArray().length > 0;
+  }
+
   private saveMeta(m: Meta) {
     this.sql.exec("INSERT INTO meta(k, v) VALUES ('session', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v", JSON.stringify(m));
   }
@@ -60,7 +71,7 @@ export class SessionDO extends DurableObject<Env> {
       const url = new URL(request.url);
       if (url.pathname === "/internal/init" && request.method === "POST") {
         const body = (await request.json()) as Meta;
-        if (this.meta()) return json({ ok: false }, 409);
+        if (this.meta() || this.closed()) return json({ ok: false }, 409);
         this.sql.exec(SCHEMA);
         this.saveMeta({ sid: body.sid, userId: body.userId, scope: body.scope, viewer: body.viewer, host: body.host });
         return json({ ok: true });
@@ -170,6 +181,14 @@ export class SessionDO extends DurableObject<Env> {
         // already closed
       }
     }
+    await this.ctx.storage.deleteAll();
+    this.sql.exec(SCHEMA);
+    this.sql.exec("INSERT INTO meta(k, v) VALUES ('closed', '1')");
+    await this.ctx.storage.setAlarm(Date.now() + CLOSED_TTL_MS);
+  }
+
+  /** Clears the closed marker. */
+  async alarm(): Promise<void> {
     await this.ctx.storage.deleteAll();
   }
 }

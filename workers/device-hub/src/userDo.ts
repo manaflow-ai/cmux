@@ -578,8 +578,9 @@ export class UserDO extends DurableObject<Env> {
     );
     if (before !== scope) {
       this.audit("permission_changed", { hostId, viewerId, scope, detail: `${before}->${scope}` });
-      // none ends every session between the pair; view ends full sessions. ask and full end nothing.
-      if (scope === "none" || scope === "view") {
+      // Lowering ends the sessions it no longer allows: none ends every session between
+      // the pair, view ends full ones, ask ends view and full ones. Raising ends nothing.
+      if (scope === "none" || rank(scope) < rank(before)) {
         const open = this.sql
           .exec("SELECT * FROM sessions WHERE state != 'ended' AND host_id = ? AND viewer_id = ?", hostId, viewerId)
           .toArray() as unknown as SessionRow[];
@@ -644,9 +645,20 @@ export class UserDO extends DurableObject<Env> {
     }
   }
 
-  /** Creates the Session DO and pushes a ticket to each device. */
+  /** Whether the session is still approved (or already live): not ended meanwhile. */
+  private stillOpen(id: string): boolean {
+    const state = this.session(id)?.state;
+    return state === "approved" || state === "live";
+  }
+
+  /**
+   * Creates the Session DO and pushes a ticket to each device. The DO serves
+   * other requests while this awaits, so a session ended meanwhile (sharing
+   * off, removal, access lowered) is checked after every await and gets no ticket.
+   */
   private async approve(s: SessionRow, c: { userId: string; origin: string }) {
-    this.sql.exec("UPDATE sessions SET state = 'approved', scope = ? WHERE id = ?", s.scope, s.id);
+    this.sql.exec("UPDATE sessions SET state = 'approved', scope = ? WHERE id = ? AND state != 'ended'", s.scope, s.id);
+    if (!this.stillOpen(s.id)) return;
     const viewer = this.device(s.viewer_id)!;
     const host = this.device(s.host_id)!;
     const stub = this.env.SESSION_DO.get(this.env.SESSION_DO.idFromName(s.id));
@@ -660,6 +672,9 @@ export class UserDO extends DurableObject<Env> {
         host: { id: host.id, key: host.signing_key },
       }),
     });
+    // Ended during init: endSession closed the Session DO (a close that got there
+    // first makes init refuse), so there is nothing to start.
+    if (!this.stillOpen(s.id)) return;
     if (!init.ok) throw new Error(`session init ${init.status}`);
     const ice: IceServer[] = planFor(this.env, c.userId) === "paid" ? await mintTurn(this.env) : [];
     const signalURL = `${c.origin.replace(/^http/, "ws")}/v1/sessions/${s.id}/ws`;
@@ -668,6 +683,7 @@ export class UserDO extends DurableObject<Env> {
       [host, viewer, "host"],
     ] as const) {
       const ticket = await mintTicket(this.env, { sid: s.id, role, dev: self.id, peer: peer.id, peerKey: peer.signing_key, scope: s.scope });
+      if (!this.stillOpen(s.id)) return;
       this.send(self.id, {
         type: "session.ticket",
         sessionId: s.id,

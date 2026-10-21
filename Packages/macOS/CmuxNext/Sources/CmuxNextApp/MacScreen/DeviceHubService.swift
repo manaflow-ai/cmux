@@ -34,6 +34,10 @@ final class DeviceHubService {
     private var watch: Task<Void, Never>?
     /// Follows the running hub's socket: another device removed this Mac.
     private var removalWatch: Task<Void, Never>?
+    /// Loads this Mac's identity off the main thread, then installs the hub.
+    private var loading: Task<Void, Never>?
+    /// What `loading` is making a hub for.
+    private var loadingFor: (url: URL, user: String)?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "device-hub")
 
     init(pages: MacScreenPages, auth: CloudAuth, bundleIdentifier: String?) {
@@ -85,21 +89,38 @@ final class DeviceHubService {
             return
         }
         if let running, running.url == url, running.user == user, hub != nil { return }
+        if let loadingFor, loadingFor.url == url, loadingFor.user == user { return }
         stopHub(endingSessions: true)
         startHub(url: url, user: user)
     }
 
+    /// Loads the identity (file Keychain, Secure Enclave) off the main thread,
+    /// then installs the hub unless a stop or another start came first.
     private func startHub(url: URL, user: String) {
-        let auth = auth
+        let auth = auth, bundleIdentifier = bundleIdentifier
         let name = pages.store.hubDeviceName ?? MacScreenShareHost.computerName
-        let hub: DeviceHub
-        do {
-            hub = try DeviceHub.forApp(baseURL: url, bundleIdentifier: bundleIdentifier, deviceName: name,
-                                       tokens: DeviceHubAccountToken { try await auth.tokens().access })
-        } catch {
-            logger.error("device hub identity unavailable: \(String(describing: error), privacy: .public)")
-            return
+        loadingFor = (url, user)
+        // task-owner: DeviceHubService.loading: one identity load; stopHub cancels it
+        loading = Task { [weak self] in
+            let hub: DeviceHub
+            do {
+                hub = try await DeviceHub.forApp(baseURL: url, bundleIdentifier: bundleIdentifier, deviceName: name,
+                                                 tokens: DeviceHubAccountToken { try await auth.tokens().access })
+            } catch {
+                guard let self, !Task.isCancelled else { return }
+                logger.error("device hub identity unavailable: \(String(describing: error), privacy: .public)")
+                loadingFor = nil
+                loading = nil
+                return
+            }
+            guard let self, !Task.isCancelled, let loadingFor, loadingFor.url == url, loadingFor.user == user else { return }
+            self.loadingFor = nil
+            loading = nil
+            install(hub, url: url, user: user)
         }
+    }
+
+    private func install(_ hub: DeviceHub, url: URL, user: String) {
         self.hub = hub
         running = (url, user)
         pages.hub = hub
@@ -131,6 +152,9 @@ final class DeviceHubService {
     /// actor stays free. `removed`: another device (or this one) removed
     /// this Mac, so its sessions end with that reason, never "signed out".
     private func stopHub(endingSessions: Bool, removed: Bool = false) {
+        loading?.cancel()
+        loading = nil
+        loadingFor = nil
         removalWatch?.cancel()
         removalWatch = nil
         guard let hub else { return }

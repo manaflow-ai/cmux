@@ -37,9 +37,8 @@ describe("devices that go offline", () => {
     const s = await approvedSession(host, viewer);
     const v = (await viewer.signal(s.vt)).peer!;
     const h = (await host.signal(s.ht)).peer!;
-    // Back to ask (ends nothing), so the next request waits for the host.
-    await host.call("PUT", `/v1/permissions/${host.id}/${viewer.id}`, { scope: "ask" });
-    const pending = await viewer.call("POST", "/v1/sessions", { hostId: host.id, scope: "view" });
+    // Full Control is above View Only, so this request waits for the host.
+    const pending = await viewer.call("POST", "/v1/sessions", { hostId: host.id, scope: "full" });
     expect(pending.json.session.state).toBe("pending");
 
     viewer.user!.ws.close(1000, "crash");

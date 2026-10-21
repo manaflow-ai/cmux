@@ -74,19 +74,20 @@ public final class DeviceHub {
     }
 
     /// The app's hub: its Secure Enclave identity under `<bundleIdentifier>.device-hub`
-    /// (renewed when the hub refuses it), relay secrets in the same Keychain service,
-    /// and `tokens` for the account (CloudAuth's access token).
+    /// (loaded off the main thread, renewed when the hub refuses it), relay secrets
+    /// in the same Keychain service, and `tokens` for the account (CloudAuth's access token).
     public static func forApp(baseURL: URL, bundleIdentifier: String, deviceName: String,
-                              tokens: any DeviceHubAccountTokenProvider) throws -> DeviceHub {
-        let identity = try DeviceIdentity.forApp(bundleIdentifier: bundleIdentifier)
+                              tokens: any DeviceHubAccountTokenProvider) async throws -> DeviceHub {
+        let identity = try await loadIdentity { try DeviceIdentity.forApp(bundleIdentifier: bundleIdentifier) }
         return DeviceHub(client: DeviceHubClient(baseURL: baseURL, identity: identity, tokens: tokens),
                          secrets: KeychainRelaySecretStore(bundleIdentifier: bundleIdentifier), deviceName: deviceName,
                          renewIdentity: { try DeviceIdentity.renew(bundleIdentifier: bundleIdentifier) })
     }
 
-    /// Loads a device identity for a hub.
-    static func loadIdentity(_ load: @escaping @Sendable () throws -> DeviceIdentity) async throws -> DeviceIdentity {
-        try load()
+    /// Runs `load` off the main thread: the file Keychain and Secure Enclave
+    /// calls behind an identity took 8-20 s on some Macs (H7).
+    nonisolated static func loadIdentity(_ load: @escaping @Sendable () throws -> DeviceIdentity) async throws -> DeviceIdentity {
+        try await Task.detached(priority: .userInitiated) { try load() }.value
     }
 
     public var identity: DeviceIdentity { client.identity }
@@ -115,7 +116,8 @@ public final class DeviceHub {
                 // This id was removed (or holds another key): register as a new device, once.
                 guard run == generation, let renewIdentity else { return }
                 let fresh: DeviceIdentity
-                do { fresh = try renewIdentity() } catch { throw DeviceHubError.identity("\(error)") }
+                do { fresh = try await Self.loadIdentity(renewIdentity) } catch { throw DeviceHubError.identity("\(error)") }
+                guard run == generation else { return }
                 client.setIdentity(fresh)
                 _ = try await client.registerDevice(name: deviceName, platform: platform)
             }
