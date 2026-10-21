@@ -12,6 +12,7 @@ import Testing
 @MainActor @Suite(.serialized) struct RemoteChildSessionsTests {
     /// A daemon attachment of chat `parent` whose machine started `children` from it.
     private nonisolated final class FakeClient: AgentSessionRemoteClient, @unchecked Sendable {
+        let isReadOnly = false
         let parent: String
         let listed: [[String: Any]]
         init(parent: String, children: [[String: Any]]) {
