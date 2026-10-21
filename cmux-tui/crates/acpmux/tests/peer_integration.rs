@@ -1174,7 +1174,18 @@ async fn a_payload_over_32_mb_fails_alone_and_the_peer_link_stays() {
     let omitted = &events.last().unwrap()["msg"]["_meta"]["acpmux"]["omitted"];
     assert!(omitted["bytes"].as_u64().unwrap() > 12 * 1024 * 1024, "{omitted}");
 
-    // The link held through both: no reconnect, and B still answers.
+    // A live update too large for a frame: B leaves it out of A's link and says so, and A tells
+    // its client reading that chat to read it again.
+    let mut cb = client(b.clone()).await;
+    cb.call(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "big-output:16"}]}),
+    )
+    .await
+    .unwrap();
+    ca.wait("_acpmux/lagged", |_| true).await;
+
+    // The link held through all of it: no reconnect, and B still answers.
     let peer = &a.peers()[0];
     assert_eq!(peer["connected"], true, "{peer}");
     assert!(peer["error"].is_null(), "the peer link dropped: {peer}");

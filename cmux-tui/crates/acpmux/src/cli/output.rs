@@ -829,6 +829,38 @@ mod prompt_tests {
         drop(dir);
     }
 
+    /// A reply holds at most `hub::MAX_PAGE_BYTES` of a chat's history: the CLI reads on through
+    /// the older pages for the replies it asked for, past 12 MB of tool output.
+    #[tokio::test]
+    async fn the_last_reply_is_found_behind_more_than_a_page_of_output() {
+        let (hub, client, dir) = daemon().await;
+        let s = client
+            .request(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": []}))
+            .await
+            .unwrap();
+        let id = s["sessionId"].as_str().unwrap().to_owned();
+        let session = hub.resolve(&id).unwrap();
+        let update = |update: Value| json!({"jsonrpc": "2.0", "method": method::SESSION_UPDATE, "params": {"sessionId": "agent-1", "update": update}});
+        let text = |text: String| json!({"type": "text", "text": text});
+        hub.append(
+            &session,
+            "in",
+            "agent_message_chunk",
+            update(json!({"sessionUpdate": "agent_message_chunk", "content": text("the reply".into())})),
+        );
+        for n in 0..12 {
+            hub.append(
+                &session,
+                "in",
+                "tool_call_update",
+                update(json!({"sessionUpdate": "tool_call_update", "toolCallId": format!("call-{n}"),
+                    "status": "completed", "content": [{"type": "content", "content": text("x".repeat(1 << 20))}]})),
+            );
+        }
+        assert_eq!(last_replies(&client, &id, 1).await.unwrap(), vec!["the reply".to_owned()]);
+        drop(dir);
+    }
+
     /// A prompt to a session whose agent must start again (it died, or the daemon restarted)
     /// is acknowledged when acpmux records it, before the agent has started (P1 v2).
     #[tokio::test]
