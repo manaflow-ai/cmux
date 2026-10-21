@@ -334,6 +334,14 @@
       "es": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
     }
   },
+  "chiefViews.terminal.untitled": {
+    "source": "Terminal",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "es": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
   "cloudTree.workspace.terminalCount.one": {
     "source": "1 terminal",
     "identityLocales": {
