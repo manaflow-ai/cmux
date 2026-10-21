@@ -7,7 +7,7 @@ public import CmuxNextDaemon
 import CmuxNextDesign
 public import CmuxNextSidebar
 import Foundation
-import Observation
+public import Observation
 
 /// Feeds the session tree's chat history (`sidebar.sessionTree`, hq#2569 #6) from acpmux's chat
 /// index (the app's Chats feed mirror, metadata only): the pinned chats, and Earlier, the newest
