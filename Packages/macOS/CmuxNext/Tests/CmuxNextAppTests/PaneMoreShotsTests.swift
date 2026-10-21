@@ -43,7 +43,7 @@ import Testing
         for (name, input) in inputs {
             let tokens = ThemeTokens.derive(from: input)
             let surface = tokens.windowBackground.withAlpha(1)
-            let lit = tokens.focusRing.composited(over: surface).contrast(with: surface)
+            let lit = Palette.litGlyph(in: tokens).contrast(with: surface)
             let rest = tokens.textSecondary.composited(over: surface).contrast(with: surface)
             #expect(lit >= rest, "\(name): lit \(lit) against rest \(rest)")
         }

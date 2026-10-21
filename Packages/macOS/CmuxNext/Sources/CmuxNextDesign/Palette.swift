@@ -147,6 +147,18 @@ public struct Palette {
     /// accent stays in the theme's grays.
     public static var accent: NSColor { focusRing }
 
+    /// A lit (on) control's glyph, beside the same controls at rest in `textSecondary` (a pane's
+    /// zoomed ⋮ and pinned buttons, the find pill's toggles): the accent, or the primary text where
+    /// the accent reads fainter than the rest ink. A theme with no accent has `focusRing` at 40% of
+    /// the text, dimmer than at rest; a lit control is never less visible than at rest.
+    public static var litGlyph: NSColor { litGlyph(in: ThemeContext.active ?? ThemeScope.app.tokens).nsColor }
+
+    static func litGlyph(in tokens: ThemeTokens) -> ThemeRGB {
+        let surface = tokens.windowBackground.withAlpha(1)
+        let lit = tokens.focusRing.composited(over: surface), rest = tokens.textSecondary.composited(over: surface)
+        return lit.contrast(with: surface) >= rest.contrast(with: surface) ? lit : tokens.textPrimary.composited(over: surface)
+    }
+
     /// Text on top of `textPrimary` fills (inverted badges).
     public static var textOnPrimary: NSColor { color(\.contentBackground, opaque: true, dynamic: PaletteDynamic.textOnPrimary) }
 
