@@ -51,6 +51,24 @@ acpmux new -n gui/composer \
   ids (no `HOST/NAME`), and its `host` only a Chief home (`chief:<id>`).
   Leave `--group` off on other machines until it can.
 
+## Wrapping it
+
+A team script that starts lanes is the launcher plus its defaults, nothing
+more. Everything a hand-written script used to check (an absolute brief
+path, a second run, a name with `/`) the launcher already checks:
+
+```bash
+#!/bin/sh
+# lane.sh NAME BRIEF [REPORT_TO]: one lane from the team's base, reporting to
+# REPORT_TO (default: the session running this, when an agent runs it).
+exec acpmux new -n "$1" -m claude --policy approve-all -d \
+  --worktree ~/Projects/cmux@origin/feat-cmux-next --prompt-file "$2" \
+  --report-to "${3:-$ACPMUX_SESSION_NAME}"
+```
+
+On another machine, run it there (`ssh HOST lane.sh NAME BRIEF`, with the
+brief on that machine): `--worktree` works over the local socket only.
+
 ## What not to use for this
 
 - `acpmux ensure NAME` is get-or-create without a prompt or worktree; the
