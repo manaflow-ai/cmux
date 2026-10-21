@@ -18,6 +18,7 @@ Two halves:
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import re
@@ -40,7 +41,10 @@ GATE_SCRIPTS = {
     "defaults stamp": "scripts/ci/defaults_guard.py",
     "prepush gate": "scripts/cmux-next/prepush-gate.py",
     "crash-class rules": "scripts/ci/crash_class_fast_gate.py",
+    "webviews checks": "scripts/ci/fast_gate_webviews_checks.py",
 }
+CI_WEB = ROOT / ".github/workflows/ci-web.yml"
+WEBVIEWS_CHECKS = ROOT / "scripts/ci/fast_gate_webviews_checks.py"
 
 
 def workflow() -> dict:
@@ -179,11 +183,29 @@ class WorkflowShape(unittest.TestCase):
         self.assertIn("state=success", body)
         self.assertIn("state=failure", body)
 
-    def test_web_tools_install_only_for_web_changes(self):
+    def test_web_tools_install_only_for_web_changes_or_the_webviews_checks(self):
         steps = job(workflow())["steps"]
         bun = next(s for s in steps if s.get("uses", "").startswith("oven-sh/setup-bun@"))
         self.assertIn("steps.prepare.outputs.web == 'true'", bun["if"])
+        self.assertIn("steps.prepare.outputs.checks == 'true'", bun["if"])
         self.assertEqual(bun["with"]["bun-version"], "1.4.2")
+        run = step_named(steps, "Fast gates")
+        self.assertIn('--checks "$CHECKS"', run["run"])
+        self.assertEqual(run["env"]["CHECKS"], "${{ steps.prepare.outputs.checks }}")
+
+    def test_the_webviews_checks_are_ci_webs_fail_mode_checks(self):
+        # The gate reruns what a pull request's ci-web fails on, so a check that landed after the PR's CI
+        # (2026-10-21: check:fixed-waits, past which #22967, #22975 and #23094 merged) runs before the merge.
+        # The type check compiles and stays with ci-web.
+        doc = yaml.safe_load(CI_WEB.read_text(encoding="utf-8"))
+        steps = [s for j in doc["jobs"].values() for s in j.get("steps", []) if s.get("id") == "webviews-check"]
+        self.assertEqual(len(steps), 1)
+        failing = set(re.findall(r"bun run (\S+) \|\| status=1", steps[0]["run"])) - {"typecheck"}
+        spec = importlib.util.spec_from_file_location("fast_gate_webviews_checks", WEBVIEWS_CHECKS)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        self.assertEqual(set(module.CHECKS), failing)
+        self.assertIn("check:fixed-waits", module.CHECKS)
 
     def test_wired_into_the_guards_tooling_tests(self):
         guards = yaml.safe_load(GUARDS.read_text(encoding="utf-8"))
@@ -287,6 +309,7 @@ class ScriptBehavior(unittest.TestCase):
         self.assertEqual(git(work, "rev-parse", "HEAD^1"), self.tip)
         self.assertEqual(git(work, "rev-parse", "HEAD^2"), self.pr_head)
         self.assertEqual(out["web"], "false")
+        self.assertEqual(out["checks"], "true")  # a dispatch runs the webviews checks on the current tip
 
     def test_dispatch_conflict_fails_clearly_and_still_names_the_base(self):
         seed = self.seed
@@ -342,6 +365,7 @@ class ScriptBehavior(unittest.TestCase):
                              "--base", self.tip, "--output", str(self.tmp / "out.txt"))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.outputs()["merge"], git(work, "rev-parse", "HEAD"))
+        self.assertEqual(self.outputs()["checks"], "false")  # ci-web runs them on this same merge
         self.assertNotIn("head_sha", self.outputs(), "head and base come from resolve, not from here")
 
     def test_pull_request_merge_onto_another_base_fails(self):
@@ -387,7 +411,8 @@ class ScriptBehavior(unittest.TestCase):
     def test_run_calls_every_gate_against_the_base(self):
         work, out = self.prepared()
         summary = self.tmp / "summary.md"
-        result = self.script(work, "run", "--base", self.tip, "--web", "true", "--summary", str(summary))
+        result = self.script(work, "run", "--base", self.tip, "--web", "true", "--checks", "true",
+                             "--summary", str(summary))
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         calls = {entry["gate"]: entry for entry in self.gate_log()}
         self.assertEqual(set(calls), set(GATE_SCRIPTS))
@@ -414,18 +439,24 @@ class ScriptBehavior(unittest.TestCase):
         for red in GATE_SCRIPTS:
             with self.subTest(red=red):
                 self.log.unlink(missing_ok=True)
-                result = self.script(work, "run", "--base", self.tip, "--web", "true", fail=red)
+                result = self.script(work, "run", "--base", self.tip, "--web", "true", "--checks", "true", fail=red)
                 self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
                 self.assertEqual({e["gate"] for e in self.gate_log()}, set(GATE_SCRIPTS))
                 self.assertRegex(result.stdout + result.stderr, rf"(?m)^.*{re.escape(red)}.*fail")
 
     def test_no_web_change_skips_web_lint_only(self):
         work, out = self.prepared()
-        result = self.script(work, "run", "--base", self.tip, "--web", "false")
+        result = self.script(work, "run", "--base", self.tip, "--web", "false", "--checks", "true")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual({e["gate"] for e in self.gate_log()}, set(GATE_SCRIPTS) - {"web lint"})
-        self.assertIn("web lint", result.stdout)
-        self.assertIn("skipped", result.stdout)
+        self.assertIn("web lint: skipped (no web path changed)", result.stdout)
+
+    def test_a_pull_request_event_skips_the_webviews_checks(self):
+        work, out = self.prepared()
+        result = self.script(work, "run", "--base", self.tip, "--web", "true", "--checks", "false")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual({e["gate"] for e in self.gate_log()}, set(GATE_SCRIPTS) - {"webviews checks"})
+        self.assertIn("webviews checks: skipped", result.stdout)
 
     def test_run_refuses_a_base_that_is_not_a_commit(self):
         work, _ = self.prepared()
