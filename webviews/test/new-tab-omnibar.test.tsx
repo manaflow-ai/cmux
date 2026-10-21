@@ -163,9 +163,9 @@ test("End accepts the inline URL completion and Tab only advances a keyboard-hig
   expect(calls).toEqual([]);
 });
 
-// Tab with no keyboard highlight is the Search | Ask switch's (Leo 2026-10-18, new-tab-search-ask);
-// Shift-Tab is still the browser's, so the keyboard can leave the field.
-test("Tab with suggestions showing but no keyboard-highlighted row switches Search | Ask, not the row", async () => {
+// With no Search | Ask switch (Leo 2026-10-20), Tab steps the suggestions as in Chrome's omnibox,
+// from Return's row; Shift-Tab is still the browser's, so the keyboard can leave the field.
+test("Tab with suggestions showing steps from Return's row", async () => {
   const calls: unknown[][] = [];
   await render(calls);
   const field = await type("why is the reddit scraper slow");
@@ -175,8 +175,8 @@ test("Tab with suggestions showing but no keyboard-highlighted row switches Sear
   const tab = new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
   await act(async () => field.dispatchEvent(tab));
   expect(tab.defaultPrevented).toBe(true);
-  expect(rows()[0]?.getAttribute("data-type")).toBe("search");
-  expect(rows().findIndex((row) => row.getAttribute("aria-selected") === "true")).toBe(0);
+  expect(rows()[0]?.getAttribute("data-type")).toBe("ask");
+  expect(rows().findIndex((row) => row.getAttribute("aria-selected") === "true")).toBe(1);
   const back = new window.KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true });
   await act(async () => field.dispatchEvent(back));
   expect(back.defaultPrevented).toBe(false);

@@ -1,0 +1,183 @@
+/// What Return does with the New Tab field's text (Leo 2026-10-20: "no mode toggle: type and press
+/// Return"). An address opens; a question or an instruction for an agent asks it; anything else is a
+/// web search. Pure and synchronous: the page decides on every keystroke, and the decision is the
+/// suggestions' first row, so an arrow picks another row for the rare miss.
+import { classifyNewTabInput, type NewTabIntentOptions } from "./newTabIntent";
+
+export type OmniboxAction =
+  | { kind: "none" }
+  /// `!` first: the tab becomes a terminal (newTabIntent).
+  | { kind: "terminal"; command: string }
+  | { kind: "open"; url: string }
+  | { kind: "ask"; text: string }
+  | { kind: "search"; text: string };
+
+/// Words that start a question or an instruction to an agent, with at least one more word after
+/// them: "fix" alone is a search, "fix the login test" a request.
+const LEADS = new Set([
+  "what",
+  "what's",
+  "whats",
+  "how",
+  "how's",
+  "why",
+  "when",
+  "where",
+  "who",
+  "whom",
+  "whose",
+  "which",
+  "isn't",
+  "aren't",
+  "doesn't",
+  "don't",
+  "didn't",
+  "can't",
+  "won't",
+  "wouldn't",
+  "shouldn't",
+  "couldn't",
+  "can",
+  "could",
+  "should",
+  "would",
+  "analyze",
+  "analyse",
+  "compare",
+  "convert",
+  "create",
+  "debug",
+  "describe",
+  "explain",
+  "fix",
+  "generate",
+  "implement",
+  "investigate",
+  "refactor",
+  "rewrite",
+  "summarize",
+  "summarise",
+  "tell",
+  "translate",
+  "write",
+  "please",
+  "let's",
+  "lets",
+]);
+
+/// Lead words that are as often a search's first noun or name ("test cricket", "will smith",
+/// "my little pony"): a request only with at least two more words.
+const WEAK_LEADS = new Set([
+  "is",
+  "are",
+  "am",
+  "was",
+  "were",
+  "do",
+  "does",
+  "did",
+  "will",
+  "shall",
+  "may",
+  "might",
+  "must",
+  "has",
+  "have",
+  "had",
+  "add",
+  "build",
+  "change",
+  "check",
+  "clean",
+  "delete",
+  "design",
+  "draft",
+  "edit",
+  "find",
+  "help",
+  "improve",
+  "list",
+  "make",
+  "migrate",
+  "move",
+  "optimize",
+  "optimise",
+  "plan",
+  "remove",
+  "rename",
+  "review",
+  "run",
+  "set",
+  "show",
+  "test",
+  "update",
+  "upgrade",
+  "i",
+  "i'm",
+  "i've",
+  "we",
+  "you",
+  "my",
+  "our",
+  "this",
+  "it",
+  "it's",
+]);
+
+/// A verb's object right after it: "open the settings", "sketch a name", "give me ideas".
+const OBJECTS = new Set([
+  "a",
+  "an",
+  "the",
+  "me",
+  "us",
+  "it",
+  "my",
+  "our",
+  "your",
+  "this",
+  "that",
+  "these",
+  "those",
+  "some",
+  "all",
+]);
+
+/// A sentence this long is a request, not search keywords.
+const LONG_SENTENCE_WORDS = 10;
+/// Fewer words than this with a comma or a semicolon are still keywords ("rust, go").
+const CLAUSE_WORDS = 6;
+
+export function omniboxAction(input: string, options: NewTabIntentOptions = {}): OmniboxAction {
+  const intent = classifyNewTabInput(input, options);
+  switch (intent.kind) {
+    case "none":
+    case "terminal":
+      return intent;
+    case "url":
+      return { kind: "open", url: intent.url };
+    case "prompt":
+      return readsAsRequest(intent.text) ? { kind: "ask", text: intent.text } : { kind: "search", text: intent.text };
+  }
+}
+
+/// A question mark, a leading question or instruction word, a verb and its object, more than one
+/// line or sentence, a clause break in a sentence, inline code, or a long sentence.
+export function readsAsRequest(text: string): boolean {
+  if (text.includes("?") || text.includes("`") || /[\n\r]/.test(text)) return true;
+  const words = text.split(/\s+/).filter(Boolean);
+  const [lead, second] = words.slice(0, 2).map((word) =>
+    word
+      .toLowerCase()
+      .replace(/[’]/g, "'")
+      .replace(/[^\p{L}']/gu, ""),
+  );
+  if (lead && LEADS.has(lead) && words.length >= 2) return true;
+  if (lead && WEAK_LEADS.has(lead) && words.length >= 3) return true;
+  // An imperative: a verb, then its object ("open the voice settings").
+  if (second && OBJECTS.has(second) && words.length >= 3) return true;
+  // "It broke. Fix it": a word's sentence end, then a new sentence ("St. Louis" stays a name).
+  if (/\p{L}{3,}[.!]\s+\p{Lu}/u.test(text)) return true;
+  if (words.length >= CLAUSE_WORDS && /[,;:]\s/.test(text)) return true;
+  return words.length >= LONG_SENTENCE_WORDS;
+}

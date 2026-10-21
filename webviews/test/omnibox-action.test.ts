@@ -1,0 +1,119 @@
+// Leo 2026-10-20: the New Tab field has no Search | Ask switch: type and press Return. An address
+// or a path opens, a question or an instruction asks the composer's agent, other text searches the
+// web. One pure classifier (omniboxAction) decides, and its pick is the suggestions' first row.
+import { expect, test } from "bun:test";
+import { omniboxAction, type OmniboxAction } from "../src/agent-session/acpmux/omniboxAction";
+import { EMPTY_OMNIBAR } from "../src/agent-session/acpmux/omnibar";
+import { defaultSelection, screenRows } from "../src/agent-session/acpmux/newtab/screenModel";
+
+const home = "/Users/me";
+const open = (url: string): OmniboxAction => ({ kind: "open", url });
+const ask = (text: string): OmniboxAction => ({ kind: "ask", text });
+const search = (text: string): OmniboxAction => ({ kind: "search", text });
+
+const table: [group: string, input: string, action: OmniboxAction][] = [
+  // URLs.
+  ["url", "https://github.com/manaflow-ai/cmux", open("https://github.com/manaflow-ai/cmux")],
+  ["url", "http://example.com/a?b=c", open("http://example.com/a?b=c")],
+  ["url", "about:blank", open("about:blank")],
+  ["url", "chrome://settings", open("chrome://settings/")],
+  // Hosts: a domain with a TLD, localhost and a port, IPs, intranet names.
+  ["host", "github.com", open("https://github.com")],
+  ["host", "www.google.com", open("https://www.google.com")],
+  ["host", "docs.rs/serde", open("https://docs.rs/serde")],
+  ["host", "localhost:3000", open("http://localhost:3000")],
+  ["host", "127.0.0.1:8080/health", open("http://127.0.0.1:8080/health")],
+  ["host", "192.168.1.1", open("http://192.168.1.1")],
+  ["host", "8.8.8.8", open("https://8.8.8.8")],
+  ["host", "go/gday", open("http://go/gday")],
+  ["host", "  github.com  ", open("https://github.com")],
+  // File paths.
+  ["path", "/etc/hosts", open("file:///etc/hosts")],
+  ["path", "~/Projects", open("file:///Users/me/Projects")],
+  ["path", "~", open("file:///Users/me/")],
+  // Questions.
+  ["question", "what is a monad", ask("what is a monad")],
+  ["question", "How do I rebase onto main", ask("How do I rebase onto main")],
+  ["question", "why does my build fail", ask("why does my build fail")],
+  ["question", "can you check the tests", ask("can you check the tests")],
+  ["question", "rust lifetimes?", ask("rust lifetimes?")],
+  ["question", "is it safe to delete node_modules", ask("is it safe to delete node_modules")],
+  ["question", "What’s new in Swift 6.2", ask("What’s new in Swift 6.2")],
+  // Instructions to an agent.
+  ["command", "fix the failing login test", ask("fix the failing login test")],
+  ["command", "write a haiku about tabs", ask("write a haiku about tabs")],
+  ["command", "explain this stack trace", ask("explain this stack trace")],
+  ["command", "refactor App.tsx", ask("refactor App.tsx")],
+  ["command", "Summarize README.md", ask("Summarize README.md")],
+  ["command", "please rename foo", ask("please rename foo")],
+  ["command", "add a dark mode toggle", ask("add a dark mode toggle")],
+  ["command", "run the unit tests", ask("run the unit tests")],
+  ["command", "The build is red. Find out why", ask("The build is red. Find out why")],
+  [
+    "command",
+    "open the settings file, then add a font size option",
+    ask("open the settings file, then add a font size option"),
+  ],
+  [
+    "command",
+    "the sidebar flickers when I drag a tab between two windows quickly",
+    ask("the sidebar flickers when I drag a tab between two windows quickly"),
+  ],
+  ["command", "sketch a name for the app", ask("sketch a name for the app")],
+  ["command", "open the voice settings", ask("open the voice settings")],
+  ["command", "give me three ideas", ask("give me three ideas")],
+  ["command", "use `bun test` here", ask("use `bun test` here")],
+  ["command", "line one\nline two", ask("line one\nline two")],
+  // Plain keywords: a web search.
+  ["keyword", "weather", search("weather")],
+  ["keyword", "rust serde", search("rust serde")],
+  ["keyword", "react useEffect cleanup", search("react useEffect cleanup")],
+  ["keyword", "fix", search("fix")],
+  ["keyword", "explain", search("explain")],
+  ["keyword", "test cricket", search("test cricket")],
+  ["keyword", "will smith", search("will smith")],
+  ["keyword", "design patterns", search("design patterns")],
+  ["keyword", "St. Louis weather", search("St. Louis weather")],
+  ["keyword", "rust, go", search("rust, go")],
+  ["keyword", "node.js", search("node.js")],
+  ["keyword", "readme.md", search("readme.md")],
+  ["keyword", "go", search("go")],
+  ["keyword", "yahoo!", search("yahoo!")],
+  ["keyword", "lord of the rings", search("lord of the rings")],
+  ["keyword", "the beatles", search("the beatles")],
+  // Neither.
+  ["none", "", { kind: "none" }],
+  ["none", "   ", { kind: "none" }],
+  ["terminal", "!ls -la", { kind: "terminal", command: "ls -la" }],
+];
+
+for (const [group, input, action] of table) {
+  test(`${group}: ${JSON.stringify(input)}`, () => {
+    expect(omniboxAction(input, { home })).toEqual(action);
+  });
+}
+
+const agent = { harness: "claude", agent: "Claude Code" };
+const lead = (text: string, withAgent = true) => {
+  const rows = screenRows(text, { omnibar: EMPTY_OMNIBAR, home, ...(withAgent ? { ask: agent } : {}) });
+  return rows[defaultSelection(rows)]?.type;
+};
+
+test("the first row, Return's, is what the classifier picked", () => {
+  expect(lead("github.com")).toBe("open");
+  expect(lead("~/Projects")).toBe("open");
+  expect(lead("how do I squash commits")).toBe("ask");
+  expect(lead("fix the flaky test")).toBe("ask");
+  expect(lead("weather")).toBe("search");
+});
+
+test("the other action stays one row down for the rare miss", () => {
+  const types = (text: string) => screenRows(text, { omnibar: EMPTY_OMNIBAR, ask: agent }).map((row) => row.type);
+  expect(types("weather").slice(0, 2)).toEqual(["search", "ask"]);
+  expect(types("why is the sky blue").slice(0, 2)).toEqual(["ask", "search"]);
+  expect(types("github.com")).toEqual(["open", "search", "ask"]);
+});
+
+test("a question with no agent to ask searches", () => {
+  expect(lead("what is a monad", false)).toBe("search");
+});
