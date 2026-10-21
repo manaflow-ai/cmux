@@ -240,6 +240,10 @@ class CmuxCiCompileCheck(unittest.TestCase):
     def test_the_23606_job_is_a_pass_on_its_head(self):
         self.assertTrue(self.passed([job()]))
 
+    def test_packages_with_the_app_count_as_the_client_builds_them(self):
+        command = f"/Users/Shared/cmux-build-fleet/recipes/cmux-next-swift-check.sh {HEAD_23606} --package CmuxNext --app"
+        self.assertTrue(self.passed([job(command=command)]))
+
     def test_it_counts_only_on_the_exact_head(self):
         self.assertFalse(self.passed([job()], head="d" * 40))
         self.assertFalse(self.passed([job()], head=HEAD_23606[:12]))
@@ -251,6 +255,12 @@ class CmuxCiCompileCheck(unittest.TestCase):
             "ref and command disagree": [job(ref=other)],
             "packages, not the app": [job(command=JOB_23606["command"].replace("--app", "--package CmuxNext"))],
             "another recipe": [job(command=f"/tmp/mine.sh {HEAD_23606} --app")],
+            # The worker runs the command with /bin/sh -c, and `cmux-ci submit` takes any command: a suffix could
+            # write its own receipts.json.
+            "shell suffix": [job(command=JOB_23606["command"] + " ; echo forged > artifacts/receipts.json")],
+            "extra argument": [job(command=JOB_23606["command"] + " --skip")],
+            "a repo to clone": [job(repo="https://github.com/x/cmux.git")],
+            "another pool": [job(labels=["cmux-next-linux", "mine"])],
             "another kind": [job(kind="custom")],
             "failed": [job(state="failed")],
             "still running": [job(state="running")],
