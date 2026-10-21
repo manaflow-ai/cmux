@@ -25,7 +25,7 @@ fn is_interrupt(line: &Value) -> bool {
 
 fn answer(msgs: &[Message], want: i64) -> Option<Value> {
     msgs.iter().find_map(|m| match m {
-        Message::Response { id, result, .. } if *id == Value::from(want) => result.clone(),
+        Message::Response { id, result, .. } if *id == want => result.clone(),
         _ => None,
     })
 }
