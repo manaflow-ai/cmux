@@ -155,11 +155,13 @@ fn a_local_host_starts_acpmux_in_its_acpmux_home() {
 #[test]
 fn a_local_host_starts_acpmux_once_a_stopping_daemon_lets_its_lock_go() {
     use std::os::unix::io::AsRawFd;
+    // It locks the daemon home's lock: never a real home's.
+    if std::env::var_os("ACPMUX_HOME").is_some() || std::env::var_os("ACPMUX_SOCKET").is_some() {
+        eprintln!("skipped: ACPMUX_HOME or ACPMUX_SOCKET is set");
+        return;
+    }
     let dir = tempfile::tempdir().unwrap();
-    let home = std::env::var("ACPMUX_HOME")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| dir.path().to_owned());
-    std::fs::create_dir_all(&home).unwrap();
+    let home = dir.path().to_owned();
     let first = dir.path().join("first-run");
     let second = dir.path().join("second-run");
     let bin = dir.path().join("fake-acpmux");
