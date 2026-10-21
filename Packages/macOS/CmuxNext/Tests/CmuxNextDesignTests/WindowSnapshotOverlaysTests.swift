@@ -6,7 +6,8 @@ import Testing
 /// (the window server lists it, AppKit's window list does not), a hover card panel and a
 /// popover, cut to the snapshot's region. Other apps' windows, the app's own windows behind,
 /// beside or invisible, the child windows the snapshot already composites and the app's other
-/// ordinary windows in front stay out, so a covered window still comes out whole.
+/// ordinary windows in front with everything that belongs to them stay out, so a covered window
+/// still comes out whole.
 @Suite struct WindowSnapshotOverlaysTests {
     private let pid: pid_t = 4242
     /// The snapshot's region in window server coordinates (top-left origin).
@@ -17,7 +18,7 @@ import Testing
         ListedWindow(number: number, pid: pid ?? self.pid, layer: layer, bounds: bounds, alpha: alpha)
     }
 
-    private func overlays(_ above: [ListedWindow], skipping: Set<Int> = [], ordinary: Set<Int> = []) -> [Int] {
+    private func overlays(_ above: [ListedWindow], skipping: Set<Int> = [], ordinary: [Int: Int] = [:]) -> [Int] {
         NSWindow.ownWindows(above: above, pid: pid, region: region, layer: 0, skipping: skipping, ordinary: ordinary)
     }
 
@@ -50,7 +51,29 @@ import Testing
         // window, so it stays whole. The same window raised to a higher level is drawn over it.
         let settings = listed(71)
         let pinned = listed(72, layer: 3)
-        #expect(overlays([settings, pinned], ordinary: [71, 72]) == [72])
+        #expect(overlays([settings, pinned], ordinary: [71: 0, 72: 3]) == [72])
+    }
+
+    @Test func whatBelongsToAnotherWindowInFrontIsLeftOut() {
+        // Another main window in front at the same level, with its Chromium page window, its
+        // hover card and its sheet: none of it is this window's. A card of a window raised
+        // above this one's level is drawn over it, as on screen.
+        let page = listed(81)
+        let card = listed(82, layer: Int(CGWindowLevelForKey(.floatingWindow)))
+        let sheet = listed(83)
+        let raisedCard = listed(84, layer: Int(CGWindowLevelForKey(.floatingWindow)))
+        let menu = listed(85, layer: Int(CGWindowLevelForKey(.popUpMenuWindow)))
+        let other: [Int: Int] = [80: 0, 81: 0, 82: 0, 83: 0, 90: 3, 84: 3]
+        #expect(overlays([menu, card, raisedCard, sheet, page], ordinary: other) == [85, 84])
+    }
+
+    @Test func theRegionIsInGlobalDisplayCoordinates() {
+        // The primary screen is 1000 points tall; a window 100 points above its bottom edge.
+        let frame = NSRect(x: 50, y: 100, width: 400, height: 300)
+        #expect(NSWindow.globalRect(of: frame, primaryHeight: 1000) == CGRect(x: 50, y: 600, width: 400, height: 300))
+        // A screen above the primary one has negative global y.
+        let above = NSRect(x: 0, y: 1200, width: 400, height: 300)
+        #expect(NSWindow.globalRect(of: above, primaryHeight: 1000) == CGRect(x: 0, y: -500, width: 400, height: 300))
     }
 
     @Test func readsTheWindowServersDescription() throws {
