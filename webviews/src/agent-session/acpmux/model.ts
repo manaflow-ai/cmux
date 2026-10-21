@@ -141,9 +141,11 @@ export type AcpmuxRow = {
   /// A turn summary whose turn draws a "Worked for" line (conversation/turns.ts), so its
   /// footer need not repeat the time and count.
   folded?: boolean;
-  /// Work shown inside an open "Worked for": its turn has ended, so each run of tool calls
-  /// folds under one summary line (conversation/toolRunSummary.ts).
+  /// Work shown inside an open "Worked for": its turn has ended.
   settled?: boolean;
+  /// A running turn's run of tool calls that text followed, folded under one summary line (Debug
+  /// toggle, conversation/turns.ts `codexRuns`, conversation/toolRunSummary.ts).
+  foldRun?: boolean;
   /// A running turn's run of tool calls still in flight, drawn as its newest call alone (Debug toggle,
   /// conversation/turns.ts `codexRuns`).
   inFlight?: boolean;
@@ -537,8 +539,8 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
       const files = new Set(edits.flatMap((item) => item.tool?.diffs?.map((diff) => diff.path) ?? [])).size;
       return 14 + editedCardHeight(files, plainEditLabels(edits).length);
     }
-    // In an open "Worked for", a run of two or more calls draws one summary line until opened.
-    if (row.settled && row.items && isFoldedRun(row.items)) return 36;
+    // A folded run (Debug toggle) draws one summary line until opened.
+    if (row.foldRun && row.items && isFoldedRun(row.items)) return 36;
     return Math.max(34, 10 + 26 * (row.items?.length ?? 1));
   }
   // A subagent group's 48px line with 8px above it, and in an open group a 48px line per
