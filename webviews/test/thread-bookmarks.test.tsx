@@ -101,6 +101,7 @@ async function mount() {
         scroller,
         scrollTop: 0,
         viewportHeight: 600,
+        scrolls: true,
         width: 1040,
       }),
     ),

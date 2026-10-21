@@ -1049,266 +1049,398 @@
         }
       }
     },
-    "changelog.page.internalChange": {
-      "comment": "Changelog page, under All Changes: one more change left out as internal work (CI, tests, refactors) that people would not notice.",
+    "changelog.page.underTheHood": {
+      "comment": "Changelog page, inside All Changes: the folded list of internal work (CI, tests, refactors) an update also contains, each with its pull request. Like the English idiom: the work no user sees.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "and 1 internal change"
+            "value": "Under the hood"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "وتغيير داخلي واحد"
+            "value": "خلف الكواليس"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "i još 1 interna izmjena"
+            "value": "Ispod haube"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "og 1 intern ændring"
+            "value": "Under motorhjelmen"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "und 1 interne Änderung"
+            "value": "Unter der Haube"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "y 1 cambio interno"
+            "value": "Bajo el capó"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "et 1 modification interne"
+            "value": "Sous le capot"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "e 1 modifica interna"
+            "value": "Dietro le quinte"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ほか内部変更 1 件"
+            "value": "内部の変更"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "និងការផ្លាស់ប្តូរផ្ទៃក្នុង 1"
+            "value": "ការផ្លាស់ប្តូរផ្ទៃក្នុង"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "외 내부 변경 1개"
+            "value": "내부 변경"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "og 1 intern endring"
+            "value": "Under panseret"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "oraz 1 zmiana wewnętrzna"
+            "value": "Pod maską"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "e 1 alteração interna"
+            "value": "Nos bastidores"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "и ещё 1 внутреннее изменение"
+            "value": "Под капотом"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "และการเปลี่ยนแปลงภายในอีก 1 รายการ"
+            "value": "เบื้องหลัง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "ve 1 dahili değişiklik"
+            "value": "Perde arkası"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "і ще 1 внутрішня зміна"
+            "value": "Під капотом"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "và 1 thay đổi nội bộ"
+            "value": "Hậu trường"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "以及 1 项内部更改"
+            "value": "内部改动"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "以及 1 項內部變更"
+            "value": "內部變更"
           }
         }
       }
     },
-    "changelog.page.internalChanges": {
-      "comment": "Changelog page, under All Changes: how many more changes were left out as internal work (CI, tests, refactors); %@ is the count, always 2 or more.",
+    "changelog.page.watchReel": {
+      "comment": "Changelog page, Since your last update: a card that opens the nightly reel, a video of a build's changes, in a browser tab. %@ is the build, like \"nightly 3940400\".",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "and %@ internal changes"
+            "value": "Watch what changed in %@"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "و%@ تغييرات داخلية"
+            "value": "شاهد ما تغيّر في %@"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "i još internih izmjena: %@"
+            "value": "Pogledajte šta se promijenilo u %@"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "og %@ interne ændringer"
+            "value": "Se, hvad der er ændret i %@"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "und %@ interne Änderungen"
+            "value": "Sieh dir an, was sich in %@ geändert hat"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "y %@ cambios internos"
+            "value": "Mira lo que cambió en %@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "et %@ modifications internes"
+            "value": "Voir ce qui a changé dans %@"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "e %@ modifiche interne"
+            "value": "Guarda cosa è cambiato in %@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ほか内部変更 %@ 件"
+            "value": "%@ の変更を動画で見る"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "និងការផ្លាស់ប្តូរផ្ទៃក្នុង %@"
+            "value": "មើលអ្វីដែលបានផ្លាស់ប្តូរក្នុង %@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "외 내부 변경 %@개"
+            "value": "%@의 변경 사항 영상 보기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "og %@ interne endringer"
+            "value": "Se hva som er endret i %@"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "oraz zmiany wewnętrzne: %@"
+            "value": "Zobacz, co się zmieniło w %@"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "e %@ alterações internas"
+            "value": "Veja o que mudou em %@"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "и ещё внутренних изменений: %@"
+            "value": "Посмотреть, что изменилось в %@"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "และการเปลี่ยนแปลงภายในอีก %@ รายการ"
+            "value": "ดูสิ่งที่เปลี่ยนไปใน %@"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "ve %@ dahili değişiklik"
+            "value": "%@ sürümünde nelerin değiştiğini izleyin"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "і ще внутрішніх змін: %@"
+            "value": "Подивитися, що змінилося в %@"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "và %@ thay đổi nội bộ"
+            "value": "Xem những gì đã thay đổi trong %@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "以及 %@ 项内部更改"
+            "value": "观看 %@ 的更新内容"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "以及 %@ 項內部變更"
+            "value": "觀看 %@ 的更新內容"
+          }
+        }
+      }
+    },
+    "changelog.page.otherArea": {
+      "comment": "Changelog page, inside All Changes: the heading over the changes that belong to no named area of the app (after Sidebar, New Tab, …).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Other"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أخرى"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ostalo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Andet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonstiges"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otros"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autres"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Altro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その他"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្សេងៗ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기타"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Annet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inne"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outros"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Другое"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อื่นๆ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diğer"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Інше"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khác"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他"
           }
         }
       }
