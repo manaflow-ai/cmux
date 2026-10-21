@@ -63,4 +63,34 @@ struct DividerCursorUnderDockTests {
         #expect(areaUnder.isNull || areaUnder.width < 0.5 || areaUnder.height < 0.5,
                 "a page's click catcher stops at the dock too: \(area.rect), dock \(cover)")
     }
+
+    /// Hover follows the same clip: the pointer over the docked part of the divider leaves it
+    /// unhovered, and once hovered beside the dock its drawn line (a hole in a page) stops there too.
+    @Test(arguments: [DockMode.docked, DockMode.overlay])
+    func aStripDividerUnderADockIsNotHoveredOrDrawnThere(_ mode: DockMode) throws {
+        let fixture = Fixture(mode: mode)
+        let screen = fixture.screen
+        let cover = try #require(screen.geometry.dock.first { $0.column == "dock" }).cover
+        let handle = try #require(screen.dividerViews[.split("x")])
+        let under = handle.frame.intersection(cover)
+        try #require(under.width > 1, "the divider runs on under the dock: \(handle.frame), dock \(cover)")
+        let beside = handle.frame.remainder(outside: cover)
+        try #require(beside.width > 1, "the divider shows beside the dock: \(handle.frame), dock \(cover)")
+        var pointer = CGPoint(x: under.midX, y: under.midY)
+        fixture.root.context.hoverPointer = { _ in screen.convert(pointer, to: nil) }
+        fixture.root.context.hoverReachesWindow = { _ in true }
+
+        screen.refreshDividerHover()
+        #expect(!handle.isHovered, "the pointer over the docked pane hovers no divider under it")
+
+        pointer = CGPoint(x: beside.midX, y: beside.midY)
+        screen.refreshDividerHover()
+        #expect(handle.isHovered, "beside the dock the divider still hovers")
+        let lines = screen.dividerLineRects.filter { $0.intersects(handle.frame) }
+        for line in lines {
+            let drawnUnder = line.intersection(cover)
+            #expect(drawnUnder.isNull || drawnUnder.width < 0.5 || drawnUnder.height < 0.5,
+                    "the hovered line stops at the dock: line \(line), dock \(cover)")
+        }
+    }
 }

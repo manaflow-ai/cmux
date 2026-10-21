@@ -228,12 +228,65 @@ test("a Shell block previews eight lines under a fade and wraps its output with 
   expect(body.getAttribute("data-wrap")).toBe("false");
 });
 
-test("a long output's Show all output waits until its preview is opened", async () => {
+test("a long output's preview counts all its lines, not only the end it shows, and opens all of it", async () => {
   await openRow("execute", lines(1000), "seq 1000");
   const shell = host.querySelector(".cv-shell")!;
+  // The command line and all thousand lines, though only the last 400 are drawn until opened.
+  expect(Boolean(byText("Show all 401 lines", shell))).toBe(false);
   expect(Boolean(byText("Show all output", shell))).toBe(false);
-  await click(byText("Show all 401 lines", shell));
-  expect(Boolean(byText("Show all output", shell))).toBe(true);
+  await click(byText("Show all 1001 lines", shell));
+  expect(shell.querySelector(".cv-shell__output")?.textContent).toBe(lines(1000).replace(/\n$/, ""));
+  expect(Boolean(byText("Show all output", shell))).toBe(false);
+  // Show less closes it up to the preview of its end again.
+  await click(byText("Show less", shell));
+  expect(shell.querySelector(".cv-shell__body")?.getAttribute("data-preview")).toBe("cut");
+  expect(shell.querySelector(".cv-shell__output")?.textContent?.startsWith("line 601\n")).toBe(true);
+});
+
+test("Find does not count the preview's Show all and Show less, nor Show all output", async () => {
+  await openRow("execute", lines(30), "bun test");
+  const shell = host.querySelector(".cv-shell")!;
+  const more = byText("Show all 31 lines", shell);
+  expect(more?.hasAttribute("data-find-skip")).toBe(true);
+  await click(more);
+  expect(byText("Show less", shell)?.hasAttribute("data-find-skip")).toBe(true);
+  act(() => root?.unmount());
+  // A tail cut in one long line: too few lines for a preview, so Show all output stands alone.
+  await openRow("execute", "x".repeat(50_000), "yes x");
+  expect(byText("Show all output")?.hasAttribute("data-find-skip")).toBe(true);
+});
+
+test("Find in Chat opens a cut diff whose match lies past its first lines", async () => {
+  const { FindReveal } = await import("../src/agent-session/acpmux/conversation/chatFind");
+  const { EditDiff } = await import("../src/agent-session/acpmux/conversation/EditDiff");
+  const file = await newFile("/w/notes.md", lines(21));
+  const reveal = (needle: string) => ({ rowId: "row-1", card: false, needle, repaint: () => {} });
+  await render(
+    <FindReveal.Provider value={reveal("line 15")}>
+      <EditDiff file={file} />
+    </FindReveal.Provider>,
+  );
+  expect(host.querySelector(".cv-edit-diff__body")?.getAttribute("data-preview")).toBe("all");
+  act(() => root?.unmount());
+  // A match the diff does not hold leaves it cut.
+  await render(
+    <FindReveal.Provider value={reveal("not in this file")}>
+      <EditDiff file={file} />
+    </FindReveal.Provider>,
+  );
+  expect(host.querySelector(".cv-edit-diff__body")?.getAttribute("data-preview")).toBe("cut");
+});
+
+test("a diff Find reveals through its row opens past the cut too", async () => {
+  const { EditDiff } = await import("../src/agent-session/acpmux/conversation/EditDiff");
+  const file = await newFile("/w/notes.md", lines(21));
+  // As ToolRow passes it: bumped each time Find reveals the row.
+  const closed = { file, reveal: 0 };
+  const revealed = { file, reveal: 1 };
+  await render(<EditDiff {...closed} />);
+  expect(host.querySelector(".cv-edit-diff__body")?.getAttribute("data-preview")).toBe("cut");
+  await act(async () => root!.render(<EditDiff {...revealed} />));
+  expect(host.querySelector(".cv-edit-diff__body")?.getAttribute("data-preview")).toBe("all");
 });
 
 test("a call's output has Wrap lines and the same preview", async () => {
