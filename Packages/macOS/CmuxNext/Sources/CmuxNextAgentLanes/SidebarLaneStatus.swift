@@ -1,7 +1,15 @@
-import CmuxNextAgentActivity
-import CmuxNextBridge
+public import CmuxNextAgentActivity
+public import CmuxNextBridge
 import CmuxNextDesign
 import CmuxNextSidebar
+
+extension AgentLaneStore {
+    /// `rows` (the row feed's source, else the mapping itself) with each mapped row's activity
+    /// merged with its lanes in this store (`SidebarLaneStatus`, `sidebar.laneStatus`).
+    public func sidebarRows(_ rows: SidebarMapping.RowSource?, turns: AgentTurnStateStore = .shared) -> SidebarMapping.RowSource {
+        SidebarLaneStatus.applying(rows, lanes: self, turns: turns)
+    }
+}
 
 /// Rows show their agent sessions' acpmux lane state (`sidebar.laneStatus`, Debug, off by default):
 /// a row's status mark also follows the lane (`AgentLaneStore`) of each agent chat in it on this
@@ -16,8 +24,8 @@ enum SidebarLaneStatus {
     /// `rows` (the row feed's source, else the mapping itself) with each mapped row's activity
     /// merged with its lanes. The toggle and the lanes are read inside the row's mapping, so
     /// flipping the toggle or a lane change maps that row again; with the toggle off no lane is read.
-    static func applying(_ rows: SidebarMapping.RowSource?, lanes: AgentLaneStore = .shared,
-                         turns: AgentTurnStateStore = .shared) -> SidebarMapping.RowSource {
+    static func applying(_ rows: SidebarMapping.RowSource?, lanes: AgentLaneStore,
+                         turns: AgentTurnStateStore) -> SidebarMapping.RowSource {
         { workspace, machine, make in
             let merged: SidebarRowFeed.Make = {
                 var row = make()

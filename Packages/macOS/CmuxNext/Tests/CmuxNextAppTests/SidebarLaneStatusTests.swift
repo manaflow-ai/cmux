@@ -4,6 +4,7 @@ import CmuxNextBridge
 @testable import CmuxNextDesign
 import CmuxNextSidebar
 import Testing
+@testable import CmuxNextAgentLanes
 @testable import CmuxNextApp
 
 /// Leo 2026-10-15: each agent session's sidebar row shows its live status (working, waiting on
@@ -47,7 +48,7 @@ import Testing
 
         func sections(_ rows: SidebarMapping.RowSource? = nil) -> [SidebarRowSection] {
             SidebarMapping.shared.sections(store.sidebarSections, machine: SidebarMachine(id: .local, name: "This Mac", kind: .local),
-                                           rowSource: SidebarLaneStatus.applying(rows, lanes: lanes, turns: turns))
+                                           rowSource: lanes.sidebarRows(rows, turns: turns))
         }
     }
 
