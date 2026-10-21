@@ -138,13 +138,19 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 symbol: "eye", surfaces: [.palette, .keyboard, .menu, .contextMenu], requires: [.browserFocused],
                 targets: [.pane], cliName: "browser toggle-focus-mode", mainMenu: .view
             ),
-            ActionDescriptor(
-                id: "toggleBrowserDesignMode",
-                title: String(localized: "action.toggleBrowserDesignMode", defaultValue: "Toggle Browser Design Mode", bundle: .module),
-                keywords: ["browser", "edit"], defaultShortcut: Shortcut("d", modifiers: [.control, .option, .command]),
-                category: .browser, symbol: "paintbrush.pointed", surfaces: [.keyboard, .menu],
-                requires: [.browserFocused], targets: [.pane], cliName: "browser toggle-design-mode", mainMenu: .view
-            ),
+            {
+                var designMode = ActionDescriptor(
+                    id: "toggleBrowserDesignMode",
+                    title: String(localized: "action.toggleBrowserDesignMode", defaultValue: "Toggle Browser Design Mode", bundle: .module),
+                    keywords: ["browser", "edit"], defaultShortcut: Shortcut("d", modifiers: [.control, .option, .command]),
+                    category: .browser, symbol: "paintbrush.pointed", surfaces: [.keyboard, .menu],
+                    requires: [.browserFocused], targets: [.pane], cliName: "browser toggle-design-mode", mainMenu: .view
+                )
+                // Design mode snapshots selected page pixels into a composer. Keep that raw capture
+                // on the in-app person path until it shares the browser host's secret masker.
+                designMode.isPersonOnly = true
+                return designMode
+            }(),
             ActionDescriptor(
                 id: "toggleReactGrab",
                 title: String(localized: "action.toggleReactGrab", defaultValue: "Toggle React Grab", bundle: .module),

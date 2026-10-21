@@ -615,6 +615,129 @@ async fn a_plain_cli_shutdown_keeps_hosted_agents_for_the_next_daemon() {
     assert!(gone_within(harness, Duration::from_secs(10)), "--end-agents left the agent running");
 }
 
+/// What the agent of `session` has in its environment as `name`
+/// (the fake agent's `env:` prompt).
+async fn agent_env(daemon: &Daemon, session: &str, name: &str) -> String {
+    let prefix = format!("{name}=");
+    let values = || -> Vec<String> {
+        daemon
+            .events(session)
+            .iter()
+            .filter_map(|e| e["msg"]["params"]["update"]["content"]["text"].as_str())
+            .filter_map(|t| t.strip_prefix(&prefix).map(str::to_owned))
+            .collect()
+    };
+    let before = values().len();
+    let mut rpc = daemon.rpc().await;
+    rpc.call(
+        "session/prompt",
+        json!({"sessionId": session, "prompt": [{"type": "text", "text": format!("env: {name}")}]}),
+    )
+    .await;
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        if let Some(value) = values().get(before) {
+            return value.clone();
+        }
+        assert!(Instant::now() < deadline, "the agent never said {name}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// A connection that presents `token` as session `session`'s caller token,
+/// as the cmux-subsessions server and the acpmux CLI inside it do, and its
+/// reply to `_acpmux/subsession/list`.
+async fn list_as(daemon: &Daemon, session: &str, token: &str) -> Value {
+    let mut caller = daemon.rpc().await;
+    caller
+        .call(
+            "initialize",
+            json!({"protocolVersion": 1,
+                   "_meta": {"acpmux": {"callerSession": {"sessionId": session, "token": token}}}}),
+        )
+        .await;
+    caller.reply("_acpmux/subsession/list", json!({})).await
+}
+
+/// An app update restarts acpmux; the adopted agent and its MCP servers
+/// (cmux-subsessions, cmux) keep the caller token the previous daemon gave
+/// them. The new daemon must still know the session by it: on 2026-10-20 a
+/// coordinator lost control of its ten sub-sessions after the nightly update,
+/// because every sub-session tool was refused with that token.
+#[tokio::test]
+async fn an_adopted_agent_keeps_its_caller_token_across_an_update_restart() {
+    let mut daemon = Daemon::new("callerup", "approve-all");
+    let session = new_session(&daemon).await;
+    let token = agent_env(&daemon, &session, "ACPMUX_SESSION_TOKEN").await;
+    assert_eq!(token.len(), 64, "the agent has no caller token: {token:?}");
+    let before = list_as(&daemon, &session, &token).await;
+    assert!(before.get("error").is_none(), "the token did not prove its session: {before}");
+    let harness = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+
+    daemon.sigterm();
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+    assert!(alive(harness), "the agent died with the update restart");
+    let after = list_as(&daemon, &session, &token).await;
+    assert!(
+        after.get("error").is_none(),
+        "the adopted agent's caller token no longer proves its session: {after}"
+    );
+    // The token is the session's alone.
+    let other = new_session(&daemon).await;
+    let borrowed = list_as(&daemon, &other, &token).await;
+    assert!(borrowed.get("error").is_some(), "one session's token proved another: {borrowed}");
+    // A new agent process has this run's token; the earlier one stops counting.
+    let out = daemon_env::acpmux(&daemon.home)
+        .args(["session", "restart", &session])
+        .env("ACPMUX_HOME", &daemon.home)
+        .env("ACPMUX_SOCKET", &daemon.socket)
+        .output()
+        .expect("run acpmux session restart");
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let fresh = agent_env(&daemon, &session, "ACPMUX_SESSION_TOKEN").await;
+    assert_ne!(fresh, token, "the restarted agent kept the earlier run's token");
+    let stale = list_as(&daemon, &session, &token).await;
+    assert!(stale.get("error").is_some(), "the replaced agent's token still proves it: {stale}");
+    let current = list_as(&daemon, &session, &fresh).await;
+    assert!(current.get("error").is_none(), "the restarted agent's token: {current}");
+}
+
+/// A caller token the daemon cannot prove (a host of an older build kept an
+/// earlier daemon run's token) is refused with what to do about it, not
+/// only "connect with that session's caller token".
+#[tokio::test]
+async fn an_unproven_caller_token_is_refused_with_how_to_get_a_new_one() {
+    let daemon = Daemon::new("callerbad", "approve-all");
+    let session = new_session(&daemon).await;
+    let refused = list_as(&daemon, &session, &"0".repeat(64)).await;
+    let error = &refused["error"];
+    assert_eq!(error["data"]["reason"], "subsessions.caller_not_proven", "{refused}");
+    // A session this daemon does not have gets no restart advice.
+    let unknown = list_as(&daemon, "no-such-session", &"0".repeat(64)).await;
+    assert_eq!(unknown["error"]["data"]["reason"], "subsessions.caller_required", "{unknown}");
+    let message = error["message"].as_str().unwrap_or_default();
+    assert!(
+        message.contains(&format!("acpmux session restart {session}")),
+        "the refusal does not say how to get a new token: {message}"
+    );
+    // What it says works: the agent restarts, with a token that proves it.
+    let harness = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    let out = daemon_env::acpmux(&daemon.home)
+        .args(["session", "restart", &session])
+        .env("ACPMUX_HOME", &daemon.home)
+        .env("ACPMUX_SOCKET", &daemon.socket)
+        .output()
+        .expect("run acpmux session restart");
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "restarted");
+    let token = agent_env(&daemon, &session, "ACPMUX_SESSION_TOKEN").await;
+    let restarted = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    assert_ne!(restarted, harness, "the agent process did not restart");
+    let listed = list_as(&daemon, &session, &token).await;
+    assert!(listed.get("error").is_none(), "the restarted agent's token: {listed}");
+}
+
 /// `--keep-agents` stays accepted (a no-op now) for callers that may run an
 /// older CLI: hosted agents keep running for the next daemon to adopt.
 #[tokio::test]
