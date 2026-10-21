@@ -15,7 +15,9 @@ import UniformTypeIdentifiers
 /// "Default", and the trace stats in the body. Now it is one settings card:
 ///
 /// - Identity: the avatar, a menu to change it, and the name beside it.
-/// - Agent: Harness, Model and Effort rows; "Default" names what it runs.
+/// - Agent: Harness, Model, Effort and (where the harness has a fast tier) Speed rows; "Default"
+///   names what it runs. The Model menu groups by family (``HomeChiefModelMenu``) and Effort offers
+///   only the levels the shown model takes.
 /// - Appearance: rows other features add (`addAppearanceRow`), hidden while empty.
 /// - Diagnostics: the last turns, where the brain runs, traces and memory,
 ///   behind a closed disclosure.
@@ -48,6 +50,10 @@ public final class HomeChiefSettingsView: NSView {
     let harness = ThemedPopUpButton(frame: .zero, pullsDown: false)
     let model = ThemedPopUpButton(frame: .zero, pullsDown: false)
     let effort = ThemedPopUpButton(frame: .zero, pullsDown: false)
+    /// Default or Fast; its row shows only where the turns' harness runs Fast (``HomeChiefEngineTitles/offersFast``).
+    let speed = ThemedPopUpButton(frame: .zero, pullsDown: false)
+    /// The models picked per harness, the Model menu's Recent section; the app passes its defaults.
+    public var recents = HomeChiefModelRecents()
     /// UniiChat's one-line sign-in note under the Harness row (``ChiefBackend/hint``);
     /// hidden for every other harness.
     let harnessHint = ThemedLabel(wrappingLabelWithString: "")
@@ -140,7 +146,8 @@ public final class HomeChiefSettingsView: NSView {
         failure.isHidden = true
         addFullWidth(failure)
         addFullWidth(Self.sectionHeader(HomeEngineStrings.agentSection))
-        for (button, label) in [(harness, HomeEngineStrings.harness), (model, HomeEngineStrings.model), (effort, HomeEngineStrings.effort)] {
+        for (button, label) in [(harness, HomeEngineStrings.harness), (model, HomeEngineStrings.model), (effort, HomeEngineStrings.effort),
+                                (speed, HomeEngineStrings.speed)] {
             button.target = self
             button.action = #selector(picked(_:))
             button.font = Typography.body
@@ -155,6 +162,7 @@ public final class HomeChiefSettingsView: NSView {
                 addFullWidth(harnessHint)
             }
         }
+        speed.superview?.isHidden = true
         let note = Self.footnote(HomeEngineStrings.nextTurn)
         note.preferredMaxLayoutWidth = Self.width - 2 * Self.inset
         addFullWidth(note)
@@ -173,6 +181,7 @@ public final class HomeChiefSettingsView: NSView {
         addFullWidth(diagnosticsRow())
         buildDiagnostics()
         addFullWidth(diagnostics)
+        showHarnessRow()
         refresh()
     }
 
@@ -192,12 +201,15 @@ public final class HomeChiefSettingsView: NSView {
         changeFailed = false
         checkingHarness = nil
         // A named Chief's panel keeps its own files (cx-327wl), never the default's.
-        if let files = (source as? HomeChiefLocalEngine)?.files ?? (source as? HomeChiefRemoteEngine)?.files, files.muxHome != muxHome {
+        let files = (source as? HomeChiefLocalEngine)?.files ?? (source as? HomeChiefRemoteEngine)?.files ?? (source as? HomeChiefHostedEngine)?.files
+        if let files, files.muxHome != muxHome {
             muxHome = files.muxHome
             brain.stringValue = String(format: HomeEngineStrings.brainFormat, muxHome.path)
         }
         for view in localViews { view.isHidden = !source.isLocal }
-        place.stringValue = hostPlace ?? source.place.map { String(format: HomeEngineStrings.runsOnServerFormat, $0) } ?? HomeEngineStrings.runsHere
+        showHarnessRow()
+        let own = source is HomeChiefHostedEngine ? HomeEngineStrings.runsInCloud : HomeEngineStrings.runsHere
+        place.stringValue = hostPlace ?? source.place.map { String(format: HomeEngineStrings.runsOnServerFormat, $0) } ?? own
         return refresh()
     }
 
@@ -214,6 +226,15 @@ public final class HomeChiefSettingsView: NSView {
         let hidden = switchTo == nil
         guard hostSwitch.isHidden != hidden else { return }
         hostSwitch.isHidden = hidden
+        onResize()
+    }
+
+    /// The Harness row only for a brain whose harness the owner picks (not a hosted cloud Chief's).
+    func showHarnessRow() {
+        let hidden = !source.choosesHarness
+        guard let row = harness.superview, row.isHidden != hidden else { return }
+        row.isHidden = hidden
+        if hidden { harnessHint.isHidden = true }
         onResize()
     }
 

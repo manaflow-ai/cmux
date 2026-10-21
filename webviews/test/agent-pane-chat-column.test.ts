@@ -4,7 +4,7 @@
 // panes, as Codex and Claude desktop do. While a reply streams the view stays at its latest line
 // unless the reader scrolls up, and nothing it shows moves when a queue appears or a row opens.
 //
-// A prompt is a solid bubble on the composer's surface, its text inset evenly; a hover shows no Copy
+// A prompt is a translucent tinted-glass bubble, its text inset evenly; a hover shows no Copy
 // on it or on a tool row (both are on right-click; a turn's answer has its own in the footer).
 //
 // Before: the transcript's rows used a 720px column inside 26.5px gutters and the composer a 760px
@@ -496,7 +496,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     await page.close();
   });
 
-  test("a prompt is a solid bubble with its text inset evenly, at the column's right edge", async () => {
+  test("a prompt is a translucent glass bubble with its text inset evenly, at the column's right edge", async () => {
     const page = await open(newChat(), 900);
     const bubble = await page.evaluate(() => {
       const node = document.querySelector<HTMLElement>(".cv-user__bubble")!;
@@ -523,7 +523,9 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
         right: Math.round(row.right - box.right),
       };
     });
-    expect(bubble.alpha).toBe(255);
+    // Tinted glass (Leo 2026-10-20): the window shows through, but the tint is there.
+    expect(bubble.alpha).toBeGreaterThan(0);
+    expect(bubble.alpha).toBeLessThan(255);
     expect(bubble.radius).toBeLessThanOrEqual(12);
     expect(bubble.left).toBeGreaterThanOrEqual(10);
     expect(bubble.left).toBeLessThanOrEqual(12);
@@ -533,9 +535,10 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     await page.close();
   });
 
-  // Leo dogfood 2026-10-13 (hover buttons everywhere): a prompt's Copy and a tool row's are on the
-  // right-click menu (Copy Message, Copy Output), so a hover shows neither.
-  test("a hover shows no Copy on a prompt or a tool row", async () => {
+  // Leo dogfood 2026-10-13 (hover buttons everywhere): a tool row's Copy is on the right-click menu
+  // (Copy Output), so a hover shows none. A prompt's action row has Copy, as Claude Code's does
+  // (Leo, 2026-10-20).
+  test("a hover shows Copy on a prompt's action row, none on a tool row", async () => {
     const page = await open(newChat(), 900);
     /// The Copy buttons in the row holding `text` that show, by their own and their parents' opacity.
     const shown = (text: string) =>
@@ -558,7 +561,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     const onPrompt = await shown("Why does the build retry?");
     await commandToggle(page).hover();
     await page.waitForTimeout(250);
-    expect({ onPrompt, onTool: await shown("ls build") }).toEqual({ onPrompt: 0, onTool: 0 });
+    expect({ onPrompt, onTool: await shown("ls build") }).toEqual({ onPrompt: 1, onTool: 0 });
     await page.close();
   });
 

@@ -160,6 +160,41 @@ import Testing
         #expect(clicks == 1)
     }
 
+    /// The pet's right-click menu: Chief Pet Settings… closes the reply box and opens the
+    /// settings; Hide Chief Pet hides it (the App turns `home.chiefPetEnabled` off).
+    @Test func rightClickMenuOpensSettingsAndHides() throws {
+        let defaults = Self.defaults()
+        var settings = 0, hides = 0
+        let controller = ChiefPetController(makePanel: { ChiefPetPanel(defaults: defaults) },
+                                            actions: ChiefPetActions(open: { _ in }, send: { _, _ in true },
+                                                                     openSettings: { settings += 1 }, hide: { hides += 1 }))
+        controller.sync(true)
+        let panel = try #require(controller.panel)
+        let menu = panel.contextMenu()
+        #expect(menu.items.map(\.title) == [ChiefPetStrings.settings, ChiefPetStrings.hide])
+        panel.onClick?()
+        #expect(controller.replyPanel?.isVisible == true)
+        for item in menu.items { _ = (item.target as AnyObject?)?.perform(item.action) }
+        #expect(settings == 1)
+        #expect(hides == 1)
+        #expect(controller.replyPanel?.isVisible == false, "the settings come up without the reply box")
+        controller.sync(false)
+    }
+
+    /// With `home.chiefPetEnabled` managed the App cannot hide the pet, so the menu greys out Hide.
+    @Test func rightClickMenuGreysOutHideWhenItCannotHide() throws {
+        let defaults = Self.defaults()
+        var canHide = false
+        let controller = ChiefPetController(makePanel: { ChiefPetPanel(defaults: defaults) },
+                                            actions: ChiefPetActions(open: { _ in }, send: { _, _ in true }, canHide: { canHide }))
+        controller.sync(true)
+        let panel = try #require(controller.panel)
+        #expect(panel.contextMenu().items.map(\.isEnabled) == [true, false])
+        canHide = true
+        #expect(panel.contextMenu().items.map(\.isEnabled) == [true, true])
+        controller.sync(false)
+    }
+
     /// The notices lay out toward the side of the screen with room (Leo 2026-10-20): from the pet's
     /// trailing edge leftward on the right half, from its leading edge rightward on the left half;
     /// above it on the lower half, below it on the upper half.

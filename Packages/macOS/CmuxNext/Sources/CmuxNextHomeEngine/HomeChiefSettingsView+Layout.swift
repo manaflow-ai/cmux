@@ -18,7 +18,7 @@ extension HomeChiefSettingsView {
         avatarButton.target = self
         avatarButton.action = #selector(showPictureMenu)
         avatarButton.setAccessibilityLabel(HomeEngineStrings.changePicture)
-        avatarButton.toolTip = HomeEngineStrings.changePicture
+        avatarButton.themedToolTip = HomeEngineStrings.changePicture
         nameField.target = self
         nameField.action = #selector(renamed)
         // Leaving the field (a click elsewhere, the popover closing) keeps the name, as Return does.
@@ -34,7 +34,7 @@ extension HomeChiefSettingsView {
         hostSwitch.isBordered = false
         hostSwitch.bezelStyle = .inline
         hostSwitch.font = Typography.caption
-        hostSwitch.contentTintColor = .controlAccentColor
+        hostSwitch.contentTintColor = Palette.accent
         hostSwitch.target = self
         hostSwitch.action = #selector(switchHost)
         hostSwitch.isHidden = true

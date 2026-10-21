@@ -1,6 +1,7 @@
 #if DEBUG
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextSettings
 import CmuxNextBridge
 import CmuxNextBrowser
@@ -237,15 +238,24 @@ enum DebugKey {
         return WindowOverlayLayer.contentChildWindows(of: window).first { devTools.devToolsContains(window: $0) }
     }
 
-    /// The Chromium page window over `pane`'s selected Chromium tab.
+    /// The Chromium page window over `pane`'s selected Chromium tab, or over its agent chat when
+    /// the chat shows in Chromium (the `agent.chromium` spike).
     static func pageWindow(of pane: String, in controller: WindowController) -> NSWindow? {
-        guard let window = controller.window, let paneController = controller.content?.paneController(key: pane),
-              case .browser(let entry)? = paneController.currentContent, entry.tab.presentation == .childWindow else { return nil }
-        let content = entry.tab.contentView
+        guard let window = controller.window, let paneController = controller.content?.paneController(key: pane) else { return nil }
+        let content: NSView
+        var devTools: (any BrowserDevToolsHosting)?
+        if case .browser(let entry)? = paneController.currentContent, entry.tab.presentation == .childWindow {
+            content = entry.tab.contentView
+            devTools = entry.tab as? any BrowserDevToolsHosting
+        } else if let key = paneController.currentTabKey, let chat = controller.services.agentTabs.existingView(key),
+                  chat.engineName == "cef" {
+            content = chat
+        } else {
+            return nil
+        }
         guard content.window === window else { return nil }
         let frame = window.convertToScreen(content.convert(content.bounds, to: nil))
         let center = NSPoint(x: frame.midX, y: frame.midY)
-        let devTools = entry.tab as? any BrowserDevToolsHosting
         return WindowOverlayLayer.contentChildWindows(of: window).last { child in
             child.frame.contains(center) && devTools?.devToolsContains(window: child) != true
         }

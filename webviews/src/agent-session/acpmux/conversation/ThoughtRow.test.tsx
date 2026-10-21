@@ -14,7 +14,6 @@ import { JSDOM } from "jsdom";
 import type { AcpmuxActivity } from "../model";
 import {
   THOUGHT_FOLD_MIN_PX,
-  THOUGHT_FOLD_MS,
   THOUGHT_LIVE_PX,
   ThoughtRow,
   thoughtDuration,
@@ -23,6 +22,7 @@ import {
   type ThoughtFoldThreshold,
   type ThoughtHeader,
 } from "./ThoughtRow";
+import { foldMotion } from "./fold";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -30,6 +30,9 @@ let container: HTMLElement;
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
 const layout = { ...thoughtLayout };
+const motion = { ...foldMotion };
+/// The fold's duration token as the page resolves it (conversation.css `--cv-fold-duration`).
+const FOLD_MS = 190;
 /// The thought's drawn height, the transcript viewport's, the Debug toggle and Reduce Motion.
 let height = 0;
 let viewport = 600;
@@ -81,7 +84,9 @@ beforeEach(() => {
   thoughtLayout.height = () => height;
   thoughtLayout.viewport = () => viewport;
   thoughtLayout.enabled = () => enabled;
-  thoughtLayout.reducedMotion = () => reduce;
+  foldMotion.reducedMotion = () => reduce;
+  foldMotion.duration = () => FOLD_MS;
+  foldMotion.easing = () => "ease-out";
   container = dom.window.document.getElementById("root")!;
 });
 
@@ -89,6 +94,7 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
   Object.assign(thoughtLayout, layout);
+  Object.assign(foldMotion, motion);
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -289,16 +295,17 @@ test("a thought the reader opened stays open as new content arrives and after it
   expect(body()?.textContent).toBe(LONG);
 });
 
-test("the reader's toggle animates the height over 200 ms, closing after the text slides away", () => {
+test("the reader's toggle plays the shared fold, height and opacity, closing after the text slides away", () => {
   height = 900;
   render(thought(), false, "animated:0");
   click();
   expect(animations.length).toBe(1);
-  expect(animations[0]!.options.duration).toBe(THOUGHT_FOLD_MS);
-  expect(animations[0]!.keyframes[0]).toEqual({ height: "0px" });
+  expect(animations[0]!.options.duration).toBe(FOLD_MS);
+  expect(animations[0]!.keyframes[0]).toEqual({ height: "0px", opacity: 0 });
+  expect(animations[0]!.keyframes.at(-1)!.opacity).toBe(1);
   click();
   expect(animations.length).toBe(2);
-  expect(animations[1]!.keyframes.at(-1)).toEqual({ height: "0px" });
+  expect(animations[1]!.keyframes.at(-1)).toEqual({ height: "0px", opacity: 0 });
   // The text stays drawn while it closes, then goes.
   expect(body()).not.toBeNull();
   animations[1]!.finish();

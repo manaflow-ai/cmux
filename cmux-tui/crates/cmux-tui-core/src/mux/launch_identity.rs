@@ -130,7 +130,10 @@ impl Mux {
         let Some(credential) = credential else { return Ok(connection) };
         let refuse =
             |reason: &'static str| ResourceError::validation_invalid(Some("credential"), reason);
-        if !matches!(connection, Actor::User { .. } | Actor::Frontend { .. }) {
+        if !matches!(
+            connection,
+            Actor::User { .. } | Actor::Frontend { .. } | Actor::Terminal { .. }
+        ) {
             return Err(refuse("credential_not_local"));
         }
         match self.check_launch_credential(credential) {

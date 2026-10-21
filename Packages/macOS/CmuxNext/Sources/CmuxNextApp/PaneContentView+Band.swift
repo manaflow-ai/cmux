@@ -1,18 +1,36 @@
 import AppKit
 import CmuxNextDesign
 
-// R109 `tabs.barOrder` below the toolbar: with the strip on top and a
-// browser tab shown, the browser opens a band under its toolbar rows
-// (`PaneHeaderBandHosting`) and the strip pins to that band's layout guide,
-// so it moves in the toolbar's animation frames without changing parent.
+// R109 `tabs.barOrder`: with the strip and a browser's toolbar on one edge
+// (`tabs.barPosition`, `browser.toolbarPosition`) and the strip between the
+// toolbar and the page (below a top toolbar, above a bottom one), the browser
+// opens a band beside its toolbar rows (`PaneHeaderBandHosting`) and the strip
+// pins to that band's layout guide, so it moves in the toolbar's animation
+// frames without changing parent.
 // The pins end before the browser leaves the pane on every path: this
 // pane's show and detach, and the browser's own viewWillMove hooks
 // (`onPaneHeaderBandRelease`, v4 review).
 extension PaneContentView {
     /// The band host this pane wants now; nil keeps the strip in its frame.
     private var wantedBandHost: (any PaneHeaderBandHosting)? {
-        guard barOrder == .belowToolbar, barPosition == .top, hostsContent else { return nil }
+        guard hostsContent, Self.stripSitsInBand(strip: barPosition, toolbar: toolbarPosition, order: barOrder) else { return nil }
         return content as? any PaneHeaderBandHosting
+    }
+
+    /// Whether the strip goes between a browser's toolbar and its page: both on one edge, and
+    /// the order puts the strip on the page's side (tab bar below a top toolbar, above a bottom one).
+    static func stripSitsInBand(strip: TabBarPosition, toolbar: ToolbarPosition, order: TabBarOrder) -> Bool {
+        switch (strip, toolbar) {
+        case (.top, .top): order == .belowToolbar
+        case (.bottom, .bottom): order == .aboveToolbar
+        default: false
+        }
+    }
+
+    /// Hands `toolbarPosition` to the content on screen; a parked view takes it when shown again.
+    func applyToolbarPosition() {
+        guard hostsContent, let host = content as? any ToolbarEdgeHosting else { return }
+        host.toolbarPosition = toolbarPosition
     }
 
     /// Moves the strip into or out of a band after a show, a detach, a
@@ -41,7 +59,7 @@ extension PaneContentView {
 
     /// Pins the strip to the band once the browser and this pane share a
     /// window (v4 note 1), opens the band at the strip's height and orders
-    /// VoiceOver: toolbar, strip, page.
+    /// VoiceOver from the top: toolbar, strip, page (or page, strip, toolbar).
     private func pinBand() {
         guard bandPins.isEmpty, let host = bandHost, let view = host as? NSView, let window, view.window === window,
               view.isDescendant(of: self) else { return }
@@ -55,7 +73,10 @@ extension PaneContentView {
             stripView.trailingAnchor.constraint(equalTo: toolbar?.view.leadingAnchor ?? trailingAnchor),
         ] + toolbarBandPins()
         NSLayoutConstraint.activate(bandPins)
-        setAccessibilityChildren(host.paneHeaderAccessibilityElements + [stripView] + (toolbar.map { [$0.view] } ?? []) + host.paneContentAccessibilityElements)
+        let strip: [Any] = [stripView] + (toolbar.map { [$0.view] } ?? [])
+        setAccessibilityChildren(toolbarPosition == .top
+            ? host.paneHeaderAccessibilityElements + strip + host.paneContentAccessibilityElements
+            : host.paneContentAccessibilityElements + strip + host.paneHeaderAccessibilityElements)
     }
 
     /// Ends the pins (idempotent): the strip goes back to frame layout and

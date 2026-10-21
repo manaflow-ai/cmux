@@ -8,7 +8,8 @@ struct Scratch(PathBuf);
 impl Scratch {
     fn new(name: &str) -> Self {
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        let path = std::env::temp_dir()
+        let path = std::fs::canonicalize(std::env::temp_dir())
+            .unwrap()
             .join(format!("cmux-history-{name}-{}-{stamp}", std::process::id()));
         std::fs::create_dir_all(&path).unwrap();
         Self(path)
