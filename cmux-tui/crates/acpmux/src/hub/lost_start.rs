@@ -53,9 +53,9 @@ impl Unstarted {
             }
             // Refused, withdrawn, or queued again under a new turn id.
             "prompt_refused" | "queue_removed" | "queued" => self.settle(other),
-            // A daemon that put it back edited, moved or held it: it waits as any queued prompt
-            // since, and only what settles a queued prompt settles it.
-            "queue_updated" => self.forget(|q| Some(&q.1) == turn_id),
+            // A daemon that put it back moved or held it (an edit only changes its record): it
+            // waits as any queued prompt since, in that place, and only what settles a queued
+            // prompt settles it.
             "queue_order" => self.forget(|q| named(&e.msg, "order", &q.0)),
             "queue_paused" => self.forget(|q| named(&e.msg, "held", &q.0)),
             _ => Vec::new(),
@@ -68,10 +68,16 @@ impl Unstarted {
         self.lost.iter().any(|(_, t)| Some(t) == turn_id)
     }
 
-    /// Where the prompt of `turn_id` goes back: ahead of the queue, after the ones that left it
-    /// before it.
-    pub(super) fn place(&self, turn_id: Option<&Value>) -> usize {
-        self.lost.iter().position(|(_, t)| Some(t) == turn_id).unwrap_or(0)
+    /// Whether the prompt `prompt_id` left the queue for a turn that has not started.
+    pub(super) fn holds_prompt(&self, prompt_id: &Value) -> bool {
+        self.lost.iter().any(|(p, _)| p == prompt_id)
+    }
+
+    /// Puts these prompts at the head of the queue's `order`, as they left it: they run first,
+    /// as they would have. A reorder logged after one left does not name it.
+    pub(super) fn lead(&self, order: &mut Vec<Value>) {
+        order.retain(|id| !self.holds_prompt(id));
+        order.splice(0..0, self.lost.iter().map(|(p, _)| p.clone()));
     }
 
     /// Keeps the prompts `keep` accepts; returns the turn ids of the others.
