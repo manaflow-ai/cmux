@@ -15,8 +15,9 @@ import {
 } from "../attachments";
 import type { UploadResult } from "../cloudUploads";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
-import { Close, FileDoc } from "../conversation/icons";
+import { Close, FileDoc, ImageIcon } from "../conversation/icons";
 import { type StringKey, type Translate, useT } from "../i18n";
+import { imageLabel } from "../imageLabel";
 
 const ATTACHMENT_LABELS = {
   attachments: "composer.attachments",
@@ -139,21 +140,19 @@ function AttachmentChip({
   const t = useT();
   const openImage = useContext(ImageViewerContext);
   const [broken, setBroken] = useState(false);
-  /// The picture the chip draws, once known: the small thumbnail, or the image itself when the
-  /// engine can't make one. Until then the chip shows its empty tile, never the full-size image:
-  /// WebKit decodes a large pasted image off the main thread and, inside the composer's blurred
-  /// box, did not repaint when that decode finished, so the chip stayed blank until a click.
-  const [picture, setPicture] = useState<string>();
-  const image = attachment.kind === "image" && attachment.data && !broken;
+  const [thumb, setThumb] = useState<{ url: string; width: number; height: number }>();
+  /// The image's natural size, from its thumbnail or from the image itself once it loads.
+  const [size, setSize] = useState<{ width: number; height: number }>();
+  const isImage = attachment.kind === "image" && Boolean(attachment.data);
+  const image = isImage && !broken;
   const source = image ? `data:${attachment.mimeType};base64,${attachment.data}` : undefined;
+  // A pasted image's name is WebKit's "image.png": show what it is instead (imageLabel.ts).
+  const name = isImage ? imageLabel(t, { name: attachment.name, ...(thumb ?? size) }) : attachment.name;
   useEffect(() => {
     if (!image || !attachment.data) return;
-    // A chip replaced under the same id must not keep the previous attachment's picture.
-    setPicture(undefined);
     let live = true;
-    const full = `data:${attachment.mimeType};base64,${attachment.data}`;
-    void thumbnail({ mimeType: attachment.mimeType, data: attachment.data }).then((url) => {
-      if (live) setPicture(url ?? full);
+    void thumbnail({ mimeType: attachment.mimeType, data: attachment.data }).then((made) => {
+      if (live) setThumb(made);
     });
     return () => {
       live = false;
@@ -163,7 +162,7 @@ function AttachmentChip({
     <button
       type="button"
       className="acpmux-attachment-remove"
-      aria-label={t(ATTACHMENT_LABELS.removeAttachment, { name: attachment.name })}
+      aria-label={t(ATTACHMENT_LABELS.removeAttachment, { name })}
       onClick={() => onRemove(attachment.id)}
     >
       <svg viewBox="0 0 16 16" width="8" height="8" aria-hidden="true">
@@ -179,7 +178,7 @@ function AttachmentChip({
         ...(open ? [{ id: "open", label: t("image.open"), onSelect: open }] : []),
         {
           id: "remove",
-          label: t(ATTACHMENT_LABELS.removeAttachment, { name: attachment.name }),
+          label: t(ATTACHMENT_LABELS.removeAttachment, { name }),
           separatorBefore: Boolean(open),
           onSelect: () => onRemove(attachment.id),
         },
@@ -189,23 +188,31 @@ function AttachmentChip({
     </ContextMenu>
   );
   if (image && source) {
-    // `decoding="sync"`: the thumbnail is small, and decoding it in the paint that shows it is
-    // what keeps the chip from painting empty.
-    const img = picture ? (
-      <img alt={attachment.name} src={picture} decoding="sync" onError={() => setBroken(true)} />
-    ) : undefined;
+    const img = (
+      <img
+        alt={name}
+        src={thumb?.url ?? source}
+        onError={() => setBroken(true)}
+        onLoad={(event) => {
+          const { naturalWidth: width, naturalHeight: height } = event.currentTarget;
+          // An image that decodes to no pixels draws nothing: it failed too.
+          if (!width || !height) setBroken(true);
+          else if (!thumb) setSize({ width, height });
+        }}
+      />
+    );
     return menu(
-      openImage ? () => openImage(source, attachment.name) : undefined,
+      openImage ? () => openImage(source, name) : undefined,
       <div
         className="acpmux-attachment acpmux-attachment-image"
-        /* tooltip-allow: an image thumbnail shows no name */ title={attachment.name}
+        /* tooltip-allow: an image thumbnail shows no name */ title={name}
       >
         {openImage ? (
           <button
             type="button"
             className="acpmux-attachment-open"
-            aria-label={t(ATTACHMENT_LABELS.openAttachment, { name: attachment.name })}
-            onClick={() => openImage(source, attachment.name)}
+            aria-label={t(ATTACHMENT_LABELS.openAttachment, { name })}
+            onClick={() => openImage(source, name)}
           >
             {img}
           </button>
@@ -216,6 +223,17 @@ function AttachmentChip({
       </div>,
     );
   }
+  // An image the engine could not draw says so in its slot, instead of an empty tile or a bare
+  // file name; its × still removes it.
+  if (isImage)
+    return menu(
+      undefined,
+      <div className="acpmux-attachment acpmux-attachment-image acpmux-attachment-image-failed">
+        <ImageIcon size={16} className="acpmux-attachment-failed-icon" />
+        <span className="acpmux-attachment-failed-text">{t("image.failed")}</span>
+        {remove}
+      </div>,
+    );
   if (attachment.kind === "document" && attachment.data) {
     return menu(
       undefined,
