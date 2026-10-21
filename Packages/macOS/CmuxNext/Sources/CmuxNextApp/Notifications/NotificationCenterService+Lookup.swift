@@ -159,6 +159,11 @@ extension NotificationCenterService {
         var marks: [LayoutPaneID: AttentionMark] = [:]
         for screen in workspace.screens {
             for pane in screen.panes {
+                // An agent chat whose turn ended rings until the person goes into it.
+                if let finished = pane.tabs.compactMap({ agentFinished[$0.id] }).max() {
+                    marks[LayoutPaneID(pane.id)] = AttentionMark(color: preferences.sources[.agent]?.color, generation: finished)
+                    continue
+                }
                 let unread = pane.tabs.filter(\.hasUnread)
                 guard let newest = unread.max(by: { ($0.notification?.notification.rawValue ?? 0) < ($1.notification?.notification.rawValue ?? 0) }) else { continue }
                 let generation = newest.notification?.notification.rawValue ?? 1
@@ -201,6 +206,7 @@ extension NotificationCenterService {
             dismissedHighlights = [:]
             dismissedHighlightSession = session
         }
+        for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs) where agentFinished[tab.id] != nil { agentFinished[tab.id] = nil }
         guard newest > (dismissedHighlights[workspace.id] ?? 0) else { return }
         dismissedHighlights[workspace.id] = newest
         note("highlight dismissed workspace=\(workspace.id) through=\(newest)")

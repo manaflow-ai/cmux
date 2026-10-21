@@ -41,6 +41,13 @@ final class NotificationCenterService {
     /// Tabs read because the person went into their pane (a click, a key, an
     /// open), until the layout takes them for the ring's dismiss flash.
     @ObservationIgnored var entryReads: Set<String> = []
+    /// Agent chat tabs whose turn ended, by the generation of their ring: the pane rings until
+    /// the person goes into it (acpmux reads a turn that ends in a shown chat at once, so no
+    /// notification marks it). Observed: the attention marks follow it.
+    var agentFinished: [String: UInt64] = [:]
+    /// Ring generations for ``agentFinished``, above any notification id, so a new finish
+    /// restarts the ring's arrival and never equals a notification's mark.
+    @ObservationIgnored private var agentFinishGeneration: UInt64 = 1 << 62
     @ObservationIgnored let desktop = DesktopNotifier()
     /// A passkey request's banner was clicked (its request id): the passkey hand-off answers it
     /// (plans/cmux-next/agent-browser-passkey-DESIGN.md 3.2).
@@ -94,6 +101,7 @@ final class NotificationCenterService {
 
     func start(services: AppServices) {
         self.services = services
+        AgentTurnStateStore.shared.onTurnEnded = { [weak self] session in self?.agentTurnEnded(session: session) }
         ProgramStatusSeenStore.shared.persist(to: .standard)
         desktopPostingEnabled = !services.environment.showcase
         let feed = services.feed
@@ -253,6 +261,11 @@ final class NotificationCenterService {
         // Any look at the tab sees its OSC 7501 done and error records and an
         // agent chat's completed turn (client view state; the owners keep the facts).
         ProgramStatusSeenStore.shared.markSeen(tab)
+        if agentFinished[tab.id] != nil, NotificationPolicy(prefs: preferences).clears(trigger, for: .agent) {
+            note("\(trigger.rawValue) read agent turn \(tab.id)")
+            agentFinished[tab.id] = nil
+            if [.click, .keystroke, .open].contains(trigger) { entryReads.insert(tab.id) }
+        }
         guard tab.hasUnread else { return }
         guard NotificationPolicy(prefs: preferences).clears(trigger, for: source(of: tab)) else { return }
         note("\(trigger.rawValue) read \(tab.id)")
@@ -275,6 +288,7 @@ final class NotificationCenterService {
     /// Acknowledges `tab` in the daemon (a dismiss verb, or a policy trigger).
     func acknowledge(_ tab: TabModel) {
         note("ack \(tab.id)")
+        if agentFinished[tab.id] != nil { agentFinished[tab.id] = nil }
         timeouts.removeValue(forKey: tab.id)?.cancel()
         approvals.forget(tab: tab.id, retire: true)
         finishedBursts.read(tab: tab.id)
@@ -288,6 +302,18 @@ final class NotificationCenterService {
             let reply = try await connection.acknowledgeNotifications(of: surface)
             // Items that already moved are read in the cloud (B5).
             if let refused = reply.refused, !refused.isEmpty { await driver?.acknowledged(refused) }
+        }
+    }
+
+    /// An agent chat's turn ended: ring the panes that show its tab until the person goes in.
+    func agentTurnEnded(session: String) {
+        guard let services else { return }
+        for workspace in services.daemon.store.workspaces {
+            for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs) where tab.agentSession?.session == session {
+                agentFinishGeneration &+= 1
+                agentFinished[tab.id] = agentFinishGeneration
+                note("agent turn ended \(tab.id)")
+            }
         }
     }
 
