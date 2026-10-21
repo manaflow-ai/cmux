@@ -235,6 +235,17 @@ public final class HomeNativeTranscriptView: NSView {
         set { transcript.avatarPicture = newValue }
     }
 
+    /// Each Chief's avatar by participant id (``HomeChiefAvatar/bubbleAvatars(for:own:fallback:)``),
+    /// beside a group's bubbles; a new value redraws them.
+    public func setChiefBubbleAvatars(_ avatars: [String: HomeChiefAvatar]) {
+        transcript.setSenderAvatars(avatars.mapValues {
+            switch $0 {
+            case .picture(let url): .picture(url)
+            case .text(let text): .text(text)
+            }
+        })
+    }
+
     /// The name pill's VoiceOver help.
     public func setNamePillHelp(_ help: String) { transcript.setNamePillHelp(help) }
 
