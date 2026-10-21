@@ -13,6 +13,7 @@ struct ContextMenuImpliedFactsTests {
     }
 
     @Test func theMenusOwnFactsEnableAndRunItsRows() throws {
+        _ = NSApplication.shared // NSMenu.update validates its items only in an app
         let registry = ActionRegistry.standard()
         var runs: [ActionInvocation] = []
         registry.bind("fileExplorerCopyPath", invoke: { runs.append($0) })
@@ -27,6 +28,7 @@ struct ContextMenuImpliedFactsTests {
     }
 
     @Test func aCallSitesFactsOnlyShowRows() throws {
+        _ = NSApplication.shared // NSMenu.update validates its items only in an app
         let registry = ActionRegistry.standard()
         var runs: [ActionInvocation] = []
         registry.bind("bookmark.addPage", invoke: { runs.append($0) })
