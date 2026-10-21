@@ -65,6 +65,71 @@ struct HomeChiefHostedSettingsTests {
         #expect(control.engineSource() is HomeChiefLocalEngine)
     }
 
+    // MARK: This Mac's Chief beside the cloud Chiefs
+
+    /// Leo 2026-10-21: this Mac's Chief's name-pill card said "Runs in the cloud" and "The server with
+    /// this Chief is not connected." with empty pickers. With a hosted cloud Chief (and a placed one)
+    /// in the cloud list, all named "Chief", this Mac's Chief still talks to this Mac's brain.
+    @Test func thisMacsChiefStaysLocalBesideAHostedCloudChief() {
+        let services = Self.servicesWithCloudChiefs()
+        let control = HomeChiefControl(services: services, conversation: ConversationID(Self.local), muxHome: Self.home())
+        #expect(!services.home.isCloudConversation(ConversationID(Self.local)))
+        #expect(!control.isCloud)
+        #expect(!control.isHosted)
+        #expect(control.hostedChiefID == nil)
+        #expect(control.server == nil)
+        #expect(control.named == nil)
+        #expect(control.brainHome == control.muxHome)
+        #expect(control.engineSource() is HomeChiefLocalEngine)
+        // Its card's place line is the engine's own ("Runs here"), with no switch to a cloud host.
+        #expect(services.home.chiefHost(of: Self.local) == HomeChiefHostLine())
+        // The cloud Chiefs keep their own brains.
+        #expect(HomeChiefControl(services: services, conversation: ConversationID(Self.main), muxHome: Self.home()).engineSource()
+            is HomeChiefHostedEngine)
+        #expect(HomeChiefControl(services: services, conversation: ConversationID(Self.placedMain), muxHome: Self.home()).engineSource()
+            is HomeChiefRemoteEngine)
+    }
+
+    /// A named local Chief (chief-brains-v1) beside the cloud Chiefs: its own brain on this Mac.
+    @Test func aNamedLocalChiefStaysLocalBesideTheCloudChiefs() {
+        let services = Self.servicesWithCloudChiefs()
+        var control = HomeChiefControl(services: services, conversation: ConversationID("conv_named"), muxHome: Self.home())
+        control.chief = "agent_01JZ00000000000000000NAMED1"
+        #expect(!control.isCloud)
+        #expect(control.named == control.chief)
+        #expect(control.brainHome == ChiefHome.brainHome(muxHome: control.muxHome, chief: control.chief))
+        let source = control.engineSource()
+        #expect(source is HomeChiefLocalEngine)
+        #expect((source as? HomeChiefLocalEngine)?.chief == control.chief)
+        #expect(services.home.chiefHost(of: "conv_named") == HomeChiefHostLine())
+    }
+
+    /// The card the name pill opens over this Mac's Chief, as HomeHostView builds it: "Runs here",
+    /// the Harness row, and the pickers filled from this Mac's engine.json, never the cloud's words.
+    @Test func thisMacsChiefsCardRunsHereWithItsPickers() async throws {
+        let services = Self.servicesWithCloudChiefs()
+        let control = HomeChiefControl(services: services, conversation: ConversationID(Self.local), muxHome: Self.home())
+        let engine = control.brainHome.appendingPathComponent("optchat/engine.json")
+        try FileManager.default.createDirectory(at: engine.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: ["harness": "codex", "model": "gpt-5.5", "effort": "high"]).write(to: engine)
+        defer { try? FileManager.default.removeItem(at: control.muxHome) }
+
+        let view = HomeChiefSettingsView(muxHome: control.brainHome, source: control.engineSource())
+        let host = services.home.chiefHost(of: Self.local)
+        view.setHost(place: host.place, switchTo: host.switchTo)
+        await view.use(control.engineSource()).value
+        #expect(view.place.stringValue == HomeEngineStrings.runsHere)
+        #expect(view.place.stringValue != HomeEngineStrings.runsInCloud)
+        #expect(view.hostSwitch.isHidden)
+        #expect(view.failure.isHidden)
+        #expect(view.failure.stringValue != HomeEngineStrings.errorUnreachable)
+        #expect(view.harness.superview?.isHidden == false)
+        #expect(view.harness.selectedItem?.representedObject as? String == "codex")
+        #expect(view.model.selectedItem?.representedObject as? String == "gpt-5.5")
+        #expect(view.effort.selectedItem?.representedObject as? String == "high")
+        #expect(view.harness.isEnabled && view.model.isEnabled && view.effort.isEnabled)
+    }
+
     // MARK: The card over the brain route
 
     @Test func theCardShowsTheCloudBrainsModelAndEffort() async throws {
@@ -144,6 +209,19 @@ struct HomeChiefHostedSettingsTests {
     static func services() -> AppServices {
         _ = NSApplication.shared
         return AppServices(environment: AppEnvironment.current([:]))
+    }
+
+    static let local = "conv_local"
+    static let placedMain = "conv_dm_01JZ00000000000000000PLACED"
+
+    /// A signed-in Mac whose cloud list has a hosted Chief and one placed on a server, both "Chief".
+    static func servicesWithCloudChiefs() -> AppServices {
+        let services = services()
+        let hosted = CloudChief(id: agent, displayName: "Chief", isDefault: true, mainConversation: main, rev: 1)
+        let placed = CloudChief(id: "agent_01JZ00000000000000000PLACED", displayName: "Chief", isDefault: false,
+                                mainConversation: placedMain, rev: 1, brainPlace: .init(host: "host_mini", install: "install_1"))
+        services.home.setCloudChiefs(HomeCloudChiefs(hosted: hosted, placed: placed))
+        return services
     }
 
     static func home() -> URL {
