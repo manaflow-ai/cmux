@@ -94,6 +94,12 @@ pub(crate) fn supports(profile: &HarnessProfile) -> bool {
     profile.kind == HarnessKind::ClaudeStdio
 }
 
+/// Whether a restricted chat can start on `profile`: Claude Code whose argv shapes none of the
+/// restricted command line (`command_line` refuses those at spawn).
+pub(crate) fn starts_restricted(profile: &HarnessProfile) -> bool {
+    supports(profile) && super::remote_sandbox::refused_arg(&profile.argv).is_none()
+}
+
 /// `mode` as a restricted chat runs it: an asking mode, else Claude Code's default.
 pub(crate) fn asking_mode(mode: String) -> String {
     if MODES.contains(&mode.as_str()) { mode } else { MODES[0].to_owned() }
@@ -377,7 +383,9 @@ impl Hub {
         turn_id: &str,
     ) -> Option<RpcError> {
         let meta = session.meta();
-        if !meta.restricted || self.config.read().await.harnesses.get(to).is_some_and(supports) {
+        if !meta.restricted
+            || self.config.read().await.harnesses.get(to).is_some_and(starts_restricted)
+        {
             return None;
         }
         tracing::info!(session = %session.id, to, "failover refused: the fallback cannot run restricted");
@@ -505,6 +513,10 @@ mod tests {
         let sr = claude(&["sr", "claude", "proxy"]);
         let plan = SpawnPlan { program: "sr".into(), args: sr.argv[1..].to_vec() };
         assert!(command_line(&sr.argv, plan).is_ok(), "the subrouter launcher runs restricted");
+        // A failover target is judged the same way: one that would be refused at spawn is
+        // refused before the chat moves to it.
+        assert!(starts_restricted(&sr));
+        assert!(!starts_restricted(&claude(&["claude", "--add-dir", "/"])));
     }
 
     #[test]

@@ -296,8 +296,7 @@ impl Hub {
     /// its agent was launched (`record_spawn_inputs`), else by the profile it
     /// spawns with (its preset's env and args included, as `child_for`
     /// resolves it), and the daemon-wide switch. A restricted chat gets none:
-    /// it has no cmux tools and takes prompts from the app's pane only
-    /// (`restricted.rs`).
+    /// it has no cmux tools (`restricted.rs`).
     async fn forum_reaches(&self, session: &Session) -> bool {
         let m = session.meta();
         let switch = std::env::var_os(crate::agent_tools::SWITCH_ENV);
