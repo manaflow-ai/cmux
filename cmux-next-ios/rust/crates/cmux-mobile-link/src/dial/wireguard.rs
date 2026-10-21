@@ -440,8 +440,11 @@ const REPLAY_GAP: Duration = Duration::from_secs(1);
 /// often, so the session goes back to a direct path once one works again.
 const UPGRADE_SPRAY_GAP: Duration = Duration::from_secs(5);
 /// A handshake initiation of ours that nothing from the peer has answered
-/// yet is sent again after each of these waits (3.75 s in all), on every
-/// route as any datagram is. The first one can be lost on a route that
+/// yet is sent again after each of these waits (3.75 s in all), on the TURN
+/// routes only (through our allocation, and to the peer's relayed
+/// addresses): those are what the race below loses, and a copy on every
+/// route would count against the peer's handshake rate limit (10 a second
+/// per peer, cookie replies past it). The first one can be lost on a route that
 /// starts working a moment later: the answering Mac's first initiation
 /// reaches the phone's TURN server before the phone has a permission for
 /// the Mac, and behind a NAT whose mapping depends on the destination the
@@ -944,7 +947,23 @@ impl HybridUnderlay {
                 None => self.handshake_repeat = None,
             }
             tracing::debug!(repeat = sent, "WireGuard repeats an unanswered handshake initiation");
-            self.transmit(&datagram, class);
+            self.send_on_relays(&datagram, class);
+        }
+    }
+
+    /// Through our TURN allocation, and plain UDP to the peer's relayed
+    /// addresses (its TURN allocation).
+    fn send_on_relays(&mut self, datagram: &[u8], class: SendClass) {
+        self.send_turn_targets(datagram, class);
+        if no_plain_udp(&self.options) {
+            return;
+        }
+        let mut relayed: Vec<SocketAddr> = self.labels.peer_relayed.iter().copied().collect();
+        relayed.sort();
+        for addr in relayed {
+            if !self.refused.contains(&addr) && !self.send_udp(datagram, addr) {
+                self.refused.insert(addr);
+            }
         }
     }
 

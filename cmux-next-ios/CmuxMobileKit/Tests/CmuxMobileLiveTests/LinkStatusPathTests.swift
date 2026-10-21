@@ -74,31 +74,44 @@ import Testing
 
     @Test func aMacTheLinkWasConnectedToIsReconnecting() {
         let banner = LiveCoordinator.waitingBanner(
-            macName: "Studio", transport: .wireGuard, reason: timedOut, wasConnected: true, relayAvailable: true)
+            macName: "Studio", transport: .wireGuard, reason: timedOut, attempt: 2, wasConnected: true,
+            relayAvailable: true)
         #expect(banner == .reconnecting(to: "Studio"))
+    }
+
+    /// Still unreachable after the first redials (about half a minute): say
+    /// why, with the relay hint, instead of spinning forever.
+    @Test func aMacStillUnreachableAfterTheFirstRedialsIsAFailure() {
+        let late = LiveCoordinator.reconnectingAttempts + 1
+        let banner = LiveCoordinator.waitingBanner(
+            macName: "Studio", transport: .wireGuard, reason: timedOut, attempt: late, wasConnected: true,
+            relayAvailable: false)
+        #expect(banner == .failed("Can't reach Studio over WireGuard. Relay (TURN) unavailable"))
     }
 
     @Test func aMacNeverReachedIsAFailure() {
         let banner = LiveCoordinator.waitingBanner(
-            macName: "Studio", transport: .wireGuard, reason: timedOut, wasConnected: false, relayAvailable: true)
+            macName: "Studio", transport: .wireGuard, reason: timedOut, attempt: 2, wasConnected: false,
+            relayAvailable: true)
         #expect(banner == .failed("Can't reach Studio over WireGuard"))
         let noRelay = LiveCoordinator.waitingBanner(
-            macName: "Studio", transport: .webRTC, reason: timedOut, wasConnected: false, relayAvailable: false)
+            macName: "Studio", transport: .webRTC, reason: timedOut, attempt: 2, wasConnected: false,
+            relayAvailable: false)
         #expect(noRelay == .failed("Can't reach Studio over WebRTC. Relay (TURN) unavailable"))
     }
 
     @Test func anOfflineMacIsOfflineEitherWay() {
         for wasConnected in [false, true] {
             let banner = LiveCoordinator.waitingBanner(
-                macName: "Studio", transport: .wireGuard, reason: offline, wasConnected: wasConnected,
-                relayAvailable: nil)
+                macName: "Studio", transport: .wireGuard, reason: offline, attempt: 2,
+                wasConnected: wasConnected, relayAvailable: nil)
             #expect(banner == .macOffline("Studio"))
         }
     }
 
-    /// The machine's side of the same story: after a drop, the silent retry
-    /// fails too and the machine waits; its phase is `.waiting`, which the
-    /// coordinator turns into the banner above.
+    /// Context for the banner: after a drop, the immediate redial and its
+    /// silent retry fail and the machine waits (`.waiting`, attempt 2). This
+    /// held before the change; the coordinator maps that phase to the banner.
     @Test func aDroppedLinkWhoseRedialsFailWaits() {
         var machine = LinkMachine(transport: .wireGuard)
         _ = machine.handle(.target(LinkMachine.Target(macID: "m", name: "Studio", isOnline: true)))
@@ -106,7 +119,7 @@ import Testing
         _ = machine.handle(.linkDropped(generation: machine.generation, reason: "keepalive timed out"))
         _ = machine.handle(.dialFailed(generation: machine.generation, reason: "timed out"))
         _ = machine.handle(.dialFailed(generation: machine.generation, reason: "timed out"))
-        guard case .waiting(.wireGuard, _, _, _) = machine.phase else {
+        guard case .waiting(.wireGuard, let attempt, _, _) = machine.phase, attempt == 2 else {
             Issue.record("expected waiting, got \(machine.phase)")
             return
         }

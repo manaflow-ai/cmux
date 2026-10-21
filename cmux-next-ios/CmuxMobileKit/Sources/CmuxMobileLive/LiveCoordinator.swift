@@ -1397,24 +1397,30 @@ public final class LiveCoordinator {
                     self?.banner = .reconnecting(to: name)
                 }
             }
-        case .waiting(let transport, _, let reason, _):
+        case .waiting(let transport, let attempt, let reason, _):
             banner = Self.waitingBanner(
-                macName: name, transport: transport, reason: reason,
+                macName: name, transport: transport, reason: reason, attempt: attempt,
                 wasConnected: target != nil && target?.macID == connectedMacID,
                 relayAvailable: relayAvailable)
         }
     }
 
+    /// Redial attempts after a lost link that still read "Reconnecting"
+    /// (about the first half minute of the backoff); later ones say why.
+    nonisolated static let reconnectingAttempts = 6
+
     /// The banner while a redial waits out its backoff. An offline Mac is not
     /// a connection failure. A Mac the link was connected to is being
     /// reconnected (the machine keeps retrying), so a lost link reads
-    /// "Reconnecting", not "Can't reach", which reads as giving up. A Mac
-    /// never reached says so; without TURN neither transport gets through
-    /// from another network (WireGuard's backend relay is retired).
+    /// "Reconnecting", not "Can't reach", which reads as giving up, for the
+    /// first [`reconnectingAttempts`] attempts. A Mac never reached, or still
+    /// unreachable after those, says so; without TURN neither transport gets
+    /// through from another network (WireGuard's backend relay is retired).
     nonisolated static func waitingBanner(macName: String, transport: TransportKind, reason: String,
-                                          wasConnected: Bool, relayAvailable: Bool?) -> ConnectionBannerState {
+                                          attempt: Int, wasConnected: Bool,
+                                          relayAvailable: Bool?) -> ConnectionBannerState {
         if reason == LinkController.reason(LinkError(code: "offline", message: "")) { return .macOffline(macName) }
-        if wasConnected { return .reconnecting(to: macName) }
+        if wasConnected, attempt <= reconnectingAttempts { return .reconnecting(to: macName) }
         let relay = relayAvailable == false ? ". Relay (TURN) unavailable" : ""
         return .failed("Can't reach \(macName) over \(transport.displayName)\(relay)")
     }
