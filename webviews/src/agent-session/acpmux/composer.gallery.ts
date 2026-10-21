@@ -859,7 +859,7 @@ export default agentPaneEntry({
       snapshot: { ...steering(true), queue: waiting.slice(0, 2) },
       play: async (ctx) => {
         await ctx.click({ selector: '.acpmux-queued[data-prompt-id="q1"] [data-menu="queued-more"]' });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-queued-more [role=\"menuitem\"]"));
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-queued-more [role="menuitem"]'));
       },
     },
     "queued-images": {

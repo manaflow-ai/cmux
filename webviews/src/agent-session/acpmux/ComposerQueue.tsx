@@ -272,7 +272,8 @@ export function ComposerQueue({
   // A side chat asks the prompt's text alone, so a prompt with images stays in the queue.
   const sideChat =
     onSideChat &&
-    ((entry: QueuedEntry) => (entry.images?.length ? undefined : () => act(entry.id, () => onSideChat(entry.id, entry.prompt))));
+    ((entry: QueuedEntry) =>
+      entry.images?.length ? undefined : () => act(entry.id, () => onSideChat(entry.id, entry.prompt)));
   // A prompt sent now stays in place: to an agent that cannot steer acpmux marks it next
   // (`queue_order`), so its row reads Steering until it runs; to an agent that steers it leaves
   // once acpmux takes it (`dequeued`). Hiding it as leaving showed nothing until it ran (live run
@@ -444,7 +445,12 @@ export function ComposerQueue({
           >
             <Icon name="action.more" size={14} />
           </MenuButton>
-          <MenuPopup side="top" align="end" className="acpmux-quick-menu acpmux-queued-more" label={t("composer.queueActions")}>
+          <MenuPopup
+            side="top"
+            align="end"
+            className="acpmux-quick-menu acpmux-queued-more"
+            label={t("composer.queueActions")}
+          >
             {onChange && (
               <MenuItem className="acpmux-quick-item" shortcut="↩" onSelect={() => setEditing(entry.id)}>
                 {t("composer.queueEditMessage")}

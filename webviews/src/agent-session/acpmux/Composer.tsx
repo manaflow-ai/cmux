@@ -1696,8 +1696,8 @@ export function Composer({
                               : steersAlways
                                 ? "composer.steerTooltip"
                                 : returnSteers
-                                ? "composer.queueLaterTooltip"
-                                : "composer.queueTooltip",
+                                  ? "composer.queueLaterTooltip"
+                                  : "composer.queueTooltip",
                           )
                   }
                 >
