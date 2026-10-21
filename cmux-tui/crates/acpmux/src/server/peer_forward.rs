@@ -207,7 +207,6 @@ pub const PEER_HOPS_FIELD: &str = "peerHops";
 /// answer back and forth without end.
 pub const MAX_PEER_HOPS: u64 = 4;
 
-/// Count one more forward of an answer, or refuse one past the limit.
 /// A history read (`attach`, `events`) goes to the peer with the byte limit this daemon would
 /// page to: a peer on an older build has no limit of its own and answers in one reply however
 /// large, and one of 32.8 MB reset the link with its 29 chats (2026-10-21).
@@ -219,6 +218,7 @@ fn bound_page(m: &str, params: &Value, forwarded: &mut Value) {
     }
 }
 
+/// Count one more forward of an answer, or refuse one past the limit.
 fn count_hop(forwarded: &mut Value) -> Result<(), RpcError> {
     let hops = forwarded
         .pointer(&format!("/_meta/acpmux/{PEER_HOPS_FIELD}"))
