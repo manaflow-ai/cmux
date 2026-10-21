@@ -183,4 +183,114 @@ struct InstantCreateIntentTests {
         #expect(screen.layout.paneIDs.contains(daemon), "the screen showed unsplit before the daemon's layout placed the pane")
         #expect(store.mirrorViolations.isEmpty)
     }
+
+    /// The split's tab confirmed with its pane, then moved out (tab-drag-v1) and the daemon's pane
+    /// closed before any layout placed it: the split has no pane left to place, so the screen
+    /// shows the daemon's records, never the provisional pane back beside the moved tab.
+    @Test func conversationSplitShowsNoPaneOnceTheDaemonsPaneCloses() throws {
+        let store = Self.store()
+        let provisional = ProvisionalPane(holding: Self.page())
+        let transaction = ClientTransactionID.generate()
+        store.intend(.splitPane(pane: Self.pane, direction: .right, ratio: 0.5, provisional: provisional), transaction: transaction)
+        let daemon = PaneID(rawValue: 9), surface = SurfaceID(rawValue: 7)
+        let tab = TabSnapshot(surface: surface, kind: .conversation)
+        let place = (workspace: WorkspaceHandle(rawValue: 1), screen: ScreenID(rawValue: 2))
+        _ = store.apply(batch: [DaemonEventEnvelope(sequence: 1, event: .paneAdded(PaneDelta(
+            workspace: place.workspace, screen: place.screen, pane: daemon, index: 1,
+            entity: PaneSnapshot(id: daemon, resourceID: ResourceID(rawValue: provisional.paneID), tabs: [tab]),
+            clientTransactionID: transaction)))])
+        _ = store.apply(batch: [
+            DaemonEventEnvelope(sequence: 2, event: .tabChanged(TabDelta(
+                workspace: place.workspace, screen: place.screen, pane: Self.pane, surface: surface, index: 1, entity: tab,
+                clientTransactionID: nil))),
+            DaemonEventEnvelope(sequence: 3, event: .paneClosed(PaneDelta(
+                workspace: place.workspace, screen: place.screen, pane: daemon, index: nil,
+                entity: PaneSnapshot(id: daemon, tabs: []), clientTransactionID: nil))),
+        ])
+        let screen = try #require(store.workspace(id: Self.baseKey.rawValue)?.screens.first)
+        #expect(screen.panes.map(\.handle) == [Self.pane], "the provisional pane came back after the daemon's pane closed")
+        #expect(screen.layout.paneIDs == [Self.pane])
+        #expect(try Self.pane(of: store).tabs.map(\.surface) == [SurfaceID(rawValue: 4), surface])
+        #expect(store.mirrorViolations.isEmpty)
+    }
+
+    /// The same split, then the moved tab closes: the intent settled when the daemon's pane closed
+    /// (its creation was confirmed and nothing is left to place), so the provisional pane never
+    /// comes back once the moved tab, the last thing that kept it hidden, is gone.
+    @Test func conversationSplitSettlesOnceTheDaemonsPaneCloses() throws {
+        let store = Self.store()
+        let provisional = ProvisionalPane(holding: Self.page())
+        let transaction = ClientTransactionID.generate()
+        store.intend(.splitPane(pane: Self.pane, direction: .right, ratio: 0.5, provisional: provisional), transaction: transaction)
+        let daemon = PaneID(rawValue: 9), surface = SurfaceID(rawValue: 7)
+        let tab = TabSnapshot(surface: surface, kind: .conversation)
+        let place = (workspace: WorkspaceHandle(rawValue: 1), screen: ScreenID(rawValue: 2))
+        _ = store.apply(batch: [DaemonEventEnvelope(sequence: 1, event: .paneAdded(PaneDelta(
+            workspace: place.workspace, screen: place.screen, pane: daemon, index: 1,
+            entity: PaneSnapshot(id: daemon, resourceID: ResourceID(rawValue: provisional.paneID), tabs: [tab]),
+            clientTransactionID: transaction)))])
+        _ = store.apply(batch: [
+            DaemonEventEnvelope(sequence: 2, event: .tabChanged(TabDelta(
+                workspace: place.workspace, screen: place.screen, pane: Self.pane, surface: surface, index: 1, entity: tab,
+                clientTransactionID: nil))),
+            DaemonEventEnvelope(sequence: 3, event: .paneClosed(PaneDelta(
+                workspace: place.workspace, screen: place.screen, pane: daemon, index: nil,
+                entity: PaneSnapshot(id: daemon, tabs: []), clientTransactionID: nil))),
+        ])
+        #expect(store.pendingIntents.isEmpty, "the split lingered after the daemon's pane closed")
+        _ = store.apply(batch: [DaemonEventEnvelope(sequence: 4, event: .tabClosed(TabDelta(
+            workspace: place.workspace, screen: place.screen, pane: Self.pane, surface: surface, index: nil, entity: tab,
+            clientTransactionID: nil)))])
+        let screen = try #require(store.workspace(id: Self.baseKey.rawValue)?.screens.first)
+        #expect(screen.panes.map(\.handle) == [Self.pane], "the provisional pane came back once the moved tab closed")
+        #expect(screen.layout.paneIDs == [Self.pane])
+        #expect(try Self.pane(of: store).tabs.map(\.surface) == [SurfaceID(rawValue: 4)])
+        #expect(store.mirrorViolations.isEmpty)
+    }
+
+    /// A terminal split whose reply settled before its pane arrived keeps showing split until the
+    /// daemon's layout places the pane (cx-ry0y)...
+    @Test func terminalSplitSettledBeforeItsPaneStaysSplit() throws {
+        let store = Self.store()
+        let provisional = ProvisionalPane()
+        let transaction = ClientTransactionID.generate()
+        store.intend(.splitPane(pane: Self.pane, direction: .down, ratio: 0.5, provisional: provisional), transaction: transaction)
+        store.noteSettled(transaction, at: 1)
+        _ = store.apply(batch: [DaemonEventEnvelope(sequence: 1, event: .tabChanged(TabDelta(
+            workspace: WorkspaceHandle(rawValue: 1), screen: ScreenID(rawValue: 2), pane: Self.pane,
+            surface: SurfaceID(rawValue: 4), index: 0, entity: TabSnapshot(surface: SurfaceID(rawValue: 4)),
+            clientTransactionID: nil)))])
+        #expect(store.pendingIntents.count == 1, "the split settled before the daemon reported its pane")
+        let screen = try #require(store.workspace(id: Self.baseKey.rawValue)?.screens.first)
+        #expect(screen.panes.map(\.handle) == [Self.pane, provisional.handle])
+        #expect(screen.layout.paneIDs.contains(provisional.handle))
+        // No mirror-violation check here: a terminal stand-in's tab id (`tab_…`) is not a
+        // provisional id, so the overlay conservation count sees it as a daemon tab while it shows.
+    }
+
+    /// ...and once the daemon's pane arrived and closed before any layout placed it, the split has
+    /// nothing left to wait for: it settles, and the provisional pane does not come back.
+    @Test func terminalSplitWhosePaneClosesBeforeItsLayoutSettles() throws {
+        let store = Self.store()
+        let provisional = ProvisionalPane()
+        let transaction = ClientTransactionID.generate()
+        store.intend(.splitPane(pane: Self.pane, direction: .down, ratio: 0.5, provisional: provisional), transaction: transaction)
+        store.noteSettled(transaction, at: 1)
+        let daemon = PaneID(rawValue: 9)
+        let place = (workspace: WorkspaceHandle(rawValue: 1), screen: ScreenID(rawValue: 2))
+        _ = store.apply(batch: [DaemonEventEnvelope(sequence: 1, event: .paneAdded(PaneDelta(
+            workspace: place.workspace, screen: place.screen, pane: daemon, index: 1,
+            entity: PaneSnapshot(id: daemon, resourceID: ResourceID(rawValue: provisional.paneID),
+                                 tabs: [TabSnapshot(surface: SurfaceID(rawValue: 7))]),
+            clientTransactionID: nil)))])
+        #expect(store.pendingIntents.count == 1, "the split settled before the daemon's layout placed its pane")
+        _ = store.apply(batch: [DaemonEventEnvelope(sequence: 2, event: .paneClosed(PaneDelta(
+            workspace: place.workspace, screen: place.screen, pane: daemon, index: nil,
+            entity: PaneSnapshot(id: daemon, tabs: []), clientTransactionID: nil)))])
+        #expect(store.pendingIntents.isEmpty, "the split lingered after the daemon's pane closed")
+        let screen = try #require(store.workspace(id: Self.baseKey.rawValue)?.screens.first)
+        #expect(screen.panes.map(\.handle) == [Self.pane], "the provisional pane came back after the daemon's pane closed")
+        #expect(screen.layout.paneIDs == [Self.pane])
+        #expect(store.mirrorViolations.isEmpty)
+    }
 }

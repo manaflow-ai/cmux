@@ -15,7 +15,7 @@ import { foldMs } from "./fold";
 /// The disclosures a click holds in place.
 export const FOLD_TOGGLE = "button.is-toggle[aria-expanded], button.cv-subagents[aria-expanded], summary";
 /// How long a hold outlasts its fold: the last frame's measure, and rows a "Worked for" inserts.
-export const FOLD_SETTLE_MS = 150;
+export const FOLD_SETTLE_MS = 150; // motion-allow: a hold timer after the fold, not an animation
 
 export type FoldAnchor = {
   toggle: HTMLElement;

@@ -32,6 +32,11 @@ extension Strings {
     static var priorityArchive: String { String(localized: "sidebar.priority.archive", defaultValue: "Archive", bundle: .module) }
 }
 
+extension SidebarPriorityEntry {
+    /// The pin button's label and the row menu's pin row: what a press does to this chat.
+    public var pinTitle: String { pinned ? Strings.priorityUnpin : Strings.priorityPin }
+}
+
 extension SidebarPriorityPanel {
     /// Why Toggle Priority View is unavailable while the view is not installed (`sidebar.priorityView.enabled`).
     public static var unavailableReason: String {

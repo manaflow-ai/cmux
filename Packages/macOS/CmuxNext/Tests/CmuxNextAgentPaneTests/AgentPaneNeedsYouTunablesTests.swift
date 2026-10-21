@@ -9,17 +9,17 @@ struct AgentPaneNeedsYouTunablesTests {
         #expect(AgentPaneTunables.needsYou.defaultValue == .pinned)
         #expect(AgentPaneTunables.needsYouPill.descriptor.key == "agentPane.debug.needsYouPill")
         #expect(AgentPaneTunables.needsYouPill.defaultValue == true)
-        #expect(AgentPaneTunables.attributes(foldLongThoughts: false, topStripStyle: .default).isEmpty)
+        #expect(AgentPaneTunables.attributes(foldLongThoughts: true, topStripStyle: .default).isEmpty)
     }
 
     @Test(arguments: [AgentPaneNeedsYouStyle.compact, .off])
     func otherStylesSetTheirAttribute(style: AgentPaneNeedsYouStyle) {
-        #expect(AgentPaneTunables.attributes(foldLongThoughts: false, topStripStyle: .default, needsYou: style)
+        #expect(AgentPaneTunables.attributes(foldLongThoughts: true, topStripStyle: .default, needsYou: style)
             == ["needs-you": style.rawValue])
     }
 
     @Test func pillOffSetsItsAttribute() {
-        #expect(AgentPaneTunables.attributes(foldLongThoughts: false, topStripStyle: .default, needsYouPill: false)
+        #expect(AgentPaneTunables.attributes(foldLongThoughts: true, topStripStyle: .default, needsYouPill: false)
             == ["needs-you-pill": "off"])
     }
 

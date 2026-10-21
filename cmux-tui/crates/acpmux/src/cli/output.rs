@@ -703,10 +703,19 @@ async fn collect_once(
     Ok(CollectResult { reply, stop_reason, permissions_asked: asked, permissions_denied: denied })
 }
 
+/// The most JSON a page of the daemon's log may hold (`_acpmux/attach` `maxBytes`; it
+/// defaults to 1 MiB). A reply is read from one page of the newest transcript records; raw
+/// harness lines are left out so they cannot crowd the turn out of it.
+const TRANSCRIPT_PAGE_BYTES: usize = 4 << 20;
+
 /// The assistant reply of one turn, read from the session's log: the last
 /// assistant item between that turn's start and its result.
 async fn turn_reply(client: &Arc<Client>, id: &str, turn: &str) -> Result<String> {
-    let v = client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 5000})).await?;
+    // Transcript records only, in the largest page the daemon gives (`TRANSCRIPT_PAGE_BYTES`).
+    let page = json!({
+        "sessionId": id, "limit": 5000, "kinds": ["transcript"], "maxBytes": TRANSCRIPT_PAGE_BYTES
+    });
+    let v = client.request(method::MUX_ATTACH, page).await?;
     let events = v.get("events").and_then(Value::as_array).cloned().unwrap_or_default();
     Ok(reply_of_turn(&events, turn))
 }
@@ -742,7 +751,11 @@ pub(crate) async fn last_replies(
     id: &str,
     count: usize,
 ) -> Result<Vec<String>> {
-    let v = client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 5000})).await?;
+    // Transcript records only, in the largest page the daemon gives (`TRANSCRIPT_PAGE_BYTES`).
+    let page = json!({
+        "sessionId": id, "limit": 5000, "kinds": ["transcript"], "maxBytes": TRANSCRIPT_PAGE_BYTES
+    });
+    let v = client.request(method::MUX_ATTACH, page).await?;
     let mut t = Transcript::default();
     for e in v.get("events").and_then(Value::as_array).cloned().unwrap_or_default() {
         t.apply_event(&e);
