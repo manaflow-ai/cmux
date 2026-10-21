@@ -178,6 +178,8 @@ fn commit_reopen(
         .cloned()
         .collect::<Vec<_>>();
     super::closed_pane_split::follow_split_panes(&mut keep, &reopened.panes);
+    super::closed_pane_split::retarget_members(&mut keep, &reopened.panes);
+    super::closed_pane_split::retarget_split_neighbors(transaction, closed_id, &reopened.panes)?;
     let remaining = keep.len();
     let kind = record["kind"].as_str().unwrap_or_default().to_string();
     // A deleted space (SPACE-DELETE-CLOSES-ITS-WORKSPACES) comes back first,
