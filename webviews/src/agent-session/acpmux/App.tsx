@@ -1396,7 +1396,10 @@ const RowFrame = React.memo(function RowFrame({
       aria-label={speaker(kind, t)}
       aria-posinset={index + 1}
       aria-setsize={setSize}
-      style={{ transform: `translateY(${top}px)` }}
+      // `top`, not a transform: WebKit at a page zoom other than 1 (the app's UI scale) hit-tests
+      // text in a translated row off by the zoomed part of the translation, so a drag selected
+      // words above the pointer (user 2026-10-21).
+      style={{ top }}
       onFocus={() => onFocus(row.id)}
     >
       {copyable && (
@@ -3194,7 +3197,7 @@ export function VirtualTranscript({
             <div
               ref={thread}
               className="acpmux-thread"
-              style={lift ? { transform: `translateY(${lift}px)` } : undefined}
+              style={lift ? { top: lift } : undefined}
               onPointerOver={(event) => pointAt(event.target)}
               onPointerLeave={() => pointAt(null)}
             >
