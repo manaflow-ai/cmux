@@ -111,13 +111,21 @@ export function session(fields: Partial<AcpmuxSessionEntry> & { sessionId: strin
 /** A connected snapshot of one chat: `rows`, with its session in the list. */
 export function chat(
   rows: AcpmuxRow[],
-  fields: Partial<AcpmuxSnapshot> & { title?: string; harness?: string; model?: string; branch?: string } = {},
+  fields: Partial<AcpmuxSnapshot> & {
+    title?: string;
+    harness?: string;
+    model?: string;
+    branch?: string;
+    /// acpmux's Ctrl-B moves its work; acpmux says so for a Claude Code chat.
+    backgroundsWork?: boolean;
+  } = {},
 ): AcpmuxSnapshot {
   const {
     title = "Add retries to the fetch helper",
     harness = "claude",
     model = "claude-opus-5-5",
     branch = "main",
+    backgroundsWork = harness === "claude",
     ...rest
   } = fields;
   return {
@@ -138,6 +146,7 @@ export function chat(
       turnCount: rows.filter((candidate) => candidate.kind === "user").length,
       usage: { used: 48_000, size: 200_000 },
       promptCapabilities: { image: true },
+      backgroundsWork,
     },
     connection: "connected",
     origin: "local",
