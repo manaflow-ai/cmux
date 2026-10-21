@@ -9,8 +9,15 @@ export type GithubReference = {
 // Not after a word, a path or URL (`x.com/#12`) or an HTML entity (`&#123;`). GitHub numbers
 // start at 1 and have at most ten digits (the pull request card's rule), so `#0`, `#012` and
 // `#12345678901` are not references.
+// A short name glued to the `#` (`hq#12`) is a reference only when it is a known alias
+// (REPOSITORY_ALIASES); any other word glued to a `#` (`foo#12`, `step#2`) stays text.
 const REFERENCE =
-  /(?<![\w./&-])(?:(?<repository>[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*)(?<qualifiedNumber>#[1-9][0-9]{0,9})|(?<bareNumber>#[1-9][0-9]{0,9}))(?![\w])/g;
+  /(?<![\w./&-])(?:(?<repository>[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*)(?<qualifiedNumber>#[1-9][0-9]{0,9})|(?<alias>[A-Za-z][A-Za-z0-9-]*)(?<aliasNumber>#[1-9][0-9]{0,9})|(?<bareNumber>#[1-9][0-9]{0,9}))(?![\w])/g;
+
+/// Short repository names agents write in place of `owner/repo` (`hq#2713`).
+export const REPOSITORY_ALIASES: Readonly<Record<string, string>> = {
+  hq: "manaflow-ai/cmuxterm-hq",
+};
 
 /**
  * Finds explicit `owner/repo#123` and, when known, bare `#123` references. `kind` picks the
@@ -24,15 +31,43 @@ export function githubReferences(
 ): GithubReference[] {
   const out: GithubReference[] = [];
   for (const match of text.matchAll(REFERENCE)) {
-    const repo = match.groups?.repository ?? repository;
+    const alias = match.groups?.alias;
+    const repo = alias ? REPOSITORY_ALIASES[alias.toLowerCase()] : (match.groups?.repository ?? repository);
     if (!repo) continue;
-    const number = match.groups?.qualifiedNumber ?? match.groups?.bareNumber;
+    const number = match.groups?.qualifiedNumber ?? match.groups?.aliasNumber ?? match.groups?.bareNumber;
     if (!number) continue;
     out.push({
       start: match.index!,
       end: match.index! + match[0].length,
       text: match[0],
       href: `https://github.com/${repo}/${kind}/${number.slice(1)}`,
+    });
+  }
+  return out;
+}
+
+/** A commit written in prose: `owner/repo@<sha>`, or a bare SHA when the repository is known. */
+export type CommitReference = GithubReference & { sha: string };
+
+// 7 to 40 lowercase hex characters with at least one digit and one letter (git's short and full
+// forms; `deadbeef`, `1234567` and `facade` stay words), not glued to a word, a path, a `#` color,
+// a `0x` number or a `sha256:` digest (64 characters, past the 40 cap anyway).
+const COMMIT =
+  /(?<![\w./#&:@-])(?:(?<repository>[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*)@)?(?<sha>(?=[0-9a-f]*[a-f])(?=[0-9a-f]*[0-9])[0-9a-f]{7,40})(?![\w-])/g;
+
+/** Commits in `text`, linked to their GitHub page; a bare SHA needs `repository`. */
+export function commitReferences(text: string, repository?: string): CommitReference[] {
+  const out: CommitReference[] = [];
+  for (const match of text.matchAll(COMMIT)) {
+    const repo = match.groups?.repository ?? repository;
+    const sha = match.groups!.sha!;
+    if (!repo) continue;
+    out.push({
+      start: match.index!,
+      end: match.index! + match[0].length,
+      text: match[0],
+      sha,
+      href: `https://github.com/${repo}/commit/${sha}`,
     });
   }
   return out;
@@ -82,6 +117,8 @@ export function mentionedRepository(text: string): string | undefined {
   let at = -1;
   let repository: string | undefined;
   for (const ref of githubReferences(prose)) {
+    // An alias (`hq#12`) names another repository in passing; it never becomes the default.
+    if (!ref.text.includes("/")) continue;
     at = ref.start;
     repository = ref.text.slice(0, ref.text.indexOf("#"));
   }

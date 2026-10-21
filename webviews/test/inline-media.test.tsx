@@ -1,0 +1,257 @@
+// Screenshots, commits, `hq#N` and `file:line` in agent replies (Leo 2026-10-21: "you should've just
+// added images or some kind of link inline"). Every form an agent writes an image in draws as a
+// thumbnail in a fixed glass frame, two in a row sit side by side, and the other references link.
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { JSDOM } from "jsdom";
+import { bareImageSource, imageOnlyItems, proseImages } from "../src/agent-session/acpmux/conversation/inlineMedia";
+import { codePath, isImagePath, isImageUrl, textLinks } from "../src/agent-session/acpmux/chips/paths";
+import { commitReferences, githubReferences, mentionedRepository } from "../src/githubReferences";
+
+const REPO = "manaflow-ai/cmux";
+const PR_MEDIA = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/23650/tabs-light.png";
+
+describe("image-only paragraphs", () => {
+  const cases: Array<[name: string, text: string, items: Array<[src: string, alt: string]> | undefined]> = [
+    ["Markdown image, absolute path", "![Before](/tmp/a.png)", [["/tmp/a.png", "Before"]]],
+    [
+      "two Markdown images on one line",
+      "![Before](/tmp/a.png) ![After](/tmp/b.png)",
+      [
+        ["/tmp/a.png", "Before"],
+        ["/tmp/b.png", "After"],
+      ],
+    ],
+    [
+      "two Markdown images on two lines",
+      "![Before](/tmp/a.png)\n![After](/tmp/b.png)",
+      [
+        ["/tmp/a.png", "Before"],
+        ["/tmp/b.png", "After"],
+      ],
+    ],
+    [
+      "labelled bare paths",
+      "Before: /tmp/a.png\nAfter: /tmp/b.png",
+      [
+        ["/tmp/a.png", "Before"],
+        ["/tmp/b.png", "After"],
+      ],
+    ],
+    [
+      "bold labels on Markdown images",
+      "**Before:** ![](/tmp/a.png) **After:** ![](/tmp/b.png)",
+      [
+        ["/tmp/a.png", "Before"],
+        ["/tmp/b.png", "After"],
+      ],
+    ],
+    ["file URL", "file:///tmp/shots/a.png", [["file:///tmp/shots/a.png", ""]]],
+    ["home path", "~/Desktop/shot.jpeg", [["~/Desktop/shot.jpeg", ""]]],
+    ["pr-media address", PR_MEDIA, [[PR_MEDIA, ""]]],
+    ["https image as a Markdown image", `![Tabs](${PR_MEDIA})`, [[PR_MEDIA, "Tabs"]]],
+    ["data URL image", "![dot](data:image/png;base64,AAAA)", [["data:image/png;base64,AAAA", "dot"]]],
+    ["a sentence is not image-only", "See /tmp/a.png for the result", undefined],
+    ["a non-image path", "/tmp/build.log", undefined],
+    ["a deny-listed image", "~/.ssh/key.png", undefined],
+    ["a plain http image", "http://example.com/a.png", undefined],
+    ["a web page", "https://example.com/page", undefined],
+    ["a path with a line suffix", "/tmp/a.png:3", undefined],
+  ];
+  test.each(cases)("%s", (_name, text, items) => {
+    expect(imageOnlyItems(text)?.map((item) => [item.src, item.alt])).toEqual(items);
+  });
+});
+
+describe("image paths in a sentence", () => {
+  test("an absolute path and an https image are found once each, in order", () => {
+    expect(proseImages(`Saved /tmp/a.png and ${PR_MEDIA}, then /tmp/a.png again.`).map((item) => item.src)).toEqual([
+      "/tmp/a.png",
+      PR_MEDIA,
+    ]);
+  });
+  test("code spans, link targets and Markdown images are not prose", () => {
+    expect(proseImages("Run `open /tmp/a.png`, see [it](/tmp/b.png) and ![c](/tmp/c.png).")).toEqual([]);
+  });
+  test("a path with a line suffix or another extension is not an image", () => {
+    expect(proseImages("Look at /tmp/a.png:3 and /tmp/notes.md")).toEqual([]);
+  });
+  test("bareImageSource accepts only image tokens", () => {
+    expect(bareImageSource("/tmp/a.webp")).toBe("/tmp/a.webp");
+    expect(bareImageSource("./shots/a.GIF")).toBe("./shots/a.GIF");
+    expect(bareImageSource("a.png")).toBeUndefined();
+    expect(bareImageSource("https://x.test/a.png?raw=1")).toBe("https://x.test/a.png?raw=1");
+    expect(isImagePath("/tmp/a.svg")).toBe(false);
+    expect(isImageUrl("https://x.test/a.jpg#frag")).toBe(true);
+  });
+});
+
+describe("file:line references", () => {
+  test("a relative path with a line is a path chip that keeps its line", () => {
+    const [link] = textLinks("fails at webviews/src/app.ts:42:7, see there");
+    expect(link).toMatchObject({
+      kind: "path",
+      path: "webviews/src/app.ts",
+      line: 42,
+      value: "webviews/src/app.ts:42:7",
+    });
+  });
+  test("an absolute path keeps its line too", () => {
+    expect(textLinks("at /Users/you/x/retry.ts:12.")[0]).toMatchObject({ path: "/Users/you/x/retry.ts", line: 12 });
+  });
+  test("a relative path needs its line, and a domain is not a folder", () => {
+    expect(textLinks("and/or.txt is prose")).toEqual([]);
+    expect(textLinks("example.com/app.js:1")).toEqual([]);
+  });
+  test("a code span with a relative file:line is a path", () => {
+    expect(codePath("Packages/macOS/Foo.swift:120")).toBe("Packages/macOS/Foo.swift");
+    expect(codePath(".github/workflows/ci.yml:3")).toBe(".github/workflows/ci.yml");
+    expect(codePath("git log -1")).toBeUndefined();
+  });
+});
+
+describe("repository aliases and commits", () => {
+  test("hq#N links to cmuxterm-hq; another word glued to # stays text", () => {
+    expect(githubReferences("see hq#2713 and foo#12", REPO, "pull").map((ref) => [ref.text, ref.href])).toEqual([
+      ["hq#2713", "https://github.com/manaflow-ai/cmuxterm-hq/pull/2713"],
+    ]);
+  });
+  test("an alias never becomes the transcript's repository", () => {
+    expect(mentionedRepository("see hq#2713")).toBeUndefined();
+    expect(mentionedRepository("a/b#1 then hq#2")).toBe("a/b");
+  });
+  const commits: Array<[name: string, text: string, refs: Array<[text: string, href: string]>]> = [
+    ["short SHA", "landed at 2f1920a.", [["2f1920a", `https://github.com/${REPO}/commit/2f1920a`]]],
+    [
+      "full SHA",
+      "head 2f1920a175e3c0d6a1b2c3d4e5f60718293a4b5c",
+      [
+        [
+          "2f1920a175e3c0d6a1b2c3d4e5f60718293a4b5c",
+          `https://github.com/${REPO}/commit/2f1920a175e3c0d6a1b2c3d4e5f60718293a4b5c`,
+        ],
+      ],
+    ],
+    ["qualified", "owner/repo@abc1234", [["owner/repo@abc1234", "https://github.com/owner/repo/commit/abc1234"]]],
+    ["a hex word with no digit", "deadbeef cafebabe", []],
+    ["digits only", "1234567 and 20261021", []],
+    ["a color", "#a1b2c3d", []],
+    ["a hex number", "0xabc1234", []],
+    ["a digest", `sha256:${"a1".repeat(32)}`, []],
+    ["inside a URL path", "https://x.test/abc1234", []],
+    ["glued to a word", "vabc1234 abc1234x", []],
+  ];
+  test.each(commits)("commit: %s", (_name, text, refs) => {
+    expect(commitReferences(text, REPO).map((ref) => [ref.text, ref.href])).toEqual(refs);
+  });
+  test("a bare SHA needs a repository", () => {
+    expect(commitReferences("at 2f1920a")).toEqual([]);
+  });
+});
+
+describe("rendered replies", () => {
+  const dom = new JSDOM("<!doctype html><div id=root></div>", { url: "http://localhost/", pretendToBeVisual: true });
+  const scope = globalThis as Record<string, unknown>;
+  const keys = [
+    "window",
+    "document",
+    "navigator",
+    "HTMLElement",
+    "Element",
+    "Node",
+    "IS_REACT_ACT_ENVIRONMENT",
+  ] as const;
+  const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
+  beforeAll(() => {
+    Object.assign(scope, {
+      window: dom.window,
+      document: dom.window.document,
+      navigator: dom.window.navigator,
+      HTMLElement: dom.window.HTMLElement,
+      Element: dom.window.Element,
+      Node: dom.window.Node,
+      IS_REACT_ACT_ENVIRONMENT: true,
+    });
+  });
+  afterAll(() => {
+    for (const [key, had, value] of saved) {
+      if (had) scope[key] = value;
+      else delete scope[key];
+    }
+    dom.window.close();
+  });
+
+  const IMAGE = "data:image/png;base64,iVBORw0KGgo=";
+  async function render(markdown: string, host: "answer" | "silent" = "answer") {
+    const { act, createElement } = await import("react");
+    const { createRoot } = await import("react-dom/client");
+    const { Markdown } = await import("../src/agent-session/acpmux/conversation/Markdown");
+    const { resetLinkStore, seedLinkStore } = await import("../src/agent-session/acpmux/chips/linkStore");
+    const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
+    resetLinkStore();
+    seedLinkStore({
+      paths: {
+        "/tmp/shots/before.png": { place: "root", folder: false },
+        "/tmp/shots/after.png": { place: "root", folder: false },
+        "/tmp/shots/slow.png": { place: "root", folder: false },
+      },
+      policy: { remoteImages: "click", outsideRoots: "confirm" },
+    });
+    setChipHost(async (method) => {
+      if (method === "image.load" && host === "answer") return { src: IMAGE };
+      if (method === "image.load") return new Promise(() => {});
+      return {};
+    });
+    const container = dom.window.document.createElement("div");
+    dom.window.document.body.append(container);
+    const root = createRoot(container);
+    await act(async () => root.render(createElement(Markdown, { githubRepository: REPO }, markdown)));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    return { container, unmount: () => act(async () => root.unmount()) };
+  }
+
+  test("a before/after pair draws side by side, captioned, each in a glass thumbnail", async () => {
+    const { container, unmount } = await render("![Before](/tmp/shots/before.png) ![After](/tmp/shots/after.png)");
+    const row = container.querySelector(".cv-thumbs.is-row");
+    expect(row).not.toBeNull();
+    expect(row!.querySelectorAll(".cv-thumb img.cv-thumb__img").length).toBe(2);
+    expect([...row!.querySelectorAll(".cv-thumbs__caption")].map((caption) => caption.textContent)).toEqual([
+      "Before",
+      "After",
+    ]);
+    await unmount();
+  });
+
+  test("an image still loading keeps its thumbnail frame, so nothing moves when it lands", async () => {
+    const { container, unmount } = await render("![Slow](/tmp/shots/slow.png)", "silent");
+    expect(container.querySelector(".cv-thumb.is-waiting")).not.toBeNull();
+    expect(container.querySelector("img")).toBeNull();
+    await unmount();
+  });
+
+  test("a pr-media address waits for Load image inside the frame", async () => {
+    const { container, unmount } = await render(`![Tabs](${PR_MEDIA})`);
+    expect(container.querySelector(".cv-thumb.is-placeholder .cv-image-placeholder__load")).not.toBeNull();
+    await unmount();
+  });
+
+  test("an image path in a sentence stays a chip, with its thumbnail under the paragraph", async () => {
+    const { container, unmount } = await render("Saved the screenshot to /tmp/shots/before.png for review.");
+    const [prose, images] = [...container.querySelectorAll("p")];
+    expect(prose!.querySelector(".cv-chip.is-path")).not.toBeNull();
+    expect(images!.querySelector(".cv-thumb img")).not.toBeNull();
+    await unmount();
+  });
+
+  test("a commit, hq#N and a relative file:line are links", async () => {
+    const { container, unmount } = await render("Fixed in 2f1920a (hq#2713), see webviews/src/app.ts:42.");
+    const hrefs = [...container.querySelectorAll("a")].map((anchor) => anchor.getAttribute("href"));
+    expect(hrefs).toEqual([
+      `https://github.com/${REPO}/commit/2f1920a`,
+      "https://github.com/manaflow-ai/cmuxterm-hq/pull/2713",
+    ]);
+    const path = container.querySelector<HTMLElement>(".cv-chip.is-path");
+    expect(path?.dataset.path).toBe("webviews/src/app.ts");
+    expect(path?.textContent).toBe("app.ts:42");
+    await unmount();
+  });
+});
