@@ -10,7 +10,7 @@
 //   transcript. Between turns a command shows only when acpmux's process registry says it runs; one
 //   only the transcript knows (a peer's chat, whose end never arrived) does not pin the tray.
 // - The tray's lines are the summary card's Subagents rows: one component (AgentLine.tsx).
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, setSystemTime, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -376,26 +376,46 @@ describe("the tray", () => {
   });
 
   test("a hidden pane's tray clock rests and catches up when the pane shows", async () => {
+    // The clock's interval is recorded instead of run, and the time moves by hand: no real waits.
+    const intervals = new Set<number>();
+    const realSet = globalThis.setInterval;
+    const realClear = globalThis.clearInterval;
+    let ids = 0;
+    globalThis.setInterval = (() => {
+      ids += 1;
+      intervals.add(ids);
+      return ids;
+    }) as unknown as typeof setInterval;
+    globalThis.clearInterval = ((id?: number) => void intervals.delete(id as number)) as typeof clearInterval;
     let visibility = "visible";
     Object.defineProperty(dom.window.document, "visibilityState", { configurable: true, get: () => visibility });
-    const started = Date.now() - 10_000;
-    const items = trayItems([agent("Reviewer", { startedAt: started })], [], NONE, true);
+    const shown = (state: string) =>
+      act(async () => {
+        visibility = state;
+        dom.window.document.dispatchEvent(new dom.window.Event("visibilitychange"));
+      });
+    setSystemTime(new Date(at(100)));
+    const items = trayItems([agent("Reviewer", { startedAt: at(90) })], [], NONE, true);
     const { root, done } = await render(
       createElement(SubagentTray, { items, working: true, waiting: new Set<string>(), onOpen: () => {} }),
     );
     const time = () => root.querySelector(".acpmux-agent-line__time")?.textContent;
     try {
-      visibility = "hidden";
-      await act(async () => void dom.window.document.dispatchEvent(new dom.window.Event("visibilitychange")));
-      const rested = time();
-      await act(async () => new Promise((resolve) => setTimeout(resolve, 1300)));
-      expect(time()).toBe(rested);
-      visibility = "visible";
-      await act(async () => void dom.window.document.dispatchEvent(new dom.window.Event("visibilitychange")));
-      expect(time()).not.toBe(rested);
+      expect(time()).toBe("10s");
+      expect(intervals.size).toBe(1);
+      await shown("hidden");
+      expect(intervals.size).toBe(0);
+      setSystemTime(new Date(at(130)));
+      expect(time()).toBe("10s");
+      await shown("visible");
+      expect(time()).toBe("40s");
+      expect(intervals.size).toBe(1);
     } finally {
       await done();
+      setSystemTime();
       visibility = "visible";
+      globalThis.setInterval = realSet;
+      globalThis.clearInterval = realClear;
     }
   });
 
