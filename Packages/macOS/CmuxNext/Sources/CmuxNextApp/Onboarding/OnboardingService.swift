@@ -125,14 +125,14 @@ final class OnboardingService {
 extension SavingImportDestination {
     /// Into this app: each batch's pages join its browser profile's omnibar history.
     @MainActor static func app(_ services: AppServices, bookmarks: (any ImportedBookmarkSink)? = nil) -> SavingImportDestination {
-        SavingImportDestination(store: services.onboarding.importStore, bookmarks: bookmarks, history: omnibar(services.cache))
+        SavingImportDestination(sync: services.onboarding.historySync, bookmarks: bookmarks)
     }
 
-    /// Imported pages join their browser profile's omnibar history (bookmarks reach it as bookmark rows).
+    /// Imported pages join (or leave) their browser profile's omnibar history (bookmarks reach it as bookmark rows).
     static func omnibar(_ cache: TabContentCache) -> ImportHistorySync.Deliver {
-        { id, pages in
+        { id, pages, gone in
             let entries = pages.map { BrowserHistoryEntry(url: $0.url, title: $0.title, visitCount: $0.visitCount, lastVisit: $0.lastVisit) }
-            await MainActor.run { cache.history(for: BrowserProfileRecord.engineProfile(for: id) ?? .default).merge(entries) }
+            await MainActor.run { cache.history(for: BrowserProfileRecord.engineProfile(for: id) ?? .default).apply(merging: entries, forgetting: gone) }
         }
     }
 }

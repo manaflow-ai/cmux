@@ -15,10 +15,10 @@ enum OnboardingHandlers {
         let services = context.services
         registry.bind("importFromBrowser", run: { _ in services.onboarding.show(step: .importData) })
         registry.bind("browserProfile.removeImportedData", run: { invocation in
-            let record = try context.browserProfile(invocation), history = services.cache.history(for: BrowserProfileRecord.engineProfile(for: record.id) ?? .default)
-            Task {  // task-owner: one removal the person asked for; the toast reports it
-                let counts = try await services.onboarding.historySync.removeImported(profile: record.id, bookmarks: services.importedBookmarkSink) { urls in await MainActor.run { history.forget(urls: urls) } }
-                BrowserFileImport.toast(services, id: "browser-import-removed", counts.removalText(profile: record.name))
+            let record = try context.browserProfile(invocation)
+            Task {  // task-owner: one removal the person asked for; the toast reports it, or that it failed
+                let counts = try? await services.onboarding.historySync.removeImported(profile: record.id, bookmarks: services.importedBookmarkSink)
+                BrowserFileImport.toast(services, id: "browser-import-removed", ImportCounts.removalText(counts, profile: record.name))
             }
         })
         // No path argument: only the person's own pick in the open panel brings passwords in.

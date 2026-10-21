@@ -34,6 +34,7 @@ extension BrowserProfileService {
         try edit { $0.markDeleted(id) }
         services.cache.dropHistory(for: BrowserProfileRecord.engineProfile(for: id))
         services.bookmarks.dropProfile(id)
+        Task { [sync = services.onboarding.historySync] in _ = try? await sync.removeImported(profile: id, bookmarks: nil, forgetPages: false) }  // task-owner: its imports and their sync go too
         cleanUpDeletedProfiles()
     }
 

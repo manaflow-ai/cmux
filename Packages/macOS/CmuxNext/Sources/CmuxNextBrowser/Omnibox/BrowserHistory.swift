@@ -132,6 +132,12 @@ public final class InMemoryBrowserHistory: BrowserHistoryStore {
         notify(.remove(gone.values.map(\.url)))
     }
 
+    /// An import's change: `entries` merge in, then the pages at `urls` go.
+    public func apply(merging entries: [BrowserHistoryEntry], forgetting urls: [URL]) {
+        if !entries.isEmpty { merge(entries) }
+        if !urls.isEmpty { forget(urls: urls) }
+    }
+
     /// Forgets the pages at `urls` without telling `persistence` (Remove
     /// Imported Data: the pages came from another browser, not the durable log).
     public func forget(urls: [URL]) {

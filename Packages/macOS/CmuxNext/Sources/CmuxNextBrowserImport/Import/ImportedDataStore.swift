@@ -31,17 +31,23 @@ public actor ImportedDataStore {
             .appending(path: String(safe) + ".json")
     }
 
-    public func save(_ batch: ImportBatch) throws {
+    /// Saves `batch`, replacing its source's earlier one. Returns the earlier
+    /// batch when it was in another profile (a re-import moved the source):
+    /// its file is gone, and the caller takes its bookmarks and pages out of that profile.
+    @discardableResult
+    public func save(_ batch: ImportBatch) throws -> ImportBatch? {
         let file = batchFile(batch.source)
         try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         try encoder.encode(batch).write(to: file, options: .atomic)
-        // A re-import into another profile moves the source: its old copy goes, so nothing shows twice.
+        var displaced: ImportBatch?
         for old in sources() where old.sourceKey == batch.source.sourceKey && old.targetProfileID != batch.source.targetProfileID {
+            displaced = (try? Data(contentsOf: batchFile(old))).flatMap { try? decoder.decode(ImportBatch.self, from: $0) }
             try? FileManager.default.removeItem(at: batchFile(old))
         }
         var records = sources().filter { $0.sourceKey != batch.source.sourceKey }
         records.append(batch.source)
         try encoder.encode(records).write(to: sourcesFile, options: .atomic)
+        return displaced
     }
 
     /// Every source mapping saved so far.
@@ -92,16 +98,23 @@ public actor ImportedDataStore {
         sources().filter { $0.syncedHistoryFile != nil }
     }
 
-    /// Keep in Sync: replaces one source's saved pages with a fresh read and
-    /// returns its record; nil when the source is unknown, no longer synced
-    /// or its data was removed (nothing is written then).
-    public func replaceHistory(_ sourceKey: String, with pages: [ImportedHistoryEntry]) throws -> ImportSourceRecord? {
+    /// Keep in Sync: replaces one source's saved pages with a fresh read
+    /// (less any a Clear History removed) and returns its record and the pages
+    /// that are new or changed since the last read; nil when the source is
+    /// unknown, no longer synced or its data was removed (nothing is written then).
+    public func replaceHistory(_ sourceKey: String, with read: [ImportedHistoryEntry]) throws
+        -> (record: ImportSourceRecord, changed: [ImportedHistoryEntry])? {
         guard let record = sources().first(where: { $0.sourceKey == sourceKey && $0.syncedHistoryFile != nil }),
               let data = try? Data(contentsOf: batchFile(record)), var batch = try? decoder.decode(ImportBatch.self, from: data) else { return nil }
+        let cleared = record.clearedRanges ?? []
+        let pages = read.filter { page in !cleared.contains { $0.contains(page.lastVisit) } }
+        let old = Set(batch.history)
+        let changed = pages.filter { !old.contains($0) }
+        guard !changed.isEmpty || pages.count != batch.history.count else { return (record, []) }
         batch.history = pages
         batch.importedAt = Date()
         try encoder.encode(batch).write(to: batchFile(record), options: .atomic)
-        return record
+        return (record, changed)
     }
 
     /// Turns Keep in Sync off for every source in `profile`, or for one source.
@@ -125,17 +138,23 @@ public actor ImportedDataStore {
         return removed
     }
 
-    /// Clear History: drops the saved imported pages of `profile` visited at
-    /// or after `since` (nil: all, which also stops its Keep in Sync), so a
-    /// cleared page does not come back at the next launch.
-    public func forgetHistory(profile: String, since: Date?) throws {
-        if since == nil { try stopSync(profile: profile) }
-        for var batch in batches(profile: profile) {
-            let kept = batch.history.filter { page in since.map { page.lastVisit < $0 } ?? false }
+    /// Clear History: drops the saved imported pages of `profile` (nil: every
+    /// profile) last visited at or after `since` (nil: all), so a cleared page
+    /// does not come back at the next launch, and fences that time off from
+    /// later Keep in Sync reads.
+    public func forgetHistory(profile: String?, since: Date?) throws {
+        let range = DateInterval(start: since ?? .distantPast, end: Date())
+        var records = sources()
+        for index in records.indices where profile == nil || records[index].targetProfileID == profile {
+            records[index].clearedRanges = (records[index].clearedRanges ?? []) + [range]
+            guard let data = try? Data(contentsOf: batchFile(records[index])),
+                  var batch = try? decoder.decode(ImportBatch.self, from: data) else { continue }
+            let kept = batch.history.filter { !range.contains($0.lastVisit) }
             guard kept.count != batch.history.count else { continue }
             batch.history = kept
-            try encoder.encode(batch).write(to: batchFile(batch.source), options: .atomic)
+            try encoder.encode(batch).write(to: batchFile(records[index]), options: .atomic)
         }
+        try encoder.encode(records).write(to: sourcesFile, options: .atomic)
     }
 
     /// Every batch imported into `profile`.

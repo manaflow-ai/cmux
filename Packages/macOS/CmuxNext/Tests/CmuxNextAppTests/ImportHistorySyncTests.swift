@@ -8,9 +8,16 @@ import Testing
 /// same saved batch, and handed to the profile's live history; turning sync
 /// off stops the watch.
 @Suite(.serialized) struct ImportHistorySyncTests {
+    /// Every page delivered, per profile, and every URL taken out.
     private actor Delivered {
         private(set) var pages: [String: [ImportedHistoryEntry]] = [:]
-        func add(_ profile: String, _ list: [ImportedHistoryEntry]) { pages[profile] = list }
+        private(set) var forgotten: [URL] = []
+        private(set) var calls = 0
+        func add(_ profile: String, _ list: [ImportedHistoryEntry], _ gone: [URL]) {
+            pages[profile, default: []] += list
+            forgotten += gone
+            calls += 1
+        }
     }
 
     private static func until(_ condition: () async -> Bool, within timeout: Duration = .seconds(10)) async {
@@ -47,18 +54,25 @@ import Testing
         try await store.save(ImportBatch(source: record, kinds: [.history]))
 
         let delivered = Delivered()
-        let sync = ImportHistorySync(store: store, grants: nil, delay: .milliseconds(50)) { id, pages in await delivered.add(id, pages) }
+        let sync = ImportHistorySync(store: store, grants: nil, delay: .milliseconds(50)) { id, pages, gone in await delivered.add(id, pages, gone) }
         await sync.reconcile()
         #expect(await sync.watched == [record.sourceKey])
         // The catch-up read after the watch starts.
         await Self.until { await delivered.pages["p1"]?.count == 1 }
         #expect(await delivered.pages["p1"]?.map(\.url.host) == ["one.example"])
 
-        // Chrome writes a visit: read again, once, into the same batch.
+        // Chrome writes a visit: read again, once, into the same batch; only the new page is handed on.
         try Self.history(file, pages: ["https://two.example/"])
         await Self.until { await delivered.pages["p1"]?.count == 2 }
-        #expect(await delivered.pages["p1"]?.count == 2)
+        #expect(await delivered.pages["p1"]?.compactMap(\.url.host) == ["one.example", "two.example"])
         #expect(await store.batches(profile: "p1").map(\.history.count) == [2])
+
+        // A Clear History fences its time off: the next read leaves those pages out.
+        await sync.forget(profile: "p1", since: nil)
+        #expect(await store.batches(profile: "p1").first?.history.isEmpty == true)
+        try Self.history(file, pages: [])
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(await store.batches(profile: "p1").first?.history.isEmpty == true)
 
         try await store.stopSync(profile: "p1")
         await sync.reconcile()
@@ -128,11 +142,47 @@ import Testing
         try await store.save(batch)
 
         let sink = Sink(), forgotten = Forgotten()
-        let sync = ImportHistorySync(store: store, grants: nil) { _, _ in }
-        let counts = try await sync.removeImported(profile: "p1", bookmarks: sink) { await forgotten.add($0) }
+        let sync = ImportHistorySync(store: store, grants: nil) { _, _, gone in await forgotten.add(gone) }
+        let counts = try await sync.removeImported(profile: "p1", bookmarks: sink)
         #expect(counts == ImportCounts(bookmarks: 1, history: 1))
         #expect(await forgotten.urls == [page])
         #expect(await sink.replaced == [batch.source.sourceKey: 0])
         #expect(await store.batches(profile: "p1").isEmpty)
+    }
+}
+
+/// Moving a source into another profile takes its bookmarks and pages out of the old one.
+@Suite(.serialized) struct ImportMoveTests {
+    private actor Log {
+        private(set) var bookmarks: [String: Int] = [:]
+        private(set) var forgotten: [String: [URL]] = [:]
+        func emptied(_ key: String, _ count: Int) { bookmarks[key] = count }
+        func forgot(_ profile: String, _ urls: [URL]) { if !urls.isEmpty { forgotten[profile, default: []] += urls } }
+    }
+
+    private struct Sink: ImportedBookmarkSink {
+        let log: Log
+        func replaceImportedBookmarks(_ bookmarks: [ImportedBookmark], source: ImportSourceRecord) async throws {
+            await log.emptied(source.targetProfileID, bookmarks.count)
+        }
+    }
+
+    @Test func aMovedSourceLeavesItsOldProfile() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "import-move-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let log = Log()
+        let sync = ImportHistorySync(store: ImportedDataStore(directory: root), grants: nil) { id, _, gone in await log.forgot(id, gone) }
+        let destination = SavingImportDestination(sync: sync, bookmarks: Sink(log: log))
+        let page = URL(fileURLWithPath: "/page")
+        var batch = ImportBatch(source: ImportSourceRecord(browser: .chrome, profileDirectory: "Default", displayName: "Google Chrome",
+                                                           proposedProfileID: "p1", targetProfileID: "first"), kinds: [.history, .bookmarks])
+        batch.history = [ImportedHistoryEntry(url: page, title: nil, visitCount: 1, lastVisit: Date())]
+        batch.bookmarks = [ImportedBookmark(title: "A", url: page)]
+        try await destination.commit(batch)
+        batch.source.targetProfileID = "second"
+        try await destination.commit(batch)
+
+        #expect(await log.bookmarks == ["first": 0, "second": 1])
+        #expect(await log.forgotten == ["first": [page]])
     }
 }

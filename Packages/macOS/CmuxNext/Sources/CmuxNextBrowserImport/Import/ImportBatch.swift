@@ -82,6 +82,9 @@ public struct ImportSourceRecord: Sendable, Codable, Equatable, Hashable {
     /// Keep in Sync: the source's history database, read again whenever it
     /// changes (``ImportHistorySync``); nil when the history was imported once.
     public var syncedHistoryFile: URL?
+    /// Times a Clear History removed this source's pages from: a later
+    /// Keep in Sync read leaves out pages last visited in them.
+    public var clearedRanges: [DateInterval]?
 
     public init(browser: ImportBrowser, profileDirectory: String, displayName: String, proposedProfileID: String, targetProfileID: String,
                 profileName: String? = nil) {

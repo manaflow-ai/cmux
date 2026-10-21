@@ -56,26 +56,23 @@ public protocol ImportDestination: Sendable {
     func commit(_ batch: ImportBatch) async throws
 }
 
-/// Saves each imported profile (``ImportedDataStore``), gives its bookmarks
-/// to the bookmarks model and its pages to `history`, the profile's live
-/// history (the omnibar).
+/// Saves each imported profile (through ``ImportHistorySync``, which also
+/// takes a moved source out of its old profile), gives its bookmarks to the
+/// bookmarks model and its pages to the sync's live history (the omnibar).
 public struct SavingImportDestination: ImportDestination {
-    public let store: ImportedDataStore
+    public let sync: ImportHistorySync
     public var bookmarks: (any ImportedBookmarkSink)?
-    public let history: @Sendable (_ profile: String, _ pages: [ImportedHistoryEntry]) async -> Void
 
-    public init(store: ImportedDataStore, bookmarks: (any ImportedBookmarkSink)? = nil,
-                history: @escaping @Sendable (_ profile: String, _ pages: [ImportedHistoryEntry]) async -> Void) {
-        self.store = store
+    public init(sync: ImportHistorySync, bookmarks: (any ImportedBookmarkSink)? = nil) {
+        self.sync = sync
         self.bookmarks = bookmarks
-        self.history = history
     }
 
     public func commit(_ batch: ImportBatch) async throws {
-        try await store.save(batch)
+        try await sync.save(batch, bookmarks: bookmarks)
         if let bookmarks, batch.kinds.contains(.bookmarks) {
             try await bookmarks.replaceImportedBookmarks(batch.bookmarks, source: batch.source)
         }
-        await history(batch.source.targetProfileID, batch.history)
+        await sync.merge(batch.history, into: batch.source.targetProfileID)
     }
 }

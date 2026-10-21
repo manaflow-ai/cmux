@@ -115,9 +115,13 @@ enum OnboardingStrings {
 }
 
 public extension ImportCounts {
-    /// Remove Imported Browser Data's toast: what went, by kind ("History 8,311 · Bookmarks 204").
-    func removalText(profile: String) -> String {
-        let line = ImportCountsText.line(self)
+    /// Remove Imported Browser Data's toast: what went, by kind ("History 8,311 · Bookmarks 204"), or that it failed.
+    static func removalText(_ counts: ImportCounts?, profile: String) -> String {
+        guard let counts else {
+            return String(localized: "onboarding.import.removed.failed", defaultValue: "Couldn’t remove the data imported into \(profile).",
+                          bundle: .module)
+        }
+        let line = ImportCountsText.line(counts)
         guard !line.isEmpty else {
             return String(localized: "onboarding.import.removed.none", defaultValue: "Nothing imported into \(profile).", bundle: .module)
         }
