@@ -1276,6 +1276,8 @@ jobs:
             python3 tests/test_job_input_fingerprint.py
             # A hand merge of a Swift PR waits for its Release compile (scripts/ci/merge_compile_guard.py).
             python3 tests/test_merge_compile_guard.py
+            # The merge guards run from the feat-cmux-next tip, never a pull request's checkout.
+            python3 tests/test_guard_hooks_from_base.py
             # ci-guards.yml's `ci` group runs for feat-cmux-next too (cmux-next-guards.yml).
             python3 tests/test_feat_ci_guard_group.py
             python3 tests/test_guards_new_reds.py
