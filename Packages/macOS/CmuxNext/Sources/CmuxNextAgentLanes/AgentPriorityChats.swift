@@ -16,11 +16,15 @@ public final class AgentPriorityChats {
     private let ranking = AgentPriorityRanking()
     /// `_acpmux/archive` for a session on the acpmux socket at the first argument.
     private let archiveRequest: @Sendable (_ socketPath: String, _ sessionId: String) async throws -> Void
+    /// Whether a chat's pull request checks fail (Red CI), by default the session tree feed's answer.
+    private let checksFailing: @MainActor (AgentActivityLane) -> Bool
 
     public init(marks: AgentPriorityMarks = .shared, stores: [AgentLaneStore] = [.shared, .chief],
+                checksFailing: (@MainActor (AgentActivityLane) -> Bool)? = nil,
                 archive: @escaping @Sendable (_ socketPath: String, _ sessionId: String) async throws -> Void) {
         self.marks = marks
         self.stores = stores
+        self.checksFailing = checksFailing ?? { SidebarSessionTreeFeed.shared.checksFailing($0) }
         self.archiveRequest = archive
     }
 
@@ -34,9 +38,15 @@ public final class AgentPriorityChats {
         stores.lazy.compactMap { $0.lanes[id] }.first
     }
 
-    /// The rows as the Priority view ranks them now.
+    /// The chats with a pull request whose checks fail (Red CI).
+    public var failingChecks: Set<String> {
+        Set(lanes.filter { checksFailing($0) }.map(\.id))
+    }
+
+    /// The rows as the Priority view ranks them now, Red CI included, so a row's menu and the
+    /// palette read the state the row shows.
     public func entries(now: Date = Date()) -> [SidebarPriorityEntry] {
-        ranking.entries(lanes, marks: marks.state, now: now)
+        ranking.entries(lanes, marks: marks.state, now: now, failingChecks: failingChecks)
     }
 
     /// The chat's row, nil when the view does not list it (archived, snoozed, idle too long).

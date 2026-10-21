@@ -57,8 +57,9 @@ public nonisolated struct SidebarPriorityEntry: Hashable, Sendable, Identifiable
         }
     }
 
-    /// Mark as Read applies: a result or a failure. A question is answered, not read.
-    public var canMarkRead: Bool { needsAttention && state != .needsYou }
+    /// Mark as Read applies: a result or a failure. A question is answered, not read, and red
+    /// checks stay until they pass, so a Red CI row has nothing to mark read.
+    public var canMarkRead: Bool { needsAttention && state != .needsYou && state != .ciFailing }
 }
 
 /// What the sidebar's Priority view shows while it is installed (`sidebar.priorityView.enabled`):

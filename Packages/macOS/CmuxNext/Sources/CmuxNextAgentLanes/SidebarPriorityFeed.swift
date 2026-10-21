@@ -117,12 +117,9 @@ public final class SidebarPriorityFeed {
         }
     }
 
-    /// The chats with a pull request whose checks fail (Red CI), as the session tree's badge last
-    /// read them (`SidebarSessionTreeFeed.checksFailing`): no GitHub read of its own.
-    private var failingChecks: Set<String> {
-        let tree = SidebarSessionTreeFeed.shared
-        return Set(lanes.filter { tree.checksFailing($0) }.map(\.id))
-    }
+    /// The chats with a pull request whose checks fail (Red CI), as the session tree's pull request
+    /// reads last answered (`AgentPriorityChats.failingChecks`): no GitHub read of its own.
+    private var failingChecks: Set<String> { chats.failingChecks }
 }
 
 /// Bumped at each time-only change of the Priority rows; observed, so a bump redraws.
