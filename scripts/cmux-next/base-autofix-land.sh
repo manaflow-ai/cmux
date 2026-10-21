@@ -18,7 +18,7 @@
 #
 # The repair runs without TOKEN, the push credentials; only base-autofix-push.sh gets them.
 #
-# Usage: scripts/cmux-next/base-autofix-land.sh REMOTE BRANCH BASE_SHA [SETTINGS_MADE_AT]
+# Usage: scripts/cmux-next/base-autofix-land.sh REMOTE BRANCH BASE_SHA [SETTINGS_MADE_AT] [ACTIONS_MADE_AT]
 # TOKEN: the push token (unset: the caller's git credentials). RUN_URL: named in a new commit.
 # CMUX_BASE_AUTOFIX_REPAIR: the repair, run as `REPAIR REPO` (default: base-autofix-repair.sh).
 # CMUX_BASE_AUTOFIX_PUSH: the push (default: base-autofix-push.sh beside this one).
@@ -26,10 +26,11 @@ set -euo pipefail
 
 # The whole body is read before it runs: a checkout of a newer tip rewrites this file.
 main() {
-  remote="${1:?usage: $0 REMOTE BRANCH BASE_SHA [SETTINGS_MADE_AT]}"
-  branch="${2:?usage: $0 REMOTE BRANCH BASE_SHA [SETTINGS_MADE_AT]}"
-  base="${3:?usage: $0 REMOTE BRANCH BASE_SHA [SETTINGS_MADE_AT]}"
+  remote="${1:?usage: $0 REMOTE BRANCH BASE_SHA [SETTINGS_MADE_AT] [ACTIONS_MADE_AT]}"
+  branch="${2:?usage: $0 REMOTE BRANCH BASE_SHA [SETTINGS_MADE_AT] [ACTIONS_MADE_AT]}"
+  base="${3:?usage: $0 REMOTE BRANCH BASE_SHA [SETTINGS_MADE_AT] [ACTIONS_MADE_AT]}"
   settings_made_at="${4:-}"
+  actions_made_at="${5:-}"
   here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   rounds="${CMUX_BASE_AUTOFIX_ROUNDS:-3}"
   token="${TOKEN:-}"
@@ -62,7 +63,7 @@ main() {
     return 1
   }
 
-  push() { # <base> [<settings made at>] -> the push's status; its held files in $work/held
+  push() { # <base> [<settings made at>] [<action exports made at>] -> the push's status; its held files in $work/held
     local auth status=0
     : > "$work/held"
     if [[ -n "$token" ]]; then
@@ -79,7 +80,7 @@ main() {
   waits=""  # held files no round here makes: the run fails for them
   round=1
   status=0
-  push "$base" "$settings_made_at" || status=$?
+  push "$base" "$settings_made_at" "$actions_made_at" || status=$?
   while ((status != 0)); do
     held="$(grep . "$work/held" || true)"
     if [[ -z "$held" ]]; then

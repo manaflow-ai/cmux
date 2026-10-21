@@ -32,6 +32,7 @@ SHORTCUTS = "web/data/cmux-shortcuts.generated.json"
 SURFACES = "plans/cmux-next/action-surfaces.json"
 WEBVIEWS = "webviews/src/generated.ts"
 APP = "first-party-apps/app/fragment.json"
+ACTION_TESTS = "Packages/macOS/CmuxNext/Tests/CmuxNextActionsTests/ActionTests.swift"
 
 
 def git(cwd, *args):
@@ -104,7 +105,7 @@ class BaseAutofixFinishes(unittest.TestCase):
         seed = work / "seed"
         git(work, "clone", "-q", "remote.git", "seed")
         git(seed, "checkout", "-q", "-b", "feat-cmux-next")
-        files = {SETTINGS: "k1", EXPORT: "old", SNAPSHOT: "old", SHORTCUTS: "old", SURFACES: "old", WEBVIEWS: "old", APP: "a1",
+        files = {SETTINGS: "k1", EXPORT: "old", SNAPSHOT: "old", SHORTCUTS: "old", SURFACES: "old", WEBVIEWS: "old", APP: "a1", ACTION_TESTS: "t1",
                  "README.md": "r", "unlisted/output.txt": "old",
                  "scripts/cmux-next/autofix-areas.sh": (ROOT / "scripts/cmux-next/autofix-areas.sh").read_text()}
         for path, text in files.items():
@@ -194,13 +195,23 @@ class BaseAutofixFinishes(unittest.TestCase):
         self.assertEqual(done.returncode, 1, out)
 
     def test_outputs_built_from_a_left_out_export_wait_with_it(self):
-        # Greptile on #22474: an app-host input change leaves the action export out, and the shortcuts
-        # file built from that export must not land without it.
-        done, landed, out = self.push({APP: "changed"}, repair={SURFACES: "new", SHORTCUTS: "new", WEBVIEWS: "new"})
+        # Greptile on #22474: a change to the action export's inputs leaves it out, and the shortcuts
+        # file built from that export must not land without it, though its own inputs did not move.
+        done, landed, out = self.push({ACTION_TESTS: "changed"},
+                                      repair={SURFACES: "new", SHORTCUTS: "new", WEBVIEWS: "new"})
         self.assertEqual(landed[SURFACES], "old")
         self.assertEqual(landed[SHORTCUTS], "old")
         self.assertEqual(landed[WEBVIEWS], "new")
         self.assertEqual(done.returncode, 1, out)
+
+    def test_an_app_host_input_change_does_not_hold_the_action_export(self):
+        # The action exports read the actions area only (2026-10-21: held for areas they don't read,
+        # they never landed). The shortcuts file lands with the export it was built from.
+        done, landed, out = self.push({APP: "changed"}, repair={SURFACES: "new", SHORTCUTS: "new", WEBVIEWS: "new"})
+        self.assertEqual(landed[SURFACES], "new")
+        self.assertEqual(landed[SHORTCUTS], "new")
+        self.assertEqual(landed[WEBVIEWS], "new")
+        self.assertEqual(done.returncode, 0, out)
 
     def test_the_defaults_snapshot_never_lands_in_a_partial_repair(self):
         # defaults_guard.py also reads *Enabled flags and keybind lines across the sources, outside any area.
