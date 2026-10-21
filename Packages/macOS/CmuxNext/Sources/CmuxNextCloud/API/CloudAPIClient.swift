@@ -16,8 +16,20 @@ public struct CloudAPIClient: Sendable {
     let session: URLSession
     let appVersion: String
 
+    /// Requests that carry the account's bearer token: ephemeral, no URL
+    /// cache, no cookies, so no answer (or the request headers stored with
+    /// it) lands in `~/Library/Caches/<bundle id>/Cache.db`.
+    public static let noStoreTransport: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.httpShouldSetCookies = false
+        configuration.httpCookieAcceptPolicy = .never
+        return URLSession(configuration: configuration)
+    }()
+
     public init(configuration: CloudConfiguration, tokens: @escaping Tokens, teamID: @escaping TeamID,
-                session: URLSession = .shared, appVersion: String = "cmux-next") {
+                session: URLSession = CloudAPIClient.noStoreTransport, appVersion: String = "cmux-next") {
         baseURL = configuration.apiBaseURL
         if case .localOnly = configuration.backend { backendIsLocalOnly = true } else { backendIsLocalOnly = false }
         self.tokens = tokens
