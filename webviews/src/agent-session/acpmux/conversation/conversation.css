@@ -922,6 +922,14 @@ pre.cv-math-source {
   right: 0;
   opacity: 0;
 }
+/* A prompt's bubble sits at the right, at most 70% wide: its floating Copy (a selected range's,
+   or keyboard focus's) goes in the empty left corner, never over the bubble's text (layout pass,
+   2026-10-20). Only a row drawn as the bubble: another agent's message or a task's result is a
+   line from the left edge, whose Copy stays at the right. */
+.acpmux-row.acpmux-user:has(> .cv-user) .acpmux-row__copy {
+  right: auto;
+  left: 0;
+}
 /* Not on hover: a prompt has Copy under its bubble and an answer in its turn's footer, so a hover
    showed two or three Copy buttons per turn. Keyboard focus and a selected range still show it. */
 .acpmux-row:focus-within .acpmux-row__copy,
@@ -2976,6 +2984,40 @@ button.cv-received__name:focus-visible {
 }
 .cv-user__steer[data-steer="waiting"] .cv-user__steer-label {
   color: var(--agent-accent);
+}
+/* A steer the agent has not read yet (PendingSteer.tsx): a faint clock, then Send now. */
+.cv-user__pending {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 4px;
+  padding-right: 4px;
+  font-family: var(--cv-font);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  color: var(--cv-text-muted);
+}
+.cv-user__pending-clock {
+  display: inline-flex;
+  color: var(--agent-accent);
+  opacity: 0.6;
+}
+.cv-user__send-now {
+  border: 0;
+  padding: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: default;
+}
+.cv-user__send-now:hover:not(:disabled) {
+  color: var(--cv-text);
+}
+.cv-user__send-now:disabled {
+  opacity: 0.5;
 }
 /* A steer's read state under another agent's message, in line with its text (App.tsx). */
 .cv-incoming > .cv-user__steer {

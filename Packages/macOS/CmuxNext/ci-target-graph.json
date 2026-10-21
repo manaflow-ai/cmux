@@ -94,12 +94,14 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentLanes",
       "targets": [
+        "CmuxNextActions",
         "CmuxNextAgentActivity",
         "CmuxNextAgentPane",
         "CmuxNextBridge",
         "CmuxNextCompat",
         "CmuxNextDaemon",
         "CmuxNextDesign",
+        "CmuxNextHomeEngine",
         "CmuxNextSidebar",
         "CmuxNextWakeups"
       ],

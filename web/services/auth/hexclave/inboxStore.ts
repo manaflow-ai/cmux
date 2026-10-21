@@ -123,22 +123,26 @@ export function createDrizzleHexclaveInboxStore(db: () => InboxDb = cloudDb): He
         if (locked.length === 0) return [];
 
         const result = await tx.execute(sql`
-          update ${inbox} as entry
-          set claimed_until = ${timestamp(leaseUntil)}
-          from (values ${sql.join(locked.map((candidate) => sql`(${candidate.entity_kind}, ${candidate.entity_id})`), sql`, `)})
-            as picked(entity_kind, entity_id)
-          where entry.entity_kind = picked.entity_kind
-            and entry.entity_id = picked.entity_id
-            and entry.dead_lettered_at is null
-            and entry.next_attempt_at <= ${at}
-            and (entry.claimed_until is null or entry.claimed_until <= ${at})
-            and not exists (
+          with eligible as materialized (
+            select picked.entity_kind, picked.entity_id
+            from (values ${sql.join(locked.map((candidate) => sql`(${candidate.entity_kind}, ${candidate.entity_id})`), sql`, `)})
+              as picked(entity_kind, entity_id)
+            where not exists (
               select 1 from ${inbox} as active
-              where active.entity_kind = entry.entity_kind
-                and active.entity_id = entry.entity_id
+              where active.entity_kind = picked.entity_kind
+                and active.entity_id = picked.entity_id
                 and active.dead_lettered_at is null
                 and active.claimed_until > ${at}
             )
+          )
+          update ${inbox} as entry
+          set claimed_until = ${timestamp(leaseUntil)}
+          from eligible
+          where entry.entity_kind = eligible.entity_kind
+            and entry.entity_id = eligible.entity_id
+            and entry.dead_lettered_at is null
+            and entry.next_attempt_at <= ${at}
+            and (entry.claimed_until is null or entry.claimed_until <= ${at})
           returning entry.svix_id, entry.event_type, entry.entity_kind, entry.entity_id,
             entry.revoke_candidate_team_ids, entry.attempts, entry.claimed_until
         `);

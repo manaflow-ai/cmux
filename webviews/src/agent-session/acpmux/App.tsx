@@ -235,6 +235,7 @@ import { archiveRow, markUnreadRow } from "./header/archiveRow";
 import { copyRow } from "./header/copyRow";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
 import { opensBesideRows, sideChatRow } from "./header/sideChatRow";
+import { PendingSteer } from "./conversation/PendingSteer";
 import { SteerMark } from "./conversation/SteerMark";
 import { Thinking } from "./conversation/Thinking";
 import { type WorkingCounts, WorkingCountsContext, WorkingFor } from "./conversation/WorkingFor";
@@ -660,6 +661,7 @@ const MessageRow = memo(
           )}
           <DeliveryFailure row={row} />
           {row.steer && <SteerMark steer={row.steer} />}
+          <PendingSteer row={row} send={editQueued} />
           {row.status && (
             <div className="cv-user__status">
               <span>{row.status}</span>
