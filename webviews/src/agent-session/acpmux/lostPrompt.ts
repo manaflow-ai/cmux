@@ -62,12 +62,12 @@ export function lostPromptSlot() {
     keep(promptId: string, text: string, attachmentIds: readonly string[]): void {
       kept = { promptId, key: keyOf(text, attachmentIds) };
     },
-    /// The lost prompt's id when this send is that prompt, once.
+    /// The lost prompt's id when this send is that prompt. Only the next send may take it: a
+    /// later "continue" is a new prompt, not the lost one.
     take(text: string, attachmentIds: readonly string[]): string | undefined {
-      if (kept?.key !== keyOf(text, attachmentIds)) return undefined;
-      const { promptId } = kept;
+      const taken = kept;
       kept = undefined;
-      return promptId;
+      return taken?.key === keyOf(text, attachmentIds) ? taken.promptId : undefined;
     },
   };
 }

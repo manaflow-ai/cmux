@@ -59,8 +59,12 @@ test("only the prompt Not sent named goes again under its id; another prompt get
   slot.keep("p-lost", "fix it", ["img-1"]);
   // Another prompt: acpmux would answer the lost id as a duplicate and never run it.
   expect(slot.take("something else", ["img-1"])).toBeUndefined();
-  expect(slot.take("fix it", [])).toBeUndefined();
+  // Only the next send: a later identical prompt is a new one.
+  expect(slot.take("fix it", ["img-1"])).toBeUndefined();
   // The same prompt sent again: acpmux runs the id at most once, with the host's resend.
+  slot.keep("p-lost", "fix it", ["img-1"]);
+  expect(slot.take("fix it", [])).toBeUndefined();
+  slot.keep("p-lost", "fix it", ["img-1"]);
   expect(slot.take("fix it", ["img-1"])).toBe("p-lost");
   expect(slot.take("fix it", ["img-1"])).toBeUndefined();
 });
