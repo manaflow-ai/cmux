@@ -12,7 +12,7 @@ import { cardVersion } from "./UpdateSurfaces";
 export interface PartsContext {
   strings: Strings;
   onTry: (action: string) => void;
-  /** Each change with a picture shows it under its row (the Ledger: a visual per feature). */
+  /** Each change is a wide row with its whole description and its picture beside it (the Ledger). */
   rowMedia?: boolean;
 }
 
@@ -149,16 +149,19 @@ function Group({ category, items, ctx }: { category: WhatsNewCategory; items: Re
     <section className="cl-group" aria-label={categoryLabel(ctx.strings, category)}>
       <h3>{categoryLabel(ctx.strings, category)}</h3>
       <ul>
-        {shown.map((item, index) => (
-          <li key={`${item.id}-${index}`}>
-            <span className="cl-row-text">
-              <span className="cl-row-title">{item.title}</span>
-              {item.summary && <span className="cl-row-summary"> {item.summary.split(/\n{2,}/)[0]}</span>}
-              {ctx.rowMedia && item.media && <Media media={item.media} className="cl-row-media" />}
-            </span>
-            <RowActions item={item} ctx={ctx} />
-          </li>
-        ))}
+        {shown.map((item, index) =>
+          ctx.rowMedia ? (
+            <WideRow key={`${item.id}-${index}`} item={item} ctx={ctx} />
+          ) : (
+            <li key={`${item.id}-${index}`}>
+              <span className="cl-row-text">
+                <span className="cl-row-title">{item.title}</span>
+                {item.summary && <span className="cl-row-summary"> {item.summary.split(/\n{2,}/)[0]}</span>}
+              </span>
+              <RowActions item={item} ctx={ctx} />
+            </li>
+          ),
+        )}
       </ul>
       {!all && items.length > GROUP_PAGE && (
         <button type="button" className="cl-more" onClick={() => setAll(true)}>
@@ -166,6 +169,28 @@ function Group({ category, items, ctx }: { category: WhatsNewCategory; items: Re
         </button>
       )}
     </section>
+  );
+}
+
+/** A change in the Ledger, which uses the pane's width: its title, then its whole description and
+    its actions, and its picture beside them when the pane has room (under them when it does not). */
+function WideRow({ item, ctx }: { item: ReleaseItem; ctx: PartsContext }) {
+  return (
+    <li className={item.media ? "cl-wide-row cl-has-media" : "cl-wide-row"}>
+      <div className="cl-row-text">
+        <span className="cl-row-title">{item.title}</span>
+        {item.summary
+          .split(/\n{2,}/)
+          .filter(Boolean)
+          .map((p, i) => (
+            <p key={i} className="cl-row-summary">
+              {p}
+            </p>
+          ))}
+        <RowActions item={item} ctx={ctx} />
+      </div>
+      {item.media && <Media media={item.media} className="cl-row-media" />}
+    </li>
   );
 }
 
