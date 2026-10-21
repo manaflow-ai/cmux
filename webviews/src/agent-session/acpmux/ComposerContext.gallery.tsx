@@ -46,6 +46,34 @@ const baseProps = {
   onConnect: () => undefined,
 };
 
+/// The New Tab page's saved environments (SavedEnvironmentRows), with `current` picked.
+function savedProps(current?: string): ComponentProps<typeof ComposerContext> {
+  return {
+    ...baseProps,
+    environments: true,
+    peers: ["gpu-box"],
+    peerKinds: { "gpu-box": "ssh" },
+    saved: {
+      environments: [
+        { id: "s1", name: "GPU box training", kind: "ssh", host: "gpu-box", folder: "/home/dev/model", updatedAt: 3 },
+        {
+          id: "l1",
+          name: "Atlas in a worktree",
+          kind: "local",
+          folder: projects[0]!.cwd,
+          worktree: true,
+          updatedAt: 2,
+        },
+      ],
+      ...(current ? { current } : {}),
+      onPick: () => undefined,
+      onClear: () => undefined,
+      onCreate: () => undefined,
+      onEdit: () => undefined,
+    },
+  };
+}
+
 // Sample favicons (drawn here, public-safe) the host would read from the projects' folders.
 const projectIcons = {
   "/Users/you/src/atlas-web":
@@ -152,12 +180,13 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       play: openComputer,
     },
     "environment-picker": {
-      note: "Preview: the computer is the environment picker, one searchable list in Local, SSH and Cloud sections with ⌥⌘1–9; New Cloud Machine ends the Cloud section and New environment (SSH…) comes last.",
+      note: "Preview: the computer is the environment picker, one searchable list in Local, SSH and Cloud sections with ⌥⌘1–9; New Cloud Machine ends the Cloud section and New environment (SSH…) comes last. gpu-box is connected (a filled dot), Cloud machine is not (a ring); this Mac has no status.",
       props: {
         ...baseProps,
         environments: true,
         peers: ["gpu-box", "Cloud machine"],
         peerKinds: { "gpu-box": "ssh", "Cloud machine": "cloud" },
+        peerConnected: { "gpu-box": true, "Cloud machine": false },
       },
       play: async (ctx) => {
         await ctx.click({ role: "button", name: /^Environment/ });
@@ -177,6 +206,18 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         await ctx.click({ role: "button", name: /^Environment/ });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
       },
+    },
+    "saved-environments": {
+      note: "Preview, New Tab page: the saved environments in a Saved section over the machines, and Create environment under New environment.",
+      props: savedProps(),
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-env-popover .acpmux-env-saved"));
+      },
+    },
+    "saved-environment-picked": {
+      note: "Preview, New Tab page: a picked saved environment names the strip; the folder control steps aside.",
+      props: savedProps("l1"),
     },
     "ssh-chat": {
       note: "A chat on an SSH machine names that machine as its Computer, not this Mac (cx-7ooz).",
