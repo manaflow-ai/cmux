@@ -232,6 +232,7 @@ import { installWheelPassThrough } from "./wheelPassThrough";
 import { turnPreviewUrl } from "./conversation/previewUrl";
 import {
   canFork,
+  forkRefusal,
   earlierForkPrompts,
   forksAnyTurn,
   latestForkSeq,
@@ -4836,6 +4837,9 @@ function AcpmuxPane() {
         // Integrate a Harness… from the palette or the File menu on a New Tab page (cx-9fqw): the
         // Harnesses page in place, as the page's own button shows it.
         if (name === "showHarnesses") openHarnessesPage();
+        // A chat that just opened from a fork (the app's Fork Conversation): the composer takes the
+        // keyboard, so the next words go to the fork.
+        if (name === "focusComposer") composerHandle.current?.focus();
         // Archive Chat (Ctrl-Cmd-A), as in the Codex app: the chat menu's row, so it does nothing where
         // the menu has none or the chat is archived.
         if (name === "archiveChat") archiveChatRef.current?.();
@@ -5250,10 +5254,12 @@ function AcpmuxPane() {
           const name = shown?.summary?.modes?.availableModes.find((mode) => mode.id === modeId)?.name;
           pickedMode(client.shownSession()?.harness ?? shown?.summary?.harness, modeId, name);
         };
-        const openOwnTab = (sessionId: string) =>
+        /// `placement`: where the app opens it (AgentForkDestination: right, left, up, down, tab,
+        /// workspace, window); none is a tab after this chat's.
+        const openOwnTab = (sessionId: string, placement?: string) =>
           mock
             ? Promise.resolve(false)
-            : callNative("chat.openTab", { sessionId }).then(
+            : callNative("chat.openTab", placement ? { sessionId, placement } : { sessionId }).then(
                 () => true,
                 () => false,
               );
@@ -5500,6 +5506,30 @@ function AcpmuxPane() {
             const chat = client.selectedSession;
             const forked = await client.fork(Number(throughSeq), undefined, true);
             if (!forked || (await openOwnTab(forked)) || client.selectedSession !== chat) return forked;
+            return persistSession(await client.select(forked));
+          },
+          // Fork Conversation from the app (the palette's step, the chat's right-click menu, its
+          // shortcut): a fork through the chat's latest finished turn, opened where the app names
+          // (`placement`). A chat that cannot fork now says why in its transcript.
+          "chat.forkTo": async ({ placement }) => {
+            const shown = snapshotRef.current;
+            const refusal = shown ? forkRefusal(shown) : "unavailable";
+            const through = shown ? latestForkSeq(shown.rows) : undefined;
+            if (refusal || through === undefined) {
+              client.notice(
+                refusal === "busy"
+                  ? translate("notice.forkBusy")
+                  : refusal === "nothingYet"
+                    ? translate("notice.forkNothingYet")
+                    : translate("notice.forkFailed"),
+              );
+              return undefined;
+            }
+            harnessSwitch.cancel();
+            const chat = client.selectedSession;
+            const forked = await client.fork(through, undefined, true);
+            if (!forked || (await openOwnTab(forked, String(placement ?? "tab"))) || client.selectedSession !== chat)
+              return forked;
             return persistSession(await client.select(forked));
           },
           // Edit and resend (cx-ncc.60): a fork through the turn before the prompt, which then gets the

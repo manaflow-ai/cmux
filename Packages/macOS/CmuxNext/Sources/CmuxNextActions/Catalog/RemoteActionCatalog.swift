@@ -100,7 +100,7 @@ nonisolated enum RemoteActionCatalog: ActionCatalogGroup {
             // tab shows the host's refusal (cx-erey).
             ActionDescriptor(
                 id: "remote.openBrowserTab",
-                title: String(localized: "action.remote.openBrowserTab", defaultValue: "Open Remote Browser Tab", table: "RemoteActions", bundle: .module),
+                title: String(localized: "action.remote.openBrowserTab", defaultValue: "Open Remote Browser Tab…", table: "RemoteActions", bundle: .module),
                 keywords: ["remote", "browser", "tab", "rb", "stream", "chromium", "host"], category: .remote, symbol: "globe",
                 surfaces: [.palette],
                 arguments: [

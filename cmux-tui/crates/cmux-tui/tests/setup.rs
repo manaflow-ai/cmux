@@ -20,6 +20,8 @@ struct World {
     repo: PathBuf,
     /// Where `cmux setup` looks for an acpmux daemon.
     socket: PathBuf,
+    /// A folder with a fake `ssh` and `scp`, put first on PATH when set.
+    fake_bin: Option<PathBuf>,
 }
 
 impl World {
@@ -34,11 +36,59 @@ impl World {
             acpmux: dir.join("acpmux"),
             repo: dir.join("work").join("repo"),
             socket: dir.join("d.sock"),
+            fake_bin: None,
         };
         for path in [&world.home, &world.acpmux, &world.repo] {
             std::fs::create_dir_all(path).unwrap();
         }
         world
+    }
+
+    /// Puts a fake `ssh` and `scp` first on PATH for every command. The fake
+    /// ssh logs each call and answers what `acp host setup|update` asks
+    /// (Linux, a version, an empty config); a host whose name has
+    /// `unreachable` refuses the connection like a machine that is down.
+    fn with_fake_ssh(mut self) -> Self {
+        use std::os::unix::fs::PermissionsExt;
+        let bin = self.home.parent().unwrap().join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let ssh = r#"#!/bin/sh
+echo "ssh $*" >> "$FAKE_SSH_LOG"
+while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do shift; done
+shift
+host=$1
+script=$2
+case "$host" in *unreachable*)
+  echo "ssh: connect to host $host port 22: Connection refused" >&2
+  exit 255;;
+esac
+case "$script" in
+  *--version*) echo "acpmux 0.0.0-fake";;
+  *"cat ~/.acpmux/config.json"*) echo '{}';;
+  "uname -s") echo Linux;;
+  *"daemon start"*) echo "daemon started (fake)";;
+esac
+exit 0
+"#;
+        let scp = "#!/bin/sh\necho \"scp $*\" >> \"$FAKE_SSH_LOG\"\nexit 0\n";
+        for (name, body) in [("ssh", ssh), ("scp", scp)] {
+            let file = bin.join(name);
+            std::fs::write(&file, body).unwrap();
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        self.fake_bin = Some(bin);
+        self
+    }
+
+    fn ssh_log(&self) -> PathBuf {
+        self.home.parent().unwrap().join("ssh.log")
+    }
+
+    /// The ssh and scp calls since the last `take_ssh_calls`.
+    fn take_ssh_calls(&self) -> Vec<String> {
+        let text = std::fs::read_to_string(self.ssh_log()).unwrap_or_default();
+        let _ = std::fs::remove_file(self.ssh_log());
+        text.lines().map(str::to_owned).collect()
     }
 
     /// The folder as acpmux keys it (/tmp is /private/tmp on macOS).
@@ -52,7 +102,12 @@ impl World {
     }
 
     fn run(&self, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+        self.command(args).output().unwrap()
+    }
+
+    fn command(&self, args: &[&str]) -> Command {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_cmux-tui"));
+        command
             .args(args)
             .current_dir(&self.repo)
             .env("HOME", &self.home)
@@ -64,9 +119,14 @@ impl World {
             .env_remove("CMUX_NEXT_CONFIG_FILE")
             .env_remove("ACPMUX_SESSION_ID")
             .env_remove("CMUX_SOCKET_PATH")
-            .stdin(Stdio::null())
-            .output()
-            .unwrap()
+            .stdin(Stdio::null());
+        if let Some(bin) = &self.fake_bin {
+            // The fake ssh and scp first; nothing reaches a real machine.
+            command
+                .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+                .env("FAKE_SSH_LOG", self.ssh_log());
+        }
+        command
     }
 
     /// Runs `args`, expects exit 0 and one JSON object on stdout.
@@ -228,6 +288,11 @@ fn cmux_setup_list_names_every_task_and_bad_arguments_exit_2() {
         &["setup", "trust", "--level", "maybe"],
         &["setup", "trust", "a", "b"],
         &["setup", "list", "extra"],
+        &["setup", "machine"],
+        &["setup", "machine", "-oProxyCommand=touch"],
+        &["setup", "machine", "box:2222"],
+        &["setup", "machine", "a", "b"],
+        &["setup", "machine", "box", "--name", "two words"],
     ] {
         let output = world.run(args);
         assert_eq!(output.status.code(), Some(2), "{args:?}");
@@ -235,4 +300,220 @@ fn cmux_setup_list_names_every_task_and_bad_arguments_exit_2() {
         assert_eq!(error["code"], "usage.invalid", "{args:?}");
     }
     assert_eq!(world.record(), None);
+}
+
+/// A fake acpmux daemon on the world's socket that keeps a peer list the
+/// way the real one answers `_acpmux/peers`, `peer_add`, `peer_reconnect`
+/// and `peer_remove`: a peer added or reconnected is connected and on this
+/// build. Every request is kept, for the test to read.
+struct FakeDaemon {
+    peers: Arc<Mutex<Vec<Value>>>,
+    requests: Arc<Mutex<Vec<Value>>>,
+}
+
+impl FakeDaemon {
+    fn start(world: &World, peers: Vec<Value>) -> Self {
+        let daemon =
+            Self { peers: Arc::new(Mutex::new(peers)), requests: Arc::new(Mutex::new(Vec::new())) };
+        let listener = UnixListener::bind(&world.socket).unwrap();
+        let (peers, requests) = (daemon.peers.clone(), daemon.requests.clone());
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(stream) = stream else { break };
+                let (peers, requests) = (peers.clone(), requests.clone());
+                std::thread::spawn(move || serve(stream, &peers, &requests));
+            }
+        });
+        daemon
+    }
+
+    fn peers(&self) -> Vec<Value> {
+        self.peers.lock().unwrap().clone()
+    }
+
+    fn methods(&self) -> Vec<String> {
+        let requests = self.requests.lock().unwrap();
+        requests.iter().filter_map(|r| r["method"].as_str().map(str::to_owned)).collect()
+    }
+}
+
+fn serve(
+    stream: std::os::unix::net::UnixStream,
+    peers: &Mutex<Vec<Value>>,
+    requests: &Mutex<Vec<Value>>,
+) {
+    stream.set_read_timeout(Some(Duration::from_secs(60))).unwrap();
+    let mut reader = BufReader::new(stream.try_clone().unwrap());
+    let mut writer = stream;
+    let mut line = String::new();
+    while reader.read_line(&mut line).unwrap_or(0) > 0 {
+        let request: Value = serde_json::from_str(&line).unwrap();
+        line.clear();
+        requests.lock().unwrap().push(request.clone());
+        let params = &request["params"];
+        let mut list = peers.lock().unwrap();
+        let result = match request["method"].as_str() {
+            Some("initialize") => json!({"protocolVersion": 1}),
+            Some("_acpmux/peer_add") => {
+                list.retain(|peer| peer["name"] != params["name"]);
+                list.push(json!({
+                    "name": params["name"], "url": params["url"], "connected": true,
+                    "outdated": false, "remoteBuild": "this", "error": null,
+                }));
+                json!({"peers": *list})
+            }
+            Some("_acpmux/peer_reconnect") => {
+                for peer in list.iter_mut().filter(|peer| peer["name"] == params["name"]) {
+                    peer["connected"] = json!(true);
+                    peer["outdated"] = json!(false);
+                    peer["remoteBuild"] = json!("this");
+                }
+                json!({"peers": *list})
+            }
+            Some("_acpmux/peer_remove") => {
+                list.retain(|peer| peer["name"] != params["name"]);
+                json!({"peers": *list})
+            }
+            _ => json!({"peers": *list}),
+        };
+        drop(list);
+        let reply = json!({"jsonrpc": "2.0", "id": request["id"], "result": result});
+        if writeln!(writer, "{reply}").is_err() {
+            break;
+        }
+    }
+}
+
+/// The key-only ssh probe `cmux setup machine` runs, as the fake ssh logs it.
+fn probe_call(target: &str) -> String {
+    format!("ssh -o BatchMode=yes -o ConnectTimeout=15 -- {target} true")
+}
+
+#[test]
+fn cmux_setup_machine_an_agent_adds_a_peer_reruns_it_and_undoes_it() {
+    let world = World::new("machine").with_fake_ssh();
+    let daemon = FakeDaemon::start(&world, Vec::new());
+
+    // The agent reads where things stand: no machine yet.
+    let status = world.json(&["setup", "status"]);
+    let check = &status["checks"][1];
+    assert_eq!(check["task"], "machine", "{status}");
+    assert_eq!(check["state"], "ok", "{status}");
+    assert_eq!(check["daemon"], "running");
+    assert_eq!(check["peers"], json!([]));
+
+    // A dry run checks ssh, plans, and changes nothing.
+    let planned = world.json(&["setup", "machine", "box.example", "--dry-run"]);
+    assert_eq!(planned["state"], "planned", "{planned}");
+    assert_eq!(planned["dry_run"], true);
+    assert_eq!(planned["name"], "box");
+    assert_eq!(planned["before"], Value::Null);
+    assert_eq!(planned["plan"], json!(["cmux acp host setup box.example --name box --json"]));
+    assert_eq!(planned["ssh"]["reachable"], true, "{planned}");
+    assert_eq!(planned["undo"], "cmux acp host rm box");
+    assert_eq!(world.take_ssh_calls(), [probe_call("box.example")], "a dry run only probes");
+    assert!(daemon.peers().is_empty(), "a dry run registered a peer");
+    assert!(!daemon.methods().iter().any(|m| m == "_acpmux/peer_add"));
+
+    // The change: acpmux installs and registers the machine.
+    let changed = world.json(&["setup", "machine", "box.example"]);
+    assert_eq!(changed["state"], "changed", "{changed}");
+    assert_eq!(changed["after"]["name"], "box");
+    assert_eq!(changed["after"]["connected"], true);
+    assert_eq!(changed["after"]["url"], "ssh://box.example");
+    assert_eq!(changed["remote_version"], "acpmux 0.0.0-fake");
+    assert_eq!(changed["reverse"]["supported"], false);
+    assert_eq!(changed["user_action"], Value::Null);
+    let undo = changed["undo"].as_str().expect("a new peer names its undo").to_owned();
+    assert_eq!(undo, "cmux acp host rm box");
+    let calls = world.take_ssh_calls();
+    assert_eq!(calls.first(), Some(&probe_call("box.example")), "{calls:?}");
+    assert!(calls.iter().any(|call| call.starts_with("scp ")), "nothing installed: {calls:?}");
+    assert_eq!(daemon.peers().len(), 1);
+
+    // Again: connected and current, so nothing runs, not even ssh.
+    let again = world.json(&["setup", "machine", "box.example"]);
+    assert_eq!(again["state"], "ok", "{again}");
+    assert_eq!(again["plan"], json!([]));
+    assert_eq!(again["undo"], Value::Null);
+    assert_eq!(again["after"]["connected"], true);
+    assert!(world.take_ssh_calls().is_empty(), "a rerun reached the machine");
+
+    // Status lists the peer, healthy.
+    let status = world.json(&["setup", "status"]);
+    let peers = &status["checks"][1]["peers"];
+    assert_eq!(peers[0]["name"], "box", "{status}");
+    assert_eq!(peers[0]["connected"], true);
+    assert_eq!(peers[0]["outdated"], false);
+    assert_eq!(peers[0]["fix"], Value::Null);
+
+    // The undo removes the peer.
+    let words = shell_words(&undo);
+    let output = world.run(&words[1..].iter().map(String::as_str).collect::<Vec<_>>());
+    assert!(output.status.success(), "{undo}: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(daemon.peers().is_empty(), "{:?}", daemon.peers());
+    assert!(!world.home.join(".ssh").exists(), "setup wrote ssh config");
+}
+
+#[test]
+fn cmux_setup_machine_updates_an_outdated_peer_and_says_why_there_is_no_undo() {
+    let world = World::new("outdated").with_fake_ssh();
+    let daemon = FakeDaemon::start(
+        &world,
+        vec![json!({
+            "name": "box", "url": "ssh://dev@box.example", "connected": true,
+            "outdated": true, "remoteBuild": "old", "error": null,
+        })],
+    );
+
+    // Status names the fix for the outdated peer.
+    let status = world.json(&["setup", "status"]);
+    let check = &status["checks"][1];
+    assert_eq!(check["state"], "needs_setup", "{status}");
+    assert_eq!(check["peers"][0]["outdated"], true);
+    let fix = check["peers"][0]["fix"].as_str().expect("an outdated peer names its fix");
+    assert_eq!(fix, "cmux setup machine dev@box.example --name box");
+
+    let updated = world.follow(fix);
+    assert_eq!(updated["state"], "changed", "{updated}");
+    assert_eq!(updated["before"]["outdated"], true);
+    assert_eq!(updated["plan"], json!(["cmux acp host update box --json"]));
+    assert_eq!(updated["after"]["outdated"], false);
+    assert_eq!(updated["undo"], Value::Null);
+    assert!(updated["undo_note"].as_str().is_some_and(|why| !why.is_empty()), "{updated}");
+    assert!(daemon.methods().iter().any(|m| m == "_acpmux/peer_reconnect"));
+    assert!(!daemon.methods().iter().any(|m| m == "_acpmux/peer_add"), "update re-added it");
+    world.take_ssh_calls();
+
+    let again = world.json(&["setup", "machine", "dev@box.example"]);
+    assert_eq!(again["state"], "ok", "{again}");
+    assert!(world.take_ssh_calls().is_empty());
+}
+
+#[test]
+fn cmux_setup_machine_an_unreachable_host_needs_the_user() {
+    let world = World::new("unreachable").with_fake_ssh();
+    let daemon = FakeDaemon::start(&world, Vec::new());
+    let expected = "ssh -o BatchMode=yes -o ConnectTimeout=15 unreachable.example true";
+
+    for dry_run in [true, false] {
+        let mut args = vec!["setup", "machine", "unreachable.example"];
+        if dry_run {
+            args.push("--dry-run");
+        }
+        let result = world.json(&args);
+        assert_eq!(result["state"], "needs_user", "{result}");
+        assert_eq!(result["dry_run"], dry_run);
+        let action = &result["user_action"];
+        assert_eq!(action["kind"], "ssh", "{result}");
+        assert_eq!(action["command"], expected);
+        assert!(action["text"].as_str().is_some_and(|text| text.contains("Connection refused")));
+        assert!(action.get("url").is_some(), "{action}");
+        assert_eq!(result["ssh"]["reachable"], false);
+        assert_eq!(result["undo"], Value::Null);
+        assert_eq!(world.take_ssh_calls(), [probe_call("unreachable.example")]);
+    }
+    assert!(daemon.peers().is_empty());
+    assert!(!daemon.methods().iter().any(|m| m == "_acpmux/peer_add"));
+    assert!(!world.home.join(".ssh").exists(), "setup wrote ssh config");
 }
