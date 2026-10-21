@@ -2,6 +2,15 @@ import CMUXAgentLaunch
 import CmuxControlSocket
 import Foundation
 
+private extension SessionWorkspaceLayoutSnapshot {
+    var isEmptyLayout: Bool {
+        switch self {
+        case .pane(let pane): return pane.panelIds.isEmpty
+        case .split(let split): return split.first.isEmptyLayout && split.second.isEmptyLayout
+        }
+    }
+}
+
 /// What `SessionSnapshotImportTrust` removed or held back from an imported
 /// session file.
 struct SessionSnapshotImportTrustReport: Equatable, Sendable {
@@ -134,11 +143,19 @@ enum SessionSnapshotImportTrust {
                     remainingBudget: &remainingPanelBudget,
                     report: &report
                 )
+                workspace.layout = boundedLayout(
+                    workspace.layout,
+                    panelIDs: workspace.panels.map(\.id)
+                )
                 if var dock = workspace.dock {
                     dock.panels = boundedPanels(
                         dock.panels,
                         remainingBudget: &remainingPanelBudget,
                         report: &report
+                    )
+                    dock.layout = boundedLayout(
+                        dock.layout,
+                        panelIDs: dock.panels.map(\.id)
                     )
                     workspace.dock = dock
                 }
@@ -149,6 +166,10 @@ enum SessionSnapshotImportTrust {
                     dock.panels,
                     remainingBudget: &remainingPanelBudget,
                     report: &report
+                )
+                dock.layout = boundedLayout(
+                    dock.layout,
+                    panelIDs: dock.panels.map(\.id)
                 )
                 window.dock = dock
             }
@@ -170,6 +191,83 @@ enum SessionSnapshotImportTrust {
         report.droppedPanelCount += locallyEligible.count - keptCount
         remainingBudget -= keptCount
         return Array(locallyEligible.prefix(keptCount))
+    }
+
+    private static func boundedLayout(
+        _ layout: SessionWorkspaceLayoutSnapshot,
+        panelIDs: [UUID]
+    ) -> SessionWorkspaceLayoutSnapshot {
+        var remainingNodes = SessionPersistencePolicy.maxLayoutNodes
+        let allowed = Set(panelIDs)
+        return boundedLayout(
+            layout,
+            allowedPanelIDs: allowed,
+            fallbackPanelIDs: panelIDs,
+            depth: 0,
+            remainingNodes: &remainingNodes
+        )
+    }
+
+    private static func boundedLayout(
+        _ layout: SessionWorkspaceLayoutSnapshot,
+        allowedPanelIDs: Set<UUID>,
+        fallbackPanelIDs: [UUID],
+        depth: Int,
+        remainingNodes: inout Int
+    ) -> SessionWorkspaceLayoutSnapshot {
+        guard remainingNodes > 0,
+              depth < SessionPersistencePolicy.maxLayoutDepth else {
+            return .pane(SessionPaneLayoutSnapshot(
+                panelIds: fallbackPanelIDs,
+                selectedPanelId: fallbackPanelIDs.first
+            ))
+        }
+        remainingNodes -= 1
+        switch layout {
+        case .pane(let pane):
+            let panelIDs = pane.panelIds.filter { allowedPanelIDs.contains($0) }
+            let selected = pane.selectedPanelId.flatMap {
+                allowedPanelIDs.contains($0) ? $0 : nil
+            } ?? panelIDs.first
+            return .pane(SessionPaneLayoutSnapshot(
+                panelIds: panelIDs,
+                selectedPanelId: selected,
+                isFullWidthTabMode: pane.isFullWidthTabMode
+            ))
+        case .split(let split):
+            let first = boundedLayout(
+                split.first,
+                allowedPanelIDs: allowedPanelIDs,
+                fallbackPanelIDs: fallbackPanelIDs,
+                depth: depth + 1,
+                remainingNodes: &remainingNodes
+            )
+            let second = boundedLayout(
+                split.second,
+                allowedPanelIDs: allowedPanelIDs,
+                fallbackPanelIDs: fallbackPanelIDs,
+                depth: depth + 1,
+                remainingNodes: &remainingNodes
+            )
+            let firstEmpty = first.isEmptyLayout
+            let secondEmpty = second.isEmptyLayout
+            switch (firstEmpty, secondEmpty) {
+            case (true, true):
+                return .pane(SessionPaneLayoutSnapshot(
+                    panelIds: fallbackPanelIDs,
+                    selectedPanelId: fallbackPanelIDs.first
+                ))
+            case (true, false): return second
+            case (false, true): return first
+            case (false, false):
+                return .split(SessionSplitLayoutSnapshot(
+                    orientation: split.orientation,
+                    dividerPosition: split.dividerPosition,
+                    first: first,
+                    second: second
+                ))
+            }
+        }
     }
 
     static func sanitizingUntrustedImport(

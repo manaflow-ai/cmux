@@ -43,6 +43,11 @@ enum SessionPersistencePolicy {
     /// imported file cannot multiply the per-container limits into a restore
     /// swarm.
     static let maxPanelsPerSnapshot: Int = 4_096
+    /// Layout normalization bounds the recursive split graph independently of
+    /// the panel count; a malformed graph must not create an unbounded restore
+    /// scaffold even when it references only a few panels.
+    static let maxLayoutNodes: Int = 4_096
+    static let maxLayoutDepth: Int = 512
     static let maxScrollbackLinesPerTerminal: Int = 4000
     static let maxScrollbackCharactersPerTerminal: Int = 400_000
 
