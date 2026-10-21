@@ -505,8 +505,9 @@ struct TerminalStartupRestoreFailureTests {
                 == .awaitingAutoResumeCommand
         )
         #expect(
-            dock.deferredAgentResumeRestoresByPanelId[overflowPanelID]?.restorableAgent?.resumeCommand
-                ?.contains("capacity-deferred") == true
+            dock.deferredAgentResumeRestoresByPanelId[overflowPanelID]?.restorableAgent?.resumeCommand?.contains(
+                "capacity-deferred"
+            ) == true
         )
         let admittedCount = panelIDs.dropLast().compactMap { panelID in
             restoredIDs[panelID]
