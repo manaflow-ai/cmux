@@ -114,8 +114,10 @@ core half `server/orphan_shutdown.rs`), and its rules are:
 - Idle: no client for an hour (`ORPHAN_EXIT_DELAY`). The owner's own journal plugin is not
   a client: the bundled screen detector connects back at start and stays, so counting it
   kept every DEV owner alive for days (cmux issue 23086). A connection is the plugin's when
-  its kernel peer is in the plugin's process group, checked at accept. Every other
-  connection counts, including a Chief brain and a CLI call.
+  its kernel peer is in the plugin's process group, checked before it registers. Every
+  other connection counts, including a CLI call and a Chief brain (its own process
+  group); a brain that is not connected when the owner stops is stopped with it and
+  starts again on the next message to a new owner.
 - Abandoned: after the idle hour, the owner's executable is gone (the tag bundle was
   deleted), or it has no live terminal. With its executable present and a live terminal
   it keeps running however long it is idle, rechecking every 10 min.

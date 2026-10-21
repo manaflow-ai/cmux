@@ -113,8 +113,9 @@ fn an_orphaned_dev_owner_stops_while_its_own_journal_plugin_stays_connected() {
         harness.session = session.into();
         let marker = harness.dir.join("plugin-connected");
         // A journal plugin like the bundled detector: it connects to the
-        // owner's socket, asks one question and then holds the connection
-        // until the owner closes it.
+        // owner's socket, asks one question (the answer proves the owner
+        // registered it) and then holds the connection until the owner
+        // closes it.
         let plugin = harness.dir.join("plugin.py");
         fs::write(
             &plugin,
@@ -123,8 +124,10 @@ fn an_orphaned_dev_owner_stops_while_its_own_journal_plugin_stays_connected() {
                  s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)\n\
                  s.connect(os.environ['CMUX_TUI_SOCKET'])\n\
                  s.sendall(b'{{\"id\":1,\"cmd\":\"identify\"}}\\n')\n\
+                 f = s.makefile('rb')\n\
+                 f.readline()\n\
                  open({marker:?}, 'w').close()\n\
-                 while s.recv(65536):\n    pass\n",
+                 while f.read(65536):\n    pass\n",
                 marker = marker.display().to_string(),
             ),
         )
