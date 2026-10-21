@@ -7,7 +7,7 @@ public import CmuxNextSettings
 /// The Chief pet's rows in the Chief Settings popover's Appearance section (Leo 2026-10-19: "pet
 /// needs those settings to be obviously there"): Show Chief Pet (`home.chiefPetEnabled`) and the
 /// pet's character (`home.chiefPetMascot`), each pixel mascot drawn beside its name. They read
-/// and write the same `SettingsController` as Settings > Agents > Chief Pet, so a change in
+/// and write the same `SettingsController` as Settings > Chief > Chief Pet, so a change in
 /// either shows in the other; a managed key's control is disabled, as on the Settings page.
 @MainActor
 public final class ChiefPetSettingsRows: NSObject {

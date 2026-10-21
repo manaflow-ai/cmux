@@ -29,8 +29,23 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         didSet { listen() }
     }
 
+    var resources: (@MainActor (URL) async -> PageChromiumResponse)? {
+        didSet {
+            guard let resources else {
+                tab.pageResources = nil
+                return
+            }
+            tab.pageResources = { url in
+                let answer = await resources(url)
+                return CEFPageResponse(status: answer.status, mimeType: answer.mimeType, body: answer.body)
+            }
+        }
+    }
+
     private func listen() {
         guard onEvent != nil, !closed else {
+            tab.pageFilesDragged = nil
+            tab.pageUserInput = nil
             tab.agentRelay.set(onMessage: nil, onEnd: nil)
             crashWatch?.cancel()
             crashWatch = nil
@@ -38,6 +53,8 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         }
         tab.agentRelay.set(onMessage: { [weak self] json in self?.onEvent?(.devTools(json)) },
                            onEnd: { [weak self] in self?.renderEnded() })
+        tab.pageFilesDragged = { [weak self] urls in self?.onEvent?(.filesDragged(urls)) }
+        tab.pageUserInput = { [weak self] uptime in self?.onEvent?(.userInput(uptime)) }
         guard crashWatch == nil else { return }
         let tab = tab
         crashWatch = Task { [weak self] in
@@ -72,6 +89,9 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         crashWatch?.cancel()
         crashWatch = nil
         tab.agentRelay.set(onMessage: nil, onEnd: nil)
+        tab.pageResources = nil
+        tab.pageFilesDragged = nil
+        tab.pageUserInput = nil
         tab.delegate = nil
         tab.close()
     }
@@ -86,6 +106,11 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
             // `window.open` from a cmux page: no page may make windows; its URL opens like a link.
             if let url = opened.state.url { onEvent?(.openRequested(url)) }
             opened.close()
+        case .contextMenu(let request):
+            // The page host builds the menu the WebKit page shows; Chromium's own rows do not show.
+            guard let onEvent else { return request.complete(nil) }
+            onEvent(.contextMenu(PageChromiumContextMenu(location: request.location, selection: request.target.selection,
+                                                         isEditable: request.target.isEditable) { request.complete(nil) }))
         case .notice(let text):
             logger.info("page \(self.pageID, privacy: .public) notice: \(text, privacy: .public)")
         default:
