@@ -50,7 +50,7 @@ enum ChiefCaptureControl {
         let deadline = ContinuousClock.now + .seconds(30)
         while ContinuousClock.now < deadline {
             if let chief = services.machines.servers.first(where: { $0.reach.isLocalChief && $0.isConnected }) { return chief }
-            try? await Task.sleep(for: .milliseconds(250))
+            do { try await Task.sleep(for: .milliseconds(250)) } catch { return nil }
         }
         return nil
     }

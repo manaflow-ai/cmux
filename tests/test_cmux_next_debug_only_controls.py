@@ -18,12 +18,18 @@ DEBUG_ONLY = {"Server/ChiefCaptureControl.swift": "ChiefCaptureControl"}
 
 
 def debug_ranges(lines: list[str]) -> list[tuple[int, int]]:
-    """The line ranges inside `#if DEBUG` … `#endif` (nested #if blocks counted)."""
+    """The line ranges compiled only in DEBUG: `#if DEBUG` up to its `#else`, `#elseif` or `#endif`
+    (nested #if blocks counted; an `#else` branch is not DEBUG-only)."""
     ranges, stack = [], []
     for number, line in enumerate(lines):
         directive = line.strip()
         if directive.startswith("#if"):
-            stack.append((number, directive == "#if DEBUG"))
+            stack.append([number, directive == "#if DEBUG"])
+        elif directive.startswith(("#else", "#elseif")) and stack:
+            start, is_debug = stack[-1]
+            if is_debug:
+                ranges.append((start, number))
+            stack[-1][1] = False
         elif directive.startswith("#endif") and stack:
             start, is_debug = stack.pop()
             if is_debug:

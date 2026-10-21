@@ -3,7 +3,7 @@
   "steps": [
     {
       "title": "Launch",
-      "wait": 3
+      "wait": 10
     },
     {
       "title": "Two Chief workspaces and a card",
