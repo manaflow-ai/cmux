@@ -66,8 +66,9 @@ pub(crate) fn document_order(connection: &Connection) -> anyhow::Result<Option<D
 /// Sort `workspaces` (reply objects whose `id_field` is the workspace's
 /// public id) into `order`. Unplaced ones keep their relative order and go
 /// to the `placement` slot: `Top` at the start of this machine's section,
-/// `Bottom` last, `AfterCurrent` right after the active (`active` or
-/// `focused`) workspace, else as `Top`.
+/// `Bottom` last, `BeforeCurrent` / `AfterCurrent` right before / after the
+/// active (`active` or `focused`) workspace of this machine's section other
+/// than Home, else first in the section below a leading Home row.
 pub(crate) fn sort_workspaces(
     workspaces: &mut Vec<Value>,
     id_field: &str,
@@ -85,15 +86,24 @@ pub(crate) fn sort_workspaces(
         .iter()
         .take_while(|workspace| rank_of(workspace).is_some_and(|rank| rank < order.machine_start))
         .count();
-    let is_active = |workspace: &Value| {
-        workspace["active"].as_bool() == Some(true) || workspace["focused"].as_bool() == Some(true)
+    let is_home = |workspace: &Value| {
+        workspace["extra"]["kind"].as_str() == Some(super::home_store::HOME_KIND)
     };
+    // The current workspace anchors only from this machine's section (not a
+    // pinned row before it) and never as Home; without one, a new row goes
+    // first in the section, below a leading Home row.
+    let current = (top..placed.len()).find(|&index| {
+        let workspace = &placed[index];
+        !is_home(workspace)
+            && (workspace["active"].as_bool() == Some(true)
+                || workspace["focused"].as_bool() == Some(true))
+    });
+    let below_home = top + usize::from(placed.get(top).is_some_and(is_home));
     let slot = match placement {
         NewWorkspacePlacement::Bottom => placed.len(),
         NewWorkspacePlacement::Top => top,
-        NewWorkspacePlacement::AfterCurrent => {
-            placed.iter().position(is_active).map_or(top, |index| index + 1)
-        }
+        NewWorkspacePlacement::BeforeCurrent => current.unwrap_or(below_home),
+        NewWorkspacePlacement::AfterCurrent => current.map_or(below_home, |index| index + 1),
     };
     placed.splice(slot..slot, unplaced);
     *workspaces = placed;
