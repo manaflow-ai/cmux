@@ -8,8 +8,19 @@
 use super::super::*;
 use std::sync::mpsc;
 
+/// A caller-minted terminal id unique to this test process. A host binds
+/// its socket at `/tmp/cmux-th-<uid>/<terminal id>.sock`, one folder for
+/// every daemon of the user: a fixed id met the socket a host of another run
+/// (a concurrent step, or a host a reaper killed) left there, and the split
+/// failed with "terminal host identity already exists".
 fn creating_terminal(n: u64) -> String {
-    format!("52000000000040008000{n:012x}")
+    use std::sync::OnceLock;
+    static RUN: OnceLock<u32> = OnceLock::new();
+    let run = RUN.get_or_init(|| {
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().subsec_nanos();
+        nanos ^ std::process::id().rotate_left(16)
+    });
+    format!("{run:08x}000040008000{n:012x}")
 }
 
 fn pane_id(n: u64) -> String {
