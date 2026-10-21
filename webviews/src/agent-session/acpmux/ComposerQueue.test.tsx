@@ -253,6 +253,22 @@ test("focus leaving an image's remove control for outside the row saves the edit
   expect(edits).toEqual([["p-1", { op: "update", text: "why does this overlap?", images: [SHOT_A] }]]);
 });
 
+test("focus moving from an image's remove control to its row saves the edit", async () => {
+  const edits: [string, QueueEdit][] = [];
+  const container = await renderPictured(async (id, edit) => {
+    edits.push([id, edit]);
+    return true;
+  }, []);
+  const [edit] = actions(container, "p-1");
+  await act(async () => edit.click());
+  const row = container.querySelector<HTMLElement>('[data-prompt-id="p-1"]')!;
+  const [remove] = container.querySelectorAll<HTMLButtonElement>('[data-prompt-id="p-1"] .acpmux-queued-image-remove');
+  await act(async () => remove!.focus());
+  await act(async () => row.focus());
+  expect(edits).toEqual([]);
+  expect(container.querySelector('[data-prompt-id="p-1"] textarea')).toBeNull();
+});
+
 test("editing only a queued prompt's text sends no image list, so it keeps them all", async () => {
   const edits: [string, QueueEdit][] = [];
   const container = await renderPictured(async (id, edit) => {
