@@ -53,7 +53,7 @@ enum BrowserToolbarHandlers {
         registry.bind("browser.downloads.show", run: { invocation in
             let entry = try context.page(invocation)
             let menu = BrowserDownloadsMenu.menu(context.services.cache.pageRequests.downloads, target: tabTarget(entry), registry: registry)
-            entry.chrome.toolbarButtons.present(menu, from: .downloads)
+            entry.chrome.toolbarButtons.present(menu, from: .downloads, themed: true)
         })
         registry.bind("browser.overflow.menu", run: { invocation in
             let entry = try context.page(invocation)

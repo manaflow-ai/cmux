@@ -8,7 +8,7 @@ import CmuxNextCompat
 /// flyout, cx-6qwm.1): the newest downloads first, each with its progress
 /// or end and a submenu to open it, show it in Finder, pause, resume or
 /// cancel it, retry it, or copy its link; then Open Downloads Folder and Clear.
-/// cmux opens a file only on a click here, never by itself.
+/// cmux opens a file only on a click here, never by itself. Every row has an icon (themed: `present(_:from:themed:)`).
 enum BrowserDownloadsMenu {
     /// Rows listed; the list keeps more (`BrowserDownloadList.limit`).
     static let shown = 12
@@ -21,7 +21,7 @@ enum BrowserDownloadsMenu {
         let items = list.items.suffix(shown).reversed()
         if items.isEmpty {
             let empty = NSMenuItem(title: BrowserHitStrings.downloadsEmpty, action: nil, keyEquivalent: "")
-            empty.isEnabled = false
+            (empty.image, empty.isEnabled) = (NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: nil), false)
             menu.addItem(empty)
         }
         for download in items { menu.addItem(row(download, list: list)) }
@@ -31,7 +31,7 @@ enum BrowserDownloadsMenu {
             menu.addItem(item)
         }
         if list.items.contains(where: { $0.status != .inProgress }) {
-            menu.addItem(closure(BrowserHitStrings.downloadsClear) { [weak list] in list?.clearEnded() })
+            menu.addItem(closure(BrowserHitStrings.downloadsClear, "trash") { [weak list] in list?.clearEnded() })
         }
         return menu
     }
@@ -46,23 +46,23 @@ enum BrowserDownloadsMenu {
         let submenu = NSMenu(title: download.filename)
         let file = download.status == .finished ? download.destination : nil
         if let file {
-            submenu.addItem(closure(BrowserHitStrings.downloadOpen) { NSWorkspace.shared.openInBackground(file) })
-            submenu.addItem(closure(BrowserHitStrings.downloadShowInFinder) { NSWorkspace.shared.revealInBackground([file]) })
+            submenu.addItem(closure(BrowserHitStrings.downloadOpen, "arrow.up.forward.app") { NSWorkspace.shared.openInBackground(file) })
+            submenu.addItem(closure(BrowserHitStrings.downloadShowInFinder, "folder") { NSWorkspace.shared.revealInBackground([file]) })
         }
         if download.canPause {
-            let title = download.isPaused ? BrowserHitStrings.downloadResume : BrowserHitStrings.downloadPause
-            submenu.addItem(closure(title) { [weak download] in download.map { $0.setPaused(!$0.isPaused) } })
+            let (title, symbol) = download.isPaused ? (BrowserHitStrings.downloadResume, "play.circle") : (BrowserHitStrings.downloadPause, "pause.circle")
+            submenu.addItem(closure(title, symbol) { [weak download] in download.map { $0.setPaused(!$0.isPaused) } })
         }
         if download.canRetry {
-            submenu.addItem(closure(BrowserHitStrings.downloadRetry) { [weak list, weak download] in
+            submenu.addItem(closure(BrowserHitStrings.downloadRetry, "arrow.clockwise") { [weak list, weak download] in
                 if let list, let download { list.retry(download) }
             })
         }
         if download.status == .inProgress {
-            submenu.addItem(closure(BrowserHitStrings.downloadCancel) { [weak download] in download?.cancel() })
+            submenu.addItem(closure(BrowserHitStrings.downloadCancel, "xmark.circle") { [weak download] in download?.cancel() })
         }
         if let source = download.sourceURL, source.scheme == "http" || source.scheme == "https" {
-            submenu.addItem(closure(BrowserHitStrings.downloadCopyLink) {
+            submenu.addItem(closure(BrowserHitStrings.downloadCopyLink, "link") {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(source.absoluteString, forType: .string)
             })
@@ -97,11 +97,10 @@ enum BrowserDownloadsMenu {
         }
     }
 
-    private static func closure(_ title: String, _ body: @escaping @MainActor () -> Void) -> NSMenuItem {
+    private static func closure(_ title: String, _ symbol: String, _ body: @escaping @MainActor () -> Void) -> NSMenuItem {
         let target = ActionMenuClosure(body)
         let item = NSMenuItem(title: title, action: #selector(ActionMenuClosure.run), keyEquivalent: "")
-        item.target = target
-        item.representedObject = target
+        (item.target, item.representedObject, item.image) = (target, target, NSImage(systemSymbolName: symbol, accessibilityDescription: nil))
         return item
     }
 }
