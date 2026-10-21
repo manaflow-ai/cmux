@@ -167,8 +167,12 @@ public final class HoverCardCoordinator {
         // On the card, or between a source's targets: a card that hides on leave waits (on the
         // card it stays while the pointer rests there; Lawrence 2026-10-19: the card touches its
         // tab, and moving onto it must not dismiss it). The escape slot beside a row bridges
-        // nothing: the card goes on this move (Leo 2026-10-20).
-        let bridging = hit == nil && !mouseButtonDown() && (onCard || (escaped == nil && bridges(at: now)))
+        // nothing: the card goes on this move (Leo 2026-10-20). The gap between a row and its
+        // card bridges only a pointer heading into the card: one going down past the row lets
+        // the card go (Leo 2026-10-20).
+        let inGap = card != nil && panel?.escapeGeometry?.zone(at: now) == .gap
+        let bridging = hit == nil && !mouseButtonDown()
+            && (onCard || (escaped == nil && (inGap ? aiming : bridges(at: now))))
         send(.hit(hit?.target, moved: true, aiming: aiming, bridging: bridging))
     }
 

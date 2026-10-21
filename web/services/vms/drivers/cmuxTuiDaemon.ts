@@ -1,5 +1,6 @@
 import { dirname } from "node:path";
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../images/workUser";
+import { cloudClientGrantRequired } from "../clientGrant";
 import {
   ProviderError,
   ProviderArtifactUnavailableError,
@@ -23,11 +24,8 @@ export function shellQuote(value: string): string {
 export const CMUX_TUI_PORT = 1337;
 export const CMUX_TUI_SESSION = "cloud";
 /**
- * The daemon's cloud listener is reachable only inside the owner's private
- * network (every member is the owner's Mac or another of the owner's machines),
- * so it grants carrier authentication to every link: no device enrollment, no
- * invitation, no approval. The env form is what a systemd drop-in sets on a
- * machine whose baked launch line predates the flag; the daemon reads either.
+ * Compatibility flag for machines whose listener still trusts the private
+ * carrier. Grant-required images omit it and use the enrollment flow.
  */
 export const CMUX_TUI_TRUSTED_CARRIER_ENV = "CMUX_TUI_REMOTE_WS_TRUSTED_CARRIER";
 export const CMUX_TUI_TRUSTED_CARRIER_FLAG = "--remote-ws-trusted-carrier";
@@ -430,7 +428,8 @@ export const CMUX_TUI_DEFAULT_REMOTE_WS_BIND = `0.0.0.0:${CMUX_TUI_PORT}`;
 export function cmuxTuiDaemonCommand(
   remoteWsBind: string = CMUX_TUI_DEFAULT_REMOTE_WS_BIND,
 ): string {
-  const args = `server start --session ${CMUX_TUI_SESSION} --remote-ws ${remoteWsBind} --remote-ws-insecure-bind ${CMUX_TUI_TRUSTED_CARRIER_FLAG}`;
+  const carrier = cloudClientGrantRequired() ? "" : ` ${CMUX_TUI_TRUSTED_CARRIER_FLAG}`;
+  const args = `server start --session ${CMUX_TUI_SESSION} --remote-ws ${remoteWsBind} --remote-ws-insecure-bind${carrier}`;
   return (
     `${cmuxTuiLayoutSelector()}; ` +
     `{ mkdir -p /etc/cmux 2>/dev/null; printf '%s\\n' "$CMUX_TUI_LAYOUT" > ${CMUX_TUI_LAYOUT_MARKER_PATH}; } 2>/dev/null; ` +
@@ -465,6 +464,9 @@ export function parseJsonArray(text: string): Array<Record<string, unknown>> {
  * VM exec API.
  */
 export type CmuxTuiInvoke = (args: string, timeoutMs?: number) => Promise<ExecResult>;
+export type CmuxTuiCommandRunner = {
+  readonly runCommand: (command: string, timeoutMs?: number) => Promise<ExecResult>;
+};
 
 export async function waitForCmuxTuiReady(
   invoke: CmuxTuiInvoke,
@@ -505,7 +507,10 @@ export async function mintCmuxTuiInvitation(
     `remote enroll create --session ${CMUX_TUI_SESSION} --ttl 300 --json`,
   );
   if (created.exitCode !== 0) {
-    throw new ProviderError(provider, `cmux-tui enrollment invitation in ${vmId} failed: ${created.stderr || created.stdout}`);
+    throw new ProviderError(
+      provider,
+      `cmux-tui enrollment invitation in ${vmId} failed (exit ${created.exitCode})`,
+    );
   }
   const uri = parseJsonObject(created.stdout).uri;
   if (typeof uri !== "string" || !uri) {
@@ -515,31 +520,65 @@ export async function mintCmuxTuiInvitation(
   try { parsed = new URL(uri); } catch {
     throw new ProviderError(provider, `cmux-tui enrollment invitation in ${vmId} returned an invalid uri`);
   }
-  const invitationId = parsed.protocol === "cmux:" && parsed.hostname === "enroll"
-    ? parsed.pathname.slice(1)
-    : parsed.searchParams.get("id");
-  if (!invitationId) {
-    throw new ProviderError(provider, `cmux-tui enrollment invitation in ${vmId} returned no id`);
+  if (parsed.protocol !== "cmux:" || parsed.hostname !== "enroll") {
+    throw new ProviderError(provider, `cmux-tui enrollment invitation in ${vmId} has the wrong scheme`);
   }
-  return { uri, invitationId, expiresAtUnix: Math.floor(Date.now() / 1000) + 300 };
+  let invitation: Record<string, unknown>;
+  try {
+    invitation = parseJsonObject(Buffer.from(parsed.pathname.slice(1), "base64url").toString("utf8"));
+  } catch {
+    throw new ProviderError(provider, `cmux-tui enrollment invitation in ${vmId} has an invalid payload`);
+  }
+  const invitationId = invitation.id;
+  const expiresAtUnix = invitation.expires_at_unix;
+  if (typeof invitationId !== "string" || !/^[A-Za-z0-9._:=+/-]{1,128}$/.test(invitationId)) {
+    throw new ProviderError(provider, `cmux-tui enrollment invitation in ${vmId} returned no valid id`);
+  }
+  if (typeof expiresAtUnix !== "number" || !Number.isSafeInteger(expiresAtUnix) || expiresAtUnix <= 0) {
+    throw new ProviderError(provider, `cmux-tui enrollment invitation in ${vmId} returned no expiration`);
+  }
+  return { uri, invitationId, expiresAtUnix };
 }
 
-/** Compatibility approval bridge for pre trusted-carrier clients. */
+/** One guest command that waits for the exact invitation claim before approval. */
+export function cmuxTuiApprovalCommand(invitationId: string, binary?: string): string {
+  if (!/^[A-Za-z0-9._:=+/-]{1,128}$/.test(invitationId)) {
+    throw new ProviderError("freestyle", "invitation id has an unexpected shape");
+  }
+  const bin = binary ? shellQuote(binary) : '"$CMUX_TUI_BIN"';
+  const run = (args: string) => cmuxTuiAsDaemonUser(`${bin} ${args}`);
+  const pending = run(`remote enroll pending --session ${CMUX_TUI_SESSION} --json`);
+  const approve = run(
+    `remote enroll approve ${shellQuote(invitationId)} --session ${CMUX_TUI_SESSION} --json`,
+  );
+  const exactPending =
+    `python3 -c 'import json,sys; wanted=sys.argv[1]; rows=json.load(sys.stdin); ` +
+    `sys.exit(0 if any(isinstance(r,dict) and r.get("invitation_id")==wanted for r in rows) else 1)' ${shellQuote(invitationId)}`;
+  return (
+    `${cmuxTuiLayoutSelector()} && ` +
+    `for cmux_approval_attempt in $(seq 1 120); do ` +
+    `if { ${pending}; } | ${exactPending}; then ${approve}; exit $?; fi; ` +
+    `sleep 0.25; done; ` +
+    `echo 'enrollment claim did not become pending' >&2; exit 75`
+  );
+}
+
+/** Approval bridge for a client claiming a short-lived Cloud invitation. */
 export async function approveCmuxTuiEnrollment(
-  invoke: CmuxTuiInvoke,
+  runner: CmuxTuiCommandRunner,
   provider: ProviderId,
   vmId: string,
   invitationId: string,
 ): Promise<{ approved: boolean; state: "approved" | "pending"; deviceFingerprint?: string }> {
-  if (!/^[A-Za-z0-9._:=+/-]+$/.test(invitationId)) {
-    throw new ProviderError(provider, "invitation id has an unexpected shape");
-  }
-  const result = await invoke(
-    `remote enroll approve ${shellQuote(invitationId)} --session ${CMUX_TUI_SESSION} --json`,
+  const result = await runner.runCommand(
+    cmuxTuiApprovalCommand(invitationId),
     40_000,
   );
   if (result.exitCode !== 0) {
-    throw new ProviderError(provider, `cmux-tui enrollment approval in ${vmId} failed: ${result.stderr || result.stdout}`);
+    throw new ProviderError(
+      provider,
+      `cmux-tui enrollment approval in ${vmId} failed (exit ${result.exitCode})`,
+    );
   }
   const fingerprint = parseJsonObject(result.stdout).fingerprint;
   return {

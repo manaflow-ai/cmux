@@ -15,9 +15,11 @@ import fnmatch
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -488,6 +490,20 @@ class PathRoutingStructure(unittest.TestCase):
                 self.assertIn("web-bundles", needs)
                 self.assertIn("needs.web-bundles.result == 'skipped'", jobs[job_id]["if"])
 
+    def test_web_bundles_job_only_produces_the_bundles(self):
+        """swift test, daemon tests and generated files run only when web-bundles succeeds. Its
+        script self-tests ran last in that job: on 2026-10-20 the key-inputs test went red on
+        feat-cmux-next, every PR's web-bundles failed after the bundles were cached, and the three
+        Mac tiers were skipped (a skip reads as passing), so #22455 landed a test that did not
+        compile. The self-tests are checks-job steps; the producer runs no test script."""
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        runs = [step.get("run", "") for step in jobs["web-bundles"]["steps"]]
+        self.assertFalse([run for run in runs if "tests/" in run], runs)
+        check_runs = " ".join(step.get("run", "") for step in jobs["checks"]["steps"])
+        for script in ("tests/test_web_bundle_key_inputs.sh", "tests/test_build_web_bundles_from.sh"):
+            with self.subTest(script=script):
+                self.assertIn(script, check_runs)
+
     def test_stale_generated_files_fail_with_the_regenerate_hint_and_no_autofix(self):
         """The autofix job's App (glaeda route) has no contents: write, so "Mint the autofix
         token" failed on every stale PR; it is removed, not widened. A stale generated file
@@ -623,6 +639,54 @@ class SwiftCanaryFleetCoverage(unittest.TestCase):
         self.assertIn("compile-check --ref \"$REF\" --app", step["run"])
 
 
+def kill_group(pid: int) -> None:
+    # The group may be gone, or (macOS) hold only a zombie leader, which raises EPERM.
+    try:
+        os.killpg(pid, signal.SIGKILL)
+    except OSError:
+        pass
+
+
+def run_step(script: str, env: dict, timeout: float) -> subprocess.CompletedProcess:
+    """Run a workflow step's shell in its own process group and kill the whole group on timeout.
+
+    subprocess.run's timeout kills only bash: its cmux_tui_tree_key.py child lived on, and once
+    the temporary directory with the fake git was removed its git calls reached the real
+    checkout and lazy-fetched placeholder objects for 19+ minutes (cosmic-gray, 2026-10-20).
+    """
+    with subprocess.Popen(["bash", "-c", script], env=env, text=True, stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE, start_new_session=True) as process:
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            kill_group(process.pid)
+            process.communicate()
+            raise
+        finally:
+            # Background children a finished step left behind go too.
+            kill_group(process.pid)
+    return subprocess.CompletedProcess(process.args, process.returncode, stdout, stderr)
+
+
+class StepRunnerLeavesNoChild(unittest.TestCase):
+    def test_a_timed_out_step_takes_its_children_with_it(self):
+        with tempfile.TemporaryDirectory() as directory:
+            pid_file = Path(directory) / "child"
+            with self.assertRaises(subprocess.TimeoutExpired):
+                run_step(f"sleep 60 & echo $! > {pid_file}; wait", dict(os.environ), timeout=1)
+            child = int(pid_file.read_text())
+        # A killed child is gone once its new parent reaps it, well within a second.
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            try:
+                os.kill(child, 0)
+            except ProcessLookupError:
+                return
+            time.sleep(0.05)
+        os.kill(child, signal.SIGKILL)
+        self.fail(f"step child {child} outlived the timed-out step")
+
+
 class PushPreflightBehavior(unittest.TestCase):
     """Execute the workflow shell with bounded fake network and git responses."""
 
@@ -641,6 +705,7 @@ case "$*" in
   *ls-remote*) [[ -z "$REMOTE_SHA" ]] && exit 1; printf '%s\\trefs/heads/feat-cmux-next\\n' "$REMOTE_SHA" ;;
   *fetch*) touch "$REMOTE_FETCH_MARKER" ;;
   *diff*) exit 0 ;;
+  *cat-file*) exit 0 ;;
   *rev-parse*) printf '%040d\\n' 1 ;;
   *mktree*) cat >/dev/null; if [[ -e "$REMOTE_FETCH_MARKER" ]]; then printf '%s\\n' "$REMOTE_TREE_KEY"; else printf '%040d\\n' 2; fi ;;
   *) exit 1 ;;
@@ -688,8 +753,7 @@ printf '%064d  cmux-tui-aarch64-apple-darwin\\n' 3
             # preflight falls back to the run-list election (fake curl answers it).
             env.pop("ACTIONS_ID_TOKEN_REQUEST_URL", None)
             env.pop("ACTIONS_ID_TOKEN_REQUEST_TOKEN", None)
-            result = subprocess.run(["bash", "-c", script], env=env, text=True,
-                                    capture_output=True, timeout=5)
+            result = run_step(script, env, timeout=5)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             return dict(line.split("=", 1) for line in output.read_text().splitlines())
 
@@ -1153,7 +1217,13 @@ class FastTierStartsWarm(unittest.TestCase):
                 self.assertIn("github.repository == 'manaflow-ai/cmux'", job.get("if", ""))
                 self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", job.get("if", ""))
                 self.assertEqual(job.get("environment"), NEXT_WRITER)
-        self.assertFalse(seed.get("concurrency", {}).get("cancel-in-progress", True),
+        # One lane per pool, not one for the workflow: seed run 39396578253 sat queued on
+        # blacksmith-12vcpu-macos-26 from 08:53 to past 20:50 on 2026-10-20 while holding the
+        # workflow's group, so the next 299 pushes' seeds were cancelled pending and none landed.
+        self.assertNotIn("concurrency", seed, "a stalled pool never holds another pool's seed")
+        lane = seed["jobs"]["seed"]["concurrency"]
+        self.assertIn("matrix.pool", lane["group"])
+        self.assertFalse(lane.get("cancel-in-progress", True),
                          "a running seed finishes; a newer push only replaces the pending one")
 
     def test_seed_saves_what_the_fast_tier_restores(self):
@@ -1177,13 +1247,23 @@ class FastTierStartsWarm(unittest.TestCase):
         self.assertNotIn("setup-cmux-tui-rust", yaml.safe_dump(build), "nothing restores a Mac cargo seed")
         self.assertLess(tier, steps.index(saves[0]))
         self.assertIn(FAST_CACHE_MANIFEST, steps[record]["run"])
+        # The seed runs once per pool the fast tier lands on, from the due job's matrix:
+        # the key holds the workspace path, so a Blacksmith seed (/Users/runner/_work) never
+        # warms a hosted macos-26 fast tier (/Users/runner/work). Every PR fast tier sampled
+        # on 2026-10-20 ran hosted and built CmuxNext cold (20 to 28 minutes).
+        self.assertEqual(build["strategy"]["matrix"], {"include": "${{ fromJSON(needs.due.outputs.pools) }}"})
+        self.assertIs(build["strategy"].get("fail-fast"), False)
+        self.assertIn("matrix.runner", str(build["runs-on"]))
+        self.assertIn("needs.due.outputs.pools != '[]'", build.get("if", ""))
+        guard = steps[index_of(steps, lambda s: "matrix.workspace" in json.dumps(s))]
+        self.assertLess(steps.index(guard), steps.index(saves[0]), "a seed whose workspace is not its pool's never saves")
+        pools = {p["pool"]: p for p in json.loads(self.seed()["jobs"]["due"]["env"]["SEED_POOLS"])}
         # 6 vCPU, not 12: the 12 vCPU label runs about five jobs at once and the
-        # cascade fills it first, so a seed pinned there sat queued (run
-        # 39351410275, 85+ minutes) while its concurrency group held every later
-        # feat-cmux-next push, and no seed ever landed.
-        self.assertIn("'blacksmith-6vcpu-macos-26'", str(build["runs-on"]))
-        self.assertNotIn("12vcpu", str(build["runs-on"]))
-        self.assertIn("needs.due.outputs.due == 'true'", build.get("if", ""))
+        # cascade fills it first, so a seed pinned there sat queued (run 39351410275).
+        self.assertEqual(pools["blacksmith"]["runner"], "blacksmith-6vcpu-macos-26")
+        self.assertEqual(pools["hosted"]["runner"], "macos-26", "next_macos_cascade.py HOSTED")
+        self.assertEqual(pools["hosted"]["workspace"], "/Users/runner/work/cmux/cmux")
+        self.assertEqual(pools["blacksmith"]["workspace"], "/Users/runner/_work/cmux/cmux")
 
     def test_seed_key_matches_the_fast_tier_key_for_one_tree(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1260,6 +1340,36 @@ class FastTierStartsWarm(unittest.TestCase):
                          "the swift archive is written last; only it marks a finished seed")
         self.assertEqual(due([{"key": "v1/macOS-ARM64/latest/cmux-next-fast-v3-swift-", "last_modified": "2026-10-19T21:59:00.000Z"}]),
                          "due=true", "pointers are not archives")
+
+    def test_each_pool_is_due_on_its_own_seeds(self):
+        """A fresh Blacksmith seed does not make the hosted pool's seed fresh: their keys differ."""
+        import hashlib
+        place = lambda path: hashlib.sha256(path.encode()).hexdigest()[:12]
+        hosted, blacksmith = "/Users/runner/work/cmux/cmux", "/Users/runner/_work/cmux/cmux"
+        pools = [{"pool": "hosted", "runner": "macos-26", "workspace": hosted},
+                 {"pool": "blacksmith", "runner": "blacksmith-6vcpu-macos-26", "workspace": blacksmith}]
+        swift = lambda modified, path: {
+            "key": f"v1/macOS-ARM64/objects/cmux-next-fast-v3-swift-macOS-ARM64-0123456789abcdef-fedcba9876543210-{place(path)}-abc.tar.zst",
+            "last_modified": modified}
+
+        def due(objects: list[dict]) -> list[str]:
+            with tempfile.TemporaryDirectory() as tmp:
+                listing = Path(tmp) / "objects.json"
+                listing.write_text(json.dumps(objects))
+                out = subprocess.run([sys.executable, "-I", str(SEED_DUE_SCRIPT), "--minutes", "30", "--now", "2026-10-19T22:00:00Z",
+                                      "--listing", str(listing), "--pools", json.dumps(pools)],
+                                     check=True, capture_output=True, text=True).stdout.strip()
+            self.assertTrue(out.startswith("pools="), out)
+            chosen = json.loads(out.removeprefix("pools="))
+            for entry in chosen:
+                self.assertIn(entry, pools, "a due pool keeps its runner and workspace")
+            return [entry["pool"] for entry in chosen]
+
+        self.assertEqual(due([]), ["hosted", "blacksmith"])
+        self.assertEqual(due([swift("2026-10-19T21:50:00Z", blacksmith)]), ["hosted"])
+        self.assertEqual(due([swift("2026-10-19T21:50:00Z", hosted)]), ["blacksmith"])
+        self.assertEqual(due([swift("2026-10-19T21:50:00Z", hosted), swift("2026-10-19T21:40:00Z", blacksmith)]), [])
+        self.assertEqual(due([swift("2026-10-19T21:00:00Z", hosted), swift("2026-10-19T21:40:00Z", blacksmith)]), ["hosted"])
 
     def test_receipt_names_the_seed_a_prefix_restore_picked(self):
         with tempfile.TemporaryDirectory() as tmp:
