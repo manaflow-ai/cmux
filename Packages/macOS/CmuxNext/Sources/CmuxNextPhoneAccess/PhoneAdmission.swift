@@ -23,8 +23,8 @@ public final class PhoneAdmission {
     private var denied: [String: ContinuousClock.Instant] = [:]
     /// Whose list the holds in `denied` were made on; another user starts with none.
     private var deniedUser: String?
-    /// One question per phone, however many connections it opens meanwhile.
-    private var asking: [String: Task<Bool, Never>] = [:]
+    /// One question per phone, however many connections it opens meanwhile, asked for one user's list.
+    private var asking: [String: (user: String, answer: Task<Bool, Never>)] = [:]
     /// At most this many phones wait on a question at once; another new phone is turned away
     /// unasked (no hold), so a burst of devices cannot stack dialogs.
     static let questionCap = 2
@@ -39,6 +39,7 @@ public final class PhoneAdmission {
     ///   the list, by Remove in Settings > Mobile or a sign-out.
     init(phones: MobileHostPairedStore, disconnect: @escaping @Sendable (String) async -> Void) {
         self.phones = phones
+        deniedUser = phones.current?.userID
         phones.observe { [weak self] change in
             let gone = change.removed.filter { $0.transport == .iroh }.map(\.id)
             let user = change.list?.userID
@@ -65,13 +66,15 @@ public final class PhoneAdmission {
             return listed(device, for: user)
         }
         if let at = denied[id], at.duration(to: clock()) < Self.denialHold { return false }
+        // A question still open from before a user switch is not this user's: no second dialog, ask later.
+        if let open = asking[id], open.user != user { return false }
         guard asking[id] != nil || asking.count < Self.questionCap else { return false }
         // task-owner: the question, shared by this phone's connections; dropped once answered
-        let question = asking[id] ?? Task { await ask(device) }
-        asking[id] = question
+        let question = asking[id]?.answer ?? Task { await ask(device) }
+        asking[id] = (user, question)
         let allowed = await question.value
         // A late waiter must not drop a newer question for this phone.
-        if asking[id] == question { asking[id] = nil }
+        if asking[id]?.answer == question { asking[id] = nil }
         // The person answered for the list they were asked on: after a user switch it counts for nobody.
         guard phones.current?.userID == user else { return false }
         guard allowed else {
@@ -118,10 +121,12 @@ enum PhoneAccessStrings {
                table: "PhoneAccess", bundle: .module)
     }
 
-    /// The phone's key, as the iPhone pairing prompt shows it: a phone can copy another's name, not its key.
-    static func key(_ endpointKey: String) -> String {
-        String(format: String(localized: "phoneAccess.allow.key", defaultValue: "Device key %@", table: "PhoneAccess", bundle: .module),
-               MobileHostPairedDevices.fingerprint(endpointKey))
+    /// The phone's endpoint key, as its Iroh row in Settings > Mobile shows it: a phone can copy
+    /// another's name, not its key. Nil (no line) for a key that is not hex.
+    static func key(_ endpointKey: String) -> String? {
+        guard !endpointKey.isEmpty, endpointKey.count.isMultiple(of: 2), endpointKey.allSatisfy(\.isHexDigit) else { return nil }
+        return String(format: String(localized: "phoneAccess.allow.key", defaultValue: "Device key %@", table: "PhoneAccess", bundle: .module),
+                      MobileHostPairedDevices.fingerprint(endpointKey))
     }
 
     static var allow: String { String(localized: "phoneAccess.allow.allow", defaultValue: "Allow", table: "PhoneAccess", bundle: .module) }
@@ -129,7 +134,7 @@ enum PhoneAccessStrings {
 
     /// Deny on Escape. Allow has no key: a Return typed as the dialog opens must not let a phone in.
     static func allowSpec(name: String, key endpointKey: String) -> CmuxDialogSpec {
-        CmuxDialogSpec(title: title(name: name), lines: [key(endpointKey), message],
+        CmuxDialogSpec(title: title(name: name), lines: [key(endpointKey), message].compactMap { $0 },
                        buttons: [CmuxDialogButton(id: denyID, title: deny, role: .cancel),
                                  CmuxDialogButton(id: allowID, title: allow, role: .normal)],
                        identifier: PhoneAdmission.allowDialogIdentifier)
