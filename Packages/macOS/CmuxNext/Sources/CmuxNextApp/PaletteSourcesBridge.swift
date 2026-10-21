@@ -110,7 +110,11 @@ enum PaletteSourcesBridge {
         }
 
         func selectWorkspace(id: String) {
-            guard let state = services.windows.active?.state else { return }
+            // No active window (all closed, CLI run): show it in its own window, else a new one.
+            guard let state = services.windows.active?.state else {
+                services.windows.reveal(workspaceID: id)
+                return
+            }
             services.windows.show(workspaceID: id, in: state)
         }
 

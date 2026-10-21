@@ -28,7 +28,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 id: "agentChat.toggleNotificationMute",
                 title: String(localized: "action.agentChat.toggleNotificationMute", defaultValue: "Mute/Unmute Chat Notifications", bundle: .module),
                 keywords: ["mute", "silence", "quiet", "notifications", "agent", "chat"], category: .agents, symbol: "bell.slash",
-                surfaces: [.palette, .contextMenu], targets: [.tab]
+                surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "tab toggle-chat-notifications"
             ),
             ActionDescriptor(
                 id: "palette.newAgentChat",
@@ -230,44 +230,52 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "palette.forkAgentConversationRight",
                 title: String(localized: "action.palette.forkAgentConversationRight", defaultValue: "Fork Conversation to the Right", bundle: .module),
-                keywords: ["agent", "fork"], category: .agents, symbol: "arrow.triangle.branch",
-                surfaces: [.palette, .contextMenu], requires: [.terminalFocused],
+                keywords: ["agent", "fork", "branch", "split"], defaultShortcut: Shortcut("y", modifiers: [.option, .command]),
+                category: .agents, symbol: "arrow.triangle.branch",
+                surfaces: [.palette, .contextMenu],
                 cliName: "agent fork-conversation-to-right"
             ),
             ActionDescriptor(
                 id: "palette.forkAgentConversationLeft",
                 title: String(localized: "action.palette.forkAgentConversationLeft", defaultValue: "Fork Conversation to the Left", bundle: .module),
                 keywords: ["agent", "fork"], category: .agents, symbol: "arrow.triangle.branch",
-                surfaces: [.palette, .contextMenu], requires: [.terminalFocused],
+                surfaces: [.palette, .contextMenu],
                 cliName: "agent fork-conversation-to-left"
             ),
             ActionDescriptor(
                 id: "palette.forkAgentConversationTop",
                 title: String(localized: "action.palette.forkAgentConversationTop", defaultValue: "Fork Conversation Above", bundle: .module),
                 keywords: ["agent", "fork"], category: .agents, symbol: "arrow.triangle.branch",
-                surfaces: [.palette, .contextMenu], requires: [.terminalFocused],
+                surfaces: [.palette, .contextMenu],
                 cliName: "agent fork-conversation-above"
             ),
             ActionDescriptor(
                 id: "palette.forkAgentConversationBottom",
                 title: String(localized: "action.palette.forkAgentConversationBottom", defaultValue: "Fork Conversation Below", bundle: .module),
                 keywords: ["agent", "fork"], category: .agents, symbol: "arrow.triangle.branch",
-                surfaces: [.palette, .contextMenu], requires: [.terminalFocused],
+                surfaces: [.palette, .contextMenu],
                 cliName: "agent fork-conversation-below"
             ),
             ActionDescriptor(
                 id: "palette.forkAgentConversationNewTab",
                 title: String(localized: "action.palette.forkAgentConversationNewTab", defaultValue: "Fork Conversation to New Tab", bundle: .module),
                 keywords: ["agent", "fork"], category: .agents, symbol: "arrow.triangle.branch",
-                surfaces: [.palette, .contextMenu], requires: [.terminalFocused],
+                surfaces: [.palette, .contextMenu],
                 cliName: "agent fork-conversation-to-new-tab"
             ),
             ActionDescriptor(
                 id: "palette.forkAgentConversationNewWorkspace",
                 title: String(localized: "action.palette.forkAgentConversationNewWorkspace", defaultValue: "Fork Conversation to New Workspace", bundle: .module),
                 keywords: ["agent", "fork"], category: .agents, symbol: "arrow.triangle.branch",
-                surfaces: [.palette, .contextMenu], requires: [.terminalFocused],
+                surfaces: [.palette, .contextMenu],
                 cliName: "agent fork-conversation-to-new-workspace"
+            ),
+            ActionDescriptor(
+                id: "palette.forkAgentConversationNewWindow",
+                title: String(localized: "action.palette.forkAgentConversationNewWindow", defaultValue: "Fork Conversation to New Window", bundle: .module),
+                keywords: ["agent", "fork", "window"], category: .agents, symbol: "arrow.triangle.branch",
+                surfaces: [.palette, .contextMenu],
+                cliName: "agent fork-conversation-to-new-window"
             ),
             ActionDescriptor(
                 id: "palette.computerUse.setup",

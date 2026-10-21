@@ -371,8 +371,12 @@ enum TabLifecycle {
                 case .ignore: return
                 }
             }
+            // A link's tab outside the pane it was clicked in gives the focus back there (LinkOpener).
+            let back = ctx.services.linkOpener.returnPane(closing: id, in: pane)
             // A user's Cmd-W gets an undo toast (REOPEN-CLOSED); automation does not.
-            return CloseUndoToasts.close(in: pane, [id])
+            CloseUndoToasts.close(in: pane, [id])
+            if let back, let content = back.workspace { PaneHandlers.focus(back.layoutPaneID, in: content) }
+            return
         }
         guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
         if let controller = ctx.services.paneController(for: pane) {

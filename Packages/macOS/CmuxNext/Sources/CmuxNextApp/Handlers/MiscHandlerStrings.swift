@@ -24,7 +24,6 @@ enum MiscHandlerStrings {
     static var noDefaultBrowser: String { String(localized: "handlers.misc.noDefaultBrowser", defaultValue: "No app opens this link", table: "MiscHandlers", bundle: .module) }
     static var terminalChatNoSession: String { String(localized: "handlers.misc.failed.terminalChatNoSession", defaultValue: "The focused terminal runs no agent session to open as a chat.", table: "MiscHandlers", bundle: .module) }
     static var terminalChatHarness: String { String(localized: "handlers.misc.failed.terminalChatHarness", defaultValue: "Only Claude Code and Codex sessions can open as a chat.", table: "MiscHandlers", bundle: .module) }
-    static var computerUse: String { String(localized: "handlers.misc.unavailable.computerUse", defaultValue: "Computer Use integration is not ported to cmux-next yet.", table: "MiscHandlers", bundle: .module) }
     static var noBrowser: String { String(localized: "handlers.misc.failed.noBrowser", defaultValue: "No browser tab is focused.", table: "MiscHandlers", bundle: .module) }
     static var noTerminal: String { String(localized: "handlers.misc.failed.noTerminal", defaultValue: "No terminal tab is focused.", table: "MiscHandlers", bundle: .module) }
     /// A shortcut the key window's kind does not support (`WindowKeyTable`).
@@ -36,11 +35,15 @@ enum MiscHandlerStrings {
     static var noPageURL: String { String(localized: "handlers.misc.failed.noPageURL", defaultValue: "The page has no URL.", table: "MiscHandlers", bundle: .module) }
     static var hardReloadEngine: String { String(localized: "handlers.misc.failed.hardReloadEngine", defaultValue: "This browser engine cannot bypass the cache; use Reload Page.", table: "MiscHandlers", bundle: .module) }
     static var noUnread: String { String(localized: "handlers.misc.failed.noUnread", defaultValue: "There are no unread notifications.", table: "MiscHandlers", bundle: .module) }
+    static var noNotificationToCopy: String {
+        String(localized: "handlers.misc.failed.noNotificationToCopy", defaultValue: "There are no notifications to copy.", table: "MiscHandlers", bundle: .module)
+    }
     static var noPrompt: String { String(localized: "handlers.misc.failed.noPrompt", defaultValue: "No agent has been given a prompt yet.", table: "MiscHandlers", bundle: .module) }
     static var sessionRequired: String { String(localized: "handlers.misc.failed.sessionRequired", defaultValue: "Name the acpmux session to open (session).", table: "MiscHandlers", bundle: .module) }
     static var noAgentSession: String { String(localized: "handlers.misc.failed.noAgentSession", defaultValue: "The focused terminal has no agent session to fork.", table: "MiscHandlers", bundle: .module) }
     static var noAgentPane: String { String(localized: "handlers.misc.failed.noAgentPane", defaultValue: "The focused pane is not showing an agent chat.", table: "MiscHandlers", bundle: .module) }
-    static var forkClaudeOnly: String { String(localized: "handlers.misc.failed.forkClaudeOnly", defaultValue: "Forking is supported for Claude sessions only.", table: "MiscHandlers", bundle: .module) }
+    static var forkTerminalAgents: String { String(localized: "handlers.misc.failed.forkTerminalAgents", defaultValue: "A terminal agent forks with Claude Code or Codex only. Open it as a chat to fork it.", table: "MiscHandlers", bundle: .module) }
+    static var noForkTarget: String { String(localized: "handlers.misc.failed.noForkTarget", defaultValue: "Focus an agent chat, or a terminal running Claude Code or Codex, to fork it.", table: "MiscHandlers", bundle: .module) }
     static var gitNeedsAgentChat: String { String(localized: "handlers.misc.failed.gitNeedsAgentChat", defaultValue: "Commit and Push work in agent chats. Focus one first.", table: "MiscHandlers", bundle: .module) }
     static var noAgentChat: String { String(localized: "handlers.misc.failed.noAgentChat", defaultValue: "Dictation works in agent chats. Focus one first.", table: "MiscHandlers", bundle: .module) }
     static var switchModelNeedsFocus: String { String(localized: "handlers.misc.failed.switchModelNeedsFocus", defaultValue: "Switch Model… opens a menu, so it needs focus.", table: "MiscHandlers", bundle: .module) }
