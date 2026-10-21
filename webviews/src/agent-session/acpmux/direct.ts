@@ -3594,8 +3594,8 @@ export class AcpmuxDirectClient {
   /// from that chat (server/app_reply.rs) and signs it with this chat's own name, and the app sends
   /// it as this chat on its own daemon connection (CmuxNextAgentPane AgentPaneAgentReply.swift).
   /// The daemon stores it under its own id and delivers it with its `Reply with` line, so
-  /// `--reply-to`, unsend and the inbox know it. `replyId` keys it, so a resend is stored once.
-  /// Resolves once the daemon stored it; rejects with the refusal.
+  /// `--reply-to`, unsend and the inbox know it. `replyId` is its idempotency key in the store
+  /// (each Send is a new one). Resolves once the daemon stored it; rejects with the refusal.
   async reply(message: Pick<IncomingMessage, "sessionId" | "msgId" | "threadId">, text: string): Promise<void> {
     const from = this.selectedSessionId;
     // `cmux agent message` names its sender `acp:<id>`; acpmux's chat id is the bare one.

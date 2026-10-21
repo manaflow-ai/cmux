@@ -59,8 +59,8 @@ public nonisolated struct AgentPaneAgentReply: Equatable, Sendable {
 
     /// The relay method whose reply the host completes itself.
     static let method = "_acpmux/app_reply"
-    /// Longest reply text the host sends on (acpmux's own bound).
-    static let maximumText = 64 * 1024
+    /// Longest reply text the host sends on (acpmux's and the daemon's bound).
+    static let maximumText = 32 * 1024
     /// Longest id, address, key or name field.
     static let maximumField = 256
 

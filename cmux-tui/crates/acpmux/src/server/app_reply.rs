@@ -25,8 +25,8 @@ use crate::hub::Hub;
 use crate::rpc::RpcError;
 use serde_json::{Value, json};
 
-/// Longest reply text, in bytes; the daemon's own body limit applies after it.
-const MAX_TEXT_BYTES: usize = 64 * 1024;
+/// Longest reply text, in bytes: the daemon's body limit (cmux-tui-core `MAX_BODY_BYTES`).
+const MAX_TEXT_BYTES: usize = 32 * 1024;
 
 fn refusal(reason: &str, message: &str) -> RpcError {
     RpcError::invalid_params(message.to_owned()).with_data(json!({"reason": reason}))
@@ -65,10 +65,14 @@ pub(super) fn check(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, Rpc
     }
     let shows = |id: &str| conn.sub_opts(id).is_some_and(|o| !o.hidden);
     let signed = hub.app_reply_fits(&provenance, to, &shows).ok_or_else(refused)?;
-    if text.is_empty() || text.len() > MAX_TEXT_BYTES || text.contains('\0') {
+    // The daemon's body rule (`validate_body`): no control character but newlines and tabs.
+    let control = text.chars().any(|c| c.is_control() && c != '\n' && c != '\t');
+    if text.is_empty() || text.len() > MAX_TEXT_BYTES || control {
         return Err(refusal(
             "reply.text_required",
-            &format!("a reply is 1 to {MAX_TEXT_BYTES} bytes of text"),
+            &format!(
+                "a reply is 1 to {MAX_TEXT_BYTES} bytes of text, no controls but newlines and tabs"
+            ),
         ));
     }
     let key = format!(

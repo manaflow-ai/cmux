@@ -108,6 +108,8 @@ nonisolated final class AcpmuxRequestIds: Sendable {
             return entry
         }), let id = Self.value(entry.pageID) else { return .drop }
         object["id"] = id
+        // The page id is free again from here, while the host still sends the reply: the page
+        // never reuses an id (direct.ts counts them up), so its answer cannot go to another request.
         if entry.method == AgentPaneAgentReply.method {
             return .complete(object: object, pageID: entry.pageID, subject: entry.subject)
         }
