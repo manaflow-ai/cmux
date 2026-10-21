@@ -1737,6 +1737,13 @@ class Nightly(unittest.TestCase):
         self.assertNotIn("rerun-failed", api.calls)
         self.assertNotIn("cancel", api.calls)
         self.assertIn("nightly-next has moved on to bbbbbbbbbbbb", summary)
+        # The same on main: a newer push run that is already running or done, not pending.
+        clock = Clock()
+        api = NightlyAPI(clock, nightly_run(refused_at=60), finished=lambda s: s >= 200,
+                         head="c" * 40, pushes=[RUN_ID + 4])
+        _, summary = run_main(api, clock, payload=nightly_event())
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertIn("main has moved on to cccccccccccc", summary)
         # A newer push run on the same head (a re-push) does not supersede it.
         clock = Clock()
         api = NightlyAPI(clock, nightly_run(refused_at=60), finished=lambda s: s >= 200, pushes=[RUN_ID + 3])
