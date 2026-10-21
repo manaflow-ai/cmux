@@ -21,14 +21,17 @@
 //!   gate holds, and the page's damage coalesces into the next frame: a
 //!   congested path skips frames at the source instead of queueing them.
 //! - Keyframes: the phone's PLI (or FIR) becomes `need_recovery`, which the
-//!   host answers with an IDR.
+//!   host answers with an IDR. It is asked again until a keyframe is on the
+//!   track: the host refuses one that comes too soon after its last forced
+//!   IDR, and a lane taken back right after it was lost may wait on the ack
+//!   of a frame that went to the phone on the channel.
 
 use std::collections::VecDeque;
 
 use cmux_rd_core::reassembly::{CompleteFrame, Reassembler};
 use cmux_rd_proto::{
     Arrival, DatagramHeader, DatagramKind, Feedback, HEADER_LEN, MAX_ARRIVALS, STREAM_DATAGRAM,
-    encode_stream_frame,
+    encode_stream_frame, flags,
 };
 
 /// The page's main display stream (rb `main_stream`).
@@ -37,6 +40,10 @@ pub const MAIN_STREAM: u16 = 0;
 const FRAME_DEADLINE_US: u64 = 250_000;
 /// Feedback goes out at least this often while frames flow.
 pub const FEEDBACK_INTERVAL_US: u64 = 30_000;
+/// A recovery the host has not answered with a keyframe is asked again this
+/// much later (the host's minimum forced-IDR interval, `cmux_rd_engine`'s
+/// `MIN_FORCED_IDR_INTERVAL_US`).
+const RECOVERY_RETRY_US: u64 = 250_000;
 
 /// The rd viewer side of one track-mode splice. Pure; clocked by the caller.
 #[derive(Debug)]
@@ -49,7 +56,10 @@ pub struct TrackBridge {
     released: u32,
     /// The newest frame acknowledged to the host.
     acked: u32,
+    /// A keyframe is wanted on the track; asked for until one is there.
     recovery: bool,
+    /// When the host was last asked for it.
+    recovery_asked_us: Option<u64>,
     last_feedback_us: u64,
     pub frames: u64,
     pub held_acks: u64,
@@ -73,6 +83,7 @@ impl TrackBridge {
             acked: 0,
             // Start the phone's decoder at a keyframe.
             recovery: true,
+            recovery_asked_us: None,
             last_feedback_us: 0,
             frames: 0,
             held_acks: 0,
@@ -127,19 +138,30 @@ impl TrackBridge {
             self.released = last.frame;
             self.frames += frames.len() as u64;
         }
+        if frames.iter().any(|frame| frame.flags & flags::KEYFRAME != 0) {
+            self.recovery = false;
+            self.recovery_asked_us = None;
+        }
     }
 
     /// The phone asked for a keyframe (PLI or FIR), or this splice took the
     /// track over: the next feedback asks the host to recover.
     pub fn request_keyframe(&mut self) {
         self.recovery = true;
+        self.recovery_asked_us = None;
+    }
+
+    /// Whether to ask the host for the wanted keyframe now.
+    fn recovery_due(&self, now_us: u64) -> bool {
+        self.recovery
+            && self.recovery_asked_us.is_none_or(|at| now_us.saturating_sub(at) >= RECOVERY_RETRY_US)
     }
 
     /// Whether feedback should go now: a frame waits for its ack, recovery
     /// is wanted, or the interval passed with arrivals to report.
     pub fn due(&self, congested: bool, now_us: u64) -> bool {
         (self.released > self.acked && !congested)
-            || self.recovery
+            || self.recovery_due(now_us)
             || self.reassembler.need_recovery()
             || (!self.arrivals.is_empty()
                 && now_us.saturating_sub(self.last_feedback_us) >= FEEDBACK_INTERVAL_US)
@@ -157,7 +179,11 @@ impl TrackBridge {
         } else {
             self.acked = self.released;
         }
-        let need_recovery = std::mem::take(&mut self.recovery) || self.reassembler.need_recovery();
+        let asked = self.recovery_due(now_us);
+        if asked {
+            self.recovery_asked_us = Some(now_us);
+        }
+        let need_recovery = asked || self.reassembler.need_recovery();
         let mut first = true;
         while first || !self.arrivals.is_empty() {
             let take = self.arrivals.len().min(MAX_ARRIVALS);
@@ -188,15 +214,19 @@ impl TrackBridge {
         out
     }
 
-    /// When the caller should come back: the reassembly deadline or the
-    /// feedback interval.
+    /// When the caller should come back: the reassembly deadline, the
+    /// feedback interval or a recovery to ask for again.
     pub fn next_deadline_us(&self, now_us: u64) -> u64 {
         let feedback = if self.arrivals.is_empty() {
             now_us + 100_000
         } else {
             self.last_feedback_us + FEEDBACK_INTERVAL_US
         };
-        self.reassembler.next_expiry_us().unwrap_or(u64::MAX).min(feedback).max(now_us)
+        let recovery = match self.recovery_asked_us {
+            Some(at) if self.recovery => at + RECOVERY_RETRY_US,
+            _ => u64::MAX,
+        };
+        self.reassembler.next_expiry_us().unwrap_or(u64::MAX).min(feedback).min(recovery).max(now_us)
     }
 }
 
