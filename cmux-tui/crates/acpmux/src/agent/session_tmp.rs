@@ -43,16 +43,33 @@ pub(crate) fn with_base<T>(base: &Path, f: impl FnOnce() -> T) -> T {
     out
 }
 
+/// Debug builds only: the per-user directory of the hermetic tests' daemons
+/// and in-process hubs (`tests/support/daemon_env.rs`), in their scratch
+/// directory instead of the user's `/tmp/acpmux-<uid>`.
+#[cfg(all(debug_assertions, not(test)))]
+const TEST_BASE_ENV: &str = "ACPMUX_TEST_SESSION_TMP_BASE";
+
 /// `/tmp/acpmux-<uid>`, the private per-user directory.
-#[cfg(unix)]
+#[cfg(not(test))]
 pub(crate) fn per_user_base() -> PathBuf {
-    #[cfg(test)]
-    if let Some(base) = BASE_OVERRIDE.with(|b| b.borrow().clone()) {
-        return base;
+    #[cfg(debug_assertions)]
+    if let Some(base) = std::env::var_os(TEST_BASE_ENV).filter(|v| !v.is_empty()) {
+        return PathBuf::from(base);
     }
     // SAFETY: getuid has no preconditions.
     let uid = unsafe { libc::getuid() };
     PathBuf::from(format!("/tmp/acpmux-{uid}"))
+}
+
+/// Unit tests: the test's own folder ([`with_base`]), else one folder shared
+/// by the unit tests (a hub test that starts a session), never the user's.
+#[cfg(test)]
+pub(crate) fn per_user_base() -> PathBuf {
+    // SAFETY: getuid has no preconditions.
+    let uid = unsafe { libc::getuid() };
+    BASE_OVERRIDE
+        .with(|b| b.borrow().clone())
+        .unwrap_or_else(|| std::env::temp_dir().join(format!("acpmux-unit-session-tmp-{uid}")))
 }
 
 /// One daemon's root: `<base>/t/<first 8 hex of fnv1a64(acpmux home)>`.
