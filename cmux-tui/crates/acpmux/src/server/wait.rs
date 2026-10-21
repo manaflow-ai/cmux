@@ -1,7 +1,10 @@
 //! `_acpmux/wait`: block until sessions reach a state, server side. The
-//! state sequence is read before the first check, every hub event
-//! re-evaluates, and peer sessions are re-read once a second, so a change
-//! between "list" and "subscribe" cannot be missed.
+//! state sequence is read before the first check, every hub event of a
+//! target session re-evaluates, and the targets are re-read once a second,
+//! so a change between "list" and "subscribe" cannot be missed. Only the
+//! targets' summaries are built: building every session's on each hub event
+//! (thousands a minute while agents stream) made a few idle waiters cost the
+//! daemon most of a core with 200 chats (cosmic-gray, 2026-10-21).
 
 use super::*;
 use std::collections::HashMap;
@@ -107,16 +110,14 @@ pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErr
         return Ok(json!({"sessions": [], "timedOut": false, "resolved": []}));
     }
     let mut events = hub.subscribe();
+    let targets: std::collections::HashSet<&str> = ids.iter().map(String::as_str).collect();
     let deadline = timeout.map(|t| tokio::time::Instant::now() + t);
     let evaluate = |hub: &Hub| -> (Vec<Value>, Vec<Value>) {
-        let summaries = hub.all_session_summaries();
         let mut rows = Vec::new();
         let mut resolved = Vec::new();
         for id in &ids {
-            let s = summaries
-                .iter()
-                .find(|s| s.get("sessionId").and_then(Value::as_str) == Some(id))
-                .cloned()
+            let s = hub
+                .session_summary_by_id(id)
                 .unwrap_or_else(|| json!({"sessionId": id, "status": "closed", "missing": true}));
             let seq_ok = after
                 .get(id)
@@ -148,13 +149,20 @@ pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErr
         let poll = tokio::time::sleep(std::time::Duration::from_millis(1000));
         tokio::pin!(poll);
         let wake = async {
-            tokio::select! {
-                _ = &mut poll => {}
-                r = events.recv() => {
-                    if let Err(tokio::sync::broadcast::error::RecvError::Closed) = r {
-                        // Daemon shutting down.
-                        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-                    }
+            loop {
+                tokio::select! {
+                    _ = &mut poll => return,
+                    r = events.recv() => match r {
+                        // Another session's record cannot change a target.
+                        Ok(ev) if !targets.contains(ev.session_id.as_str()) => {}
+                        // A target's record, or records were dropped: evaluate.
+                        Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => return,
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                            // Daemon shutting down.
+                            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                            return;
+                        }
+                    },
                 }
             }
         };

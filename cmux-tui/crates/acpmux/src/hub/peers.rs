@@ -753,6 +753,29 @@ impl Hub {
             .collect()
     }
 
+    /// One session's summary by its id, local first, then a peer's (by the peer's `sessionId`),
+    /// as `all_session_summaries` lists it. `_acpmux/wait` re-reads only the sessions it waits
+    /// on: building every summary on each hub event made a few idle waiters cost the daemon
+    /// most of a core with 200 chats (cosmic-gray, 2026-10-21).
+    pub fn session_summary_by_id(&self, id: &str) -> Option<Value> {
+        let local = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
+        if let Some(session) = local {
+            return Some(self.session_summary(&session));
+        }
+        let (peer, mut summary) = {
+            let map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+            let r = map
+                .values()
+                .find(|r| r.summary.get("sessionId").and_then(Value::as_str) == Some(id))?;
+            (r.peer.clone(), r.summary.clone())
+        };
+        summary["stale"] = Value::Bool(summary["stale"] == true);
+        if let Some(peer) = self.peer(&peer) {
+            summary["peerState"] = Value::String(peer.state().as_str().to_owned());
+        }
+        Some(summary)
+    }
+
     /// Every session, local and remote, newest first.
     pub fn all_session_summaries(&self) -> Vec<Value> {
         let mut v: Vec<Value> = self.sessions().iter().map(|s| self.session_summary(s)).collect();
