@@ -223,6 +223,10 @@ async fn subsession_questions_a_parent_answers_its_childs_question_but_never_a_p
         "tool-question: mcp__shell__run allow_once",
         "tool-question: ExitPlanMode allow_once",
         "tool-question: AskUserQuestion allow_always",
+        // An MCP tool named like AskUserQuestion is not it.
+        "tool-question: mcp__x__AskUserQuestion allow_once",
+        // The agent's own question marker, with no tool name and no input.
+        "meta-question: ok?",
     ] {
         let shaped = p.child_that_asks(prompt).await;
         let row = p.ok("_acpmux/subsession/get", json!({"sessionId": shaped})).await;
@@ -244,6 +248,30 @@ async fn subsession_questions_a_parent_answers_its_childs_question_but_never_a_p
         assert!(!decided, "{prompt}: the prompt was decided");
         let row = p.ok("_acpmux/subsession/get", json!({"sessionId": shaped})).await;
         assert_eq!(row["status"], "waiting", "{prompt}: {row}");
+    }
+
+    // Grok's and Cursor's asks, which acpmux builds itself, are answerable.
+    for (prompt, answers, reply) in [
+        (
+            "xai-question: Pick?",
+            json!({"Pick?": "B"}),
+            r#"xai {"answers": {"Pick?": ["B"]}, "outcome": "accepted"}"#,
+        ),
+        (
+            "cursor-question: Which ones?",
+            json!({"which": ["A", "B"]}),
+            r#"cursor {"outcome": {"answers": [{"questionId": "which", "selectedOptionIds": ["opt-a", "opt-b"]}], "outcome": "answered"}}"#,
+        ),
+    ] {
+        let asked = p.child_that_asks(prompt).await;
+        let row = p.ok("_acpmux/subsession/get", json!({"sessionId": asked})).await;
+        assert_eq!(row["questions"][0]["answerable"], true, "{prompt}: {row}");
+        let apid = row["questions"][0]["permissionId"].as_str().unwrap().to_owned();
+        p.ok(ANSWER, json!({"sessionId": asked, "permissionId": apid, "answers": answers})).await;
+        p.ok("_acpmux/wait", json!({"sessions": [asked], "until": ["ready"], "timeoutMs": 20000}))
+            .await;
+        let row = p.ok("_acpmux/subsession/get", json!({"sessionId": asked})).await;
+        assert_eq!(row["lastReply"], reply, "{prompt}: {row}");
     }
 
     // A sibling never answers; a grandparent answers a grandchild.

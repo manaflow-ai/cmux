@@ -405,6 +405,29 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"chose {chosen}"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "meta-question: Q" asks to run a command with its own
+    # `_meta.acpmux.question` asking Q: no tool name, no `questions` input.
+    if text.startswith("meta-question:"):
+        q = text[14:].strip()
+        res = request(
+            "session/request_permission",
+            {
+                "sessionId": sid,
+                "toolCall": {"toolCallId": "mq1", "title": "run", "kind": "execute", "status": "pending",
+                             "rawInput": {"command": "rm -rf build"},
+                             "_meta": {"acpmux": {"question": {"harness": "claude", "agent": "Claude Code", "items": [
+                                 {"id": "q0", "prompt": q, "options": [{"id": "yes", "label": "yes"}],
+                                  "multiSelect": False, "allowsOther": True}]}}}},
+                "options": [
+                    {"optionId": "go", "name": "Go", "kind": "allow_once"},
+                    {"optionId": "no", "name": "No", "kind": "reject_once"},
+                ],
+            },
+        )
+        chosen = (res or {}).get("outcome", {}).get("optionId", (res or {}).get("outcome", {}).get("outcome"))
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"chose {chosen}"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "xai-question: Q" asks Q the way Grok does (`_x.ai/ask_user_question`)
     # and "xai-plan: P" asks to leave plan mode with plan P
     # (`_x.ai/exit_plan_mode`); both echo the client's JSON reply.
