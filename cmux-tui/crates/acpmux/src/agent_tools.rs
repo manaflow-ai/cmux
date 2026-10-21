@@ -274,14 +274,55 @@ pub fn lists_all_tools(
     name: &str,
     profile: &crate::config::HarnessProfile,
     env: &BTreeMap<String, String>,
+    cwd: &Path,
 ) -> bool {
-    if !own_provider(env) || env.get(CODE_MODE_ENV).is_some_and(|v| v.trim() == "1") {
+    // The profile's opt-in to code mode wins (`CODE_MODE_ENV`).
+    if env.get(CODE_MODE_ENV).is_some_and(|v| v.trim() == "1") {
         return false;
     }
     if is_claude_code(name, profile) {
-        return tool_search_on(env);
+        return claude_lists_all_tools(env, cwd);
     }
-    crate::config::derive_family(name, profile) == "codex"
+    own_provider(env) && crate::config::derive_family(name, profile) == "codex"
+}
+
+/// Claude Code in folder `cwd` with process env `env` lists every cmux tool:
+/// tool search on in the env and in every settings file Claude Code reads
+/// env from (`settings_turn_off`), and its own provider.
+pub fn claude_lists_all_tools(env: &BTreeMap<String, String>, cwd: &Path) -> bool {
+    tool_search_on(env) && own_provider(env) && !settings_turn_off(env, cwd)
+}
+
+/// Whether a settings file Claude Code reads `env` from sets
+/// [`TOOL_SEARCH_ENV`] to something other than on: the managed settings,
+/// the Claude home's `settings.json` (`CLAUDE_CONFIG_DIR`, else
+/// `~/.claude`), and the folder's `.claude/settings.json` and
+/// `.claude/settings.local.json`. Their env wins over the process env, so
+/// any one that turns it off means every schema in every turn.
+pub fn settings_turn_off(env: &BTreeMap<String, String>, cwd: &Path) -> bool {
+    // The same Claude home the harness config reader resolves: the spawn
+    // env, the daemon's, the imported login env, else ~/.claude.
+    let home = crate::harness_config::config_dir("CLAUDE_CONFIG_DIR", ".claude", &[env]);
+    let managed = if cfg!(target_os = "macos") {
+        "/Library/Application Support/ClaudeCode/managed-settings.json"
+    } else {
+        "/etc/claude-code/managed-settings.json"
+    };
+    let mut files = vec![PathBuf::from(managed)];
+    files.extend(home.map(|h| h.join("settings.json")));
+    files.push(cwd.join(".claude").join("settings.json"));
+    files.push(cwd.join(".claude").join("settings.local.json"));
+    files.iter().any(|file| {
+        let Ok(bytes) = std::fs::read(file) else { return false };
+        let Ok(json) = serde_json::from_slice::<Value>(&bytes) else { return false };
+        match &json["env"][TOOL_SEARCH_ENV] {
+            Value::Null => false,
+            Value::String(v) => !matches!(v.trim(), "true" | "1"),
+            Value::Bool(on) => !on,
+            Value::Number(n) => n.as_u64() != Some(1),
+            _ => true,
+        }
+    })
 }
 
 /// Whether the harness talks to the provider of the user's own setup (the
@@ -338,6 +379,7 @@ pub fn claude_args_for(
     env: &BTreeMap<String, String>,
     args: &[String],
     session_id: &str,
+    cwd: &Path,
 ) -> Vec<String> {
     if left_out(remote_origin, env, args) {
         Vec::new()
@@ -345,11 +387,10 @@ pub fn claude_args_for(
         current()
             .scoped(env)
             .for_session(session_id)
-            // Claude Code has tool search unless its env turns it off or
-            // sends it to another provider.
+            // Claude Code has tool search unless its env or settings turn
+            // it off, send it to another provider, or opt in to code mode.
             .listing(
-                tool_search_on(env)
-                    && own_provider(env)
+                claude_lists_all_tools(env, cwd)
                     && env.get(CODE_MODE_ENV).is_none_or(|v| v.trim() != "1"),
             )
             .claude_args(&mcp_config_path(&crate::config::home(), session_id))

@@ -28,11 +28,23 @@ use tokio::sync::mpsc;
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 const FAKE_CLAUDE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
 
+/// A Claude home with no settings.
+fn empty_home() -> PathBuf {
+    std::env::temp_dir().join(format!("acpmux-agent-tools-claude-empty-{}", std::process::id()))
+}
+
+/// A Claude home whose settings.json turns tool search off.
+fn no_search_home() -> PathBuf {
+    std::env::temp_dir().join(format!("acpmux-agent-tools-claude-home-{}", std::process::id()))
+}
+
 fn hub() -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
             "fake": {"argv": ["python3", FAKE]},
-            "fakeclaude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio"},
+            // Its own empty Claude home: the runner's settings never decide.
+            "fakeclaude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio",
+                "env": {"CLAUDE_CONFIG_DIR": empty_home()}},
             "fakecodex": {"argv": ["python3", FAKE], "family": "codex"},
             "fakeclaude-nosearch": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio",
                 "env": {"ENABLE_TOOL_SEARCH": "false"}},
@@ -46,6 +58,8 @@ fn hub() -> Arc<Hub> {
                 "env": {"CMUX_MCP_CODE_MODE": "1"}},
             "fakeclaude-codemode": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio",
                 "env": {"CMUX_MCP_CODE_MODE": "1"}},
+            "fakeclaude-settings": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio",
+                "env": {"CLAUDE_CONFIG_DIR": no_search_home()}},
         },
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",
@@ -84,6 +98,13 @@ impl Client {
                 text.push_str(t);
             }
         }
+    }
+
+    async fn fork(&mut self, parent: &str) -> String {
+        let params = json!({"sessionId": parent, "mcpServers": [], "_meta": {"acpmux": {}}});
+        let (reply, _) = self.call_text("session/fork", params).await;
+        assert!(reply.get("error").is_none(), "{reply}");
+        reply["result"]["sessionId"].as_str().unwrap().to_owned()
     }
 
     async fn new_session(&mut self, harness: &str) -> String {
@@ -246,6 +267,29 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
     let codex_routed = local.new_session("fakecodex-router").await;
     let listed: Value = serde_json::from_str(&local.ask(&codex_routed, "mcp").await).unwrap();
     assert_eq!(cmux_args(&listed), json!(["mcp", "serve"]), "{listed}");
+    // A fork asks its parent's agent for the same list (decided at the
+    // parent's start): every tool for Codex, code mode for a routed one.
+    // The parent's process got the session/fork, so it reports its servers.
+    local.fork(&codex).await;
+    let listed: Value = serde_json::from_str(&local.ask(&codex, "mcp").await).unwrap();
+    assert_eq!(cmux_args(&listed), json!(["mcp", "serve", "--all-tools"]), "{listed}");
+    local.fork(&codex_routed).await;
+    let listed: Value = serde_json::from_str(&local.ask(&codex_routed, "mcp").await).unwrap();
+    assert_eq!(cmux_args(&listed), json!(["mcp", "serve"]), "{listed}");
+
+    // Claude Code's settings env wins over its process env: a settings.json
+    // that turns tool search off means code mode.
+    let home = no_search_home();
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::write(home.join("settings.json"), r#"{"env": {"ENABLE_TOOL_SEARCH": "false"}}"#)
+        .unwrap();
+    let settled = local.new_session("fakeclaude-settings").await;
+    let settled_argv: Vec<String> = serde_json::from_str(&local.ask(&settled, "hi").await).unwrap();
+    let at = settled_argv.iter().position(|a| a == "--mcp-config").expect("--mcp-config");
+    let settled_config: Value =
+        serde_json::from_str(&std::fs::read_to_string(&settled_argv[at + 1]).unwrap()).unwrap();
+    assert_eq!(settled_config["mcpServers"]["cmux"]["args"], json!(["mcp", "serve"]));
+    let _ = std::fs::remove_dir_all(&home);
     assert_eq!(config["mcpServers"]["cmux-sessions"]["args"], json!(["offer-mcp"]), "{config}");
     assert!(!argv.iter().any(|a| a == "--strict-mcp-config"), "the user's servers stay: {argv:?}");
     let at = argv.iter().position(|a| a == "--plugin-dir").expect("--plugin-dir");

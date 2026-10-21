@@ -631,6 +631,7 @@ impl Hub {
 
     pub(super) fn make_session(&self, meta: SessionMeta) -> Arc<Session> {
         let (inbound_tx, inbound_rx) = mpsc::channel(1024);
+        let steering = meta.steering;
         Arc::new(Session {
             id: meta.id.clone(),
             seq: AtomicU64::new(meta.last_seq),
@@ -660,7 +661,7 @@ impl Hub {
             route_switch: AtomicBool::new(false),
             inbound_tx,
             inbound_rx: Mutex::new(Some(inbound_rx)),
-            steering: AtomicBool::new(false),
+            steering: AtomicBool::new(steering),
             steer_end: tokio::sync::watch::channel(None).0,
             fork_from: StdMutex::new(None),
             applied: StdMutex::new(session::Applied::default()),
