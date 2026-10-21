@@ -72,6 +72,22 @@ struct CloudListMachinesTests {
         #expect(account["limits"] == nil)
     }
 
+    /// Before the store's first load (a relaunch, or signed out) its list says nothing about
+    /// which machines exist: the answer says `loaded: false` with no machines, so a setup
+    /// script never reads "not loaded yet" as "no machines" and creates a second one.
+    @Test func aListThatHasNotLoadedSaysSo() async throws {
+        let services = Self.services()
+        // A session the store holds before any list came back (a create still on its way).
+        _ = MachineIconTests.cloudMachine(services, id: "vm-list-early-\(UUID().uuidString.prefix(8))")
+        #expect(!services.cloud.hasLoadedMachines)
+
+        let fields = try #require(try await Self.run(services, origin: .cli), "a CLI run tracked no result")
+        #expect(fields["loaded"] == .bool(false))
+        #expect(fields["machines"] == .array([]))
+        #expect(fields["count"] == .int(0))
+        #expect(Self.members(fields["account"])?["signed_in"] == .bool(false))
+    }
+
     /// A person's palette run shows the Cloud sidebar instead; it leaves no result to capture.
     @Test func aPersonsRunAnswersNoResult() async throws {
         let services = Self.services()
