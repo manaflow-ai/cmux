@@ -703,6 +703,11 @@ def handle_prompt(rid, params):
             time.sleep(0.3)
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "do-work" anywhere: the turn edits a file (a tool call) before it answers, as a turn that
+    # makes progress does (hub_integration/agent_pairs.rs).
+    if "do-work" in text:
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": "work-1", "title": "Edit notes.md",
+                     "kind": "edit", "status": "completed"})
     update(sid, {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "thinking"}})
     # FAKE_TOOL_CALLS=N: N finished shell calls first, as a working agent's turn shows them.
     for k in range(int(os.environ.get("FAKE_TOOL_CALLS", "0") or 0)):
@@ -791,6 +796,10 @@ def main():
                     result["modes"] = {"currentModeId": "default", "availableModes": [
                         {"id": "default", "name": "Default"}, {"id": "acceptEdits", "name": "Accept Edits"},
                         {"id": "plan", "name": "Plan Mode"}, {"id": "bypassPermissions", "name": "Bypass Permissions"}]}
+                # FAKE_MODELS=<id,id>: the models this account offers (ACP `models`), as Codex reports them.
+                if os.environ.get("FAKE_MODELS"):
+                    ids = os.environ["FAKE_MODELS"].split(",")
+                    result["models"] = {"currentModelId": ids[0], "availableModels": [{"modelId": i, "name": i} for i in ids]}
                 send({"jsonrpc": "2.0", "id": rid, "result": result})
             elif m == "session/set_model" and params.get("modelId") == os.environ.get("FAKE_REFUSE_ID"):
                 send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32602, "message": "model not available"}})
