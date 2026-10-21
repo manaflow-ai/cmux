@@ -763,18 +763,24 @@ fn reference_value(secret: &str) -> String {
     format!("${{{secret}}}")
 }
 
-/// Every local router base URL this daemon run handed to a route (`local_router_with`).
-static ROUTER_URLS: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+/// Every local router port this daemon run handed to a route (`local_router_with`).
+static ROUTER_PORTS: Mutex<BTreeSet<u64>> = Mutex::new(BTreeSet::new());
 
-/// Whether a harness environment names a local router base URL this daemon run handed out:
-/// that harness holds the router's key and port, so it uses that router (cmux issue 23089:
-/// its host record keeps this, `agent_host::HostRecord::uses_local_router`).
+/// Whether a harness environment names the loopback port of a local router this daemon run
+/// handed out (`127.0.0.1`, `localhost` or `[::1]`, in any variable: a route's own base URL
+/// too): that harness holds the router's key and port, so it uses that router (cmux issue
+/// 23089: its host record keeps this, `agent_host::HostRecord::uses_local_router`).
 pub fn names_local_router(env: &[(String, String)]) -> bool {
-    let urls = ROUTER_URLS.lock().unwrap_or_else(|p| p.into_inner());
-    let names = |value: &str, url: &str| {
-        value.strip_prefix(url).is_some_and(|rest| !rest.starts_with(|c: char| c.is_ascii_digit()))
+    let ports = ROUTER_PORTS.lock().unwrap_or_else(|p| p.into_inner());
+    let names = |value: &str, port: u64| {
+        ["127.0.0.1", "localhost", "[::1]"].iter().any(|host| {
+            let needle = format!("{host}:{port}");
+            value.match_indices(&needle).any(|(at, _)| {
+                !value[at + needle.len()..].starts_with(|c: char| c.is_ascii_digit())
+            })
+        })
     };
-    env.iter().any(|(_, value)| urls.iter().any(|url| names(value, url)))
+    env.iter().any(|(_, value)| ports.iter().any(|port| names(value, *port)))
 }
 
 /// The local CodeRouter's loopback base URL and a key it minted for acpmux.
@@ -832,7 +838,7 @@ pub fn local_router_with(
         }
     }
     let url = format!("http://127.0.0.1:{port}");
-    ROUTER_URLS.lock().unwrap_or_else(|p| p.into_inner()).insert(url.clone());
+    ROUTER_PORTS.lock().unwrap_or_else(|p| p.into_inner()).insert(port);
     let mut minted = MINTED.lock().unwrap_or_else(|p| p.into_inner());
     if let Some(key) = minted.get(&(port, family.to_owned())) {
         return Ok((url, key.clone()));
