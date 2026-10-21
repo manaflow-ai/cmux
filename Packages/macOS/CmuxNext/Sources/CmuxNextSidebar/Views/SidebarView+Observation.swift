@@ -40,6 +40,8 @@ extension SidebarViewComponents {
         var history: SidebarChatHistoryState?
         /// Workspaces as tabs (`SidebarTunables.workspacesAsTabs`): one-line rows.
         var workspacesAsTabs: Bool
+        /// Group by Status (`SidebarTunables.groupByStatus`, Debug, off by default).
+        var groupsByStatus: Bool
         init(_ model: SidebarModel, _ design: DesignSettings) {
             sectionsRevision = model.observedStructureRevision
             selection = model.selection
@@ -64,6 +66,7 @@ extension SidebarViewComponents {
             pullRequests = SidebarSessionTree.shared.pullRequests
             history = SidebarChatHistory.shared.state
             workspacesAsTabs = SidebarTunables.workspacesAsTabs.value
+            groupsByStatus = SidebarTunables.groupByStatus.value
         }
     }
     func observe() {
@@ -98,10 +101,11 @@ extension SidebarViewComponents {
             || state.preferences.changesList(from: lastState?.preferences) || lastState?.tree != state.tree
             || lastState?.pullRequests != state.pullRequests
             || lastState?.history != state.history
-            || lastState?.workspacesAsTabs != state.workspacesAsTabs
+            || lastState?.workspacesAsTabs != state.workspacesAsTabs || lastState?.groupsByStatus != state.groupsByStatus
         let listChanged = rowsChanged || selectionChanged
         let previous = lastState == nil ? nil : lastSections
         model.applyListPreferences(state.preferences)
+        model.groupByStatus(state.groupsByStatus)
         // Minimal mode or an item's control changed: show or hide the chosen bands now.
         if lastState?.preferences.minimalMode != state.preferences.minimalMode || lastState?.itemInfo != state.itemInfo {
             setChromeRevealed(isChromeRevealed)

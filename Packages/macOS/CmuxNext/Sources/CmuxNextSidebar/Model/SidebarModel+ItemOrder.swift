@@ -27,7 +27,7 @@ extension SidebarModel {
         }
         var options = SidebarLayoutOptions()
         options.filterMatches = filterMatches
-        options.groupsByFolder = groupsByFolder
+        options.grouping = settledGrouping()
         // The session tree moves a started workspace under its parent: the numbers follow the drawn order.
         options.sessionTree = SidebarSessionTree.shared.state.map { SidebarSessionTreeState(parents: $0.parents) }
         // The sidebar document draws its sections in the list: a block's items are stops where the block draws.
@@ -73,7 +73,7 @@ nonisolated struct SidebarItemOrderInputs: Equatable, Sendable {
     var room: ProfileKey?
     var suppressedApps: Set<String>
     var transientTopItems: [SidebarTransientItem]
-    var groupsByFolder: Bool
+    var grouping: SidebarGrouping
     var collapsedLayoutSections: Set<LayoutSectionID>
     var treeParents: [WorkspaceID: WorkspaceID]?
 
@@ -85,7 +85,7 @@ nonisolated struct SidebarItemOrderInputs: Equatable, Sendable {
         room = model.activeProfileID
         suppressedApps = model.suppressedApps
         transientTopItems = model.transientTopItems
-        groupsByFolder = model.groupsByFolder
+        grouping = model.grouping
         collapsedLayoutSections = model.collapsedLayoutSections
         treeParents = SidebarSessionTree.shared.state?.parents
     }

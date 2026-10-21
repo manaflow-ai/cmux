@@ -158,18 +158,6 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             !o.excludedWorkspaces.contains(ws.id) && (o.filterMatches?.contains(ws.id) ?? true)
         }
 
-        // `showWorkspaceTabs` lists every workspace's tabs, except those
-        // the user collapsed with the row's disclosure.
-        func listsTabs(_ ws: SidebarWorkspace) -> Bool {
-            o.showWorkspaceTabs && !o.collapsedWorkspaces.contains(ws.id)
-        }
-
-        func disclosure(_ ws: SidebarWorkspace) -> SidebarTabDisclosure? {
-            guard o.showWorkspaceTabs else { return nil }
-            if ws.tabs.isEmpty { return .empty }
-            return o.collapsedWorkspaces.contains(ws.id) ? .collapsed : .expanded
-        }
-
         func openGapIfNeeded(section: SectionID, group: GroupID?, index: Int) {
             guard gapY == nil, let gap = o.gap, gap.section == section, gap.group == group, gap.index == index else { return }
             gapY = y
@@ -180,9 +168,15 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         var chats = SidebarChatHistoryPlacement(filtering ? nil : o.chatHistory, metrics: m)
         let lastMachine = sections.lastIndex { $0.machine != nil }
 
-        var firstSection = true
+        var firstSection = true, statusShown = false
         for (sectionIndex, section) in sections.enumerated() {
             if let lastMachine, sectionIndex > lastMachine { chats.placeEarlier(&y) }
+            // Group by Status lays every computer's rows out once, in place of their sections (`SidebarLayout+Status`).
+            if o.grouping.byStatus && !filtering && section.machine != nil {
+                if !statusShown { rows += statusRows(sections, spaced: !firstSection, chats: &chats, options: o, metrics: m, visible: visible, y: &y) }
+                (statusShown, firstSection, previousWasMachine, previousWasBlock) = (true, false, false, false)
+                continue
+            }
             // Nodes that remain, with their visible children.
             var nodes: [(node: SidebarNode, children: [SidebarWorkspace])] = []
             // Nested groups (remote-groups-DESIGN.md slice 2) list flat, a group before its
@@ -315,10 +309,10 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                         key: .workspace(ws.id), y: y, height: h, section: section.id,
                         group: nil, siblingIndex: index, parentIndex: nil, isLastInGroup: false,
                         isCollapsed: false, childCount: 0, groupColor: nil,
-                        tabDisclosure: disclosure(ws), content: content
+                        tabDisclosure: o.tabDisclosure(ws), content: content
                     ))
                     y += h + m.rowSpacing
-                    if listsTabs(ws) {
+                    if o.listsTabs(ws) {
                         for tab in ws.tabs {
                             rows.append(SidebarRow(
                                 key: .tab(ws.id, tab.id), y: y, height: m.tabRowHeight, section: section.id,
@@ -373,7 +367,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                             rows.append(SidebarRow(key: .workspace(ws.id), y: y, height: h, section: section.id, group: group.id,
                                                    siblingIndex: childIndex, parentIndex: index, isLastInGroup: n == kept.count - 1,
                                                    isCollapsed: false, childCount: 0, groupColor: group.color,
-                                                   tabDisclosure: disclosure(ws), content: content))
+                                                   tabDisclosure: o.tabDisclosure(ws), content: content))
                             y += h + m.rowSpacing
                         }
                         return
@@ -404,10 +398,10 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                             group: group.id, siblingIndex: childIndex, parentIndex: index,
                             isLastInGroup: position == drawn.count - 1,
                             isCollapsed: false, childCount: 0, groupColor: group.color,
-                            tabDisclosure: disclosure(ws), content: content
+                            tabDisclosure: o.tabDisclosure(ws), content: content
                         ))
                         y += h + m.rowSpacing
-                        if listsTabs(ws) {
+                        if o.listsTabs(ws) {
                             for tab in ws.tabs {
                                 rows.append(SidebarRow(
                                     key: .tab(ws.id, tab.id), y: y, height: m.tabRowHeight, section: section.id,

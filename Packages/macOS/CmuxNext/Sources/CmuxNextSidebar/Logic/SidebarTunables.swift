@@ -97,6 +97,14 @@ public nonisolated enum SidebarTunables {
         help: "A workspace row says needs you, done, failed or lost at the right of its name, in the Priority view's words, for the most urgent agent chat in it on this Mac.",
         default: true, code: "SidebarTunables.rowStatus")
 
+    /// Group by Status (Leo 2026-10-14, #20905): the list's rows under the Priority view's states, from the state each
+    /// row already carries from the Priority classifier, in manual order inside each (`SidebarLayout+Status`). Off by
+    /// default; it wins over Group Projects By while on.
+    public static let groupByStatus = Tunable<Bool>.toggle(
+        "sidebar.groupByStatus", .sidebar, "Group by status",
+        help: "Lists every computer's rows under the Priority view's states (Needs you, Done, Failed, CI failing, Working, Idle) with counts, in your order inside each. Rows move as their state changes; the active row stays put until another row is active.",
+        default: false, code: "SidebarTunables.groupByStatus")
+
     /// The workspace hover card says what its agents did since the person last looked at it
     /// (`SidebarLookedStore`): turns done, questions, failures. On by default.
     public static let sinceLooked = Tunable<Bool>.toggle(
@@ -186,6 +194,7 @@ public nonisolated enum SidebarTunables {
             collapseMotion.descriptor,
             dragThreshold.descriptor,
             evenRowText.descriptor,
+            groupByStatus.descriptor,
             groupEdgeFraction.descriptor,
             groupExitFraction.descriptor,
             laneStatus.descriptor,

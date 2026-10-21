@@ -25,7 +25,7 @@ extension SidebarListViewComponents {
             target = .tab(workspace, tab)
         case let .item(item)?:
             target = .layoutItem(LayoutItemID(item))
-        case .block?:
+        case .block?, .status?:
             target = .background
         case nil:
             target = .background
