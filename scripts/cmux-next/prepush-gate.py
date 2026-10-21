@@ -14,7 +14,8 @@ Layers (each one only on files the push changes under Packages/macOS/CmuxNext, c
   scanners     the CI job's line scanners: concurrency, crash safety, dialog key hints, type scale,
                motion, scrollbars, state roots, process scan, Swift CLI, closed history, test
                notification centers, string tables, module resources, capability text, browser
-               chrome icons, App Store review rules (also on cmux-next-ios/ changes)
+               chrome icons, App Store review rules (also on cmux-next-ios/ changes), the perf
+               source guard
   ast-grep     scripts/cmux-next/lint/ast-grep-rules: try!, blocking calls, raw font sizes, system
                dialogs (tree-sitter, so comments, strings and `case .alert` never match)
   swiftformat  --lint with scripts/cmux-next/lint/swiftformat.conf
@@ -97,6 +98,8 @@ SCANNERS = (
     ("Browser chrome icons", ["python3", "-I", "{s}/lint-browser-chrome-icons.py"], (PKG + "/",)),
     ("App Store review rules (cmux-next-ios intents, Info.plist)",
      ["python3", "-I", "{s}/check-app-store-rules.py", "--source", "{root}"], ("cmux-next-ios/",)),
+    ("Perf source guard (no window capture or CATransaction.flush)",
+     ["python3", "-I", "{s}/check-perf-source-guard.py", "{root}"], (PKG + "/",)),
 )
 
 # Ghostty's default split keys stay Ghostty's (Lawrence 2026-10-20, after 2f3e1f95983).

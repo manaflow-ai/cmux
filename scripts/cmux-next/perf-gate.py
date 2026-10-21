@@ -57,7 +57,7 @@ The script launches the app itself (no activation, automation socket, scratch co
 Ghostty config, isolated Chief home), quits it and ends the tag's daemons (tag_teardown). The
 app must not be running. Exit 1 on any blocking failure.
 """
-import argparse, json, os, re, socket, subprocess, sys, tempfile, threading, time
+import argparse, importlib.util, json, os, re, socket, subprocess, sys, tempfile, threading, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -101,15 +101,10 @@ NEW_ROW_BUDGET_MS = FRAME_BUDGET_MS
 SCENARIOS = ["workspaces", "theme", "drag", "tabs", "split", "relaunch", "new_workspaces", "status"]
 
 ROOT = os.path.abspath(os.path.join(HERE, "../.."))
-SOURCES = "Packages/macOS/CmuxNext/Sources"
-ALLOW = re.compile(r"//\s*perf-gate-ok:\s*\S")
-# Window capture APIs and the files that may use them (the capture helpers and the debug tools).
-CAPTURE = re.compile(r"CGWindowListCreateImage|CGDisplayCreateImage|SCScreenshotManager|\.renderSnapshot\(\)"
-                     r"|\.compositedSnapshot\(|\.childWindowsSnapshot\(|\.floatingWindowsSnapshot\(\)|\.writeSnapshot\(to")
-CAPTURE_FILES = re.compile(r"/CmuxNextDesign/Windows/(NSWindow\+Snapshot|WindowFrame)\.swift$"
-                           r"|/CmuxNextApp/Control/Debug[^/]*\.swift$|/CmuxNextApp/Focus/DebugPaletteCapture\.swift$"
-                           r"|/CmuxNextApp/Popups/DebugPopups\.swift$")
-FLUSH = re.compile(r"\bCATransaction\.flush\(")
+# The source guard's rule lives in check-perf-source-guard.py, which CI and the pre-push gate run alone.
+_spec = importlib.util.spec_from_file_location("perf_source_guard", os.path.join(HERE, "check-perf-source-guard.py"))
+perf_source_guard = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(perf_source_guard)
 
 failures, warnings, report = [], [], {"checks": [], "phases": {}}
 
@@ -132,26 +127,10 @@ def warn(what, scenario):
 # -- source guard ------------------------------------------------------------
 
 def source_guard():
-    files = subprocess.run(["git", "-C", ROOT, "ls-files", "--", f"{SOURCES}/*.swift"],
-                           capture_output=True, text=True, check=True).stdout.split()
-    hits = []
-    for rel in files:
-        try:
-            lines = open(os.path.join(ROOT, rel), encoding="utf-8").read().splitlines()
-        except OSError:
-            continue
-        for i, line in enumerate(lines):
-            code = line.split("//", 1)[0]
-            rule = None
-            if FLUSH.search(code):
-                rule = "CATransaction.flush forces a commit"
-            elif CAPTURE.search(code) and not CAPTURE_FILES.search("/" + rel):
-                rule = "window capture outside the debug tools"
-            if rule and not (ALLOW.search(line) or (i and ALLOW.search(lines[i - 1]))):
-                hits.append(f"{rel}:{i + 1}: {rule}: {line.strip()[:120]}")
+    hits, count = perf_source_guard.scan(ROOT)
     for hit in hits:
         print("  " + hit, flush=True)
-    check(not hits, f"no CATransaction.flush and no window capture outside the debug tools ({len(files)} files, "
+    check(not hits, f"no CATransaction.flush and no window capture outside the debug tools ({count} files, "
                     f"{len(hits)} hits; a reviewed exception carries `// perf-gate-ok: <reason>`)", "source guard")
 
 
