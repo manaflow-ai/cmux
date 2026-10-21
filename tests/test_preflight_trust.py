@@ -76,8 +76,8 @@ class PreflightTrustTests(unittest.TestCase):
         """The installed hook set must never execute code from a pushed tree.
 
         The pre-push hook (web lint, cmux-next checks) is a reviewed copy outside the
-        checkout, and it runs only the helpers installed beside it, never a script from
-        the checkout or the pushed tree."""
+        checkout, and it runs only the helpers installed beside it, never code the push
+        changes. (The web lint still runs the checkout's unchanged `check` script.)"""
         self.assertFalse((SOURCE / "scripts/verify-push.py").exists())
         common = Path(self.git("rev-parse", "--git-common-dir").stdout.strip())
         if not common.is_absolute():
