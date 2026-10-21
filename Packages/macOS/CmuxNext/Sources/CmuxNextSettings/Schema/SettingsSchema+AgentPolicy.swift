@@ -281,6 +281,8 @@ extension SettingsSchema {
         "agentPane.links.outsideRoots": .privacy,
         "agentPane.images.remote": .network,
         "app.quitBehavior": .destructive,
+        // Off, Cmd-Q quits without asking.
+        "app.confirmQuit": .destructive,
         // On, a key is taken from every other app system-wide.
         "app.globalHotKey": .userOnly,
         "app.startAgentGlobalHotKey": .userOnly,

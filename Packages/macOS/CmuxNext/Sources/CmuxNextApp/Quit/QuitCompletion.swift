@@ -8,7 +8,7 @@ enum QuitFailureAnswer: Equatable {
 }
 
 /// The work between the quit decision and AppKit's reply, in order:
-/// remember the choice ("Don't ask again"), save and close windows
+/// remember the choice and stop confirming ("Don't ask again"), save and close windows
 /// (incognito workspaces close here), then, for an End choice, end the
 /// local acpmux agents (except the Home Chief's), then the local terminals,
 /// and stop the local daemon (End Everything deletes the local workspaces
@@ -21,6 +21,9 @@ enum QuitFailureAnswer: Equatable {
 /// machine), so nothing the user asked for may come after it.
 struct QuitSteps {
     var remember: @MainActor (QuitBehavior) async -> Void
+    /// "Don't ask again" also turns `app.confirmQuit` off, so the next quit
+    /// does not ask.
+    var stopConfirming: @MainActor () async -> Void = {}
     var prepareWindows: @MainActor () async -> Void
     /// Ends the local sessions; returns every step that failed.
     var endLocalSessions: @MainActor (QuitSessionsChoice) async -> [EndSessionsFailure]
@@ -35,7 +38,10 @@ struct QuitSteps {
 enum QuitCompletion {
     @MainActor
     static func run(_ choice: QuitSessionsChoice, remember: Bool, _ steps: QuitSteps) async {
-        if remember { await steps.remember(QuitPolicy.remembered(choice)) }
+        if remember {
+            await steps.remember(QuitPolicy.remembered(choice))
+            await steps.stopConfirming()
+        }
         await steps.prepareWindows()
         if choice.ends {
             var failures = await steps.endLocalAgents() + steps.endLocalSessions(choice)

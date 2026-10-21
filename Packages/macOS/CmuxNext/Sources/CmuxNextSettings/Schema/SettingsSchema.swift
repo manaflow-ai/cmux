@@ -219,6 +219,19 @@ public nonisolated enum SettingsSchema {
                 keywords: ["quit", "exit", "sessions", "terminals", "cmux-tui", "daemon", "background"]
             ),
             SettingDescriptor(
+                ConfirmQuitMode.configPath, section: .general, group: quitting,
+                title: SettingsText.keyed("settings.app.confirmQuit", "Confirm Before Quitting"),
+                help: SettingsText.keyed("settings.app.confirmQuit.help", "Asks before Cmd-Q, the Quit menu or the Dock quits cmux."),
+                kind: .choice([
+                    SettingChoice(ConfirmQuitMode.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
+                    SettingChoice(ConfirmQuitMode.dirtyOnly.rawValue,
+                                  SettingsText.keyed("settings.choice.confirmQuitDirtyOnly", "When Programs Are Running")),
+                    SettingChoice(ConfirmQuitMode.never.rawValue, SettingsText.keyed("settings.choice.never", "Never")),
+                ]),
+                default: .string(ConfirmQuitMode.fallback.rawValue),
+                keywords: ["quit", "exit", "confirm", "warn", "ask", "cmd-q", "accidental"]
+            ),
+            SettingDescriptor(
                 DefaultColumnWidthSetting.configPath, section: .general, group: columns,
                 title: SettingsText.keyed("settings.layout.fixedColumnWidth", "Fixed Column Width"),
                 help: SettingsText.keyed("settings.layout.fixedColumnWidth.help", "A share of the window width, for Fixed Width new columns."),
