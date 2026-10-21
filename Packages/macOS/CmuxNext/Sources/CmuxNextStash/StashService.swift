@@ -1,5 +1,5 @@
 import CmuxNextCompat
-import CmuxNextDaemon
+public import CmuxNextDaemon
 import CmuxNextDaemonService
 public import CmuxNextHistory
 import Foundation
