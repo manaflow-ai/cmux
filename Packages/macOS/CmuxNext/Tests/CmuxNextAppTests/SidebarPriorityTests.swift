@@ -39,18 +39,4 @@ struct SidebarPriorityTests {
 
         #expect(SidebarPriority().items([idle, unread]).map { $0.id.rawValue } == ["unread", "idle"])
     }
-
-    @Test func reordersNodesWithoutMovingPinnedRows() {
-        let waiting = SidebarWorkspace(id: .init("waiting"), title: "waiting", activity: .waiting)
-        let idle = SidebarWorkspace(id: .init("idle"), title: "idle")
-        let group = SidebarGroup(id: .init("group"), name: "Group", workspaces: [idle, waiting])
-        let pinned = SidebarSection(kind: .pinned, nodes: [.workspace(idle)])
-        let machine = SidebarSection(kind: .machine(.init(id: .local, name: "This Mac", kind: .local)), nodes: [.workspace(idle), .group(group)])
-
-        let sections = SidebarPriority().reordered([pinned, machine])
-        #expect(sections[0].nodes == [.workspace(idle)])
-        #expect(sections[1].nodes.map(\.id) == [.group(.init("group")), .workspace(.init("idle"))])
-        guard case let .group(reorderedGroup) = sections[1].nodes[0] else { return #expect(Bool(false)) }
-        #expect(reorderedGroup.workspaces.map(\.id) == [.init("waiting"), .init("idle")])
-    }
 }

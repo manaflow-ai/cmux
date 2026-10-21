@@ -48,7 +48,7 @@ public nonisolated struct SidebarPriorityItem: Identifiable, Hashable, Sendable 
     }
 }
 
-/// Computes the dynamic attention order used by the workspace sidebar.
+/// Computes the attention order of the Priority view. The workspace sidebar keeps the user's manual order.
 public nonisolated struct SidebarPriority: Sendable {
     /// Creates a stateless priority calculator.
     public init() {}
@@ -70,73 +70,5 @@ public nonisolated struct SidebarPriority: Sendable {
             .map(\.element)
         guard let limit else { return sorted }
         return Array(sorted.prefix(max(0, limit)))
-    }
-
-    /// Reorders live sections while preserving pins, groups and manual ties.
-    /// Group members are ranked inside their group and the group itself is
-    /// ranked by its strongest member, so a waiting agent brings its project
-    /// group forward without flattening the user's organization.
-    public func reordered(_ sections: [SidebarSection]) -> [SidebarSection] {
-        // Workspace creation and snapshot publication refresh the sidebar many
-        // times while a new row is still idle. The common case is already in
-        // priority order; avoid copying and sorting every section on each
-        // refresh. This keeps the attention projection cheap during Cmd-N
-        // bursts without changing the ordering when a row becomes actionable.
-        guard needsReorder(sections) else { return sections }
-        return sections.map { section in
-            guard section.id != .pinned else { return section }
-            var result = section
-            result.nodes = section.nodes
-                .map { node -> SidebarNode in
-                    guard case let .group(existingGroup) = node else { return node }
-                    var group = existingGroup
-                    group.workspaces = ordered(group.workspaces)
-                    return .group(group)
-                }
-                .sorted { lhs, rhs in
-                    nodeRank(lhs) < nodeRank(rhs)
-                }
-            return result
-        }
-    }
-
-    private func needsReorder(_ sections: [SidebarSection]) -> Bool {
-        for section in sections where section.id != .pinned {
-            var previousNodeRank: Int?
-            for node in section.nodes {
-                if case let .group(group) = node {
-                    var previousWorkspaceRank: Int?
-                    for workspace in group.workspaces {
-                        let rank = workspaceRank(workspace)
-                        if let previousWorkspaceRank, rank < previousWorkspaceRank { return true }
-                        previousWorkspaceRank = rank
-                    }
-                }
-                let rank = nodeRank(node)
-                if let previousNodeRank, rank < previousNodeRank { return true }
-                previousNodeRank = rank
-            }
-        }
-        return false
-    }
-
-    private func nodeRank(_ node: SidebarNode) -> Int {
-        node.workspaces.map(workspaceRank).min() ?? SidebarPriorityBucket.idle.rawValue
-    }
-
-    private func workspaceRank(_ workspace: SidebarWorkspace) -> Int {
-        workspace.rowState == .placeholder ? SidebarPriorityBucket.idle.rawValue : SidebarPriorityItem(workspace: workspace).bucket.rawValue
-    }
-
-    private func ordered(_ workspaces: [SidebarWorkspace]) -> [SidebarWorkspace] {
-        workspaces
-            .enumerated()
-            .sorted { lhs, rhs in
-                let left = workspaceRank(lhs.element)
-                let right = workspaceRank(rhs.element)
-                if left != right { return left < right }
-                return lhs.offset < rhs.offset
-            }
-            .map(\.element)
     }
 }
