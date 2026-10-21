@@ -36,7 +36,8 @@ export function QueuedImages({
         const to = event.relatedTarget;
         const row = event.currentTarget.parentElement;
         if (!editing || (to instanceof Node && to !== row && row?.contains(to))) return;
-        if (document.hasFocus()) onLeave?.();
+        // Focus moving to another element of the page, or a click on none; not the window losing it.
+        if (to || document.hasFocus()) onLeave?.();
       }}
     >
       {images.map((image, index) => (

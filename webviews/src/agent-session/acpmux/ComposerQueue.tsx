@@ -589,7 +589,7 @@ function QueuedEdit({
         const to = event.relatedTarget;
         const images = event.currentTarget.parentElement?.querySelector(".acpmux-queued-images");
         if (to instanceof Node && images?.contains(to)) return;
-        if (document.hasFocus()) finish(event.currentTarget.value);
+        if (to || document.hasFocus()) finish(event.currentTarget.value);
       }}
     />
   );
