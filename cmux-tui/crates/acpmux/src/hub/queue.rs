@@ -536,7 +536,8 @@ impl Hub {
         let mut unstarted = lost_start::Unstarted::default();
         let scanned =
             self.store.scan_kinds(&session.id, Self::QUEUE_KINDS, &mut |e: EventRecord| {
-                unstarted.read(&e, &waiting);
+                let settled = unstarted.read(&e, &waiting);
+                waiting.retain(|q| q.msg.get("turnId").is_none_or(|t| !settled.contains(t)));
                 if matches!(e.kind.as_str(), "queued" | "user_message")
                     && let Some(id) = e.msg.get("promptId").and_then(Value::as_str)
                 {
@@ -552,6 +553,15 @@ impl Hub {
                     | "agent_pair_resumed" => pair_records.push(e),
                     "transfer_out" => moving = e.msg["transferId"].as_str().map(str::to_owned),
                     "transfer_aborted" | "imported" => moving = None,
+                    // Left the queue for a turn that has not started (`lost_start.rs`): it goes
+                    // back ahead of the queue, as it left, and no failed turn holds it.
+                    "dequeued" | "user_message" if unstarted.holds(turn_id) => {
+                        if let Some(id) = e.msg.get("promptId").filter(|_| e.kind == "dequeued") {
+                            order.retain(|o| o != id);
+                            order.insert(unstarted.place(turn_id).min(order.len()), id.clone());
+                            held.retain(|o| o != id);
+                        }
+                    }
                     "dequeued" | "queue_removed" | "user_message" | "turn_started" => {
                         waiting.retain(|q| q.msg.get("turnId") != turn_id);
                     }
@@ -593,17 +603,14 @@ impl Hub {
             });
         self.restore_agent_pairs(&session.id, pair_records, &recorded);
         session.moving.lock().unwrap_or_else(|e| e.into_inner()).clone_from(&moving);
-        let unstarted = unstarted.prompts();
-        if scanned.is_err() || (waiting.is_empty() && unstarted.is_empty()) {
+        if scanned.is_err() || waiting.is_empty() {
             return;
         }
-        // The last reorder holds; a prompt queued after it keeps its place at the end.
+        // The last reorder holds (a prompt that left the queue for its turn went back ahead of
+        // it); a prompt queued after it keeps its place at the end.
         waiting.sort_by_key(|q| {
             order.iter().position(|id| Some(id) == q.msg.get("promptId")).unwrap_or(order.len())
         });
-        // A prompt that left the queue for its turn runs first, as it would have.
-        held.retain(|id| unstarted.iter().all(|q| q.msg.get("promptId") != Some(id)));
-        let waiting: Vec<EventRecord> = unstarted.into_iter().chain(waiting).collect();
         let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
         let mut restored = session.restored.lock().unwrap_or_else(|e| e.into_inner());
