@@ -59,6 +59,7 @@ app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$work/reload.log" | tail -n 1)"
 [[ -n "$app" && -d "$app" ]] || { echo "perf100.sh: reload printed no app path" >&2; tail -n 40 "$work/reload.log"; exit 1; }
 bin="$app/Contents/Resources/bin"
 out="$work/out"
+mkdir -p "$out"
 common=(--seed "$seed" --out "$out" --tag "$tag" --sha "$sha" --host-class "$host_class" $quick)
 scratch="$(mktemp -d /private/tmp/p100.XXXXXX)"
 trap 'rm -rf "$scratch"' EXIT
@@ -80,6 +81,6 @@ json.dump({"schema": "perf100.bundle.v1", "runs": runs}, open(sys.argv[2], "w"))
 PY
 python3 scripts/perf100/perf100.py report "$out"
 if [ "$gate" = 1 ]; then
-  python3 scripts/perf100/perf100.py budget --results "$out" || status=1
+  python3 scripts/perf100/perf100.py budget --results "$out" --host-class "$host_class" || status=1
 fi
 exit "$status"

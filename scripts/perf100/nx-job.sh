@@ -53,7 +53,7 @@ if [ "$acpmux_sessions" != "none" ]; then
 fi
 rm -rf "$scratch"
 "$py" scripts/perf100/perf100.py report "$out" --md "$out/perf100.md" > /dev/null
-"$py" scripts/perf100/perf100.py budget --results "$out" | tee "$out/budget.md" | tail -n 1
+"$py" scripts/perf100/perf100.py budget --results "$out" --host-class "${PERF100_HOST_CLASS:-cmux-lawrence-2}" | tee "$out/budget.md" | tail -n 1
 # The tagged app's leftovers (the scenarios quit every app they launched): nx-remote's own stop.
 [ -n "${NX_APP_STOP:-}" ] && "$NX_APP_STOP" > /dev/null 2>&1
 exit "$status"

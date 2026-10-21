@@ -124,6 +124,7 @@ def main(argv=None):
     p = sub.add_parser("budget")
     p.add_argument("--results", nargs="+", required=True)
     p.add_argument("--budgets", default=os.path.join(HERE, "budgets.json"))
+    p.add_argument("--host-class", help="this host's class: its budgets must have a matching run")
 
     args = parser.parse_args(argv)
     if args.command == "report":
@@ -141,7 +142,7 @@ def main(argv=None):
             print(path)
         return 0
     if args.command == "budget":
-        code, text = report.check_budgets(args.budgets, _paths(args.results))
+        code, text = report.check_budgets(args.budgets, _paths(args.results), args.host_class)
         print(text)
         return code
 

@@ -3,7 +3,9 @@
 macOS (one call per process, no wakeup of the process read):
   proc_pid_rusage(RUSAGE_INFO_V6), u64 words:
     2, 3   ri_user_time, ri_system_time (mach ticks)       -> cpu_ns
-    4, 5   ri_pkg_idle_wkups + ri_interrupt_wkups          -> wakeups (what Activity Monitor shows)
+    4      ri_pkg_idle_wkups                               -> wakeups (Activity Monitor "Idle Wake Ups",
+                                                              top IDLEW; a subset of interrupt wakeups)
+    5      ri_interrupt_wkups                              -> interrupt_wakeups (every interrupt wakeup)
     8      ri_resident_size                                -> rss
     9      ri_phys_footprint                               -> footprint (Activity Monitor "Memory")
     18, 19 ri_diskio_bytesread / ri_diskio_byteswritten    -> disk_read_io, disk_write_io (I/O that
@@ -37,16 +39,17 @@ IS_MAC = sys.platform == "darwin"
 IS_LINUX = sys.platform.startswith("linux")
 MB = 1048576.0
 
-FIELDS = ("cpu_ns", "wakeups", "rss", "footprint", "max_footprint", "threads", "disk_write_logical",
+FIELDS = ("cpu_ns", "wakeups", "interrupt_wakeups", "rss", "footprint", "max_footprint", "threads", "disk_write_logical",
           "disk_write_io", "disk_read_io", "syscalls", "csw", "energy_nj")
 # Fields that only grow over a process's life: a window reports last - first.
-CUMULATIVE = ("cpu_ns", "wakeups", "disk_write_logical", "disk_write_io", "disk_read_io", "syscalls", "csw",
+CUMULATIVE = ("cpu_ns", "wakeups", "interrupt_wakeups", "disk_write_logical", "disk_write_io", "disk_read_io", "syscalls", "csw",
               "energy_nj")
 
 if IS_MAC:
     SOURCES = {
         "cpu": "proc_pid_rusage(RUSAGE_INFO_V6) ri_user_time + ri_system_time",
-        "wakeups": "proc_pid_rusage ri_pkg_idle_wkups + ri_interrupt_wkups",
+        "wakeups": "proc_pid_rusage ri_pkg_idle_wkups (Activity Monitor Idle Wake Ups); ri_interrupt_wkups "
+                   "(a superset) as interrupt_wakeups",
         "rss": "proc_pid_rusage ri_resident_size",
         "footprint": "proc_pid_rusage ri_phys_footprint (Activity Monitor Memory; footprint(1) total)",
         "threads": "proc_pidinfo(PROC_PIDTASKINFO) pti_threadnum",
@@ -54,8 +57,8 @@ if IS_MAC:
                         "buffer cache; the most precise unprivileged per-process write counter on macOS)",
         "disk_io_written": "proc_pid_rusage ri_diskio_byteswritten (I/O the process issued to storage)",
         "syscalls": "proc_pidinfo(PROC_PIDTASKINFO) pti_syscalls_mach + pti_syscalls_unix",
-        "socket_bytes": "nettop -P -L 1 -x (TCP/UDP per process); Unix-domain socket bytes have no "
-                        "unprivileged per-process counter on macOS, so only harness-owned connections count them",
+        "socket_bytes": "bytes the harness's own clients receive (attach streams, acpmux send); macOS has no "
+                        "unprivileged per-process Unix-socket byte counter",
     }
 else:
     SOURCES = {
@@ -126,7 +129,8 @@ def _read_mac(pid: int) -> dict | None:
                                      ctypes.byref(task), ctypes.c_int(size)) == size
     return {
         "cpu_ns": (buf[2] + buf[3]) * _timebase.numer // _timebase.denom,
-        "wakeups": buf[4] + buf[5],
+        "wakeups": buf[4],
+        "interrupt_wakeups": buf[5],
         "rss": buf[8],
         "footprint": buf[9],
         "max_footprint": buf[30],
@@ -191,6 +195,7 @@ def _read_linux(pid: int) -> dict | None:
     return {
         "cpu_ns": (int(fields[11]) + int(fields[12])) * 1_000_000_000 // _CLK,
         "wakeups": switches,
+        "interrupt_wakeups": None,
         "rss": rss,
         "footprint": pss if pss is not None else rss,
         "max_footprint": kb("VmHWM"),
@@ -230,29 +235,6 @@ def descendants(roots: set[int], table: list[tuple[int, int, str]]) -> set[int]:
     return found
 
 
-def net_bytes() -> dict[int, tuple[int, int]] | None:
-    """macOS: {pid: (bytes_in, bytes_out)} of TCP/UDP since each socket opened (nettop), or None."""
-    if not IS_MAC:
-        return None
-    try:
-        out = subprocess.run(["nettop", "-P", "-L", "1", "-x", "-n", "-J", "bytes_in,bytes_out"],
-                             capture_output=True, text=True, timeout=20).stdout
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    totals: dict[int, tuple[int, int]] = {}
-    for line in out.splitlines()[1:]:
-        cells = line.split(",")
-        if len(cells) < 3:
-            continue
-        name = cells[0]
-        pid_text = name.rsplit(".", 1)[-1]
-        try:
-            totals[int(pid_text)] = (int(cells[1] or 0), int(cells[2] or 0))
-        except ValueError:
-            continue
-    return totals
-
-
 def du(path: str) -> dict:
     """Allocated and apparent bytes and the file count under `path` (no symlinks followed)."""
     allocated = apparent = files = 0
@@ -286,6 +268,7 @@ class Tracker:
         self.kind: dict[int, str] = {}
         self.born_inside: set[int] = set()
         self.samples: list[dict] = []
+        self.alive: set[int] = set()
         self._stop = threading.Event()
         self._thread = None
         self._lock = threading.Lock()
@@ -293,11 +276,13 @@ class Tracker:
     def _sample(self, initial: bool = False):
         found = self.discover()
         totals: dict[str, float] = {}
+        alive: set[int] = set()
         now = time.monotonic()
         for pid, kind in found.items():
             got = read(pid)
             if got is None:
                 continue
+            alive.add(pid)
             with self._lock:
                 if pid not in self.first:
                     if initial:
@@ -310,6 +295,7 @@ class Tracker:
                 self.kind[pid] = kind
             totals[kind] = totals.get(kind, 0.0) + (got["footprint"] or 0)
         self.samples.append({"t": now, "footprint_by_kind": totals})
+        self.alive = alive
 
     def start(self):
         self.began = time.monotonic()
@@ -339,7 +325,8 @@ class Window:
         self.rows = []
         for pid, last in tracker.last.items():
             first = tracker.first.get(pid, {})
-            row = {"pid": pid, "kind": tracker.kind[pid], "born_inside": pid in tracker.born_inside}
+            row = {"pid": pid, "kind": tracker.kind[pid], "born_inside": pid in tracker.born_inside,
+                   "exited": pid not in tracker.alive}
             for field in FIELDS:
                 if field in CUMULATIVE:
                     a, b = first.get(field), last.get(field)
@@ -349,42 +336,51 @@ class Window:
                 else:
                     row[field] = last.get(field)
             self.rows.append(row)
-        # Peak of the summed footprint per kind over the samples.
-        self.peak_by_kind: dict[str, float] = {}
-        for sample in tracker.samples:
-            for kind, value in sample["footprint_by_kind"].items():
-                self.peak_by_kind[kind] = max(self.peak_by_kind.get(kind, 0.0), value)
+        self.samples = tracker.samples
+
+    def peak(self, select) -> float:
+        """The highest summed footprint (bytes) over the samples, of the kinds `select(kind)` keeps."""
+        best = 0.0
+        for sample in self.samples:
+            best = max(best, sum(v for k, v in sample["footprint_by_kind"].items() if select(k)))
+        return best
 
     def aggregate(self, key) -> dict[str, dict]:
-        """Rows summed by `key(kind)`: CPU-seconds, CPU %, wakeups/s, memory, threads, disk."""
+        """Rows summed by `key(kind)`: CPU-seconds, CPU %, wakeups/s, disk (every process of the window,
+        exited ones too) and memory, threads, process count (only those alive at the window's end)."""
         out: dict[str, dict] = {}
-        peaks: dict[str, float] = {}
-        for kind, peak in self.peak_by_kind.items():
-            peaks[key(kind)] = peaks.get(key(kind), 0.0) + peak
+        steady = ("rss", "footprint", "threads")
         for row in self.rows:
             name = key(row["kind"])
             if name is None:
                 continue
-            e = out.setdefault(name, {"procs": 0, "cpu_ns": 0, "wakeups": 0, "rss": 0, "footprint": 0,
-                                      "threads": 0, "disk_write_logical": 0, "disk_write_io": 0,
-                                      "syscalls": 0, "energy_nj": 0, "max_footprint_one": 0})
-            e["procs"] += 1
-            for field in ("cpu_ns", "wakeups", "rss", "footprint", "threads", "disk_write_logical", "disk_write_io",
-                          "syscalls", "energy_nj"):
+            e = out.setdefault(name, {"procs": 0, "exited": 0, "cpu_ns": 0, "wakeups": 0, "interrupt_wakeups": 0,
+                                      "rss": 0, "footprint": 0, "threads": 0, "disk_write_logical": 0,
+                                      "disk_write_io": 0, "syscalls": 0, "energy_nj": 0})
+            if row["exited"]:
+                e["exited"] += 1
+            else:
+                e["procs"] += 1
+            for field in ("cpu_ns", "wakeups", "interrupt_wakeups", "rss", "footprint", "threads",
+                          "disk_write_logical", "disk_write_io", "syscalls", "energy_nj"):
+                if field in steady and row["exited"]:
+                    continue
                 if row.get(field) is not None:
                     e[field] += row[field]
-            e["max_footprint_one"] = max(e["max_footprint_one"], row.get("max_footprint") or 0)
         result = {}
         s = max(self.seconds, 1e-9)
         for name, e in out.items():
+            peak = self.peak(lambda k, name=name: key(k) == name)
             result[name] = {
                 "procs": e["procs"],
+                "exited_procs": e["exited"],
                 "cpu_s": round(e["cpu_ns"] / 1e9, 3),
                 "cpu_pct": round(100 * e["cpu_ns"] / 1e9 / s, 3),
                 "wakeups_per_s": round(e["wakeups"] / s, 2),
+                "interrupt_wakeups_per_s": round(e["interrupt_wakeups"] / s, 2) if IS_MAC else None,
                 "rss_mb": round(e["rss"] / MB, 1),
                 "footprint_mb": round(e["footprint"] / MB, 1),
-                "peak_footprint_mb": round(peaks.get(name, e["footprint"]) / MB, 1),
+                "peak_footprint_mb": round(max(peak, e["footprint"]) / MB, 1),
                 "threads": e["threads"],
                 "disk_written_mb": round(e["disk_write_logical"] / MB, 3),
                 "disk_io_written_mb": round(e["disk_write_io"] / MB, 3),

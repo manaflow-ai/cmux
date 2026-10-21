@@ -16,7 +16,7 @@ SCHEMA = "perf100.run.v1"
 # harness clients) are reported but stay out of the cmux total.
 CMUX_GROUPS = ("app", "tui", "acpmux", "browser", "helpers")
 GROUP_ORDER = CMUX_GROUPS + ("agents", "workload", "harness")
-GROUP_METRICS = ("procs", "cpu_s", "cpu_pct", "wakeups_per_s", "rss_mb", "footprint_mb", "peak_footprint_mb",
+GROUP_METRICS = ("procs", "exited_procs", "cpu_s", "cpu_pct", "wakeups_per_s", "interrupt_wakeups_per_s", "rss_mb", "footprint_mb", "peak_footprint_mb",
                  "threads", "disk_written_mb", "disk_written_mb_per_min", "disk_io_written_mb", "syscalls_per_s",
                  "energy_mw")
 
@@ -98,6 +98,10 @@ class Run:
             for metric, value in (groups.get(g) or {}).items():
                 if value is not None:
                     total[metric] = round(total.get(metric, 0) + value, 3)
+        if total:
+            # The peak of the sum, not the sum of the groups' peaks.
+            peak = window.peak(lambda k: group_of(k) in CMUX_GROUPS) / procstat.MB
+            total["peak_footprint_mb"] = round(max(peak, total.get("footprint_mb", 0)), 1)
         groups["cmux"] = total
         kinds = window.aggregate(lambda k: k)
         entry = {"seconds": round(window.seconds, 2), "groups": groups, "kinds": kinds,

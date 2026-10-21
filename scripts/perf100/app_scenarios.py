@@ -102,11 +102,13 @@ def run_app(args, build: dict, out_dir: str) -> list[str]:
             run.data["error"] = repr(error)
         finally:
             for app in run.apps:
-                if app.pid is not None:
-                    try:
+                try:
+                    if app.pid is not None:
                         _end(app, run)
-                    except Exception as error:  # noqa: BLE001
-                        run.data.setdefault("teardown_error", repr(error))
+                    else:
+                        app.sweep()  # a quit kept its sessions, or the launch failed: stop what is left
+                except Exception as error:  # noqa: BLE001
+                    run.data.setdefault("teardown_error", repr(error))
                 if not args.keep_scratch:
                     app.cleanup()
             paths.append(run.write(out_dir))
@@ -148,9 +150,11 @@ def s0(args, run, rng):
     """App open, 10 terminals with idle shells, 3 idle agent TUIs, 5 browser tabs; 60 s idle."""
     urls, server = pages.serve(args.seed)
     app = _launch(args, run)
-    run.metric("setup.terminals", args.terminals)
-    for _ in range(args.terminals - 1):
-        app.act("newSurface", focus=True)  # shown once, as Cmd-T does, so its terminal starts
+    # Top up to `terminals` terminal tabs (the launch tab need not be one), each shown once, as
+    # Cmd-T does, so its terminal starts.
+    while len(app.tabs("terminal")) < args.terminals:
+        app.act("newSurface", focus=True)
+    run.metric("setup.terminals", len(app.tabs("terminal")))
     for i in range(args.agent_tuis):
         app.act("newSurface", focus=True)
         error = app.send_text(f"exec {_python()} {os.path.join(FIXTURES, 'idle_tui.py')} {rng.randrange(1000)}\n")
@@ -201,7 +205,7 @@ def s1(args, run, rng):
         run.metric(f"{phase}.wall_s", round(wall, 2))
         run.metric(f"{phase}.finished", len(finished))
         if finished:
-            run.metric(f"{phase}.throughput_mb_s", round(count * args.flood_mb / max(finished), 1))
+            run.metric(f"{phase}.throughput_mb_s", round(len(finished) * args.flood_mb / max(finished), 1))
         cmux = entry["groups"].get("cmux", {})
         run.metric(f"{phase}.cmux_cpu_s_per_100mb", round(cmux.get("cpu_s", 0) / (count * args.flood_mb / 100), 3))
         run.metric(f"{phase}.cmux_disk_written_per_output_mb", round(cmux.get("disk_written_mb", 0) / (count * args.flood_mb), 4))

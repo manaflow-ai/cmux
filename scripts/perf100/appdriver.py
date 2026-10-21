@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import select
 import shutil
 import socket
@@ -130,9 +131,10 @@ class App:
 
     def launch(self, timeout: float = 120) -> float:
         """Launches; returns ms from `open` to the control socket answering `identify`."""
-        running = [p for p, _pp, cmd in procstat.process_table() if cmd.startswith(self.binary)]
+        # Every process of this bundle must be this run's: the sweep outside nx-remote ends them all.
+        running = sorted(bm.bundle_pids(self.bundle))
         if running:
-            raise SystemExit(f"perf100: the app of {self.bundle} already runs ({running}); stop it first")
+            raise SystemExit(f"perf100: processes of {self.bundle} already run ({running}); stop them first")
         argv = ["open", "-n", "-g"] + [x for k, v in self.env().items() for x in ("--env", f"{k}={v}")]
         self.launched_at = time.monotonic()
         subprocess.run(argv + ["-a", self.bundle], check=True, timeout=60)
@@ -291,7 +293,7 @@ class App:
             if "replay_agent.py" in cmd and self.scratch in cmd:
                 out[pid] = "agent-standin"
             elif "__terminal-host" in cmd and (self.scratch in cmd or self.bundle in cmd or
-                                               (self.pid and f"@{self.pid}" in cmd)):
+                                               (self.pid and re.search(rf"@{self.pid}\b", cmd))):
                 out[pid] = "terminal-host"
                 hosts.add(pid)
             elif cmd.startswith(roots_text) or (self.bundle in cmd and "/Contents/" in cmd):
@@ -301,7 +303,7 @@ class App:
         # Terminal hosts that name their daemon by pid.
         daemons = {p for p, k in out.items() if k.startswith("tui-daemon")}
         for pid, _ppid, cmd in table:
-            if "__terminal-host" in cmd and pid not in out and any(f"@{d}" in cmd for d in daemons):
+            if "__terminal-host" in cmd and pid not in out and any(re.search(rf"@{d}\b", cmd) for d in daemons):
                 out[pid] = "terminal-host"
                 hosts.add(pid)
         commands = {pid: cmd for pid, _ppid, cmd in table}
@@ -330,6 +332,8 @@ class App:
 
     def sweep(self):
         """Stops what this instance left: $NX_APP_STOP in an nx-remote job, else the bundle's processes."""
+        if self.launched_at is None:
+            return
         if os.environ.get("NX_APP_STOP"):
             subprocess.run([os.environ["NX_APP_STOP"]], timeout=180)
         else:

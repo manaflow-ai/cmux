@@ -14,8 +14,10 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import os
 import random
+import select
 import shutil
 import socket
 import subprocess
@@ -127,12 +129,27 @@ class TuiDaemon:
         self.proc.wait(timeout=600)
         return (time.monotonic() - t0) * 1000
 
+    def reap(self):
+        """Last resort for a daemon this run started that did not stop: SIGKILL its own Popen."""
+        if self.proc and self.proc.poll() is None:
+            self.proc.kill()
+            self.proc.wait(timeout=30)
+
+    def wait_hosts_gone(self, seconds: float) -> list[int]:
+        """Terminal hosts of this run still alive after up to `seconds` (they exit after the daemon)."""
+        deadline = time.monotonic() + seconds
+        while True:
+            left = [p for p, k in self.discover().items() if k == "terminal-host"]
+            if not left or time.monotonic() >= deadline:
+                return left
+            time.sleep(0.2)  # bench: bounded wait for the hosts' own exit
+
     def discover(self) -> dict[int, str]:
         """The daemon, its terminal hosts (also those that left its process tree) and their children."""
         table = procstat.process_table()
         roots = {self.proc.pid} if self.proc and self.proc.poll() is None else set()
         for pid, _ppid, cmd in table:
-            if "__terminal-host" in cmd and (self.session in cmd or self.state in cmd or self.root in cmd):
+            if "__terminal-host" in cmd and (self.root in cmd or re.search(rf"\b{re.escape(self.session)}\b", cmd)):
                 roots.add(pid)
         found = procstat.descendants(roots, table)
         commands = {pid: cmd for pid, _ppid, cmd in table}
@@ -229,7 +246,8 @@ def run_tui(args, build: dict, out_dir: str) -> list[str]:
                     run.metric("stop.shutdown_end_terminals_ms", round(daemon.shutdown(True), 1))
             except Exception as error:  # noqa: BLE001
                 run.data.setdefault("teardown_error", repr(error))
-            left = [p for p, k in daemon.discover().items() if k == "terminal-host"]
+            daemon.reap()
+            left = daemon.wait_hosts_gone(10)
             run.metric("stop.leftover_terminal_hosts", len(left))
             run.data["on_disk"] = {"state": procstat.du(daemon.state), "home": procstat.du(daemon.home)}
             run.metric("disk.state_mb", run.data["on_disk"]["state"]["allocated_mb"])
@@ -308,7 +326,7 @@ def _tui_s1(run, daemon, conn, args):
         run.metric(f"{phase}.wall_s", round(wall, 2))
         run.metric(f"{phase}.finished", len(finished))
         if finished:
-            run.metric(f"{phase}.throughput_mb_s", round(count * args.flood_mb / max(finished), 1))
+            run.metric(f"{phase}.throughput_mb_s", round(len(finished) * args.flood_mb / max(finished), 1))
         run.metric(f"{phase}.client_socket_mb", round(sum(a.bytes for a in attaches) / procstat.MB, 1))
         cpu = entry["groups"].get("cmux", {}).get("cpu_s", 0)
         run.metric(f"{phase}.cmux_cpu_s_per_100mb", round(cpu / (count * args.flood_mb / 100), 3))
@@ -449,21 +467,37 @@ class Acpmux:
                                      stdout=subprocess.PIPE, stderr=self.log, env=self.env,
                                      cwd=os.path.join(self.root, "work"), stdin=subprocess.DEVNULL,
                                      start_new_session=True)
-        seen = ""
-        while True:
-            line = self.proc.stdout.readline().decode(errors="replace")
-            if not line:
-                raise RuntimeError(f"acpmux exited before ready: {seen[-500:]}")
-            if '"ready":true' in line:
-                return (time.monotonic() - t0) * 1000
-            seen += line
+        seen = b""
+        fd = self.proc.stdout.fileno()
+        deadline = t0 + 60
+        while b'"ready":true' not in seen:
+            left = deadline - time.monotonic()
+            ready, _, _ = select.select([fd], [], [], max(0.0, left))
+            if not ready:
+                self.reap()
+                raise RuntimeError(f"acpmux printed no ready line within 60 s: {seen[-500:]!r}")
+            chunk = os.read(fd, 65536)
+            if not chunk:
+                raise RuntimeError(f"acpmux exited before ready: {seen[-500:]!r}")
+            seen += chunk
+        ms = (time.monotonic() - t0) * 1000
+        # Keep draining stdout so the daemon never blocks on a full pipe.
+        threading.Thread(target=lambda: [None for _ in iter(lambda: os.read(fd, 65536), b"")], daemon=True).start()
+        return ms
+
+    def reap(self):
+        """Last resort for the daemon this run started: SIGKILL its own Popen."""
+        if self.proc and self.proc.poll() is None:
+            self.proc.kill()
+            self.proc.wait(timeout=30)
 
     def shutdown(self):
-        self.cli("daemon", "shutdown", "--end-agents", timeout=60)
         try:
+            self.cli("daemon", "shutdown", "--end-agents", timeout=60)
             self.proc.wait(timeout=60)
         except subprocess.TimeoutExpired:
             pass
+        self.reap()
 
     def discover(self) -> dict[int, str]:
         table = procstat.process_table()
@@ -482,16 +516,21 @@ class Acpmux:
                 out[pid] = "acpmux-daemon"
             elif cmd.startswith(self.binary):
                 rest = cmd[len(self.binary):].split()
-                out[pid] = "acpmux-" + (rest[0] if rest else "child")
+                if rest[:1] in (["send"], ["new"], ["wait"], ["--json"], ["harness"], ["daemon"]) and \
+                        rest[:2] != ["daemon", "run"]:
+                    out[pid] = "acpmux-client"  # this runner's own CLI calls (group harness)
+                else:
+                    out[pid] = "acpmux-" + (rest[0] if rest else "child")
             else:
                 out[pid] = "workload:" + os.path.basename(cmd.split()[0])[:24] if cmd else "workload:?"
         return out
 
 
-def _send_stream(amx: Acpmux, sid: str, prompt: str, seen: dict, marks: list):
+def _send_stream(amx: Acpmux, sid: str, prompt: str, seen: dict, marks: list, procs: list):
     """`acpmux send` as the client of one session; timestamps each marker when its bytes arrive."""
     proc = subprocess.Popen([amx.binary, "send", sid, prompt], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                             env=amx.env, cwd=os.path.join(amx.root, "work"), stdin=subprocess.DEVNULL)
+    procs.append(proc)
     tail = b""
     total = 0
     while True:
@@ -522,7 +561,7 @@ def run_acpmux(args, build: dict, out_dir: str) -> list[str]:
     for count in [int(n) for n in args.sessions.split(",") if n]:
         root = tempfile.mkdtemp(prefix="p100a-", dir=args.root_dir)
         amx = Acpmux(args.acpmux, root)
-        run = runlib.Run("S2", "headless-acpmux", args.seed, dict(vars(args), sessions_count=count), build,
+        run = runlib.Run("S2", f"headless-acpmux-{count}", args.seed, dict(vars(args), sessions_count=count), build,
                          args.host_class)
         run.data["tool"] = {"acpmux": args.acpmux}
         rng = random.Random(args.seed + count)
@@ -560,18 +599,24 @@ def run_acpmux(args, build: dict, out_dir: str) -> list[str]:
             seen: dict[str, float] = {}
             results: list[dict] = []
             threads = []
+            clients: list = []
             window = procstat.Tracker(amx.discover, interval=1.0).start()
             t0 = time.monotonic()
+            chosen = []
             for i, sid in enumerate(sids):
                 fixture = fixtures[rng.randrange(len(fixtures))] if args.stream == "seeded" else args.stream
+                chosen.append(fixture)
                 log = os.path.join(root, f"marks-{i}.jsonl")
                 prompt = f"perf100 stream={fixture} speed={args.speed} marks={args.marks} tag={i} log={log}"
-                t = threading.Thread(target=_send_stream, args=(amx, sid, prompt, seen, results), daemon=True)
+                t = threading.Thread(target=_send_stream, args=(amx, sid, prompt, seen, results, clients), daemon=True)
                 t.start()
                 threads.append(t)
             for t in threads:
-                t.join(timeout=args.stream_timeout)
+                t.join(timeout=max(0.0, args.stream_timeout - (time.monotonic() - t0)))
             wall = time.monotonic() - t0
+            for proc in clients:  # this run's own clients that outlived the timeout
+                if proc.poll() is None:
+                    proc.kill()
             stream = run.phase("stream", window.stop())
             emitted = {}
             for i in range(len(sids)):
@@ -588,8 +633,16 @@ def run_acpmux(args, build: dict, out_dir: str) -> list[str]:
             run.metric("stream.sessions_ok", sum(1 for r in results if r["rc"] == 0))
             client_bytes = sum(r["bytes"] for r in results)
             run.metric("stream.client_mb", round(client_bytes / procstat.MB, 2))
-            text_bytes = _fixture_text_bytes()
-            run.data["fixtures"] = text_bytes
+            manifest = _fixture_text_bytes()
+            run.data["fixtures"] = manifest
+            streamed = sum(manifest[f]["text_bytes"] for f in chosen)
+            chunks = sum(manifest[f]["chunks"] for f in chosen)
+            run.metric("stream.text_mb", round(streamed / procstat.MB, 3))
+            run.metric("stream.chunks", chunks)
+            sys_calls = sum((stream["groups"].get(g) or {}).get("syscalls_per_s", 0) for g in ("acpmux",)) * wall
+            run.metric("stream.acpmux_syscalls_per_chunk", round(sys_calls / max(chunks, 1), 2))
+            cpu = (stream["groups"].get("acpmux") or {}).get("cpu_s", 0)
+            run.metric("stream.acpmux_cpu_us_per_chunk", round(cpu * 1e6 / max(chunks, 1), 1))
             cmux = stream["groups"].get("cmux", {})
             run.metric("stream.acpmux_cpu_s_per_session", round(cmux.get("cpu_s", 0) / max(count, 1), 4))
             run.metric("stream.acpmux_disk_written_mb_per_session", round(cmux.get("disk_written_mb", 0) / max(count, 1), 4))
@@ -606,7 +659,7 @@ def run_acpmux(args, build: dict, out_dir: str) -> list[str]:
             run.metric("disk.acpmux_home_mb", run.data["on_disk"]["acpmux_home"]["allocated_mb"])
             paths.append(run.write(out_dir))
             shutil.rmtree(root, ignore_errors=True)
-            print(f"perf100: S2 headless-acpmux {count} done ({run.data.get('error') or 'ok'})", flush=True)
+            print(f"perf100: S2 headless-acpmux-{count} done ({run.data.get('error') or 'ok'})", flush=True)
     return paths
 
 

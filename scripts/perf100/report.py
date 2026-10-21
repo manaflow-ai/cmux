@@ -144,10 +144,13 @@ def load_budgets(path: str) -> list[dict]:
     return budgets
 
 
-def check_budgets(budget_path: str, result_paths: list[str]) -> tuple[int, str]:
+def check_budgets(budget_path: str, result_paths: list[str], host_class: str | None = None) -> tuple[int, str]:
     """Exit code (1 when a budget is broken) and a report. A budget applies to a run of its scenario,
     variant and host class; `limit` is the reference value and `margin_pct` the allowed regression.
-    direction max (default): value <= limit * (1 + margin); min: value >= limit * (1 - margin)."""
+    direction max (default): value <= limit * (1 + margin); min: value >= limit * (1 - margin).
+    With `host_class`, a budget of that host class (or "*") whose scenario and variant ran in none of
+    the results is a failure too (a run that silently stopped measuring must not pass), unless the
+    results hold no run of that scenario at all (a subset run: skipped)."""
     budgets = load_budgets(budget_path)
     runs = [load(p) for p in result_paths]
     lines = ["| budget | lane | metric | limit | allowed | value | verdict |", "|---|---|---|---:|---:|---:|---|"]
@@ -156,7 +159,13 @@ def check_budgets(budget_path: str, result_paths: list[str]) -> tuple[int, str]:
         matching = [r for r in runs if r["scenario"] == b["scenario"] and r["variant"] == b["variant"]
                     and (b["host"] == "*" or r["host"].get("class") == b["host"])]
         if not matching:
-            lines.append(f"| {b['id']} | {b['lane']} | {b['metric']} | {_fmt(b['limit'])} | | | skipped (no run) |")
+            ran_scenario = any(r["scenario"] == b["scenario"] for r in runs)
+            mine = host_class is not None and b["host"] in (host_class, "*")
+            if mine and ran_scenario:
+                failed += 1
+                lines.append(f"| {b['id']} | {b['lane']} | {b['metric']} | {_fmt(b['limit'])} | | | FAIL (no {b['variant']} run) |")
+            else:
+                lines.append(f"| {b['id']} | {b['lane']} | {b['metric']} | {_fmt(b['limit'])} | | | skipped (no run) |")
             continue
         for r in matching:
             value = r["metrics"].get(b["metric"])
