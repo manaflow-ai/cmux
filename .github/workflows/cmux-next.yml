@@ -462,6 +462,13 @@ env:
   # HQ's public cache edge serves read-only restores from every runner; writes
   # use the controller-owned R2 credentials in the seed steps below.
   CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
+  # Structural, style, size and drift guards (god files, size caps, package
+  # conventions, motion tokens, type scale, scrollbars, icons, copy lints,
+  # generated-doc drift) still run and print their findings, but only warn
+  # (Leo, 2026-10-19: they failed pull requests for reasons unrelated to the
+  # change). Correctness and safety checks still fail. Set to `fail` to make
+  # the style guards block again.
+  CMUX_NEXT_STYLE_GUARDS: warn
   # The label attempt 1's macOS jobs take when macos-placement finds an idle
   # owned runner for them: a glaeda-* label means a mini. Each macOS job's
   # runs-on, and its own CMUX_NEXT_RUNNER, restate it with the placement.
@@ -1012,6 +1019,9 @@ jobs:
     # and it never filed an issue). Concurrency, notification
     # centers and crash safety have no warning tier. Each ceiling is set on its
     # own step only: the script tests below expect every hit to fail.
+    # Since 2026-10-19 (Leo) every structural, style, size and drift step named
+    # in the aggregate's STYLE_CHECKS only warns while CMUX_NEXT_STYLE_GUARDS
+    # (workflow env) is `warn`; the correctness and safety steps still fail.
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -1536,9 +1546,31 @@ jobs:
           python3 -I scripts/cmux-next/prepush-gate.py --commits "$range" | tee -a "$GITHUB_STEP_SUMMARY"
 
       # `outcome`, not `conclusion`: continue-on-error makes every conclusion success.
+      # STYLE_CHECKS are the structural, style, size and drift guards: while
+      # CMUX_NEXT_STYLE_GUARDS is `warn` (workflow env) a red one is a warning
+      # annotation and does not fail the job. A style check that never ran
+      # (an empty outcome) still fails: that is a broken workflow, not a finding.
       - name: Fail on any red check
         if: always()
         env:
+          STYLE_CHECKS: |
+            God files and types (Swift)
+            God files (cmux-tui Rust)
+            CmuxNextApp size cap
+            No Swift CLI (the cmux CLI is Rust, plans/cmux-next/cli.md)
+            No Swift closed history (the daemon owns it, plans/cmux-next/reopen-closed.md 9)
+            No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)
+            Scrollbars thin, one style
+            Motion tokens
+            Type scale
+            Protected-folder copies
+            Settings source copies
+            Backdrop art export
+            Package conventions lint
+            Browser chrome icons
+            Dialog buttons show their keys (u2647)
+            One omnibar (popups, New Tab and tabs share AddressBarView)
+            Pushed commits add no violations
           OUTCOMES: |
             ${{ steps.godfiles-swift.outcome }}|God files and types (Swift)
             ${{ steps.godfiles-rust.outcome }}|God files (cmux-tui Rust)
@@ -1584,13 +1616,31 @@ jobs:
             ${{ steps.pushed-commits.outcome }}|Pushed commits add no violations
         run: |
           failed=()
+          warned=()
           # `outcome|name`: an empty outcome (a check that never ran) still names its step.
           while IFS='|' read -r outcome name; do
             [[ -n "$outcome$name" ]] || continue
-            [[ "$outcome" == success ]] || failed+=("$name (${outcome:-not run})")
+            [[ "$outcome" == success ]] && continue
+            if [[ "$outcome" == failure && "${CMUX_NEXT_STYLE_GUARDS:-}" == warn ]] \
+              && grep -qxF -- "$name" <<<"${STYLE_CHECKS:-}"; then
+              warned+=("$name")
+              continue
+            fi
+            failed+=("$name (${outcome:-not run})")
           done <<<"$OUTCOMES"
+          for name in "${warned[@]+"${warned[@]}"}"; do
+            echo "::warning title=cmux-next style guard (warn-only)::$name found issues; see that step's log"
+          done
+          if (( ${#warned[@]} > 0 )); then
+            {
+              echo "### ${#warned[@]} style guard(s) reported findings (warn-only)"
+              echo
+              printf -- '- %s\n' "${warned[@]}"
+              echo
+            } | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
           if (( ${#failed[@]} == 0 )); then
-            echo "All cmux-next checks passed." | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "All blocking cmux-next checks passed." | tee -a "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           # One annotation per red check: the red-checks line compares them with the base's run, so a
@@ -3157,6 +3207,7 @@ jobs:
     # breach never fails the app-producing job the dogfood and daily publishers read).
     outputs:
       perf_gate: ${{ steps.perf-gate.outcome }}
+      crash_gate: ${{ steps.crash-gate.outcome }}
     env:
       # This job's label (its runs-on): a glaeda-* label means a mini.
       CMUX_NEXT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || (github.run_attempt == 1 || github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]') && contains(needs.macos-placement.outputs.blacksmith_12_jobs, ' cmux-scheme-compile ') && 'blacksmith-12vcpu-macos-26' || (github.run_attempt == 1 || github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]') && contains(needs.macos-placement.outputs.blacksmith_6_jobs, ' cmux-scheme-compile ') && 'blacksmith-6vcpu-macos-26' || (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && needs.macos-placement.outputs.runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || needs.macos-placement.outputs.retry_runner || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
@@ -3411,6 +3462,36 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
 
+      # A crash ends the app, never freezes it (2026-10-20 NIGHTLY freezes): with
+      # Sentry on, an uncaught exception must end the process within 8 s and a
+      # crash path that blocks must end within the crash deadline. Like the perf
+      # gate, the step does not fail this job; the crash-ends-app job reports it.
+      - name: Crash ends the app
+        id: crash-gate
+        if: ${{ !cancelled() && inputs.dev_daily != true && env.CMUX_NEXT_DERIVED_DATA != '' }}
+        continue-on-error: true
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          built="$(find "$CMUX_NEXT_DERIVED_DATA/Build/Products/Debug" -maxdepth 1 -type d -name 'cmux DEV*.app' -print -quit)"
+          [[ -d "$built" ]] || { echo "::error::crash gate: no cmux DEV app in $CMUX_NEXT_DERIVED_DATA (not a crash freeze)"; exit 1; }
+          tag="ci-crash-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          app="$RUNNER_TEMP/crash-gate/cmux DEV ${tag}.app"
+          mkdir -p "$RUNNER_TEMP/crash-gate/out"
+          /bin/cp -R "$built" "$app"
+          trap 'python3 scripts/cmux-next/tag_teardown.py "$app" || true; rm -rf "$HOME/Library/Application Support/cmux/tags/$tag" "$HOME/Library/Application Support/cmux-next/com.cmuxterm.app.debug.${tag//-/.}" "$HOME/Library/Caches/SentryCrash/cmux DEV $tag" "$HOME/.acpmux/builds/com.cmuxterm.app.debug--$tag" "$HOME/.cmux/mux/tags/$tag" "$app"' EXIT
+          python3 scripts/cmux-next/crash-ends-app-gate.py --app "$app" --out "$RUNNER_TEMP/crash-gate/out"
+
+      - name: Upload the crash gate samples
+        if: ${{ always() && steps.crash-gate.outcome == 'failure' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-crash-gate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/crash-gate/out
+          if-no-files-found: ignore
+          retention-days: 3
+
       # The default-branch publisher consumes the exact app produced by this
       # job.  Keep the upload limited to same-repository member PRs carrying
       # the existing dev-build label; the publisher repeats this trust check
@@ -3476,6 +3557,31 @@ jobs:
                 echo "::error::perf gate: the scheme compile succeeded but the gate step did not run (outcome '${OUTCOME:-none}')"; exit 1
               fi
               echo "perf gate: not run, the scheme compile ended $COMPILE before it" ;;
+          esac
+
+  # The crash gate runs in cmux-scheme-compile on the app that job built. This
+  # job is its check: red when a crash froze the app instead of ending it.
+  crash-ends-app:
+    needs: [cmux-scheme-compile]
+    if: ${{ !cancelled() && inputs.dev_daily != true && needs.cmux-scheme-compile.result != 'skipped' }}
+    name: cmux-next crash ends the app
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 3
+    permissions: {}
+    steps:
+      - name: Read the crash gate result
+        env:
+          OUTCOME: ${{ needs.cmux-scheme-compile.outputs.crash_gate }}
+          COMPILE: ${{ needs.cmux-scheme-compile.result }}
+        run: |
+          case "$OUTCOME" in
+            success) echo "crash gate: every deliberate crash ended the app in time" ;;
+            failure) echo "::error::crash gate: red; the cause (a crash froze the app, or no app to test) is in the cmux-scheme-compile log, step Crash ends the app"; exit 1 ;;
+            *)
+              if [[ "$COMPILE" == success ]]; then
+                echo "::error::crash gate: the scheme compile succeeded but the gate step did not run (outcome '${OUTCOME:-none}')"; exit 1
+              fi
+              echo "crash gate: not run, the scheme compile ended $COMPILE before it" ;;
           esac
 
   # The post-merge backstop: every feat-cmux-next push runs its push tiers (a
