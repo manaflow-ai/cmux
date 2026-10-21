@@ -170,6 +170,12 @@
       "title" : "Permission Mode for New Chats",
       "type" : "string"
     },
+    "agents.subsessions.answerQuestions" : {
+      "default" : false,
+      "description" : "When an agent in a sub-session asks a question, the session that started it can answer, and the answer shows who gave it. Permission requests always wait for you. Off: only you answer.",
+      "title" : "Let Sessions Answer Their Sub-sessions' Questions",
+      "type" : "boolean"
+    },
     "agents.subsessions.enabled" : {
       "default" : true,
       "description" : "An agent can start other agent sessions to work on parts of a task in parallel. They show under its session in the sidebar.",
@@ -3076,6 +3082,16 @@
         "always"
       ],
       "title" : "Keep Mac Awake for Your Phone",
+      "type" : "string"
+    },
+    "phone.newDevices" : {
+      "default" : "ask",
+      "description" : "The first time a phone signed in to your cmux account connects, this Mac can ask you to allow it. Allowed phones are listed below, where you can remove them.",
+      "enum" : [
+        "ask",
+        "account"
+      ],
+      "title" : "New Phones",
       "type" : "string"
     },
     "phone.startSessions" : {

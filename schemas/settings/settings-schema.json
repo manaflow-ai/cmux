@@ -789,6 +789,7 @@
             "key" : "settings.group.subsessions",
             "rows" : [
               "agents.subsessions.enabled",
+              "agents.subsessions.answerQuestions",
               "agents.subsessions.maxChildren",
               "agents.subsessions.maxDepth"
             ],
@@ -1245,6 +1246,7 @@
             "key" : "settings.group.phone",
             "rows" : [
               "phone.allowConnections",
+              "phone.newDevices",
               "phone.startSessions",
               "phone.keepAwake",
               "phone.cloudReplica"
@@ -4660,6 +4662,71 @@
     },
     {
       "accepts" : [
+        "ask",
+        "account"
+      ],
+      "agent_refusal" : "network",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.phoneNewDevicesAsk",
+            "text" : "Ask on This Mac"
+          },
+          "value" : "ask"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.phoneNewDevicesAccount",
+            "text" : "Any Phone on My Account"
+          },
+          "value" : "account"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "ask",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.phone",
+        "text" : "Phone Access"
+      },
+      "help" : {
+        "key" : "settings.phone.newDevices.help",
+        "text" : "The first time a phone signed in to your cmux account connects, this Mac can ask you to allow it. Allowed phones are listed below, where you can remove them."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "phone.newDevices",
+      "keywords" : [
+        "iphone",
+        "pair",
+        "approve",
+        "device",
+        "trust",
+        "remove"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "phone",
+        "newDevices"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "machines",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.phone.newDevices",
+        "text" : "New Phones"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -4878,6 +4945,56 @@
       "title" : {
         "key" : "settings.agents.subsessions.enabled",
         "text" : "Let Agents Start Sub-sessions"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.subsessions",
+        "text" : "Sub-sessions"
+      },
+      "help" : {
+        "key" : "settings.agents.subsessions.answerQuestions.help",
+        "text" : "When an agent in a sub-session asks a question, the session that started it can answer, and the answer shows who gave it. Permission requests always wait for you. Off: only you answer."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.subsessions.answerQuestions",
+      "keywords" : [
+        "subagent",
+        "sub-session",
+        "question",
+        "answer",
+        "coordinator",
+        "agents"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "subsessions",
+        "answerQuestions"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agents.subsessions.answerQuestions",
+        "text" : "Let Sessions Answer Their Sub-sessions' Questions"
       },
       "validation" : "portable"
     },
