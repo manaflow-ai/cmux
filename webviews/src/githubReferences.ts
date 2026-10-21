@@ -10,7 +10,11 @@ const REFERENCE =
   /(?<![\w./-])(?:(?<repository>[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*)(?<qualifiedNumber>#[0-9]+)|(?<bareNumber>#[0-9]+))(?![\w])/g;
 
 /** Finds explicit `owner/repo#123` and, when known, bare `#123` references. */
-export function githubReferences(text: string, repository?: string): GithubReference[] {
+export function githubReferences(
+  text: string,
+  repository?: string,
+  _kind: "issues" | "pull" = "issues",
+): GithubReference[] {
   const out: GithubReference[] = [];
   for (const match of text.matchAll(REFERENCE)) {
     const repo = match.groups?.repository ?? repository;
@@ -25,4 +29,14 @@ export function githubReferences(text: string, repository?: string): GithubRefer
     });
   }
   return out;
+}
+
+/** The repository `text` mentions last in prose. Not implemented yet. */
+export function mentionedRepository(_text: string): string | undefined {
+  return undefined;
+}
+
+/** The repository the latest of `texts` mentions. Not implemented yet. */
+export function latestMentionedRepository(_texts: readonly (string | undefined)[]): string | undefined {
+  return undefined;
 }
