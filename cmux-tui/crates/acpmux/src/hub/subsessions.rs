@@ -623,9 +623,14 @@ impl Hub {
         self.save_meta(&probe);
         let cm = probe.meta();
         let same_family = crate::web_modes::family_of(&cm) == crate::web_modes::family_of(pm);
-        let mode = if same_family {
+        // A parent still in full access after `sessions.allowFullAccess` was turned off: its child
+        // starts as a cross-family child would, at the person's start level, which is not full access.
+        let capped = parent_mode.as_deref().is_some_and(super::start_mode::is_full_access)
+            && !super::start_mode::full_access_allowed();
+        let inherit = same_family && !capped;
+        let mode = if inherit {
             parent_mode.clone()
-        } else if parent_full {
+        } else if parent_full || capped {
             self.start_mode(&probe).await
         } else {
             None
@@ -634,13 +639,13 @@ impl Hub {
             let params = json!({"_meta": {"acpmux": {(super::person::START_MODE_FIELD): mode}}});
             // The inherit rule (or the person's default under a full-access
             // parent) grants it; a refusal ends the new session.
-            if same_family {
+            if inherit {
                 self.start_in_mode(false, Some(&parent.id), &params, &probe, false).await?;
             } else if let Err(e) = self.set_mode(&probe, &mode).await {
                 tracing::warn!(session = %probe.id, "sub-session start mode skipped: {}", e.message);
             }
         }
-        let accepted = self.send_family_prompt(parent, &probe, &req.prompt, None).await;
+        let accepted = self.send_family_prompt(parent, &probe, &req.prompt, None, false).await;
         let accepted = match accepted {
             Ok(v) => v,
             Err(e) => {
@@ -700,14 +705,15 @@ impl Hub {
         .map_err(refuse)
     }
 
-    /// Sends `text` from `from` to `to` as a prompt with the family
-    /// provenance; answers once it is accepted (started or queued).
+    /// Sends `text` from `from` to `to` as a prompt with the family provenance; answers once it
+    /// is accepted (started or queued). `interrupt`: `Hub::interrupt_once_queued`.
     async fn send_family_prompt(
         self: &Arc<Self>,
         from: &Arc<Session>,
         to: &Arc<Session>,
         text: &str,
         prompt_id: Option<String>,
+        interrupt: bool,
     ) -> Result<Value, RpcError> {
         let fm = from.meta();
         let provenance = json!({
@@ -717,9 +723,11 @@ impl Hub {
             "to": to.id,
         });
         let (tx, rx) = tokio::sync::oneshot::channel::<Value>();
+        let stop = self.interrupt_once_queued(to, interrupt);
         let opts = PromptOptions {
             prompt_id: Some(prompt_id.unwrap_or_else(|| format!("sub-{}", uuid::Uuid::now_v7()))),
             on_accepted: Some(Box::new(move |v| {
+                stop(&v);
                 let _ = tx.send(v);
             })),
             provenance: Some(provenance),
@@ -906,10 +914,7 @@ impl Hub {
                 "a sub-session never interrupts its parent: send without interrupt, and the message waits for the parent's turn to end",
             ));
         }
-        if interrupt && target.turn().is_some() {
-            self.cancel(target).await?;
-        }
-        let accepted = self.send_family_prompt(caller, target, text, prompt_id).await?;
+        let accepted = self.send_family_prompt(caller, target, text, prompt_id, interrupt).await?;
         Ok(json!({
             "sessionId": target.id,
             "queued": accepted.get("queued").cloned().unwrap_or(json!(false)),

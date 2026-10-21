@@ -11005,6 +11005,534 @@
         }
       }
     },
+    "store.cloud.eyebrow" : {
+      "comment" : "Label above the featured Cloud banner on Discover",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "مميز"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Izdvojeno"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fremhævet"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Empfohlen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Featured"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Destacado"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "À la une"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "In evidenza"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "注目"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ពិសេស"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "추천"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Utvalgt"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Polecane"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Destaque"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Рекомендуем"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แนะนำ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Öne çıkan"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Рекомендуємо"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nổi bật"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "精选"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "精選"
+          }
+        }
+      }
+    },
+    "store.cloud.title" : {
+      "comment" : "Title of the featured Cloud banner on Discover",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "أجهزة السحابة"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mašine u oblaku"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cloudmaskiner"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cloud-Maschinen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud Machines"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Máquinas en la nube"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Machines cloud"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Macchine cloud"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "クラウドマシン"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ម៉ាស៊ីនពពក"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "클라우드 머신"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Skymaskiner"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Maszyny w chmurze"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Máquinas na nuvem"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Облачные машины"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เครื่องบนคลาวด์"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bulut makineleri"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Хмарні машини"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Máy đám mây"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "云端机器"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "雲端機器"
+          }
+        }
+      }
+    },
+    "store.cloud.body" : {
+      "comment" : "Text of the featured Cloud banner on Discover",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "شغّل الوكلاء وعمليات البناء والاختبارات على جهازك الخاص في السحابة. يبقى جهاز Mac سريعًا، ويستمر العمل أثناء نومه."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pokrećite agente, buildove i testove na vlastitoj mašini u oblaku. Vaš Mac ostaje brz, a posao se nastavlja dok spava."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kør agenter, builds og tests på din egen maskine i skyen. Din Mac forbliver hurtig, og arbejdet fortsætter, mens den sover."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Führen Sie Agenten, Builds und Tests auf Ihrer eigenen Maschine in der Cloud aus. Ihr Mac bleibt schnell, und die Arbeit läuft weiter, während er schläft."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Run agents, builds and tests on your own machine in the cloud. Your Mac stays quick, and the work goes on while it sleeps."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ejecuta agentes, compilaciones y pruebas en tu propia máquina en la nube. Tu Mac sigue rápido y el trabajo continúa mientras duerme."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Exécutez agents, builds et tests sur votre propre machine dans le cloud. Votre Mac reste rapide, et le travail continue pendant qu'il dort."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Esegui agenti, build e test sulla tua macchina nel cloud. Il tuo Mac resta veloce e il lavoro continua mentre dorme."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "エージェント、ビルド、テストをクラウド上の自分のマシンで実行。Mac は軽快なまま、スリープ中も作業は続きます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ដំណើរការភ្នាក់ងារ ការបង្កើត និងការធ្វើតេស្ត លើម៉ាស៊ីនផ្ទាល់ខ្លួនរបស់អ្នកក្នុងពពក។ Mac របស់អ្នកនៅតែលឿន ហើយការងារបន្តខណៈវាដេក។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "에이전트, 빌드, 테스트를 클라우드의 내 머신에서 실행하세요. Mac은 빠르게 유지되고, 잠자는 동안에도 작업은 계속됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kjør agenter, bygg og tester på din egen maskin i skyen. Mac-en holder seg rask, og arbeidet fortsetter mens den sover."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uruchamiaj agentów, kompilacje i testy na własnej maszynie w chmurze. Twój Mac pozostaje szybki, a praca trwa, gdy śpi."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Execute agentes, builds e testes na sua própria máquina na nuvem. Seu Mac continua rápido e o trabalho segue enquanto ele dorme."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Запускайте агентов, сборки и тесты на своей машине в облаке. Mac остаётся быстрым, а работа идёт, пока он спит."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "รันเอเจนต์ บิลด์ และการทดสอบบนเครื่องของคุณเองในคลาวด์ Mac ของคุณยังเร็ว และงานยังดำเนินต่อขณะที่เครื่องหลับ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ajanları, derlemeleri ve testleri buluttaki kendi makinenizde çalıştırın. Mac'iniz hızlı kalır, o uyurken iş sürer."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Запускайте агентів, збірки й тести на власній машині в хмарі. Mac лишається швидким, а робота триває, поки він спить."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chạy tác tử, bản dựng và kiểm thử trên máy riêng của bạn trên đám mây. Máy Mac vẫn nhanh, và công việc vẫn tiếp tục khi máy ngủ."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在云端的专属机器上运行智能体、构建和测试。Mac 保持流畅，睡眠时工作也照常进行。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在雲端的專屬機器上執行代理程式、建置與測試。Mac 保持流暢，睡眠時工作也照常進行。"
+          }
+        }
+      }
+    },
+    "store.cloud.open" : {
+      "comment" : "Button on the featured Cloud banner: opens the Cloud page",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "استكشف السحابة"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Istraži Cloud"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Udforsk Cloud"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cloud entdecken"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Explore Cloud"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Explorar Cloud"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Découvrir Cloud"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Scopri Cloud"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cloud を見る"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ស្វែងយល់ Cloud"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cloud 살펴보기"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Utforsk Cloud"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Poznaj Cloud"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Explorar o Cloud"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Открыть Cloud"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "สำรวจ Cloud"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cloud'u keşfedin"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Відкрити Cloud"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Khám phá Cloud"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "探索 Cloud"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "探索 Cloud"
+          }
+        }
+      }
+    },
     "store.tab.features" : {
       "extractionState" : "manual",
       "localizations" : {
