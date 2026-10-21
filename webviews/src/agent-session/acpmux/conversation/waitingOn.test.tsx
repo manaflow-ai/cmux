@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { translate } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { Thinking } from "./Thinking";
-import { WaitingOnContext, type WaitingOn, waitingOn } from "./waitingOn";
+import { chatWaitsOn, WaitingOnContext, type WaitingOn, waitingOn } from "./waitingOn";
 import { WorkingFor } from "./WorkingFor";
 
 const cwd = "/Users/you/Projects/demo-app";
@@ -50,4 +50,37 @@ test("the trust question comes first, then the other asks in the stack's order",
   expect(waitingOn({ ...none, secret: true, question: true })).toBe("secret");
   expect(waitingOn({ ...none, question: true })).toBe("question");
   expect(waitingOn(none)).toBeUndefined();
+});
+
+// Review of #23119: the line must never claim a wait that is over or out of sight.
+const chat = {
+  holdsAsks: false,
+  trustBlocks: false,
+  isWorking: true,
+  individualPermission: false,
+  secret: false,
+  cards: [] as { state: string }[],
+};
+
+test("an answered permission group is a receipt, not a wait", () => {
+  expect(chatWaitsOn({ ...chat, permissionGroups: [{ state: "resolved" }, { state: "cancelled" }] })).toBeUndefined();
+  expect(chatWaitsOn({ ...chat, permissionGroups: [{ state: "resolved" }, { state: "pending" }] })).toBe("permission");
+  expect(chatWaitsOn({ ...chat, permissionGroups: [{ state: "collecting" }] })).toBe("permission");
+});
+
+test("a card at work asks nothing; one that asks does", () => {
+  expect(chatWaitsOn({ ...chat, cards: [{ state: "working" }, { state: "failed" }] })).toBeUndefined();
+  expect(chatWaitsOn({ ...chat, cards: [{ state: "working" }, { state: "ask" }] })).toBe("question");
+});
+
+test("asks the trust question holds out of the stack are not named", () => {
+  const held = { ...chat, holdsAsks: true, individualPermission: true, secret: true, cards: [{ state: "ask" }] };
+  expect(chatWaitsOn(held)).toBeUndefined();
+  expect(chatWaitsOn({ ...chat, trustBlocks: true, secret: true })).toBeUndefined();
+});
+
+test("trust holds new prompts, not a running turn", () => {
+  const trust = { cwd, state: "ask" as const };
+  expect(chatWaitsOn({ ...chat, trust, holdsAsks: true })).toBeUndefined();
+  expect(chatWaitsOn({ ...chat, trust, holdsAsks: true, isWorking: false })).toBe("trust");
 });

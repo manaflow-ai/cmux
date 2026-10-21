@@ -6,6 +6,7 @@
 import { createContext } from "react";
 import type { FolderTrustAsk } from "../useFolderTrustAsk";
 import type { StringKey } from "../i18n";
+import type { PermissionGroupState } from "../permissions/protocol";
 
 export type WaitingOn = "trust" | "trustRemote" | "permission" | "secret" | "question";
 
@@ -35,4 +36,32 @@ export function waitingOn(asks: {
   if (asks.secret) return "secret";
   if (asks.question) return "question";
   return undefined;
+}
+
+/// The chat's asks as App.tsx has them, read as the line's wait. Only asks the stack draws count
+/// (the trust question holds the others out of it), only open ones (answered permission groups stay
+/// listed as receipts; a card at work asks nothing), and trust only while no turn runs: it holds
+/// new prompts, not a turn already going.
+export function chatWaitsOn(chat: {
+  trust?: FolderTrustAsk;
+  /// The trust question holds the chat's other asks (useFolderTrustAsk.ts `holdsAsks`).
+  holdsAsks: boolean;
+  /// Trust's read is in flight or its answer blocks Send (`blocked`): a secret waits behind it.
+  trustBlocks: boolean;
+  isWorking: boolean;
+  individualPermission: boolean;
+  permissionGroups?: readonly { state: PermissionGroupState }[];
+  secret: boolean;
+  cards: readonly { state: string }[];
+}): WaitingOn | undefined {
+  const shown = !chat.holdsAsks;
+  return waitingOn({
+    trust: chat.isWorking ? undefined : chat.trust,
+    permission:
+      shown &&
+      (chat.individualPermission ||
+        (chat.permissionGroups ?? []).some((group) => group.state === "pending" || group.state === "collecting")),
+    secret: shown && !chat.trustBlocks && chat.secret,
+    question: shown && chat.cards.some((card) => card.state === "ask"),
+  });
 }
