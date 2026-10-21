@@ -46,8 +46,8 @@ done
 [[ "$arm" =~ ^(A|B|B2|C|L)$ ]] || { echo "team-eval.sh: arm=A|B|B2|C|L" >&2; exit 2; }
 [[ "$model" =~ ^[a-z0-9.-]{1,60}$ ]] || { echo "team-eval.sh: model=NAME" >&2; exit 2; }
 [[ "$effort" =~ ^(low|medium|high|xhigh|max)$ ]] || { echo "team-eval.sh: effort=low|medium|high|xhigh|max" >&2; exit 2; }
-[[ "$budget" =~ ^[0-9]{1,3}$ ]] || { echo "team-eval.sh: budget is whole dollars" >&2; exit 2; }
-[[ "$minutes" =~ ^[0-9]{1,3}$ ]] || { echo "team-eval.sh: minutes is whole minutes" >&2; exit 2; }
+[[ "$budget" =~ ^[1-9][0-9]{0,2}$ ]] || { echo "team-eval.sh: budget is whole dollars, at least 1" >&2; exit 2; }
+[[ "$minutes" =~ ^[1-9][0-9]{0,2}$ ]] || { echo "team-eval.sh: minutes is whole minutes, at least 1" >&2; exit 2; }
 [[ "$claude_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "team-eval.sh: claude=X.Y.Z" >&2; exit 2; }
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
