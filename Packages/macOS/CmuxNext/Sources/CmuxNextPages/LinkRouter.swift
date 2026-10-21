@@ -68,6 +68,13 @@ public final class LinkRouter {
         open(url, otherTarget: otherTarget, source: sourceTab(view))
     }
 
+    /// Opens a link clicked in `view` with `modifiers` held (``open(_:otherTarget:from:)``):
+    /// Shift-Command picks the other browser.
+    @discardableResult
+    public func open(_ url: URL, modifiers: NSEvent.ModifierFlags, from view: NSView) -> LinkRouting.Target? {
+        open(url, otherTarget: Self.isOtherTarget(modifiers), from: view)
+    }
+
     /// Opens `url` in `target` whatever the link setting (a menu's Open in cmux Browser, Open in
     /// Default Browser). A non-web URL never opens in cmux, nor any URL while the cmux browser is
     /// off (`browser.enabled`). `source` is the tab it was clicked in (nil: the focused pane).
