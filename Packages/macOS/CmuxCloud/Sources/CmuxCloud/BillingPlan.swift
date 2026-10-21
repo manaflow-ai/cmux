@@ -80,11 +80,6 @@ public struct BillingPlanState: Sendable, Equatable {
         self.accountID == accountID && self.teamID == teamID
     }
 
-    /// Retains an existing answer for the same account and clears other answers.
-    public func applyingFailure(for accountID: String) -> Self {
-        self.accountID == accountID ? self : .unknown
-    }
-
     /// Retains an existing answer for the requested account and team scope.
     public func applyingFailure(for accountID: String, teamID: String?) -> Self {
         matches(accountID: accountID, teamID: teamID) ? self : .unknown
