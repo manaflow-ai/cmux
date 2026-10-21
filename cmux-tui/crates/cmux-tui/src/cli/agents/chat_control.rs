@@ -208,7 +208,8 @@ fn place(global: &GlobalArgs, chat: &NewChat) -> Result<Place, CallFailure> {
             });
             ("pane", found)
         }
-        (None, None) => unreachable!("handled above"),
+        // Handled above (a new workspace); answered as usage, never a panic.
+        (None, None) => return Err(not_run("usage.invalid", "name --workspace or --pane")),
     };
     let target = chat.workspace.as_deref().or(chat.pane.as_deref()).unwrap_or_default();
     let named = found.and_then(|(workspace, id)| {
