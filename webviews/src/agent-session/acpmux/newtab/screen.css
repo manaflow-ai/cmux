@@ -474,13 +474,7 @@
   .nt-player[data-playing="true"] .nt-player-levels i:nth-child(3){height:30%}
   .nt-player-played{transition:none}
 }
-/* Search | Ask (Leo 2026-10-18, reversing R86): a small glass switch, its "Tab to switch" hint
-   before it, in the row just above the box at its right edge (Lawrence 2026-10-20: "move tab to
-   switch outside above the box"), so the box holds only the field, the mic and Send. The project
-   strip shares the row on the left. The thumb is its own compositor layer and moves only by
-   transform, so the slide stays smooth when the main thread is busy; NewTabScreen sets data-mode
-   on the element before React renders the rows. Two equal columns keep the thumb exactly one
-   segment wide in every language. */
+/* The row just above the box: the project strip. */
 .nt-above {
   display: flex;
   align-items: center;
@@ -488,103 +482,16 @@
   min-width: 0;
 }
 /* The strip is size-contained (its controls answer to its own width): it takes the row's spare
-   room as a basis-0 item, and the switch keeps its own width at the right end. */
+   room as a basis-0 item. */
 .nt-above .acpmux-composer-strip {
   flex: 1 1 0;
   min-width: 0;
 }
-/* A top strip variant (Debug Settings) draws the strip as the card's own top, spanning it: the
-   switch then takes its own line above the strip, still at the right edge. */
+/* A top strip variant (Debug Settings) draws the strip as the card's own top, spanning it. */
 :root[data-top-strip] .nt-above {
   flex-direction: column;
   align-items: stretch;
   gap: 6px;
-}
-.nt-mode {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  /* At the box's right edge, in from it as the field's text is from the left. */
-  margin-left: auto;
-  padding-right: 6px;
-  font-size: var(--text-detail);
-  line-height: var(--text-detail--line-height);
-  user-select: none;
-  cursor: default;
-}
-:root[data-top-strip] .nt-above .nt-mode {
-  order: -1;
-  align-self: flex-end;
-}
-/* The mode said aloud after a Tab: for screen readers only (ui.css's ui-sr-only is not on this page). */
-.nt-mode-status {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
-.nt-mode-hint {
-  color: var(--acpmux-composer-dim, color-mix(in srgb, var(--agent-text) 45%, transparent));
-  white-space: nowrap;
-}
-@container (max-width: 520px) {
-  .nt-mode-hint {
-    display: none;
-  }
-}
-.nt-mode-track {
-  position: relative;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  padding: 2px;
-  /* Small-radius rects, not a capsule (POLISH.md). */
-  border-radius: 7px;
-  background: color-mix(in srgb, var(--agent-text) 7%, transparent);
-  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--agent-text) 12%, transparent);
-}
-.nt-mode-thumb {
-  position: absolute;
-  inset: 2px auto 2px 2px;
-  width: calc(50% - 2px);
-  border-radius: 5px;
-  /* Glass: a lifted translucent fill with a lit top edge, over the track's tint. */
-  background: linear-gradient(
-    color-mix(in srgb, var(--agent-text) 16%, transparent),
-    color-mix(in srgb, var(--agent-text) 9%, transparent)
-  );
-  box-shadow:
-    inset 0 0.5px 0 color-mix(in srgb, var(--agent-text) 22%, transparent),
-    var(--elevation-1);
-  transform: translateX(0);
-  will-change: transform;
-  pointer-events: none;
-}
-.nt-mode[data-mode="ask"] .nt-mode-thumb {
-  transform: translateX(100%);
-}
-@media (prefers-reduced-motion: no-preference) {
-  .nt-mode-thumb {
-    transition: transform var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out);
-  }
-}
-.nt-mode-track button {
-  position: relative;
-  min-width: 0;
-  padding: 2px 10px;
-  border: 0;
-  border-radius: 5px;
-  background: none;
-  color: var(--acpmux-composer-dim, color-mix(in srgb, var(--agent-text) 55%, transparent));
-  font: inherit;
-  white-space: nowrap;
-}
-.nt-mode[data-mode="search"] .nt-mode-track button[data-mode="search"],
-.nt-mode[data-mode="ask"] .nt-mode-track button[data-mode="ask"] {
-  color: var(--agent-text);
 }
 /* The New Tab widget view (WidgetCards.tsx, Leo 2026-10-18): soft cards in the composer's fill and
    hairline edge, round as the composer box, no squared boxes. Rows are quiet text; a pointer fills
@@ -798,9 +705,8 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
   color: var(--acpmux-composer-dim, var(--cmux-text-secondary));
 }
 /* Cards (u2851, from a scrawl of Aside's New Tab page). The field is a pill of its own: a round
-   rim, the Search | Ask switch with the Tab hint just above its right end. Under it, outside the
-   pill, one quiet row: the project strip on the left, the agent's chips and the mic on the right,
-   no Send disc (Return sends); it keeps its place but hides while Search shows its suggestions.
+   rim. Under it, outside the pill, one quiet row: the project strip on the left, the agent's chips
+   and the mic on the right, no Send disc (Return sends).
    Then "Chats" as a segmented tab with "All Chats >" across from it, and three tall cards in a
    grid that show more of each chat's last reply. Wider than the other templates' 720px column. */
 .nt-screen[data-template="cards"] {
@@ -824,25 +730,6 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 }
 .nt-screen[data-template="cards"][data-pill] .nt-field {
   padding-block: 18px;
-}
-/* Cards has no strip over its pill: the row holds only the switch, at the pill's right end. */
-.nt-screen[data-template="cards"][data-pill] .nt-mode {
-  padding-right: 12px;
-}
-.nt-screen[data-template="cards"][data-pill] .nt-mode-track {
-  padding: 3px;
-  border-radius: 999px;
-}
-.nt-screen[data-template="cards"][data-pill] .nt-mode-thumb {
-  inset: 3px auto 3px 3px;
-  width: calc(50% - 3px);
-  border-radius: 999px;
-  background: var(--acpmux-composer-surface, var(--cmux-surface-solid, var(--acpmux-base)));
-  box-shadow: var(--elevation-1);
-}
-.nt-screen[data-template="cards"][data-pill] .nt-mode-track button {
-  padding: 5px 16px;
-  border-radius: 999px;
 }
 .nt-toolbar {
   display: flex;
@@ -869,9 +756,6 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
   padding: 0;
   background: none;
   box-shadow: none;
-}
-.nt-screen[data-template="cards"][data-mode="search"] .nt-toolbar {
-  visibility: hidden;
 }
 .nt-screen[data-template="cards"] .nt-chats {
   margin-top: 36px;
