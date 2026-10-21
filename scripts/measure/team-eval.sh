@@ -3,7 +3,7 @@
 # knowledge/inspiration/coordinator-mode-eval.md): one task, one arm, a real
 # Chief through a credential-free Claude route, alone on a worker:
 #   cmux-ci run --class exclusive --script scripts/measure/team-eval.sh --ref SHA \
-#     --arg=base_url=http://HOST:PORT --arg=task=composer-scroll --arg=arm=M \
+#     --arg=base_url=http://HOST:PORT --arg=task=composer-scroll --arg=arm=A|M|D|L \
 #     [--arg=model=claude-opus-5-5] [--arg=effort=medium] [--arg=budget=40] \
 #     [--arg=minutes=60] [--arg=claude=2.1.300] \
 #     --artifact .build/team-eval/out.tgz --timeout 7200
@@ -43,7 +43,7 @@ for arg in "$@"; do
 done
 [[ "$base_url" =~ ^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]] || { echo "team-eval.sh: base_url=http://HOST[:PORT] is required" >&2; exit 2; }
 [[ "$task" =~ ^[a-z0-9-]{1,40}$ ]] || { echo "team-eval.sh: task=ID (see team_eval_tasks.json)" >&2; exit 2; }
-[[ "$arm" =~ ^[AMD]$ ]] || { echo "team-eval.sh: arm=A|M|D" >&2; exit 2; }
+[[ "$arm" =~ ^[AMDL]$ ]] || { echo "team-eval.sh: arm=A|M|D|L" >&2; exit 2; }
 [[ "$model" =~ ^[a-z0-9.-]{1,60}$ ]] || { echo "team-eval.sh: model=NAME" >&2; exit 2; }
 [[ "$effort" =~ ^(low|medium|high|xhigh|max)$ ]] || { echo "team-eval.sh: effort=low|medium|high|xhigh|max" >&2; exit 2; }
 [[ "$budget" =~ ^[0-9]{1,3}$ ]] || { echo "team-eval.sh: budget is whole dollars" >&2; exit 2; }
@@ -63,6 +63,28 @@ PY
 work="$root/.build/team-eval"
 rm -rf "$work"
 mkdir -p "$work/bin" "$work/home/.local/bin" "$work/out"
+# The agents' checkout lives outside this one: under the fleet checkout its
+# parents would hold the merged answer and this repo's CLAUDE.md.
+repo="$(mktemp -d /tmp/te-repo.XXXXXX)"
+rmdir "$repo"
+# Fleet steps run with a short PATH; look where bun installs too, and give the
+# agents bun and node on theirs (~/.local/bin under the run's HOME).
+BUN="$(command -v bun || true)"
+for candidate in "$HOME/.bun/bin/bun" /opt/homebrew/bin/bun /usr/local/bin/bun; do
+  [[ -n "$BUN" ]] && break
+  [[ -x "$candidate" ]] && BUN="$candidate"
+done
+[[ -n "$BUN" ]] || { echo "TEAM-EVAL bun not found (PATH, ~/.bun/bin, /opt/homebrew/bin, /usr/local/bin)" >&2; exit 1; }
+NODE="$(command -v node || true)"
+for candidate in /opt/homebrew/bin/node /usr/local/bin/node; do
+  [[ -n "$NODE" ]] && break
+  [[ -x "$candidate" ]] && NODE="$candidate"
+done
+[[ -n "$NODE" ]] || { echo "TEAM-EVAL node not found (PATH, /opt/homebrew/bin, /usr/local/bin)" >&2; exit 1; }
+# npm (for Claude Code) sits beside node.
+export PATH="$(dirname "$NODE"):$PATH"
+ln -s "$BUN" "$work/home/.local/bin/bun"
+ln -s "$NODE" "$work/home/.local/bin/node"
 echo "TEAM-EVAL-MACHINE host=$(scutil --get ComputerName 2>/dev/null || hostname) cores=$(sysctl -n hw.ncpu) rev=$(git rev-parse HEAD) task=$task arm=$arm model=$model effort=$effort"
 curl -fsS -m 10 -o /dev/null "$base_url/_subrouter/ready" || { echo "TEAM-EVAL the route $base_url is not reachable from this worker" >&2; exit 1; }
 # The task's base and reference must be in this checkout (a shallow one fetches them).
@@ -71,6 +93,8 @@ for sha in "$base" "$reference"; do
 done
 
 export CI=1
+# Arm L runs no Chief: only Claude Code.
+if [[ "$arm" != L ]]; then
 git submodule update --init --depth 1 ghostty-next
 scripts/cmux-next/build-acpmux.sh --output "$work/bin/acpmux"
 scripts/cmux-next/build-optchat-chief.sh --output "$work/bin/optchat-chief"
@@ -86,6 +110,7 @@ fi
 # The CLI is the same binary under the name cmux (`cmux chief edit` sets the arm's profile).
 cp "$work/bin/cmux-tui" "$work/bin/cmux"
 chmod 755 "$work/bin/"*
+fi
 git rev-parse HEAD > "$work/bin/REV"
 
 npm install --prefix "$work/cc" --no-fund --no-audit "@anthropic-ai/claude-code@$claude_version" >/dev/null
@@ -98,6 +123,7 @@ stop_driver() {
     kill -TERM "$driver_pid" 2>/dev/null || true
     wait "$driver_pid" 2>/dev/null || true
   fi
+  rm -rf "$repo"
 }
 trap stop_driver EXIT
 trap 'exit 143' TERM
@@ -105,7 +131,7 @@ trap 'exit 130' INT
 trap 'exit 129' HUP
 status=0
 HOME="$work/home" python3 Native/OptChat/optchat-chief/measure/team_eval.py run --task "$task" --arm "$arm" \
-  --bins "$work/bin" --repo "$root" --out "$work/out" --keep-repo "$work/repo" \
+  --bins "$work/bin" --repo "$root" --out "$work/out" --keep-repo "$repo" \
   --budget-usd "$budget" --max-minutes "$minutes" \
   --env "ANTHROPIC_BASE_URL=$base_url" --env "ANTHROPIC_API_KEY=sk-ant-placeholder-the-route-signs" \
   --env "CLAUDE_CONFIG_DIR=$work/home/.claude" --env "DISABLE_AUTOUPDATER=1" \
@@ -116,31 +142,45 @@ driver_pid=$!
 wait "$driver_pid" || status=$?
 driver_pid=""
 tail -3 "$work/out/driver.log"
-grep -q "acpmux cleanup: no process holds its locks" "$work/out/driver.log" || echo "TEAM-EVAL acpmux cleanup: $(grep "acpmux cleanup" "$work/out/driver.log" || echo 'no cleanup line')"
+if ! grep -q "acpmux cleanup: no process holds its locks" "$work/out/driver.log"; then
+  echo "TEAM-EVAL acpmux cleanup: $(grep "acpmux cleanup" "$work/out/driver.log" || echo 'no cleanup line')"
+  status=1
+fi
 
 # Checks on the agents' tree, after the run (the agents never see their results).
 checks="{}"
-if [[ -d "$work/repo/webviews" ]]; then
+if [[ -d "$repo/webviews" ]]; then
   check_rc=0
-  hidden_rc="skipped"
-  (cd "$work/repo/webviews" && bun install --frozen-lockfile > "$work/out/bun-install.log" 2>&1 && \
-    bun run check > "$work/out/bun-check.log" 2>&1) || check_rc=$?
+  (cd "$repo/webviews" && "$BUN" install --frozen-lockfile > "$work/out/bun-install.log" 2>&1 && \
+    "$BUN" run check > "$work/out/bun-check.log" 2>&1) || check_rc=$?
+  hidden_rc="none"
   if [[ "$hidden" != "-" ]]; then
-    # The reference PR's tests under their own names, beside whatever the agents wrote.
+    # The reference PR's tests under their own names, beside whatever the agents
+    # wrote. Browser-lane tests run only with CMUX_BROWSER_TESTS=1 and the
+    # engines installed, else they skip; the counts show which happened.
+    (cd "$repo/webviews" && "$BUN" x playwright install chromium webkit > "$work/out/playwright-install.log" 2>&1) || true
     hidden_rc=0
     IFS=, read -ra files <<< "$hidden"
     names=()
     for f in "${files[@]}"; do
       name="${f%.test.ts}.hidden.test.ts"
-      git show "$reference:$f" > "$work/repo/$name"
+      git show "$reference:$f" > "$repo/$name"
       names+=("${name#webviews/}")
     done
-    (cd "$work/repo/webviews" && bun test "${names[@]}" > "$work/out/hidden-tests.log" 2>&1) || hidden_rc=$?
+    (cd "$repo/webviews" && CMUX_BROWSER_TESTS=1 "$BUN" test "${names[@]}" > "$work/out/hidden-tests.log" 2>&1) || hidden_rc=$?
   fi
-  checks="$(python3 -c 'import json,sys; print(json.dumps({"bun_check_rc": int(sys.argv[1]), "hidden_tests_rc": sys.argv[2]}))' "$check_rc" "$hidden_rc")"
+  checks="$(python3 -I - "$check_rc" "$hidden_rc" "$work/out/hidden-tests.log" <<'PY'
+import json, os, re, sys
+log = open(sys.argv[3]).read() if os.path.exists(sys.argv[3]) else ""
+count = lambda word: sum(int(n) for n in re.findall(rf"^\s*(\d+) {word}$", log, re.M))
+rc = sys.argv[2]
+print(json.dumps({"bun_check_rc": int(sys.argv[1]), "hidden_tests_rc": int(rc) if rc.isdigit() else rc,
+                  "hidden_pass": count("pass"), "hidden_skip": count("skip"), "hidden_fail": count("fail")}))
+PY
+)"
 fi
 echo "$checks" > "$work/out/checks.json"
-rm -rf "$work/repo"
+rm -rf "$repo"
 tar -czf "$work/out.tgz" -C "$work" out
 python3 -I - "$work/out/run.json" "$work/out/checks.json" <<'PY' || status=1
 import json, sys

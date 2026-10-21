@@ -99,6 +99,7 @@ def score(out, tasks, opts):
         "dropped": [i["item"] for i in checklist.get("items", []) if not i.get("met")],
         "quality": quality.get("score"), "quality_why": quality.get("why"),
         "bun_check_rc": checks.get("bun_check_rc"), "hidden_tests_rc": checks.get("hidden_tests_rc"),
+        "hidden_pass": checks.get("hidden_pass"), "hidden_skip": checks.get("hidden_skip"), "hidden_fail": checks.get("hidden_fail"),
     }
 
 
