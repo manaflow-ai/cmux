@@ -508,7 +508,7 @@ impl Hub {
 
     /// Points adopt at other harness stores (tests use fixture stores).
     pub fn set_harness_homes(&self, homes: crate::adopt::HarnessHomes) {
-        *self.harness_homes.lock().unwrap() = homes;
+        *self.harness_homes.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = homes;
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<HubEvent> {
@@ -528,7 +528,7 @@ impl Hub {
             }
         };
         let mut sessions = self.sessions.lock().unwrap();
-        *self.waiting_at_load.lock().unwrap() = metas
+        *self.waiting_at_load.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = metas
             .iter()
             .filter(|m| m.status == SessionStatus::Waiting)
             .map(|m| m.id.clone())
@@ -595,7 +595,7 @@ impl Hub {
     /// ahead of it. Counts the tail past `lastSeq` once, so no sequence is
     /// handed out twice; only that tail is read.
     pub(super) fn catch_up(&self, session: &Session) {
-        let _order = session.append_lock.lock().unwrap();
+        let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         self.catch_up_locked(session);
     }
 
@@ -635,6 +635,7 @@ impl Hub {
 
     pub(super) fn make_session(&self, meta: SessionMeta) -> Arc<Session> {
         let (inbound_tx, inbound_rx) = mpsc::channel(1024);
+        let steering = meta.steering;
         Arc::new(Session {
             id: meta.id.clone(),
             seq: AtomicU64::new(meta.last_seq),
@@ -661,7 +662,7 @@ impl Hub {
             route_switch: AtomicBool::new(false),
             inbound_tx,
             inbound_rx: Mutex::new(Some(inbound_rx)),
-            steering: AtomicBool::new(false),
+            steering: AtomicBool::new(steering),
             steer_end: tokio::sync::watch::channel(None).0,
             fork_from: StdMutex::new(None),
             applied: StdMutex::new(session::Applied::default()),
@@ -773,7 +774,7 @@ impl Hub {
         host_seq: Option<u64>,
         at: Option<u64>,
     ) -> (EventRecord, bool) {
-        let _order = session.append_lock.lock().unwrap();
+        let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         self.catch_up_locked(session);
         let seq = session.seq.fetch_add(1, Ordering::SeqCst) + 1;
         let at = at.unwrap_or_else(now_ms);
@@ -993,10 +994,25 @@ impl Hub {
         }
     }
 
+    /// Saves the session's record; never a purged session's. A late save
+    /// (a generated title after the turn, a tag) would write its record
+    /// back after the purge deleted it, and the next daemon start loaded it
+    /// as a closed session: the Chief's compactor, which purges each node's
+    /// session when the node is built, left about 450 of them in two hours
+    /// (2026-10-20).
     pub(super) fn save_meta(&self, session: &Session) {
+        if session.purged.load(Ordering::SeqCst) {
+            return;
+        }
         let meta = session.meta();
         if let Err(e) = self.store.save(&meta) {
             tracing::warn!(session = %session.id, "save meta failed: {e}");
+        }
+        // The purge ran between the check and the save: delete it again.
+        if session.purged.load(Ordering::SeqCst)
+            && let Err(e) = self.store.delete(&session.id)
+        {
+            tracing::warn!(session = %session.id, "delete of a purged session failed: {e}");
         }
     }
 

@@ -39,8 +39,7 @@ extension BrowserPageScripts {
         const W = (el.ownerDocument && el.ownerDocument.defaultView) || window;
         if (!(el instanceof W.HTMLInputElement) || String(el.type).toLowerCase() !== 'file') { return { error: 'Element is not a file input: ' + raw, code: 'not_file_input' }; }
         const dt = new W.DataTransfer();
-        for (const f of [\(list)]) { const bin = atob(f.b64); const bytes = new Uint8Array(bin.length);
-          for (let i = 0; i < bin.length; i++) { bytes[i] = bin.charCodeAt(i); }
+        for (const f of [\(list)]) { const bytes = Uint8Array.from(atob(f.b64), (c) => c.charCodeAt(0));
           dt.items.add(new W.File([bytes], f.name, { type: f.type })); }
         el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
         el.files = dt.files;

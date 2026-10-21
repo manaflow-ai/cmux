@@ -33,6 +33,7 @@ export function SummaryCard({
   onOpenChanges,
   subagents,
   subsessions,
+  onAttach,
 }: {
   card: SummaryCardControl;
   rows: readonly AcpmuxRow[];
@@ -56,6 +57,8 @@ export function SummaryCard({
   /// The chat's sub-sessions (subagents/subsessions.ts `subsessionRows`), listed after its
   /// subagents, and how a row opens one's chat beside this one.
   subsessions?: { rows: readonly SubsessionRow[]; onOpen: (sessionId: string) => void };
+  /// Sources' + (Attach files or folders), for a chat on this computer.
+  onAttach?: () => void;
 }) {
   const t = useT();
   const [gallery, setGallery] = useState(false);
@@ -254,6 +257,7 @@ export function SummaryCard({
               onOpenChanges={onOpenChanges}
               subagents={listed ? <></> : undefined}
               onOpenOutput={onOpenOutput}
+              onAttach={onAttach}
             />
           </div>
         )}
