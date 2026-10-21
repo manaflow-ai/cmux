@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
+import { usePresence } from "../../../ui/presence";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
@@ -79,11 +80,16 @@ export function SummaryCard({
   /// The Subagents tab: absent until the Subagents title opens it, then shown or behind Summary.
   const [tab, setTab] = useState<"summary" | "subagents" | undefined>(undefined);
   const shown = card.shown;
-  const open = shown && !card.collapsed;
+  // The card slides in from the pane's right edge and back out (ui/presence.ts): the inline column
+  // travels its own width inside the pane, the popover a few points. It keeps its content while it
+  // leaves; a second open while it is open changes nothing.
+  const presence = usePresence(shown, "right");
+  const drawn = presence.present;
+  const open = drawn && !card.collapsed;
   const views = subagents.views;
-  const agents = useMemo(() => (shown ? [...subagentsIn(rows, views).values()] : []), [shown, rows, views]);
+  const agents = useMemo(() => (drawn ? [...subagentsIn(rows, views).values()] : []), [drawn, rows, views]);
   const asks = subagents.asks;
-  const waiting = useMemo(() => (shown ? waitingSubagents(asks, views) : new Set<string>()), [shown, asks, views]);
+  const waiting = useMemo(() => (drawn ? waitingSubagents(asks, views) : new Set<string>()), [drawn, asks, views]);
   const galleryRow = useRef<HTMLElement | null>(null);
   const summary = useMemo(() => (open ? sessionSummary(rows) : undefined), [open, rows]);
   const galleryCount = useMemo(() => (open ? chatGallery(rows).length : 0), [open, rows]);
@@ -130,7 +136,7 @@ export function SummaryCard({
     card.close();
     button?.focus();
   });
-  if (!shown) {
+  if (!drawn) {
     // Keep the inline column's width stable before the first summary row arrives. The rail is
     // intentionally invisible until it has content, but removing it from the flex row would make
     // the composer jump sideways when the first subagent or tool result is received.
@@ -160,8 +166,13 @@ export function SummaryCard({
   return (
     <>
       <aside
-        ref={panel}
+        {...presence.props}
+        ref={(node) => {
+          panel.current = node;
+          presence.props.ref(node);
+        }}
         className="acpmux-summary-card"
+        inert={presence.leaving}
         // ui-allow: focusable from script only, the last place closing the Subagents tab can leave focus.
         tabIndex={-1}
         aria-label={title}

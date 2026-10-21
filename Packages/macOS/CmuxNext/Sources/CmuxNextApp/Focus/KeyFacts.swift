@@ -51,4 +51,6 @@ nonisolated struct KeyFacts: Equatable, Sendable {
     var textBoxFocused = false
     /// The window's sidebar has two or more rows selected (`sidebar.multiSelection` while it has the keyboard).
     var sidebarMultiSelection = false
+    /// The right sidebar's file explorer list has the keyboard (`fileExplorerFocused`).
+    var fileExplorerFocused = false
 }

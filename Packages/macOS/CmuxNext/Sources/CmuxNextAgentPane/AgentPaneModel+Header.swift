@@ -1,3 +1,5 @@
+import AppKit
+import CmuxNextActions
 import Foundation
 
 /// The app side of the chat header (`pane.action`, `pane.tabState`): runs a
@@ -13,9 +15,10 @@ public struct AgentPaneHeaderHooks {
     /// `/btw` side session): a tab in the chat's side pane when one is open, else a new split
     /// (``AgentSidePanes``).
     public var openSide: @MainActor (_ chat: String, _ fork: String) -> Void
-    /// Opens acpmux session `id` in a new tab beside the chat's (a fork, a started Continue in…), so
-    /// the chat keeps its own tab and session; false when no tab opened.
-    public var openTab: @MainActor (String) -> Bool
+    /// Opens acpmux session `id` (a fork, a started Continue In…) at a ``AgentForkDestination``: a
+    /// new tab beside the chat's, a split beside it, a new workspace or a new window, so the chat
+    /// keeps its own tab and session; false when nothing opened.
+    public var openTab: @MainActor (String, AgentForkDestination) -> Bool
     /// Shows subagent `agent` of session `session` in an agent pane right of the chat
     /// (``AgentSubagentPanes``), focused with `focus`; false when no pane opened.
     public var openSubagent: @MainActor (_ session: String, _ agent: String, _ focus: Bool) -> Bool
@@ -43,7 +46,7 @@ public struct AgentPaneHeaderHooks {
                 toggle: (@MainActor (String, String?) -> Void)? = nil,
                 tabState: @escaping @MainActor () -> AgentPaneHeaderState,
                 openSide: @escaping @MainActor (String, String) -> Void = { _, _ in },
-                openTab: @escaping @MainActor (String) -> Bool = { _ in false },
+                openTab: @escaping @MainActor (String, AgentForkDestination) -> Bool = { _, _ in false },
                 openSubagent: @escaping @MainActor (String, String, Bool) -> Bool = { _, _, _ in false },
                 openProcess: @escaping @MainActor (AgentPaneProcessViewer) -> Bool = { _ in false },
                 newChat: @escaping @MainActor (String) -> Bool = { _ in false },
@@ -138,7 +141,9 @@ extension AgentPaneModel {
             guard let header else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.tabState")
             }
-            return AgentPaneReply.success(header.state(refresh: refresh).reply)
+            var state = header.state(refresh: refresh).reply
+            state["moves"] = offeredMoves()
+            return AgentPaneReply.success(state)
         case .sideChat(let fork):
             return await AgentPaneSideChat.open(fork, in: self)
         case .subagentPane(let agent, let focus):
@@ -150,12 +155,12 @@ extension AgentPaneModel {
             return AgentPaneReply.success(["opened": header.openSubagent(sessionId, agent, focus)])
         case .processTerminal(let call):
             return AgentPaneProcessViewer.open(call, in: self)
-        case .chatTab(let chat):
+        case .chatTab(let chat, let destination):
             // Only a chat this pane made (its fork's or handoff start's reply put it in the pane's
             // scope), never the chat itself, and not from a New Tab page. A refusal (another
             // machine's pane, no daemon) answers so: the page then opens the chat in this tab.
             guard let sessionId, newTab == nil, chat != sessionId, AgentPaneSideChat.holds(chat, chat: sessionId, in: self), let header,
-                  header.openTab(chat) else {
+                  header.openTab(chat, destination) else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.openTab")
             }
             return AgentPaneReply.success()
@@ -189,5 +194,20 @@ enum AgentPaneSideChat {
         }
         header.openSide(sessionId, fork)
         return AgentPaneReply.success()
+    }
+}
+
+extension AgentPaneModel {
+    /// The Cloud moves (`cloudMove`, `cloudBringBack`) the chat's right-click menu offers now, so the
+    /// composer's picker offers the same: the App decides which apply (it hides Bring Back Local on a
+    /// chat no move from this Mac put on its machine, and Move to Cloud on a chat of another machine).
+    func offeredMoves() -> [String] {
+        func ids(_ items: [NSMenuItem]) -> [String] {
+            items.flatMap { item in
+                (ActionRegistry.menuRun(of: item).map { [$0.id.rawValue] } ?? []) + ids(item.submenu?.items ?? [])
+            }
+        }
+        let moves: Set<String> = ["cloudMove", "cloudBringBack"]
+        return ids(chatMenuItems?() ?? []).filter(moves.contains)
     }
 }

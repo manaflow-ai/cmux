@@ -133,14 +133,36 @@ export function changedByTools(
   return toolFiles.some((tool) => tool.path === file.path || tool.path.endsWith(`/${file.displayPath}`));
 }
 
+/// The tool calls' files at an absolute path outside the repository at `root`, which no checkpoint
+/// of it holds. A relative path is the agent's, under its folder, so it stays with the checkpoint, and
+/// so does a file a checkpoint file already matches (`changedByTools`), such as /tmp/x for a
+/// repository under /private/tmp, so no file lists twice. The edited-files card reads its paths
+/// without counts the same way.
+export function outsideRepository<File extends Pick<TurnFile, "path">>(
+  toolFiles: readonly File[],
+  root: string | undefined,
+  checkpointFiles: readonly Pick<TurnFile, "path" | "displayPath">[],
+): File[] {
+  const top = root?.replace(/\/+$/, "");
+  if (top === undefined) return [];
+  return toolFiles.filter(
+    (file) =>
+      file.path.startsWith("/") &&
+      !file.path.startsWith(`${top}/`) &&
+      !checkpointFiles.some((checkpointFile) => changedByTools(checkpointFile, [file])),
+  );
+}
+
 /// What the Last turn view shows. A checkpoint that loads replaces the tool calls' edits, unless
 /// Keep or Undo choices on those edits are still unsent: the view switches once they are sent
-/// or cleared, so no choice moves under the reader's hand.
+/// or cleared, so no choice moves under the reader's hand. `pathsOnly`: paths the tool calls changed
+/// without a diff (diff.ts `turnPathsOnly`), so a checkpoint file there is not marked `outside`.
 export function turnDisplay(
   t: Translate,
   toolFiles: TurnFile[],
   load: TurnCheckpointLoad,
   pending: boolean,
+  pathsOnly: readonly string[] = [],
 ): TurnDisplay {
   const tools = (note?: string): TurnDisplay => ({ files: toolFiles, source: "tools", note });
   switch (load.state) {
@@ -155,26 +177,37 @@ export function turnDisplay(
       return tools(t("turn.checkpoint.incomplete"));
     case "loaded": {
       if (pending) return tools(t("turn.checkpoint.pending"));
+      const changed = [...toolFiles, ...pathsOnly.map((path) => ({ path }))];
       const files = changeSetFiles(load.changeSet).map((file) => {
         const reviewFile = checkpointReviewFile(file, toolFiles);
         return {
           ...reviewFile,
           edits: reviewFile.edits.map((edit) => ({ ...edit, toolId: `checkpoint:${load.checkpointId}` })),
-          ...(changedByTools(file, toolFiles) ? {} : { outside: true }),
+          ...(changedByTools(file, changed) ? {} : { outside: true }),
         };
       });
-      return { files, source: "checkpoint" };
+      // The checkpoint holds only its repository: a file a tool call wrote elsewhere (a new file in
+      // /tmp) keeps its tool-call diff, or it would vanish from the card and the view.
+      return { files: [...files, ...outsideRepository(toolFiles, load.changeSet.root, files)], source: "checkpoint" };
     }
   }
 }
 
 /// The edited-files card's totals: the checkpoint's once it has loaded, else the tool calls'.
-export function turnCounts(toolFiles: readonly TurnFile[], load: TurnCheckpointLoad | undefined) {
+/// `root`: the loaded checkpoint's repository. `pathsOnly` as for `turnDisplay`.
+export function turnCounts(
+  toolFiles: readonly TurnFile[],
+  load: TurnCheckpointLoad | undefined,
+  pathsOnly: readonly string[] = [],
+) {
   const display =
-    load?.state === "loaded" ? turnDisplay(translatorFor(currentLanguage()), [...toolFiles], load, false) : undefined;
+    load?.state === "loaded"
+      ? turnDisplay(translatorFor(currentLanguage()), [...toolFiles], load, false, pathsOnly)
+      : undefined;
   const files = display?.files ?? toolFiles;
   return {
     files,
+    root: load?.state === "loaded" ? load.changeSet.root : undefined,
     additions: files.reduce((sum, file) => sum + file.additions, 0),
     deletions: files.reduce((sum, file) => sum + file.deletions, 0),
     outside: files.some((file) => file.outside),

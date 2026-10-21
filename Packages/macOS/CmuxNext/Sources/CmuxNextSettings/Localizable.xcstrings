@@ -152987,6 +152987,530 @@
           }
         }
       }
+    },
+    "settings.layout.mainPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Main Pane"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اللوحة الرئيسية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glavno okno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hovedrude"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hauptbereich"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panel principal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panneau principal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riquadro principale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メインペイン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំងមេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본 패널"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hovedrute"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panel główny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Painel principal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Основная панель"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แผงหลัก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ana Bölme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Основна панель"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ngăn chính"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主窗格"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主窗格"
+          }
+        }
+      }
+    },
+    "settings.layout.mainPane.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Chats keeps an agent chat as the main pane: links, files, subagents and side chats it opens appear as tabs in a column on its right, and closing that column gives the chat its full width back."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُبقي خيار «محادثات الوكلاء» محادثة الوكيل في اللوحة الرئيسية: تظهر الروابط والملفات والوكلاء الفرعيون والمحادثات الجانبية التي تفتحها كعلامات تبويب في عمود على يمينها، وعند إغلاق هذا العمود تستعيد المحادثة عرضها الكامل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatovi s agentom drže chat s agentom kao glavno okno: linkovi, fajlovi, podagenti i sporedni chatovi koje otvori pojavljuju se kao kartice u koloni s njegove desne strane, a zatvaranjem te kolone chat ponovo dobija punu širinu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentchats beholder en agentchat som hovedruden: links, filer, underagenter og sidechats, den åbner, vises som faner i en kolonne til højre for den, og når du lukker kolonnen, får chatten sin fulde bredde tilbage."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Chats behält einen Agent-Chat als Hauptbereich: Links, Dateien, Subagenten und Neben-Chats, die er öffnet, erscheinen als Tabs in einer Spalte rechts daneben, und wenn du diese Spalte schließt, bekommt der Chat wieder seine volle Breite."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats de agente mantiene un chat de agente como panel principal: los enlaces, archivos, subagentes y chats laterales que abre aparecen como pestañas en una columna a su derecha, y al cerrar esa columna el chat recupera todo su ancho."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Discussions d’agent garde une discussion d’agent comme panneau principal : les liens, fichiers, sous-agents et discussions annexes qu’elle ouvre s’affichent en onglets dans une colonne à sa droite, et fermer cette colonne rend à la discussion toute sa largeur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat con agenti mantiene una chat con un agente come riquadro principale: link, file, subagenti e chat laterali che apre compaiono come schede in una colonna alla sua destra, e chiudendo quella colonna la chat torna a tutta larghezza."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「エージェントチャット」では、エージェントチャットをメインペインとして保持します。チャットが開いたリンク、ファイル、サブエージェント、サイドチャットは右側のカラムにタブとして表示され、そのカラムを閉じるとチャットが全幅に戻ります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកជាមួយភ្នាក់ងារ រក្សាការជជែកជាមួយភ្នាក់ងារជាផ្ទាំងមេ៖ តំណ ឯកសារ ភ្នាក់ងាររង និងការជជែកចំហៀងដែលវាបើក បង្ហាញជាថេបនៅក្នុងជួរឈរនៅខាងស្តាំរបស់វា ហើយការបិទជួរឈរនោះ ធ្វើឱ្យការជជែកត្រឡប់មកទទឹងពេញវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 채팅은 에이전트 채팅을 기본 패널로 유지합니다. 채팅에서 연 링크, 파일, 하위 에이전트 및 사이드 채팅은 오른쪽 열에 탭으로 나타나며, 그 열을 닫으면 채팅이 다시 전체 너비가 됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentchatter beholder en agentchat som hovedruten: lenker, filer, underagenter og sidechatter den åpner, vises som faner i en kolonne til høyre for den, og når du lukker kolonnen, får chatten full bredde igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czaty z agentem zostawiają czat z agentem jako panel główny: linki, pliki, podagenci i czaty poboczne, które otworzy, pojawiają się jako karty w kolumnie po jego prawej stronie, a zamknięcie tej kolumny przywraca czatowi pełną szerokość."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats de agente mantém um chat de agente como painel principal: links, arquivos, subagentes e chats laterais que ele abre aparecem como abas em uma coluna à direita, e fechar essa coluna devolve ao chat a largura total."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Чаты с агентами» оставляют чат с агентом основной панелью: ссылки, файлы, субагенты и побочные чаты, которые он открывает, появляются вкладками в колонке справа от него, а если закрыть эту колонку, чат снова займёт всю ширину."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชทเอเจนต์จะคงแชทเอเจนต์ไว้เป็นแผงหลัก ลิงก์ ไฟล์ เอเจนต์ย่อย และแชทข้างเคียงที่แชทเปิดจะแสดงเป็นแท็บในคอลัมน์ทางขวา และเมื่อปิดคอลัมน์นั้น แชทจะกลับมาเต็มความกว้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan Sohbetleri, bir ajan sohbetini ana bölme olarak tutar: açtığı bağlantılar, dosyalar, alt ajanlar ve yan sohbetler sağındaki bir sütunda sekme olarak görünür; bu sütunu kapatmak sohbete tam genişliğini geri verir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Чати з агентами» залишають чат з агентом основною панеллю: посилання, файли, субагенти й побічні чати, які він відкриває, з’являються вкладками в колонці праворуч від нього, а якщо закрити цю колонку, чат знову займе всю ширину."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trò chuyện với tác tử giữ một cuộc trò chuyện với tác tử làm ngăn chính: liên kết, tệp, tác tử con và cuộc trò chuyện phụ mà nó mở sẽ hiện thành thẻ trong một cột bên phải, và đóng cột đó sẽ trả lại toàn bộ chiều rộng cho cuộc trò chuyện."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“智能体聊天”会将智能体聊天保持为主窗格：它打开的链接、文件、子智能体和侧边聊天会以标签页形式显示在其右侧的一栏中，关闭该栏后聊天会恢复完整宽度。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「代理程式聊天」會將代理程式聊天保持為主窗格：它打開的連結、檔案、子代理程式和側邊聊天會以分頁形式顯示在其右側的一欄中，關閉該欄後聊天會恢復完整寬度。"
+          }
+        }
+      }
+    },
+    "settings.choice.mainPaneAgentChats": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Chats"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "محادثات الوكلاء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatovi s agentom"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentchats"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Chats"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats de agente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Discussions d’agent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat con agenti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントチャット"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកជាមួយភ្នាក់ងារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 채팅"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentchatter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czaty z agentem"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats de agente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чаты с агентами"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชทเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan Sohbetleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чати з агентами"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trò chuyện với tác tử"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智能体聊天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式聊天"
+          }
+        }
+      }
+    },
+    "settings.choice.mainPaneOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إيقاف"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Isključeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desactivado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactivé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disattivato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បិទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끔"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Av"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyłączone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desativado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выкл."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapalı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вимк."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tắt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -72,10 +72,10 @@ and launch-time budget on about 3 vCPU are unmeasured against its 60 min
 budget. Without the snapshot's waits nothing is stalled and nothing goes to
 hosted, which is the previous route.
 
-`retry_runner` is the Blacksmith label the bot's overflow attempt (3 or later)
-takes for these jobs: among moving (not stalled) labels with a free slot, the
-lowest (in flight + queued) / capacity, the larger label on a tie
-(retry_label). With no free, moving slot it is empty, and the job takes the
+`retry_runner` is the Blacksmith label the bot's overflow attempt (2 or
+later: the rescue's re-runs) takes for these jobs: among moving (not stalled)
+labels with a free slot, the lowest (in flight + queued) / capacity, the
+larger label on a tie (retry_label). With no free, moving slot it is empty, and the job takes the
 owned side label: waiting behind the fleet is acceptable, waiting in a
 Blacksmith queue is not (Leo, 2026-10-20: 5+ hour waits on 12 vCPU, about 95
 PRs behind 318 queued runs). It is written as `free_retry_runner`, a key a
