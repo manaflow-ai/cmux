@@ -345,6 +345,7 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${CHAT}`);
     await page.getByText(`Question ${TURNS}`, { exact: true }).waitFor({ timeout: 60_000 });
+    // fixed-wait: the test watches 3 s of painted frames after open for any jump; the window is the test
     await page.waitForTimeout(3_000);
     const frames = await page.evaluate(
       () => (window as unknown as { __opened: { t: number; line: number; fromEnd: number }[] }).__opened,
