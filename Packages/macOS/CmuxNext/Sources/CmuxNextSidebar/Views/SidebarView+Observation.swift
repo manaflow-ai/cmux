@@ -32,6 +32,8 @@ extension SidebarViewComponents {
         var cards: SidebarBottomCards
         /// The session tree (`sidebar.sessionTree`): nesting, pull requests, keycaps.
         var tree: SidebarSessionTreeState?
+        /// Every row's pull request badge, tree or not.
+        var pullRequests: [WorkspaceID: SidebarPullRequestBadge]
         /// The session tree's chat history: Pinned and Earlier.
         var history: SidebarChatHistoryState?
         init(_ model: SidebarModel, _ design: DesignSettings) {
@@ -54,6 +56,7 @@ extension SidebarViewComponents {
             titlebarHeight = Metrics.titlebarHeight
             cards = SidebarBottomCards(update: model.updateCard, nowPlaying: model.nowPlaying, updated: model.updatedCard, notice: model.noticeCard)
             tree = SidebarSessionTree.shared.state
+            pullRequests = SidebarSessionTree.shared.pullRequests
             history = SidebarChatHistory.shared.state
         }
     }

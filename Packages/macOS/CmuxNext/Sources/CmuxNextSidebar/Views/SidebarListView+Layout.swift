@@ -64,6 +64,7 @@ extension SidebarListViewComponents {
     func options(includeGap: Bool) -> SidebarLayoutOptions {
         var o = model.listOptions()
         o.showsSoleMachineHeader = true
+        o.pullRequests = SidebarSessionTree.shared.pullRequests
         if let tree = SidebarSessionTree.shared.state {
             (o.sessionTree, o.keycaps) = (tree, model.workspaceKeycaps(DesignSettings.shared.sidebarSections.navigation))
             o.chatHistory = SidebarChatHistory.shared.state
