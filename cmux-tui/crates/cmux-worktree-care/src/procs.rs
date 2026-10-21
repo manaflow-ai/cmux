@@ -165,7 +165,7 @@ mod care_tests {
         std::fs::create_dir_all(&folder).unwrap();
         let mut child =
             std::process::Command::new("sleep").arg("30").current_dir(&folder).spawn().unwrap();
-        let found = super::open_inside(&folder);
+        let found = open_inside(&folder);
         let _ = child.kill();
         let _ = child.wait();
         let _ = std::fs::remove_dir_all(&folder);

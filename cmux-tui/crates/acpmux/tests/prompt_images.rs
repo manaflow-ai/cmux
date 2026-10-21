@@ -198,9 +198,12 @@ async fn echo(c: &mut Client, session: &str) -> String {
     let page =
         c.call("_acpmux/events", json!({"sessionId": session, "kinds": ["transcript"]})).await;
     let events = page["result"]["events"].as_array().cloned().unwrap_or_default();
-    let texts =
-        events.iter().filter_map(|e| e["msg"]["params"]["update"]["content"]["text"].as_str());
-    texts.filter(|t| t.starts_with("echo: ")).last().unwrap_or_default().to_owned()
+    events
+        .iter()
+        .filter_map(|e| e["msg"]["params"]["update"]["content"]["text"].as_str())
+        .rfind(|t| t.starts_with("echo: "))
+        .unwrap_or_default()
+        .to_owned()
 }
 
 /// The session's queue, as every client's list shows it.
