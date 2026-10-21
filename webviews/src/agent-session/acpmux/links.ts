@@ -40,27 +40,60 @@ export const REVEALED_TURN_MS = 1600;
 export const REVEAL_WAIT_MS = 5000;
 const REVEAL_POLL_MS = 100;
 
+/// The `revealTurn` value that scrolls to and highlights one message: the harness message id
+/// acpmux reports on the message's chunks (`agent_message_chunk.messageId`), which a
+/// `cmux://agent/<harness>/<session>?message=<id>` link carries.
+export const MESSAGE_REVEAL = "message:";
+
+/// The message a reveal names, or undefined for a turn.
+export const revealedMessage = (value: string) =>
+  value.startsWith(MESSAGE_REVEAL) ? value.slice(MESSAGE_REVEAL.length) || undefined : undefined;
+
+/// Scrolls `row` into view and marks it for a moment.
+function markRow(row: HTMLElement): true {
+  row.scrollIntoView({ block: "center" });
+  row.classList.add(REVEALED_TURN_CLASS);
+  setTimeout(() => row.classList.remove(REVEALED_TURN_CLASS), REVEALED_TURN_MS);
+  return true;
+}
+
 /// Scrolls the transcript row of turn `turnId` (`data-turn-id`) into view and marks it briefly.
 /// False, and nothing moves, when no row carries that turn.
 export function scrollToTurn(turnId: string, root: ParentNode = document): boolean {
   for (const row of root.querySelectorAll<HTMLElement>("[data-turn-id]")) {
     if (row.dataset.turnId !== turnId) continue;
-    row.scrollIntoView({ block: "center" });
-    row.classList.add(REVEALED_TURN_CLASS);
-    setTimeout(() => row.classList.remove(REVEALED_TURN_CLASS), REVEALED_TURN_MS);
-    return true;
+    return markRow(row);
   }
   return false;
 }
 
+/// Scrolls the transcript row `rowId` (`data-row-id`) into view and marks it briefly. False, and
+/// nothing moves, when the row is not on screen.
+export function scrollToRow(rowId: string, root: ParentNode = document): boolean {
+  for (const row of root.querySelectorAll<HTMLElement>("[data-row-id]")) {
+    if (row.dataset.rowId !== rowId) continue;
+    return markRow(row);
+  }
+  return false;
+}
+
+/// Scrolls to the first row message `messageId` streamed into (a tool call splits one message over
+/// several rows), and marks it. False when the page has no row for that message: another machine's
+/// transcript, or one this session never saw.
+export function scrollToMessage(
+  messageId: string,
+  rowsOfMessage: (messageId: string) => readonly string[],
+  root: ParentNode = document,
+): boolean {
+  return rowsOfMessage(messageId).some((rowId) => scrollToRow(rowId, root));
+}
+
 let pendingReveal: (() => void) | undefined;
 
-/// Scrolls to turn `turnId` once its row renders: now when it is there, else as soon as it appears,
-/// giving up quietly after `waitMs`. A later reveal replaces a pending one. Resolves whether it
-/// scrolled.
-export function revealTurnWhenShown(
-  turnId: string,
-  root: ParentNode = document,
+/// Runs `attempt` now, then every `pollMs` until it succeeds or `waitMs` passes, giving up quietly.
+/// A later reveal replaces a pending one. Resolves whether it scrolled.
+function revealWhenShown(
+  attempt: () => boolean,
   { waitMs = REVEAL_WAIT_MS, pollMs = REVEAL_POLL_MS }: { waitMs?: number; pollMs?: number } = {},
 ): Promise<boolean> {
   pendingReveal?.();
@@ -73,13 +106,36 @@ export function revealTurnWhenShown(
       resolve(revealed);
     };
     const cancel = () => finish(false);
-    const attempt = () => {
+    const poll = () => {
       timer = undefined;
-      if (scrollToTurn(turnId, root)) finish(true);
+      if (attempt()) finish(true);
       else if (Date.now() >= deadline) finish(false);
-      else timer = setTimeout(attempt, pollMs);
+      else timer = setTimeout(poll, pollMs);
     };
     pendingReveal = cancel;
-    attempt();
+    poll();
   });
+}
+
+/// Scrolls to turn `turnId` once its row renders: now when it is there, else as soon as it appears,
+/// giving up quietly after `waitMs`. A later reveal replaces a pending one. Resolves whether it
+/// scrolled.
+export function revealTurnWhenShown(
+  turnId: string,
+  root: ParentNode = document,
+  options: { waitMs?: number; pollMs?: number } = {},
+): Promise<boolean> {
+  return revealWhenShown(() => scrollToTurn(turnId, root), options);
+}
+
+/// Scrolls to message `messageId` once one of its rows renders (a link's `message=<id>`): the
+/// transcript replays when the tab opens, so the row can take a moment. Gives up quietly, leaving
+/// the view where it is, when no row ever carries that message.
+export function revealMessageWhenShown(
+  messageId: string,
+  rowsOfMessage: (messageId: string) => readonly string[],
+  root: ParentNode = document,
+  options: { waitMs?: number; pollMs?: number } = {},
+): Promise<boolean> {
+  return revealWhenShown(() => scrollToMessage(messageId, rowsOfMessage, root), options);
 }

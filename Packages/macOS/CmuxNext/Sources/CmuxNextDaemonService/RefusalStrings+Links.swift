@@ -9,6 +9,13 @@ nonisolated extension RefusalStrings {
         format("handlers.refusal.linkNotRecognized", "not a link this build of cmux opens: %@", truncatedLinkText(url))
     }
 
+    /// A link carried parameters cmux does not use: a name no link of its kind reads, a repeated
+    /// one, or a hint whose value it cannot read. The link opened; this names what was left out.
+    public static func linkParametersIgnored(_ names: [String]) -> String {
+        format("handlers.refusal.linkParametersIgnored", "opened the link and ignored parameters it doesn't use: %@",
+               truncatedLinkText(names.joined(separator: ", ")))
+    }
+
     /// The most of an unrecognized link's text a refusal shows: it comes
     /// from another app, a page or a script, so it is capped.
     static let linkTextLimit = 200

@@ -11,14 +11,20 @@ enum LinkHandlers {
         registry.bind("link.open", run: { invocation in
             let text = invocation["url"]?.stringValue ?? ""
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard let url = URL(string: trimmed), let link = DeepLink.parse(url, scheme: services.linkScheme) else {
+            guard let url = URL(string: trimmed), let parsed = DeepLink.read(url, scheme: services.linkScheme) else {
                 throw ActionFailure(message: RefusalStrings.linkNotRecognized(text))
             }
             // Read before anything moves: a run this client's user did not
             // start (a script, an agent) still navigates, as it asked, but
             // never takes the key window.
             let background = invocation["background"]?.boolValue == true || !ActionRunScope.viewChangeAllowed()
-            try DeepLinkNavigator(services: services).open(link, background: background)
+            // A parameter cmux does not use never costs the link its target: the link opens, and a
+            // toast names what was left out, so a stray `?cwd=…` is visible instead of silent.
+            if !parsed.ignoredParameters.isEmpty {
+                services.refusalHUD.show(RefusalStrings.linkParametersIgnored(parsed.ignoredParameters),
+                                         in: services.windows.active?.window)
+            }
+            try DeepLinkNavigator(services: services).open(parsed.link, background: background)
         })
         registry.bind("palette.copyWorkspaceLink", run: { invocation in
             context.copy(try services.link(workspace: try context.workspace(invocation).model))
