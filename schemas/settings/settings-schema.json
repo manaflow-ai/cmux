@@ -42,7 +42,8 @@
               "appearance.metrics.tabPinnedWidth",
               "tabs.cmdWClosesPinnedTabs",
               "tabs.swapCmdTAndCmdN",
-              "tabs.newTabNowPlaying"
+              "tabs.newTabNowPlaying",
+              "sidebar.showChats"
             ],
             "title" : {
               "key" : "settings.group.tabs",
@@ -185,6 +186,7 @@
               "updates.checkIntervalSeconds",
               "updates.downloadAutomatically",
               "updates.meteredNetwork",
+              "updates.web",
               "updates.installOnQuit",
               "updates.notify",
               "updates.keepPreviousVersions",
@@ -411,7 +413,6 @@
               "sidebar.bottomBandMaxShare",
               "sidebar.pinnedBandsScroll",
               "sidebar.showWorkspaceTabs",
-              "sidebar.showChats",
               "sidebar.sessionTree",
               "sidebar.showProjects",
               "sidebar.groupBy",
@@ -915,6 +916,8 @@
               "notifications.attention.blinkCount",
               "notifications.attention.duration",
               "notifications.attention.persist",
+              "notifications.attention.flash",
+              "notifications.attention.flashOnTyping",
               "notifications.attention.showOnTab",
               "notifications.attention.showOnSidebar",
               "notifications.attention.moveToTop"
@@ -1247,6 +1250,16 @@
             "title" : {
               "key" : "settings.group.phone",
               "text" : "Phone Access"
+            }
+          },
+          {
+            "key" : "settings.group.messagesServer",
+            "rows" : [
+              "home.server"
+            ],
+            "title" : {
+              "key" : "settings.group.messagesServer",
+              "text" : "Messages Server"
             }
           }
         ],
@@ -3892,6 +3905,80 @@
       "title" : {
         "key" : "settings.updates.meteredNetwork",
         "text" : "On Metered Networks"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "every-merge",
+        "nightly",
+        "off"
+      ],
+      "agent_refusal" : "network",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.updatesWebEveryMerge",
+            "text" : "Every Merge"
+          },
+          "value" : "every-merge"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.updatesWebNightly",
+            "text" : "With Nightly"
+          },
+          "value" : "nightly"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.updatesWebOff",
+            "text" : "Off"
+          },
+          "value" : "off"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "every-merge",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.updates",
+        "text" : "Updates"
+      },
+      "help" : {
+        "key" : "settings.updates.web.help",
+        "text" : "Every Merge: changes to the web UI arrive minutes after they land, without waiting for the next app update. Off: the web UI this app shipped with."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "updates.web",
+      "keywords" : [
+        "update",
+        "web",
+        "ota",
+        "hot reload",
+        "bundle",
+        "nightly",
+        "merge"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "updates",
+        "web"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.updates.web",
+        "text" : "Web UI Updates"
       },
       "validation" : "portable"
     },
@@ -20959,17 +21046,19 @@
       },
       "help" : {
         "key" : "settings.sidebar.showChats.help",
-        "text" : "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar."
+        "text" : "On the New Tab page, the Threads and Console styles list every coding agent chat on this computer, newest first. Off, they show the recent chats only."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.showChats",
       "keywords" : [
-        "sidebar",
+        "new tab",
         "chats",
         "all chats",
         "agents",
         "conversations",
-        "history"
+        "history",
+        "threads",
+        "console"
       ],
       "kind" : "toggle",
       "page_hidden" : false,
@@ -20986,7 +21075,7 @@
       "summary" : null,
       "title" : {
         "key" : "settings.sidebar.showChats",
-        "text" : "Show All Chats"
+        "text" : "Show All Chats on New Tab"
       },
       "validation" : "portable"
     },
@@ -30707,6 +30796,93 @@
     },
     {
       "accepts" : [
+        "hosted",
+        {
+          "selfHosted" : "http://mini.tail1234.ts.net:7320"
+        },
+        {
+          "selfHosted" : "https://100.101.102.103/"
+        }
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.homeServer.hosted",
+            "text" : "cmux Cloud"
+          },
+          "value" : "hosted"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "hosted",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.messagesServer",
+        "text" : "Messages Server"
+      },
+      "help" : {
+        "key" : "settings.home.server.help",
+        "text" : "Direct messages and group chats use cmux Cloud by default. A self-hosted server is reached over Tailscale by its MagicDNS name, for example http://mini.tail1234.ts.net:7320. No password is sent: the server knows you by your Tailscale login."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "home.server",
+      "keywords" : [
+        "server",
+        "self-hosted",
+        "tailscale",
+        "messages",
+        "chat",
+        "cloud",
+        "home"
+      ],
+      "kind" : "choice_or_url",
+      "page_hidden" : false,
+      "path" : [
+        "home",
+        "server"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        "selfHosted",
+        1,
+        {
+          "selfHosted" : "ftp://mini.tail1234.ts.net"
+        },
+        {
+          "selfHosted" : "http://mini.tail1234.ts.net/path"
+        },
+        {
+          "selfHosted" : "http://mini.tail1234.ts.net?x=1"
+        },
+        {
+          "selfHosted" : "not a url"
+        },
+        {
+          "selfHosted" : 7320
+        },
+        {
+          "__other__" : "http://mini.tail1234.ts.net"
+        },
+        {
+          "__extra__" : "x",
+          "selfHosted" : "http://mini.tail1234.ts.net"
+        }
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.home.server",
+        "text" : "Server"
+      },
+      "url_key" : "selfHosted",
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "imessage",
         "theme"
       ],
@@ -32377,6 +32553,99 @@
       "title" : {
         "key" : "settings.attention.persist",
         "text" : "Keep Ring Until Read"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.attention",
+        "text" : "Attention Ring"
+      },
+      "help" : {
+        "key" : "settings.attention.flash.help",
+        "text" : "Clicking an unread pane, typing in it or jumping to it flashes its ring as it goes."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "notifications.attention.flash",
+      "keywords" : [
+        "ring",
+        "flash",
+        "blink",
+        "unread"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "attention",
+        "flash"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.attention.flash",
+        "text" : "Flash the Pane When Read"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.attention",
+        "text" : "Attention Ring"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "notifications.attention.flashOnTyping",
+      "keywords" : [
+        "ring",
+        "flash",
+        "keystroke",
+        "unread"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "attention",
+        "flashOnTyping"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.attention.flashOnTyping",
+        "text" : "Flash When Typing Reads It"
       },
       "validation" : "portable"
     },

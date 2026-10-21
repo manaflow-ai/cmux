@@ -2297,6 +2297,15 @@
       "title" : "Character",
       "type" : "string"
     },
+    "home.server" : {
+      "default" : "hosted",
+      "description" : "Direct messages and group chats use cmux Cloud by default. A self-hosted server is reached over Tailscale by its MagicDNS name, for example http://mini.tail1234.ts.net:7320. No password is sent: the server knows you by your Tailscale login. Also accepts a dictionary {\"selfHosted\": \"http(s)://host[:port]\"} in a raw profile.",
+      "enum" : [
+        "hosted"
+      ],
+      "title" : "Server",
+      "type" : "string"
+    },
     "labs.classicHome" : {
       "default" : false,
       "description" : "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts.",
@@ -2671,6 +2680,18 @@
       "minimum" : 0.3,
       "title" : "Pulse Duration",
       "type" : "number"
+    },
+    "notifications.attention.flash" : {
+      "default" : true,
+      "description" : "Clicking an unread pane, typing in it or jumping to it flashes its ring as it goes.",
+      "title" : "Flash the Pane When Read",
+      "type" : "boolean"
+    },
+    "notifications.attention.flashOnTyping" : {
+      "default" : true,
+      "description" : "notifications.attention.flashOnTyping",
+      "title" : "Flash When Typing Reads It",
+      "type" : "boolean"
     },
     "notifications.attention.moveToTop" : {
       "default" : false,
@@ -3389,8 +3410,8 @@
     },
     "sidebar.showChats" : {
       "default" : true,
-      "description" : "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar.",
-      "title" : "Show All Chats",
+      "description" : "On the New Tab page, the Threads and Console styles list every coding agent chat on this computer, newest first. Off, they show the recent chats only.",
+      "title" : "Show All Chats on New Tab",
       "type" : "boolean"
     },
     "sidebar.showProfileControl" : {
@@ -4272,6 +4293,17 @@
       "description" : "After an update, a card at the bottom of the sidebar links to What's New until you open or dismiss it.",
       "title" : "Show What's New After Updates",
       "type" : "boolean"
+    },
+    "updates.web" : {
+      "default" : "every-merge",
+      "description" : "Every Merge: changes to the web UI arrive minutes after they land, without waiting for the next app update. Off: the web UI this app shipped with.",
+      "enum" : [
+        "every-merge",
+        "nightly",
+        "off"
+      ],
+      "title" : "Web UI Updates",
+      "type" : "string"
     },
     "window.titlebar" : {
       "default" : "minimal",
