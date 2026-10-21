@@ -856,10 +856,21 @@ impl Hub {
 
     /// Turn-by-turn summary from the event log.
     pub fn history(&self, session: &Session, limit: usize) -> Vec<Value> {
-        let events = self.store.events(&session.id, 0, 500_000).unwrap_or_default();
+        // Only the kinds a summary reads are parsed, one record at a time: the whole log
+        // as records grew the daemon by 347 MB for a 70 MB Chief log (perf100, rbx).
+        const KINDS: &[&str] = &[
+            "user_message",
+            "tool_call",
+            "permission_request",
+            "permission_auto",
+            "usage_update",
+            "turn_result",
+            "turn_end",
+            "turn_error",
+        ];
         let mut turns: Vec<Value> = Vec::new();
         let mut cur: Option<serde_json::Map<String, Value>> = None;
-        for e in events {
+        let _ = self.store.scan_kinds(&session.id, KINDS, &mut |e: EventRecord| {
             match e.kind.as_str() {
                 "user_message" if e.msg.get("steer").and_then(Value::as_bool) != Some(true) => {
                     if let Some(t) = cur.take() {
@@ -939,12 +950,25 @@ impl Hub {
                 }
                 _ => {}
             }
-        }
+            true
+        });
         if let Some(t) = cur.take() {
             turns.push(Value::Object(t));
         }
         let n = turns.len();
         turns.into_iter().skip(n.saturating_sub(limit)).collect()
+    }
+
+    /// The seq of the log's last `turn_result`; only those records are parsed.
+    pub(super) fn latest_turn_result(&self, id: &str) -> Result<Option<u64>, RpcError> {
+        let mut latest = None;
+        self.store
+            .scan_kinds(id, &["turn_result"], &mut |e: EventRecord| {
+                latest = latest.max(Some(e.seq));
+                true
+            })
+            .map_err(|e| RpcError::internal(e.to_string()))?;
+        Ok(latest)
     }
 
     /// After a restart: a turn that started but never settled gets a
@@ -1036,6 +1060,16 @@ impl Hub {
 
     pub fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
         self.store.events(id, after, limit)
+    }
+
+    /// Visits the records past `after` in order, one at a time, until `visit` returns false.
+    pub fn scan_events(
+        &self,
+        id: &str,
+        after: u64,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.store.scan(id, after, visit)
     }
 
     pub fn session_dir(&self, id: &str) -> Option<PathBuf> {
