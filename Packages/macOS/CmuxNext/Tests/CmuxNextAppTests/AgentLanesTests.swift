@@ -130,7 +130,7 @@ struct AgentLanesTests {
         lanes.lanes = ["op-broke": AgentActivityLane(id: "op-broke", name: "op-broke", title: "op-broke", peer: nil, parent: nil,
                                                      state: .failed, since: nil, error: "Credit balance too low", workspaceID: nil)]
         let model = SidebarModel()
-        let feed = SidebarWhatsNewItemFeed.start(model: model, settings: settings, lanes: lanes)
+        let feed = model.followTopItems(lanes: lanes)
         defer { feed.cancel() }
         let lanesItem = { model.transientTopItems.first { $0.item.id == SidebarTransientItem.lanesID } }
 
