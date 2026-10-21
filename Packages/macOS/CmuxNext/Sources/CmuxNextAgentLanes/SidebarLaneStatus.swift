@@ -1,6 +1,7 @@
 import CmuxNextAgentActivity
 public import CmuxNextBridge
 import CmuxNextDesign
+import Foundation
 public import CmuxNextSidebar
 
 extension SidebarRowFeed {
@@ -24,7 +25,7 @@ enum SidebarLaneStatus {
     /// `rows` (the row feed's source, else the mapping itself) with each mapped row's activity
     /// merged with its lanes, and its Priority chip (`sidebar.rowStatus`). The toggles, the lanes
     /// and the read marks are read inside the row's mapping, so flipping a toggle, a lane change or
-    /// a mark maps that row again; with both toggles off no lane is read.
+    /// a mark maps that row again; with every toggle off no lane is read.
     static func applying(_ rows: SidebarMapping.RowSource?, lanes: AgentLaneStore,
                          turns: AgentTurnStateStore, marks: AgentPriorityMarks = .shared) -> SidebarMapping.RowSource {
         { workspace, machine, make in
@@ -65,10 +66,12 @@ enum SidebarLaneStatus {
             .min { AgentPriorityRanking.tier($0) < AgentPriorityRanking.tier($1) }
     }
 
-    /// The step of the working lane that started last, nil when none works or says what it does.
+    /// The first line of the step of the working lane that started last, nil when none works or
+    /// says what it does.
     static func step(_ lanes: [AgentActivityLane]) -> String? {
-        lanes.filter { $0.state == .working && $0.step?.isEmpty == false }
+        let step = lanes.filter { $0.state == .working && $0.step?.isEmpty == false }
             .max { ($0.since ?? .distantPast) < ($1.since ?? .distantPast) }?.step
+        return step?.split(whereSeparator: \.isNewline).first.map { $0.trimmingCharacters(in: .whitespaces) }.flatMap { $0.isEmpty ? nil : $0 }
     }
 
     /// A lane state as the row's status mark.

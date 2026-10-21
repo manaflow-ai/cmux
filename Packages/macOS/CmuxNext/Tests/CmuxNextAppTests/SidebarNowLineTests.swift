@@ -81,6 +81,13 @@ import Testing
         }
     }
 
+    @Test func aStepOfSeveralLinesShowsItsFirst() throws {
+        let lane = try #require(AgentActivityLane.of(summary: [
+            "sessionId": "s", "name": "s", "lane": ["state": "working", "step": "  Running tests\nsecond line"],
+        ]))
+        #expect(SidebarLaneStatus.step([lane]) == "Running tests")
+    }
+
     @Test func toggleOffSaysNothing() throws {
         let fixture = try Fixture()
         Self.withNowLine(false) {
