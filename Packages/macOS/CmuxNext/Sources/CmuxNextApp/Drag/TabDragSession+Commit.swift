@@ -36,8 +36,13 @@ extension TabDragSession {
                 lifecycle.settle(transaction, ok: ok)
                 self?.commitsInFlight.remove(transaction)
                 self?.services.input.monitor?.noteChange()
-                // The view change of a landed user drop, after the echo.
-                if ok { self?.revealLanded(drag, outcome: outcome, dropWindow: dropWindow) }
+                // The view change of a landed user drop, after the echo, unless the drop showed it.
+                if ok, !drag.revealedEarly { self?.revealLanded(drag, outcome: outcome, dropWindow: dropWindow) }
+                // A refused move the drop already showed: the window shows what it showed before.
+                if !ok, drag.revealedEarly, let from = drag.revealedFrom, let state = dropWindow?.state,
+                   state.workspaceID == drag.landedWorkspaceID, self?.services.workspace(id: from) != nil {
+                    self?.services.windows.select(from, in: state)
+                }
             }
             if ok, let daemon { daemon.whenApplied(transaction, end) } else { end() }
             if let emptied { self?.finishClosing(emptied, moved: ok) }
@@ -97,7 +102,15 @@ extension TabDragSession {
         case .workspace(let id):
             guard let workspace = services.workspace(id: id) else { return gone(settle) }
             drag.landedWorkspaceID = id
+            let shown = dropWindow?.state.workspaceID
             TabMoves.toWorkspace(tab, workspace: workspace, services: services, transaction: transaction, completion: settle)
+            // The store shows the move now (its intent): the landing shows in the drop's turn, not
+            // after the reply and the snapshot the daemon's tree-changed asks for (tab-move-tearing).
+            if services.workspaceID(ofTab: tab.id) == id {
+                drag.revealedEarly = true
+                drag.revealedFrom = shown
+                revealLanded(drag, outcome: outcome, dropWindow: dropWindow)
+            }
         case .tearOff(let point):
             let frame = tearOffFrame(drag, at: point, size: drag.source.windowSize)
             Task { [services] in
