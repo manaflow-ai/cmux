@@ -246,6 +246,21 @@ async fn not_now_opens_a_restricted_claude_chat_only_with_the_setting_on() {
     // A chat that existed unrestricted becomes restricted at the pane's next prompt.
     restricted_flags(&argv(&app.ask(&kept, "argv").await));
 
+    // So does one whose agent already ran in a mode that does not ask (full access, from the
+    // approve-all default): moving it to ask must not wait on the start lock it is holding.
+    let ran = d.join("ran");
+    std::fs::create_dir_all(&ran).unwrap();
+    app.trust(&ran, "trusted").await;
+    let r = local.new_session(&ran, "fclaude").await;
+    let wide = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    let args = argv(&local.ask(&wide, "argv").await);
+    assert!(
+        matches!(after(&args, "--permission-mode"), Some("bypassPermissions" | "acceptEdits")),
+        "{args:?}"
+    );
+    app.trust(&ran, "untrusted").await;
+    restricted_flags(&argv(&app.ask(&wide, "argv").await));
+
     // Trust later: the next prompt starts Claude Code without the restrictions.
     app.trust(&work, "trusted").await;
     let args = argv(&app.ask(&s, "argv").await);
