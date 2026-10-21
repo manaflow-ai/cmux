@@ -1458,6 +1458,30 @@ class SideLanes(unittest.TestCase):
         self.assertNotIn("rerun", api.calls)
         self.assertNotIn("rerun-failed", api.calls)
 
+    def follow_refusals_only(self, jobs):
+        run = dict(side_event(path=".github/workflows/cmux-next.yml", status="in_progress")["workflow_run"])
+        target = dataclasses.replace(rescue.sweep_target(run, "manaflow-ai/cmux", late=False), refusals_only=True)
+        clock = Clock()
+        api = FakeAPI(clock, jobs, rerun_jobs=lambda seconds: [])
+        lines: list[str] = []
+        outcome = rescue.follow(api, target, seconds=90, queue_rounds="0", now=clock.now, sleep=clock.sleep,
+                                log=lines.append)
+        return api, outcome, "\n".join(lines)
+
+    def test_a_refusals_only_attempt_one_waits_out_its_queue(self):
+        # Run 39615562861: the scheme compile queued on the side label with no free overflow.
+        api, outcome, log = self.follow_refusals_only(
+            lambda seconds: [job("cmux app scheme compile (Debug)", labels=[SIDE])])
+        self.assertNotIn("cancel", api.calls, log)
+        self.assertNotIn("rerun", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertIn("refusals only", outcome)
+
+    def test_a_refusals_only_attempt_one_still_reruns_a_refusal(self):
+        api, outcome, log = self.follow_refusals_only(
+            lambda seconds: [refused_job("cmux app scheme compile (Debug)", labels=(SIDE,))])
+        self.assertEqual(api.calls.count("rerun-failed"), 1, log)
+
     def test_a_refused_side_job_is_rerun(self):
         def jobs(seconds):
             return [refused_job("diagnostic-presentation", labels=(SIDE,)) if seconds >= 60 else
@@ -1994,9 +2018,10 @@ class MainDispatch(unittest.TestCase):
 class SweepAPI:
     """The sweeper's own reads: marker listings and the runs they name."""
 
-    def __init__(self, runs, *, picker=(), late=(), created=0, attempt_jobs=None):
+    def __init__(self, runs, *, picker=(), late=(), refusals=(), created=0, attempt_jobs=None):
         self.runs = {run["id"]: run for run in runs}
-        self.marked = {rescue.WATCH_MARKER: list(picker), rescue.LATE_WATCH_MARKER: list(late)}
+        self.marked = {rescue.WATCH_MARKER: list(picker), rescue.LATE_WATCH_MARKER: list(late),
+                       rescue.REFUSALS_WATCH_MARKER: list(refusals)}
         self.created, self.remaining, self.limit, self.reads = created, "900", "1000", []
         self.attempt_jobs = attempt_jobs or {}
 
@@ -2087,6 +2112,32 @@ class Sweeper(unittest.TestCase):
                          now=clock.now, log=lambda text: None, sweep_seconds=120, tick_seconds=60,
                          wait=clock.sleep)
         self.assertEqual(sorted(targets), [False, True])
+
+    def test_a_run_with_no_free_overflow_is_watched_for_refusals_only(self):
+        # Run 39615562861, 2026-10-21: placement found no free Blacksmith slot, so the scheme compile
+        # stayed on the side label and a re-run could only rejoin that queue. The sweeper cancelled
+        # and re-ran it twice while it waited. Its marker says so; the bot's re-run inherits it.
+        path = ".github/workflows/cmux-next.yml"
+        bot = {"login": rescue.RESCUE_ACTOR}
+        api = SweepAPI([listed(1, path=path), listed(2, path=path),
+                        listed(3, path=path, run_attempt=2, triggering_actor=bot)],
+                       picker=[2], refusals=[1, 3])
+        clock, targets = Clock(), []
+
+        def fake_follow(client, target, **kwargs):
+            targets.append((target.run_id, target.attempt, target.refusals_only))
+            return "stopped: the run finished"
+        with unittest.mock.patch.object(rescue, "follow", fake_follow):
+            rescue.sweep(api, "manaflow-ai/cmux", seconds=90, queue_rounds="0", now=clock.now,
+                         log=lambda text: None, sweep_seconds=120, tick_seconds=60, wait=clock.sleep)
+        self.assertEqual(sorted(targets), [(1, 1, True), (2, 1, False), (3, 2, True)])
+        # Attempt 2 of run 1 appears among the re-runs on a later tick: still refusals only.
+        api.runs[1].update(run_attempt=2, triggering_actor=bot)
+        targets.clear()
+        with unittest.mock.patch.object(rescue, "follow", fake_follow):
+            rescue.sweep(api, "manaflow-ai/cmux", seconds=90, queue_rounds="0", now=clock.now,
+                         log=lambda text: None, sweep_seconds=120, tick_seconds=60, wait=clock.sleep)
+        self.assertIn((1, 2, True), targets)
 
     def test_a_finished_run_only_when_it_failed_since_the_last_sweeper(self):
         recent, old = stamp(-10 * 60), stamp(-rescue.SWEEP_FINISHED_SECONDS - 60)
