@@ -96,9 +96,10 @@ export type TextLink = {
 };
 
 // Groups: a file URL; a path (a file with an extension and an optional line suffix, or a folder
-// with its trailing slash that is not followed by more of a name); a web URL.
+// with its trailing slash that is not followed by more of a name); a web URL. A shell variable or a
+// price (`$HOME/`, `$5/$10`) never starts one.
 const TEXT_LINK =
-  /(?<![\w/\\.:~@-])(?:(file:\/\/(?:localhost)?\/[^\s<>()"'`]+)|(https?:\/\/[A-Za-z0-9][^\s<>()"'`]*)|((?:(?:~|\.{1,2})?\/|\.?[\w@+-]+\/)?(?:[\w.@+-]+\/)*(?:[\w@+-][\w.@+-]*\.[A-Za-z0-9]{1,12}(?::\d+(?::\d+|-\d+)?|#L\d+(?:C\d+|-L\d+)?)?(?![\w/#-]|:\w|\.\d)|(?:[\w.@+-]+\/)+(?![\w@+-]|\.\w))))/g;
+  /(?<![\w/\\.:~@$-])(?:(file:\/\/(?:localhost)?\/[^\s<>()"'`]+)|(https?:\/\/[A-Za-z0-9][^\s<>()"'`]*)|((?:(?:~|\.{1,2})?\/|\.?[\w@+-]+\/)?(?:[\w.@+-]+\/)*(?:[\w@+-][\w.@+-]*\.[A-Za-z0-9]{1,12}(?::\d+(?::\d+|-\d+)?|#L\d+(?:C\d+|-L\d+)?)?(?![\w/#-]|:\w|\.\d)|(?:[\w.@+-]+\/)+(?![\w@+-]|\.\w))))/g;
 
 export function textLinks(text: string): TextLink[] {
   if (!/[/.]/.test(text)) return [];
