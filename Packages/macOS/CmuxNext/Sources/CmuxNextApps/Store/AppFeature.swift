@@ -1,3 +1,4 @@
+public import CmuxNextDesign
 public import CmuxNextIcons
 public import Foundation
 
@@ -34,6 +35,8 @@ public nonisolated struct AppFeature: Sendable, Hashable, Identifiable {
         case icon(IconName)
         /// One of the bundled paintings' thumbnails (`BackdropArt.thumbnailURL`).
         case painting
+        /// A few sidebar rows drawn at this density, so a view toggle shows what it changes.
+        case sidebarRows(SidebarDensity)
     }
 
     /// Stable id (`appStore.feature.<id>` in accessibility and tests).

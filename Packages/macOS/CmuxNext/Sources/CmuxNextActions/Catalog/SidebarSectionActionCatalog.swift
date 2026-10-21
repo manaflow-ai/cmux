@@ -272,8 +272,9 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .organize, 111, folder: .group)])
             ),
             // cx-13w3: compact (one line), comfortable (one line, taller) or expanded
-            // (T3 Code / Codex style) workspace rows (`sidebar.density`); the sidebar's
-            // Options offers the ones that do not apply now. The app density
+            // (T3 Code / Codex style) workspace rows (`sidebar.density`); the Options of the
+            // sidebar's menu and of a row's or group's ⋮ offer the ones that do not apply now
+            // (Leo 2026-10-21: view toggles should not need the palette to find). The app density
             // (`appearance.density`, DensityActionCatalog) owns the palette's density rows.
             ActionDescriptor(
                 id: "sidebar.density.compact", title: t("action.sidebar.density.compact", "Sidebar Density: Compact"),
@@ -281,14 +282,20 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 // Not in the palette: "Density: Compact" (appearance.density.compact) is the one
                 // palette row for "compact" (Lawrence 2026-10-20: two rows, and Enter did nothing).
                 surfaces: [.keyboard, .contextMenu],
-                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 132, folder: .options, label: ObjectMenuLabels.densityCompact)],
+                surfacePlan: plan(cli: .exempt(.guiOnly),
+                                  menus: [p(.sidebarBackground, .view, 132, folder: .options, label: ObjectMenuLabels.densityCompact),
+                                          p(.workspaceRow, .view, 101, folder: .options, label: ObjectMenuLabels.densityCompact),
+                                          p(.workspaceGroup, .view, 141, folder: .options, label: ObjectMenuLabels.densityCompact)],
                                   palette: .exempt(.familyMember))
             ),
             ActionDescriptor(
                 id: "sidebar.density.comfortable", title: t("action.sidebar.density.comfortable", "Sidebar Density: Comfortable"),
                 keywords: ["sidebar", "density", "comfortable", "rows", "one line", "taller", "spacious", "medium", "roomy"],
                 category: .sidebar, symbol: "list.bullet", surfaces: [.keyboard, .contextMenu],
-                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 133, folder: .options, label: ObjectMenuLabels.densityComfortable)],
+                surfacePlan: plan(cli: .exempt(.guiOnly),
+                                  menus: [p(.sidebarBackground, .view, 133, folder: .options, label: ObjectMenuLabels.densityComfortable),
+                                          p(.workspaceRow, .view, 102, folder: .options, label: ObjectMenuLabels.densityComfortable),
+                                          p(.workspaceGroup, .view, 142, folder: .options, label: ObjectMenuLabels.densityComfortable)],
                                   palette: .exempt(.familyMember))
             ),
             ActionDescriptor(
@@ -296,7 +303,9 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 keywords: ["sidebar", "density", "expanded", "rows", "preview", "two lines", "t3", "codex"], category: .sidebar,
                 symbol: "list.bullet.below.rectangle", surfaces: [.palette, .keyboard, .contextMenu],
                 surfacePlan: plan(cli: .exempt(.guiOnly),
-                                  menus: [p(.sidebarBackground, .view, 134, folder: .options, label: ObjectMenuLabels.densityExpanded)])
+                                  menus: [p(.sidebarBackground, .view, 134, folder: .options, label: ObjectMenuLabels.densityExpanded),
+                                          p(.workspaceRow, .view, 103, folder: .options, label: ObjectMenuLabels.densityExpanded),
+                                          p(.workspaceGroup, .view, 143, folder: .options, label: ObjectMenuLabels.densityExpanded)])
             ),
             // Leo (2026-10-09): the sidebar's menu checks Show Tabs Under
             // Workspaces (`sidebar.showWorkspaceTabs`; scripts set that), in
