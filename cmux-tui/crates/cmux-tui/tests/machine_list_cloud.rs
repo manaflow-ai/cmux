@@ -175,14 +175,14 @@ fn machine_list_without_the_app_prints_the_daemons_rows_and_a_note() {
 }
 
 #[test]
-fn quiet_hides_the_note() {
+fn machine_list_quiet_hides_the_note() {
     let (output, _) = machine_list(AppRoute::NamedMissing, "--quiet");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(!stderr.contains("Cloud"), "--quiet printed the note: {stderr}");
 }
 
 #[test]
-fn an_explicit_socket_does_not_ask_an_app_that_does_not_own_it() {
+fn machine_list_with_an_explicit_socket_does_not_ask_an_app_that_does_not_own_it() {
     let (output, app) = machine_list(AppRoute::EnvironmentOnly, "--json");
     assert!(!asked_cloud_machines(&app), "asked an app that does not own --socket: {app:?}");
     let rows: Value = serde_json::from_slice(&output.stdout).expect("one JSON reply");
@@ -190,7 +190,7 @@ fn an_explicit_socket_does_not_ask_an_app_that_does_not_own_it() {
 }
 
 #[test]
-fn with_no_app_at_all_the_daemons_rows_print_with_no_note() {
+fn machine_list_with_no_app_at_all_prints_the_daemons_rows_with_no_note() {
     let (output, _) = machine_list(AppRoute::NoApp, "--json");
     let rows: Value = serde_json::from_slice(&output.stdout).expect("one JSON reply");
     assert_eq!(rows, json!([local_row()]));
