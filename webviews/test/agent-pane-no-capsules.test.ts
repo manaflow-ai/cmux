@@ -19,8 +19,9 @@ if (!built && process.env.CI) throw new Error(`agent-pane-no-capsules: ${page} i
 if (!built) console.warn("agent-pane-no-capsules: skipping (run scripts/cmux-next/build-agent-pane-web.sh)");
 
 /** Capsules by nature: a toggle's track, a slider's track and fill, a progress bar, drawn lines,
- * and the composer's model, effort and access chips, whose hover, focus and open background is the
- * Claude app's soft pill (#22107; composer-chip-plain-rest and composer-chip-press check it). The
+ * and the composer's model, effort, access and Options chips, whose hover, focus and open background
+ * is the Claude app's soft pill (#22107; composer-chip-plain-rest and composer-chip-press check it).
+ * The Options chip (AgentOptionsMenu) sits in the same row and takes the access chip's shape. The
  * Cards New Tab template (u2851, from the user's scrawl of Aside's New Tab page) is a pill design
  * on purpose: its field, its Search | Ask switch (track, thumb and buttons) and its selected Chats
  * tab are round (newtab/screen.css). The other templates keep small-radius rects. */
@@ -33,6 +34,7 @@ const SHAPES = new Set([
   ":is(.acpmux-composer-bar,.nt-pickers) .acpmux-model .acpmux-picker-button",
   ":is(.acpmux-composer-bar,.nt-pickers) .acpmux-effort .acpmux-picker-button",
   ":is(.acpmux-composer-bar,.nt-pickers) .acpmux-access .acpmux-picker-button",
+  ":is(.acpmux-composer-bar,.nt-pickers) .acpmux-options .acpmux-picker-button",
   ".acpmux-model .acpmux-picker-button",
   ".acpmux-effort .acpmux-picker-button",
   ".acpmux-access .acpmux-picker-button",
