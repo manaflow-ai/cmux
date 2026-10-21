@@ -36,6 +36,20 @@ public nonisolated struct ChiefAcpmuxHeal: Sendable {
     /// it handed one off now; false leaves the daemon running (the Chief host may
     /// have been asked to hand off when its turn ends: then the heal finishes after that).
     @concurrent public func heal() async -> Bool {
+        await handOff(force: false) == .handOff
+    }
+
+    /// Restart Background Services (cmux issue 23089): the same handoff for a daemon of any
+    /// build, since the person asked for it. Returns `.handOff` when the daemon stopped now and
+    /// the host starts the bundled one, `.waitForHost` when that happens once the Chief's turn
+    /// ends, `.keep` when no daemon runs, stopping it would end its agents, or no Chief host
+    /// runs to start the next one (only the Chief host starts this daemon, cx-ebm.54).
+    @concurrent public func restart() async -> AcpmuxChiefHandoff.ReplacedAction {
+        guard ChiefHostStop.runningHostPID(home: home) != nil else { return .keep }
+        return await handOff(force: true)
+    }
+
+    @concurrent private func handOff(force: Bool) async -> AcpmuxChiefHandoff.ReplacedAction {
         let handoff = AcpmuxChiefHandoff(environment: environment, chiefMuxHome: home.muxHome.path)
         // An update never cuts a Chief turn: a host that takes it hands off when its turn ends,
         // and the heal finishes after it exits. Only an older host is stopped here.
@@ -43,13 +57,13 @@ public nonisolated struct ChiefAcpmuxHeal: Sendable {
         // The host that took the signal, not one read before it: a host that starts in between
         // would otherwise be stopped mid-turn when the one read earlier is already gone.
         let asked = OSAllocatedUnfairLock<pid_t?>(initialState: nil)
-        switch await handoff.handOffReplaced(waitFor: {
+        switch await handoff.handOffReplaced(force: force, waitFor: {
             let pid = ChiefHostStop.askToHandOffWhenIdle(home: home)
             asked.withLock { $0 = pid }
             return pid != nil
         }) {
         case .keep:
-            return false
+            return .keep
         case .waitForHost:
             let ensureHost = ensureHost
             let host = asked.withLock { $0 }
@@ -61,15 +75,15 @@ public nonisolated struct ChiefAcpmuxHeal: Sendable {
                         guard let host else { return true }
                         return await AgentPaneProcessExit(pid: host).event(within: nil)
                     },
-                    handOff: { await handoff.handOffReplaced(waitFor: { false }) == .handOff },
+                    handOff: { await handoff.handOffReplaced(force: force, waitFor: { false }) == .handOff },
                     stopHost: { await Self.stopHost(home: home) },
                     ensureHost: ensureHost)
             }
-            return false
+            return .waitForHost
         case .handOff:
             await Self.stopHost(home: home)
             await ensureHost()
-            return true
+            return .handOff
         }
     }
 
