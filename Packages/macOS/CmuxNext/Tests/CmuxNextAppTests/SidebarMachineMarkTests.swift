@@ -40,6 +40,13 @@ import Testing
         #expect(local.kindIcon == .machineLocal)
     }
 
+    @Test func anEmojiIconIsTheMachinesMark() throws {
+        let box = SidebarMachine(id: MachineID("box"), name: "box", kind: .ssh, icon: .emoji("🦊"))
+        let mark = try #require(marks([mac, box])[box.id])
+        #expect(mark.emoji == "🦊")
+        #expect(mark.symbol == nil)
+    }
+
     @Test func oneMachineDrawsNoMark() {
         #expect(marks(showsLocalMachine: true, [mac]).isEmpty)
     }

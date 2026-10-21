@@ -34,8 +34,8 @@ final class WorkspaceRowView: SidebarRowView {
     /// A muted workspace (`notifications.mutedWorkspaces`): a quiet bell-slash
     /// in the trailing cluster, in the tertiary text color; hidden otherwise.
     let mutedMark = DecorativeImageView()
-    /// The computer the workspace runs on (`WorkspaceRowContent.machine`): its glyph in its
-    /// color, in the trailing cluster; hidden while the sidebar lists one machine.
+    /// The computer the workspace runs on (`WorkspaceRowContent.machine`): its icon in its
+    /// color, small, before the title; hidden while the sidebar lists one machine.
     let machineMark = DecorativeImageView() // the row's label names the machine
     internal(set) var machine: SidebarMachineMark?
     /// The workspace's tabs play sound (or are muted): a small speaker in the
@@ -294,7 +294,8 @@ final class WorkspaceRowView: SidebarRowView {
         machine = isShowingPlaceholder ? nil : shown.machine
         let machineSize = CGFloat.iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1)
         machineMark.image = machine.map { mark in
-            mark.symbol.map { NSImage.icon(symbol: $0, size: machineSize) } ?? NSImage.icon(mark.kindIcon, size: machineSize)
+            if let emoji = mark.emoji { return SidebarItemRowView.emojiImage(emoji, side: machineSize) }
+            return mark.symbol.map { NSImage.icon(symbol: $0, size: machineSize) } ?? NSImage.icon(mark.kindIcon, size: machineSize)
         }
         machineMark.isHidden = machineMark.image == nil
         audio = isShowingPlaceholder ? nil : ws.audio
