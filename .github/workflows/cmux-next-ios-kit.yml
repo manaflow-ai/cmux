@@ -1,0 +1,87 @@
+name: cmux-next-ios kit tests
+
+# CmuxMobileKit (cmux-next-ios/CmuxMobileKit), the cmux-next iPhone app's
+# packages. Before this workflow no job ran its tests: the package's binary
+# target, Frameworks/CmuxMobileLinkFFI.xcframework, is gitignored and built
+# from cmux-next-ios/rust (cmux-mobile-link-ffi), so a plain checkout cannot
+# even load the package.
+#
+# One macOS job:
+# - builds the xcframework (iOS and iOS simulator slices) with
+#   cmux-next-ios/rust/scripts/build-xcframework.sh, which also typechecks the
+#   generated bindings and links them for the simulator, and checks that the
+#   checked-in CmuxMobileLinkFFI.swift matches what it generated;
+# - runs `swift test` on macOS (the package's tests are Swift Testing suites;
+#   on macOS the FFI and libghostty targets drop out by platform condition);
+# - builds the package and its tests for the iOS simulator, which macOS does
+#   not compile: #23829 left an ambiguous type that only the iOS build saw.
+# It runs on Blacksmith macOS 26 (Xcode 26, iOS simulator SDK), as the other
+# mobile FFI job does (cmux-mobile-ffi.yml's apple job, on macOS 15 there): an
+# owned side-lane label needs a placement job (scripts/ci/runner_routing_table.py),
+# which only cmux-next.yml has. CI_PAID_MACOS_OVERFLOW and MACOS_RUNNER_26 are
+# the existing overflow switch and label cmux-next.yml reads.
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - "cmux-next-ios/**"
+      - ".github/workflows/cmux-next-ios-kit.yml"
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - "cmux-next-ios/**"
+      - ".github/workflows/cmux-next-ios-kit.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-next-ios-kit-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/feat-cmux-next' }}
+
+jobs:
+  kit-tests:
+    name: CmuxMobileKit tests (macOS swift test, iOS simulator build)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      # cmux-next-ios/rust pins the same toolchain as cmux-tui (1.95.0).
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: cmux-next-ios/rust
+          key: cmux-next-ios-kit
+
+      - name: Build CmuxMobileLinkFFI.xcframework
+        env:
+          JOBS: "8"
+        run: bash cmux-next-ios/rust/scripts/build-xcframework.sh
+
+      - name: Checked-in bindings match the generated ones
+        run: |
+          set -euo pipefail
+          if ! git diff --exit-code -- cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift; then
+            echo "::error::CmuxMobileLinkFFI.swift differs from what build-xcframework.sh generates; run it and commit the result"
+            exit 1
+          fi
+
+      - name: swift test (macOS)
+        run: swift test --package-path cmux-next-ios/CmuxMobileKit
+
+      - name: Build the package and its tests for the iOS simulator
+        working-directory: cmux-next-ios/CmuxMobileKit
+        run: |
+          set -euo pipefail
+          xcodebuild build-for-testing -scheme CmuxMobileKit-Package -destination "generic/platform=iOS Simulator" \
+            -derivedDataPath "$RUNNER_TEMP/dd-ios-sim" CODE_SIGNING_ALLOWED=NO -quiet

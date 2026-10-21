@@ -160,6 +160,7 @@
     "cmux-next-perf-bench.yml#bench": "apple-gui",
     "cmux-next-pr-autofix.yml#action-exports": "apple-app-build",
     "cmux-next-source-archive.yml#archive": "apple-app-build",
+    "cmux-next-ios-kit.yml#kit-tests": "apple-swift-tests",
     "cmux-next-terminal.yml#rust-terminal": {
       "class": "macos-runtime-tests",
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
