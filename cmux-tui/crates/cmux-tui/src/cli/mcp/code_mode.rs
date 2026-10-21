@@ -82,7 +82,9 @@ pub(super) const INSTRUCTIONS: &str = "cmux tools run in code mode. cmux_docs se
     in_progress, retry it with the key from the error so it cannot apply twice; a call to \
     another server's tool that fails with in_progress has no key and may have run, so check \
     its effect before you call it again. Tools never \
-    move the user's focus unless the call passes focus: true or the tool's purpose is focus.";
+    move the user's focus unless the call passes focus: true or the tool's purpose is focus. \
+    In a cmux chat reply, show UI rather than describe it: ![alt](/abs/path.png), a bare image \
+    path or an https image address draws as a thumbnail, and two in one paragraph sit side by side.";
 
 /// The two tools `serve` lists. `tools` is the full list, for the family
 /// summary in the docs tool's description.
