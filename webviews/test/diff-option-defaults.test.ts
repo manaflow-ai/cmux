@@ -8,7 +8,16 @@ import exported from "../../schemas/settings/settings-schema.json";
 import type { DiffViewerPayload } from "../src/types";
 
 const scope = globalThis as Record<string, unknown>;
-const keys = ["window", "document", "navigator", "HTMLElement", "localStorage"] as const;
+const keys = [
+  "window",
+  "document",
+  "navigator",
+  "HTMLElement",
+  "customElements",
+  "Node",
+  "Element",
+  "localStorage",
+] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 
 beforeAll(() => {
@@ -18,6 +27,9 @@ beforeAll(() => {
     document: window.document,
     navigator: window.navigator,
     HTMLElement: window.HTMLElement,
+    customElements: window.customElements,
+    Node: window.Node,
+    Element: window.Element,
     localStorage: window.localStorage,
   });
 });
