@@ -18,16 +18,18 @@ struct PageWebViewDebugHoverTests {
         try Data("<!doctype html><title>Page</title>".utf8).write(to: root.appendingPathComponent("index.html"))
     }
 
-    private func chromiumPage(center: String?) async throws -> (PageWebView, FakeChromiumPage) {
+    private func chromiumPage(center: String?, hoveredAfter: Bool = true) async throws -> (PageWebView, FakeChromiumPage) {
         let hosting = FakeChromiumHosting()
         let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/", chromium: hosting))
         view.chromiumClock = PageTestClock.never
         await view.chromiumStart?.value
         let page = try #require(hosting.made.first)
         page.answer = { method, params in
-            guard method == "Runtime.evaluate", (params["expression"] as? String)?.contains("getBoundingClientRect") == true else {
-                return nil
+            guard method == "Runtime.evaluate", let expression = params["expression"] as? String else { return nil }
+            if expression.contains("matches(':hover')") {
+                return #"{"result":{"type":"boolean","value":\#(hoveredAfter)}}"#
             }
+            guard expression.contains("getBoundingClientRect") else { return nil }
             guard let center else { return #"{"result":{"type":"object","subtype":"null","value":null}}"# }
             return #"{"result":{"type":"string","value":\#(JSONValue.string(center).compactText)}}"#
         }
@@ -51,19 +53,29 @@ struct PageWebViewDebugHoverTests {
         view.close()
     }
 
-    /// DevTools mouse input is in view points, so a zoomed page (UI scale, a zoomed agent chat)
-    /// gets its CSS-pixel center times the page zoom.
-    @Test func hoverOfAZoomedPageMovesToTheZoomedCenter() async throws {
+    /// DevTools mouse input is in the viewport's CSS pixels, so a zoomed page (UI scale, a zoomed
+    /// agent chat) gets the same center `getBoundingClientRect` gave.
+    @Test func hoverOfAZoomedPageMovesToTheCSSCenter() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let (view, page) = try await chromiumPage(center: #"{"x":120.5,"y":40,"hit":true}"#)
         view.additionalZoom = 2
-        let zoom = view.pageZoom
-        #expect(zoom != 1)
+        #expect(view.pageZoom != 1)
         let result = await view.debugHover(".chief-pet-card")
         let move = try #require(page.calls.first { $0.method == "Input.dispatchMouseEvent" })
-        #expect(move.params["x"] as? Double == 120.5 * zoom)
-        #expect(move.params["y"] as? Double == 40 * zoom)
+        #expect(move.params["x"] as? Double == 120.5)
+        #expect(move.params["y"] as? Double == 40)
         #expect(result == ["hovered": true, "native": true, "x": 120.5, "y": 40])
+        view.close()
+    }
+
+    /// A move after which the page does not report the element hovered (it landed elsewhere)
+    /// answers `hovered: false`, never a pass.
+    @Test func aMoveThatMissedIsNotAHover() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (view, page) = try await chromiumPage(center: #"{"x":120.5,"y":40,"hit":true}"#, hoveredAfter: false)
+        let result = await view.debugHover(".chief-pet-card")
+        #expect(page.calls.contains { $0.method == "Input.dispatchMouseEvent" })
+        #expect(result["hovered"] == false)
         view.close()
     }
 
