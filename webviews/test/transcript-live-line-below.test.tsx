@@ -1,6 +1,6 @@
 // l10n-allow-file: test fixture prompts, replies and tool titles, not shipped UI.
 // A running turn's status line as its last row (Debug Settings agentPane.debug.liveLineBelow, on
-// by default), as Claude desktop draws it: the working mark, what the agent is doing now and the
+// by default), as Claude desktop draws it: what the agent is doing now and the
 // turn's time. Leo (2026-10-19): "when a chat is thinking ... it doesn't do anything a lot of the
 // time". The old line sat over the turn's work, so a long turn scrolled it out of view; its clock
 // stopped whenever text was the latest row, though the agent went on thinking or writing a tool's
