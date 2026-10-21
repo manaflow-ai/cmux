@@ -294,6 +294,10 @@ async fn the_app_pane_reply_in_place_is_checked_and_signed_and_never_prompted() 
     acp_from["sessionId"] = json!(format!("acp:{replier}"));
     let mut no_text = app_reply(&replier, &sender);
     no_text["text"] = json!(" \n");
+    let mut control = app_reply(&replier, &sender);
+    control["text"] = json!("Rebased.\r\nShip it.");
+    let mut too_long = app_reply(&replier, &sender);
+    too_long["text"] = json!("x".repeat(32 * 1024 + 1));
     let bystander = local.new_session(json!({"harness": "fake"})).await;
     let refused = [
         ("reply.refused", unknown_message),
@@ -303,6 +307,8 @@ async fn the_app_pane_reply_in_place_is_checked_and_signed_and_never_prompted() 
         ("reply.refused", app_reply(&replier, &replier)),
         ("reply.refused", app_reply(&replier, &bystander)),
         ("reply.text_required", no_text),
+        ("reply.text_required", control),
+        ("reply.text_required", too_long),
     ];
     for (reason, bad) in refused {
         let value = app.reply("_acpmux/app_reply", bad.clone()).await;
