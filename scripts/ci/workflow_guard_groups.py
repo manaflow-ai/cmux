@@ -99,6 +99,9 @@ PATH_OWNERS = {
     "scripts/ci/build_graph_health.py": frozenset(("preflight",)),
     "scripts/ci/compile-app-host-test-product.sh": frozenset(("preflight",)),
     "scripts/ci/find_admitted_build.py": frozenset(("preflight",)),
+    # test_pr_capture_check.py runs the check, which imports the path map.
+    "scripts/ci/pr_capture_check.py": frozenset(("ci",)),
+    "scripts/cmux-next/media/path_map.py": frozenset(("ci",)),
     # test_ci_package_bisect.py loads it by path.
     "scripts/ci/package_bisect.py": frozenset(("ci",)),
     # test_ci_merge_receipt.py loads it by path and also reads its workflow

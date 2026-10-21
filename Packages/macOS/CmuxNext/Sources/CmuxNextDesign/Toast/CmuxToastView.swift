@@ -32,6 +32,9 @@ public final class CmuxToastView: NSView {
         setAccessibilityRole(.group)
         setAccessibilityLabel(toast.message)
         setAccessibilityIdentifier("cmux.toast.\(toast.id)")
+        // Stable names for agents and UI tests (AccessibilityAudit wants one on every button).
+        actionButton?.setAccessibilityIdentifier("cmux.toast.\(toast.id).action")
+        closeButton.setAccessibilityIdentifier("cmux.toast.\(toast.id).close")
         pointerHover = PointerHover(self) { [weak self] hovering in self?.onHover?(hovering) }
     }
 
@@ -60,6 +63,11 @@ public final class CmuxToastView: NSView {
         if let action = toast.action {
             let button = CmuxToastButton(style: .action, title: action.title, target: self, action: #selector(runAction))
             actionButton = button
+            // Cmd-Z runs an Undo while the toast shows (`CmuxToast.Action.isUndo`): its tooltip says so.
+            if action.isUndo {
+                button.themedToolTip = action.title
+                button.themedToolTipShortcut = CmuxToastStrings.undoShortcut
+            }
             row.addArrangedSubview(button)
             row.setCustomSpacing(Metrics.space5, after: label)
         }

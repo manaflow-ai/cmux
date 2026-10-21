@@ -42,9 +42,9 @@ extension SidebarViewComponents {
             region.appView = { [weak self] section in section.contribution.flatMap { self?.appSections?.makeView(for: $0) } }
         }
         SidebarPinDrops.install(self)
-        // The footer row (the profile control and the spaces dots) takes no
-        // drag and drop for now (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 3).
-        // The band below keeps the same rule it had while it held the footer.
+        // The footer row's items (the profile control) do not drag; its space
+        // dots reorder by their own drag, dropped on the footer band
+        // (`ProfileBarView+DotDrag`). The band below keeps the rule it had while it held the footer.
         footerRegion.allowsDrag = false
         footerRegion.emptySpaceTarget = .footer
         belowRegion.allowsDrag = false
