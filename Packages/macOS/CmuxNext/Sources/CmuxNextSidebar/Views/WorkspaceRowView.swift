@@ -3,6 +3,7 @@ import Observation
 import CmuxAgentBrands
 import CmuxNextDesign
 import CmuxNextIcons
+import CmuxNextWakeups
 import QuartzCore
 
 final class WorkspaceRowView: SidebarRowView {
@@ -13,6 +14,10 @@ final class WorkspaceRowView: SidebarRowView {
     let subtitle = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     /// Expanded rows (`sidebar.density`, cx-13w3; WorkspaceRowView+Expanded): the age and the meta line.
     let timeLabel = SidebarRowView.label(font: SidebarStyle.subtitleFont), metaLabel = SidebarRowView.label(font: SidebarStyle.subtitleFont)
+    /// How long the agent has worked ("4m"), beside the working dot when the name has room (WorkspaceRowView+Elapsed).
+    let elapsedLabel = SidebarRowView.label(font: SidebarStyle.subtitleFont)
+    var workingSince: Date?
+    let elapsedTicker = DemandTimer(owner: "sidebar.row.elapsed")
     let activity = StatusIndicatorView()
     /// The running agent's brand mark (`SidebarAgentMarkVariant`); hidden when off.
     internal let agentMark = DecorativeImageView() // the row's label says the agent's state
@@ -113,7 +118,7 @@ final class WorkspaceRowView: SidebarRowView {
         agentMark.isHidden = true
         mutedMark.imageScaling = .scaleProportionallyDown
         mutedMark.isHidden = true
-        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, audioButton, badge, rowBadge, presenceDots, closeButton, moreButton, pinButton, disclosureButton, tabCount, prBadge, placeholderBar, statusBlock]
+        [icon, title, subtitle, timeLabel, metaLabel, elapsedLabel, activity, agentMark, mutedMark, audioButton, badge, rowBadge, presenceDots, closeButton, moreButton, pinButton, disclosureButton, tabCount, prBadge, placeholderBar, statusBlock]
             .forEach(addSubview)
         disclosureButton.isHidden = true
         tabCount.isHidden = true
@@ -247,6 +252,7 @@ final class WorkspaceRowView: SidebarRowView {
         hasSubtitle = row.detail != nil
         (isExpanded, timeText) = (shown.expanded, shown.trailingText)
         timeLabel.setString(shown.trailingText ?? "")
+        workingSince = shown.workingSince
         metaLabel.setString(shown.meta ?? "")
         activity.configure(badgesLead ? .idle : shown.activity, style: badgesLead ? nil : ws.activityStyle)
         activityState = shown.activity
