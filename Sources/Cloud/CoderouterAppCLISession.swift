@@ -36,7 +36,8 @@ extension AuthCoordinator: CoderouterAppSessionAuth {}
 
 /// The production provider: the same native session the routed-agent handoff
 /// (`CodeRouterHandoffClient`) sends to CodeRouter. The app resolves a fresh
-/// access token itself, so the CLI never refreshes the app's session.
+/// access token itself, so a read never needs the CLI to refresh it; only an
+/// Add Account flow that outlives the token refreshes inside its private copy.
 struct CoderouterAppCredentialSource: CoderouterAppCredentialProviding {
     let auth: any CoderouterAppSessionAuth
 
@@ -49,7 +50,7 @@ struct CoderouterAppCredentialSource: CoderouterAppCredentialProviding {
             let tokens = try await auth.coherentTokenPair()
             // The pair must belong to the account captured above.
             guard await auth.isAuthenticatedSessionCurrent(snapshot) else {
-                throw CoderouterCLIFailure.unavailable
+                throw CoderouterCLIFailure.sessionChanging
             }
             return CoderouterAppCredentials(
                 accountID: snapshot.accountID,
@@ -116,12 +117,32 @@ enum CoderouterAppCLISession {
     /// use only the session above; the routed agent commands that would spend
     /// a route token never run from this configuration.
     static let routeTokenPlaceholder = "cmux-app-session"
-    /// A session directory outlives its command only when an interactive Add
-    /// Account terminal is killed before its cleanup trap runs.
-    static let staleSessionAge: TimeInterval = 24 * 60 * 60
+    /// Where reads and removals keep their per-command configuration. They
+    /// finish within a CLI timeout, so anything older was left by a crash.
+    static let readSession = SessionKind(directoryName: "reads", staleAge: 10 * 60)
+    /// Where New Account terminals keep theirs. The interactive sign-in can
+    /// take a while; one older than a day was killed before its cleanup trap.
+    static let addSession = SessionKind(directoryName: "adds", staleAge: 24 * 60 * 60)
 
-    static var defaultRoot: URL {
+    struct SessionKind: Sendable {
+        let directoryName: String
+        let staleAge: TimeInterval
+
+        func root(in base: URL = CoderouterAppCLISession.baseDirectory) -> URL {
+            base.appendingPathComponent(directoryName, isDirectory: true)
+        }
+    }
+
+    static var baseDirectory: URL {
         FileManager.default.temporaryDirectory.appendingPathComponent("cmux-coderouter-sessions", isDirectory: true)
+    }
+
+    /// Removes configurations a crash or a killed terminal left behind. Runs
+    /// at launch and before each new session.
+    static func sweepAllStaleSessions(base: URL = baseDirectory, now: Date = Date()) {
+        for kind in [readSession, addSession] {
+            sweepStaleSessions(root: kind.root(in: base), olderThan: kind.staleAge, now: now)
+        }
     }
 
     /// Runs `body` with a CLI runner bound to the app's session for `teamID`.
@@ -134,7 +155,7 @@ enum CoderouterAppCLISession {
         executable: String?,
         endpoints: CoderouterCLIEndpoints = .current,
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        root: URL = defaultRoot,
+        root: URL = readSession.root(),
         body: (Run) async throws -> T
     ) async throws -> T {
         guard let executable else { throw CoderouterCLIFailure.notInstalled }
@@ -145,7 +166,8 @@ enum CoderouterAppCLISession {
             teamID: teamID,
             teamName: teamName,
             endpoints: endpoints,
-            root: root
+            root: root,
+            staleAge: readSession.staleAge
         )
         defer { try? FileManager.default.removeItem(at: directory) }
         let commandEnvironment = isolatedEnvironment(environment, dataDirectory: directory)
@@ -183,7 +205,8 @@ enum CoderouterAppCLISession {
         teamID: String,
         teamName: String?,
         endpoints: CoderouterCLIEndpoints,
-        root: URL = defaultRoot,
+        root: URL,
+        staleAge: TimeInterval,
         now: Date = Date()
     ) throws -> URL {
         let fileManager = FileManager.default
@@ -194,7 +217,7 @@ enum CoderouterAppCLISession {
             throw CoderouterCLIFailure.unavailable
         }
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: root.path)
-        sweepStaleSessions(root: root, now: now)
+        sweepStaleSessions(root: root, olderThan: staleAge, now: now)
         let directory = root.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
         do {
@@ -244,8 +267,8 @@ enum CoderouterAppCLISession {
         ]
     }
 
-    /// Removes session directories left by an interrupted Add Account terminal.
-    static func sweepStaleSessions(root: URL, now: Date = Date()) {
+    /// Removes session directories under `root` last modified before `staleAge`.
+    static func sweepStaleSessions(root: URL, olderThan staleAge: TimeInterval, now: Date = Date()) {
         let fileManager = FileManager.default
         guard let entries = try? fileManager.contentsOfDirectory(
             at: root,
