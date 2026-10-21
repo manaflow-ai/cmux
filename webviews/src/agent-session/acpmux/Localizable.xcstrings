@@ -203814,7 +203814,7 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Slanje za {to}"
+            "value": "Šalje se {to}"
           }
         },
         "da": {
@@ -203946,7 +203946,7 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Poslano za {to}"
+            "value": "Poslano {to}"
           }
         },
         "da": {

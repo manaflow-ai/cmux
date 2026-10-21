@@ -47,9 +47,8 @@ const sends = () =>
 const both = () =>
   chat([
     user("Split the grid fix into its own chat and report back", 9),
+    // No turn summary after the send: a finished turn folds its rows under Worked for.
     activity([sendMessage("grid-fix", "Fix the image grid's jump on load; report back here when tests pass.")], 8.8),
-    assistant("Started Grid fix; it will message this chat when done.", 8.5),
-    summary(8.5, { status: "completed" }),
     user("The grid fix is on cmux/grid-fix; tests pass.", 6, {
       incoming: {
         kind: "message",
