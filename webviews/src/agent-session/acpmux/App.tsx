@@ -50,7 +50,7 @@ import { newTabChipSnapshot } from "./newtab/chipDefaults";
 import { HarnessesScreen } from "./harnesses/HarnessesScreen";
 import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./harnesses/harnessesPage";
 import { injectedNewTabContext, useEarlyNewTabContext, useNewTabAdoption, useNewTabPlaces } from "./newtab/adoption";
-import { publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
+import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import { heldPick, withDraftFolder } from "./newtab/draftFolder";
 import { rememberRecentFolders } from "./newtab/recentProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
@@ -151,7 +151,7 @@ import { loadEditDiffHunks } from "./conversation/EditDiff";
 import { PlanList } from "./conversation/PlanList";
 import { ActivityLine } from "./conversation/ActivityLine";
 import { BackgroundTaskNote } from "./conversation/BackgroundTaskNote";
-import { IncomingMessageCard, IncomingNotice } from "./conversation/IncomingMessageCard";
+import { IncomingMessageLine, IncomingNotice } from "./conversation/IncomingMessageCard";
 import { CompactionNote, FailoverNote } from "./conversation/CompactionNote";
 import { AgentPairNote } from "./conversation/AgentPairNote";
 import { SessionStartNote } from "./conversation/SessionStartNote";
@@ -291,7 +291,7 @@ import { chiefDock } from "./chiefDock.experiment";
 import { contextAttachment, floatingStatus, type QuickFloating } from "./FloatingChat";
 import { designSelectionChips, designSelectionRemovals } from "./designSelection";
 import { setFloatingState, useFloatingState } from "./floatingState";
-import { FailedPrompt } from "./FailedPrompt";
+import { DeliveryFailure } from "./conversation/PromptDelivery";
 import { ReplayScreen } from "./replay/ReplayScreen";
 import { sessionReplay } from "./replay/replay.experiment";
 import { SideQuestion, type SideQuestionState } from "./aside/SideQuestion";
@@ -370,7 +370,7 @@ declare global {
       /// Claude Code desktop's in-session status (the live plan card, the recap card) on or off: the
       /// Debug Settings toggle `agent.sessionStatus`, off by default (sessionStatus.ts).
       applySessionStatus?(on: boolean): void;
-      /// Suggested tasks on or off (the Debug toggle `agent.suggestedTasks`, DEV and NIGHTLY, off by
+      /// Suggested tasks on or off (the Debug toggle `agent.suggestedTasks`, DEV and NIGHTLY, on by
       /// default): an agent's offers draw as the suggested tasks card (offer/offersShown.ts).
       applySuggestedTasks?(on: boolean): void;
       applyHeaderState?(state: unknown): void;
@@ -467,6 +467,12 @@ function refusedMachine(error: unknown): string | undefined {
   const details = (error as { details?: unknown } | null)?.details;
   const name = details && typeof details === "object" ? (details as { machineName?: unknown }).machineName : undefined;
   return typeof name === "string" && name ? name : undefined;
+}
+
+/// The failed prompt row a refused send left (direct.ts `send`), when it left one.
+function failedRowOf(error: unknown): string | undefined {
+  const row = (error as { failedRow?: unknown } | null)?.failedRow;
+  return typeof row === "string" ? row : undefined;
 }
 
 function callNative<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
@@ -625,15 +631,14 @@ const MessageRow = memo(
     const t = useT();
     // A started task's result, which acpmux sent as a prompt: one line, never the person's bubble.
     if (row.kind === "user" && row.received) return <ReceivedResult result={row.received} onOpen={openOfferChat} />;
-    // Another agent's message as a card from it; a task notification as one quiet line
+    // Another agent's message as one "Received message from" line; a task notification as one quiet line
     // (conversation/incomingMessage.ts).
-    // Its images and a steer's read state show with it, as under a bubble.
+    // Its images show with it; a steer's read state does not: the message is the agent's to read.
     if (row.kind === "user" && row.incoming?.kind === "notice") return <IncomingNotice text={row.incoming.text} />;
     if (row.kind === "user" && row.incoming?.kind === "message")
       return (
         <div className="cv-incoming">
-          <IncomingMessageCard message={row.incoming.message} images={row.images} onOpen={openOfferChat} />
-          {row.steer && <SteerMark steer={row.steer} />}
+          <IncomingMessageLine id={row.id} message={row.incoming.message} images={row.images} onOpen={openOfferChat} />
         </div>
       );
     if (row.kind === "user" && row.incoming?.kind === "hidden") return null;
@@ -654,7 +659,7 @@ const MessageRow = memo(
           ) : (
             <UserBubble row={row} text={row.text ?? ""} />
           )}
-          <FailedPrompt row={row} />
+          <DeliveryFailure row={row} />
           {row.steer && <SteerMark steer={row.steer} />}
           {row.status && (
             <div className="cv-user__status">
@@ -1448,6 +1453,7 @@ export function VirtualTranscript({
   expanded,
   registry = defaultRegistry,
   canLoadOlder = false,
+  historyFrom,
   githubRepository,
   find,
   reveal,
@@ -1484,6 +1490,8 @@ export function VirtualTranscript({
   expanded: Set<string>;
   registry?: NativeRegistry;
   canLoadOlder?: boolean;
+  /// The oldest event seq held (AcpmuxSnapshot.historyFrom): a read that drew no row still moves it.
+  historyFrom?: number;
   /// Pages older history in (canLoadOlder): asked once per loaded page while the view is near the top.
   onLoadOlder?: () => Promise<void>;
   githubRepository?: string;
@@ -2525,7 +2533,8 @@ export function VirtualTranscript({
   // Older history pages in before the reader reaches it: whenever the view is within two viewports
   // of the first loaded row, including a tail too short to fill them. The anchoring above keeps the
   // reader's row in place as each page lands.
-  const olderLoadKey = `${sessionKey}\u0000${rows[0]?.id ?? ""}`;
+  // A read that drew no row above the first (records that draw nothing) moves historyFrom: ask again.
+  const olderLoadKey = `${sessionKey}\u0000${rows[0]?.id ?? ""}\u0000${historyFrom ?? ""}`;
   const olderLoadRequested = useRef<string | undefined>(undefined);
   useEffect(() => {
     const node = ref.current;
@@ -3913,7 +3922,7 @@ function AcpmuxPane() {
   const showAllChats = () => void callNative("action.run", { id: "agentPane.searchChats" }).catch(() => undefined);
   const [shortcuts, setShortcuts] = useState<ShortcutLabels>({});
   const [preview, setPreview] = useState(false);
-  // SSH… opens Connect to Machine; cmux Cloud… opens New Cloud Machine (Lawrence 2026-10-06).
+  // SSH… opens Connect to Machine; New Cloud Machine opens the host's create flow (Lawrence 2026-10-06).
   const connectMachine = (kind: "ssh" | "cloud") =>
     void callNative("action.run", { id: kind === "ssh" ? "remote.connect" : "newCloudMachine" }).catch(() => undefined);
   /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.
@@ -4503,6 +4512,11 @@ function AcpmuxPane() {
       postNative<{ ticket?: string }>("transport.gesture", { intent }).then((reply) => reply?.ticket),
     );
     holdPrompt.current = () => void heldPrompt.hold();
+    /// The gesture a failed prompt row kept for its Trust re-send, apart from `heldPrompt`, which
+    /// the next ordinary send takes: a prompt typed before Trust never goes under the row's id.
+    const heldRowPrompt = heldPrompts((intent) =>
+      postNative<{ ticket?: string }>("transport.gesture", { intent }).then((reply) => reply?.ticket),
+    );
     const restorePrompt = (text: string, attachments: ComposerAttachment[]) => {
       if (composerHandle.current) composerHandle.current.restore(text, attachments);
       else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
@@ -4627,6 +4641,7 @@ function AcpmuxPane() {
         const mock = host.transport === "mock";
         // Links copy in this build's scheme; only the hostless mock page falls back to Release's.
         setLinkScheme(host.linkScheme, mock ? FALLBACK_LINK_SCHEME : undefined);
+        if (mock) markMockPage();
         if (mock)
           setCheckpointVariant(
             new URLSearchParams(window.location.search).get("checkpointVariant") === "expanded"
@@ -4758,11 +4773,19 @@ function AcpmuxPane() {
           // the prompt the composer kept. `inComposer`: the composer still holds the prompt (or got it back); else it goes back.
           const refused = (error: unknown, inComposer: boolean): never => {
             if (isTrustRefusal(error)) {
+              // A prompt kept as its own failed row: Trust sends that row again (with the gesture its
+              // send kept, under its own prompt id), never what the composer holds by then.
+              const row = failedRowOf(error);
               // The send's own gesture is kept for this prompt now, before the Trust click, whose
               // gesture goes to the trust answer (heldPrompt.ts).
-              void heldPrompt.hold();
-              if (!inComposer) restorePrompt(text, attachments);
-              trustRefused.current?.(error, () => composerHandle.current?.send());
+              if (row) {
+                void heldRowPrompt.hold(client.promptDelivery(row)?.promptId);
+                trustRefused.current?.(error, () => void client.retryPrompt(row, heldRowPrompt.take()?.ticket));
+              } else {
+                void heldPrompt.hold();
+                if (!inComposer) restorePrompt(text, attachments);
+                trustRefused.current?.(error, () => composerHandle.current?.send());
+              }
             }
             throw error;
           };
@@ -4919,6 +4942,13 @@ function AcpmuxPane() {
             ),
           "chat.harness.cancelPrompt": async ({ promptId }) => harnessSwitch.cancelQueued(String(promptId)),
           "chat.retryPrompt": ({ rowId }) => client.retryPrompt(String(rowId)),
+          // Edit on a prompt that did not get there: its row goes and the prompt comes back to the
+          // composer, ahead of what is typed there now.
+          "chat.editFailedPrompt": async ({ rowId }) => {
+            const failed = client.takeFailedPrompt(String(rowId));
+            if (failed) composerHandle.current?.restore(failed.input, failed.attachments);
+          },
+          "chat.removeFailedPrompt": async ({ rowId }) => client.removeFailedPrompt(String(rowId)),
           // Retry with another model (cx-ncc.62): the chat moves to the model as the picker moves it,
           // then the prompt goes again with its attachments. A refused move sends nothing (its notice
           // says why), so the retry never runs on the old model.
@@ -5777,6 +5807,7 @@ function AcpmuxPane() {
                                           childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId
                                         }
                                         canLoadOlder={!childRows && snapshot.canLoadOlder}
+                                        historyFrom={childRows ? undefined : snapshot.historyFrom}
                                         onLoadOlder={() => directClient.current?.loadOlder() ?? Promise.resolve()}
                                         openAt={
                                           !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
@@ -6172,8 +6203,26 @@ function AcpmuxPane() {
             // Shell mode's chips carry their commands' output as it is now.
             const attachments = shellContextAttachments(chips ?? [], (id) => shellRuns.get(id));
             if (!snapshot.sessionId) claimShellRuns.current = true;
-            // The composer keeps the prompt until acpmux takes it: a refusal (folder trust, the
-            // remote guard, the sandbox) leaves it there to send again.
+            // A started chat never holds the prompt (plans/cmux-next/composer-delivery-DESIGN.md):
+            // it leaves the composer at once and shows as its own row, which says how far it got,
+            // and a refusal stays on that row with Retry, Edit and Remove. One refused before any
+            // row showed (the chat could not take prompts) comes back to the composer.
+            if (snapshot.sessionId && surfaceRef.current !== "quick" && !projectDraft) {
+              const holder = composerHandle.current;
+              callNative("chat.send", { text, attachments, steer }).then(
+                () => promptLanded.current(),
+                (error: unknown) => {
+                  cancelOpenInWindow();
+                  if (failedRowOf(error) || isTrustRefusal(error)) return;
+                  // A prompt a harness switch handed back (harnessSwitch.ts) is in the composer already.
+                  if ((error as { handedBack?: unknown } | null)?.handedBack === true) return;
+                  (composerHandle.current ?? holder)?.restore(text, attachments);
+                },
+              );
+              return true;
+            }
+            // A new chat's composer keeps the prompt until acpmux takes it: a refusal (folder
+            // trust, the remote guard, the sandbox) leaves it there to send again.
             let accept: (taken: true) => void = () => undefined;
             const taken = new Promise<true>((resolve) => (accept = resolve));
             const send = async () => {
