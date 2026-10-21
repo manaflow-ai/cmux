@@ -52,6 +52,7 @@ public final class WebUpdates {
         }
         let updater = WebUpdater(store: store, app: app)
         updater.onReady = { [weak self] tree in self?.ready(tree) }
+        updater.served = { WebBundleOverlay.shared.activeTree }
         self.updater = updater
         if WebBundleServedViews.shared.isEmpty {
             overlay.load { await updater.launchTree() }
@@ -108,6 +109,8 @@ public final class WebUpdates {
         guard let tree = pending else { return 0 }
         pending = nil
         guard WebBundleOverlay.shared.activate(tree) else { return 0 }
+        // task-owner: one prune of the trees nothing serves now; it ends by itself
+        if let updater { Task { await updater.pruneUnused() } }
         return WebBundleServedViews.shared.reloadServed()
     }
 

@@ -139,13 +139,18 @@ def verified_payload(path, keys, channel=None):
         data = os.path.join(tmp, "payload")
         open(data, "wb").write(payload)
         for signature in signatures if isinstance(signatures, list) else []:
-            raw = keys.get(signature.get("key_id"))
+            raw = keys.get(signature.get("key_id")) if isinstance(signature, dict) else None
             if raw is None:
+                continue
+            try:
+                sig_bytes = base64.b64decode(signature.get("sig", ""), validate=True)
+            except ValueError:
+                # A malformed signature covers nothing (binascii.Error is a ValueError).
                 continue
             pub = os.path.join(tmp, "pub.der")
             sig = os.path.join(tmp, "sig")
             open(pub, "wb").write(ED25519_SPKI_PREFIX + raw)
-            open(sig, "wb").write(base64.b64decode(signature.get("sig", "")))
+            open(sig, "wb").write(sig_bytes)
             ok, _ = openssl("pkeyutl", "-verify", "-pubin", "-keyform", "DER", "-inkey", pub, "-rawin",
                             "-in", data, "-sigfile", sig)
             if ok:

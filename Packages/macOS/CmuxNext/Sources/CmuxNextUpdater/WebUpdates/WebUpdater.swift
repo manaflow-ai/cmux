@@ -55,6 +55,9 @@ public final class WebUpdater {
     /// Whether downloads may use Low Data Mode and expensive links (`updates.meteredNetwork`).
     @ObservationIgnored public var allowsConstrained = false
     @ObservationIgnored public var allowsExpensive = true
+    /// The folder the app serves now; it is never pruned, even after a newer update or a roll
+    /// back, until the next safe point swaps it out (``pruneUnused()``).
+    @ObservationIgnored public var served: () -> URL? = { nil }
 
     let store: WebUpdateStore
     public let app: App
@@ -155,9 +158,12 @@ public final class WebUpdater {
         _ = await launchTree()
         let channel = channel
         lastCheck = Date()
-        // Each check books the next one, so a check started by hand pushes the schedule back.
+        // Each check books the next one, so a check started by hand pushes the schedule back; a
+        // channel changed during the check reads its own pointer at once.
         defer {
-            if channel != .off { nextCheck.schedule(after: interval) { @MainActor [weak self] in await self?.check() } }
+            if self.channel != .off {
+                nextCheck.schedule(after: self.channel == channel ? interval : .zero) { @MainActor [weak self] in await self?.check() }
+            }
         }
         do {
             guard let fresh = try await newPointer() else {
@@ -183,10 +189,18 @@ public final class WebUpdater {
                 throw WebUpdateRefusal.transfer(error.localizedDescription)
             }
             defer { try? FileManager.default.removeItem(at: file) }
-            let tree = try await store.install(archive: file, pointer: pointer)
+            let tree: URL
+            do {
+                tree = try await store.install(archive: file, pointer: pointer)
+            } catch {
+                // An archive that does not match its signed pointer stays wrong: not again until
+                // the pointer changes.
+                if let refusal = error as? WebUpdateRefusal, case .integrity = refusal { etag = tag }
+                throw error
+            }
             guard self.channel == channel else {
                 // The channel changed during the download: drop the tree.
-                try? await Self.save(state, store: store)
+                try? await Self.save(state, store: store, served: served())
                 phase = .idle
                 return
             }
@@ -194,7 +208,7 @@ public final class WebUpdater {
             next.previous = state.active
             next.active = pointer
             next.floor = max(next.floor, pointer.committedAt)
-            try await Self.save(next, store: store)
+            try await Self.save(next, store: store, served: served())
             state = next
             etag = tag
             lastRefusal = nil
@@ -255,14 +269,24 @@ public final class WebUpdater {
         next.active = pointer
         next.previous = nil
         if refusingActive, let active = state.active { next.floor = max(next.floor, active.committedAt) }
-        try await Self.save(next, store: store)
+        try await Self.save(next, store: store, served: served())
         state = next
         onReady(pointer.map { store.tree(for: $0.key).root })
     }
 
-    @concurrent nonisolated static func save(_ state: WebUpdateState, store: WebUpdateStore) async throws {
+    @concurrent nonisolated static func save(_ state: WebUpdateState, store: WebUpdateStore, served: URL? = nil) async throws {
         try store.write(state)
-        store.prune(keeping: state.keptKeys)
+        store.prune(keeping: state.keptKeys.union([served?.lastPathComponent].compactMap { $0 }))
+    }
+
+    /// Removes the kept trees nothing serves or may serve; the app calls it after a safe point.
+    public func pruneUnused() async {
+        let store = store, keys = state.keptKeys.union([served()?.lastPathComponent].compactMap { $0 })
+        await Self.prune(store, keeping: keys)
+    }
+
+    @concurrent nonisolated static func prune(_ store: WebUpdateStore, keeping keys: Set<String>) async {
+        store.prune(keeping: keys)
     }
 
     static func isAppTooOld(_ refusal: WebUpdateRefusal) -> Bool {

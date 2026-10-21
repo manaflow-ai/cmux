@@ -184,6 +184,34 @@ import Testing
         #expect(ready.last == .some(nil))
     }
 
+    @Test func theServedTreeIsKeptUntilTheSafePointSwapsItOut() async throws {
+        let root = try WebUpdateStoreTests.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (archive, first) = try await WebUpdateStoreTests.makeArchive(in: root)
+        var second = first
+        second.key = String(repeating: "e", count: 64)
+        second.committedAt = first.committedAt + 100
+        let server = Server()
+        server.archive = archive
+        let store = WebUpdateStore(base: root.appending(path: "store", directoryHint: .isDirectory))
+        let updater = Self.updater(server, store: store)
+        server.pointer = try Self.pointerData(first)
+        await updater.check()
+        server.pointer = try Self.pointerData(second)
+        server.etag = "\"2\""
+        await updater.check()
+        // Pages still load the second update's files when it is rolled back.
+        var served: URL? = store.tree(for: second.key).root
+        updater.served = { served }
+        try await updater.rollBack()
+        #expect(FileManager.default.fileExists(atPath: store.tree(for: second.key).root.path))
+        // The safe point swapped the first one in: now the second goes.
+        served = store.tree(for: first.key).root
+        await updater.pruneUnused()
+        #expect(!FileManager.default.fileExists(atPath: store.tree(for: second.key).root.path))
+        #expect(FileManager.default.fileExists(atPath: store.tree(for: first.key).root.path))
+    }
+
     @Test func aPointerSignedByAnotherKeyFailsTheCheck() async throws {
         let root = try WebUpdateStoreTests.scratch()
         defer { try? FileManager.default.removeItem(at: root) }

@@ -82,6 +82,12 @@ rc=0; python3 "$PTR" newer --pointer "$TMP/tampered.json" --keys "$TMP/keys-a.js
 python3 "$PTR" newer --pointer "$TMP/ptr1.json" --keys "$TMP/keys-a.json" --current "$TMP/tampered.json" 2>/dev/null \
   || fail "an unverifiable published pointer was kept"
 
+# A published pointer with a malformed signature is replaced, not an error.
+python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); d["signatures"][0]["sig"]="not base64!"; json.dump(d, open(sys.argv[2],"w"))' \
+  "$TMP/ptr1.json" "$TMP/badsig.json"
+python3 "$PTR" newer --pointer "$TMP/ptr2.json" --keys "$TMP/keys-a.json" --current "$TMP/badsig.json" 2>/dev/null \
+  || fail "a published pointer with a malformed signature was kept"
+
 # A manifest from before manifests carried outputs is skipped, not an error.
 python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); d["outputs"]=None; json.dump(d, open(sys.argv[2],"w"))' \
   "$TMP/manifest.json" "$TMP/manifest-old.json"

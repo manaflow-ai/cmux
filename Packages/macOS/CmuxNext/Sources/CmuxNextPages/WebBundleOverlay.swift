@@ -22,14 +22,14 @@ public nonisolated final class WebBundleOverlay: Sendable {
     /// Where this module's pages sit in the update layout (web-bundle-key.py OUTPUTS).
     public static let pagesOutput = "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages"
 
-    struct Base: Equatable {
+    nonisolated struct Base: Equatable {
         /// The bundled folder's real path.
         let bundled: String
         /// Its path inside an update.
         let output: String
     }
 
-    struct State {
+    nonisolated struct State {
         var tree: URL?
         var bases: [Base] = []
         /// The launch check of the kept update; requests wait for it.

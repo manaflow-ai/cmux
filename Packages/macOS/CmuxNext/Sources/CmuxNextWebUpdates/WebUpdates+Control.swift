@@ -1,11 +1,13 @@
 public import CmuxNextControl
 import CmuxNextPages
+import CmuxNextSettings
 import CmuxNextUpdater
 import Foundation
 
 // Web updates (plans/cmux-next/web-ota.md). `updates.web.status`: the channel, the update served
 // now and the one ready for the next safe point, the bundled web's abi, the last check.
-// `updates.web.check`: reads the channel's pointer now and answers with the status.
+// `updates.web.check`: reads the channel's pointer now and answers with the status (`pending`
+// while a download outlasts the control deadline).
 // `updates.web.rollback`: serves the update before the active one (the bundled web when none) at
 // the next safe point; the rolled-back update is not taken again. `updates.web.apply`: swaps a
 // ready update in now and reloads the pages (a draft being typed is not saved first).
@@ -15,11 +17,20 @@ extension WebUpdates {
         let web = self
         return [
             .mainActor("updates.web.status") { _ in .value(Self.json(web)) },
-            .mainActor("updates.web.check") { _ in
+            .mainActor("updates.web.check") { call in
                 guard let updater = web.updater else { return .value(Self.json(web)) }
+                // Answer inside the control deadline. A slower check (a download) keeps running:
+                // `pending: true`, then read `updates.web.status`.
+                // task-owner: one check; it ends by itself
+                let check = Task { await updater.check() }
+                let answerBy = call.deadline - .milliseconds(150)
                 return .followUp {
-                    await updater.check()
-                    return await MainActor.run { Self.json(web) }
+                    let done = (try? await ControlDeadline.shared.run(method: call.method, deadline: answerBy) { await check.value }) != nil
+                    return await MainActor.run {
+                        guard case .object(var fields) = Self.json(web) else { return .null }
+                        fields["pending"] = .bool(!done)
+                        return .object(fields)
+                    }
                 }
             },
             .mainActor("updates.web.rollback") { _ in

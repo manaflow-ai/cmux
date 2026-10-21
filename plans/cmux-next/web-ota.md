@@ -80,7 +80,7 @@ then reloads every page and agent pane the handlers served (`WebBundleServedView
 point is at once when no page shows, else after cmux has been in the background for three seconds,
 so nobody is typing. A reload keeps a composer draft: the composer writes every change to the
 pane origin's `localStorage` at once and to acpmux (`composerDraft.ts`), and reads it back on load.
-At launch, requests wait for the check of the kept tree, so the first page already gets it.
+Web updates start when the app first reads `updates.*`. From then until the check of the kept tree ends, requests wait for it. A page that loaded before that keeps the bundled web until the next safe point. A tree is pruned only once nothing serves it.
 
 ## Setting and controls
 
