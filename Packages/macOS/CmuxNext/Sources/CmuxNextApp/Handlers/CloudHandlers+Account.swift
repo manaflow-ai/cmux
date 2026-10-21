@@ -71,8 +71,8 @@ extension CloudHandlers {
             run("sign out", context) { await cloud.signOut() }
         }
         // Switch Active Team lists the teams as a Cmd-Shift-P step, the current one marked (its `team`
-        // argument); the shortcut and the Settings row open that step too. The switch goes through
-        // ActiveTeam, like every other surface.
+        // argument); the shortcut opens that step too. The switch goes through ActiveTeam, like
+        // every other surface (Settings > Accounts has its own team menu).
         bind("openTeamPicker", registry, reason: { cloud.isSignedIn ? nil : CloudStrings.signInFirst }) { invocation in
             let active = cloud.auth.activeTeam, teams = active.teams
             guard !teams.isEmpty else { throw ActionFailure(message: CloudStrings.noTeams) }
