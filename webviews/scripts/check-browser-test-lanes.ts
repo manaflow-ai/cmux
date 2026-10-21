@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
 import { fileURLToPath } from "node:url";
@@ -87,10 +87,87 @@ export function checkDevServerWarmSource(file: string, text: string): string[] {
   if (!inProcess && !spawned) return [];
   // A server no browser loads (dev-server-stop: starting and stopping it) has nothing to warm.
   if (!/from "playwright"/.test(text)) return [];
-  if (/\bwarm(?:Vite|Dev)Server\(/.test(text)) return [];
+  if (/\bwarm(?:Vite|Dev)Server\(|\bwarmGalleryFrame\(/.test(text)) return [];
   return [
-    `${path.relative(root, file)}: starts a Vite dev server without warming it; call ${inProcess ? "warmViteServer(vite, page)" : "warmDevServer(base, page)"} from ./support/warmDevServer once it listens`,
+    `${path.relative(root, file)}: starts a Vite dev server without warming it; call ${inProcess ? "warmViteServer(vite, page)" : "warmDevServer(base, page)"} from ./support/warmDevServer (or warmGalleryFrame from ./support/galleryFrame) once it listens`,
   ];
+}
+
+/**
+ * Browser tests that still open a frame for every entry, each with why; remove a line when its test
+ * moves to galleryFrame. Narrowed in batches by area; the files other lanes' open PRs change wait
+ * for those PRs.
+ */
+const EVERY_ENTRY_PENDING = new Map<string, string>([
+  // Agent pane, New Tab, menus and chips.
+  ["test/agent-pane-chat-width.test.ts", "narrowed in the agent-pane batch"],
+  ["test/agent-pane-column-edges.test.ts", "narrowed in the agent-pane batch"],
+  ["test/agent-pane-trust-ask-corner.test.ts", "narrowed in the agent-pane batch"],
+  ["test/chat-palette-actions.test.ts", "narrowed in the agent-pane batch"],
+  ["test/chief-context-copy.test.ts", "narrowed in the agent-pane batch"],
+  ["test/claude-reasoning-default.test.ts", "narrowed in the agent-pane batch"],
+  ["test/ghost-button-balance.test.ts", "narrowed in the agent-pane batch"],
+  ["test/menu-focus.test.ts", "narrowed in the agent-pane batch"],
+  ["test/menu-pointer-close-focus.test.ts", "narrowed in the agent-pane batch"],
+  ["test/model-picker-round-rail.test.ts", "narrowed in the agent-pane batch"],
+  ["test/narrow-layouts.test.ts", "narrowed in the agent-pane batch"],
+  ["test/new-chat-effort-chip.test.ts", "narrowed in the agent-pane batch"],
+  ["test/new-tab-add-project-layer.test.ts", "narrowed in the agent-pane batch"],
+  ["test/new-tab-list-motion.test.ts", "narrowed in the agent-pane batch"],
+  ["test/new-tab-now-playing-look.test.ts", "narrowed in the agent-pane batch"],
+  ["test/new-tab-scroll.test.ts", "narrowed in the agent-pane batch"],
+  ["test/popup-escape.test.ts", "narrowed in the agent-pane batch"],
+  ["test/popup-reduce-motion.test.ts", "narrowed in the agent-pane batch"],
+  ["test/reasoning-chip-steps.test.ts", "narrowed in the agent-pane batch"],
+  ["test/reasoning-menu-check.test.ts", "narrowed in the agent-pane batch"],
+  ["test/reasoning-own-control.test.ts", "narrowed in the agent-pane batch"],
+  ["test/retry-model-menu.test.ts", "narrowed in the agent-pane batch"],
+  // Files other lanes' open PRs change.
+  ["test/suggestion-lists-float.test.ts", "#22795 (directional-motion) changes this file"],
+  ["test/transcript-thought.test.ts", "#23084 (thought-rows) changes this file"],
+  // Transcript, changes, markdown and the rest.
+  ["test/changes-address-thread.test.ts", "narrowed in the transcript and markdown batch"],
+  ["test/changes-review-threads.test.ts", "narrowed in the transcript and markdown batch"],
+  ["test/changes-stage-hunk-keys.test.ts", "narrowed in the transcript and markdown batch"],
+  ["test/code-block-highlight-height.test.ts", "narrowed in the transcript and markdown batch"],
+  ["test/history-closed-rows.test.ts", "narrowed in the transcript and markdown batch"],
+  ["test/instructions-notice.test.ts", "narrowed in the transcript and markdown batch"],
+  ["test/markdown-table-obsidian.test.ts", "narrowed in the transcript and markdown batch"],
+  ["test/markdown-table-scroll-cases.test.ts", "narrowed in the transcript and markdown batch"],
+  ["test/markdown-wide-table-scroll.test.ts", "narrowed in the transcript and markdown batch"],
+  ["test/markdown-wide-width-layout.test.ts", "narrowed in the transcript and markdown batch"],
+  ["test/secret-card.test.ts", "narrowed in the transcript and markdown batch"],
+  ["test/session-hover-card-surface.test.ts", "narrowed in the transcript and markdown batch"],
+  ["test/sources-changes.test.ts", "narrowed in the transcript and markdown batch"],
+  ["test/status-glyphs.test.ts", "narrowed in the transcript and markdown batch"],
+  ["test/text-field-focus.test.ts", "narrowed in the transcript and markdown batch"],
+  ["test/turn-fork.test.ts", "narrowed in the transcript and markdown batch"],
+  ["test/worktree-creating.test.ts", "narrowed in the transcript and markdown batch"],
+]);
+
+/**
+ * A browser test opens a gallery frame for its own entry alone (test/support/galleryFrame.ts):
+ * `/gallery/frame.html` without `entryPath` loads every gallery entry first, about 2,300 modules a
+ * test file, and timed tests out on a busy CI runner (#23080). A test that needs the whole registry
+ * says why in a `// gallery-frame-every-entry: <reason>` comment.
+ */
+export function checkGalleryFrameSource(file: string, text: string): string[] {
+  if (!/^import\b[^;]*\bfrom "playwright";/m.test(text)) return [];
+  const name = path.relative(root, file);
+  const pending = EVERY_ENTRY_PENDING.has(name);
+  if (/^\s*\/\/ gallery-frame-every-entry: \S/m.test(text))
+    return pending ? [`${name}: says why it opens every entry; remove it from EVERY_ENTRY_PENDING`] : [];
+  const errors = text
+    .split("\n")
+    .flatMap((line, index) =>
+      /frame\.html/.test(line) && !/entryPath/.test(line)
+        ? [
+            `${name}:${index + 1}: opens a gallery frame without entryPath, so it loads every gallery entry; use galleryFrame(entry, params) and warmGalleryFrame(vite, entry) from ./support/galleryFrame, or say why it needs them all in a "// gallery-frame-every-entry: <reason>" comment`,
+          ]
+        : [],
+    );
+  if (!pending) return errors;
+  return errors.length ? [] : [`${name}: opens its frames narrowed now; remove it from EVERY_ENTRY_PENDING`];
 }
 
 if (import.meta.main) {
@@ -101,12 +178,18 @@ if (import.meta.main) {
       if (entry.isDirectory()) scan(file);
       else if (/[._](?:test|spec)\.[cm]?[jt]sx?$/.test(entry.name)) {
         const text = readFileSync(file, "utf8");
-        errors.push(...checkBrowserLaneSource(file, text), ...checkDevServerWarmSource(file, text));
+        errors.push(
+          ...checkBrowserLaneSource(file, text),
+          ...checkDevServerWarmSource(file, text),
+          ...checkGalleryFrameSource(file, text),
+        );
       }
     }
   }
   scan(path.join(root, "test"));
   scan(path.join(root, "src"));
+  for (const name of EVERY_ENTRY_PENDING.keys())
+    if (!existsSync(path.join(root, name))) errors.push(`${name}: is gone; remove it from EVERY_ENTRY_PENDING`);
   for (const error of errors) console.error(error);
   if (errors.length) process.exitCode = 1;
   else console.log("Browser test lane imports checked.");

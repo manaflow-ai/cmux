@@ -85,7 +85,9 @@ public nonisolated struct AcpmuxQuit {
     @concurrent public static func census(_ environment: AcpmuxEnvironment?, deadline: Duration = .seconds(1)) async -> AcpmuxSessionCensus? {
         guard let environment else { return AcpmuxSessionCensus() }
         let socket = environment.socketPath
-        guard FileManager.default.fileExists(atPath: socket) else { return await censusWithoutSocket(environment.home) }
+        let socketPresent = FileManager.default.fileExists(atPath: socket)
+        AcpmuxQuitProof.recordCensus(home: environment.home, socketPresent: socketPresent)
+        guard socketPresent else { return await censusWithoutSocket(environment.home) }
         do {
             let sessions = try await AcpmuxStatusClient.sessions(socketPath: socket, deadline: deadline).value
             AcpmuxQuitProof.knownChief.withLock { $0 = Set(AcpmuxSessionCensus.chiefSessionIDs(sessions)) }
@@ -133,7 +135,8 @@ public nonisolated struct AcpmuxQuit {
         guard let environment else { return .noDaemon }
         let socket = environment.socketPath
         guard FileManager.default.fileExists(atPath: socket) else {
-            return await withoutSocket(environment.home, waitForShutdown: waitForShutdown, within: within)
+            return await withoutSocket(environment.home, waitForShutdown: waitForShutdown, within: within,
+                                       socketWasSeenAtCensus: AcpmuxQuitProof.consumeCensusSocket(home: environment.home))
         }
         let status: AcpmuxStatus
         let chief: [String]
@@ -143,6 +146,9 @@ public nonisolated struct AcpmuxQuit {
             if keep == .chief { AcpmuxQuitProof.knownChief.withLock { $0 = Set(chief) } }
             try await AcpmuxStatusClient.shutdown(socketPath: socket, home: environment.home, endAgents: true, keepSessions: chief)
         } catch AcpmuxStatusClient.Failure.unreachable {
+            // A socket file nobody answers on (a crash leaves one): the locks
+            // decide, and a free lock is no daemon. The sighting is spent.
+            _ = AcpmuxQuitProof.consumeCensusSocket(home: environment.home)
             return await withoutSocket(environment.home, waitForShutdown: waitForShutdown, within: within)
         } catch {
             return .failed(String(describing: error))
@@ -157,13 +163,14 @@ public nonisolated struct AcpmuxQuit {
 
     /// No usable socket: the locks decide (`AcpmuxQuitProof`). A Retry
     /// waits (bounded) for a shutdown in progress before it decides.
-    @concurrent static func withoutSocket(_ home: URL, waitForShutdown: Bool, within: Duration) async -> EndResult {
+    @concurrent static func withoutSocket(_ home: URL, waitForShutdown: Bool, within: Duration,
+                                          socketWasSeenAtCensus: Bool = false) async -> EndResult {
         var exited = false
         if waitForShutdown, AcpmuxQuitProof.read(home: home).daemon != .free {
             exited = await AcpmuxQuitProof.waitForDaemonExit(home: home, within: within)
         }
         return AcpmuxQuitProof.decide(AcpmuxQuitProof.read(home: home), chief: AcpmuxQuitProof.knownChief.withLock { $0 },
-                                      daemonExited: exited)
+                                      daemonExited: exited, socketWasSeenAtCensus: socketWasSeenAtCensus)
     }
 
     /// The census without a usable socket: unknown (nil) while daemon.lock
