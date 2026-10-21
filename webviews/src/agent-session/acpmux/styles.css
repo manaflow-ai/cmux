@@ -239,7 +239,8 @@
 /* The clamp sits on the button's text: WebKit lays a button out as its own box and ignores -webkit-line-clamp on it. */
 .acpmux-queued-clamp{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}.acpmux-queued-text[data-open] .acpmux-queued-clamp{display:block;-webkit-line-clamp:none}
 /* Every row's actions show at the same strength, hovered or not (Leo 2026-10-20: the faint, uneven ↑). */
-.acpmux-queued-actions{grid-column:3;display:flex;align-items:center;gap:2px;margin-top:-4px}
+/* The 22px actions center on the text's first 18px line. */
+.acpmux-queued-actions{grid-column:3;display:flex;align-items:center;gap:2px;margin-top:-2px}
 .acpmux-queued-action{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;border:0;border-radius:6px;background:none;color:var(--acpmux-composer-dim);cursor:default}
 .acpmux-queued-action:hover{background:var(--agent-control-hover);color:var(--agent-text)}
 .acpmux-queued-action:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1px}
