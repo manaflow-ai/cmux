@@ -1142,7 +1142,10 @@ impl Brain {
                 session_id,
                 policy,
             } => self.sub_started(&id, session_id, policy),
-            Input::SubagentPrompted { id } => self.sub_prompted(&id),
+            Input::SubagentPrompted { id } => {
+                self.sub_prompted(&id);
+                self.stop_if_cancelled(&id);
+            }
             Input::SubagentWorkspace { id, key, name } => self.sub_workspace(&id, key, name),
             Input::SubagentFailed { id, error } => self.sub_failed(&id, &error),
             Input::SubagentAnswer { id, answer } => self.sub_answer(&id, &answer),
