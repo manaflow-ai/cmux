@@ -35,7 +35,7 @@ struct TornOffWorkspaceNameTests {
             enabled: { true }, isNewTabPage: { newTabPages.contains($0.id) }, livePage: { _ in nil },
             incognitoTitle: { _ in nil },
             terminal: { NewWorkspaceName.Tab(kind: .terminal, userName: $0.name, title: $0.title, pageTitle: nil, url: $0.url, cwd: $0.cwd) },
-            turns: turns)
+            turns: turns, hold: WorkspaceAutoNameHold())
     }
 
     static func workspace(_ name: String, title: String? = nil) throws -> WorkspaceModel {
