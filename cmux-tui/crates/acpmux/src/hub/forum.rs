@@ -376,6 +376,7 @@ impl Hub {
         blocks: &mut Vec<Value>,
     ) -> ForumTurn {
         let mut told: Vec<String> = pushed.into_iter().collect();
+        let first = blocks.iter().find_map(|b| b.get("text").and_then(Value::as_str));
         // A slash command's turn is the command: the rules wait for the next
         // prompt, all of them after one that empties the agent's context.
         if let Some(name) = slash_command(blocks) {
