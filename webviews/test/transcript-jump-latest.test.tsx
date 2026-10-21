@@ -177,8 +177,11 @@ test("a keyboard jump hands focus to the composer instead of losing it with the 
     expect(doc.activeElement).toBe(elsewhere);
 
     // Tab to the button and press Return or Space: it hides once there, so the composer takes focus.
+    // The reader wheels back up first (the jump's glide ends at their input).
+    scroller.dispatchEvent(new dom.window.Event("wheel"));
     scroller.scrollTop = 0;
     await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+    expect(button.dataset.shown).toBe("");
     button.focus();
     expect(doc.activeElement).toBe(button);
     await act(async () => button.click());

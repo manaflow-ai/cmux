@@ -93,6 +93,14 @@ async fn forward_inner(
         if super::trust_gate::gated(conn.origin, params) && !peer.supports_trust_gate() {
             return Err(super::trust_gate::peer_unsupported(&peer.name));
         }
+        // A dropped file crosses the link as one frame: checked here, and only to a peer that
+        // takes it (`hub/file_uploads.rs`).
+        if m == method::MUX_FILE_PUT {
+            crate::hub::file_uploads::check(params)?;
+            if !peer.supports_file_put() {
+                return Err(crate::hub::file_uploads::peer_unsupported(&peer));
+            }
+        }
         let mut p = if params.is_null() { json!({}) } else { params.clone() };
         if let Some(obj) = p.as_object_mut() {
             obj.remove("session");

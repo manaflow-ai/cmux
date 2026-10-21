@@ -158,7 +158,7 @@
   width: auto;
   margin-inline-start: auto;
   padding-inline-start: 20px;
-  color: var(--agent-accent, var(--agent-text));
+  color: var(--agent-lit-glyph, var(--agent-accent, var(--agent-text)));
   font-weight: 600;
 }
 .acpmux-quick-item .ui-menu-check:empty { display: none; }

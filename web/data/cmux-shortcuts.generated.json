@@ -7326,7 +7326,7 @@
         {
           "id": "toggleUnread",
           "title": {
-            "en": "Toggle Tab Unread",
+            "en": "Mark Tab Read/Unread",
             "ar": "تبديل غير المقروء",
             "bs": "Prebaci nepročitano",
             "da": "Skift ulæst",

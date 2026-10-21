@@ -16,7 +16,7 @@ import Observation
 @MainActor
 final class SettingsPageProvider: PageProvider {
     private let settings: SettingsController
-    /// Value domains the page offers in menus (`themes`, `font_families`, `sounds`).
+    /// Value domains the page offers in menus (`themes`, `font_families`, `sounds`, `recent_fonts`).
     private let domains: @MainActor () -> [String: [String]]
     /// Live lists Settings shows beside the schema rows (spaces, machines, browser profiles); nil
     /// in tests without an app.
@@ -32,6 +32,9 @@ final class SettingsPageProvider: PageProvider {
     /// nil in tests without an app.
     var harnessesState: (@MainActor () -> JSONValue)?
     var harnessesRun: (@MainActor (JSONValue, PageCallContext?) async throws -> JSONValue)?
+    /// Settings > Agents > Agent integrations (`SettingsAgentIntegrations`): the coding-agent
+    /// hooks `cmux agent hook` installs; nil in tests without an app.
+    var integrations: (any PageProvider)?
     /// The theme picker's write (level, spec or nil) and its spec check (R82 commit 4).
     var setTheme: (@MainActor (_ level: String, _ spec: String?) throws -> Void)?
     var acceptsTheme: (@MainActor (String) -> Bool)?
@@ -79,6 +82,12 @@ final class SettingsPageProvider: PageProvider {
         return .object(object)
     }
 
+    /// A host the App wires in (nil in tests without an app), or the page's `cmux.page.unavailable`.
+    private static func host<Host>(_ host: Host?, _ name: String) throws -> Host {
+        guard let host else { throw PageError(code: "cmux.page.unavailable", message: "no \(name)") }
+        return host
+    }
+
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         switch op {
         case "cmux.settings.list": return list(section: params["section"]?.stringValue)
@@ -101,27 +110,21 @@ final class SettingsPageProvider: PageProvider {
                 await self.settings.reload()
                 return SettingsSchema.all.filter { $0.storedValue(in: before) != $0.storedValue(in: self.settings.snapshot.root) }.map(\.id)
             }
-        case "cmux.settings.host.lists":
-            return try Self.available(hostLists, "no host lists")()
-        case "cmux.settings.accounts.state":
-            return try Self.available(accountsState, "no accounts")()
-        case "cmux.settings.accounts.run":
-            return try await Self.available(accountsRun, "no accounts")(params)
-        case "cmux.settings.agents.state":
-            return try Self.available(agents, "no agents").pageState
-        case "cmux.settings.agents.run":
-            return try await Self.available(agents, "no agents").runPage(params)
-        case "cmux.settings.harnesses.state":
-            return try Self.available(harnessesState, "no harnesses")()
-        case "cmux.settings.harnesses.run":
-            return try await Self.available(harnessesRun, "no harnesses")(params, context)
+        case "cmux.settings.host.lists": return try Self.host(hostLists, "host lists")()
+        case "cmux.settings.accounts.state": return try Self.host(accountsState, "accounts")()
+        case "cmux.settings.accounts.run": return try await Self.host(accountsRun, "accounts")(params)
+        case "cmux.settings.agents.state": return try Self.host(agents, "agents").pageState
+        case "cmux.settings.agents.run": return try await Self.host(agents, "agents").runPage(params)
+        case "cmux.settings.harnesses.state": return try Self.host(harnessesState, "harnesses")()
+        case "cmux.settings.harnesses.run": return try await Self.host(harnessesRun, "harnesses")(params, context)
+        case "cmux.settings.integrations.state", "cmux.settings.integrations.run":
+            return try await Self.host(integrations, "agent integrations").call(op, params: params, context: context)
         case "cmux.settings.theme.set":
             guard let setTheme else { throw PageError(code: "cmux.page.unavailable", message: "no theme host") }
             guard let level = params["level"]?.stringValue else { throw PageError.invalidParams("level is required") }
             do { try setTheme(level, params["spec"]?.stringValue) } catch { throw PageError.invalidParams("unknown theme level \(level)") }
             return .object([:])
-        case "cmux.settings.theme.colors":
-            return ["themes": .array(try Self.available(themeColors, "no theme colors")().map(Self.json))]
+        case "cmux.settings.theme.colors": return try ["themes": .array(Self.host(themeColors, "theme colors")().map(Self.json))]
         case "cmux.settings.theme.save", "cmux.settings.theme.import":
             return try await Self.available(themeFiles, "no theme files").call(op, params: params, edits: settings.applied.themeEdits, writer: Self.writer(context))
         case "cmux.settings.theme.accepts":

@@ -90,8 +90,7 @@ struct WorkspaceNothingToDoRefusalTests {
         }
     }
 
-    @Test(.disabled("blocked: the test app's sidebar never shows a new group (GroupHeaderNewWorkspaceTests.groupHeaderPlusMakesTheNewWorkspaceInThatGroup fails the same way)"))
-    func aWorkspaceAloneInItsGroupHasNoOtherToCloseOrStepTo() async throws {
+    @Test func aWorkspaceAloneInItsGroupHasNoOtherToCloseOrStepTo() async throws {
         try await Self.withGroupedApp { services, workspace, _ in
             let (menu, cli) = Self.outcome("workspace.closeOthersInGroup", Self.workspaceTarget(workspace.id), services)
             #expect(menu != nil, "Close Other Workspaces in Group on a one-member group is enabled and closes nothing")
