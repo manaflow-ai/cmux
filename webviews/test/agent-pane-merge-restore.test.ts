@@ -24,18 +24,19 @@ const styleRules = (css: string) => {
 const conversation = styleRules(read("conversation/conversation.css"));
 const rule = (selector: string) => conversation.find((r) => r.selectorText === selector);
 
-test("a sent image keeps its 72px slot while it loads (#21383)", () => {
+test("a sent image keeps its 120px slot while it loads (#21383)", () => {
   const slot = rule(".cv-user__image-placeholder");
-  expect(slot?.style.width).toBe("72px");
-  expect(slot?.style.height).toBe("72px");
+  expect(slot?.style.width).toBe("120px");
+  expect(slot?.style.height).toBe("120px");
 });
 
 test("a loaded reply image fades in instead of popping (#21383)", () => {
   expect(rule(".cv-img--enter")?.style.animation).toContain("cv-enter-fade");
 });
 
-test("Debug Settings can put the turn footer actions on the left (#21344)", () => {
-  expect(rule(':root[data-turn-actions-placement="left"] .cv-turn-actions')?.style.justifyContent).toBe("flex-start");
+test("the turn footer actions sit on the left, and Debug Settings can put them on the right (#21344)", () => {
+  expect(rule(".cv-turn-actions")?.style.justifyContent).toBe("flex-start");
+  expect(rule(':root[data-turn-actions-placement="right"] .cv-turn-actions')?.style.justifyContent).toBe("flex-end");
   expect(app).toContain("configureTurnActionsPlacement(theme.turnActionsPlacement)");
 });
 
